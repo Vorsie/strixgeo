@@ -19,9 +19,6 @@ Attack surfaces covered by this file
   at project B's CPT (valid formation_id, valid model) → dropped by the
   ``valid_inv_ids`` guard in ``_restore_geological_models`` (TB-FC-INV1 — FIX 1).
   Positive case: a contact with a same-bundle CPT still restores (TB-FC-INV2).
-* **Geotech unit** — ``geotechnical_units[].geological_formation_id`` pointing
-  at project B's formation → dropped by the ``valid_formation_ids`` guard in
-  ``_restore_geotech_units`` (TB-G1 — **security fix**, was missing).
 * **Surface** — ``surfaces[].formation_id`` pointing at project B's formation
   → dropped by the ``valid_formation_ids`` guard in ``_restore_geological_models``
   (TB-S1).
@@ -52,8 +49,6 @@ All guards are independent of the URL-project-id override (TB-2 / TB-5).
   the contacts loop inside ``_restore_geological_models``
 * TB-FC-INV1: comment out the ``valid_inv_ids`` guard on ``bh_id``/``cpt_id``
   in the contacts loop inside ``_restore_geological_models``
-* TB-G1: comment out the ``if fid not in valid_formation_ids:`` block in
-  ``bundle_restore_core.py::_restore_geotech_units``
 * TB-S1: comment out the surface-loop formation_id guard in
   ``bundle_restore_litho.py``
 * TB-BD1: comment out the model_id guard in
@@ -91,7 +86,6 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.geotechnical_unit_orm import GeotechnicalUnitOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -217,7 +211,6 @@ def _base_bundle(project_b_id: UUID) -> dict:
         "boreholes": [],
         "cross_sections": [],
         "investigation_reviews": [],
-        "geotechnical_units": [],
         "bodies": [],
         "formation_absences": [],
         "litho_contact_correlation_edges": [],
@@ -266,38 +259,6 @@ def _malicious_bundle(project_b_id: UUID, formation_b_id: UUID, model_id: UUID) 
             ],
             "surfaces": [],
             "litho_layers": [],
-        }
-    ]
-    return bundle
-
-
-def _geotech_unit_bundle(project_b_id: UUID, formation_b_id: UUID) -> dict:
-    """Bundle with a geotech unit referencing project B's formation (TB-G1).
-
-    The ``geological_formations`` list is empty — formation_b_id is NOT a
-    valid payload formation.  The unit's ``geological_formation_id`` points
-    at project B's formation directly.
-
-    Parameters
-    ----------
-    project_b_id : UUID
-        Project B's id (project-level IDOR probe).
-    formation_b_id : UUID
-        Project B's formation id — injected as the unit's FK target.
-
-    Returns
-    -------
-    dict
-        Bundle payload for ``json=`` in httpx.
-    """
-    bundle = _base_bundle(project_b_id)
-    bundle["geotechnical_units"] = [
-        {
-            "id": str(uuid7()),
-            "geological_formation_id": str(formation_b_id),
-            "name": "Injected Geotech Unit",
-            "color": "#aabbcc",
-            "display_order": 0,
         }
     ]
     return bundle
@@ -614,70 +575,6 @@ async def test_project_b_formation_untouched(
     )
     assert formation_b.name == "B-ZAND", (
         f"formation_b.name changed to {formation_b.name!r} — the restore mutated project B's data"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Tests — FIX 1: geotech unit cross-project FK (was unguarded before this fix)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_foreign_formation_geotech_unit_is_dropped(
-    db_session: AsyncSession,
-    idor_scene: dict,
-    async_client: AsyncClient,
-) -> None:
-    """TB-G1: a geotech unit whose geological_formation_id = project B's formation is dropped.
-
-    This is the FIX 1 regression test.  Before the fix, ``_restore_geotech_units``
-    delegated to ``_restore_flat_rows`` with no formation-scope guard — any unit
-    payload row was inserted regardless of which project owned the referenced
-    formation.  A bundle restored into project A carrying a unit with
-    ``geological_formation_id = formation_B.id`` was silently persisted (the DB FK
-    accepted it because formation_B exists).
-
-    The fix adds an explicit ``valid_formation_ids`` guard (mirroring the litho
-    restore guards) that drops any unit whose formation does NOT belong to
-    project A's valid formation set.
-
-    Teeth: comment out the ``if fid not in valid_formation_ids:`` block in
-    ``bundle_restore_core.py::_restore_geotech_units``.  The
-    ``GeotechnicalUnitOrm`` row would be inserted with
-    ``geological_formation_id = formation_B.id``, failing the assertion below.
-    """
-    scene = idor_scene
-    project_a_id: UUID = scene["project_a_id"]
-    formation_b: GeologicalFormationOrm = scene["formation_b"]
-
-    payload = _geotech_unit_bundle(
-        project_b_id=scene["project_b"].id,
-        formation_b_id=formation_b.id,
-    )
-
-    resp = await async_client.post(
-        f"/projects/{project_a_id}/restore",
-        json=payload,
-    )
-    assert resp.status_code == 200, f"restore returned {resp.status_code}: {resp.text}"
-
-    # TB-G1: no GeotechnicalUnitOrm row anywhere references formation_b.
-    cross_units = list(
-        (
-            await db_session.execute(
-                select(GeotechnicalUnitOrm).where(
-                    GeotechnicalUnitOrm.geological_formation_id == formation_b.id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert cross_units == [], (
-        f"Found {len(cross_units)} GeotechnicalUnitOrm row(s) referencing "
-        f"project B's formation {formation_b.id} — formation-scope guard is broken. "
-        "Teeth check: remove the 'if fid not in valid_formation_ids:' block in "
-        "_restore_geotech_units (bundle_restore_core.py) to see this fail."
     )
 
 

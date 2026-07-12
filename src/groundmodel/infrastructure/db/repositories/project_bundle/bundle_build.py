@@ -10,7 +10,7 @@ nested dicts all pass through; UUIDs and dates were already flattened
 to strings inside the per-table helpers from ``bundle_serialization``.
 
 An integrity check (2026-05-31 dogfeed fix) collects every
-formation_id referenced by contacts / litho layers / geotech units and
+formation_id referenced by contacts / litho layers and
 cross-references against the project-scoped formation query. Recovered
 rows from a global re-fetch ride along in the export; any id that is
 truly absent from the DB causes a ``BundleIntegrityError`` — the
@@ -35,7 +35,6 @@ from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionO
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.geotechnical_unit_orm import GeotechnicalUnitOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -133,7 +132,7 @@ async def _build_project_bundle_impl(
     Raises
     ------
     BundleIntegrityError
-        When formation_ids referenced by contacts/layers/units are
+        When formation_ids referenced by contacts/layers are
         absent from the DB and cannot be recovered.
     """
     cpts_stmt = (
@@ -165,12 +164,6 @@ async def _build_project_bundle_impl(
     formations_stmt = select(GeologicalFormationOrm).where(
         GeologicalFormationOrm.app_project_id == project.id
     )
-    # Geotechnical units are siblings of formations in the bundle layout
-    # rather than nested under them — the parent formation_id rides on
-    # each row, so the restore path is one flat array walk per kind. A
-    # nested shape would have to defer the unit insert until its parent
-    # formation existed in the session; flat is simpler.
-    units_stmt = select(GeotechnicalUnitOrm).where(GeotechnicalUnitOrm.app_project_id == project.id)
     models_stmt = (
         select(GeologicalModelOrm)
         .where(GeologicalModelOrm.app_project_id == project.id)
@@ -245,7 +238,6 @@ async def _build_project_bundle_impl(
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
     formations = (await session.execute(formations_stmt)).scalars().all()
-    units = (await session.execute(units_stmt)).scalars().all()
     models = (await session.execute(models_stmt)).scalars().all()
     sections = (await session.execute(sections_stmt)).scalars().all()
     reviews = (await session.execute(reviews_stmt)).scalars().all()
@@ -259,8 +251,8 @@ async def _build_project_bundle_impl(
     )
 
     # ---- Integrity check + auto-recovery (2026-05-31 dogfeed fix). ------
-    # Collect every formation_id referenced by a contact / litho_layer /
-    # geotechnical unit on this project. The export query for formations
+    # Collect every formation_id referenced by a contact / litho_layer
+    # on this project. The export query for formations
     # scopes by ``app_project_id``; if a referenced formation lives
     # outside that scope (a resolver-instance row whose app_project_id
     # drifted, or any other historical leak) the query misses it. The
@@ -275,10 +267,6 @@ async def _build_project_bundle_impl(
             referenced_fids.add(contact.formation_id)
         for layer in model.litho_layers:
             referenced_fids.add(layer.formation_id)
-    for unit in units:
-        fid = getattr(unit, "formation_id", None)
-        if fid is not None:
-            referenced_fids.add(fid)
     emitted_fids = {f.id for f in formations}
     missing_fids = referenced_fids - emitted_fids
     if missing_fids:
@@ -324,7 +312,6 @@ async def _build_project_bundle_impl(
         "cpts": [_cpt_to_dict(c) for c in cpts],
         "boreholes": [_borehole_to_dict(b) for b in boreholes],
         "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
-        "geotechnical_units": [_column_to_json(u, _SKIP_COLUMNS) for u in units],
         "geological_models": [_geological_model_to_dict(m) for m in models],
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
         "investigation_reviews": [_column_to_json(r, _SKIP_COLUMNS) for r in reviews],
@@ -361,7 +348,7 @@ async def _build_project_bundle_impl(
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
-        f"+ {len(formations)} formations + {len(units)} geotech units "
+        f"+ {len(formations)} formations "
         f"+ {len(models)} models + {len(sections)} sections "
         f"+ {len(reviews)} reviews + {len(contact_edges)} litho contact correlation edges "
         f"+ {len(lenses)} bodies + {len(absences)} formation absences "

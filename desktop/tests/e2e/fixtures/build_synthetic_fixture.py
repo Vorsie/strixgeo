@@ -571,7 +571,6 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         "cpts": cpts,
         "boreholes": [],
         "geological_formations": geological_formations,
-        "geotechnical_units": [],
         "geological_models": geological_models,
         "cross_sections": cross_sections,
         "investigation_reviews": [],

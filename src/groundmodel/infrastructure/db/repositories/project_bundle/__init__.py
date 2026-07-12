@@ -68,7 +68,6 @@ from .bundle_restore_core import (
     _restore_cross_sections,
     _restore_flat_rows,
     _restore_formations,
-    _restore_geotech_units,
     _restore_investigation_reviews,
     _restore_project_bundle_impl,
     _wipe_project_scoped_rows,
@@ -165,7 +164,6 @@ __all__ = [
     "_restore_cpts",
     "_restore_boreholes",
     "_restore_formations",
-    "_restore_geotech_units",
     "_restore_flat_rows",
     "_build_valid_formation_ids",
     "_build_valid_model_ids",
@@ -248,7 +246,6 @@ class ProjectBundleService(GroundModelLogger):
         geological_models_payload: list[dict[str, Any]] | None = None,
         cross_sections_payload: list[dict[str, Any]] | None = None,
         investigation_reviews_payload: list[dict[str, Any]] | None = None,
-        geotechnical_units_payload: list[dict[str, Any]] | None = None,
         bodies_payload: list[dict[str, Any]] | None = None,
         formation_absences_payload: list[dict[str, Any]] | None = None,
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
@@ -281,8 +278,6 @@ class ProjectBundleService(GroundModelLogger):
             Cross-section rows.
         investigation_reviews_payload : list[dict[str, Any]] | None
             Per-(project, investigation) review rows.
-        geotechnical_units_payload : list[dict[str, Any]] | None
-            Geotechnical unit rows (FK to formations).
         bodies_payload : list[dict[str, Any]] | None
             Body (lens) rows.
         formation_absences_payload : list[dict[str, Any]] | None
@@ -321,7 +316,6 @@ class ProjectBundleService(GroundModelLogger):
             geological_models_payload,
             cross_sections_payload,
             investigation_reviews_payload,
-            geotechnical_units_payload,
             bodies_payload,
             formation_absences_payload,
             litho_contact_correlation_edges_payload,
@@ -373,7 +367,6 @@ async def restore_project_bundle(
     geological_models_payload: list[dict[str, Any]] | None = None,
     cross_sections_payload: list[dict[str, Any]] | None = None,
     investigation_reviews_payload: list[dict[str, Any]] | None = None,
-    geotechnical_units_payload: list[dict[str, Any]] | None = None,
     bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
@@ -405,8 +398,6 @@ async def restore_project_bundle(
         Cross-section rows.
     investigation_reviews_payload : list[dict[str, Any]] | None
         Review rows.
-    geotechnical_units_payload : list[dict[str, Any]] | None
-        Geotech unit rows.
     bodies_payload : list[dict[str, Any]] | None
         Body rows.
     formation_absences_payload : list[dict[str, Any]] | None
@@ -441,7 +432,6 @@ async def restore_project_bundle(
         geological_models_payload,
         cross_sections_payload,
         investigation_reviews_payload,
-        geotechnical_units_payload,
         bodies_payload,
         formation_absences_payload,
         litho_contact_correlation_edges_payload,

@@ -1462,8 +1462,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # stable key is NOT in the selected set.  This runs server-side so
         # the client never has to recompute canonical keys from raw names —
         # the divergent-client-key freeze bug (da98053) was exactly that mismatch.
-        # DB CASCADE handles formation_contact, formation_surface, and
-        # geotechnical_unit rows that reference the deleted formations.
+        # DB CASCADE handles formation_contact and formation_surface
+        # rows that reference the deleted formations.
         #
         # MODEL-SCOPED DELETE — critical correctness constraint (B1):
         # GeologicalFormation has NO model FK (formations are a project-wide

@@ -71,7 +71,6 @@ async def _restore_bundle(
         bundle.get("geological_models", []),
         bundle.get("cross_sections", []),
         bundle.get("investigation_reviews", []),
-        geotechnical_units_payload=bundle.get("geotechnical_units", []),
         bodies_payload=bundle.get("bodies", []),
         formation_absences_payload=bundle.get("formation_absences", []),
         litho_contact_correlation_edges_payload=bundle.get("litho_contact_correlation_edges", []),

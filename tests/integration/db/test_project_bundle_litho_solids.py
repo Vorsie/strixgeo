@@ -270,7 +270,6 @@ async def test_restore_recreates_litho_solids(
         bundle["geological_models"],
         bundle["cross_sections"],
         bundle["investigation_reviews"],
-        geotechnical_units_payload=bundle["geotechnical_units"],
         bodies_payload=bundle["bodies"],
         formation_absences_payload=bundle["formation_absences"],
         litho_contact_correlation_edges_payload=bundle["litho_contact_correlation_edges"],

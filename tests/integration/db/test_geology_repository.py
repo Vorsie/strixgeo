@@ -27,9 +27,6 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
-from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
-    GeotechnicalUnitOrm,
-)
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -111,42 +108,6 @@ async def test_formation_update_and_delete(db_session: AsyncSession) -> None:
     await db_session.commit()
     assert ok is True
     assert await repo.get_formation(formation.id) is None
-
-
-# ---------------------------------------------------------------------------
-# Geotechnical units
-# ---------------------------------------------------------------------------
-
-
-async def test_unit_cascade_on_formation_delete(db_session: AsyncSession) -> None:
-    """Dropping a formation removes every unit beneath it (DB-level CASCADE).
-
-    The GeotechnicalUnit CRUD repo surface was deleted as dead (#229);
-    the ORM + table are KEPT for the .strix bundle round-trip, so the
-    cascade invariant is pinned via direct ORM rows.
-    """
-    project, _ = await _make_project_with_borehole(db_session)
-    repo = GeologyRepository(db_session)
-
-    formation = await repo.create_formation(project.id, name="F", color="#aaa")
-    await db_session.commit()
-    unit = GeotechnicalUnitOrm(
-        id=uuid7(),
-        app_project_id=project.id,
-        geological_formation_id=formation.id,
-        name="U",
-        code=None,
-        color="#bbb",
-        display_order=0,
-    )
-    db_session.add(unit)
-    await db_session.commit()
-    unit_id = unit.id
-
-    await repo.delete_formation(formation.id)
-    await db_session.commit()
-
-    assert await db_session.get(GeotechnicalUnitOrm, unit_id) is None
 
 
 # ---------------------------------------------------------------------------

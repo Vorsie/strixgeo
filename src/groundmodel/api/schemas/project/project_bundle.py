@@ -116,7 +116,6 @@ class StratigraphyLumping(BaseModel):
 _MAX_CPTS_PER_BUNDLE = 10_000
 _MAX_BOREHOLES_PER_BUNDLE = 10_000
 _MAX_FORMATIONS_PER_BUNDLE = 5_000
-_MAX_GEOTECH_UNITS_PER_BUNDLE = 5_000
 _MAX_GEOLOGICAL_MODELS_PER_BUNDLE = 1_000
 _MAX_CROSS_SECTIONS_PER_BUNDLE = 1_000
 _MAX_INVESTIGATION_REVIEWS_PER_BUNDLE = 50_000
@@ -214,16 +213,6 @@ class ProjectBundleRequest(BaseModel):
     geological_formations: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=_MAX_FORMATIONS_PER_BUNDLE,
-    )
-    # Geotechnical subdivision of formations (v1.0 MVP gate). Flat
-    # array — each row carries its own ``geological_formation_id``
-    # so the restore is "formations first, then units" and a missing
-    # parent surfaces as an FK error rather than a silent partial
-    # load. Older bundles without this key restore cleanly (default
-    # empty list).
-    geotechnical_units: list[dict[str, Any]] = Field(
-        default_factory=list,
-        max_length=_MAX_GEOTECH_UNITS_PER_BUNDLE,
     )
     # Interpretation containers. Each carries its own ``contacts`` list
     # nested (formation top per investigation), mirroring how CPT
@@ -339,7 +328,6 @@ class ProjectBundleResponse(BaseModel):
     cpts: list[dict[str, Any]]
     boreholes: list[dict[str, Any]]
     geological_formations: list[dict[str, Any]] = Field(default_factory=list)
-    geotechnical_units: list[dict[str, Any]] = Field(default_factory=list)
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
     cross_sections: list[dict[str, Any]] = Field(default_factory=list)
     investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)
