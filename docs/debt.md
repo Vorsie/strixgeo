@@ -5884,9 +5884,15 @@ rewriteB path.
 full-band pivot brainstorm — this is the first artifact of that work, not an
 afterthought. Pairs with #237's rewriteB Stage-2 decision.
 
-## 231. Wedge-tip stale-delete is not section-scoped — multi-section projects keep only the last section's tips (Tier G — correctness, S)
+## 231. ~~Wedge-tip stale-delete is not section-scoped~~ — RESOLVED 2026-07-13
 
-**What.** `materialize_wedge_tips_for_formation.py`: step 7a calls
+**Resolution (`d59aa3098`).** Stale-delete + seeded-array prune hoisted above
+the per-section loop: delete once for the (model, formation), prune EVERY
+section's `seeded_formation_contact_ids`. WT1 integration test
+(`tests/integration/application/test_materialize_wedge_tips.py`) written
+first, RED on the old loop (section-2 dangling seeded ids), GREEN after.
+
+**What (was).** `materialize_wedge_tips_for_formation.py`: step 7a calls
 `_find_existing_synthetic_ids(model_id, formation_id)` INSIDE the per-section
 loop (line ~391), but the SELECT (line ~538) has no section filter. New tips
 are inserted + flushed per section, so section k+1's pass deletes section k's
