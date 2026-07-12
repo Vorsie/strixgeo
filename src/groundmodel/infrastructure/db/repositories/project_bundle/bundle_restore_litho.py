@@ -53,7 +53,6 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 from .bundle_row_builders import _uuid, _validate_tin_payload
 from .bundle_serialization import (
-    _BODY_EXTENT_COLUMNS,
     _MAX_SURFACE_SOURCE_CONTACTS,
     _MAX_TIN_ARRAY_LEN,
     _apply_json_to_kwargs,
@@ -478,13 +477,10 @@ async def _restore_bodies(
             dropped += 1
             continue
 
-        # Strip legacy extent_* keys before mapping to ORM kwargs.  The
-        # extent system is retired; the columns still exist in this step but
-        # must not be written so the next migration step can drop them cleanly.
-        # A future bundle (post-column-drop) that omits these keys is handled
-        # automatically by _apply_json_to_kwargs's "unknown key → skip" rule.
-        stripped_payload = {k: v for k, v in lens_payload.items() if k not in _BODY_EXTENT_COLUMNS}
-        kwargs = _apply_json_to_kwargs(BodyOrm, stripped_payload)
+        # Legacy bundles may still carry retired extent_* keys; the columns
+        # were dropped from BodyOrm (migration d8868bb27884), so
+        # _apply_json_to_kwargs's "unknown key → skip" rule drops them here.
+        kwargs = _apply_json_to_kwargs(BodyOrm, lens_payload)
         kwargs["app_project_id"] = project_id
         session.add(BodyOrm(**kwargs))
         existing.add(lens_id)
