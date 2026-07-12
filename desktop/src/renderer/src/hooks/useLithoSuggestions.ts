@@ -45,7 +45,7 @@ import {
   lithoAcceptTuningParams,
   recordCreatedRows,
 } from '../utils/lithoAccept'
-import { readLithoSegmenterPrefs } from '../utils/lithoSegmenterPrefs'
+import { buildSuggestBody, readLithoSegmenterPrefs } from '../utils/lithoSegmenterPrefs'
 import { extendGhostToNearest } from '../utils/extendGhostToNearest'
 import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
@@ -866,23 +866,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       try {
         // Pull the per-project segmenter prefs out of view_state (set
         // via File → Settings…). Falls back to defaults when unset.
-        // γunsat + Dr factor only ride along on the CPT path — the
-        // borehole segmenter ignores stress-derived parameters (no qc).
         const prefs = readLithoSegmenterPrefs(project.view_state)
-        const body =
-          anchorKind === 'cpt'
-            ? {
-                cpt_id: anchorId,
-                minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
-                gunsat_kNm3: prefs.gunsatKNm3,
-                dr_compression_factor: prefs.drCompressionFactor,
-                merge_same_lithology: prefs.mergeSameLithology,
-                use_normalised_qc: prefs.useNormalisedQc,
-              }
-            : {
-                borehole_id: anchorId,
-                minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
-              }
+        const body = buildSuggestBody(anchorKind, anchorId, prefs)
         const resp = await api.geology.suggestLitho(project.id, model.id, body)
         log.success(
           'geology',
@@ -1372,20 +1357,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           if (anchorIdx >= anchors.length) return
           const { kind, id, surfaceElevationM } = anchors[anchorIdx]
           try {
-            const body =
-              kind === 'cpt'
-                ? {
-                    cpt_id: id,
-                    minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
-                    gunsat_kNm3: prefs.gunsatKNm3,
-                    dr_compression_factor: prefs.drCompressionFactor,
-                    merge_same_lithology: prefs.mergeSameLithology,
-                    use_normalised_qc: prefs.useNormalisedQc,
-                  }
-                : {
-                    borehole_id: id,
-                    minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
-                  }
+            const body = buildSuggestBody(kind, id, prefs)
             const resp = await api.geology.suggestLitho(project!.id, model!.id, body)
             collected.set(id, {
               kind,

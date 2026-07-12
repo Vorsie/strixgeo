@@ -20,6 +20,8 @@
 // key joins the bag and readers prefer it over the scalar. The current
 // scalar then becomes the catch-all "site default" — no breaking change.
 
+import type { LithoSuggestionRequest } from '../api/client'
+
 export interface LithoSegmenterPrefs {
   /** Minimum output layer thickness in metres for the segmenter
    *  greedy-merge step. Backend range: 0.05 – 10.0 m (enforced by
@@ -209,6 +211,48 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM,
     ),
   }
+}
+
+/**
+ * Build the ``suggest-litho`` request body for one anchor — the single
+ * source shared by the single Suggest verb and the bulk fan-out worker,
+ * so a new segmenter pref cannot silently diverge between the two paths.
+ *
+ * γunsat + Dr factor (and the other stress-derived knobs) only ride
+ * along on the CPT path — the borehole segmenter ignores them (no qc).
+ *
+ * Parameters
+ * ----------
+ * kind : 'cpt' | 'borehole'
+ *     The anchor's investigation kind.
+ * id : string
+ *     The anchor's investigation id.
+ * prefs : LithoSegmenterPrefs
+ *     Segmenter prefs (typically ``readLithoSegmenterPrefs(view_state)``).
+ *
+ * Returns
+ * -------
+ * LithoSuggestionRequest
+ *     Request body for ``api.geology.suggestLitho``.
+ */
+export function buildSuggestBody(
+  kind: 'cpt' | 'borehole',
+  id: string,
+  prefs: LithoSegmenterPrefs,
+): LithoSuggestionRequest {
+  return kind === 'cpt'
+    ? {
+        cpt_id: id,
+        minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+        gunsat_kNm3: prefs.gunsatKNm3,
+        dr_compression_factor: prefs.drCompressionFactor,
+        merge_same_lithology: prefs.mergeSameLithology,
+        use_normalised_qc: prefs.useNormalisedQc,
+      }
+    : {
+        borehole_id: id,
+        minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+      }
 }
 
 /**
