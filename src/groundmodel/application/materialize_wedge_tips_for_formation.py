@@ -372,11 +372,33 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
         self.debug(f"MaterializeWedgeTipsForFormation: geocoded {len(inv_xy)} investigation(s)")
 
         # ------------------------------------------------------------------ #
-        # 7. Process each section.                                            #
+        # 7. Delete stale synthetic contacts ONCE, before the section loop.   #
+        #                                                                      #
+        # The synthetic-tip query is (model, formation)-scoped — there is no  #
+        # section column — so this MUST run outside the per-section loop.     #
+        # Running it inside (pre-#231) meant section k+1's pass deleted the   #
+        # fresh tips section k had just flushed AND pruned only the current    #
+        # section's seeded array, leaving every other section with dangling    #
+        # seeded UUIDs. Delete once; prune EVERY section's array.             #
         # ------------------------------------------------------------------ #
         total_old_deleted = 0
         total_new_created = 0
         total_skipped = 0
+
+        old_synthetic_ids = await self._find_existing_synthetic_ids(
+            model_id=model_id, formation_id=formation_id
+        )
+        if old_synthetic_ids:
+            await self._session.execute(
+                delete(FormationContactOrm).where(FormationContactOrm.id.in_(old_synthetic_ids))
+            )
+            for section in sections:
+                await self._remove_from_seeded_ids(section=section, contact_ids=old_synthetic_ids)
+            total_old_deleted = len(old_synthetic_ids)
+            self.debug(
+                f"deleted {total_old_deleted} stale synthetic contact(s) "
+                f"across {len(sections)} section(s)"
+            )
 
         for sec_idx, section in enumerate(sections, start=1):
             self.debug(f"[{sec_idx}/{len(sections)}] section={section.id} name={section.name!r}")
@@ -387,24 +409,6 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                 end_y=section.end_y,
             )
             buf = section.projection_buffer_m or _FALLBACK_BUFFER_M
-
-            # ---------------------------------------------------------------- #
-            # 7a. Delete stale synthetic contacts for this formation+section.  #
-            # ---------------------------------------------------------------- #
-            old_synthetic_ids = await self._find_existing_synthetic_ids(
-                model_id=model_id, formation_id=formation_id
-            )
-            if old_synthetic_ids:
-                await self._session.execute(
-                    delete(FormationContactOrm).where(FormationContactOrm.id.in_(old_synthetic_ids))
-                )
-                # Remove deleted ids from seeded_formation_contact_ids.
-                await self._remove_from_seeded_ids(section=section, contact_ids=old_synthetic_ids)
-                total_old_deleted += len(old_synthetic_ids)
-                self.debug(
-                    f"[{sec_idx}/{len(sections)}] "
-                    f"deleted {len(old_synthetic_ids)} stale synthetic contact(s)"
-                )
 
             # ---------------------------------------------------------------- #
             # 7b. Build pinching polyline for this section.                    #
