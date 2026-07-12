@@ -842,6 +842,22 @@ export interface UseGeologicalModelResult {
 }
 
 /**
+ * Index a surfaces list by ``formation_id`` — the fold every surface
+ * setter in this hook applies before caching (last surface per
+ * formation wins, matching the API's one-surface-per-formation shape).
+ *
+ * @param surfs - Surfaces as returned by ``api.geology.listSurfaces``.
+ * @returns Map of ``formation_id`` → surface.
+ */
+function indexSurfacesByFormationId(
+  surfs: readonly FormationSurfaceResponse[],
+): Map<string, FormationSurfaceResponse> {
+  const sm = new Map<string, FormationSurfaceResponse>()
+  for (const s of surfs) sm.set(s.formation_id, s)
+  return sm
+}
+
+/**
  * React hook that manages the geological model, formations, contacts, and
  * TIN surface cache for the active project.
  *
@@ -1209,9 +1225,7 @@ export function useGeologicalModel({
         if (cancelled) return
         setFormations(forms)
         setContacts(conts)
-        const sm = new Map<string, FormationSurfaceResponse>()
-        for (const s of surfs) sm.set(s.formation_id, s)
-        setSurfacesByFormationId(sm)
+        setSurfacesByFormationId(indexSurfacesByFormationId(surfs))
         // #55: populate the model list + active-litho pointer for the
         // picker. Non-fatal — a list-fetch failure must not blank the
         // (already-resolved) geological flow, so it is awaited inside
@@ -1297,9 +1311,7 @@ export function useGeologicalModel({
         ])
         if (cancelled) return
         setLithoLayers(layers)
-        const sm = new Map<string, FormationSurfaceResponse>()
-        for (const s of surfs) sm.set(s.formation_id, s)
-        setLithoSurfacesByFormationId(sm)
+        setLithoSurfacesByFormationId(indexSurfacesByFormationId(surfs))
         log.debug(
           'geology',
           `litho model ${modelId}: loaded ${layers.length} layers, ${surfs.length} surfaces`,
@@ -1381,9 +1393,7 @@ export function useGeologicalModel({
     void api.geology
       .listSurfaces(project.id, activeGeologicalModel.id)
       .then(surfs => {
-        const sm = new Map<string, FormationSurfaceResponse>()
-        for (const s of surfs) sm.set(s.formation_id, s)
-        setSurfacesByFormationId(sm)
+        setSurfacesByFormationId(indexSurfacesByFormationId(surfs))
       })
       .catch(err => {
         log.warn('geology', `listSurfaces refetch failed`, err)
@@ -1432,9 +1442,7 @@ export function useGeologicalModel({
     void api.geology
       .listSurfaces(project.id, model.id)
       .then(surfs => {
-        const sm = new Map<string, FormationSurfaceResponse>()
-        for (const s of surfs) sm.set(s.formation_id, s)
-        setLithoSurfacesByFormationId(sm)
+        setLithoSurfacesByFormationId(indexSurfacesByFormationId(surfs))
       })
       .catch(err => {
         log.warn('geology', `litho listSurfaces refetch failed`, err)
@@ -1456,9 +1464,7 @@ export function useGeologicalModel({
       log.debug('geology', `loadBackdropSurfaces entry model=${geoModelId}`)
       try {
         const surfs = await api.geology.listSurfaces(project.id, geoModelId)
-        const sm = new Map<string, FormationSurfaceResponse>()
-        for (const s of surfs) sm.set(s.formation_id, s)
-        setBackdropSurfacesByFormationId(sm)
+        setBackdropSurfacesByFormationId(indexSurfacesByFormationId(surfs))
         log.success(
           'geology',
           `loadBackdropSurfaces ok model=${geoModelId} surfaces=${surfs.length}`,
