@@ -16,8 +16,8 @@
  *   materialise the solids, then asserts the multi-lithology bodies + the
  *   single-CPT VEEN body via the litho-solids API.
  *
- *   The RETIRED implicit strat-field builder (``POST .../litho-solids/rebuild``,
- *   ``RecomputeLithoSolids`` / ``build_strat_model``) is NO LONGER exercised here.
+ *   The RETIRED implicit strat-field builder (the old ``POST
+ *   .../litho-solids/rebuild`` — DELETED with #237) is not exercised here.
  *   On the synthetic fixture that builder timed out (3 min) and overflowed
  *   asyncpg's bind-message buffer; the voxel path is fast (chunked persist) and
  *   never poisons the connection pool.

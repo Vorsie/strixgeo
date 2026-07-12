@@ -10,7 +10,7 @@
 //       does NOT render.
 //   C9  In Solid mode, api.geology.listLithoSolids is called with the
 //       correct projectId + modelId.
-//   C10 Clicking "Build solids" calls api.geology.rebuildLithoSolids and
+//   C10 Clicking "Build solids" calls api.geology.buildVoxelLithoModel and
 //       toasts the result; the nonce bump causes listLithoSolids re-fetch.
 //   C11 The stale badge is shown when any solid has is_stale = true.
 //
@@ -58,7 +58,7 @@ vi.mock('../geology/Geology3DViewer', () => ({
 }))
 
 // api.geology stubs — resolve empty so the canvas never hangs on async effects.
-// listLithoSolids and rebuildLithoSolids are added for the Task-8 solid-mode
+// listLithoSolids and buildVoxelLithoModel are added for the Task-8 solid-mode
 // claims (C9/C10/C11).
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
@@ -70,14 +70,6 @@ vi.mock('../../../api/client', async () => {
         listContactCorrelations: vi.fn().mockResolvedValue([]),
         listLithoSolids: vi.fn().mockResolvedValue([]),
         buildVoxelLithoModel: vi.fn().mockResolvedValue({
-          bodies_considered: 0,
-          bodies_built: 0,
-          bodies_skipped_checksum: 0,
-          bodies_flagged: 0,
-          orphans_deleted: 0,
-          solids: [],
-        } satisfies RebuildLithoSolidsResponse),
-        rebuildLithoSolids: vi.fn().mockResolvedValue({
           bodies_considered: 0,
           bodies_built: 0,
           bodies_skipped_checksum: 0,

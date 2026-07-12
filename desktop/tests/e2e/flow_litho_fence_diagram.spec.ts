@@ -13,8 +13,8 @@
  *   (see useLithoSolids.ts + LithologyStage.tsx).  This spec clicks that button
  *   to materialise the solids, then asserts the viewer mounts.
  *
- *   The RETIRED implicit strat-field builder (``POST .../litho-solids/rebuild``,
- *   ``RecomputeLithoSolids`` / ``build_strat_model``) is NO LONGER exercised here.
+ *   The RETIRED implicit strat-field builder (the old ``POST
+ *   .../litho-solids/rebuild`` — DELETED with #237) is not exercised here.
  *   On the synthetic fixture that builder is slow (3-min test timeout) and emits a
  *   JSONB mesh that overflows asyncpg's bind-message buffer, closing a pooled
  *   connection mid-suite — which used to cascade into ``flow_litho_merge_boundary``

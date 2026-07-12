@@ -656,11 +656,13 @@ export interface LithoBodySolidResponse {
 }
 
 /**
- * Result of ``POST .../litho-solids/rebuild``.
+ * Result of ``POST .../litho-solids/build-voxel``.
  *
  * Mirrors ``RebuildSurfacesResponse`` for the geological TIN pipeline,
  * extended with the freshly rebuilt solid list so the 3-D viewer can
- * update its cache in a single round-trip.
+ * update its cache in a single round-trip.  (The name predates the voxel
+ * builder: the retired strat-field ``rebuild`` endpoint returned the same
+ * shape — deleted with #237.)
  */
 export interface RebuildLithoSolidsResponse {
   bodies_considered: number
@@ -1308,30 +1310,14 @@ export const geologyClient = {
     get(`/projects/${projectId}/geology/models/${modelId}/litho-solids`),
 
   /**
-   * POST .../litho-solids/rebuild — (re-)triangulate all body solids.
-   *
-   * Returns the full rebuild summary including the fresh solid list,
-   * mirroring the ``rebuildSurfaces`` idiom for the geological TIN cache.
-   */
-  rebuildLithoSolids: (
-    projectId: string,
-    modelId: string,
-  ): Promise<RebuildLithoSolidsResponse> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/litho-solids/rebuild`,
-      {},
-    ),
-
-  /**
    * POST .../litho-solids/build-voxel — build the 3-D solids from the frontend's
    * validated 2-D voxel partitions (the ``computeSectionFill`` source of truth).
    *
-   * The voxel sibling of ``rebuildLithoSolids``: where ``rebuild`` fits an
-   * implicit field through the DB picks, this labels a 3-D voxel grid from the
-   * supplied per-section partitions and extracts each body's watertight mesh.
-   * Returns the SAME ``RebuildLithoSolidsResponse`` shape so both paths are
-   * consumed identically.  ``force`` defaults to true server-side (the on-click
-   * Build always re-meshes), so it is not passed here.
+   * Labels a 3-D voxel grid from the supplied per-section partitions and
+   * extracts each body's watertight mesh.  ``force`` defaults to true
+   * server-side (the on-click Build always re-meshes), so it is not passed
+   * here.  (The retired strat-field ``rebuildLithoSolids`` sibling was
+   * deleted with its backend endpoint — #237.)
    *
    * Parameters
    * ----------

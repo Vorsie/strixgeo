@@ -51,8 +51,8 @@ export interface UseLithoSolidsResult {
    * or ``null`` when there is nothing to build.
    *
    * When ``voxelRequestBuilder`` is absent or resolves to ``null`` the build is
-   * a no-op with a "nothing to build" toast — the dormant implicit
-   * ``rebuildLithoSolids`` path is NOT called from here.
+   * a no-op with a "nothing to build" toast — the voxel POST needs the
+   * canvas-assembled payload, so there is no fallback build path.
    *
    * Parameters
    * ----------
@@ -186,8 +186,8 @@ export function useLithoSolids(
       if (!projectId || !lithoModelId || buildingRef.current) return
 
       // The voxel path needs the per-section partition payload, which the
-      // canvas assembles.  Without a builder there is nothing to build — the
-      // dormant implicit rebuildLithoSolids path is intentionally NOT called.
+      // canvas assembles.  Without a builder there is nothing to build (the
+      // retired implicit rebuild path was deleted with #237).
       if (!voxelRequestBuilder) {
         toast('warning', 'Nothing to build yet — open a cross-section on the litho axis first.')
         return

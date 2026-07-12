@@ -61,7 +61,6 @@ vi.mock('../api/client', () => ({
       exportSectionPlaxis2d: vi.fn(),
       acceptLithoSuggestions: vi.fn(),
       listLithoSolids: vi.fn().mockResolvedValue([]),
-      rebuildLithoSolids: vi.fn().mockResolvedValue({ bodies_built: 0, bodies_flagged: 0, bodies_considered: 0, bodies_skipped_checksum: 0, orphans_deleted: 0, solids: [] }),
       setBodyColor: vi.fn().mockResolvedValue({}),
       hideMarkers: false,
       setHideMarkers: vi.fn(),

@@ -82,8 +82,7 @@ function LithologyToolbar(): JSX.Element | null {
         label={buildModelLabel}
         // Route Build through the VOXEL path: the canvas-populated module ref
         // assembles the per-section partition payload (the source of truth);
-        // buildLithoSolids POSTs it to buildVoxelLithoModel.  The dormant
-        // implicit rebuildLithoSolids path is intentionally not called here.
+        // buildLithoSolids POSTs it to buildVoxelLithoModel.
         onClick={() => void buildLithoSolids(lithoVoxelRequestCallback.current ?? undefined)}
         disabled={lithoSolidsBuilding || !hasLithoContacts}
         busy={lithoSolidsBuilding}

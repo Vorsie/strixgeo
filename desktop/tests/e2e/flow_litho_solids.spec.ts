@@ -4,7 +4,7 @@
  * Guards the VOXEL litho-3D builder — the path the in-app "Build model" button
  * drives (``LithologyStage`` → ``buildVoxelLithoModel`` →
  * ``POST .../litho-solids/build-voxel``).  The retired implicit strat-field
- * ``POST .../litho-solids/rebuild`` endpoint is NO LONGER what Build calls; this
+ * ``POST .../litho-solids/rebuild`` endpoint was DELETED with #237; this
  * spec was repurposed accordingly (was: strat-field rebuild + a 90 s wait).
  *
  * Pure Node-side API test — no Electron launch.  The standalone backend on
