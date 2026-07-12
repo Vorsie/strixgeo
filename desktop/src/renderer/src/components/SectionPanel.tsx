@@ -57,7 +57,7 @@ import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
 import { nudgeColumns } from '../utils/columnLayout'
 import { computeScrubBounds } from '../utils/scrubBounds'
-import type { ProjectedInvestigation } from '../utils/sectionProjection'
+import { sectionLength, type ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
 import LithoCompositionPickerDialog from './interpretation/LithoCompositionPickerDialog'
@@ -138,7 +138,6 @@ import {
   VEX_DEFAULT,
   WHEEL_ZOOM_FACTOR,
   collectSnapDepths,
-  sectionLengthM,
   ticks,
   useElementSize,
   type PlacedColumn,
@@ -858,7 +857,7 @@ export default function SectionPanel({
   // empty; the wheel handler falls back to the per-column-ratio
   // approximation when the ref is empty (mount race).
   const layoutStateRef = useRef<SectionWheelLayoutState | null>(null)
-  const lengthM = useMemo(() => sectionLengthM(section), [section])
+  const lengthM = useMemo(() => sectionLength(section), [section])
 
   // formation_id → body auto-name BASE. A2 (owner directive 2026-06-04): litho
   // units are geologically agnostic, so the base is just the lithology

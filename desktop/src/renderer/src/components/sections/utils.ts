@@ -3,8 +3,9 @@
  *
  * Three groups live here:
  *
- *   * Pure helpers — ``sectionLengthM``, ``niceStep``, ``ticks``. No
- *     React, no I/O; the section's rendering code consumes them.
+ *   * Pure helpers — ``niceStep``, ``ticks``. No React, no I/O; the
+ *     section's rendering code consumes them. (Section-line length
+ *     lives in ``utils/sectionProjection.sectionLength``.)
  *   * Layout constants + types — ``MARGIN`` / ``Viewport`` /
  *     ``PlacedColumn`` etc. The orchestrator (``SectionPanel``) and
  *     the extracted sub-components all reference the same names so
@@ -21,7 +22,6 @@ import type {
   BoreholeDetailResponse,
   BoreholeListItem,
   CptListItem,
-  CrossSectionResponse,
 } from '../../api/client'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 
@@ -364,14 +364,6 @@ export function depthAxisAtSurface(
     depthAtY: (y: number) => (pxPerMetreDown === 0 ? 0 : (y - surfaceY) / pxPerMetreDown),
     yAtDepth: (depthM: number) => surfaceY + depthM * pxPerMetreDown,
   }
-}
-
-/** Euclidean length of the section line, computed once from
- * endpoints. */
-export function sectionLengthM(section: CrossSectionResponse): number {
-  const dx = section.end_x - section.start_x
-  const dy = section.end_y - section.start_y
-  return Math.sqrt(dx * dx + dy * dy)
 }
 
 /** Plate-tectonic "nice number" tick spacing — pick the largest of
