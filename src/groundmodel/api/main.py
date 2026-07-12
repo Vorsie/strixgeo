@@ -20,7 +20,6 @@ from groundmodel.api.routers import (
     dem,
     geology,
     investigation_review,
-    jobs,
     project,
     virtuele_boring,
 )
@@ -275,7 +274,6 @@ app.add_middleware(
 
 app.include_router(cpt.router)
 app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
-app.include_router(jobs.router)
 app.include_router(project.router)
 app.include_router(geology.router)
 app.include_router(cross_section.router)

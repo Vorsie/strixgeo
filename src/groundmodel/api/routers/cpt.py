@@ -392,9 +392,9 @@ async def import_cpt_dov_stream(
 
     Decoupling the session from the connection lifetime means the import
     no longer holds a DB connection open for the full ~60 s cold-cache
-    duration.  Cancellation via ``DELETE /jobs/{job_id}`` leaves every
-    XML already written to the on-disk cache intact so subsequent imports
-    of the same bbox are cache-warm.
+    duration.  Aborting the SSE stream cancels the import server-side but
+    leaves every XML already written to the on-disk cache intact, so
+    subsequent imports of the same bbox are cache-warm.
 
     Parameters
     ----------

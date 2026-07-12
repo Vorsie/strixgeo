@@ -12,10 +12,10 @@ Lifecycle
 2. The SSE consumer endpoint calls ``JobRegistry.stream(job_id)`` — this
    is an async generator that drains the queue until the sentinel ``None``
    is received, then removes the entry.
-3. ``JobRegistry.cancel(job_id)`` cancels the task and removes the entry.
-   The import's on-disk XML cache entries written before cancellation are
-   preserved (``DovXmlCache`` writes atomically per file; partial work is
-   reusable on a future import).
+3. When the consumer abandons the stream early (SSE client abort) the
+   registry cancels the task.  The import's on-disk XML cache entries
+   written before cancellation are preserved (``DovXmlCache`` writes
+   atomically per file; partial work is reusable on a future import).
 
 Thread safety
 -------------
@@ -64,10 +64,8 @@ class JobRegistry(GroundModelLogger):
         events on the queue, start the task, and return the job-id.
     stream(job_id) -> AsyncGenerator
         Drain the job's queue as an async generator of event dicts.
-        Removes the entry when the sentinel is received or on disconnect.
-    cancel(job_id) -> bool
-        Cancel the background task.  Returns ``True`` if the job existed,
-        ``False`` if it was already finished or never registered.
+        Removes the entry when the sentinel is received or on disconnect;
+        cancels the task when the consumer disconnected mid-stream.
     """
 
     def __init__(self) -> None:
@@ -93,7 +91,7 @@ class JobRegistry(GroundModelLogger):
         Returns
         -------
         UUID
-            The new job-id.  Pass to ``stream()`` or ``cancel()``.
+            The new job-id.  Pass to ``stream()``.
         """
         job_id = uuid4()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
@@ -109,7 +107,7 @@ class JobRegistry(GroundModelLogger):
         # task raised (i.e. was not cancelled and did not finish cleanly).
         def _sentinel_on_exception(t: asyncio.Task[None]) -> None:
             if t.cancelled():
-                # CancelledError is expected; cancel() also removes the entry.
+                # CancelledError is expected; the disconnect path removes the entry.
                 return
             exc = t.exception()
             if exc is not None:
@@ -172,26 +170,6 @@ class JobRegistry(GroundModelLogger):
                     f"job {job_id}: SSE consumer disconnected before the stream "
                     "finished — background task cancelled"
                 )
-
-    def cancel(self, job_id: UUID) -> bool:
-        """Cancel a background task and remove it from the registry.
-
-        Parameters
-        ----------
-        job_id : UUID
-            Job-id to cancel.
-
-        Returns
-        -------
-        bool
-            ``True`` if the job existed and was cancelled (or already
-            finished), ``False`` if no such job-id was registered.
-        """
-        entry = self._jobs.pop(job_id, None)
-        if entry is None:
-            return False
-        entry.task.cancel()
-        return True
 
     def __len__(self) -> int:
         """Return the number of currently registered jobs."""

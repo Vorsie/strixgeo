@@ -27,22 +27,6 @@ def _immediate_factory(events: list[dict]) -> callable:
     return factory
 
 
-def _blocking_factory() -> callable:
-    """Return a factory whose coroutine sleeps until cancelled."""
-
-    def factory(queue: asyncio.Queue) -> object:
-        async def run() -> None:
-            try:
-                await asyncio.sleep(3600)
-            except asyncio.CancelledError:
-                await queue.put(None)
-                raise
-
-        return run()
-
-    return factory
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -82,30 +66,6 @@ async def test_stream_removes_entry_on_completion() -> None:
 
     assert job_id not in registry._jobs  # noqa: SLF001
     assert len(registry) == 0
-
-
-@pytest.mark.asyncio
-async def test_cancel_returns_true_for_known_job() -> None:
-    """cancel() returns True and removes the entry for a registered job."""
-    registry = JobRegistry()
-    job_id = registry.start(_blocking_factory())
-    # Give the task a moment to start.
-    await asyncio.sleep(0)
-
-    found = registry.cancel(job_id)
-
-    assert found is True
-    assert job_id not in registry._jobs  # noqa: SLF001
-
-
-@pytest.mark.asyncio
-async def test_cancel_returns_false_for_unknown_job() -> None:
-    """cancel() returns False when the job-id is not registered."""
-    import uuid
-
-    registry = JobRegistry()
-    found = registry.cancel(uuid.uuid4())
-    assert found is False
 
 
 @pytest.mark.asyncio
