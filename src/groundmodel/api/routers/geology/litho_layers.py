@@ -33,10 +33,6 @@ from groundmodel.api.schemas.project.litho_layer import (
     LithoLayerStatusLiteral,
     LithoLayerUpdateRequest,
 )
-from groundmodel.application.batch_update_litho_layer_status import (
-    BatchStatusError,
-    BatchUpdateLithoLayerStatus,
-)
 from groundmodel.application.batch_update_litho_layers import (
     BatchUpdateError,
     BatchUpdateLithoLayers,
@@ -220,16 +216,25 @@ async def batch_update_status(
     request: LithoLayerBatchStatusRequest,
     session: AsyncSession = Depends(get_session),
 ) -> LithoLayerBatchStatusResponse:
-    """Set the same status on N rows in one transaction (accept-all / reject-all)."""
+    """Set the same status on N rows in one transaction (accept-all / reject-all).
+
+    Thin alias over the generic batch update: a batch status transition IS
+    a batch update whose every patch is ``{"status": <new_status>}``
+    (audit BE-APPLICATION-LITHO-04 — the hand-rolled twin use case with
+    identical control flow was merged into ``BatchUpdateLithoLayers``).
+    """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
         detail="Model not found",
     )
-    use_case = BatchUpdateLithoLayerStatus(session)
+    use_case = BatchUpdateLithoLayers(session)
     try:
-        result = await use_case.execute(request.layer_ids, request.status, model_id=model_id)
-    except BatchStatusError as err:
+        result = await use_case.execute(
+            [(layer_id, {"status": request.status}) for layer_id in request.layer_ids],
+            model_id=model_id,
+        )
+    except BatchUpdateError as err:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(err),
