@@ -5959,9 +5959,26 @@ label-grid SHA-256 byte-identical check after.
 **When to revisit.** Next voxel-builder touch, or as the first step of #237's
 strat_field decision.
 
-## 237. 2026-07-12 owner-decision batch — five audit items that must not be executed mechanically (owner)
+## 237. 2026-07-12 owner-decision batch — DECIDED 2026-07-12, execution in progress
 
-**What.** Five verified findings need an owner call (full evidence in DEBT.md
+**Owner decisions (2026-07-12, all five):**
+1. strat_field → **DELETE after #236** lands (extraction first, byte-identical
+   voxel verify). Owner note recorded: fill-bands are the ground truth and the
+   voxel builder itself may need revisiting later (post-pivot) — deletion of
+   the implicit builder does not pre-empt that.
+2. C1/C2a/C2b skeleton flow → **DELETE** (body-centric is final).
+3. Import cancel → **cancel-on-disconnect**: JobRegistry.stream() cancels the
+   task in its finally-block on SSE disconnect; DELETE /jobs/{job_id} then goes
+   (the jobs router empties out entirely).
+4. GeotechnicalUnitOrm → **DROP** table + ORM + migration + bundle round-trip
+   (debt #13 will use the model-kind path).
+5. rewriteB Stage-2 → **DELETE NOW** (~1,100 legacy lines + flag +
+   REWRITE_B_LEGACY escape + legacy-only tests; the reverted substrate stays in
+   git history for any future A/B).
+
+Original context below; strike items here as they land.
+
+**What (was).** Five verified findings need an owner call (full evidence in DEBT.md
 §4, 2026-07-12 section):
 1. **strat_field dormant package** (~290 KB + 4 integration-test files per
    pre-push + the scikit-image dep via dead `iso_surface.py`): keep dormant or
