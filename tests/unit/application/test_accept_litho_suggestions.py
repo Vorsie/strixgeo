@@ -26,7 +26,9 @@ import pytest
 from groundmodel.application.accept_litho_suggestions import (
     AcceptLithoSuggestions,
     _canonical_admixture_signature,
-    _geo_contact_to_link,
+)
+from groundmodel.application.litho_geo_link_helpers import (
+    nearest_geo_contact_within_tolerance,
 )
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.value_objects.admixture import Admixture
@@ -1062,32 +1064,34 @@ async def test_ac3_non_adjacent_same_litho_stays_separate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CL1-CL4 — _geo_contact_to_link pure resolver (#162 Task 3)
+# CL1-CL4 — nearest_geo_contact_within_tolerance pure resolver (#162 Task 3)
 #
 # Picks the geo contact nearest to a litho contact's depth and within
 # ``tolerance_m``.  Returns None when no geo contact is within tolerance.
+# (Shared helper in litho_geo_link_helpers — used by both the accept-time
+# auto-link and the manual LinkLithoToGeo use case.)
 # ---------------------------------------------------------------------------
 
 
 def test_cl1_exact_geo_boundary_links() -> None:
     """Exact depth match → the geo contact at that depth is returned."""
     geo = [(0.0, UPPER_FORMATION_ID, CONTACT_A_ID), (3.0, LOWER_FORMATION_ID, CONTACT_B_ID)]
-    assert _geo_contact_to_link(3.0, geo, tolerance_m=0.20) == CONTACT_B_ID
+    assert nearest_geo_contact_within_tolerance(3.0, geo, tolerance_m=0.20) == CONTACT_B_ID
 
 
 def test_cl2_within_tolerance_links_nearest() -> None:
     """Depth within tolerance → the nearest geo contact is returned."""
     geo = [(0.0, UPPER_FORMATION_ID, CONTACT_A_ID), (3.0, LOWER_FORMATION_ID, CONTACT_B_ID)]
-    assert _geo_contact_to_link(2.9, geo, tolerance_m=0.20) == CONTACT_B_ID
+    assert nearest_geo_contact_within_tolerance(2.9, geo, tolerance_m=0.20) == CONTACT_B_ID
 
 
 def test_cl3_mid_formation_no_link() -> None:
     """Depth mid-formation, outside tolerance of every geo contact → None."""
     geo = [(0.0, UPPER_FORMATION_ID, CONTACT_A_ID), (3.0, LOWER_FORMATION_ID, CONTACT_B_ID)]
-    assert _geo_contact_to_link(1.5, geo, tolerance_m=0.20) is None
+    assert nearest_geo_contact_within_tolerance(1.5, geo, tolerance_m=0.20) is None
 
 
 def test_cl4_nearest_wins() -> None:
     """Two geo contacts within tolerance → the closer one wins."""
     geo = [(2.85, UPPER_FORMATION_ID, CONTACT_A_ID), (3.05, LOWER_FORMATION_ID, CONTACT_B_ID)]
-    assert _geo_contact_to_link(3.0, geo, tolerance_m=0.20) == CONTACT_B_ID
+    assert nearest_geo_contact_within_tolerance(3.0, geo, tolerance_m=0.20) == CONTACT_B_ID

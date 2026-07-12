@@ -47,6 +47,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.litho_geo_link_helpers import (
+    load_geo_contacts_at_investigation,
+    nearest_geo_contact_within_tolerance,
+)
 from groundmodel.application.materialize_wedge_tips_for_formation import (
     MaterializeWedgeTipsForFormation,
 )
@@ -69,41 +73,6 @@ from groundmodel.shared.constants.litho_constants import (
     LITHOLOGY_FALLBACK_COLOR,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _geo_contact_to_link(
-    litho_depth_m: float,
-    geo_contacts_at_inv: list[tuple[float, UUID, UUID]],
-    tolerance_m: float,
-) -> UUID | None:
-    """Return the geological contact id a litho contact at ``litho_depth_m``
-    should couple to, or None (#162).
-
-    Picks the geo contact whose depth is nearest ``litho_depth_m`` and within
-    ``tolerance_m``. Entries are ``(depth_m, formation_id, contact_id)``.
-
-    Parameters
-    ----------
-    litho_depth_m : float
-        The litho contact's ``depth_top_m``.
-    geo_contacts_at_inv : list[tuple[float, UUID, UUID]]
-        Geological contacts at the same investigation:
-        ``[(depth_top_m, formation_id, contact_id), ...]``.
-    tolerance_m : float
-        Maximum allowed depth difference for linking.
-
-    Returns
-    -------
-    UUID | None
-        The geo contact id to link to, or ``None`` when no contact is within
-        ``tolerance_m``.
-    """
-    best: tuple[float, UUID] | None = None
-    for depth, _fid, contact_id in geo_contacts_at_inv:
-        d = abs(depth - litho_depth_m)
-        if d <= tolerance_m and (best is None or d < best[0]):
-            best = (d, contact_id)
-    return best[1] if best is not None else None
 
 
 def _map_contact_source_to_layer(contact_source: str) -> str:
@@ -365,8 +334,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # Each entry is (depth_top_m, formation_id, contact_id).
         geology_contacts_at_inv: list[tuple[float, UUID, UUID]] = []
         if geology_model_id is not None:
-            geology_contacts_at_inv = await self._load_geology_contacts_at_inv(
-                geology_model_id, cpt_id=cpt_id, borehole_id=borehole_id
+            geology_contacts_at_inv = await load_geo_contacts_at_investigation(
+                self._session, geology_model_id, cpt_id=cpt_id, borehole_id=borehole_id
             )
             self.debug(
                 f"Loaded {len(geology_contacts_at_inv)} geology contact(s) for litho↔geo coupling"
@@ -465,7 +434,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             # a re-accept never silently snaps a geo contact a second
             # time if the litho depth has since been dragged.
             if was_created and geology_contacts_at_inv:
-                geo_contact_id = _geo_contact_to_link(
+                geo_contact_id = nearest_geo_contact_within_tolerance(
                     sug.depth_top_m, geology_contacts_at_inv, couple_tolerance_m
                 )
                 if geo_contact_id is not None:
@@ -759,44 +728,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
             litho_formations=litho_formations,
             existing_layers=existing_layers,
         )
-
-    async def _load_geology_contacts_at_inv(
-        self,
-        geology_model_id: UUID,
-        *,
-        cpt_id: UUID | None,
-        borehole_id: UUID | None,
-    ) -> list[tuple[float, UUID, UUID]]:
-        """Load depth-ordered contacts for an investigation in the geology model.
-
-        Used for litho↔geo coupling (#162 Task 3).
-
-        Parameters
-        ----------
-        geology_model_id : UUID
-        cpt_id : UUID | None
-        borehole_id : UUID | None
-
-        Returns
-        -------
-        list[tuple[float, UUID, UUID]]
-            ``[(depth_top_m, formation_id, contact_id), ...]`` ordered ascending
-            by depth.
-        """
-        stmt = select(
-            FormationContactOrm.depth_top_m,
-            FormationContactOrm.formation_id,
-            FormationContactOrm.id,
-        ).where(FormationContactOrm.model_id == geology_model_id)
-
-        if borehole_id is not None:
-            stmt = stmt.where(FormationContactOrm.borehole_id == borehole_id)
-        else:
-            stmt = stmt.where(FormationContactOrm.cpt_id == cpt_id)
-
-        stmt = stmt.order_by(FormationContactOrm.depth_top_m)
-        rows = (await self._session.execute(stmt)).all()
-        return [(row.depth_top_m, row.formation_id, row.id) for row in rows]
 
     async def _create_litho_formation(
         self,

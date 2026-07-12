@@ -33,9 +33,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.litho_geo_link_helpers import (
+    load_geo_contacts_at_investigation,
+    nearest_geo_contact_within_tolerance,
+)
 from groundmodel.domain.value_objects.formation_contact_result import FormationContactResult
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
@@ -116,7 +119,8 @@ class LinkLithoToGeo(GroundModelLogger):
             return None
 
         # --- Load geo contacts at the same investigation ---
-        geo_contacts = await self._load_geo_contacts_at_inv(
+        geo_contacts = await load_geo_contacts_at_investigation(
+            self._session,
             geology_model_id,
             borehole_id=contact.borehole_id,
             cpt_id=contact.cpt_id,
@@ -126,8 +130,10 @@ class LinkLithoToGeo(GroundModelLogger):
             f"at investigation for contact {contact_id}"
         )
 
-        # --- Pick the nearest within tolerance (mirrors _geo_contact_to_link) ---
-        geo_contact_id = _nearest_within_tolerance(contact.depth_top_m, geo_contacts, tolerance_m)
+        # --- Pick the nearest within tolerance (shared with accept-time link) ---
+        geo_contact_id = nearest_geo_contact_within_tolerance(
+            contact.depth_top_m, geo_contacts, tolerance_m
+        )
         if geo_contact_id is None:
             self.info(
                 f"LinkLithoToGeo: no geo contact within {tolerance_m}m of "
@@ -164,47 +170,6 @@ class LinkLithoToGeo(GroundModelLogger):
         )
         return FormationContactResult.from_orm(contact)
 
-    async def _load_geo_contacts_at_inv(
-        self,
-        geology_model_id: UUID,
-        *,
-        borehole_id: UUID | None,
-        cpt_id: UUID | None,
-    ) -> list[tuple[float, UUID, UUID]]:
-        """Load depth-ordered geological contacts at a specific investigation.
-
-        Mirrors ``AcceptLithoSuggestions._load_geology_contacts_at_inv``.
-
-        Parameters
-        ----------
-        geology_model_id : UUID
-            Parent geological model.
-        borehole_id : UUID | None
-            Borehole anchor (mutually exclusive with ``cpt_id``).
-        cpt_id : UUID | None
-            CPT anchor.
-
-        Returns
-        -------
-        list[tuple[float, UUID, UUID]]
-            ``[(depth_top_m, formation_id, contact_id), ...]`` ordered
-            ascending by depth.
-        """
-        stmt = select(
-            FormationContactOrm.depth_top_m,
-            FormationContactOrm.formation_id,
-            FormationContactOrm.id,
-        ).where(FormationContactOrm.model_id == geology_model_id)
-
-        if borehole_id is not None:
-            stmt = stmt.where(FormationContactOrm.borehole_id == borehole_id)
-        else:
-            stmt = stmt.where(FormationContactOrm.cpt_id == cpt_id)
-
-        stmt = stmt.order_by(FormationContactOrm.depth_top_m)
-        rows = (await self._session.execute(stmt)).all()
-        return [(row.depth_top_m, row.formation_id, row.id) for row in rows]
-
     async def _mark_geo_surface_stale(
         self,
         *,
@@ -240,38 +205,3 @@ class LinkLithoToGeo(GroundModelLogger):
                 f"LinkLithoToGeo: marked surface stale for "
                 f"(model={geology_model_id}, formation={formation_id})"
             )
-
-
-def _nearest_within_tolerance(
-    litho_depth_m: float,
-    geo_contacts: list[tuple[float, UUID, UUID]],
-    tolerance_m: float,
-) -> UUID | None:
-    """Return the geo contact id nearest to ``litho_depth_m`` within tolerance.
-
-    Mirrors the private ``_geo_contact_to_link`` helper in
-    ``accept_litho_suggestions.py`` so the linking logic is consistent
-    whether triggered automatically on accept or manually via this use case.
-
-    Parameters
-    ----------
-    litho_depth_m : float
-        The litho contact's ``depth_top_m``.
-    geo_contacts : list[tuple[float, UUID, UUID]]
-        Geological contacts at the same investigation:
-        ``[(depth_top_m, formation_id, contact_id), ...]``.
-    tolerance_m : float
-        Maximum allowed depth difference for linking.
-
-    Returns
-    -------
-    UUID | None
-        The geo contact id to link to, or ``None`` when no contact is within
-        ``tolerance_m``.
-    """
-    best: tuple[float, UUID] | None = None
-    for depth, _fid, contact_id in geo_contacts:
-        d = abs(depth - litho_depth_m)
-        if d <= tolerance_m and (best is None or d < best[0]):
-            best = (d, contact_id)
-    return best[1] if best is not None else None
