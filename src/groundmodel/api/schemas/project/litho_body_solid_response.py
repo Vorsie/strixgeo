@@ -44,7 +44,7 @@ class LithoBodySolidResponse(BaseModel):
         flagged slab.
     is_stale : bool
         ``True`` when a contact mutation has invalidated the cached
-        solid since the last ``POST .../litho-solids/rebuild``.  The
+        solid since the last ``POST .../litho-solids/build-voxel``.  The
         3-D viewer renders stale solids at reduced opacity.
     is_flagged : bool
         ``True`` when the builder detected a structural anomaly (fewer

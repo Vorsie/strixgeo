@@ -12,9 +12,9 @@ This test verifies the invariant end-to-end for the public API surface:
 * A 2x2x2 single-body cube → every returned mesh has ``is_flagged=False``.
 * A two-body grid (each body 1 cell) → both meshes have ``is_flagged=False``.
 
-``is_flagged=True`` IS emitted by ``RecomputeLithoSolids._handle_flag_all``
-(the strat-builder fall-back path) — that path is exercised in
-``tests/integration/db/test_flagged_bodies.py`` (T-A integration).
+``is_flagged=True`` could only be emitted by the retired strat-field
+builder's ``_handle_flag_all`` fall-back (deleted with #237 — git history);
+on the voxel path the column is structurally always ``False``.
 
 How to verify this test has teeth: if ``extract_body_solids`` were modified to
 set ``is_flagged=True`` on any body, the assertions below would immediately
@@ -118,9 +118,9 @@ def test_empty_body_label_is_skipped_not_flagged() -> None:
     """A body index that labels no voxel is silently skipped (no mesh emitted).
 
     ``extract_body_solids`` skips body indices with ``present.any() == False``
-    rather than emitting an empty flagged placeholder.  The flag-all path
-    (is_flagged=True empty rows) is a persistence-layer concern in
-    ``RecomputeLithoSolids``, NOT a mesher concern.
+    rather than emitting an empty flagged placeholder — an empty flagged row
+    was a persistence-layer concern of the retired strat builder, NOT a
+    mesher concern.
     """
     # Body 0 occupies all cells; body 1 is registered but labels no cell.
     labels = np.zeros((1, 1, 1), dtype=np.intp)  # only body 0

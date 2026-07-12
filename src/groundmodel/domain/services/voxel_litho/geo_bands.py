@@ -59,8 +59,8 @@ def band_of(
     ``len(surfaces)`` is below every surface.  A point exactly on a surface
     boundary belongs to the DEEPER band (strict ``>``).
 
-    This is a thin wrapper over the canonical count rule ported from
-    :func:`~groundmodel.domain.services.strat_field.geo_blocks._band_index`
+    This is a thin wrapper over the canonical count rule (ported from the
+    retired strat-field builder's ``geo_blocks._band_index`` — git history)
     and accepts a tuple so callers do not need to pass a mutable list.
 
     It evaluates each surface's TIN at ``(x, y)`` once and delegates to
