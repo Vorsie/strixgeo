@@ -1817,28 +1817,6 @@ export const geologyClient = {
   ): Promise<UpsertFormationAbsenceResponse> =>
     post(`/projects/${projectId}/geology/formations/${formationId}/absences`, body),
 
-  recomputeFormationAbsences: (
-    projectId: string,
-    modelId: string,
-    formationId: string,
-  ): Promise<{ written_count: number; retracted_count: number; skipped_no_data_count: number }> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/formations/${formationId}/absences/recompute`,
-      {},
-    ),
-
-  recomputeAllAbsences: (
-    projectId: string,
-    modelId: string,
-  ): Promise<{
-    formations_processed: number
-    total_written: number
-    total_retracted: number
-    total_wedge_tips_created: number
-    total_wedge_tips_deleted: number
-  }> =>
-    post(`/projects/${projectId}/geology/models/${modelId}/recompute-all-absences`, {}),
-
   createPerpendicularCompanion: (
     projectId: string,
     modelId: string,

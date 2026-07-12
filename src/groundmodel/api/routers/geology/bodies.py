@@ -30,7 +30,6 @@ under the shared geology prefix for historical reasons):
 
 GET  /formations/{formation_id}/absences
 POST /formations/{formation_id}/absences
-POST /models/{mid}/formations/{formation_id}/absences/recompute
 POST /models/{mid}/recompute-all-absences
 """
 
@@ -72,9 +71,6 @@ from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
-from groundmodel.application.recompute_formation_absences_for_body import (
-    RecomputeFormationAbsencesForBody,
-)
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
 from groundmodel.domain.services.body_geo_label import majority_geo_formation
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
@@ -803,87 +799,6 @@ async def upsert_formation_absence(
         absence_id=result.absence_id,
         was_created=result.was_created,
     )
-
-
-# ---------------------------------------------------------------------------
-# Formation absence — recompute for one body
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/models/{model_id}/formations/{formation_id}/absences/recompute",
-    status_code=status.HTTP_200_OK,
-)
-async def recompute_formation_absences(
-    project_id: UUID,
-    model_id: UUID,
-    formation_id: UUID,
-    body_ordinal: int = 0,
-    section_id: UUID | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    """Re-run the inference engine for a body and apply the delta.
-
-    Idempotent — safe to call multiple times.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        The lithostratigraphic model that owns the body.
-    formation_id : UUID
-        The formation whose body is being re-evaluated.
-    body_ordinal : int
-        Zero-based ordinal from the resolver (defaults to 0).
-    section_id : UUID | None
-        Section that defines the corridor.  Required.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    dict
-        ``written``, ``retracted``, ``skipped_no_data`` counts.
-
-    Raises
-    ------
-    HTTPException(404)
-        When the model does not belong to the project.
-    HTTPException(422)
-        When ``section_id`` is missing or the formation is not found.
-    """
-    await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-
-    if section_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "missing_section_id", "message": "section_id is required"},
-        )
-
-    try:
-        result = await RecomputeFormationAbsencesForBody(session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            formation_id=formation_id,
-            body_ordinal=body_ordinal,
-            section_id=section_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "recompute_error", "message": str(exc)},
-        ) from exc
-
-    return {
-        "written": result.written_count,
-        "retracted": result.retracted_count,
-        "skipped_no_data": result.skipped_no_data_count,
-    }
 
 
 # ---------------------------------------------------------------------------
