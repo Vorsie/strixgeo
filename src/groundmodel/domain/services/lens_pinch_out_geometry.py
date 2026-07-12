@@ -263,7 +263,8 @@ def compute_lens_pinch_tip(
         have ``along_m < absent_along_m``).
         ``'left'`` means the wedge approaches from the RIGHT (present contacts
         have ``along_m > absent_along_m``).
-        Matches the convention used by ``ExtrapolatePinchOut``.
+        The direction names the side the TIP points toward, not the side
+        the present contacts sit on.
 
     Returns
     -------

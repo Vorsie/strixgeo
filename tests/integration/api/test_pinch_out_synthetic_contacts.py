@@ -1,8 +1,8 @@
 """Integration: synthetic pinch-out contacts persist + feed the TIN.
 
 Covers the novel integration risks of the pinch-out slice that unit
-tests cannot reach (the pure crossing geometry is unit-tested in
-``tests/unit/domain/test_pinch_out_geometry.py``):
+tests cannot reach (the pure wedge-tip geometry is unit-tested in
+``tests/unit/domain/services/test_lens_pinch_out_geometry.py``):
 
 1. the migrated ``formation_contact_anchor_xor`` CHECK accepts a
    synthetic-only row (no borehole, no CPT, synthetic_x/y/elev set);

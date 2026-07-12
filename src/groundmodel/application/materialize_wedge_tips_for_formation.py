@@ -77,9 +77,12 @@ from groundmodel.infrastructure.gis.section_projection import (
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Perpendicular offset for the Delaunay-collinearity-breaking twin contact.
-# Mirrors ``DEFAULT_PINCH_OUT_OFFSET_M`` in ``pinch_out_constants.py`` but
-# kept local so ``MaterializeWedgeTipsForFormation`` does not depend on a
-# manual-pinch-out constant that may change independently.
+# WHY 1.0 m: large enough to break Delaunay collinearity (compute_tin
+# collapses collinear/duplicate (x, y) points silently, so without the
+# offset the tip contact and the section-line contact share the same
+# (x, y) in the TIN and the wedge degenerates to a point), yet small
+# enough to be geologically negligible — well within normal CPT/borehole
+# positioning uncertainty at any project scale.
 _TWIN_OFFSET_M: float = 1.0
 
 # Lateral buffer (metres) used to decide whether a section's corridor
