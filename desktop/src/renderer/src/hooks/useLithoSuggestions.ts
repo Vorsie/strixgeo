@@ -168,6 +168,46 @@ export type AcceptLithoUndoOp = {
   acceptedEntries: ReadonlyArray<{ anchorId: string; idx: number }>
 }
 
+// ---- Module-local helpers --------------------------------------------------
+
+/**
+ * Overlay a user edit onto a raw suggestion layer — the depth/composition
+ * merge shared by the single-anchor effective lookup and both bulk accept
+ * paths. Returns ``raw`` unchanged when there is no edit.
+ *
+ * Parameters
+ * ----------
+ * raw : LithoLayerSuggestion
+ *     The segmenter's original suggestion layer.
+ * edit : LithoSuggestionEdit | undefined
+ *     The user's pending edit for that index, if any.
+ *
+ * Returns
+ * -------
+ * LithoLayerSuggestion
+ *     The effective layer — raw with edited depths / composition applied.
+ */
+function applyEditToSuggestion(
+  raw: LithoLayerSuggestion,
+  edit: LithoSuggestionEdit | undefined,
+): LithoLayerSuggestion {
+  if (!edit) return raw
+  return {
+    ...raw,
+    depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
+    depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
+    // Composition overrides (Phase 2.5 / debt #72). Lithology cast
+    // safe — the editor's dropdown is constrained to BaseLithology
+    // codes (ZAND / KLEI / SILT / GRIND / VEEN).
+    suggested_lithology:
+      (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
+      raw.suggested_lithology,
+    suggested_admixtures: edit.suggested_admixtures
+      ? edit.suggested_admixtures.map(a => ({ ...a }))
+      : raw.suggested_admixtures,
+  }
+}
+
 // ---- Hook ------------------------------------------------------------------
 
 /**
@@ -351,22 +391,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     (idx: number): LithoLayerSuggestion | null => {
       const layer = lithoSuggestions[idx]
       if (layer === undefined) return null
-      const edit = lithoSuggestionEdits.get(idx)
-      if (!edit) return layer
-      return {
-        ...layer,
-        depth_top_m: edit.depth_top_m ?? layer.depth_top_m,
-        depth_base_m: edit.depth_base_m ?? layer.depth_base_m,
-        // Composition overrides (Phase 2.5 / debt #72). Lithology
-        // cast safe — the editor's dropdown is constrained to
-        // BaseLithology codes (ZAND / KLEI / SILT / GRIND / VEEN).
-        suggested_lithology:
-          (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
-          layer.suggested_lithology,
-        suggested_admixtures: edit.suggested_admixtures
-          ? edit.suggested_admixtures.map(a => ({ ...a }))
-          : layer.suggested_admixtures,
-      }
+      return applyEditToSuggestion(layer, lithoSuggestionEdits.get(idx))
     },
     [lithoSuggestions, lithoSuggestionEdits],
   )
@@ -1435,21 +1460,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       // single; the accept logic is identical either way.
       const ghost = ghostsByAnchor.get(anchorId)
       if (!ghost || idx < 0 || idx >= ghost.suggestions.length) return
-      const raw = ghost.suggestions[idx]
-      const edit = ghost.edits.get(idx)
-      const layer = edit
-        ? {
-            ...raw,
-            depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
-            depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
-            suggested_lithology:
-              (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
-              raw.suggested_lithology,
-            suggested_admixtures: edit.suggested_admixtures
-              ? edit.suggested_admixtures.map(a => ({ ...a }))
-              : raw.suggested_admixtures,
-          }
-        : raw
+      const layer = applyEditToSuggestion(ghost.suggestions[idx], ghost.edits.get(idx))
       try {
         const body = buildLithoAcceptBody({
           anchorKind: ghost.kind,
@@ -1553,23 +1564,9 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           .filter(i => !ghost.rejected.has(i))
         if (pendingIndices.length === 0) continue
         // Apply per-index edits — depth + composition overrides (#72).
-        const pendingLayers = pendingIndices.map(i => {
-          const raw = ghost.suggestions[i]
-          const edit = ghost.edits.get(i)
-          return edit
-            ? {
-                ...raw,
-                depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
-                depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
-                suggested_lithology:
-                  (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
-                  raw.suggested_lithology,
-                suggested_admixtures: edit.suggested_admixtures
-                  ? edit.suggested_admixtures.map(a => ({ ...a }))
-                  : raw.suggested_admixtures,
-              }
-            : raw
-        })
+        const pendingLayers = pendingIndices.map(i =>
+          applyEditToSuggestion(ghost.suggestions[i], ghost.edits.get(i)),
+        )
         plans.push({
           anchorId,
           pendingIndices,
