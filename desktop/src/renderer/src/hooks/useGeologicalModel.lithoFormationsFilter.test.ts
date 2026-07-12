@@ -59,7 +59,6 @@ vi.mock('../api/client', () => ({
       suggestBoreholeFormations: vi.fn(),
       buildGroundSurface: vi.fn(),
       exportSectionPlaxis2d: vi.fn(),
-      seedLithoFromParent: vi.fn(),
       acceptLithoSuggestions: vi.fn(),
       listLithoSolids: vi.fn().mockResolvedValue([]),
       rebuildLithoSolids: vi.fn().mockResolvedValue({ bodies_built: 0, bodies_flagged: 0, bodies_considered: 0, bodies_skipped_checksum: 0, orphans_deleted: 0, solids: [] }),

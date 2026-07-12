@@ -45,8 +45,6 @@ export interface UseGeologicalModelOpsParams {
   project: ProjectResponse | null
   /** The active geological model. */
   activeGeologicalModel: GeologicalModelResponse | null
-  /** The active lithostratigraphic model (needed by handleSeedLithoFromParent). */
-  activeLithoModel: GeologicalModelResponse | null
   /** Composer-owned formation list (read by handleDeleteModel). */
   formations: GeologicalFormationResponse[]
   /** Persisted lumping snapshot — null when no Apply has been committed. */
@@ -90,11 +88,6 @@ export interface UseGeologicalModelOpsResult {
     sectionId?: string | null,
     onSectionUpdated?: (updated: CrossSectionResponse) => void,
   ) => Promise<void>
-  handleSeedLithoFromParent: (
-    boreholeIds: readonly string[],
-    sectionId?: string | null,
-    onSectionUpdated?: (updated: CrossSectionResponse) => void,
-  ) => Promise<void>
   handleDedupeContacts: () => Promise<number>
   handleRebuildSurfaces: () => Promise<void>
   handleExportModelPlaxis3d: () => Promise<void>
@@ -119,7 +112,6 @@ export interface UseGeologicalModelOpsResult {
 export function useGeologicalModelOps({
   project,
   activeGeologicalModel,
-  activeLithoModel,
   formations,
   currentLumping,
   addToManifest,
@@ -339,63 +331,6 @@ export function useGeologicalModelOps({
       addToManifest,
       pushUndo,
     ],
-  )
-
-  // Seed the active lithostratigraphic model from its parent geological
-  // model's contacts.  Mirrors the structure of handleAutoPopulateFromStratigraphy
-  // but closes over activeLithoModel instead of activeGeologicalModel.
-  // No undo entry — seeded contacts are idempotent tombstones; the user
-  // removes unwanted ones via the Sections editor (one-by-one delete).
-  const handleSeedLithoFromParent = useCallback(
-    async (
-      boreholeIds: readonly string[],
-      sectionId?: string | null,
-      onSectionUpdated?: (updated: CrossSectionResponse) => void,
-    ): Promise<void> => {
-      if (!project || !activeLithoModel) return
-      if (boreholeIds.length === 0) return
-      log.debug(
-        'geology',
-        `seedLithoFromParent entry model=${activeLithoModel.id} boreholes=${boreholeIds.length}` +
-          (sectionId ? ` section=${sectionId}` : ''),
-      )
-      try {
-        const outcome = await api.geology.seedLithoFromParent(
-          project.id,
-          activeLithoModel.id,
-          boreholeIds,
-          sectionId,
-        )
-        // Patch local section state when the server echoed an updated section row.
-        if (outcome.updated_section != null && onSectionUpdated != null) {
-          onSectionUpdated(outcome.updated_section)
-          log.debug(
-            'geology',
-            `seedLithoFromParent: section ${sectionId} seeded set applied locally`,
-          )
-        }
-        // Refresh litho state — the simplest path to consistency;
-        // new contacts were inserted server-side, mirror trigger keeps
-        // litho_layer in sync. refetchLithoContacts pulls /layers and
-        // updates both lithoLayers + lithoContacts (A3a).
-        refetchLithoContacts()
-        addToSessionImports('contact', outcome.created_contact_ids)
-        const created = outcome.created_contact_ids.length
-        log.success(
-          'geology',
-          `seedLithoFromParent ok +${created} contacts, skipped ${outcome.skipped_existing} existing`,
-        )
-        if (created > 0) {
-          toast('success', `Seeded ${created} contacts from geological model.`)
-        } else {
-          toast('success', 'Already in sync — nothing to add.')
-        }
-      } catch (err) {
-        log.error('geology', 'seedLithoFromParent failed', err)
-        toast('error', 'Could not seed contacts from geological model.')
-      }
-    },
-    [project, activeLithoModel, addToSessionImports],
   )
 
   // One-shot cleanup for legacy duplicate (anchor, formation)
@@ -649,7 +584,6 @@ export function useGeologicalModelOps({
 
   return {
     handleAutoPopulateFromStratigraphy,
-    handleSeedLithoFromParent,
     handleDedupeContacts,
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,

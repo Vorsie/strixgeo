@@ -395,20 +395,6 @@ export interface UseGeologicalModelResult {
     sectionId?: string | null,
     onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
   ) => Promise<void>
-  /**
-   * Seed the active lithostratigraphic model from its parent geological model's
-   * contacts.  Copies each parent contact with source='geological_model_seed'
-   * and confidence='medium'.  Idempotent — re-running skips existing pairs.
-   *
-   * When called from the Sections stage, pass ``sectionId`` and
-   * ``onSectionUpdated`` so the server seeds the section's explicit-content
-   * set and local section state is patched without a refetch.
-   */
-  handleSeedLithoFromParent: (
-    boreholeIds: readonly string[],
-    sectionId?: string | null,
-    onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
-  ) => Promise<void>
   handleDedupeContacts: () => Promise<number>
   handleRebuildSurfaces: () => Promise<void>
   handleExportModelPlaxis3d: () => Promise<void>
@@ -1633,7 +1619,6 @@ export function useGeologicalModel({
   // the original file but belongs in this cluster logically.
   const {
     handleAutoPopulateFromStratigraphy,
-    handleSeedLithoFromParent,
     handleDedupeContacts,
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,
@@ -1642,7 +1627,6 @@ export function useGeologicalModel({
   } = useGeologicalModelOps({
     project,
     activeGeologicalModel,
-    activeLithoModel,
     formations,
     currentLumping,
     addToManifest,
@@ -2356,7 +2340,6 @@ export function useGeologicalModel({
     handleUnlinkLithoFromGeo,
     handleLinkLithoToGeo,
     handleAutoPopulateFromStratigraphy,
-    handleSeedLithoFromParent,
     handleDedupeContacts,
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,

@@ -165,7 +165,6 @@ function makeStubContext(): ShellContextValue {
       handleUnlinkLithoFromGeo: noopAsync,
       handleLinkLithoToGeo: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
-      handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,

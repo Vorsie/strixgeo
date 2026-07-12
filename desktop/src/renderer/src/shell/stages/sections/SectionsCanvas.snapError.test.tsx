@@ -325,7 +325,6 @@ function makeLithoCtx(mockHandleUpdateContactDepth: UpdateDepthFn): ShellContext
       handleRejectLithoSuggestion: vi.fn(),
       handleUnrejectLithoSuggestion: vi.fn(),
       clearLithoSuggestions: vi.fn(),
-      handleSeedLithoFromParent: noopAsync,
       handleDeleteLithoModel: noopAsync,
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,

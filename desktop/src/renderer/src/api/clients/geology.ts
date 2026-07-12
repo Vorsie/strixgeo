@@ -589,18 +589,6 @@ export interface AutoPopulateFromStratigraphyResponse {
   updated_section: CrossSectionResponse | null
 }
 
-/**
- * Response from ``POST .../contacts/seed-from-parent``.
- *
- * ``updated_section`` is non-null only when ``section_id`` was provided in
- * the request.
- */
-export interface SeedLithoFromParentResponse {
-  created_contact_ids: string[]
-  skipped_existing: number
-  updated_section: CrossSectionResponse | null
-}
-
 /** One candidate formation returned by discover-from-stratigraphy. */
 export interface FormationCandidateItem {
   /** Working display name (informal description preferred; formal as fallback). */
@@ -1404,21 +1392,6 @@ export const geologyClient = {
         ...(createMissingFormations === false
           ? { create_missing_formations: false }
           : {}),
-      },
-    ),
-
-  // Seed a lithostratigraphic model from its parent geological model's contacts.
-  seedLithoFromParent: (
-    projectId: string,
-    modelId: string,
-    boreholeIds: readonly string[],
-    sectionId?: string | null,
-  ): Promise<SeedLithoFromParentResponse> =>
-    post(
-      `/projects/${projectId}/geology/models/${modelId}/layers/seed-from-parent`,
-      {
-        borehole_ids: boreholeIds,
-        ...(sectionId != null ? { section_id: sectionId } : {}),
       },
     ),
 
