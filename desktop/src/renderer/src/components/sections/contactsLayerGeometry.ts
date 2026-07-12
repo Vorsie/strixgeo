@@ -33,7 +33,7 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
-import { nadClassName } from '../../utils/nadClasses'
+import { nadClassColor, nadClassName } from '../../utils/nadClasses'
 import type { SectionLine2D } from '../../utils/sliceTin'
 import { columnMaxDepthM, type PlacedColumn } from './utils'
 
@@ -394,6 +394,39 @@ export function formationDisplayLabel(formation: GeologicalFormationResponse): s
     return formatLithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
   }
   return formation.name ?? formation.regional_ref ?? ''
+}
+
+/**
+ * The geotech-axis display override for a formation — the SINGLE
+ * source of the NAD name/colour rule shared by ``labelFormations``
+ * (band labels) and the per-column litho-band maps in ContactsLayer.
+ *
+ * On the geotechnical axis a classified formation displays as its NAD
+ * packing class: name = ``nadClassName(nad_class)`` (falling back to
+ * the formation name while unclassified — ``nadClassName(null)``
+ * yields ``""``), colour = ``nadClassColor(nad_class)`` (the packing
+ * density ramp, matching the fill overlay). On every other axis the
+ * stored ``name`` / ``color`` pass through unchanged.
+ *
+ * Note the colour override is opt-in per call site: the band-label
+ * path keeps the stored formation colour for label contrast and only
+ * consumes ``name``.
+ *
+ * @param formation  The formation to display.
+ * @param axisMode   The section's model axis.
+ * @returns  The display ``name`` and ``color`` for that axis.
+ */
+export function geotechDisplayFormation(
+  formation: GeologicalFormationResponse,
+  axisMode: 'geological' | 'lithostratigraphic' | 'geotechnical',
+): { name: string; color: string } {
+  if (axisMode !== 'geotechnical') {
+    return { name: formation.name, color: formation.color }
+  }
+  return {
+    name: nadClassName(formation.nad_class ?? null) || formation.name,
+    color: nadClassColor(formation.nad_class ?? null),
+  }
 }
 
 export function computeSlabsAndPolylines(

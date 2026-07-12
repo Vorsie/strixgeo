@@ -60,12 +60,13 @@ import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
 import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
-import { nadClassColor, nadClassName, nadCompactFromName } from '../../utils/nadClasses'
+import { nadCompactFromName } from '../../utils/nadClasses'
 import { isTypingTarget } from '../../utils/keyboard'
 import {
   clamp,
   columnUnderCursor,
   computeSlabsAndPolylines,
+  geotechDisplayFormation,
   subtractGhosts,
   surfaceYForColumn,
   truncateToWidth,
@@ -782,15 +783,14 @@ export default function ContactsLayer({
   // ``levelToScreen`` / ``plotTop`` / ``plotBottom`` from the deps so
   // vertical pan / zoom keeps this memo cached. Debt #29.
   // On the GEOTECH axis the band labels are the NAD packing-class name (e.g.
-  // "SAND, dense") instead of the lithology, but ONLY once subdivision has run:
-  // a formation with no nad_class (not yet classified) yields ``""`` from
-  // nadClassName, so it falls back to the lithology name. Override only ``name``
-  // (the label text) — ``color`` stays the formation colour so the label keeps
-  // its contrast against the band.
+  // "SAND, dense") instead of the lithology, but ONLY once subdivision has run
+  // (see ``geotechDisplayFormation``). Override only ``name`` (the label text)
+  // — ``color`` stays the formation colour so the label keeps its contrast
+  // against the band.
   const labelFormations = useMemo(
     () =>
       axisMode === 'geotechnical'
-        ? formations.map(f => ({ ...f, name: nadClassName(f.nad_class ?? null) || f.name }))
+        ? formations.map(f => ({ ...f, name: geotechDisplayFormation(f, axisMode).name }))
         : formations,
     [formations, axisMode],
   )
@@ -1176,19 +1176,13 @@ export default function ContactsLayer({
     // base lithology colour (every sand the same yellow), so reading it directly
     // made the column disagree with the NAD-coloured fill beside it.
     const colorById = new Map(
-      formations.map(f => [
-        f.id,
-        axisMode === 'geotechnical' ? nadClassColor(f.nad_class ?? null) : f.color,
-      ]),
+      formations.map(f => [f.id, geotechDisplayFormation(f, axisMode).color]),
     )
     // Geotech: the band's menu label ("Remove this … unit") is the NAD packing
     // name once classified, matching the visible band label; null nad_class
     // falls back to the lithology name.
     const nameById = new Map(
-      formations.map(f => [
-        f.id,
-        axisMode === 'geotechnical' ? nadClassName(f.nad_class ?? null) || f.name : f.name,
-      ]),
+      formations.map(f => [f.id, geotechDisplayFormation(f, axisMode).name]),
     )
     const out: LithoBand[] = []
     for (const col of placedColumns) {
