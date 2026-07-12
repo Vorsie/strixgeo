@@ -210,37 +210,6 @@ class DovClient(GroundModelLogger):
         self.info(f"DOV WFS: {len(entries)} unique CPTs found in bbox")
         return entries
 
-    async def fetch_bbox(
-        self,
-        west: float,
-        south: float,
-        east: float,
-        north: float,
-    ) -> list[tuple[str, bytes]]:
-        """Return (name, xml_bytes) for every CPT within the WGS84 bounding box.
-
-        Parameters
-        ----------
-        west, south, east, north : float
-            Bounding box corners in WGS84 decimal degrees.
-
-        Returns
-        -------
-        list[tuple[str, bytes]]
-            (sondeernummer, xml_bytes) pairs — one per CPT successfully downloaded.
-        """
-        index = await self.fetch_wfs_index(west, south, east, north)
-        if not index:
-            return []
-
-        url_to_name: dict[str, str] = {e.xml_url: e.name for e in index}
-        results = await self._download_all(url_to_name)
-        self.info(
-            f"DOV downloads: {len(results)} succeeded, "
-            f"{len(index) - len(results)} failed out of {len(index)} total"
-        )
-        return results
-
     async def fetch_bbox_processed(
         self,
         west: float,
@@ -253,7 +222,7 @@ class DovClient(GroundModelLogger):
         progress_cb: ProgressCallback | None = None,
         pool: ProcessPoolExecutor | None = None,
     ) -> list[tuple[str, _T]]:
-        """Same as fetch_bbox but runs *process(xml_bytes, name)* on each download.
+        """Download every CPT in the bbox, running *process(xml_bytes, name)* on each.
 
         Why this exists: parsing 200+ XMLs sequentially after they all downloaded
         was costing 8+ extra seconds. Running process inside each download task
@@ -591,49 +560,3 @@ class DovClient(GroundModelLogger):
             )
 
         return tuples
-
-    # ------------------------------------------------------------------
-    # XML downloads (legacy non-streaming path; kept for fetch_bbox)
-    # ------------------------------------------------------------------
-
-    async def _download_all(self, url_to_name: dict[str, str]) -> list[tuple[str, bytes]]:
-        """Download XML for every entry, bounded by DOV_DOWNLOAD_PARALLELISM."""
-        self.info(
-            f"DOV: downloading {len(url_to_name)} XML files "
-            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel)"
-        )
-        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
-        tasks = [self._download_one(xml_url, name, sem) for xml_url, name in url_to_name.items()]
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        out: list[tuple[str, bytes]] = []
-        for (xml_url, name), result in zip(url_to_name.items(), raw_results):
-            if isinstance(result, BaseException):
-                self.error(
-                    f"DOV: XML download failed for '{name}'  "
-                    f"url={xml_url}  error={type(result).__name__}: {result}"
-                )
-            else:
-                self.trace(f"DOV: downloaded '{name}' ({len(result)} bytes)")
-                out.append((name, result))
-        return out
-
-    async def _download_one(self, xml_url: str, name: str, sem: asyncio.Semaphore) -> bytes:
-        self.trace(f"DOV: fetching {xml_url}")
-        async with sem:
-            try:
-                # The httpx client is configured by the caller with follow_redirects=True;
-                # this URL 302-redirects to /xdov/proxy/export/sondering/{permkey}.
-                resp = await self._http.get(xml_url)
-            except httpx.RequestError as exc:
-                self.error(f"DOV: network error fetching '{name}' ({xml_url}): {exc}")
-                raise
-
-            if not resp.is_success:
-                self.error(
-                    f"DOV: HTTP {resp.status_code} for '{name}'  "
-                    f"url={xml_url}  body={resp.text[:200]!r}"
-                )
-                resp.raise_for_status()
-
-            return resp.content
