@@ -368,7 +368,7 @@ See [docs/parsers-dov.md](docs/parsers-dov.md) for the full reference: 5-phase p
 
 ## Job System
 
-See `domain/models/job.py` (Job, JobStatus) and `application/queue.py` (TaskQueue ABC, SynchronousQueue).
+See `domain/models/job.py` (Job, JobStatus), `application/task_queue.py` (TaskQueue ABC), and `application/synchronous_queue.py` (SynchronousQueue).
 
 MVP uses `SynchronousQueue` (inline execution). When load justifies it, swap for `RQQueue` or `CeleryQueue` — nothing else changes. Do not add a broker until there is a demonstrated need.
 

@@ -11,23 +11,21 @@ Strix/
 ├── src/groundmodel/
 │   ├── domain/
 │   │   ├── models/
-│   │   │   ├── base/          insitu_test.py, investigation_point.py
-│   │   │   ├── pushed/        cpt.py, dmt.py
-│   │   │   ├── borehole/      borehole.py, sample.py, borehole_test.py,
+│   │   │   ├── borehole/      borehole.py, sample.py,
 │   │   │   │                  observation.py, observation_layer.py,
 │   │   │   │                  drill_segment.py, field_log_interval.py
 │   │   │   ├── lab/           lab_test.py, grain_size.py, atterberg_limits.py,
 │   │   │   │                  caco3_content.py, organic_content.py, water_content.py,
 │   │   │   │                  scalar_lab_test.py    ← catch-all family
-│   │   │   ├── monitoring/    piezometer.py, inclinometer.py
-│   │   │   └── job.py         Job + JobStatus
-│   │   ├── services/          cpt_interpretation.py, cpt_corrections.py, ec7/
+│   │   │   └── job.py         Job + JobStatus (job_status.py)
+│   │   ├── services/          cpt_interpretation.py, cpt_corrections.py
 │   │   └── value_objects/     depth.py, coordinate.py, unit_weight_profile.py,
 │   │                          observation_type.py, field_log_kind.py, admixture.py,
 │   │                          derived_value_source.py
 │   ├── application/           import_cpt.py, import_cpt_dov.py,
 │   │                          import_borehole_dov.py, import_borehole_dov_result.py,
-│   │                          export_project.py, run_interpretation.py, queue.py
+│   │                          run_interpretation.py, task_queue.py,
+│   │                          synchronous_queue.py
 │   ├── infrastructure/
 │   │   ├── db/                models/         cpt_orm.py, cpt_series_orm.py,
 │   │   │                                      borehole_orm.py, drill_segment_orm.py,
@@ -62,7 +60,7 @@ Strix/
 │   │   │                      dem_provider_factory.py (build_dem_provider,
 │   │   │                      NoDemProviderError), dem_tile_cache.py,
 │   │   │                      dhmvii_sampler.py (WCS multipart + line sampler)
-│   │   ├── gis/               postgis_service.py, spatial_query.py
+│   │   ├── gis/               spatial_query.py
 │   │   ├── codelists/         g3dv3_catalog.py — Flanders stratigraphy
 │   │   │                      lookup; data/ has the DOV CSVs (hoofdnaam,
 │   │   │                      kleur, consistentie), G3Dv3 xlsx sources +
