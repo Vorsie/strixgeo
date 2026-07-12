@@ -5408,7 +5408,7 @@ function mergeSplitBodyRegions(
   for (let i = 0; i < regions.length; i++) {
     const r = regions[i]
     if (r.kind === 'lens' || !r.bodyId) continue
-    const key = `${r.gapIndex} ${r.bodyId}`
+    const key = `${r.gapIndex}\u0000${r.bodyId}`
     const g = groups.get(key)
     if (g) g.push(i)
     else groups.set(key, [i])
