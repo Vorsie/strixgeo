@@ -898,15 +898,14 @@ describe('Manual litho unit creation â€” handleManualLithoUnitCreate (direc
       capturedOnManualLithoUnitCreate!('ZAND', [], 'borehole', 'bh-1', 5.5),
     )
 
-    // (a) acceptLithoSuggestions called with section_id (real seed); no
-    //     create_formation_only flag â€” the backend creates the contact.
-    //     No surrounding litho contact exists in this stub context, so
-    //     only ONE call fires (no restoration needed).
+    // (a) acceptLithoSuggestions called with section_id (real seed) — the
+    //     backend creates the contact. No surrounding litho contact exists
+    //     in this stub context, so only ONE call fires (no restoration
+    //     needed).
     expect(mockAcceptLithoSuggestions).toHaveBeenCalledTimes(1)
     const [, , payload] = mockAcceptLithoSuggestions.mock.calls[0]
     expect(payload.borehole_id).toBe('bh-1')
     expect(payload.section_id).toBe('sec-1')
-    expect(payload.create_formation_only).toBeUndefined()
     expect(payload.suggestions).toHaveLength(1)
     expect(payload.suggestions[0].suggested_lithology).toBe('ZAND')
     expect(payload.suggestions[0].source).toBe('manual_pick')

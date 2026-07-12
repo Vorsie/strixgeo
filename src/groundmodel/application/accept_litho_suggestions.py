@@ -260,7 +260,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
         borehole_id: UUID | None = None,
         section_id: UUID | None = None,
         defer_inference: bool = False,
-        create_formation_only: bool = False,
         commit: bool = True,
         batch_ctx: BatchAcceptContext | None = None,
         couple_tolerance_m: float = 0.20,
@@ -287,8 +286,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         section_id : UUID | None
             When provided, union all created + found contact ids into this
             section's ``seeded_formation_contact_ids`` (explicit-content
-            invariant).  Ignored when ``create_formation_only=True`` because
-            no contacts are created.
+            invariant).
         defer_inference : bool
             When ``True``, skip the R7 inference + wedge-tip pass at the end
             of this call.  Contact-commit and section-seed still run.  The
@@ -296,22 +294,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
             ``RecomputeAllAbsencesForModel`` once after the full batch of
             deferred accepts.  Defaults to ``False`` (original per-accept
             behaviour).
-        create_formation_only : bool
-            When ``True``, find-or-create the litho formation row(s) for each
-            suggestion (same parent-inference + find-or-create key logic as the
-            normal path) but do NOT create any ``FormationContact`` row and do
-            NOT seed ``seeded_formation_contact_ids`` on the section.
-            ``depth_top_m`` / ``depth_base_m`` are still used for parent-
-            formation inference (TIN sampling at the anchor's x/y + depth).
-            Returns the formation ids; ``created_contact_ids`` and
-            ``found_contact_ids`` are always empty.
-
-            Use case: the "Add new unit" ghost flow — create the formation
-            before the user drags the ghost, so the normal ghost-accept
-            (``create_formation_only=False``) finds it by the find-or-create
-            key rather than creating a duplicate (Bug 2 dogfeed 2026-05-26).
-
-            Default ``False`` preserves the original per-accept behaviour.
         commit : bool
             When ``True`` (the default) the session is committed at the end of
             this call.  Pass ``False`` when a caller wraps multiple accepts in
@@ -356,7 +338,6 @@ class AcceptLithoSuggestions(GroundModelLogger):
             f"AcceptLithoSuggestions.execute: litho_model={litho_model_id}, "
             f"{'cpt' if cpt_id else 'borehole'}={cpt_id or borehole_id}, "
             f"{len(suggestions)} suggestion(s)"
-            + (" [create_formation_only]" if create_formation_only else "")
         )
 
         # Accept is a verbatim copy of the suggestion shape (#149 v2,
@@ -451,85 +432,73 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     f"{sug.suggested_lithology} sig='{sig}'"
                 )
 
-            # Find-or-create the contact — skipped when create_formation_only=True
-            # (Bug 2 dogfeed 2026-05-26: "Add new unit" ghost flow needs the
-            # formation row without any committed contact; the ghost-accept
-            # call creates the contact when the user drags + accepts).
-            if not create_formation_only:
-                # A4 cleanup — native LithoLayer write. The LL→FC trigger
-                # mirrors an accepted layer into formation_contact so legacy
-                # readers stay coherent. Source enum maps to the litho_layer
-                # source set: contact 'borehole_observation' ↔ layer
-                # 'observation_layer'; everything else maps to 'segmenter'.
-                # ``layer_id`` is the LithoLayer PK; the LL→FC trigger mirrors
-                # it onto a formation_contact row with the SAME UUID, so it
-                # doubles as the contact id that seeds the section
-                # (created_contact_ids / found_contact_ids).
-                layer_id, was_created = await self._find_or_create_layer(
-                    litho_model_id=litho_model_id,
-                    formation_id=formation.id,
-                    depth_top_m=sug.depth_top_m,
-                    depth_base_m=sug.depth_base_m,
-                    borehole_id=borehole_id,
-                    cpt_id=cpt_id,
-                    confidence=sug.confidence.value.lower(),
-                    source=_map_contact_source_to_layer(sug.source),
-                    existing_layers=batch_ctx.existing_layers if batch_ctx else None,
-                )
-                if was_created:
-                    created_contact_ids.append(layer_id)
-                else:
-                    found_contact_ids.append(layer_id)
+            # A4 cleanup — native LithoLayer write. The LL→FC trigger
+            # mirrors an accepted layer into formation_contact so legacy
+            # readers stay coherent. Source enum maps to the litho_layer
+            # source set: contact 'borehole_observation' ↔ layer
+            # 'observation_layer'; everything else maps to 'segmenter'.
+            # ``layer_id`` is the LithoLayer PK; the LL→FC trigger mirrors
+            # it onto a formation_contact row with the SAME UUID, so it
+            # doubles as the contact id that seeds the section
+            # (created_contact_ids / found_contact_ids).
+            layer_id, was_created = await self._find_or_create_layer(
+                litho_model_id=litho_model_id,
+                formation_id=formation.id,
+                depth_top_m=sug.depth_top_m,
+                depth_base_m=sug.depth_base_m,
+                borehole_id=borehole_id,
+                cpt_id=cpt_id,
+                confidence=sug.confidence.value.lower(),
+                source=_map_contact_source_to_layer(sug.source),
+                existing_layers=batch_ctx.existing_layers if batch_ctx else None,
+            )
+            if was_created:
+                created_contact_ids.append(layer_id)
+            else:
+                found_contact_ids.append(layer_id)
 
-                # Litho↔geo coupling (#162 Task 3): link the litho contact
-                # to the nearest geo contact within couple_tolerance_m and
-                # snap the geo contact's depth to match the litho depth.
-                # Only new contacts are coupled — re-accepts that found an
-                # existing contact leave its existing coupling unchanged so
-                # a re-accept never silently snaps a geo contact a second
-                # time if the litho depth has since been dragged.
-                if was_created and geology_contacts_at_inv:
-                    geo_contact_id = _geo_contact_to_link(
-                        sug.depth_top_m, geology_contacts_at_inv, couple_tolerance_m
-                    )
-                    if geo_contact_id is not None:
-                        # Set parent_geo_contact_id on the LITHO LAYER row
-                        # (A4 cleanup — LL is the source of truth). The
-                        # LL→FC trigger mirrors the coupling label onto the
-                        # FC mirror.
-                        litho_layer = await self._session.get(LithoLayerOrm, layer_id)
-                        if litho_layer is not None:
-                            litho_layer.parent_geo_contact_id = geo_contact_id
-                            geo_contact = await self._session.get(
-                                FormationContactOrm, geo_contact_id
+            # Litho↔geo coupling (#162 Task 3): link the litho contact
+            # to the nearest geo contact within couple_tolerance_m and
+            # snap the geo contact's depth to match the litho depth.
+            # Only new contacts are coupled — re-accepts that found an
+            # existing contact leave its existing coupling unchanged so
+            # a re-accept never silently snaps a geo contact a second
+            # time if the litho depth has since been dragged.
+            if was_created and geology_contacts_at_inv:
+                geo_contact_id = _geo_contact_to_link(
+                    sug.depth_top_m, geology_contacts_at_inv, couple_tolerance_m
+                )
+                if geo_contact_id is not None:
+                    # Set parent_geo_contact_id on the LITHO LAYER row
+                    # (A4 cleanup — LL is the source of truth). The
+                    # LL→FC trigger mirrors the coupling label onto the
+                    # FC mirror.
+                    litho_layer = await self._session.get(LithoLayerOrm, layer_id)
+                    if litho_layer is not None:
+                        litho_layer.parent_geo_contact_id = geo_contact_id
+                        geo_contact = await self._session.get(FormationContactOrm, geo_contact_id)
+                        if geo_contact is not None and geo_contact.depth_top_m != sug.depth_top_m:
+                            # Geo follows litho: snap the geological
+                            # contact's depth to the litho boundary so
+                            # both levels agree at the same physical
+                            # surface (#162).
+                            old_geo_depth = geo_contact.depth_top_m
+                            geo_contact.depth_top_m = sug.depth_top_m
+                            touched_geo_formation_ids_set.add(geo_contact.formation_id)
+                            self.debug(
+                                f"  Coupled litho contact {layer_id} → "
+                                f"geo contact {geo_contact_id} "
+                                f"(snapped geo depth {old_geo_depth:.3f}m → "
+                                f"{sug.depth_top_m:.3f}m, "
+                                f"geo formation {geo_contact.formation_id})"
                             )
-                            if (
-                                geo_contact is not None
-                                and geo_contact.depth_top_m != sug.depth_top_m
-                            ):
-                                # Geo follows litho: snap the geological
-                                # contact's depth to the litho boundary so
-                                # both levels agree at the same physical
-                                # surface (#162).
-                                old_geo_depth = geo_contact.depth_top_m
-                                geo_contact.depth_top_m = sug.depth_top_m
-                                touched_geo_formation_ids_set.add(geo_contact.formation_id)
-                                self.debug(
-                                    f"  Coupled litho contact {layer_id} → "
-                                    f"geo contact {geo_contact_id} "
-                                    f"(snapped geo depth {old_geo_depth:.3f}m → "
-                                    f"{sug.depth_top_m:.3f}m, "
-                                    f"geo formation {geo_contact.formation_id})"
-                                )
-                            else:
-                                self.debug(
-                                    f"  Coupled litho contact {layer_id} → "
-                                    f"geo contact {geo_contact_id} (depths already match)"
-                                )
+                        else:
+                            self.debug(
+                                f"  Coupled litho contact {layer_id} → "
+                                f"geo contact {geo_contact_id} (depths already match)"
+                            )
 
         # Stale-flag surfaces for affected (litho_model, formation) pairs.
-        # Skipped when create_formation_only=True — no contacts were created
-        # so no surface geometry changed.
         if created_contact_ids:
             all_formation_ids = set(created_formation_ids) | set(found_formation_ids)
             await self._repo.mark_surfaces_stale(
@@ -553,13 +522,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # lands, widen to `if created_formation_ids or created_contact_ids:`
         # (any new contact may change the min-depth ranking).
         #
-        # create_formation_only: new formation rows without contacts — their
-        # final depth is unknown until the ghost-accept, so ordering is
-        # deferred to that step.
         # In batch mode the display-order recompute is deferred to a single
         # pass after every anchor commits (the per-anchor recompute scans the
         # whole — growing — contact set, so running it N times is O(N²)).
-        if created_formation_ids and not create_formation_only and batch_ctx is None:
+        if created_formation_ids and batch_ctx is None:
             await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
 
         # Trigger inference engine for every formation that received a new
@@ -575,21 +541,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # all formations.  The caller calls RecomputeAllAbsencesForModel once
         # after the batch instead.
         #
-        # create_formation_only=True: no contacts were created so inference
-        # has no new data to process; skip unconditionally.
-        if create_formation_only or defer_inference:
+        if defer_inference:
             self.debug(
-                "AcceptLithoSuggestions: skipping inference — "
-                + (
-                    "create_formation_only mode"
-                    if create_formation_only
-                    else "deferred inference (batch mode)"
-                )
-                + (
-                    " — caller must call RecomputeAllAbsencesForModel after the batch"
-                    if defer_inference
-                    else ""
-                )
+                "AcceptLithoSuggestions: skipping inference — deferred inference "
+                "(batch mode) — caller must call RecomputeAllAbsencesForModel "
+                "after the batch"
             )
         elif created_contact_ids or found_contact_ids:
             affected_formation_ids = set(created_formation_ids) | set(found_formation_ids)

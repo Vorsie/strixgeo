@@ -509,9 +509,6 @@ export interface AcceptLithoSuggestionsRequest {
   suggestions: LithoLayerSuggestion[]
   // When true, skip the per-accept R7 inference + wedge-tip pass.
   defer_inference?: boolean
-  // When true, find-or-create the litho formation(s) but do NOT create any
-  // contact row and do NOT seed seeded_formation_contact_ids.
-  create_formation_only?: boolean
   // Litho↔geo coupling coincidence tolerance (#162).
   couple_tolerance_m?: number
 }
