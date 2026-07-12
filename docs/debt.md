@@ -5972,9 +5972,11 @@ strat_field decision.
    (the jobs router empties out entirely).
 4. GeotechnicalUnitOrm → **DROP** table + ORM + migration + bundle round-trip
    (debt #13 will use the model-kind path).
-5. rewriteB Stage-2 → **DELETE NOW** (~1,100 legacy lines + flag +
-   REWRITE_B_LEGACY escape + legacy-only tests; the reverted substrate stays in
-   git history for any future A/B).
+5. ~~rewriteB Stage-2~~ → **DONE 2026-07-12** (`7f34247b`): flag +
+   REWRITE_B_LEGACY + SUBSTRATE_CONTINUITY + bridge pass +
+   computeBracketSubstrate cluster + legacy-only tests deleted (−1,636 lines
+   net; partitionFill.ts 6,926 → 5,625). Shared clip helpers kept. tsc clean,
+   full vitest 2,129 green, legacy escape hatch gone by design.
 
 Original context below; strike items here as they land.
 
