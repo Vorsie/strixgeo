@@ -157,42 +157,6 @@ export async function countBaseSideCorrelationEdges(projectId: string): Promise<
 }
 
 /**
- * List formation-absence rows for a project.
- *
- * Each absence row represents a (formation, investigation) pair where the
- * formation is absent at the investigation's location. Used to assert that
- * the bulk-accept flow triggered exactly one ``recompute-all-absences`` pass.
- *
- * The ``formation_absence`` table has no direct project FK; we reach the
- * project via ``formation_absence.formation_id → geological_formation.id``
- * and then filter on ``geological_formation.app_project_id``.
- *
- * Parameters
- * ----------
- * projectId : string
- *   UUID of the app project.
- *
- * Returns
- * -------
- * Array of objects with ``formation_id`` and ``investigation_id``.
- */
-export async function listFormationAbsences(
-  projectId: string,
-): Promise<Array<{ formation_id: string; investigation_id: string }>> {
-  return withClient(async (client) => {
-    const res = await client.query<{ formation_id: string; investigation_id: string }>(
-      `SELECT fa.formation_id,
-              fa.investigation_id
-         FROM formation_absence fa
-         JOIN geological_formation f ON f.id = fa.formation_id
-        WHERE f.app_project_id = $1`,
-      [projectId],
-    )
-    return res.rows
-  })
-}
-
-/**
  * Count auto-correlated edges (``source = 'auto'``) for a project's
  * lithostratigraphic models.
  *
@@ -218,32 +182,6 @@ export async function countAutoCorrelationEdges(projectId: string): Promise<numb
       [projectId],
     )
     return parseInt(res.rows[0].n, 10)
-  })
-}
-
-/**
- * Fetch all lithostratigraphic model IDs for a project.
- *
- * Parameters
- * ----------
- * projectId : string
- *   UUID of the app project.
- *
- * Returns
- * -------
- * string[]
- *   Array of geological_model UUIDs where kind = 'lithostratigraphic'.
- */
-export async function listLithoModelIds(projectId: string): Promise<string[]> {
-  return withClient(async (client) => {
-    const res = await client.query<{ id: string }>(
-      `SELECT id
-         FROM geological_model
-        WHERE app_project_id = $1
-          AND kind = 'lithostratigraphic'`,
-      [projectId],
-    )
-    return res.rows.map((r) => r.id)
   })
 }
 
@@ -585,120 +523,6 @@ export async function countLithoContacts(projectId: string): Promise<number> {
   // Re-use the existing ``countContacts`` query — same filter, different name
   // at the call site for clarity.
   return countContacts(projectId)
-}
-
-/**
- * Fetch a single lithostratigraphic contact by its UUID.
- *
- * Returns ``null`` when the contact does not exist in a lithostratigraphic
- * model or does not belong to a project matching the guard.  Callers that
- * need the project-scope guard should pass ``projectId`` and the helper
- * will join through the model row.
- *
- * Parameters
- * ----------
- * contactId : string
- *   UUID of the ``formation_contact`` row.
- *
- * Returns
- * -------
- * ``{ id, depth_top_m, formation_id, source }`` or ``null``.
- */
-export async function getLithoContactById(
-  contactId: string,
-): Promise<{ id: string; depth_top_m: number; formation_id: string; source: string } | null> {
-  return withClient(async (client) => {
-    const res = await client.query<{
-      id: string
-      depth_top_m: number
-      formation_id: string
-      source: string
-    }>(
-      `SELECT fc.id, fc.depth_top_m, fc.formation_id, fc.source
-         FROM formation_contact fc
-         JOIN geological_model gm ON gm.id = fc.model_id
-        WHERE fc.id = $1
-          AND gm.kind = 'lithostratigraphic'`,
-      [contactId],
-    )
-    return res.rows[0] ?? null
-  })
-}
-
-/**
- * Count ``formation_contact`` rows with a given ``source`` value for a
- * project's lithostratigraphic models.
- *
- * Used by Flow N to verify that ``source='pinch_out_extrapolation'``
- * contacts were committed.
- *
- * Parameters
- * ----------
- * projectId : string
- *   UUID of the app project.
- * source : string
- *   Value to match against ``formation_contact.source``
- *   (e.g. ``'pinch_out_extrapolation'``).
- *
- * Returns
- * -------
- * number
- *   Row count.
- */
-export async function countContactsBySource(
-  projectId: string,
-  source: string,
-): Promise<number> {
-  return withClient(async (client) => {
-    const res = await client.query<{ n: string }>(
-      `SELECT COUNT(*) AS n
-         FROM formation_contact fc
-         JOIN geological_model gm ON gm.id = fc.model_id
-        WHERE gm.app_project_id = $1
-          AND gm.kind = 'lithostratigraphic'
-          AND fc.source = $2`,
-      [projectId, source],
-    )
-    return parseInt(res.rows[0].n, 10)
-  })
-}
-
-/**
- * Count ``formation_contact`` rows with ``source='pinch_out_extrapolation'``
- * in the project's GEOLOGICAL models (not lithostratigraphic).
- *
- * The pinch-out endpoint operates on both geological and lithostratigraphic
- * models.  In the e2e fixture the pinch-out is invoked on the geological
- * model (which has a built TIN), so this helper queries the geological side.
- *
- * Parameters
- * ----------
- * projectId : string
- *   UUID of the app project.
- * source : string
- *   Value to match against ``formation_contact.source``.
- *
- * Returns
- * -------
- * number
- *   Row count.
- */
-export async function countGeoContactsBySource(
-  projectId: string,
-  source: string,
-): Promise<number> {
-  return withClient(async (client) => {
-    const res = await client.query<{ n: string }>(
-      `SELECT COUNT(*) AS n
-         FROM formation_contact fc
-         JOIN geological_model gm ON gm.id = fc.model_id
-        WHERE gm.app_project_id = $1
-          AND gm.kind = 'geological'
-          AND fc.source = $2`,
-      [projectId, source],
-    )
-    return parseInt(res.rows[0].n, 10)
-  })
 }
 
 // ---------------------------------------------------------------------------
