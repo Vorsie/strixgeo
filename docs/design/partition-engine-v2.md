@@ -117,6 +117,15 @@ Discovered during the increment-3 build (2026-07-14):
 | Vacancy closure at terminations (v1 `emitInterval` two-pieces-plus-filler + the owner-validated "no auto-facies" straight midpoint seam) | IMPLEMENTED (increment 4a, `emitIntervals.ts`) — untied units of each interval between tie-anchored bands tile it fully via vertical seams (thickness-weighted; straight midpoint 0.5 for a mismatched matrix; full width for a lone side) + horizontal sub-seams + a shallow-TD floor curve. Holes/overlaps 0/0 on all 14 sections, confirmed by BOTH the scan diag and an independent PIP sweep. PARITY GAP remaining: seam SHARE differs from v1 in places (equal-and-opposite formation-pair deltas in the A/B diff) — seam placement must become v1-exact (increment 5) |
 | Enclosed-lens disjointness (v1 `carveOverlays`) | REPLACED (increment 4a, `emitIntervalLenses.ts`) — a 0.45-apex lens stays a disjoint hole via a mandatory seam margin (`LENS_MARGIN`: the seam sits strictly outside the apex) + a single-matrix guard (enclosed-minority extraction only fires when the residual matrix is ONE formation; interbedded stacks tile as ordinary seam-meeting units). Widen-the-cell instead of subtract-the-overlap |
 
+Discovered during increment 5 (2026-07-14, parity + gates against v2):
+
+| v1 rule / pass | v2 disposition |
+|---|---|
+| Substrate WITHOUT explicit ties — v1 `computeBracketSubstrate` brackets the nearest deep anchor each side of a shallow run and fills deep-to-deep with NO correlation edge required | MUST IMPLEMENT (increment 6) — v2's increment-3 bridges only fire on explicit jump ties, leaving −79.9 fraction·m sub-TD unfilled vs v1 and FAILING the ported cs1void gate. Increment 5 mislabelled this "owner Q3 by design" — WRONG: Q3's stay-empty applies only to bridge-LESS strips (no deep anchor); anchor-bracketed runs fill in both engines (the Q3 review visual's "Situation 1") |
+| Band authority over adjacent tiling (cs1bandauthority interior invariant) | REAL v2 DEFECT (increment 6) — correlated KLEI/SILT bands at CS1 cols 11-14 are not authoritative; adjacent-column lithology tiles into the band interior. Fix by construction; the ported gate pins it |
+| Onlap-on-shared-matrix placement — v1 bands the shared-formation matrix full-width and onlaps the odd unit; v2 tiles both as opposing seam-meeting pinches | DIVERGENT, area/litho-conserving — but implicated in the band-authority defect; resolve together in increment 6 (band-first tiling), re-judge the residual seam diffs after |
+| Output-polygon simplicity — v1 emits simple (concave, carved) polygons; v2's `slice.keyholePolygon` emits self-touching keyhole rings for enclosed lenses (179 model-wide) | MUST CHANGE (increment 6) — keyholes break shoelace-vs-PIP agreement (parity residuals), trip the sliver gate with false positives, and are a hazard for downstream consumers (geotech refinement, voxel builder, DXF export assume simple rings). Emit the matrix as a simple carved ring or the lens as a separate face-pair |
+
 Anything discovered in v1 during the build that is NOT in this table gets
 ADDED to this table with a disposition — nothing is dropped silently.
 
