@@ -8,7 +8,8 @@ and deleted in the 2026-07 audit sweep (BE-API-04 — backwards compat
 is suspended pre-ship). This test pins that:
 
 * the canonical ``/layers/accept-litho-suggestions`` URL responds
-* the retired ``/contacts/accept-litho-suggestions`` alias is GONE (404)
+* the retired ``/contacts/accept-litho-suggestions`` alias is GONE
+  (405 — the path only pattern-matches the contact CRUD routes now)
 * the batch endpoint mirrors the same single-URL state
 """
 
@@ -82,7 +83,13 @@ async def test_accept_via_layers_url_routes_to_handler(
 async def test_accept_via_contacts_alias_is_gone(
     async_client: AsyncClient, project_and_model: dict
 ) -> None:
-    """The retired /contacts alias no longer routes (BE-API-04)."""
+    """The retired /contacts alias no longer routes (BE-API-04).
+
+    405, not 404: the path still pattern-matches the live
+    ``PATCH/DELETE /contacts/{contact_id}`` routes, so FastAPI answers
+    Method Not Allowed for POST. A live alias would answer 422 (the
+    empty-suggestions schema guard) — 405 proves the POST route is gone.
+    """
     p = project_and_model
     resp = await async_client.post(
         f"/projects/{p['project'].id}/geology/models/{p['litho'].id}"
@@ -92,7 +99,7 @@ async def test_accept_via_contacts_alias_is_gone(
             "suggestions": [],
         },
     )
-    assert resp.status_code == 404, resp.text
+    assert resp.status_code == 405, resp.text
 
 
 async def test_batch_accept_via_layers_url_returns_200(
@@ -115,7 +122,12 @@ async def test_batch_accept_via_layers_url_returns_200(
 async def test_batch_accept_via_contacts_alias_is_gone(
     async_client: AsyncClient, project_and_model: dict
 ) -> None:
-    """The retired /contacts batch alias no longer routes (BE-API-04)."""
+    """The retired /contacts batch alias no longer routes (BE-API-04).
+
+    405, not 404 — same reason as the single-accept alias test above:
+    the path pattern-matches ``/contacts/{contact_id}`` for PATCH/DELETE,
+    so POST answers Method Not Allowed. A live alias would answer 200.
+    """
     p = project_and_model
     resp = await async_client.post(
         f"/projects/{p['project'].id}/geology/models/{p['litho'].id}"
@@ -126,4 +138,4 @@ async def test_batch_accept_via_contacts_alias_is_gone(
             "run_inference": False,
         },
     )
-    assert resp.status_code == 404, resp.text
+    assert resp.status_code == 405, resp.text
