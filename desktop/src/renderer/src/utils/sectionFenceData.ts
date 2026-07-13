@@ -83,6 +83,59 @@ export interface AssembledSection {
   orderedColumns: FenceColumn[]
 }
 
+/** The section fields the shared Pass-1 assembly reads (callers may carry more). */
+export interface AssemblableSection {
+  section: SectionEndpoints
+  projectedColumns: readonly FenceProjectedColumn[]
+  layers: readonly FenceLayerInput[]
+}
+
+/**
+ * Shared "Pass 1" of ``buildProjectFence`` / ``buildVoxelRequest``: assemble
+ * every section's partition input, keep only sections with a fillable gap
+ * (>= 2 columns), and compute the canonical per-test world positions across
+ * all of them (the dense cross-section owns each position; sparse ties
+ * inherit it — see :func:`computeCanonicalColumnWorldPositions`).
+ *
+ * Parameters
+ * ----------
+ * sections : readonly T[]
+ *     One entry per section (order irrelevant). ``T`` keeps the caller's
+ *     richer input shape (e.g. correlation ``edges``) attached to each
+ *     assembled entry's ``input``.
+ *
+ * Returns
+ * -------
+ * { assembled, canonical }
+ *     ``assembled`` pairs each kept section's input with its partition
+ *     ``columns`` + ``orderedColumns``; ``canonical`` maps investigation id
+ *     to its canonical world position.
+ */
+export function assembleSectionsWithCanonical<T extends AssemblableSection>(
+  sections: readonly T[],
+): {
+  assembled: { input: T; columns: PartitionColumn[]; orderedColumns: FenceColumn[] }[]
+  canonical: Map<string, { x: number; y: number }>
+} {
+  const assembled: { input: T; columns: PartitionColumn[]; orderedColumns: FenceColumn[] }[] = []
+  for (const input of sections) {
+    const { columns, orderedColumns } = assembleSectionPartitionInput(
+      input.projectedColumns,
+      input.layers,
+    )
+    if (columns.length < 2) continue
+    assembled.push({ input, columns, orderedColumns })
+  }
+  const canonical = computeCanonicalColumnWorldPositions(
+    assembled.map<AssembledSection>(({ input, columns, orderedColumns }) => ({
+      section: input.section,
+      columns,
+      orderedColumns,
+    })),
+  )
+  return { assembled, canonical }
+}
+
 /**
  * Compute the CANONICAL world position per test id across all sections.
  *

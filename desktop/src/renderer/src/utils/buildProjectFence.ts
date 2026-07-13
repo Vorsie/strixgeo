@@ -1,10 +1,8 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
-import { computeSectionFill, type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { computeSectionFill, type CorrelationEdge } from './partitionFill'
 import {
-  assembleSectionPartitionInput,
-  computeCanonicalColumnWorldPositions,
-  type AssembledSection,
+  assembleSectionsWithCanonical,
   type FenceLayerInput,
   type FenceProjectedColumn,
 } from './sectionFenceData'
@@ -48,23 +46,9 @@ export interface FenceSectionInput {
  *     ``triangles``.
  */
 export function buildProjectFence(sections: readonly FenceSectionInput[]): FencePanel[] {
-  // Pass 1: assemble every section, keeping only those with a fillable gap
-  // (>=2 columns), then compute the canonical per-test world positions across
-  // all of them (the dense cross-section owns each position; sparse ties inherit
-  // it — see ``computeCanonicalColumnWorldPositions``).
-  const assembled: { input: FenceSectionInput; columns: PartitionColumn[]; orderedColumns: FenceColumn[] }[] = []
-  for (const input of sections) {
-    const { columns, orderedColumns } = assembleSectionPartitionInput(input.projectedColumns, input.layers)
-    if (columns.length < 2) continue
-    assembled.push({ input, columns, orderedColumns })
-  }
-  const canonical = computeCanonicalColumnWorldPositions(
-    assembled.map<AssembledSection>(({ input, columns, orderedColumns }) => ({
-      section: input.section,
-      columns,
-      orderedColumns,
-    })),
-  )
+  // Pass 1 (shared with ``buildVoxelRequest``): assemble every section +
+  // compute the canonical per-test world positions.
+  const { assembled, canonical } = assembleSectionsWithCanonical(sections)
 
   // Pass 2: build panels, stamping each column's canonical world position.
   const all: FencePanel[] = []
@@ -73,6 +57,16 @@ export function buildProjectFence(sections: readonly FenceSectionInput[]): Fence
       const w = canonical.get(c.investigationId)
       return w ? { ...c, worldX: w.x, worldY: w.y } : c
     })
+    // ⚠ KNOWN DIVERGENCE (audit FE-UTILS-09 — deliberate, owner decision
+    // pending): this call does NOT pass the per-column ``alongM`` array, so
+    // the deep-to-deep substrate pass slices each gap's deep band at the
+    // UNIFORM fallback spacing. The on-screen partition
+    // (PartitionFillOverlay) and the voxel build (buildVoxelRequest) BOTH
+    // pass the real alongM — they are the app-faithful variant. Passing
+    // alongM here would change the rendered 3D fence panels, so the drift is
+    // kept explicit rather than silently unified; align it deliberately (add
+    // ``orderedColumns.map((c) => c.alongM)`` as the 4th arg) when the owner
+    // signs off on the fence render change.
     const regions = computeSectionFill(columns, input.edges)
     const fenceRegions: FenceRegion[] = regions.map((r) => ({
       formationId: r.formationId,

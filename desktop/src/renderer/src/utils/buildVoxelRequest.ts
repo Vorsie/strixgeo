@@ -14,13 +14,7 @@
 
 import type { FenceSectionInput } from "./buildProjectFence";
 import { computeSectionFill } from "./partitionFill";
-import {
-  assembleSectionPartitionInput,
-  computeCanonicalColumnWorldPositions,
-  type AssembledSection,
-} from "./sectionFenceData";
-import type { FenceColumn } from "./fencePanels";
-import type { PartitionColumn } from "./partitionFill";
+import { assembleSectionsWithCanonical } from "./sectionFenceData";
 
 /** One filled region of a 2-D section partition (mirrors `SectionRegion`). */
 export interface RegionInput {
@@ -136,29 +130,9 @@ export function buildVoxelRequest(
   horizontalM: number,
   verticalM: number,
 ): VoxelBuildRequest {
-  // Pass 1: assemble every section, keeping only those with a fillable gap
-  // (>=2 columns), then compute the canonical per-test world positions across
-  // all of them (shared with buildProjectFence so crossings agree).
-  const assembled: {
-    input: FenceSectionInput;
-    columns: PartitionColumn[];
-    orderedColumns: FenceColumn[];
-  }[] = [];
-  for (const input of sections) {
-    const { columns, orderedColumns } = assembleSectionPartitionInput(
-      input.projectedColumns,
-      input.layers,
-    );
-    if (columns.length < 2) continue;
-    assembled.push({ input, columns, orderedColumns });
-  }
-  const canonical = computeCanonicalColumnWorldPositions(
-    assembled.map<AssembledSection>(({ input, columns, orderedColumns }) => ({
-      section: input.section,
-      columns,
-      orderedColumns,
-    })),
-  );
+  // Pass 1 (shared with buildProjectFence so crossings agree): assemble every
+  // section + compute the canonical per-test world positions.
+  const { assembled, canonical } = assembleSectionsWithCanonical(sections);
 
   // Pass 2: reshape each section's columns + regions into the payload, stamping
   // each column's canonical world position.
