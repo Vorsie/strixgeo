@@ -438,6 +438,63 @@ describe('CorrelationEdgesOverlay', () => {
     expect(screen.queryByTestId('ribbon-outline-e1')).toBeNull()
   })
 
+  // CC8b: the approved seam fades from the tied unit's litho colour at one
+  // test over into its colour at the next test (owner ask 2026-07-13 — the
+  // solid near-black seam read as "black bands" on real data). The gradient
+  // uses the colour of the unit BELOW each tied contact (the band whose top
+  // the seam marks).
+  it('CC8b: approved seam strokes a gradient from the left unit colour to the right unit colour', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const fB = { ...makeFormation('f-b', 'Klei', 2), color: '#94a3b8' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-b', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e1', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
+    }
+    const { container } = renderOverlay({
+      contacts, formations: [fA, fB],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const seam = screen.getByTestId('ribbon-seam-e1')
+    expect(seam.getAttribute('stroke')).toBe('url(#seam-grad-e1)')
+    const grad = container.querySelector('#seam-grad-e1')
+    expect(grad).not.toBeNull()
+    const stops = grad!.querySelectorAll('stop')
+    expect(stops).toHaveLength(2)
+    expect(stops[0].getAttribute('stop-color')).toBe('#fbbf24')
+    expect(stops[1].getAttribute('stop-color')).toBe('#94a3b8')
+  })
+
+  // CC8c: when an endpoint's unit colour is unknown the seam falls back to
+  // the solid near-black constant (no half-gradient into nothing).
+  it('CC8c: seam falls back to the solid seam colour when a unit colour is unknown', () => {
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      // cb references a formation that is NOT in the formations list — no colour.
+      makeContact('cb', 'f-missing', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e1', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
+    }
+    renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const seam = screen.getByTestId('ribbon-seam-e1')
+    expect(seam.getAttribute('stroke')).toBe('#0f172a')
+  })
+
   // CC9: unapproved contact edge renders a faded ribbon with a dashed amber
   // outline and data-approved="false".
   it('CC9: unapproved contact edge renders ribbon with data-approved="false"', () => {

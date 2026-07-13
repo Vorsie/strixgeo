@@ -880,6 +880,17 @@ export default function CorrelationEdgesOverlay({
             const topY_B = showAbove ? yB - H : yB
             const botY_A = showBelow ? yA + H : yA
             const botY_B = showBelow ? yB + H : yB
+            // Approved-seam gradient (owner ask 2026-07-13): the seam fades
+            // from the tied unit's litho colour at one test into its colour
+            // at the next — the colour of the unit BELOW each tied contact
+            // (the band whose top the seam marks), falling back to the unit
+            // above, then to the solid near-black when unknown at either end.
+            // A stroke cannot deposit colour over the partition fill the way
+            // the retired stripe polygons did (2026-07-10 disable), so this
+            // restores the colour cue without the overlap regression.
+            const seamA = belowA ?? aboveA
+            const seamB = belowB ?? aboveB
+            const seamGradient = approved && !isInterpretive && seamA !== null && seamB !== null
             return (
               <g
                 key={`ribbon-${ce.id}`}
@@ -946,14 +957,28 @@ export default function CorrelationEdgesOverlay({
                      horizontal under a shallow test, matching the fill and the
                      cross-lithology tie (owner directive 2026-07-10: flatten ALL
                      correlation bands below the shallow test). */
-                  <polyline
-                    data-testid={`ribbon-seam-${ce.id}`}
-                    points={warpAwareEdgePoints(xA, yA, ptA.along, xB, yB, ptB.along, placedColumns)}
-                    fill="none"
-                    stroke={RIBBON_SEAM_COLOR}
-                    strokeWidth={1.5}
-                    pointerEvents="none"
-                  />
+                  <>
+                    {seamGradient && (
+                      <defs>
+                        <linearGradient
+                          id={`seam-grad-${ce.id}`}
+                          gradientUnits="userSpaceOnUse"
+                          x1={xA} y1={0} x2={xB} y2={0}
+                        >
+                          <stop offset="0" stopColor={seamA as string} />
+                          <stop offset="1" stopColor={seamB as string} />
+                        </linearGradient>
+                      </defs>
+                    )}
+                    <polyline
+                      data-testid={`ribbon-seam-${ce.id}`}
+                      points={warpAwareEdgePoints(xA, yA, ptA.along, xB, yB, ptB.along, placedColumns)}
+                      fill="none"
+                      stroke={seamGradient ? `url(#seam-grad-${ce.id})` : RIBBON_SEAM_COLOR}
+                      strokeWidth={1.5}
+                      pointerEvents="none"
+                    />
+                  </>
                 ) : (
                   <polygon
                     data-testid={`ribbon-outline-${ce.id}`}
