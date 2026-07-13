@@ -5250,23 +5250,45 @@ introduced by the split):
 * `SectionsCanvas.tsx` 2,790 → 2,386 (+ `useGeotechPackingCorrelation.ts`,
   `useEdgeDragRetarget.ts` sub-hooks, June Move-5 playbook).
 
+**Round 2 continuation — 2026-07-13 afternoon (owner dogfed the morning
+batch clean, then green-lit the remainder; `206dd6e82..0d1059989`):**
+* SectionsCanvas's last two clusters extracted after all — attended session:
+  `useLithoGeoSnapDialog.ts` (snap prompt + P1b live preview + 5 handlers;
+  call site above the accept-with-snap handler so `openLithoGeoSnapPrompt`
+  stays in scope for #134-C) and `useManualLithoUnit.ts` (debt-#151 pair).
+  **SectionsCanvas 2,790 → 2,034 across the four sub-hooks.**
+* The `useEdgeDragRetarget` stale-closure latent FIXED (TDD: regression test
+  seen RED first — mid-drag rerender reassigns the drop target to the
+  anchor's investigation → drop rejected, no API calls; fix = fresh-read
+  `lithoContactsRef`).
+* Backend trio (#178) — two of three split:
+  `auto_populate_contacts_from_stratigraphy.py` 1,573 → facade (837) +
+  `stratigraphy_bridge.py` (569; observation helpers move WITH the bridge to
+  avoid a bridge↔scan cycle) + `stratigraphy_scan.py` (244);
+  `contacts.py` router 1,273 → CRUD (326) + `litho_ops.py` (985), route
+  table verified byte-identical (60 routes). `accept_litho_suggestions.py`
+  (1,057) assessed + declined: one class, helpers already methods,
+  phase-bannered execute — further splitting = param-threading churn.
+* **SectionPanel #168 rerouting — owner OVERTURNED the 2026-05-29 decline
+  (2026-07-13) and chose the context rerouting. Phase A SHIPPED:**
+  `SectionScopeContext.tsx` provided by SectionsCanvas; the 26 zero-test-use
+  read-only data props moved (Props 69 → 43; SectionPanel 3,549 → 3,385).
+  Provider value intentionally un-memoised (nothing below is `React.memo`;
+  removes the stale-dep-array failure mode); context default = all-absent
+  scope so providerless test mounts keep prop-omitted behaviour;
+  viewport/transform props REMAIN props (that half of the #168 decline
+  stands). ⚠ DOGFEED PENDING before Phase B.
+
 **Still open (the remainder of #201/#178):**
-* SectionsCanvas's last two clusters (litho-geo snap dialogs,
-  manual-litho-unit-create) — entangled with the suggestion-accept flow
-  (`setLithoGeoSnapPrompt` is closed over above its `useState`); extract in an
-  attended session.
-* `SectionPanel.tsx` (3,549 / 69 props) — the real fix is the #168 `useShell`
-  rerouting, an architectural change, not an extraction; do it with dogfeed
-  available. `ContactsLayer.tsx` (3,415) drag core and the
-  `useGeologicalModel` composer (2,410) are cohesive single concerns — no
-  further split planned under the concern-based bar.
-* Latent (pre-existing, review finding 2026-07-13): `useEdgeDragRetarget`'s
-  mouseup guard reads the `lithoContacts` snapshot taken at drag start — a
-  refetch completing mid-drag could let a same-investigation drop through.
-  Fix = read via a ref; the reason-comment now documents the trade-off.
-* Backend trio from #178 (`accept_litho_suggestions.py` 1,582 / `contacts.py`
-  router 1,566 / `auto_populate_contacts_from_stratigraphy.py` 1,565) —
-  untouched this round.
+* SectionScope **Phase B** (after the Phase-A dogfeed): move the test-used
+  data props (`zEpsg`/`axisMode`/`contacts`/`cpts`/`boreholes`/`formations`/
+  `activeLithoModelId`/`geotechNotReconciled` — needs a `renderPanel` test
+  helper for the 29 SectionPanel.test.tsx sites), then the handler groups,
+  then leaf overlays reading the scope directly instead of SectionPanel
+  re-threading.
+* `ContactsLayer.tsx` (3,415) drag core and the `useGeologicalModel`
+  composer (2,410) are cohesive single concerns — no further split planned
+  under the concern-based bar.
 
 ## 204. ~~Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle~~ — CLOSED 2026-06-23, MISFILED (not dead)
 
