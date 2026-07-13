@@ -5963,7 +5963,18 @@ line profiles work for free and profiles ride the disk tile cache.
 `dhmvii_sampler.py` keeps only the pure helpers + `parse_wcs_multipart`.
 The live benchmark (`DEM_LIVE_BENCH=1`) drives `DhmviiDemProvider`.
 
-## 235. Extraction backsliding — wire or delete the orphaned extracted utils (Tier E — frontend hygiene, S)
+## 235. ~~Extraction backsliding — orphaned extracted utils~~ — RESOLVED 2026-07-13
+
+**Resolution (quick-wins batch + B3 + B6).** isTypingTarget 4th copy deleted;
+newTestFilter wired (inspector drop-in; toolbar export reshaped to pre-built
+anchors); formatNadClass wired; assembleSectionPartitionInput wired into
+PartitionFillOverlay (B6); useSyncExternalStore boilerplate → createBooleanStore
+(5 stores); the 27-copy non-2xx error block → one shared `request` core (23→10,
+9 justified bypasses documented in-code). The buildProjectFence alongM
+divergence found under FE-UTILS-09 is NOT resolved — split to #240 (owner
+decision).
+
+**What (was).**
 
 **What.** Audit 2026-07-12 found the "extract on second copy" rule applied and
 then bypassed: a 4th byte-identical `isTypingTarget` accreted AFTER the
@@ -6108,6 +6119,38 @@ wrong?). #4 first.
 **When to revisit.** #4 (bundle absences) before the next .strix save/open
 dogfeed; #1/#3 at the next geotech backend touch; #2 never — dies with
 #237.1.
+
+## 239. Two deterministic RED e2e specs, pre-existing (Tier E — spec drift, S)
+
+**What.** Found by B5's full Playwright run (2026-07-13), proven pre-existing
+by a baseline run at pre-batch `8cb1f5e51` (same two failures there):
+1. `flow_bottom_tie_correlate` — a dashed-line selector no longer matches; the
+   failure screenshot shows the base tie rendering correctly, so the SPEC's
+   selector is stale, not the feature.
+2. `flow_geotech_subdivide_all_bodies` — 422 spec-drift on `litho_model_id`
+   in the request the spec sends.
+
+**Why deferred.** End of an overnight campaign; each needs its own small spec
+fix + a green re-run.
+
+**When to revisit.** Next e2e touch, or before relying on the full Playwright
+suite as a gate.
+
+## 240. buildProjectFence ignores real alongM — 3D fence panels use uniform spacing (owner decision, S)
+
+**What.** B6 (FE-UTILS-09) unified the Pass-1 assembly of `buildProjectFence`
+and `buildVoxelRequest` and found they diverge on the `computeSectionFill`
+alongM argument: the overlay render AND the voxel build pass real along-section
+positions; the 3D FENCE build does not (uniform fallback). Memory
+(`project_partition_one_gesture_2_1_0`) records that alongM-less output does
+NOT match the app render. A `⚠ KNOWN DIVERGENCE` comment with the one-line fix
+sits at the fence's computeSectionFill call.
+
+**Why deferred.** Changing it visibly changes the rendered 3D fence panels —
+a visual owner call, not a mechanical fix.
+
+**When to revisit.** Next 3D-fence dogfeed: decide whether fence panels should
+match the section render (likely yes), flip the one-liner, dogfeed.
 
 ## (end)
 
