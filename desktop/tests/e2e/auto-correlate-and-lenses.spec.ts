@@ -323,8 +323,8 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
 
       // -----------------------------------------------------------------------
       // 5. Materialise lens companions — POST .../body-companions/materialise.
-      //    Mirrors the "Materialise lens companions" toolbar button (testid:
-      //    litho-materialise-body-companions).  Creates a perpendicular
+      //    Exercises the endpoint directly (the toolbar button was removed
+      //    2026-07-13; the endpoint stays live).  Creates a perpendicular
       //    companion section for every lens whose primary section is fully
       //    correlated.
       // -----------------------------------------------------------------------
