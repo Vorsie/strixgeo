@@ -99,7 +99,7 @@ test.describe('flow_litho_drag_resize_boundary (#130)', () => {
           async ([base, pid, mid, cid, layersJson]) => {
             const suggestions = JSON.parse(layersJson as string)
             await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
+              `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -292,7 +292,7 @@ test.describe('flow_litho_drag_resize_boundary (#130)', () => {
             async ([base, pid, mid, cid, layersJson]) => {
               const suggestions = JSON.parse(layersJson as string)
               await fetch(
-                `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
+                `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },

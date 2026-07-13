@@ -470,7 +470,7 @@ POST   /projects/{pid}/geology/models/{mid}/contacts/suggest-litho
                                                     candidates.  Writes
                                                     ``pending`` litho_layer
                                                     rows as a side-effect.
-POST   /projects/{pid}/geology/models/{mid}/contacts/accept-litho-suggestions
+POST   /projects/{pid}/geology/models/{mid}/layers/accept-litho-suggestions
                                                     Accept a set of ghost
                                                     suggestion layers for one
                                                     anchor.  Creates
@@ -482,7 +482,7 @@ POST   /projects/{pid}/geology/models/{mid}/contacts/accept-litho-suggestions
                                                     seeds the section, runs
                                                     inference. Returns
                                                     AcceptLithoSuggestionsResponse.
-POST   /projects/{pid}/geology/models/{mid}/contacts/batch-accept-litho-suggestions
+POST   /projects/{pid}/geology/models/{mid}/layers/batch-accept-litho-suggestions
                                                     Batch variant — accepts
                                                     all anchors in one
                                                     transaction + single

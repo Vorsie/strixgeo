@@ -120,7 +120,7 @@ test.describe('flow_bulk_accept', () => {
           async ([base, pid, mid, cid, layersJson]) => {
             const layers = JSON.parse(layersJson as string)
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
+              `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

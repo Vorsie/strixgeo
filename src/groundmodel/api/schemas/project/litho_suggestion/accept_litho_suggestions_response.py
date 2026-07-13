@@ -10,7 +10,7 @@ from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 
 
 class AcceptLithoSuggestionsResponse(BaseModel):
-    """Body of ``POST .../contacts/accept-litho-suggestions``.
+    """Body of ``POST .../layers/accept-litho-suggestions``.
 
     Parameters
     ----------

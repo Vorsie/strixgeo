@@ -211,7 +211,7 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
           async ([base, pid, m, cid, suggestionsJson, defer]) => {
             const suggestions = JSON.parse(suggestionsJson as string)
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${m}/contacts/accept-litho-suggestions`,
+              `${base}/projects/${pid}/geology/models/${m}/layers/accept-litho-suggestions`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

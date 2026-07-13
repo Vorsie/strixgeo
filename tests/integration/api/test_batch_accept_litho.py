@@ -143,7 +143,7 @@ async def test_bt1_two_anchors_one_transaction_one_seed(
     bh0, bh1 = (str(b.id) for b in stack["boreholes"])
 
     resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{mid}/contacts/batch-accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{mid}/layers/batch-accept-litho-suggestions",
         json={
             "anchors": [
                 _anchor(bh0, "ZAND", 0.0, 3.0),
@@ -189,14 +189,14 @@ async def test_bt2_reaccept_is_idempotent(
     }
 
     first = await async_client.post(
-        f"/projects/{project.id}/geology/models/{mid}/contacts/batch-accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{mid}/layers/batch-accept-litho-suggestions",
         json=payload,
     )
     assert first.status_code == 200, first.text
     assert first.json()["total_created_contacts"] == 2
 
     second = await async_client.post(
-        f"/projects/{project.id}/geology/models/{mid}/contacts/batch-accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{mid}/layers/batch-accept-litho-suggestions",
         json=payload,
     )
     assert second.status_code == 200, second.text
@@ -220,7 +220,7 @@ async def test_bt3_bad_anchor_recorded_others_commit(
     bogus = str(uuid7())
 
     resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{mid}/contacts/batch-accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{mid}/layers/batch-accept-litho-suggestions",
         json={
             "anchors": [
                 _anchor(bh0, "ZAND", 0.0, 3.0),
@@ -253,7 +253,7 @@ async def test_bt4_run_inference_false_skips_recompute(
     bh0 = str(stack["boreholes"][0].id)
 
     resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{mid}/contacts/batch-accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{mid}/layers/batch-accept-litho-suggestions",
         json={"anchors": [_anchor(bh0, "ZAND", 0.0, 3.0)], "run_inference": False},
     )
     assert resp.status_code == 200, resp.text
@@ -279,7 +279,7 @@ async def test_bt5_non_litho_model_returns_422(
     bh0 = str(stack["boreholes"][0].id)
 
     resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{geo_mid}/contacts/batch-accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{geo_mid}/layers/batch-accept-litho-suggestions",
         json={"anchors": [_anchor(bh0, "ZAND", 0.0, 3.0)]},
     )
     assert resp.status_code == 422, resp.text

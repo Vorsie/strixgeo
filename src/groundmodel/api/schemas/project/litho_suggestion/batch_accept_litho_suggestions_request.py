@@ -12,7 +12,7 @@ from groundmodel.api.schemas.project.litho_suggestion.batch_accept_litho_anchor 
 
 
 class BatchAcceptLithoSuggestionsRequest(BaseModel):
-    """Body of ``POST .../contacts/batch-accept-litho-suggestions``.
+    """Body of ``POST .../layers/batch-accept-litho-suggestions``.
 
     Accepts the suggestions for many anchors in a single request so the whole
     bulk-accept commits in one transaction (one fsync, one HTTP round-trip)

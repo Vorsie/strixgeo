@@ -157,7 +157,7 @@ Accept flow wires the Robertson-SBT / borehole suggestion output through to the 
 ### Key handlers (useGeologicalModel)
 
 - `handleAcceptLithoSuggestion(idx, sectionId?, applyUpdatedSection?)` — accepts one
-  suggestion layer; calls `POST .../contacts/accept-litho-suggestions` (idempotent, server
+  suggestion layer; calls `POST .../layers/accept-litho-suggestions` (idempotent, server
   handles find-or-create formation + straddle split). MUST forward `sectionId` +
   `applyUpdatedSection` or the accepted contact's id won't land in
   `seeded_formation_contact_ids` → contact invisible on the section (#57 invariant).

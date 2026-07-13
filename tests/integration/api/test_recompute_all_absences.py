@@ -104,7 +104,7 @@ async def scenario(
 
     # Accept a ZAND unit at bh0 only (defer inference — we run it explicitly).
     accept = await async_client.post(
-        f"/projects/{project.id}/geology/models/{litho_model['id']}/contacts/accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{litho_model['id']}/layers/accept-litho-suggestions",
         json={
             "borehole_id": str(boreholes[0].id),
             "section_id": section_id,

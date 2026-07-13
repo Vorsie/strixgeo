@@ -151,7 +151,7 @@ async def _seed_litho(
     if section_id is not None:
         body["section_id"] = section_id
     resp = await client.post(
-        f"/projects/{project_id}/geology/models/{model_id}/contacts/seed-from-parent",
+        f"/projects/{project_id}/geology/models/{model_id}/layers/seed-from-parent",
         json=body,
     )
     assert resp.status_code == 200, resp.text
@@ -340,7 +340,7 @@ async def test_s4_geological_model_returns_422(
     geo_model = await _create_geo_model(async_client, project.id)
 
     resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{geo_model['id']}/contacts/seed-from-parent",
+        f"/projects/{project.id}/geology/models/{geo_model['id']}/layers/seed-from-parent",
         json={"borehole_ids": [str(borehole.id)]},
     )
     assert resp.status_code == 422
@@ -370,7 +370,7 @@ async def test_s5_wrong_project_returns_404(
 
     # URL says project_b, but litho_a belongs to project_a
     resp = await async_client.post(
-        f"/projects/{project_b.id}/geology/models/{litho_a['id']}/contacts/seed-from-parent",
+        f"/projects/{project_b.id}/geology/models/{litho_a['id']}/layers/seed-from-parent",
         json={"borehole_ids": [str(borehole.id)]},
     )
     assert resp.status_code == 404

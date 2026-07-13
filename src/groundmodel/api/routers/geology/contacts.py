@@ -731,10 +731,6 @@ async def clear_litho_model(
     "/models/{model_id}/layers/seed-from-parent",
     response_model=SeedLithoFromParentResponse,
 )
-@router.post(
-    "/models/{model_id}/contacts/seed-from-parent",
-    response_model=SeedLithoFromParentResponse,
-)
 async def seed_litho_from_parent(
     project_id: UUID,
     model_id: UUID,
@@ -783,7 +779,7 @@ async def seed_litho_from_parent(
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}"
-        f"/contacts/seed-from-parent borehole_ids={len(request.borehole_ids)}"
+        f"/layers/seed-from-parent borehole_ids={len(request.borehole_ids)}"
         + (f" section_id={request.section_id}" if request.section_id else "")
     )
     # Model scope guard — prevents tampering across projects.
@@ -964,11 +960,6 @@ async def suggest_litho_contacts(
     response_model=AcceptLithoSuggestionsResponse,
     status_code=status.HTTP_200_OK,
 )
-@router.post(
-    "/models/{model_id}/contacts/accept-litho-suggestions",
-    response_model=AcceptLithoSuggestionsResponse,
-    status_code=status.HTTP_200_OK,
-)
 async def accept_litho_suggestions(
     project_id: UUID,
     model_id: UUID,
@@ -1102,11 +1093,6 @@ async def accept_litho_suggestions(
 
 @router.post(
     "/models/{model_id}/layers/batch-accept-litho-suggestions",
-    response_model=BatchAcceptLithoSuggestionsResponse,
-    status_code=status.HTTP_200_OK,
-)
-@router.post(
-    "/models/{model_id}/contacts/batch-accept-litho-suggestions",
     response_model=BatchAcceptLithoSuggestionsResponse,
     status_code=status.HTTP_200_OK,
 )

@@ -6,7 +6,7 @@
     rewired to load the geological model's TIN surfaces as a read-only
     backdrop reference layer (``handleLoadBackdropSurfaces`` →
     ``GET .../surfaces``).  This use case + its backend endpoint
-    (``POST .../contacts/seed-from-parent``) are retained for
+    (``POST .../layers/seed-from-parent``) are retained for
     backwards-compatibility and future re-use, but NO frontend verb
     currently calls them.  The endpoint is safe to call directly (e.g.
     via an external script or a future automated workflow).

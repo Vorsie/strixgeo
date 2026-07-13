@@ -133,7 +133,7 @@ async def _accept(
 ) -> dict:
     """POST accept-litho-suggestions for a single layer; assert 200."""
     resp = await client.post(
-        f"/projects/{project_id}/geology/models/{litho_model_id}/contacts/accept-litho-suggestions",
+        f"/projects/{project_id}/geology/models/{litho_model_id}/layers/accept-litho-suggestions",
         json={
             "borehole_id": borehole_id,
             "suggestions": [

@@ -143,7 +143,7 @@ async def _accept_cpt_litho(
         Created contact id.
     """
     resp = await client.post(
-        f"/projects/{project_id}/geology/models/{litho_model_id}/contacts/accept-litho-suggestions",
+        f"/projects/{project_id}/geology/models/{litho_model_id}/layers/accept-litho-suggestions",
         json={
             "cpt_id": cpt_id,
             "suggestions": [
@@ -199,7 +199,7 @@ async def _accept_borehole_litho(
         Created contact id.
     """
     resp = await client.post(
-        f"/projects/{project_id}/geology/models/{litho_model_id}/contacts/accept-litho-suggestions",
+        f"/projects/{project_id}/geology/models/{litho_model_id}/layers/accept-litho-suggestions",
         json={
             "borehole_id": borehole_id,
             "suggestions": [

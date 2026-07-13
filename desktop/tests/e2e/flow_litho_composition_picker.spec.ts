@@ -113,7 +113,7 @@ test.describe('flow_litho_composition_picker (#130)', () => {
         async ([base, pid, mid, cid, suggJson]) => {
           const suggestion = JSON.parse(suggJson as string)
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
+            `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -254,7 +254,7 @@ test.describe('flow_litho_composition_picker (#130)', () => {
         async ([base, pid, mid, cid, suggJson]) => {
           const suggestion = JSON.parse(suggJson as string)
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
+            `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -332,7 +332,7 @@ test.describe('flow_litho_composition_picker (#130)', () => {
       const emptyRes = await page.evaluate(
         async ([base, pid, mid, cid]) => {
           const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/contacts/accept-litho-suggestions`,
+            `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

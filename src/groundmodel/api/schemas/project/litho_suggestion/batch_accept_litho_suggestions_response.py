@@ -11,7 +11,7 @@ from groundmodel.api.schemas.project.litho_suggestion.batch_accept_litho_anchor_
 
 
 class BatchAcceptLithoSuggestionsResponse(BaseModel):
-    """Body of ``POST .../contacts/batch-accept-litho-suggestions``.
+    """Body of ``POST .../layers/batch-accept-litho-suggestions``.
 
     Parameters
     ----------

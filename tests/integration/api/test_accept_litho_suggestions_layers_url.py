@@ -1,16 +1,15 @@
-"""Pin the dual-URL handler for accept-litho-suggestions (A4 remaining writers).
+"""Pin the canonical /layers URL for accept-litho-suggestions.
 
-The A4 cut moves the FE writer URL from
+The A4 cut moved the FE writer URL from
 ``POST /models/{mid}/contacts/accept-litho-suggestions`` to
-``POST /models/{mid}/layers/accept-litho-suggestions``. The BE
-implements both URLs as stacked decorators on the same handler — the
-underlying use case is unchanged, so behaviour is identical across
-the two URLs. This test pins that:
+``POST /models/{mid}/layers/accept-litho-suggestions``. The old
+``/contacts/*`` aliases were dual-registered for a transition window
+and deleted in the 2026-07 audit sweep (BE-API-04 — backwards compat
+is suspended pre-ship). This test pins that:
 
-* the new ``/layers/accept-litho-suggestions`` URL responds 200
-* the old ``/contacts/accept-litho-suggestions`` URL still responds
-  (backwards compatibility for any external caller that hasn't cut over)
-* the batch endpoint mirrors the same dual-URL pattern
+* the canonical ``/layers/accept-litho-suggestions`` URL responds
+* the retired ``/contacts/accept-litho-suggestions`` alias is GONE (404)
+* the batch endpoint mirrors the same single-URL state
 """
 
 from __future__ import annotations
@@ -80,10 +79,10 @@ async def test_accept_via_layers_url_routes_to_handler(
     assert "suggestions" in resp.text
 
 
-async def test_accept_via_contacts_url_still_works(
+async def test_accept_via_contacts_alias_is_gone(
     async_client: AsyncClient, project_and_model: dict
 ) -> None:
-    """The legacy /contacts URL must keep working (backwards-compat)."""
+    """The retired /contacts alias no longer routes (BE-API-04)."""
     p = project_and_model
     resp = await async_client.post(
         f"/projects/{p['project'].id}/geology/models/{p['litho'].id}"
@@ -93,8 +92,7 @@ async def test_accept_via_contacts_url_still_works(
             "suggestions": [],
         },
     )
-    assert resp.status_code == 422, resp.text
-    assert "suggestions" in resp.text
+    assert resp.status_code == 404, resp.text
 
 
 async def test_batch_accept_via_layers_url_returns_200(
@@ -114,10 +112,10 @@ async def test_batch_accept_via_layers_url_returns_200(
     assert resp.status_code == 200, resp.text
 
 
-async def test_batch_accept_via_contacts_url_still_works(
+async def test_batch_accept_via_contacts_alias_is_gone(
     async_client: AsyncClient, project_and_model: dict
 ) -> None:
-    """Legacy batch URL — backwards-compat."""
+    """The retired /contacts batch alias no longer routes (BE-API-04)."""
     p = project_and_model
     resp = await async_client.post(
         f"/projects/{p['project'].id}/geology/models/{p['litho'].id}"
@@ -128,4 +126,4 @@ async def test_batch_accept_via_contacts_url_still_works(
             "run_inference": False,
         },
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 404, resp.text

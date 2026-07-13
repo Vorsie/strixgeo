@@ -12,7 +12,7 @@ from groundmodel.api.schemas.project.litho_suggestion.litho_layer_suggestion_ite
 
 
 class AcceptLithoSuggestionsRequest(BaseModel):
-    """Body of ``POST .../contacts/accept-litho-suggestions``.
+    """Body of ``POST .../layers/accept-litho-suggestions``.
 
     Carries the list of suggestions to commit plus the anchor investigation.
     Exactly one of ``cpt_id`` / ``borehole_id`` must be present (XOR enforced

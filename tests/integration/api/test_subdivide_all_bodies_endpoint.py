@@ -121,7 +121,7 @@ async def scene(
 
     # --- accepted litho contact on the CPT (spans 0–10 m) ---
     accept_resp = await async_client.post(
-        f"/projects/{project.id}/geology/models/{litho_model_id}/contacts/accept-litho-suggestions",
+        f"/projects/{project.id}/geology/models/{litho_model_id}/layers/accept-litho-suggestions",
         json={
             "cpt_id": str(cpt.id),
             "suggestions": [
