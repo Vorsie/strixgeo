@@ -301,3 +301,76 @@ describe('computeSectionFillV2 — multi-gap band passes THROUGH the middle colu
     expect(g0Right![1]).toBeLessThan(6)
   })
 })
+
+describe('computeSectionFillV2 — deep-to-deep substrate below a shallow test', () => {
+  it('a deep unit runs deep-to-deep across a SHALLOW test that never reached it', () => {
+    // Left and right are DEEP; the middle is a SHALLOW test that bottoms out high.
+    // The engineer draws a JUMP TIE (left deep sand <-> right deep sand, across the
+    // shallow middle). The deep sand must fill the gap BELOW the shallow test's TD —
+    // a deep-to-deep bridge — rather than leaving the sub-TD strip empty.
+    const lTopClay = layer()
+    const lSand = layer()
+    const mClay = layer() // shallow test: only clay, TD is high
+    const rTopClay = layer()
+    const rSand = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lTopClay },
+      { top: 3, base: 12, f: SAND, layerId: lSand }, // sand deep, base at elev -2
+    ])
+    const mid = col('M', 10, [
+      { top: 0, base: 4, f: CLAY, layerId: mClay }, // shallow TD at elev 6
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: rTopClay },
+      { top: 3, base: 12, f: SAND, layerId: rSand },
+    ])
+    // Jump tie: left deep sand <-> right deep sand, tied on BOTH contacts, so the
+    // bridge carries the sand band's top AND base across the shallow middle column.
+    const edges: CorrelationEdge[] = [
+      { a: lSand, b: rSand, aSide: 'top', bSide: 'top' },
+      { a: lSand, b: rSand, aSide: 'base', bSide: 'base' },
+    ]
+    // Real along-metres so the bridge interpolates at the middle's true position.
+    const regions = computeSectionFillV2([left, mid, right], edges, undefined, [0, 100, 200])
+    // The sand appears in BOTH gaps (0 and 1) BELOW the shallow middle TD (elev 6):
+    // the bridge carries the deep sand across the shallow test.
+    const sandGap0 = ofFormation(regions, SAND).filter((r) => r.gapIndex === 0)
+    const sandGap1 = ofFormation(regions, SAND).filter((r) => r.gapIndex === 1)
+    expect(sandGap0.length).toBeGreaterThanOrEqual(1)
+    expect(sandGap1.length).toBeGreaterThanOrEqual(1)
+    // In gap 0, near the middle column (fraction 1), the sand reaches BELOW the
+    // shallow middle TD (elev 6) — the deep-to-deep fill, not a stop at the TD.
+    const g0Sand = sandGap0.reduce((lo, r) =>
+      Math.min(lo, ...r.polygon.filter((p) => p.fraction > 0.9).map((p) => p.elevation)), Infinity)
+    expect(g0Sand).toBeLessThan(6)
+  })
+
+  it('a strip below a shallow TD with NO bridging tie stays empty (owner Q3)', () => {
+    // Same shallow middle, but NO jump tie is drawn. The deep sand is known only at
+    // the two deep columns; nothing anchors the sub-TD strip under the shallow test,
+    // so it must stay UNFILLED (a genuinely bridge-less strip). White is correct.
+    const lTopClay = layer()
+    const lSand = layer()
+    const mClay = layer()
+    const rTopClay = layer()
+    const rSand = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lTopClay },
+      { top: 3, base: 12, f: SAND, layerId: lSand },
+    ])
+    const mid = col('M', 10, [{ top: 0, base: 4, f: CLAY, layerId: mClay }])
+    const right = col('R', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: rTopClay },
+      { top: 3, base: 12, f: SAND, layerId: rSand },
+    ])
+    // NO edges at all — the deep sands are uncorrelated across the shallow gap.
+    const regions = computeSectionFillV2([left, mid, right], [], undefined, [0, 100, 200])
+    // The sub-TD strip below the shallow middle (elev < 6) in gaps 0 and 1 must have
+    // NO sand fill (nothing bridges it). The left/right sands can only pinch as
+    // lenses toward the middle from their own columns; neither reaches deep-to-deep.
+    const deepSandNearMiddle = ofFormation(regions, SAND)
+      .filter((r) => r.gapIndex === 0)
+      .some((r) => r.polygon.some((p) => p.fraction > 0.9 && p.elevation < 5))
+    expect(deepSandNearMiddle).toBe(false)
+  })
+})
