@@ -17,14 +17,19 @@
 //   when body solids exist.  An always-empty surfaces map is passed to
 //   Geology3DViewer so the Surfaces legend + draw loop are suppressed without
 //   touching the shared viewer (the geology pane is unaffected).
+// Shared 3D plumbing EXTRACTED 2026-07-13 (audit FE-SHELL-CLIENTS-10/-11,
+// debt #233): split state, ground-surface fetch, fence-edge fetch and the
+// fence memos live in useBody3DViewState; the Solid/Fence/Wireframe pills +
+// empty-fence hint in BodyViewModePills; the voxel-request callback in
+// makeVoxelRequestBuilder.  GeotechnicalCanvas consumes the same modules.
 //
 // Design:
 //   • When hasLithoSolids is true, render the existing Geology3DViewer.
 //     Its props are generic — pass lithoFormations + EMPTY_SURFACES_MAP.
 //     Geology3DViewer.tsx is NOT modified.
-//   • Split-viewport mirrors GeologyCanvas exactly: local splitMode /
-//     splitPlane / splitLine state; resetLithoSplitViewportCallback exposed
-//     for LithologyStage's Reset toolbar button.
+//   • Split-viewport mirrors GeologyCanvas exactly (via useBody3DViewState);
+//     resetLithoSplitViewportCallback is exposed for LithologyStage's Reset
+//     toolbar button.
 //   • Ground surface: api.geology.buildGroundSurface(projectId, modelId)
 //     scoped to the litho model id (model-id-agnostic call).
 //   • resetLithoCameraCallback: module-level ref shared with LithologyStage's
@@ -33,37 +38,20 @@
 //     per-body watertight solids are rendered (TIN sheets always suppressed).
 //     In Fence mode the whole-project partition fill is projected to
 //     world-space panels and passed to Geology3DViewer via fencePanels.
-//
-// Solid mode (canvas responsibility):
-//   • EMPTY_SURFACES_MAP: stable module-level empty Map always passed to
-//     Geology3DViewer as surfacesByFormationId — suppresses the Surfaces
-//     legend toggle and TIN sheet rendering on the litho pane.
-//   • hasLithoSolids / lithoSolids come from useShell().geoModel (no local
-//     state); the canvas just reads + forwards to the viewer.
 
-import * as Cesium from 'cesium'
-import { useEffect, useMemo, useState } from 'react'
-import { Grid3x3, Layers3, Loader2, Network } from 'lucide-react'
+import { useMemo } from 'react'
+import { Layers3 } from 'lucide-react'
 
-import { api } from '../../../api/client'
-import type {
-  GroundSurfaceBuildResponse,
-  LithoContactCorrelationEdge,
-} from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
-import Geology3DViewer, {
-  type SplitMode,
-  type SplitLine,
-} from '../geology/Geology3DViewer'
+import Geology3DViewer from '../geology/Geology3DViewer'
+import type { VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
 import {
-  buildProjectFence,
-  type FenceSectionInput,
-} from '../../../utils/buildProjectFence'
-import { assembleLithoSectionInputs } from '../../../utils/assembleLithoSectionInputs'
-import { buildVoxelRequest, type VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
-import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
-import { log } from '../../../utils/log'
+  useBody3DViewState,
+  EMPTY_SURFACES_MAP,
+} from '../shared/useBody3DViewState'
+import { BodyViewModePills } from '../shared/BodyViewModePills'
+import { makeVoxelRequestBuilder } from '../shared/makeVoxelRequestBuilder'
 
 // ---------------------------------------------------------------------------
 // Module-level refs shared with LithologyStage toolbar — no bus extension.
@@ -112,17 +100,6 @@ export const lithoVoxelRequestCallback: React.MutableRefObject<
 > = { current: null }
 
 // ---------------------------------------------------------------------------
-// Stable empty surfaces map — always passed to Geology3DViewer on the litho
-// pane so TIN sheets are never rendered there.  The Surfaces legend toggle
-// and draw loop in Geology3DViewer are both gated on the map having vertices,
-// so an empty map suppresses both without touching the shared viewer.  The
-// geology pane passes its own real surfaces map and is unaffected.
-// Module-level so the reference is identity-stable across renders.
-// ---------------------------------------------------------------------------
-
-const EMPTY_SURFACES_MAP: ReadonlyMap<string, never> = new Map<string, never>()
-
-// ---------------------------------------------------------------------------
 // LithologyCanvas
 // ---------------------------------------------------------------------------
 
@@ -138,11 +115,10 @@ const EMPTY_SURFACES_MAP: ReadonlyMap<string, never> = new Map<string, never>()
  * sheet rendering are suppressed without modifying the shared viewer (the
  * geology pane passes its own real surfaces and is unaffected).
  *
- * Split-viewport mode mirrors ``GeologyCanvas`` exactly.  ``splitMode``,
- * ``splitPlane`` and ``splitLine`` are local session-ephemeral state; the
- * user draws the split line in the 3D scene via the ``Geology3DViewer``
- * "Split model" button.  ``resetLithoSplitViewportCallback`` is populated
- * here so ``LithologyStage``'s toolbar Reset verb can collapse the split.
+ * Split-viewport, ground-surface, fence-edge and view-mode state are owned by
+ * the shared ``useBody3DViewState`` hook (mirrored by ``GeotechnicalCanvas``);
+ * ``resetLithoSplitViewportCallback`` is populated there so
+ * ``LithologyStage``'s toolbar Reset verb can collapse the split.
  *
  * Fence/Solid toggle: ``viewMode`` switches between the closed-solid render
  * (Solid) and the whole-project partition fill projected to fence panels
@@ -171,8 +147,6 @@ export default function LithologyCanvas(): JSX.Element {
       hideMarkers,
     },
     overlays: { showConfidenceFade },
-    visibleCpts,
-    visibleBoreholes,
     sections: { visibleSections },
   } = useShell()
 
@@ -190,203 +164,32 @@ export default function LithologyCanvas(): JSX.Element {
     [lithoSolids, hideMarkers],
   )
 
-  // ---------------------------------------------------------------------------
-  // Fence / Solid view toggle — session-ephemeral, not persisted to the bundle.
-  // ---------------------------------------------------------------------------
-
-  const [viewMode, setViewMode] = useState<'solid' | 'fence'>('solid')
-
-  // Wireframe view of the body solids — session-ephemeral, Solid mode only.
-  // The in-app equivalent of the dev viewer's "wireframe" checkbox: when on,
-  // each body renders as the LINE edges of its mesh instead of filled faces.
-  // Placed above every component-level early return so the hook order is
-  // stable (the hook-order rule).
-  const [wireframe, setWireframe] = useState(false)
-
-  // True while the per-section edge fetches are in flight (Fence mode only).
-  // Drives the loading spinner on the Fence button and the disabled state of
-  // both toggle buttons so the user cannot switch during an in-flight fetch.
-  const [fenceLoading, setFenceLoading] = useState(false)
-
-  // ---------------------------------------------------------------------------
-  // Split-viewport state — session-ephemeral, not persisted to the bundle.
-  // Mirrors GeologyCanvas's splitMode / splitPlane / splitLine pattern.
-  // ---------------------------------------------------------------------------
-
-  const [splitMode, setSplitMode] = useState<SplitMode>('single')
-  const [splitPlane, setSplitPlane] = useState<Cesium.Plane | null>(null)
-  const [splitLine, setSplitLine] = useState<SplitLine | null>(null)
-
-  function handleSplitPlaneDrawn(plane: Cesium.Plane, line: SplitLine): void {
-    setSplitPlane(plane)
-    setSplitLine(line)
-    setSplitMode('split')
-  }
-
-  // Exposed so LithologyStage toolbar Reset can collapse the split without
-  // bus extension — same pattern as GeologyCanvas.
-  resetLithoSplitViewportCallback.current = () => {
-    setSplitMode('single')
-    setSplitPlane(null)
-    setSplitLine(null)
-  }
-
-  // ---------------------------------------------------------------------------
-  // Ground-surface TIN scoped to the active litho model.
-  // Same fire-and-forget pattern as GeologyCanvas — session-local, not
-  // persisted to the bundle.  Null when no litho model or DEM unavailable.
-  // ---------------------------------------------------------------------------
-
-  const [groundSurface, setGroundSurface] = useState<GroundSurfaceBuildResponse | null>(null)
-
-  const projectId = project?.id ?? null
   const lithoModelId = activeLithoModel?.id ?? null
 
-  useEffect(() => {
-    if (!projectId || !lithoModelId) {
-      setGroundSurface(null)
-      return
-    }
-    let cancelled = false
-
-    api.geology
-      .buildGroundSurface(projectId, lithoModelId)
-      .then(result => {
-        if (!cancelled) setGroundSurface(result)
-      })
-      .catch(() => {
-        // DEM provider unavailable or network error — flat ellipsoid fallback.
-        if (!cancelled) setGroundSurface(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-    // Key on stable id strings; DEM fetch does not depend on surface staleness.
-  }, [projectId, lithoModelId])
-
-  // ---------------------------------------------------------------------------
-  // Per-section correlation edges — fetched lazily when Fence mode is active.
-  //
-  // WHY: edges are section-scoped (each edge row carries a section_id — owner
-  // directive 2026-06-08).  We fetch each section's edges in parallel so the
-  // fence build gets only the edges authored on that section.  The fetch fires
-  // whenever viewMode switches to 'fence', the litho model changes, or the
-  // section list changes.  When viewMode is 'solid' the effect early-returns
-  // immediately (guarded by `viewMode !== 'fence'` at the top of the effect),
-  // so no fetch fires in Solid mode.
-  // ---------------------------------------------------------------------------
-
-  const [edgesBySectionId, setEdgesBySectionId] = useState<
-    Map<string, LithoContactCorrelationEdge[]>
-  >(new Map())
-
-  useEffect(() => {
-    if (!projectId || !lithoModelId || viewMode !== 'fence') {
-      return
-    }
-    if (visibleSections.length === 0) {
-      setEdgesBySectionId(new Map())
-      return
-    }
-    let cancelled = false
-
-    setFenceLoading(true)
-    Promise.all(
-      visibleSections.map(section =>
-        api.geology
-          .listContactCorrelations(projectId, lithoModelId, section.id)
-          .then(edges => [section.id, edges] as const)
-          .catch(() => [section.id, [] as LithoContactCorrelationEdge[]] as const),
-      ),
-    ).then(results => {
-      if (cancelled) return
-      setEdgesBySectionId(new Map(results))
-      setFenceLoading(false)
-    })
-
-    return () => {
-      cancelled = true
-      // Clear the loading flag on cleanup so a stale fetch never leaves
-      // the buttons permanently disabled when the effect re-fires.
-      setFenceLoading(false)
-    }
-  }, [projectId, lithoModelId, viewMode, visibleSections])
-
-  // Null the voxel-build ref on unmount.  Unlike the sibling reset callbacks
-  // (resetLithoCameraCallback) which are synchronous, the voxel builder is
-  // async (it fans out per-section edge fetches), so a stale callback could in
-  // principle be invoked after the canvas unmounts / the model switches —
-  // clearing it on unmount closes that async stale-fire window.
-  useEffect(() => () => {
-    lithoVoxelRequestCallback.current = null
-  }, [])
-
-  // ---------------------------------------------------------------------------
-  // Fence inputs — assembled from shell-bus data + fetched edges.
-  //
-  // lithoLayers already live on the geoModel bus (loaded by useGeologicalModel
-  // for the Sections stage); no extra fetch is needed.  Each layer is mapped
-  // to a FenceLayerInput keyed by investigationId = cpt_id ?? borehole_id.
-  // ---------------------------------------------------------------------------
-
-  const investigations = useMemo(
-    () => [
-      ...visibleCpts.map(c => ({
-        id: c.id,
-        location_x: c.location_x,
-        location_y: c.location_y,
-        elevation_m: c.elevation_m,
-      })),
-      ...visibleBoreholes.map(b => ({
-        id: b.id,
-        location_x: b.location_x,
-        location_y: b.location_y,
-        elevation_m: b.elevation_m,
-      })),
-    ],
-    [visibleCpts, visibleBoreholes],
-  )
-
-  // Investigation (x, y) positions — the distance metric for the body-solid
-  // confidence fade in the 3D viewer (opaque on data, ghosted far from it).
-  const investigationXY = useMemo<[number, number][]>(
-    () => investigations.map(i => [i.location_x, i.location_y]),
-    [investigations],
-  )
-
-  // Approved edges per section (the band/onlap/lens classifier only consumes
-  // user-approved edges).  Shared by the fence memo + the voxel-build callback.
-  const approvedEdgesBySectionId = useMemo(() => {
-    const out = new Map<string, { a: string; b: string }[]>()
-    for (const [sectionId, edges] of edgesBySectionId) {
-      out.set(
-        sectionId,
-        edges.filter(e => e.user_approved).map(e => ({ a: e.contact_a_id, b: e.contact_b_id })),
-      )
-    }
-    return out
-  }, [edgesBySectionId])
-
-  const fenceSectionInputs = useMemo<FenceSectionInput[]>(() => {
-    if (viewMode !== 'fence') return []
-    if (!lithoModelId) return []
-    return assembleLithoSectionInputs({
-      visibleSections,
-      investigations,
-      lithoLayers,
-      edgesBySectionId: approvedEdgesBySectionId,
-    })
-  }, [viewMode, lithoModelId, visibleSections, investigations, lithoLayers, approvedEdgesBySectionId])
-
-  // ---------------------------------------------------------------------------
-  // Fence panels — built only in Fence mode to avoid the CPU cost in Solid mode.
-  // ---------------------------------------------------------------------------
-
-  const fencePanels = useMemo(
-    () => (viewMode === 'fence' ? buildProjectFence(fenceSectionInputs) : undefined),
-    [viewMode, fenceSectionInputs],
-  )
+  // Shared 3D-view plumbing: view mode, wireframe, split state, ground
+  // surface, fence-edge fetch + fence memos (audit FE-SHELL-CLIENTS-10).
+  const {
+    projectId,
+    viewMode,
+    setViewMode,
+    wireframe,
+    setWireframe,
+    fenceLoading,
+    splitMode,
+    splitPlane,
+    splitLine,
+    handleSplitPlaneDrawn,
+    exitSplit,
+    groundSurface,
+    investigations,
+    investigationXY,
+    fencePanels,
+  } = useBody3DViewState({
+    modelId: lithoModelId,
+    layers: lithoLayers,
+    resetSplitViewportRef: resetLithoSplitViewportCallback,
+    voxelRequestRef: lithoVoxelRequestCallback,
+  })
 
   // ---------------------------------------------------------------------------
   // Voxel build payload — assembled on demand for the "Build model" toolbar
@@ -394,66 +197,19 @@ export default function LithologyCanvas(): JSX.Element {
   //
   // The toolbar lives in LithologyStage and has no access to the per-section
   // partition data that lives here, so the canvas populates this ref every
-  // render; the toolbar's Build onClick invokes it.  The builder is async
-  // because the correlation edges are section-scoped and fetched fresh at click
-  // time — Solid mode (the default) keeps no edges cache, and the build must
-  // work regardless of which 3D view is showing.  Assigned ABOVE the early
+  // render; the toolbar's Build onClick invokes it.  Assigned ABOVE the early
   // return so the ref is always populated while the canvas is mounted.
-  //
-  // Returns null (→ "nothing to build" toast) when there is no model or no
-  // visible section to project onto.
   // ---------------------------------------------------------------------------
 
-  lithoVoxelRequestCallback.current = async (): Promise<VoxelBuildRequest | null> => {
-    if (!projectId || !lithoModelId || visibleSections.length === 0) return null
-
-    // Fetch each section's approved correlation edges fresh (section-scoped;
-    // a failed fetch degrades to no edges for that section rather than aborting
-    // the whole build — the partition still fills, just without that section's
-    // correlations).  ``failed`` flags a rejected fetch so the build log can
-    // report which sections came back empty due to error vs genuinely no edges.
-    const failedSectionIds: string[] = []
-    const edgeResults = await Promise.all(
-      visibleSections.map(section =>
-        api.geology
-          .listContactCorrelations(projectId, lithoModelId, section.id)
-          .then(
-            edges =>
-              [
-                section.id,
-                edges
-                  .filter(e => e.user_approved)
-                  .map(e => ({ a: e.contact_a_id, b: e.contact_b_id })),
-              ] as const,
-          )
-          .catch(() => {
-            failedSectionIds.push(section.id)
-            return [section.id, [] as { a: string; b: string }[]] as const
-          }),
-      ),
-    )
-    const edgesMap = new Map(edgeResults)
-    const totalApprovedEdges = edgeResults.reduce((sum, [, edges]) => sum + edges.length, 0)
-    log.debug(
-      'litho-voxel',
-      `assembled ${edgeResults.length} sections, ${totalApprovedEdges} approved edges` +
-        (failedSectionIds.length > 0
-          ? `; ${failedSectionIds.length} section(s) failed → empty: ${failedSectionIds.join(', ')}`
-          : ''),
-    )
-
-    const sectionInputs = assembleLithoSectionInputs({
-      visibleSections,
-      investigations,
-      lithoLayers,
-      edgesBySectionId: edgesMap,
-    })
-
-    const { voxelHorizontalSpacingM, voxelVerticalSpacingM } = readLithoSegmenterPrefs(
-      project?.view_state,
-    )
-    return buildVoxelRequest(sectionInputs, voxelHorizontalSpacingM, voxelVerticalSpacingM)
-  }
+  lithoVoxelRequestCallback.current = makeVoxelRequestBuilder({
+    projectId,
+    modelId: lithoModelId,
+    visibleSections,
+    investigations,
+    layers: lithoLayers,
+    viewState: project?.view_state,
+    logLabel: 'litho-voxel',
+  })
 
   // ---------------------------------------------------------------------------
   // Solid-mode derived state
@@ -478,98 +234,19 @@ export default function LithologyCanvas(): JSX.Element {
             - Legend → LithologyInspector (grouped by lithology)
             Both read from useShell().geoModel (useLithoSolids). */}
 
-        {/* Fence / Solid view toggle — bottom-left overlay.
-            Positioned bottom-2 left-2 z-20 to stay CLEAR of the Layers
-            legend (top-2 left-2 z-10) and the BasemapPanel (top-2 right-2)
-            that Geology3DViewer paints.  z-20 wins over any z-10 children
-            the viewer renders (Cesium attribution bar is centred, not
-            bottom-left, so there is no collision there either).
-            title= on the wrapper makes the view-mode concept discoverable
-            via browser tooltip (Fix D). */}
-        <div
-          className="absolute bottom-2 left-2 z-20 flex items-center gap-1.5"
+        <BodyViewModePills
+          testIdPrefix="litho"
           title="Switch between solid TIN surfaces and fence-diagram walls"
-        >
-          {/* Small "View" label so first-time users read this as a view-mode
-              switch rather than an action button (Fix D). */}
-          <span className="text-[10px] text-text-secondary select-none leading-none">View</span>
-          <div className="flex rounded overflow-hidden border border-border-default shadow-sm">
-            <button
-              type="button"
-              data-testid="litho-view-mode-solid"
-              aria-pressed={viewMode === 'solid'}
-              disabled={fenceLoading}
-              onClick={() => setViewMode('solid')}
-              className={[
-                'px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
-                viewMode === 'solid'
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-              ].join(' ')}
-            >
-              Solid
-            </button>
-            <button
-              type="button"
-              data-testid="litho-view-mode-fence"
-              aria-pressed={viewMode === 'fence'}
-              disabled={fenceLoading}
-              onClick={() => setViewMode('fence')}
-              className={[
-                'px-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed',
-                viewMode === 'fence'
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-              ].join(' ')}
-            >
-              {/* Spinner replaces nothing — it sits beside the label so the
-                  button width stays stable and the label stays readable. */}
-              {fenceLoading && <Loader2 size={11} className="animate-spin" />}
-              Fence
-            </button>
-          </div>
-
-          {/* Wireframe toggle — Solid mode only (wireframe applies to the
-              filled body-solid render, which Fence mode does not draw).
-              Matches the Fence/Solid pill styling so the two read as one
-              view-control cluster; aria-pressed mirrors the toggle state. */}
-          {viewMode === 'solid' && (
-            <button
-              type="button"
-              data-testid="litho-view-wireframe"
-              aria-pressed={wireframe}
-              title="Show the body model as wireframe"
-              onClick={() => setWireframe(w => !w)}
-              className={[
-                'px-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1 rounded border border-border-default shadow-sm',
-                wireframe
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-              ].join(' ')}
-            >
-              <Grid3x3 size={11} />
-              Wireframe
-            </button>
-          )}
-        </div>
-
-        {/* Empty-fence hint pill (Fix C) — rendered only when Fence mode is
-            active, the edge fetch has completed (not loading), and no panels
-            were produced. Positioned top-centre so it clears the Layers
-            legend (top-2 left-2) and the BasemapPanel (top-2 right-2). */}
-        {viewMode === 'fence' && !fenceLoading && fencePanels !== undefined && fencePanels.length === 0 && (
-          <div
-            data-testid="fence-empty-hint"
-            className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] pointer-events-none"
-            style={{
-              color: 'var(--section-hint-text)',
-              background: 'var(--section-hint-bg)',
-            }}
-          >
-            <Network size={12} />
-            No fence panels — accept correlations in the Sections stage
-          </div>
-        )}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          wireframe={wireframe}
+          setWireframe={setWireframe}
+          fenceLoading={fenceLoading}
+          fencePanels={fencePanels}
+          emptyHintTestId="fence-empty-hint"
+          emptyHintText="No fence panels — accept correlations in the Sections stage"
+          emptyHintTopClassName="top-8"
+        />
 
         <Geology3DViewer
           splitMode={splitMode}
@@ -586,11 +263,7 @@ export default function LithologyCanvas(): JSX.Element {
           bodySolids={visibleSolids}
           bodySolidsWireframe={wireframe}
           investigationXY={investigationXY}
-          onExitSplit={() => {
-            setSplitMode('single')
-            setSplitPlane(null)
-            setSplitLine(null)
-          }}
+          onExitSplit={exitSplit}
         />
       </div>
     )
