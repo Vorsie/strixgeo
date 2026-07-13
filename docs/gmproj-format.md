@@ -12,7 +12,7 @@ metadata editor.
 
 ```json
 {
-  "format_version": 4,
+  "format_version": 3,
   "project": {
     "id": "<uuid>",
     "name": "Antwerp port — quay 7",
@@ -109,7 +109,11 @@ metadata editor.
   is future work; today's flow is for solo work + same-machine project
   organisation.
 
-The on-disk schema lives in ``desktop/src/renderer/src/utils/projectFile.ts``
+The on-disk ``format_version`` is **3** — decoupled from the backend
+``GET /bundle`` payload's ``format_version`` 4: the desktop client overrides
+the version and injects ``stratigraphy_lumping`` when writing a file, and a
+raw v4 bundle saved as a project file is rejected on open ("may be corrupt").
+The schema lives in ``desktop/src/renderer/src/utils/projectFile.ts``
 (``ProjectFileV3`` type + ``buildProjectFile`` / ``serialiseProjectFile`` /
 ``parseProjectFile``). Once we ship, bumping ``format_version`` will
 require keeping the old reader alive and writing an explicit
