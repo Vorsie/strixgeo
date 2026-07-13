@@ -180,4 +180,31 @@ describe('PartitionFillOverlay geotech refinement render', () => {
       container.querySelectorAll('[data-testid="partition-refined-outline"]').length,
     ).toBeGreaterThan(0)
   })
+
+  // SEAM-RF (2026-07-13): the refined NAD fills tile the geotech axis, so they
+  // suffer the same antialiasing hairline as the litho region fills. Each refined
+  // fill must carry a self-colour seam stroke at the FILL opacity (0.62) so
+  // adjacent NAD sub-bands close their shared edge. The dark litho OUTLINE
+  // (fill="none") is a deliberate boundary line, NOT a fill — it keeps its own
+  // stroke and is excluded from this check.
+  it('SEAM-RF — refined NAD fills carry a self-colour seam stroke at the fill opacity', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...baseProps} refinement={REFINEMENT} />
+      </svg>,
+    )
+    const fills = Array.from(
+      container.querySelectorAll('[data-testid="partition-refined-fill"]'),
+    )
+    expect(fills.length).toBeGreaterThan(0)
+    for (const el of fills) {
+      const fill = el.getAttribute('fill')
+      expect(el.getAttribute('stroke')).toBe(fill)
+      expect(el.getAttribute('stroke-width')).toBe('0.75')
+      expect(el.getAttribute('stroke-linejoin')).toBe('round')
+      // Fill opacity is FILL_OPACITY (0.62); the seam stroke matches it exactly.
+      expect(el.getAttribute('stroke-opacity')).toBe(el.getAttribute('fill-opacity'))
+      expect(el.getAttribute('fill-opacity')).toBe('0.62')
+    }
+  })
 })

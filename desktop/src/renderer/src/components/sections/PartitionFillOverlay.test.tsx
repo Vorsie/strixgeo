@@ -847,4 +847,73 @@ describe('PartitionFillOverlay', () => {
     expect(y).toBeGreaterThanOrEqual(0)
     expect(y).toBeLessThanOrEqual(50)
   })
+
+  // --------------------------------------------------------------------------
+  // SEAM1-SEAM2: hairline-seam close (2026-07-13)
+  //
+  // The visible dark hairlines between adjacent translucent fills are the classic
+  // SVG antialiasing seam: at a shared edge neither polygon covers the boundary
+  // pixels fully, so the dark app background bleeds through. The fix gives every
+  // FILL a stroke of ITS OWN fill colour at the SAME opacity as the fill (so the
+  // stroke reads no darker than the fill it hems) — adjacent fills then visually
+  // close the seam. strokeWidth is a small 0.75; strokeLinejoin="round" avoids
+  // miter spikes on sharp pinch tips.
+  //
+  //   SEAM1  every region-fill polygon carries stroke === its fill colour,
+  //          strokeWidth 0.75, strokeLinejoin round, and strokeOpacity equal to
+  //          the polygon's fillOpacity (the S1-fade variable, not the 0.45
+  //          STROKE_OPACITY that would read as a darker outline).
+  //   SEAM2  the open-end stub rects (which tile the section's open ends) carry
+  //          the same self-colour seam stroke at the fill opacity.
+  // --------------------------------------------------------------------------
+  it('SEAM1 — every region fill carries a self-colour seam stroke at the fill opacity', () => {
+    const { queryAllByTestId } = renderOverlay()
+    const regions = [
+      ...queryAllByTestId('partition-region-sand'),
+      ...queryAllByTestId('partition-region-clay'),
+    ]
+    expect(regions.length).toBeGreaterThanOrEqual(2)
+    for (const el of regions) {
+      const fill = el.getAttribute('fill')
+      // Stroke must equal the region's own fill colour so the seam closes without
+      // painting a foreign colour across the boundary.
+      expect(el.getAttribute('stroke')).toBe(fill)
+      expect(el.getAttribute('stroke-width')).toBe('0.75')
+      expect(el.getAttribute('stroke-linejoin')).toBe('round')
+      // strokeOpacity must match fillOpacity exactly — a stroke ABOVE the 0.62
+      // fill opacity would read as a darker outline (wrong).
+      expect(el.getAttribute('stroke-opacity')).toBe(el.getAttribute('fill-opacity'))
+    }
+  })
+
+  it('SEAM1-fade — a demoted (S1-faded) region strokes at its FADED opacity, not the natural one', () => {
+    // With a body selected, non-matching regions fade to 0.25. The seam stroke
+    // must track that faded fillOpacity (the same variable), else the outline
+    // stays bright while the fill dims.
+    const { queryAllByTestId } = renderOverlay({ selectedBodyId: 'sand' })
+    const clay = queryAllByTestId('partition-region-clay')
+    expect(clay.length).toBeGreaterThanOrEqual(1)
+    for (const el of clay) {
+      expect(el.getAttribute('fill-opacity')).toBe('0.25')
+      expect(el.getAttribute('stroke-opacity')).toBe('0.25')
+      expect(el.getAttribute('stroke')).toBe(el.getAttribute('fill'))
+    }
+  })
+
+  it('SEAM2 — open-end stub rects carry the self-colour seam stroke at the fill opacity', () => {
+    const { queryAllByTestId } = renderOverlay()
+    // The base fixture emits open-end stubs at both section ends (testid
+    // partition-edge-<edgeIdx>-<inv>-<unitIdx>).
+    const stubs = Array.from(
+      document.querySelectorAll('[data-testid^="partition-edge-"]'),
+    ) as SVGRectElement[]
+    expect(stubs.length).toBeGreaterThanOrEqual(1)
+    for (const el of stubs) {
+      const fill = el.getAttribute('fill')
+      expect(el.getAttribute('stroke')).toBe(fill)
+      expect(el.getAttribute('stroke-width')).toBe('0.75')
+      expect(el.getAttribute('stroke-linejoin')).toBe('round')
+      expect(el.getAttribute('stroke-opacity')).toBe(el.getAttribute('fill-opacity'))
+    }
+  })
 })

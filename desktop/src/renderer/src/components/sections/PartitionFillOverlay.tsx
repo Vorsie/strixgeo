@@ -215,7 +215,6 @@ const FILL_OPACITY = 0.62
 // A lens (one-test body enclosed in a matrix) is drawn a touch more solid so it
 // reads as a unit CUT OUT of the continuous matrix it sits on, not a faint wash.
 const LENS_OPACITY = 0.85
-const STROKE_OPACITY = 0.45
 const FALLBACK_COLOR = '#888888'
 const EDGE_STUB_PX = 64
 const OPEN_END_M = 5
@@ -1522,9 +1521,13 @@ export default function PartitionFillOverlay({
               d={p.d}
               fill={p.color}
               fillOpacity={FILL_OPACITY}
+              // Self-colour seam stroke at the fill opacity (2026-07-13) — closes
+              // the antialiasing hairline between adjacent NAD sub-band fills. Matches
+              // fillOpacity so it never reads as a darker outline. See region-fill note.
               stroke={p.color}
-              strokeOpacity={STROKE_OPACITY}
-              strokeWidth={0.4}
+              strokeOpacity={FILL_OPACITY}
+              strokeWidth={0.75}
+              strokeLinejoin="round"
             />
           ))}
           {refinedScreen.fillPolys.map((p) => (
@@ -1534,9 +1537,11 @@ export default function PartitionFillOverlay({
               d={p.d}
               fill={p.color}
               fillOpacity={FILL_OPACITY}
+              // Self-colour seam stroke at the fill opacity — see the substrate note.
               stroke={p.color}
-              strokeOpacity={STROKE_OPACITY}
-              strokeWidth={0.4}
+              strokeOpacity={FILL_OPACITY}
+              strokeWidth={0.75}
+              strokeLinejoin="round"
             />
           ))}
           {refinedScreen.outlines.map((p) => (
@@ -1580,9 +1585,14 @@ export default function PartitionFillOverlay({
               d={f.points}
               fill={f.color}
               fillOpacity={ucOpacity}
+              // Self-colour seam stroke at the fill opacity (2026-07-13) — closes
+              // the antialiasing hairline against the gap regions above without
+              // reading as a darker outline (matches fillOpacity, incl. the 0.25
+              // S1-fade). See the region-fill note above.
               stroke={f.color}
-              strokeOpacity={ucOpacity * STROKE_OPACITY}
-              strokeWidth={0.5}
+              strokeOpacity={ucOpacity}
+              strokeWidth={0.75}
+              strokeLinejoin="round"
             />
           )
         })
@@ -1611,14 +1621,22 @@ export default function PartitionFillOverlay({
             // convention on both axes — the geotech bodies connect now (backend
             // Tasks 1+2), so no axis-specific opacity override is needed.
             fillOpacity={regionOpacity}
-            // No same-colour stroke: a stroke is centred on the polygon edge and
-            // spills HALF its width across every shared boundary, painting the
-            // region's own colour into its neighbours (a clay band's grey bleeding
-            // over the silt/sand above + below — owner dogfeed 2026-07-10, "clay
-            // spilling over silt/sand from top and bottom"). The regions share exact
-            // edges, so the fills abut cleanly with no stroke. crispEdges is NOT used
-            // (the bands are slanted — it would stair-step them).
-            stroke="none"
+            // Self-colour seam stroke at the SAME opacity as the fill (2026-07-13):
+            // adjacent translucent fills leave an antialiased hairline at their
+            // shared edge (neither polygon covers the boundary pixels fully → the
+            // dark background bleeds through). A stroke of the region's OWN fill
+            // colour closes the seam. The earlier stroke="none" was chosen because a
+            // stroke at a HIGHER opacity than the fill (0.45 over a 0.62 fill) read as
+            // a darker outline and "spilled" the colour over neighbours (dogfeed
+            // 2026-07-10) — matching strokeOpacity to fillOpacity (regionOpacity,
+            // incl. the 0.25 S1-fade) makes the stroke read no darker than the fill
+            // it hems, so it only fills the seam it never covered. round linejoin
+            // avoids miter spikes on sharp pinch tips; crispEdges is NOT used (the
+            // bands are slanted — it would stair-step them).
+            stroke={color}
+            strokeOpacity={regionOpacity}
+            strokeWidth={0.75}
+            strokeLinejoin="round"
             style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : undefined}
             onContextMenu={
               interactive
@@ -1993,9 +2011,13 @@ export default function PartitionFillOverlay({
                 height={Math.max(0.5, yB - yT)}
                 fill={color}
                 fillOpacity={FILL_OPACITY}
+                // Self-colour seam stroke at the fill opacity (2026-07-13) — closes
+                // the antialiasing hairline where the open-end stub abuts the
+                // section-edge column. See the region-fill note above.
                 stroke={color}
-                strokeOpacity={STROKE_OPACITY}
-                strokeWidth={0.5}
+                strokeOpacity={FILL_OPACITY}
+                strokeWidth={0.75}
+                strokeLinejoin="round"
               />
             )
           })
