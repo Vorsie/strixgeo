@@ -19,9 +19,6 @@ _restore_boreholes
     Insert borehole rows with their full child tree.
 _restore_formations
     Insert geological formation rows.
-_restore_flat_rows
-    Generic dedup+insert loop shared by ``_restore_formations`` and
-    ``_restore_cross_sections``.
 _build_valid_formation_ids
     Return the union of DB + payload formation ids for FK guards.
 _build_valid_model_ids
@@ -75,7 +72,6 @@ __all__ = [
     "_restore_cpts",
     "_restore_boreholes",
     "_restore_formations",
-    "_restore_flat_rows",
     "_build_valid_formation_ids",
     "_build_valid_model_ids",
     "_restore_cross_sections",
@@ -291,53 +287,29 @@ async def _restore_formations(
     int
         Number of formation rows newly inserted.
     """
-    return await _restore_flat_rows(
-        session, project_id, GeologicalFormationOrm, geological_formations_payload
-    )
-
-
-async def _restore_flat_rows(
-    session: AsyncSession,
-    project_id: UUID,
-    orm_cls: type[Any],
-    payload: list[dict[str, Any]],
-) -> int:
-    """Insert project-scoped ORM rows from the bundle, skipping existing ids.
-
-    Shared by ``_restore_formations`` and ``_restore_cross_sections`` —
-    both follow the identical pattern of deduping against the DB by id
-    and inserting new rows with ``app_project_id`` injected.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Running SQLAlchemy async session.
-    project_id : UUID
-        Owning project (injected into every new row as ``app_project_id``).
-    orm_cls : type[Any]
-        The ORM class to instantiate (must have ``id`` + ``app_project_id``
-        columns that ``_apply_json_to_kwargs`` maps to).
-    payload : list[dict[str, Any]]
-        Raw item dicts from the bundle.
-
-    Returns
-    -------
-    int
-        Number of rows newly inserted.
-    """
+    # Formerly the generic _restore_flat_rows helper — its other clients
+    # (geotech units, cross-sections) grew bespoke loops (guards / FK
+    # deferral) and stopped calling it, so the abstraction is inlined
+    # back into its one remaining caller.
     existing = set(
-        (await session.execute(select(orm_cls.id).where(orm_cls.app_project_id == project_id)))
+        (
+            await session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == project_id
+                )
+            )
+        )
         .scalars()
         .all()
     )
     inserted = 0
-    for item in payload:
+    for item in geological_formations_payload:
         item_id = _uuid(item.get("id"))
         if item_id is None or item_id in existing:
             continue
-        kwargs = _apply_json_to_kwargs(orm_cls, item)
+        kwargs = _apply_json_to_kwargs(GeologicalFormationOrm, item)
         kwargs["app_project_id"] = project_id
-        session.add(orm_cls(**kwargs))
+        session.add(GeologicalFormationOrm(**kwargs))
         inserted += 1
     return inserted
 
@@ -495,9 +467,9 @@ async def _restore_cross_sections(
     phase (see ``_attach_companion_lens_links``). ``is_lens_companion`` (a bool
     flag, not an FK) stays on the row so the companion is flagged immediately.
 
-    This phase writes its own dedupe+insert loop rather than going through
-    ``_restore_flat_rows`` because of that deferral need — the same reason
-    ``_restore_investigation_reviews`` carries its own loop.
+    This phase writes its own dedupe+insert loop rather than sharing
+    ``_restore_formations``'s because of that deferral need — the same
+    reason ``_restore_investigation_reviews`` carries its own loop.
 
     Parameters
     ----------

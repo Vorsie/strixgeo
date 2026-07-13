@@ -59,6 +59,65 @@ from .bundle_serialization import (
 )
 
 
+def _require_fk(
+    payload: dict[str, Any],
+    key: str,
+    valid_set: set[UUID] | None,
+    *,
+    label: str,
+    note: str,
+    i: int,
+    total: int,
+    logger: GroundModelLogger,
+) -> UUID | None:
+    """Resolve + scope-check one FK from a bundle payload, or drop it.
+
+    The per-FK guard every restore phase runs: parse the UUID, reject a
+    missing value, and reject a value outside the project-scoped valid
+    set (the bundle-injection guard — a crafted bundle must not attach
+    rows to another project's parents). Previously the same block shape
+    was copy-pasted ~10 times across the litho restore phases; the
+    helper makes "every FK gets the injection guard" structural instead
+    of copy-discipline.
+
+    Parameters
+    ----------
+    payload : dict[str, Any]
+        Raw bundle dict for the row being restored.
+    key : str
+        Payload key holding the FK (e.g. ``"model_id"``).
+    valid_set : set[UUID] | None
+        Project-scoped ids the FK must be in. ``None`` skips the
+        membership check (missing-only guard, e.g. the litho solid's
+        non-FK ``body_id``).
+    label : str
+        Per-phase log identity, e.g. ``f"body {lens_id}"`` — keeps the
+        phase wording in the warning lines.
+    note : str
+        Parenthesised drop reason for the invalid case, e.g.
+        ``"bundle-injection guard"`` / ``"dangling FK"``.
+    i, total : int
+        Progress-prefix counters for the ``[i/total]`` log convention.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    UUID | None
+        The validated FK, or ``None`` when the row must be dropped
+        (a warning has already been logged; the caller increments its
+        ``dropped`` counter and continues).
+    """
+    fk = _uuid(payload.get(key))
+    if fk is None:
+        logger.warning(f"[{i}/{total}] {label} has no {key} — dropped")
+        return None
+    if valid_set is not None and fk not in valid_set:
+        logger.warning(f"[{i}/{total}] {label}: {key} {fk} not in this project — dropped ({note})")
+        return None
+    return fk
+
+
 def _blank_surface_geometry(kwargs: dict[str, Any]) -> None:
     """Drop a restored surface's TIN geometry and force a rebuild.
 
@@ -438,42 +497,32 @@ async def _restore_bodies(
             logger.debug(f"[{i}/{total}] body {lens_id} already present — skipped")
             skipped += 1
             continue
-        model_id = _uuid(lens_payload.get("model_id"))
+        guard_args: dict[str, Any] = {
+            "label": f"body {lens_id}",
+            "i": i,
+            "total": total,
+            "logger": logger,
+        }
+        model_id = _require_fk(
+            lens_payload, "model_id", valid_model_ids, note="bundle-injection guard", **guard_args
+        )
         if model_id is None:
-            logger.warning(f"[{i}/{total}] body {lens_id} has no model_id — dropped")
             dropped += 1
             continue
-        if model_id not in valid_model_ids:
-            logger.warning(
-                f"[{i}/{total}] body {lens_id} → model {model_id} "
-                f"not in this project — dropped (bundle-injection guard)"
-            )
-            dropped += 1
-            continue
-        pf_id = _uuid(lens_payload.get("formation_id"))
+        pf_id = _require_fk(
+            lens_payload, "formation_id", valid_formation_ids, note="dangling FK", **guard_args
+        )
         if pf_id is None:
-            logger.warning(f"[{i}/{total}] body {lens_id} missing formation_id — dropped")
             dropped += 1
             continue
-        if pf_id not in valid_formation_ids:
-            logger.warning(
-                f"[{i}/{total}] body {lens_id}: formation_id {pf_id} "
-                f"not present in this project — dropped (dangling FK)"
-            )
-            dropped += 1
-            continue
-        src_inv_id = _uuid(lens_payload.get("source_investigation_id"))
+        src_inv_id = _require_fk(
+            lens_payload,
+            "source_investigation_id",
+            valid_inv_ids,
+            note="dangling polymorphic FK",
+            **guard_args,
+        )
         if src_inv_id is None:
-            logger.warning(
-                f"[{i}/{total}] body {lens_id} missing source_investigation_id — dropped"
-            )
-            dropped += 1
-            continue
-        if src_inv_id not in valid_inv_ids:
-            logger.warning(
-                f"[{i}/{total}] body {lens_id}: source_investigation_id {src_inv_id} "
-                f"not in this project's CPTs/boreholes — dropped (dangling polymorphic FK)"
-            )
             dropped += 1
             continue
 
@@ -557,16 +606,16 @@ async def _restore_formation_absences(
             logger.debug(f"[{i}/{total}] formation absence {ab_id} already present — skipped")
             skipped += 1
             continue
-        ab_fid = _uuid(ab_payload.get("formation_id"))
+        guard_args: dict[str, Any] = {
+            "label": f"formation absence {ab_id}",
+            "i": i,
+            "total": total,
+            "logger": logger,
+        }
+        ab_fid = _require_fk(
+            ab_payload, "formation_id", valid_formation_ids, note="dangling FK", **guard_args
+        )
         if ab_fid is None:
-            logger.warning(f"[{i}/{total}] formation absence {ab_id} has no formation_id — dropped")
-            dropped += 1
-            continue
-        if ab_fid not in valid_formation_ids:
-            logger.warning(
-                f"[{i}/{total}] formation absence {ab_id} → formation {ab_fid} "
-                f"not in this project — dropped (dangling FK)"
-            )
             dropped += 1
             continue
         # IDOR guard: investigation_id is a polymorphic UUID with NO DB FK, so
@@ -574,12 +623,14 @@ async def _restore_formation_absences(
         # nothing at the DB layer objects. Drop an absence whose investigation
         # anchor is not in THIS project's CPT/borehole set (None also fails —
         # the column is NOT NULL, so a missing anchor cannot be inserted).
-        ab_inv_id = _uuid(ab_payload.get("investigation_id"))
-        if ab_inv_id is None or ab_inv_id not in valid_inv_ids:
-            logger.warning(
-                f"[{i}/{total}] formation absence {ab_id} → investigation "
-                f"{ab_inv_id} not in this project — dropped (cross-project anchor)"
-            )
+        ab_inv_id = _require_fk(
+            ab_payload,
+            "investigation_id",
+            valid_inv_ids,
+            note="cross-project anchor",
+            **guard_args,
+        )
+        if ab_inv_id is None:
             dropped += 1
             continue
         kwargs = _apply_json_to_kwargs(FormationAbsenceOrm, ab_payload)
@@ -730,16 +781,17 @@ async def _restore_contact_edges(
             logger.debug(f"[{i}/{total}] litho contact edge {ce_id} already present — skipped")
             skipped += 1
             continue
-        ce_model_id = _uuid(ce_payload.get("model_id"))
+        ce_model_id = _require_fk(
+            ce_payload,
+            "model_id",
+            valid_model_ids,
+            label=f"litho contact edge {ce_id}",
+            note="bundle-injection guard",
+            i=i,
+            total=total,
+            logger=logger,
+        )
         if ce_model_id is None:
-            logger.warning(f"[{i}/{total}] litho contact edge {ce_id} has no model_id — dropped")
-            dropped += 1
-            continue
-        if ce_model_id not in valid_model_ids:
-            logger.warning(
-                f"[{i}/{total}] litho contact edge {ce_id} → model "
-                f"{ce_model_id} not in this project — dropped (bundle-injection guard)"
-            )
             dropped += 1
             continue
         ca_id = _uuid(ce_payload.get("contact_a_id"))
@@ -864,21 +916,23 @@ async def _restore_litho_solids(
             logger.debug(f"[{i}/{total}] litho solid skipped — payload has no id")
             skipped += 1
             continue
-        model_id = _uuid(solid_payload.get("model_id"))
+        guard_args: dict[str, Any] = {
+            "label": f"litho solid {solid_id}",
+            "i": i,
+            "total": total,
+            "logger": logger,
+        }
+        model_id = _require_fk(
+            solid_payload, "model_id", valid_model_ids, note="bundle-injection guard", **guard_args
+        )
         if model_id is None:
-            logger.warning(f"[{i}/{total}] litho solid {solid_id} has no model_id — dropped")
             dropped += 1
             continue
-        if model_id not in valid_model_ids:
-            logger.warning(
-                f"[{i}/{total}] litho solid {solid_id} → model {model_id} "
-                f"not in this project — dropped (bundle-injection guard)"
-            )
-            dropped += 1
-            continue
-        body_id = _uuid(solid_payload.get("body_id"))
+        # body_id is deliberately NOT scope-checked (valid_set=None): the loft
+        # stores geology-split bodies under synthesized uuid5 ids with no row
+        # in the body table by design — only a missing value drops the solid.
+        body_id = _require_fk(solid_payload, "body_id", None, note="", **guard_args)
         if body_id is None:
-            logger.warning(f"[{i}/{total}] litho solid {solid_id} has no body_id — dropped")
             dropped += 1
             continue
         if (model_id, body_id) in existing:
@@ -888,16 +942,10 @@ async def _restore_litho_solids(
             )
             skipped += 1
             continue
-        formation_id = _uuid(solid_payload.get("formation_id"))
+        formation_id = _require_fk(
+            solid_payload, "formation_id", valid_formation_ids, note="dangling FK", **guard_args
+        )
         if formation_id is None:
-            logger.warning(f"[{i}/{total}] litho solid {solid_id} missing formation_id — dropped")
-            dropped += 1
-            continue
-        if formation_id not in valid_formation_ids:
-            logger.warning(
-                f"[{i}/{total}] litho solid {solid_id}: formation_id {formation_id} "
-                f"not present in this project — dropped (dangling FK)"
-            )
             dropped += 1
             continue
 
