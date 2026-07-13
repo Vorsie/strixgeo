@@ -451,6 +451,40 @@ async def list_cpts(
     ]
 
 
+def _cpt_response(cpt: CptOrm) -> CptResponse:
+    """Build the full ``CptResponse`` from a loaded CPT ORM row.
+
+    Shared by ``get_cpt`` and ``patch_cpt_elevation`` (extracted on the
+    second copy) so adding a CPT header column is a one-place edit.
+    The list endpoint uses ``CptListItem`` separately.
+
+    Parameters
+    ----------
+    cpt : CptOrm
+        Loaded CPT row.
+
+    Returns
+    -------
+    CptResponse
+        API-boundary mirror of the CPT header fields.
+    """
+    return CptResponse(
+        id=cpt.id,
+        name=cpt.name,
+        cpt_type=cpt.cpt_type,
+        location_x=cpt.location_x,
+        location_y=cpt.location_y,
+        epsg=cpt.epsg,
+        elevation_m=cpt.elevation_m,
+        z_epsg=cpt.z_epsg,
+        elevation_source=cpt.elevation_source,
+        pre_drill_m=cpt.pre_drill_m,
+        cone_area_ratio=cpt.cone_area_ratio,
+        max_depth_m=cpt.max_depth_m,
+        n_rows=cpt.n_rows,
+    )
+
+
 @router.get("/{cpt_id}", response_model=CptResponse)
 async def get_cpt(
     cpt_id: UUID,
@@ -475,21 +509,7 @@ async def get_cpt(
     repo = CptRepository(session)
     cpt = await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
 
-    return CptResponse(
-        id=cpt.id,
-        name=cpt.name,
-        cpt_type=cpt.cpt_type,
-        location_x=cpt.location_x,
-        location_y=cpt.location_y,
-        epsg=cpt.epsg,
-        elevation_m=cpt.elevation_m,
-        z_epsg=cpt.z_epsg,
-        elevation_source=cpt.elevation_source,
-        pre_drill_m=cpt.pre_drill_m,
-        cone_area_ratio=cpt.cone_area_ratio,
-        max_depth_m=cpt.max_depth_m,
-        n_rows=cpt.n_rows,
-    )
+    return _cpt_response(cpt)
 
 
 @router.patch("/{cpt_id}/elevation", response_model=CptResponse)
@@ -546,21 +566,7 @@ async def patch_cpt_elevation(
     if flipped:
         logger.info(f"PATCH /cpt/{cpt_id}/elevation: staled {flipped} dependent surface(s)")
     await session.commit()
-    return CptResponse(
-        id=cpt.id,
-        name=cpt.name,
-        cpt_type=cpt.cpt_type,
-        location_x=cpt.location_x,
-        location_y=cpt.location_y,
-        epsg=cpt.epsg,
-        elevation_m=cpt.elevation_m,
-        z_epsg=cpt.z_epsg,
-        elevation_source=cpt.elevation_source,
-        pre_drill_m=cpt.pre_drill_m,
-        cone_area_ratio=cpt.cone_area_ratio,
-        max_depth_m=cpt.max_depth_m,
-        n_rows=cpt.n_rows,
-    )
+    return _cpt_response(cpt)
 
 
 @router.delete("/{cpt_id}", status_code=status.HTTP_204_NO_CONTENT)

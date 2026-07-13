@@ -52,6 +52,37 @@ logger = LoggerFactory.get_logger(__name__)
 router = APIRouter()
 
 
+def _to_gap_issues(issues) -> list[GapIssueResponse]:
+    """Map domain validation issues to their API response schema.
+
+    One conversion for the three handlers that surface
+    ``ValidationIssue``-shaped domain objects (gap validation, crossing
+    validation, ground-surface build) — previously the same 7-line
+    comprehension lived in all three.
+
+    Parameters
+    ----------
+    issues
+        Iterable of domain issues exposing ``kind``, ``detail``,
+        ``depth_m``, ``contact_ids`` and ``formation_ids``.
+
+    Returns
+    -------
+    list[GapIssueResponse]
+        API-boundary mirror of each issue.
+    """
+    return [
+        GapIssueResponse(
+            kind=i.kind,
+            detail=i.detail,
+            depth_m=i.depth_m,
+            contact_ids=list(i.contact_ids),
+            formation_ids=list(i.formation_ids),
+        )
+        for i in issues
+    ]
+
+
 @router.post(
     "/models/{model_id}/surfaces/rebuild",
     response_model=RebuildSurfacesResponse,
@@ -166,16 +197,7 @@ async def validate_no_gaps(
     return GapValidationResponse(
         model_id=model_id,
         borehole_id=borehole_id,
-        issues=[
-            GapIssueResponse(
-                kind=i.kind,
-                detail=i.detail,
-                depth_m=i.depth_m,
-                contact_ids=list(i.contact_ids),
-                formation_ids=list(i.formation_ids),
-            )
-            for i in issues
-        ],
+        issues=_to_gap_issues(issues),
     )
 
 
@@ -203,16 +225,7 @@ async def validate_no_crossings(
     issues = await ValidateModelCrossings(session).execute(model_id)
     return CrossingValidationResponse(
         model_id=model_id,
-        issues=[
-            GapIssueResponse(
-                kind=i.kind,
-                detail=i.detail,
-                depth_m=i.depth_m,
-                contact_ids=list(i.contact_ids),
-                formation_ids=list(i.formation_ids),
-            )
-            for i in issues
-        ],
+        issues=_to_gap_issues(issues),
     )
 
 
@@ -337,14 +350,5 @@ async def build_ground_surface(
         triangles=[list(t) for t in result.triangles],
         provider_id=result.provider_id,
         from_cache=result.from_cache,
-        issues=[
-            GapIssueResponse(
-                kind=i.kind,
-                detail=i.detail,
-                depth_m=i.depth_m,
-                contact_ids=list(i.contact_ids),
-                formation_ids=list(i.formation_ids),
-            )
-            for i in result.issues
-        ],
+        issues=_to_gap_issues(result.issues),
     )

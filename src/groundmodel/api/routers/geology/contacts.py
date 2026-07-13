@@ -148,6 +148,37 @@ def _to_domain_suggestions(
     ]
 
 
+def _to_collision_items(collisions) -> list[LumpingCollisionItem]:
+    """Map domain lumping collisions to their API response schema.
+
+    Shared by the auto-populate and discover-from-stratigraphy handlers
+    (extracted on the second copy) so both encode the wire shape
+    identically.
+
+    Parameters
+    ----------
+    collisions
+        Iterable of domain collision objects exposing the six
+        ``LumpingCollisionItem`` fields.
+
+    Returns
+    -------
+    list[LumpingCollisionItem]
+        API-boundary mirror of each collision.
+    """
+    return [
+        LumpingCollisionItem(
+            borehole_id=col.borehole_id,
+            target_formation_key=col.target_formation_key,
+            target_formation_name=col.target_formation_name,
+            colliding_raw_names=col.colliding_raw_names,
+            kept_top_m=col.kept_top_m,
+            dropped_count=col.dropped_count,
+        )
+        for col in collisions
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Formation contacts
 # ---------------------------------------------------------------------------
@@ -496,17 +527,7 @@ async def auto_populate_from_stratigraphy(
         skipped_unmatched=outcome.skipped_unmatched,
         skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
         skipped_not_in_model=outcome.skipped_not_in_model,
-        collisions=[
-            LumpingCollisionItem(
-                borehole_id=col.borehole_id,
-                target_formation_key=col.target_formation_key,
-                target_formation_name=col.target_formation_name,
-                colliding_raw_names=col.colliding_raw_names,
-                kept_top_m=col.kept_top_m,
-                dropped_count=col.dropped_count,
-            )
-            for col in outcome.collisions
-        ],
+        collisions=_to_collision_items(outcome.collisions),
         updated_section=updated_section_response,
     )
 
@@ -585,17 +606,7 @@ async def discover_from_stratigraphy(
             )
             for c in candidates
         ],
-        collisions=[
-            LumpingCollisionItem(
-                borehole_id=col.borehole_id,
-                target_formation_key=col.target_formation_key,
-                target_formation_name=col.target_formation_name,
-                colliding_raw_names=col.colliding_raw_names,
-                kept_top_m=col.kept_top_m,
-                dropped_count=col.dropped_count,
-            )
-            for col in collisions
-        ],
+        collisions=_to_collision_items(collisions),
     )
 
 
