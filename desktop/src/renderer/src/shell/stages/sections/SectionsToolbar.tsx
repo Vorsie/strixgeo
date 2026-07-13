@@ -141,11 +141,6 @@ export default function SectionsToolbar(): JSX.Element {
   const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
   const [autoCorrelating, setAutoCorrelating] = useState(false)
   const [acceptingCorrelations, setAcceptingCorrelations] = useState(false)
-  // Materialise lens companions (#133 Task 20) — busy flag for the toolbar
-  // button.  Per-click flow: for every LithoLens without a companion section,
-  // gate on "all contacts in its primary section have ≥1 approved edge" and
-  // create a perpendicular companion section.
-  const [materialisingCompanions, setMaterialisingCompanions] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -367,56 +362,6 @@ export default function SectionsToolbar(): JSX.Element {
     project.id,
     toast,
     requestCorrelationEdgesRefetch,
-  ])
-
-  // Materialise lens companions (#133 Task 20): for every LithoLens without
-  // a companion section, gate on all contacts in its primary section having
-  // ≥1 approved edge, then create a perpendicular companion section.  This
-  // is a model-level operation (no section scope) — the server iterates all
-  // lenses in the active litho model.
-  //
-  // ``SectionsToolbar`` does not currently expose ``refetchLithoLenses`` /
-  // ``refetchCrossSections`` through ``useShell`` — the next focus/route
-  // change refreshes the section list naturally.  When the plumbing lands
-  // we'll thread the refetch calls here; the toast keeps the user informed
-  // in the meantime so the missing refresh isn't load-bearing.
-  const handleMaterialiseBodyCompanions = useCallback(async (): Promise<void> => {
-    if (!activeLithoModel || materialisingCompanions) return
-    log.info('sections', `materialiseBodyCompanions: model=${activeLithoModel.id}`)
-    setMaterialisingCompanions(true)
-    try {
-      const result = await api.geology.materialiseBodyCompanions(
-        project.id,
-        activeLithoModel.id,
-      )
-      log.success(
-        'sections',
-        `materialiseBodyCompanions: ${result.companion_sections_created} created, ` +
-          `${result.skipped_unfinished_section} unfinished, ` +
-          `${result.skipped_no_primary} no-primary, ${result.errored} errored`,
-      )
-      toast(
-        'success',
-        `Lens companions: ${result.companion_sections_created} created, ` +
-          `${result.skipped_unfinished_section} skipped (sections not fully correlated), ` +
-          `${result.skipped_no_primary} skipped (no primary section).`,
-      )
-      // Refresh the canvas so the materialised bodies render without a manual
-      // section reselect — the dogfeed "I need to refresh after materialise to
-      // see them" report (2026-06-03).
-      requestCorrelationEdgesRefetch?.()
-    } catch (err) {
-      log.error('sections', 'materialiseBodyCompanions: failed', err)
-      toast('error', 'Materialise lens companions failed — try again.')
-    } finally {
-      setMaterialisingCompanions(false)
-    }
-  }, [
-    activeLithoModel,
-    materialisingCompanions,
-    project.id,
-    requestCorrelationEdgesRefetch,
-    toast,
   ])
 
   async function handleExportDxf(): Promise<void> {
@@ -1043,8 +988,8 @@ export default function SectionsToolbar(): JSX.Element {
           />
           {/* Bodies dropdown (dogfeed 2026-06-01) — congregates every body /
               lens action under one trigger to keep the toolbar uncluttered:
-              Detect lenses, Suggest pinch-outs, Materialise lens companions,
-              and the bulk "Delete all detected lenses". Each item keeps its
+              Detect lenses, Suggest pinch-outs, and the bulk "Delete all
+              detected lenses". Each item keeps its
               original testid + busy-aware label; the destructive delete opens
               a confirmation modal (irreversible). */}
           <ToolbarDropdown
@@ -1058,18 +1003,6 @@ export default function SectionsToolbar(): JSX.Element {
             }
             testid="litho-bodies-dropdown"
             items={[
-              {
-                label: materialisingCompanions
-                  ? 'Materialising…'
-                  : 'Materialise lens companions',
-                icon: <GitMerge size={12} />,
-                onClick: () => { void handleMaterialiseBodyCompanions() },
-                disabled: !hasSection || materialisingCompanions,
-                testid: 'litho-materialise-body-companions',
-                title: !hasSection
-                  ? 'Open a cross-section to materialise lens companions'
-                  : 'Create perpendicular companion sections for every LithoLens whose primary section is fully correlated',
-              },
               {
                 // Explicit, finish-then-click verb — colour every body's closed
                 // loop with its lithology. Do this AFTER correlating + pinch-outs;
