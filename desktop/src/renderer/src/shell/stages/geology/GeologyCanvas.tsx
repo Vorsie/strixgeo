@@ -20,18 +20,13 @@
 // Investigation-selection is intentionally absent: the Geology stage is the
 // model-definition surface; the Data stage is the inspection surface.
 
-import * as Cesium from 'cesium'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Mountain, Plus } from 'lucide-react'
 
-import { api } from '../../../api/client'
-import type { GroundSurfaceBuildResponse } from '../../../api/client'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { useShell } from '../../ShellContext'
-import Geology3DViewer, {
-  type SplitMode,
-  type SplitLine,
-} from './Geology3DViewer'
+import Geology3DViewer from './Geology3DViewer'
+import { useBody3DViewState } from '../shared/useBody3DViewState'
 import { geologyEmptyState } from './geologyEmptyState'
 
 // ---------------------------------------------------------------------------
@@ -108,67 +103,36 @@ export default function GeologyCanvas(): JSX.Element {
   }
 
   // ---------------------------------------------------------------------------
-  // Split-viewport state (G6) — session-ephemeral
-  // ---------------------------------------------------------------------------
-
-  const [splitMode, setSplitMode] = useState<SplitMode>('single')
-  const [splitPlane, setSplitPlane] = useState<Cesium.Plane | null>(null)
-  const [splitLine, setSplitLine] = useState<SplitLine | null>(null)
-
-  function handleSplitPlaneDrawn(plane: Cesium.Plane, line: SplitLine): void {
-    setSplitPlane(plane)
-    setSplitLine(line)
-    setSplitMode('split')
-  }
-
-  // Exposed so GeologyToolbar Reset can collapse the split without bus
-  // extension.  Populated here; GeologyToolbar imports and calls it.
-  resetSplitViewportCallback.current = () => {
-    setSplitMode('single')
-    setSplitPlane(null)
-    setSplitLine(null)
-  }
-
-  // ---------------------------------------------------------------------------
-  // Ground-surface TIN (G7) — fetch when active model changes
+  // Split-viewport state (G6) + ground-surface TIN (G7) — shared plumbing.
   //
-  // The build call is fire-and-forget on model change. The result is session-
-  // local (not persisted to the bundle). An empty surface (vertices=[]) is
-  // returned when the model has no in-scope investigations or the EPSG has no
-  // DEM provider — in both cases the terrain mesh is simply absent and the
-  // scene base falls back to the flat ellipsoid.
+  // Both blocks live in useBody3DViewState (audit FE-SHELL-CLIENTS-10 — the
+  // Lithology / Geotechnical canvases carry the same state).  The Geology
+  // stage has no fence machinery, so fenceActive is false and the hook's
+  // fence effect / memos stay inert.  The hook populates
+  // resetSplitViewportCallback so GeologyToolbar Reset can collapse the
+  // split without a bus extension.
+  //
+  // Ground-surface: the build call is fire-and-forget on model change; the
+  // result is session-local (not persisted to the bundle).  An empty surface
+  // (vertices=[]) is returned when the model has no in-scope investigations
+  // or the EPSG has no DEM provider — in both cases the terrain mesh is
+  // simply absent and the scene base falls back to the flat ellipsoid.
   // ---------------------------------------------------------------------------
 
-  const [groundSurface, setGroundSurface] = useState<GroundSurfaceBuildResponse | null>(null)
-
-  const projectId = project?.id ?? null
   const modelId = activeGeologicalModel?.id ?? null
 
-  useEffect(() => {
-    if (!projectId || !modelId) {
-      setGroundSurface(null)
-      return
-    }
-    let cancelled = false
-
-    api.geology
-      .buildGroundSurface(projectId, modelId)
-      .then(result => {
-        if (!cancelled) setGroundSurface(result)
-      })
-      .catch(() => {
-        // DEM provider unavailable or network error — fall back to flat
-        // ellipsoid. The viewer renders correctly without terrain.
-        if (!cancelled) setGroundSurface(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-    // Key on stable id strings — a server refresh returning a new object
-    // with the same id (e.g. after surfaces/rebuild updates is_stale) must
-    // not re-fire the DEM fetch. The surface TIN does not depend on staleness.
-  }, [projectId, modelId])
+  const {
+    splitMode,
+    splitPlane,
+    splitLine,
+    handleSplitPlaneDrawn,
+    exitSplit,
+    groundSurface,
+  } = useBody3DViewState({
+    modelId,
+    resetSplitViewportRef: resetSplitViewportCallback,
+    fenceActive: false,
+  })
 
   // ---------------------------------------------------------------------------
   // 3D-or-2D decision
@@ -222,11 +186,7 @@ export default function GeologyCanvas(): JSX.Element {
         resetCameraRef={resetCameraCallback}
         groundSurface={groundSurface}
         showConfidenceFade={showConfidenceFade}
-        onExitSplit={() => {
-          setSplitMode('single')
-          setSplitPlane(null)
-          setSplitLine(null)
-        }}
+        onExitSplit={exitSplit}
       />
     )
   }
