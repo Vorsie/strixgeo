@@ -582,6 +582,181 @@ function buildCapPrimitives(
 }
 
 /**
+ * Normalise a hex colour string (with or without a leading ``#``) into a
+ * ``Cesium.Color``, falling back to grey when malformed.
+ *
+ * Parameters
+ * ----------
+ * hex
+ *     Hex colour string, e.g. ``"#aabbcc"`` or ``"aabbcc"``.
+ *
+ * Returns
+ * -------
+ * ``Cesium.Color`` — grey when the string does not parse.
+ */
+function hexToCesiumColor(hex: string): Cesium.Color {
+  const css = hex.startsWith('#') ? hex : `#${hex}`
+  return Cesium.Color.fromCssColorString(css) ?? Cesium.Color.GRAY
+}
+
+/**
+ * Project a mesh to ECEF and produce the position + triangle-index buffers
+ * shared by every mesh primitive builder in this file.
+ *
+ * Two paths, identical across the tin / fence / solid builders:
+ *
+ * - No ``clip`` — compact indexed geometry (the shared-vertex fast path).
+ * - ``clip`` set — the mesh is clipped to the half-space and emitted as a
+ *   triangle soup (clipped triangles don't share vertices).
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[x_m, y_m, elevation_m]`` triples in the project's horizontal CRS.
+ * triangles
+ *     Vertex-index triples.
+ * projectEpsg
+ *     Horizontal CRS EPSG code for the coordinate transform.
+ * clip
+ *     Optional half-space plane + side; when set, only the kept half is built.
+ *
+ * Returns
+ * -------
+ * ``{ positionValues, triangleIndices }`` or ``null`` when ``triangles`` is
+ * empty or the clip removes the whole mesh.
+ */
+function buildMeshBuffers(
+  vertices: [number, number, number][],
+  triangles: [number, number, number][],
+  projectEpsg: number,
+  clip?: { plane: Cesium.Plane; keepPositive: boolean },
+): { positionValues: Float64Array; triangleIndices: number[] } | null {
+  if (triangles.length === 0) return null
+
+  const ecef = vertices.map(([x, y, z]) => {
+    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+  })
+
+  let positionValues: Float64Array
+  let triangleIndices: number[]
+
+  if (!clip) {
+    // No split — keep the compact indexed geometry (unchanged path).
+    positionValues = new Float64Array(ecef.length * 3)
+    let i = 0
+    for (const v of ecef) {
+      positionValues[i++] = v.x
+      positionValues[i++] = v.y
+      positionValues[i++] = v.z
+    }
+    triangleIndices = new Array(triangles.length * 3)
+    let j = 0
+    for (const [i0, i1, i2] of triangles) {
+      triangleIndices[j++] = i0
+      triangleIndices[j++] = i1
+      triangleIndices[j++] = i2
+    }
+  } else {
+    // Split active — clip to the half-space and emit a triangle soup
+    // (clipped triangles don't share vertices).
+    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
+      ecef[a],
+      ecef[b],
+      ecef[c],
+    ])
+    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
+    if (clipped.length === 0) return null
+    positionValues = new Float64Array(clipped.length * 9)
+    triangleIndices = new Array(clipped.length * 3)
+    let pi = 0
+    let ii = 0
+    for (const t of clipped) {
+      for (const v of t) {
+        positionValues[pi++] = v.x
+        positionValues[pi++] = v.y
+        positionValues[pi++] = v.z
+        triangleIndices[ii] = ii
+        ii++
+      }
+    }
+  }
+
+  return { positionValues, triangleIndices }
+}
+
+/**
+ * Assemble a position-only ``Cesium.Geometry`` from prepared buffers.
+ *
+ * Parameters
+ * ----------
+ * positionValues
+ *     Flat ECEF xyz buffer.
+ * indices
+ *     Draw index buffer (triangle triples, or edge pairs for LINES).
+ * primitiveType
+ *     ``TRIANGLES`` (default) or ``LINES`` for wireframe renders.
+ *
+ * Returns
+ * -------
+ * ``Cesium.Geometry``.
+ */
+function makeMeshGeometry(
+  positionValues: Float64Array,
+  indices: Uint32Array,
+  primitiveType: Cesium.PrimitiveType = Cesium.PrimitiveType.TRIANGLES,
+): Cesium.Geometry {
+  return new Cesium.Geometry({
+    // See buildCutFaceBands for the partial-shape cast rationale.
+    attributes: {
+      position: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positionValues,
+      }),
+    } as unknown as Cesium.GeometryAttributes,
+    indices,
+    primitiveType,
+    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
+  })
+}
+
+/**
+ * Wrap a geometry in a single-instance ``Cesium.Primitive`` with a
+ * per-instance colour and the given ``PerInstanceColorAppearance`` flags.
+ *
+ * Parameters
+ * ----------
+ * geometry
+ *     The mesh geometry.
+ * color
+ *     ``Cesium.Color`` (including alpha) for the instance.
+ * appearance
+ *     ``translucent`` / ``flat`` / optional ``closed`` flags — the only
+ *     attributes that differ between the tin, fence and solid builders.
+ *
+ * Returns
+ * -------
+ * ``Cesium.Primitive``.
+ */
+function makeColorPrimitive(
+  geometry: Cesium.Geometry,
+  color: Cesium.Color,
+  appearance: { translucent: boolean; flat: boolean; closed?: boolean },
+): Cesium.Primitive {
+  return new Cesium.Primitive({
+    geometryInstances: new Cesium.GeometryInstance({
+      geometry,
+      attributes: {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+      },
+    }),
+    appearance: new Cesium.PerInstanceColorAppearance(appearance),
+    asynchronous: false,
+  })
+}
+
+/**
  * Build a Cesium Primitive from a flat list of ``[x, y, z]`` vertices and
  * ``[i0, i1, i2]`` triangle index triples.
  *
@@ -609,91 +784,22 @@ function buildTinPrimitive(
   projectEpsg: number,
   clip?: { plane: Cesium.Plane; keepPositive: boolean },
 ): Cesium.Primitive | null {
-  if (triangles.length === 0) return null
+  const buffers = buildMeshBuffers(vertices, triangles, projectEpsg, clip)
+  if (!buffers) return null
 
-  const ecef = vertices.map(([x, y, z]) => {
-    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
-  })
+  const geometry = makeMeshGeometry(
+    buffers.positionValues,
+    new Uint32Array(buffers.triangleIndices),
+  )
 
-  let positionValues: Float64Array
-  let indices: Uint32Array
-
-  if (!clip) {
-    // No split — keep the compact indexed geometry (unchanged path).
-    positionValues = new Float64Array(ecef.length * 3)
-    let i = 0
-    for (const v of ecef) {
-      positionValues[i++] = v.x
-      positionValues[i++] = v.y
-      positionValues[i++] = v.z
-    }
-    indices = new Uint32Array(triangles.length * 3)
-    let j = 0
-    for (const [i0, i1, i2] of triangles) {
-      indices[j++] = i0
-      indices[j++] = i1
-      indices[j++] = i2
-    }
-  } else {
-    // Split active — clip to the half-space and emit a triangle soup
-    // (clipped triangles don't share vertices).
-    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
-      ecef[a],
-      ecef[b],
-      ecef[c],
-    ])
-    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
-    if (clipped.length === 0) return null
-    positionValues = new Float64Array(clipped.length * 9)
-    indices = new Uint32Array(clipped.length * 3)
-    let pi = 0
-    let ii = 0
-    for (const t of clipped) {
-      for (const v of t) {
-        positionValues[pi++] = v.x
-        positionValues[pi++] = v.y
-        positionValues[pi++] = v.z
-        indices[ii] = ii
-        ii++
-      }
-    }
-  }
-
-  const geometry = new Cesium.Geometry({
-    // See buildCutFaceBands for the partial-shape cast rationale.
-    attributes: {
-      position: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
-        componentsPerAttribute: 3,
-        values: positionValues,
-      }),
-    } as unknown as Cesium.GeometryAttributes,
-    indices,
-    primitiveType: Cesium.PrimitiveType.TRIANGLES,
-    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
-  })
-
-  return new Cesium.Primitive({
-    geometryInstances: new Cesium.GeometryInstance({
-      geometry,
-      attributes: {
-        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
-      },
-    }),
-    // flat: true — geological/terrain bands are translucent fills; per-vertex
-    // lighting normals are neither wanted nor meaningful for subsurface surfaces.
-    // flat: false requires a normal attribute (and Cesium's compressVertices path
-    // then demands compressedAttributes that were never computed), which causes
-    // the "Appearance/Geometry mismatch … 'compressedAttributes'" crash for every
-    // TIN primitive. flat: true uses FLAT_VERTEX_FORMAT (position-only), which
-    // matches the geometry we supply.
-    appearance: new Cesium.PerInstanceColorAppearance({
-      translucent: true,
-      flat: true,
-    }),
-    asynchronous: false,
-  })
+  // flat: true — geological/terrain bands are translucent fills; per-vertex
+  // lighting normals are neither wanted nor meaningful for subsurface surfaces.
+  // flat: false requires a normal attribute (and Cesium's compressVertices path
+  // then demands compressedAttributes that were never computed), which causes
+  // the "Appearance/Geometry mismatch … 'compressedAttributes'" crash for every
+  // TIN primitive. flat: true uses FLAT_VERTEX_FORMAT (position-only), which
+  // matches the geometry we supply.
+  return makeColorPrimitive(geometry, color, { translucent: true, flat: true })
 }
 
 // ---------------------------------------------------------------------------
@@ -735,90 +841,24 @@ function buildFencePrimitive(
   projectEpsg: number,
   clip?: { plane: Cesium.Plane; keepPositive: boolean },
 ): Cesium.Primitive | null {
-  if (triangles.length === 0) return null
+  const buffers = buildMeshBuffers(vertices, triangles, projectEpsg, clip)
+  if (!buffers) return null
 
-  const ecef = vertices.map(([x, y, z]) => {
-    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
-  })
+  const geometry = makeMeshGeometry(
+    buffers.positionValues,
+    new Uint32Array(buffers.triangleIndices),
+  )
 
-  let positionValues: Float64Array
-  let indices: Uint32Array
-
-  if (!clip) {
-    // No split — compact indexed geometry (the shared-vertex fast path).
-    positionValues = new Float64Array(ecef.length * 3)
-    let i = 0
-    for (const v of ecef) {
-      positionValues[i++] = v.x
-      positionValues[i++] = v.y
-      positionValues[i++] = v.z
-    }
-    indices = new Uint32Array(triangles.length * 3)
-    let j = 0
-    for (const [i0, i1, i2] of triangles) {
-      indices[j++] = i0
-      indices[j++] = i1
-      indices[j++] = i2
-    }
-  } else {
-    // Split active — clip the wall to the half-space and emit a triangle soup
-    // (clipped triangles don't share vertices), exactly like buildTinPrimitive.
-    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
-      ecef[a],
-      ecef[b],
-      ecef[c],
-    ])
-    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
-    if (clipped.length === 0) return null
-    positionValues = new Float64Array(clipped.length * 9)
-    indices = new Uint32Array(clipped.length * 3)
-    let pi = 0
-    let ii = 0
-    for (const t of clipped) {
-      for (const v of t) {
-        positionValues[pi++] = v.x
-        positionValues[pi++] = v.y
-        positionValues[pi++] = v.z
-        indices[ii] = ii
-        ii++
-      }
-    }
-  }
-
-  const geometry = new Cesium.Geometry({
-    // See buildCutFaceBands for the partial-shape cast rationale.
-    attributes: {
-      position: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
-        componentsPerAttribute: 3,
-        values: positionValues,
-      }),
-    } as unknown as Cesium.GeometryAttributes,
-    indices,
-    primitiveType: Cesium.PrimitiveType.TRIANGLES,
-    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
-  })
-
-  return new Cesium.Primitive({
-    geometryInstances: new Cesium.GeometryInstance({
-      geometry,
-      attributes: {
-        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
-      },
-    }),
-    // flat: true — same reason as buildTinPrimitive (no normals computed;
-    // FLAT_VERTEX_FORMAT, position-only).  closed: false disables back-face
-    // culling so the panel is visible from both sides — when closed=true the
-    // render state sets cull.enabled:true; closed=false omits the cull key
-    // entirely, leaving WebGL's default (no culling) in effect. Users orbiting
-    // the 3D scene will view fence walls from behind, so double-sided is required.
-    appearance: new Cesium.PerInstanceColorAppearance({
-      translucent: true,
-      flat: true,
-      closed: false,
-    }),
-    asynchronous: false,
+  // flat: true — same reason as buildTinPrimitive (no normals computed;
+  // FLAT_VERTEX_FORMAT, position-only).  closed: false disables back-face
+  // culling so the panel is visible from both sides — when closed=true the
+  // render state sets cull.enabled:true; closed=false omits the cull key
+  // entirely, leaving WebGL's default (no culling) in effect. Users orbiting
+  // the 3D scene will view fence walls from behind, so double-sided is required.
+  return makeColorPrimitive(geometry, color, {
+    translucent: true,
+    flat: true,
+    closed: false,
   })
 }
 
@@ -901,62 +941,15 @@ function buildSolidPrimitive(
   isFlagged: boolean = false,
   wireframe: boolean = false,
 ): Cesium.Primitive | null {
-  if (triangles.length === 0) return null
+  // Shared position + triangle-index buffers. For wireframe we keep the
+  // SAME positions but re-expand the triangle triples into edge pairs
+  // below, so the filled and wireframe renders of a body share identical
+  // geometry.
+  const buffers = buildMeshBuffers(vertices, triangles, projectEpsg, clip)
+  if (!buffers) return null
+  const { positionValues, triangleIndices } = buffers
 
-  const ecef = vertices.map(([x, y, z]) => {
-    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
-  })
-
-  let positionValues: Float64Array
   let indices: Uint32Array
-
-  // Triangle index triples (the TRIANGLES draw buffer). For wireframe we
-  // keep the SAME positions but re-expand these into edge pairs below, so
-  // the filled and wireframe renders of a body share identical geometry.
-  let triangleIndices: number[]
-
-  if (!clip) {
-    // No split — compact indexed geometry (the shared-vertex fast path).
-    positionValues = new Float64Array(ecef.length * 3)
-    let i = 0
-    for (const v of ecef) {
-      positionValues[i++] = v.x
-      positionValues[i++] = v.y
-      positionValues[i++] = v.z
-    }
-    triangleIndices = new Array(triangles.length * 3)
-    let j = 0
-    for (const [i0, i1, i2] of triangles) {
-      triangleIndices[j++] = i0
-      triangleIndices[j++] = i1
-      triangleIndices[j++] = i2
-    }
-  } else {
-    // Split active — clip the solid to the half-space and emit a triangle
-    // soup (clipped triangles don't share vertices), exactly like
-    // buildTinPrimitive and buildFencePrimitive.
-    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
-      ecef[a],
-      ecef[b],
-      ecef[c],
-    ])
-    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
-    if (clipped.length === 0) return null
-    positionValues = new Float64Array(clipped.length * 9)
-    triangleIndices = new Array(clipped.length * 3)
-    let pi = 0
-    let ii = 0
-    for (const t of clipped) {
-      for (const v of t) {
-        positionValues[pi++] = v.x
-        positionValues[pi++] = v.y
-        positionValues[pi++] = v.z
-        triangleIndices[ii] = ii
-        ii++
-      }
-    }
-  }
 
   if (wireframe) {
     // Re-key the triangle index buffer (triples) into LINE edge pairs so the
@@ -973,22 +966,12 @@ function buildSolidPrimitive(
     indices = new Uint32Array(triangleIndices)
   }
 
-  const geometry = new Cesium.Geometry({
-    // See buildCutFaceBands for the partial-shape cast rationale.
-    attributes: {
-      position: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
-        componentsPerAttribute: 3,
-        values: positionValues,
-      }),
-    } as unknown as Cesium.GeometryAttributes,
+  // LINES for wireframe (edge index buffer), TRIANGLES for the filled body.
+  const geometry = makeMeshGeometry(
+    positionValues,
     indices,
-    // LINES for wireframe (edge index buffer), TRIANGLES for the filled body.
-    primitiveType: wireframe
-      ? Cesium.PrimitiveType.LINES
-      : Cesium.PrimitiveType.TRIANGLES,
-    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
-  })
+    wireframe ? Cesium.PrimitiveType.LINES : Cesium.PrimitiveType.TRIANGLES,
+  )
 
   // Flagged solids are marker disks ("local occurrence, no lateral extent"):
   // render semi-transparent so they are visually distinct from confirmed bodies.
@@ -996,29 +979,19 @@ function buildSolidPrimitive(
   // depth and occlude translucent formation surfaces correctly.
   const renderColor = isFlagged ? color.withAlpha(FLAGGED_SOLID_ALPHA) : color
 
-  return new Cesium.Primitive({
-    geometryInstances: new Cesium.GeometryInstance({
-      geometry,
-      attributes: {
-        color: Cesium.ColorGeometryInstanceAttribute.fromColor(renderColor),
-      },
-    }),
-    // flat: true — no normals supplied; FLAT_VERTEX_FORMAT (position-only)
-    //   avoids the compressedAttributes crash that flat:false triggers.
-    // closed: true — enables back-face culling (cull.enabled: true on the
-    //   render state); correct for a watertight outward-wound solid.
-    // translucent: depends on isFlagged — opaque for real bodies (writes depth,
-    //   occludes formation surfaces), translucent for flagged marker disks
-    //   (ghostly appearance, reads as "local occurrence, no lateral extent").
-    appearance: new Cesium.PerInstanceColorAppearance({
-      translucent: isFlagged,
-      flat: true,
-      // closed: true enables back-face culling on the filled solid. A LINES
-      // primitive has no faces, so culling is irrelevant — drop it for the
-      // wireframe case (PerInstanceColorAppearance renders LINES fine).
-      closed: wireframe ? false : true,
-    }),
-    asynchronous: false,
+  // flat: true — no normals supplied; FLAT_VERTEX_FORMAT (position-only)
+  //   avoids the compressedAttributes crash that flat:false triggers.
+  // closed: true — enables back-face culling (cull.enabled: true on the
+  //   render state); correct for a watertight outward-wound solid. A LINES
+  //   primitive has no faces, so culling is irrelevant — drop it for the
+  //   wireframe case (PerInstanceColorAppearance renders LINES fine).
+  // translucent: depends on isFlagged — opaque for real bodies (writes depth,
+  //   occludes formation surfaces), translucent for flagged marker disks
+  //   (ghostly appearance, reads as "local occurrence, no lateral extent").
+  return makeColorPrimitive(geometry, renderColor, {
+    translucent: isFlagged,
+    flat: true,
+    closed: wireframe ? false : true,
   })
 }
 
@@ -1381,6 +1354,22 @@ function rebuildSurfacePrimitives(
       }
     : undefined
 
+  // Resolve every formation's base colour ONCE per rebuild (grey fallback
+  // when malformed) — the fence / surface / solid / cap loops below all
+  // share this map instead of re-running formations.find + hex parsing
+  // per panel / per solid. Entries are never mutated (loops clone or
+  // withAlpha before adjusting).
+  const formationColorById = new Map<string, Cesium.Color>(
+    formations.map((f) => [f.id, hexToCesiumColor(f.color)]),
+  )
+
+  // Per-body colour: the body's display_color override wins, else the
+  // formation's colour, else grey (unknown formation id).
+  const resolveSolidColor = (solid: LithoBodySolidResponse): Cesium.Color =>
+    solid.display_color
+      ? hexToCesiumColor(solid.display_color)
+      : (formationColorById.get(solid.formation_id) ?? Cesium.Color.GRAY)
+
   // Step 2 — coloured cut-face caps. Shared geometry rendered in both
   // halves (each half's far side is clipped away, so it reads as that
   // half's exposed cross-section). Cut-face caps are a SOLID-mode concept —
@@ -1510,15 +1499,7 @@ function rebuildSurfacePrimitives(
       // formation's fence walls are skipped so the legend toggle works
       // in both Solid and Fence modes.
       if (hiddenFormationIds?.has(panel.formationId)) continue
-      const formation = formations.find((f) => f.id === panel.formationId)
-      const hexColor =
-        formation && formation.color.startsWith('#')
-          ? formation.color
-          : formation
-            ? `#${formation.color}`
-            : ''
-      const baseColor =
-        (hexColor ? Cesium.Color.fromCssColorString(hexColor) : null) ?? Cesium.Color.GRAY
+      const baseColor = formationColorById.get(panel.formationId) ?? Cesium.Color.GRAY
       // Fence walls render at ALPHA_FRESH so they match formation-surface
       // opacity and don't appear heavier than the surrounding geology.
       const fenceColor = baseColor.withAlpha(ALPHA_FRESH)
@@ -1550,11 +1531,8 @@ function rebuildSurfacePrimitives(
     const alpha = isStale ? ALPHA_STALE : ALPHA_FRESH
     const zOffset = formation.display_order * Z_OFFSET_PER_ORDER
 
-    // Parse the formation's hex colour. Fall back to grey when malformed.
-    const hexColor = formation.color.startsWith('#')
-      ? formation.color
-      : `#${formation.color}`
-    const baseColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
+    // The formation's pre-resolved hex colour (grey fallback when malformed).
+    const baseColor = formationColorById.get(formation.id) ?? Cesium.Color.GRAY
 
     // Apply the per-formation z-offset to vertex elevations before building
     // the primitive so co-planar surfaces don't z-fight.
@@ -1648,24 +1626,8 @@ function rebuildSurfacePrimitives(
       if (solid.triangles.length === 0) continue
 
       // Resolve colour: per-body override wins, fall back to the formation
-      // hex colour using the same parse pattern as the formation-surface loop.
-      let solidColor: Cesium.Color
-      if (solid.display_color) {
-        const dc = solid.display_color.startsWith('#')
-          ? solid.display_color
-          : `#${solid.display_color}`
-        solidColor = Cesium.Color.fromCssColorString(dc) ?? Cesium.Color.GRAY
-      } else {
-        const formation = formations.find(f => f.id === solid.formation_id)
-        if (formation) {
-          const hexColor = formation.color.startsWith('#')
-            ? formation.color
-            : `#${formation.color}`
-          solidColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
-        } else {
-          solidColor = Cesium.Color.GRAY
-        }
-      }
+      // colour resolved once above.
+      const solidColor = resolveSolidColor(solid)
 
       // Confidence fade: when on (and we have investigation positions), fade
       // each body by horizontal distance to the nearest borehole/CPT — opaque
@@ -1778,24 +1740,8 @@ function rebuildSurfacePrimitives(
         if (solid.is_flagged === true) continue // flagged marker disks → no meaningful cap
         if (solid.triangles.length === 0) continue
 
-        // Re-resolve the colour using the same logic as the solid loop above.
-        let capColor: Cesium.Color
-        if (solid.display_color) {
-          const dc = solid.display_color.startsWith('#')
-            ? solid.display_color
-            : `#${solid.display_color}`
-          capColor = Cesium.Color.fromCssColorString(dc) ?? Cesium.Color.GRAY
-        } else {
-          const formation = formations.find(f => f.id === solid.formation_id)
-          if (formation) {
-            const hexColor = formation.color.startsWith('#')
-              ? formation.color
-              : `#${formation.color}`
-            capColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
-          } else {
-            capColor = Cesium.Color.GRAY
-          }
-        }
+        // Same colour resolution as the solid loop above.
+        const capColor = resolveSolidColor(solid)
 
         const cap = buildSolidCapPrimitive(
           solid.vertices,
