@@ -163,17 +163,21 @@ export interface BulkAnchorGhost {
    * adjacent pending, and the cross-store dispatch still finds the
    * right contact.
    *
-   * Populated by the three accept handlers
-   * (``handleAcceptLithoSuggestion``, ``handleAcceptAllLithoSuggestions``,
-   * ``handleAcceptBulkLitho``) from the API's ``created_contact_ids``
-   * + ``found_contact_ids`` arrays, associating each contact to its
-   * suggestion idx by matching the contact's depth_top_m to the
-   * suggestion's known depth at accept time (before any drift).
+   * Populated ONLY by the two one-layer accept paths
+   * (``handleAcceptLithoSuggestion`` and ``handleAcceptBulkLitho`` via
+   * the shared ``commitAcceptTail`` — debt #232): a single-suggestion
+   * accept is the trivial identity case, every id in the API's
+   * ``created_contact_ids`` + ``found_contact_ids`` belongs to that one
+   * suggestion idx. The multi-layer paths
+   * (``handleAcceptAllLithoSuggestions``, ``handleAcceptAllBulkLitho``)
+   * deliberately do NOT populate it — associating N returned contact
+   * ids to N suggestion indices needs a backend ordering contract
+   * (owner decision pending).
    *
    * Optional + defaults to empty for backwards-compat with existing
    * tests and the bulk-suggest reducer paths that don't touch this
    * field. When absent the cross-store dispatch falls back to the
-   * pre-fix depth-tolerance match.
+   * pre-fix depth-tolerance match in ``useBoundaryDrag``.
    */
   contactIdsByAcceptedIdx?: ReadonlyMap<number, readonly string[]>
 }
