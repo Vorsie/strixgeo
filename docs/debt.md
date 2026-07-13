@@ -5649,9 +5649,18 @@ starts to matter.
 * **#116 / #174 / #175** (test gaps) — add: `computeSectionFill` whole-section path
   has 1 test (TEST-01); ~~TEST-02~~ **RESOLVED 2026-07-13**
   (`projectFile.test.ts`, 32 cases; also fixed the array-shaped-project-block
-  gatekeeper gap it surfaced); the `SaveBodyBoundary` advisory-lock has no
-  contention test (TEST-05); no migration upgrade→downgrade→upgrade roundtrip across
-  75 migrations (TEST-08); a few impl-shaped / over-precise partition-fill assertions
+  gatekeeper gap it surfaced); ~~TEST-05~~ **RESOLVED 2026-07-13**
+  (`test_save_body_boundary_contention.py`: same-body interleave forbidden +
+  per-body-key control; verified RED with the lock disabled);
+  ~~TEST-08~~ **RE-SCOPED + RESOLVED 2026-07-13:** the head→base→head
+  roundtrip is impossible BY POLICY (8a334dc40024 + d8868bb27884 raise
+  NotImplementedError under the pre-ship compat suspension; several data
+  migrations are intentionally forward-only) — the honest gate shipped
+  instead: `test_migration_upgrade_from_empty.py` (scratch DB → upgrade
+  head → compare_metadata vs Base.metadata must show zero structural
+  diffs), which immediately caught + fixed 4 real body_boundary_shape
+  drifts (migration z0a1b2c3d4e5). Revisit downgrades only if compat
+  re-arms; a few impl-shaped / over-precise partition-fill assertions
   (TEST-06/11); 5 permanently-skipped e2e specs untracked (TEST-07); sleep-based
   Playwright waits (TEST-09); ~~DRY-04~~ **CLOSED 2026-07-13, audit premise
   stale:** there is NO Py↔TS dip-extrapolation mirror — Python
@@ -6205,21 +6214,19 @@ wrong?). #4 first.
 dogfeed; #1/#3 at the next geotech backend touch; #2 never — dies with
 #237.1.
 
-## 239. Two deterministic RED e2e specs, pre-existing (Tier E — spec drift, S)
+## 239. ~~Two deterministic RED e2e specs, pre-existing~~ — RESOLVED 2026-07-13
 
-**What.** Found by B5's full Playwright run (2026-07-13), proven pre-existing
-by a baseline run at pre-batch `8cb1f5e51` (same two failures there):
-1. `flow_bottom_tie_correlate` — a dashed-line selector no longer matches; the
-   failure screenshot shows the base tie rendering correctly, so the SPEC's
-   selector is stale, not the feature.
-2. `flow_geotech_subdivide_all_bodies` — 422 spec-drift on `litho_model_id`
-   in the request the spec sends.
-
-**Why deferred.** End of an overnight campaign; each needs its own small spec
-fix + a green re-run.
-
-**When to revisit.** Next e2e touch, or before relying on the full Playwright
-suite as a gate.
+**RESOLVED** (`4cda3ce53`): both were pure spec drift, no app change.
+`flow_bottom_tie_correlate` asserted the base tie via
+`line[stroke-dasharray]`, but interpretive ties render as `<polyline>`
+(`tie-line-*` / `ribbon-seam-*`); the only dashed `<line>` is the transient
+drag ghost outside the overlay group — selector switched to `polyline`.
+`flow_geotech_subdivide_all_bodies` still sent the retired section-scoped
+body; the endpoint requires `litho_model_id` (model-wide op) — body swapped,
+dead section resolution removed. Full Playwright verification run:
+**116 passed / 5 skipped / 0 failed** (4.7 min, offline slate) — including
+both formerly-flaky specs (`flow_auto_tie` ×2, `flow_body_actions_ui`)
+green that run. Original description in git history.
 
 ## 240. buildProjectFence ignores real alongM — 3D fence panels use uniform spacing (owner decision, S)
 
