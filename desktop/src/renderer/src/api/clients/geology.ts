@@ -1453,14 +1453,6 @@ export const geologyClient = {
   ): Promise<BodyBoundaryResponse> =>
     get(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/boundary`),
 
-  // Backwards-compat alias.
-  getLensBoundary: (
-    projectId: string,
-    modelId: string,
-    lensId: string,
-  ): Promise<BodyBoundaryResponse> =>
-    get(`/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}/boundary`),
-
   saveBodyBoundary: (
     projectId: string,
     modelId: string,
@@ -1470,26 +1462,10 @@ export const geologyClient = {
       lower_nodes: BodyBoundaryNode[]
       render_style: BodyRenderStyle
     },
-  ): Promise<BodyBoundaryResponse> =>
-    put(
-      `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/boundary`,
-      body,
-    ),
-
-  // Backwards-compat alias.
-  saveLensBoundary: (
-    projectId: string,
-    modelId: string,
-    lensId: string,
-    body: {
-      upper_nodes: BodyBoundaryNode[]
-      lower_nodes: BodyBoundaryNode[]
-      render_style: BodyRenderStyle
-    },
     sectionId?: string,
   ): Promise<BodyBoundaryResponse> =>
     put(
-      `/projects/${projectId}/geology/models/${modelId}/bodies/${lensId}/boundary` +
+      `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/boundary` +
         (sectionId ? `?section_id=${sectionId}` : ''),
       body,
     ),
@@ -1507,14 +1483,6 @@ export const geologyClient = {
 
   deleteBody: (projectId: string, modelId: string, bodyId: string): Promise<void> =>
     del(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`),
-
-  updateBody: (
-    projectId: string,
-    modelId: string,
-    bodyId: string,
-    request: NameBodyRequest,
-  ): Promise<NameBodyResponse> =>
-    patch(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`, request),
 
   listFormationAbsences: (
     projectId: string,

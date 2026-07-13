@@ -1,13 +1,13 @@
 /**
- * Inspect-lens-body panel — Position 4 gesture surface (#101 Blocker 1).
+ * Inspect-lens-body panel â€” Position 4 gesture surface (#101 Blocker 1).
  *
  * Opened by right-clicking a body-ordinal chip in CorrelationEdgesOverlay
- * and choosing "Inspect lens body…".  Displays:
+ * and choosing "Inspect lens bodyâ€¦".  Displays:
  *
  * - Formation name + body ordinal
  * - Present investigations (those with a committed contact on this section)
  * - Absence list grouped by source with confidence badges and per-row
- *   "Confirm" buttons that promote inferred → manual
+ *   "Confirm" buttons that promote inferred â†’ manual
  * - "Confirm all auto absences" bulk action
  * - "Name this lens" text field (POST /lenses)
  * - "Create perpendicular companion" button (opens CompanionOfferDialog)
@@ -17,7 +17,7 @@
  * Inferred absence rows carry an amber "auto" badge and the formation
  * band in CorrelationEdgesOverlay renders at 40% opacity / dashed
  * when ALL absences are inferred (see bandOpacity helper in the overlay).
- * Any manual/observed absence flips the band to solid/70% with no badge —
+ * Any manual/observed absence flips the band to solid/70% with no badge â€”
  * the panel's "Confirm" gesture is the trigger that makes the band solid.
  *
  * The panel is a full modal (uses the shared Modal shell + portal) so it
@@ -62,11 +62,11 @@ interface Props {
    *  contact for this formation).  Computed by the caller from axisContacts
    *  filtered to the formation + section. */
   presentInvestigationIds: readonly string[]
-  /** Human-readable labels for investigation ids — keyed by investigation id.
+  /** Human-readable labels for investigation ids â€” keyed by investigation id.
    *  Built from visibleCpts + visibleBoreholes at the SectionsCanvas boundary.
    *  Absent ids fall back to the id string. */
   investigationLabels: ReadonlyMap<string, string>
-  /** Existing named lens for this (formationId, bodyOrdinal) pair — null when
+  /** Existing named lens for this (formationId, bodyOrdinal) pair â€” null when
    *  the body has not been named yet.  Used to pre-fill the name field. */
   existingLensId: string | null
   existingLensName: string | null
@@ -115,7 +115,7 @@ const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
  * presentInvestigationIds : readonly string[]
  *     Investigations with a committed contact for this formation on this section.
  * investigationLabels : ReadonlyMap<string, string>
- *     Human-readable id → label map.
+ *     Human-readable id â†’ label map.
  * existingLensId : string | null
  *     Pre-existing lens metadata row, if any.
  * existingLensName : string | null
@@ -149,7 +149,7 @@ export default function InspectLensBodyPanel({
   const [absences, setAbsences] = useState<FormationAbsenceItem[]>([])
   const [absencesLoading, setAbsencesLoading] = useState(false)
 
-  // Lens name field state — pre-filled from existingLensName.
+  // Lens name field state â€” pre-filled from existingLensName.
   const [lensName, setLensName] = useState(existingLensName ?? '')
   const [nameSaving, setNameSaving] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
@@ -158,7 +158,7 @@ export default function InspectLensBodyPanel({
   // Bulk-confirm-all loading state.
   const [confirmAllBusy, setConfirmAllBusy] = useState(false)
 
-  // #163f Slice 2 — lens boundary render style + the current control nodes
+  // #163f Slice 2 â€” lens boundary render style + the current control nodes
   // (preserved so a style change PUTs the full shape, not an empty one).
   const [renderStyle, setRenderStyle] = useState<BodyRenderStyle>('straight')
   const [boundaryNodes, setBoundaryNodes] = useState<{
@@ -210,7 +210,7 @@ export default function InspectLensBodyPanel({
     }
   }, [target])
 
-  // #163f Slice 2 — load the lens's boundary shape (style + nodes) when the
+  // #163f Slice 2 â€” load the lens's boundary shape (style + nodes) when the
   // panel opens for a lens that has a row. Drives the render-style picker +
   // preserves the control nodes across a style change.
   useEffect(() => {
@@ -221,14 +221,14 @@ export default function InspectLensBodyPanel({
     }
     let cancelled = false
     api.geology
-      .getLensBoundary(target.projectId, target.modelId, existingLensId)
+      .getBodyBoundary(target.projectId, target.modelId, existingLensId)
       .then(b => {
         if (cancelled) return
         setRenderStyle(b.render_style)
         setBoundaryNodes({ upper: b.upper_nodes, lower: b.lower_nodes })
       })
       .catch(err => {
-        if (!cancelled) log.warn('section', 'InspectLensBodyPanel: getLensBoundary failed', err)
+        if (!cancelled) log.warn('section', 'InspectLensBodyPanel: getBodyBoundary failed', err)
       })
     return () => {
       cancelled = true
@@ -242,13 +242,13 @@ export default function InspectLensBodyPanel({
       setRenderStyle(style) // optimistic
       setStyleSaving(true)
       try {
-        await api.geology.saveLensBoundary(target.projectId, target.modelId, existingLensId, {
+        await api.geology.saveBodyBoundary(target.projectId, target.modelId, existingLensId, {
           upper_nodes: boundaryNodes.upper,
           lower_nodes: boundaryNodes.lower,
           render_style: style,
         })
       } catch (err) {
-        log.warn('section', 'InspectLensBodyPanel: saveLensBoundary (style) failed', err)
+        log.warn('section', 'InspectLensBodyPanel: saveBodyBoundary (style) failed', err)
         setRenderStyle(prev) // rollback
       } finally {
         setStyleSaving(false)
@@ -338,9 +338,9 @@ export default function InspectLensBodyPanel({
     }
     if (!existingLensId) {
       // The body row is always created by the resolver before the panel opens.
-      // A null existingLensId means the lens list fetch failed — the user
+      // A null existingLensId means the lens list fetch failed â€” the user
       // should close and reopen the panel once the model is resolved.
-      setNameError('Body not yet resolved — close and reopen the panel.')
+      setNameError('Body not yet resolved â€” close and reopen the panel.')
       return
     }
     setNameSaving(true)
@@ -365,7 +365,7 @@ export default function InspectLensBodyPanel({
       )
     } catch (err) {
       log.warn('section', 'InspectLensBodyPanel: nameBody failed', err)
-      setNameError('Could not save name — try again.')
+      setNameError('Could not save name â€” try again.')
     } finally {
       setNameSaving(false)
     }
@@ -464,13 +464,13 @@ export default function InspectLensBodyPanel({
                 disabled={confirmAllBusy}
                 className="text-xs text-accent hover:text-accent-muted disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {confirmAllBusy ? 'Confirming…' : `Confirm all auto (${inferredCount})`}
+                {confirmAllBusy ? 'Confirmingâ€¦' : `Confirm all auto (${inferredCount})`}
               </button>
             )}
           </div>
 
           {absencesLoading ? (
-            <p className="text-xs text-text-muted italic">Loading…</p>
+            <p className="text-xs text-text-muted italic">Loadingâ€¦</p>
           ) : absences.length === 0 ? (
             <p className="text-xs text-text-muted italic">No absence records.</p>
           ) : (
@@ -497,7 +497,7 @@ export default function InspectLensBodyPanel({
                           type="button"
                           onClick={() => void handleConfirmAbsence(a)}
                           className="shrink-0 text-xs text-accent hover:text-accent-muted"
-                          title="Promote from inferred to manual — the inference engine will no longer overwrite this row"
+                          title="Promote from inferred to manual â€” the inference engine will no longer overwrite this row"
                         >
                           Confirm
                         </button>
@@ -545,7 +545,7 @@ export default function InspectLensBodyPanel({
               onClick={() => void handleSaveName()}
               disabled={nameSaving}
             >
-              {nameSaving ? 'Saving…' : 'Save'}
+              {nameSaving ? 'Savingâ€¦' : 'Save'}
             </Button>
           </div>
           {nameError && (
@@ -600,7 +600,7 @@ export default function InspectLensBodyPanel({
               : 'Auto-create a perpendicular companion cross-section through the lens centroid'
           }
         >
-          Perpendicular section…
+          Perpendicular sectionâ€¦
         </Button>
         <Button variant="secondary" size="sm" onClick={onClose}>
           Close
