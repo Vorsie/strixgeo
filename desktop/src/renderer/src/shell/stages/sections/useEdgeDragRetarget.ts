@@ -332,9 +332,13 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
       window.removeEventListener('mouseup', handleMouseUp)
     }
     // reason: edgeDrag is the live drag object that drives both handlers;
-    //   lithoContacts, activeLithoModel, projectId, selectedSectionId, the
-    //   api/log/toast refs, and markMutated (a stable App useCallback) are all
-    //   stable or captured in the same closure.
+    //   activeLithoModel, projectId, selectedSectionId, the api/log/toast
+    //   refs, and markMutated (a stable App useCallback) are stable or
+    //   captured in the same closure. lithoContacts is NOT stable (useMemo
+    //   value) — the same-investigation guard deliberately reads the
+    //   snapshot taken at drag start; a refetch completing mid-drag (a
+    //   seconds-wide window, and refetches only fire on mutation completion)
+    //   is accepted rather than re-registering window listeners mid-drag.
     //   The cleanup fn removes both listeners with the SAME named function
     //   references captured in this closure, which is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
