@@ -10,6 +10,12 @@
 // inflight Promise so two parallel openings don't fire two fetches.
 // Invalidated only on page reload (closing the desktop app) — DOV's
 // catalogue doesn't churn within a session.
+//
+// Deliberately NOT built on hooks/createCatalogHook.ts (audit
+// FE-HOOKS-08): this variant's delta is most of the body — an
+// ``enabled`` defer-the-fetch gate, retry on the next enable after an
+// error (inflight cleared on rejection), a bare ``T[] | null`` return
+// shape, and warn-logging instead of an error field.
 
 import { useEffect, useState } from 'react'
 
