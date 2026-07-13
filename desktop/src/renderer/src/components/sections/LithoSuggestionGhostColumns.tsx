@@ -33,6 +33,7 @@ import LithoGhostCompositionEditor from '../interpretation/LithoGhostComposition
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import MultiLineLabel from './MultiLineLabel'
+import { lookupCptValueAtDepth } from './cptInterpolation'
 import { depthAxisAtSurface } from './utils'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
@@ -951,10 +952,12 @@ export default function LithoSuggestionGhostColumns({
         (() => {
           const elevation = surfaceElevationM - drag.currentDepthM
           // For a CPT anchor with a depth-series available, look up qc
-          // and Rf at the dragged depth. Binary search the depths array
-          // (already ascending). Show empty strings when the value is
-          // missing — boreholes hit this path with no cptPlot → only
-          // depth + mTAW lines render (backwards-compatible).
+          // and Rf at the dragged depth via the shared
+          // ``lookupCptValueAtDepth`` interpolator — the same helper the
+          // committed-contact drag readout uses (SectionPanel's
+          // getCptValuesAtDepth), so the two mirrored readouts agree.
+          // Boreholes hit this path with no cptPlot → only depth + mTAW
+          // lines render (backwards-compatible).
           const plot =
             col.kind === 'cpt' && cptPlotByAnchorId
               ? cptPlotByAnchorId.get(investigationId) ?? null
@@ -964,27 +967,17 @@ export default function LithoSuggestionGhostColumns({
             { text: `${elevation >= 0 ? '+' : ''}${elevation.toFixed(2)} m TAW` },
           ]
           if (plot !== null && plot.depths_m.length > 0) {
-            // Binary search the largest depths_m index with depth <= drag depth.
-            let lo = 0
-            let hi = plot.depths_m.length - 1
-            while (lo < hi) {
-              const mid = (lo + hi + 1) >>> 1
-              if (plot.depths_m[mid] <= drag.currentDepthM) lo = mid
-              else hi = mid - 1
+            const qc = lookupCptValueAtDepth(plot.depths_m, plot.qc_mpa, drag.currentDepthM)
+            if (qc !== null && Number.isFinite(qc)) {
+              readoutLines.push({ text: `qc ${qc.toFixed(2)} MPa` })
             }
-            const idx = lo
-            if (
-              plot.depths_m[idx] !== undefined &&
-              plot.depths_m[idx] <= drag.currentDepthM + 1
-            ) {
-              const qc = plot.qc_mpa[idx]
-              if (qc !== undefined && qc !== null && Number.isFinite(qc)) {
-                readoutLines.push({ text: `qc ${qc.toFixed(2)} MPa` })
-              }
-              const rf = plot.rf_pct?.[idx]
-              if (rf !== undefined && rf !== null && Number.isFinite(rf)) {
-                readoutLines.push({ text: `Rf ${rf.toFixed(2)} %` })
-              }
+            const rf = lookupCptValueAtDepth(
+              plot.depths_m,
+              plot.rf_pct ?? [],
+              drag.currentDepthM,
+            )
+            if (rf !== null && Number.isFinite(rf)) {
+              readoutLines.push({ text: `Rf ${rf.toFixed(2)} %` })
             }
           }
           return (
