@@ -9,11 +9,12 @@
 // zone (committed in a subsequent step). This file owns only the stage-
 // specific import verbs.
 
-import { useState, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import { useRef } from 'react'
 import { ChevronDown, Upload, Loader2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { PortalMenu, usePortalMenu } from '../../ToolbarPrimitives'
+import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 
 /**
  * Import action verbs for the Data stage toolbar.
@@ -56,6 +57,13 @@ export default function DataToolbar(): JSX.Element {
     { label: 'Import Monitoring', available: false },
   ]
 
+  const items: ToolbarDropdownItem[] = importActions.map(action => ({
+    label: action.label,
+    onClick: action.onClick ?? (() => undefined),
+    disabled: !action.available || isImporting,
+    tag: !action.available ? 'Phase 4' : undefined,
+  }))
+
   return (
     <DropdownMenu
       label={drawingBbox ? 'Drawing bbox…' : 'Import'}
@@ -67,18 +75,8 @@ export default function DataToolbar(): JSX.Element {
         )
       }
       highlight={!isImporting && !drawingBbox}
-    >
-      {importActions.map(action => (
-        <MenuItem
-          key={action.label}
-          label={action.label}
-          disabled={!action.available || isImporting}
-          dimmed={!action.available}
-          onClick={action.onClick}
-          tag={!action.available ? 'Phase 4' : undefined}
-        />
-      ))}
-    </DropdownMenu>
+      items={items}
+    />
   )
 }
 
@@ -93,61 +91,32 @@ interface ImportAction {
 }
 
 // ---------------------------------------------------------------------------
-// Dropdown — identical in shape to the one in the (now-deleted) Toolbar.tsx;
-// kept local so this stage is self-contained. This is the SECOND copy of
-// the pattern in the codebase's history (Toolbar's was the first, now gone,
-// so effectively one live copy). Extraction window: if a second live
-// toolbar stage (e.g. SectionsToolbar) needs the same dropdown, lift
-// DropdownMenu/MenuItem to components/ui/ then — per the project's
-// extract-on-the-second-live-copy rule. Not before (one copy ≠ duplication).
+// Dropdown — trigger stays local (the Data stage keeps its accent highlight
+// + rotating chevron); the menu itself is the shared PortalMenu from
+// ToolbarPrimitives (FE-SHELL-CLIENTS-15 dedup — this was the third copy
+// of the portalled-menu pattern). Portalled + position:fixed so it escapes
+// StageToolbar's `overflow-hidden` left zone (a plain absolute menu was
+// clipped to the 40px-tall toolbar — the import menu was invisible).
 // ---------------------------------------------------------------------------
 
 interface DropdownMenuProps {
   label: string
   icon?: React.ReactNode
   highlight?: boolean
-  children: React.ReactNode
+  items: readonly ToolbarDropdownItem[]
 }
 
-function DropdownMenu({ label, icon, highlight, children }: DropdownMenuProps) {
-  const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+function DropdownMenu({ label, icon, highlight, items }: DropdownMenuProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e: MouseEvent) {
-      const t = e.target as Node
-      // The menu is portalled to <body>, so the trigger's wrapper does
-      // NOT contain it — check both the button and the menu explicitly.
-      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
-
-  function toggle(): void {
-    setOpen(o => {
-      const next = !o
-      // Anchor the portalled menu under the button. Portalled +
-      // position:fixed so it escapes StageToolbar's `overflow-hidden`
-      // left zone (a plain absolute menu was clipped to the 40px-tall
-      // toolbar — the import menu was invisible).
-      if (next && btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect()
-        setPos({ top: r.bottom + 2, left: r.left })
-      }
-      return next
-    })
-  }
+  const { open, anchorRect, toggle, close } = usePortalMenu(btnRef)
 
   return (
     <div className="relative">
       <button
         ref={btnRef}
         onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className={[
           'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
           open
@@ -162,51 +131,15 @@ function DropdownMenu({ label, icon, highlight, children }: DropdownMenuProps) {
         <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open &&
-        pos &&
-        createPortal(
-          <div
-            ref={menuRef}
-            style={{ position: 'fixed', top: pos.top, left: pos.left }}
-            // z above the toast stack (z-[1100]) so it's never occluded.
-            className="w-56 bg-surface-overlay border border-border-subtle rounded shadow-lg z-[1200] py-1"
-            onClick={() => setOpen(false)}
-          >
-            {children}
-          </div>,
-          document.body,
-        )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Menu item
-// ---------------------------------------------------------------------------
-
-interface MenuItemProps {
-  label: string
-  disabled?: boolean
-  dimmed?: boolean
-  tag?: string
-  onClick?: () => void
-}
-
-function MenuItem({ label, disabled, dimmed, tag, onClick }: MenuItemProps) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      className={[
-        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
-        disabled ? 'cursor-not-allowed' : 'hover:bg-surface-card active:bg-surface-card',
-        dimmed ? 'text-text-muted' : 'text-text-primary',
-      ].join(' ')}
-    >
-      <span className="flex-1">{label}</span>
-      {tag && (
-        <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">{tag}</span>
+      {open && anchorRect !== null && (
+        <PortalMenu
+          anchorRect={anchorRect}
+          ariaLabel={`${label} actions`}
+          items={items}
+          onClose={close}
+          className="w-56"
+        />
       )}
-    </button>
+    </div>
   )
 }

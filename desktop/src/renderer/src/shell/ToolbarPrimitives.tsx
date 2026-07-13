@@ -191,6 +191,166 @@ export interface ToolbarDropdownItem {
   title?: string
   /** Optional data-testid passthrough for vitest harnesses. */
   testid?: string
+  /** Optional trailing pill (e.g. a "Phase 4" not-yet-available tag). */
+  tag?: string
+}
+
+/**
+ * Shared open/anchor state for a portal-rendered dropdown menu.
+ *
+ * Owns the open boolean + the trigger's DOMRect, and wires the
+ * document-level dismiss listeners (mousedown-outside + Escape) while
+ * open. Used by ``ToolbarDropdown``, ``SplitToolbarButton`` and the
+ * Data-stage import dropdown so the boilerplate exists exactly once.
+ *
+ * Parameters
+ * ----------
+ * triggerRef
+ *     Ref of the button that anchors the menu — clicks inside it are
+ *     ignored by the outside-click dismiss (the trigger's own onClick
+ *     toggles instead).
+ *
+ * Returns
+ * -------
+ * ``{ open, anchorRect, toggle, close }``.
+ */
+export function usePortalMenu(triggerRef: React.RefObject<HTMLButtonElement>): {
+  open: boolean
+  anchorRect: DOMRect | null
+  toggle: () => void
+  close: () => void
+} {
+  const [open, setOpen] = useState(false)
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClickAway(e: MouseEvent): void {
+      // mousedown not click so the menu closes BEFORE the next click
+      // can land on something behind it — matches the existing
+      // ColumnContextMenu + LithoSuggestionGhostColumns context-menu
+      // patterns elsewhere in the codebase.
+      const t = e.target as Node
+      if (triggerRef.current && triggerRef.current.contains(t)) return
+      setOpen(false)
+    }
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickAway)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClickAway)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open, triggerRef])
+
+  function toggle(): void {
+    setAnchorRect(triggerRef.current?.getBoundingClientRect() ?? null)
+    setOpen(o => !o)
+  }
+
+  function close(): void {
+    setOpen(false)
+  }
+
+  return { open, anchorRect, toggle, close }
+}
+
+interface PortalMenuProps {
+  /** The trigger's bounding rect the menu anchors below. */
+  anchorRect: DOMRect
+  /** aria-label on the menu container. */
+  ariaLabel: string
+  items: readonly ToolbarDropdownItem[]
+  /** Fired after an item's onClick (and by the caller's dismiss logic). */
+  onClose: () => void
+  /** 'left' (default) aligns to the trigger's left edge; 'right'
+   *  right-aligns the menu to the trigger's right edge using widthPx
+   *  (so wide items don't bleed off a narrow viewport). */
+  align?: 'left' | 'right'
+  /** Menu min-width in px — required for right alignment. */
+  widthPx?: number
+  /** Extra container classes (e.g. a fixed width utility). */
+  className?: string
+}
+
+/**
+ * Portal-rendered floating menu shared by every toolbar dropdown.
+ *
+ * Rendered fixed under the anchor rect via ``createPortal`` so it
+ * escapes any ``overflow-hidden`` toolbar zone. Items fire ``onClick``
+ * then ``onClose``. Mousedown inside the menu is stopped so the
+ * document-level outside-click dismiss (see ``usePortalMenu``) never
+ * sees it.
+ *
+ * Parameters
+ * ----------
+ * See ``PortalMenuProps``.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The portalled menu element.
+ */
+export function PortalMenu({
+  anchorRect,
+  ariaLabel,
+  items,
+  onClose,
+  align = 'left',
+  widthPx,
+  className,
+}: PortalMenuProps): JSX.Element {
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        top: anchorRect.bottom + 4,
+        left: align === 'right' ? anchorRect.right - (widthPx ?? 200) : anchorRect.left,
+        ...(widthPx !== undefined ? { minWidth: widthPx } : {}),
+        zIndex: 10000,
+      }}
+      onMouseDown={e => e.stopPropagation()}
+      className={[
+        'bg-surface-overlay border border-border-default rounded shadow-lg py-1 text-xs',
+        className ?? (widthPx === undefined ? 'min-w-[10rem]' : ''),
+      ].join(' ')}
+      role="menu"
+      aria-label={ariaLabel}
+    >
+      {items.map((item, i) => (
+        <button
+          key={i}
+          type="button"
+          role="menuitem"
+          disabled={item.disabled}
+          title={item.title}
+          onClick={() => {
+            if (item.disabled) return
+            item.onClick()
+            onClose()
+          }}
+          data-testid={item.testid}
+          className={[
+            'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
+            item.disabled
+              ? 'text-text-muted cursor-not-allowed'
+              : 'text-text-primary hover:bg-surface-page',
+          ].join(' ')}
+        >
+          {item.icon}
+          <span className="flex-1">{item.label}</span>
+          {item.tag && (
+            <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">
+              {item.tag}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  )
 }
 
 interface ToolbarDropdownProps {
@@ -224,37 +384,12 @@ export function ToolbarDropdown({
   items,
   testid,
 }: ToolbarDropdownProps): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClickAway(e: MouseEvent): void {
-      // mousedown not click so the menu closes BEFORE the next click
-      // can land on something behind it — matches the existing
-      // ColumnContextMenu + LithoSuggestionGhostColumns context-menu
-      // patterns elsewhere in the codebase.
-      const t = e.target as Node
-      if (triggerRef.current && triggerRef.current.contains(t)) return
-      setOpen(false)
-    }
-    function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickAway)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClickAway)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [open])
+  const { open, anchorRect, toggle, close } = usePortalMenu(triggerRef)
 
   function handleTriggerClick(): void {
     if (disabled) return
-    const rect = triggerRef.current?.getBoundingClientRect() ?? null
-    setAnchorRect(rect)
-    setOpen(o => !o)
+    toggle()
   }
 
   return (
@@ -280,47 +415,14 @@ export function ToolbarDropdown({
         {label}
         <ChevronDown size={11} aria-hidden="true" />
       </button>
-      {open && anchorRect !== null &&
-        createPortal(
-          <div
-            style={{
-              position: 'fixed',
-              top: anchorRect.bottom + 4,
-              left: anchorRect.left,
-              zIndex: 10000,
-            }}
-            onMouseDown={e => e.stopPropagation()}
-            className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 min-w-[10rem] text-xs"
-            role="menu"
-            aria-label={`${label} actions`}
-          >
-            {items.map((item, i) => (
-              <button
-                key={i}
-                type="button"
-                role="menuitem"
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => {
-                  if (item.disabled) return
-                  item.onClick()
-                  setOpen(false)
-                }}
-                data-testid={item.testid}
-                className={[
-                  'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
-                  item.disabled
-                    ? 'text-text-muted cursor-not-allowed'
-                    : 'text-text-primary hover:bg-surface-page',
-                ].join(' ')}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-          </div>,
-          document.body,
-        )}
+      {open && anchorRect !== null && (
+        <PortalMenu
+          anchorRect={anchorRect}
+          ariaLabel={`${label} actions`}
+          items={items}
+          onClose={close}
+        />
+      )}
     </>
   )
 }
@@ -402,33 +504,8 @@ export function SplitToolbarButton({
   items,
   testid,
 }: SplitToolbarButtonProps): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
   const caretRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClickAway(e: MouseEvent): void {
-      const t = e.target as Node
-      if (caretRef.current && caretRef.current.contains(t)) return
-      setOpen(false)
-    }
-    function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickAway)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClickAway)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [open])
-
-  function handleCaretClick(): void {
-    const rect = caretRef.current?.getBoundingClientRect() ?? null
-    setAnchorRect(rect)
-    setOpen(o => !o)
-  }
+  const { open, anchorRect, toggle: handleCaretClick, close } = usePortalMenu(caretRef)
 
   // When the primary acts as a caret fallback, show a clickable
   // muted-but-not-disabled style: faded text (signals "not the
@@ -542,50 +619,18 @@ export function SplitToolbarButton({
           <ChevronDown size={11} aria-hidden="true" />
         </button>
       </div>
-      {open && anchorRect !== null &&
-        createPortal(
-          <div
-            style={{
-              position: 'fixed',
-              top: anchorRect.bottom + 4,
-              // Right-align the menu to the caret so wider items don't
-              // bleed off the toolbar's left edge on a narrow viewport.
-              left: anchorRect.right - 200,
-              minWidth: 200,
-              zIndex: 10000,
-            }}
-            onMouseDown={e => e.stopPropagation()}
-            className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 text-xs"
-            role="menu"
-            aria-label={`${label} options`}
-          >
-            {items.map((item, i) => (
-              <button
-                key={i}
-                type="button"
-                role="menuitem"
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => {
-                  if (item.disabled) return
-                  item.onClick()
-                  setOpen(false)
-                }}
-                data-testid={item.testid}
-                className={[
-                  'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
-                  item.disabled
-                    ? 'text-text-muted cursor-not-allowed'
-                    : 'text-text-primary hover:bg-surface-page',
-                ].join(' ')}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-          </div>,
-          document.body,
-        )}
+      {open && anchorRect !== null && (
+        // Right-align the menu to the caret so wider items don't
+        // bleed off the toolbar's left edge on a narrow viewport.
+        <PortalMenu
+          anchorRect={anchorRect}
+          ariaLabel={`${label} options`}
+          items={items}
+          onClose={close}
+          align="right"
+          widthPx={200}
+        />
+      )}
     </>
   )
 }
