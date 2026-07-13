@@ -15,12 +15,25 @@
  */
 
 import { createBooleanStore } from './createBooleanStore'
+// Mutual exclusion (owner ask, dogfeed 2026-07-13): band fill and model fill
+// paint the same section area — showing one auto-hides the other. The import
+// pair is intentionally circular at module level; only function references
+// are used, and only at click time (safe under ESM/Vite).
+import { setFormationFill } from './formationFillStore'
 
 const store = createBooleanStore(false)
 
-/** Flip the band-fill visibility and notify subscribers. */
+/** Flip the band-fill visibility and notify subscribers.
+ *  ON-transition auto-hides the model fill (mutual exclusion); the
+ *  OFF-transition never resurrects it. */
 export function toggleBandFill(): void {
   store.toggle()
+  if (store.get()) setFormationFill(false)
+}
+
+/** Set the band-fill visibility directly (no exclusion side effect). */
+export function setBandFill(value: boolean): void {
+  store.set(value)
 }
 
 /** Current band-fill visibility (non-reactive read). */

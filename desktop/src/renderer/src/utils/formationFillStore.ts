@@ -25,12 +25,23 @@
  */
 
 import { createBooleanStore } from './createBooleanStore'
+// Mutual exclusion (owner ask, dogfeed 2026-07-13): see bandFillStore — the
+// import pair is intentionally circular; function refs only, used at click time.
+import { setBandFill } from './bandFillStore'
 
 const store = createBooleanStore(true)
 
-/** Flip the model-fill visibility and notify subscribers. */
+/** Flip the model-fill visibility and notify subscribers.
+ *  ON-transition auto-hides the band fill (mutual exclusion); the
+ *  OFF-transition never resurrects it. */
 export function toggleFormationFill(): void {
   store.toggle()
+  if (store.get()) setBandFill(false)
+}
+
+/** Set the model-fill visibility directly (no exclusion side effect). */
+export function setFormationFill(value: boolean): void {
+  store.set(value)
 }
 
 /** Current model-fill visibility (non-reactive read). */
