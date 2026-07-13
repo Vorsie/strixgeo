@@ -30,3 +30,12 @@ export {
 } from './types'
 
 export { buildArrangement } from './arrangement'
+
+// Increment 2: curve emission -> face labelling -> slicing -> the domain entry.
+export {
+  computeSectionFillV2,
+  computeSectionFillV2WithConflicts,
+} from './computeSectionFillV2'
+export { type TieConflict, type ResolvedTie } from './emitCurves'
+export { type LabelledFace, type FaceClass } from './labelFaces'
+export { type ColumnGeom, type UnitGeom, type SectionInput } from './sectionGeom'
