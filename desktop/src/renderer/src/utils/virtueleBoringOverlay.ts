@@ -23,6 +23,8 @@
 // either slot is armed; the detail panes default to OFF until the
 // user explicitly clicks the toggle button.
 
+import { readViewStateBag } from './viewStatePrefs'
+
 export interface VirtueleBoringOverlayState {
   /** First active model code, or ``null`` when this slot is off. */
   modelA: string | null
@@ -61,12 +63,8 @@ export const VIRTUELE_BORING_MAX_DEPTH_MAX_M = 1000
 export function readVirtueleBoringOverlay(
   viewState: Record<string, unknown> | null | undefined,
 ): VirtueleBoringOverlayState {
-  if (!viewState || typeof viewState !== 'object') {
-    return { ...DEFAULT_VIRTUELE_BORING_OVERLAY }
-  }
-  const raw = (viewState as Record<string, unknown>)[VIRTUELE_BORING_VIEW_STATE_KEY]
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_VIRTUELE_BORING_OVERLAY }
-  const dict = raw as Record<string, unknown>
+  const dict = readViewStateBag(viewState, VIRTUELE_BORING_VIEW_STATE_KEY)
+  if (!dict) return { ...DEFAULT_VIRTUELE_BORING_OVERLAY }
   const maxDepthRaw = dict.maxDepthM
   let maxDepthM: number | null
   if (maxDepthRaw === null) {

@@ -3,6 +3,8 @@
 // from the litho ``litho_segmenter`` bag so tuning packing never moves
 // lithology. Same best-effort read pattern as lithoSegmenterPrefs.ts.
 
+import { readBoundedNumber, readViewStateBag } from './viewStatePrefs'
+
 export interface GeotechSubdivisionPrefs {
   /** Thinnest NAD packing band kept; also the persistence a qc change must hold
    *  to move a boundary. Range 0.1–3.0 m. Default 0.35. */
@@ -26,10 +28,6 @@ export const GEOTECH_SUBDIVISION_BOUNDS = {
 
 const VIEW_STATE_KEY = 'geotech_subdivision'
 
-function readBounded(v: unknown, b: { min: number; max: number }, fallback: number): number {
-  return typeof v === 'number' && Number.isFinite(v) && v >= b.min && v <= b.max ? v : fallback
-}
-
 /**
  * Read the geotech-subdivision prefs out of a project's ``view_state`` bag.
  *
@@ -41,14 +39,10 @@ function readBounded(v: unknown, b: { min: number; max: number }, fallback: numb
 export function readGeotechSubdivisionPrefs(
   viewState: Record<string, unknown> | null | undefined,
 ): GeotechSubdivisionPrefs {
-  const raw =
-    viewState && typeof viewState === 'object'
-      ? (viewState as Record<string, unknown>)[VIEW_STATE_KEY]
-      : null
-  if (!raw || typeof raw !== 'object') return { ...GEOTECH_SUBDIVISION_DEFAULTS }
-  const d = raw as Record<string, unknown>
+  const d = readViewStateBag(viewState, VIEW_STATE_KEY)
+  if (!d) return { ...GEOTECH_SUBDIVISION_DEFAULTS }
   return {
-    minimumLayerThicknessM: readBounded(
+    minimumLayerThicknessM: readBoundedNumber(
       d.minimum_layer_thickness_m,
       GEOTECH_SUBDIVISION_BOUNDS.minimumLayerThicknessM,
       GEOTECH_SUBDIVISION_DEFAULTS.minimumLayerThicknessM,
@@ -57,7 +51,7 @@ export function readGeotechSubdivisionPrefs(
       typeof d.gradient_snap_enabled === 'boolean'
         ? d.gradient_snap_enabled
         : GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapEnabled,
-    gradientSnapWindowM: readBounded(
+    gradientSnapWindowM: readBoundedNumber(
       d.gradient_snap_window_m,
       GEOTECH_SUBDIVISION_BOUNDS.gradientSnapWindowM,
       GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapWindowM,

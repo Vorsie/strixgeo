@@ -21,6 +21,7 @@
 // scalar then becomes the catch-all "site default" — no breaking change.
 
 import type { LithoSuggestionRequest } from '../api/client'
+import { readBoundedNumber, readViewStateBag } from './viewStatePrefs'
 
 export interface LithoSegmenterPrefs {
   /** Minimum output layer thickness in metres for the segmenter
@@ -122,16 +123,6 @@ export const LITHO_SEGMENTER_BOUNDS = {
 
 const VIEW_STATE_KEY = 'litho_segmenter'
 
-function readBoundedNumber(
-  v: unknown,
-  bounds: { min: number; max: number },
-  fallback: number,
-): number {
-  return typeof v === 'number' && Number.isFinite(v) && v >= bounds.min && v <= bounds.max
-    ? v
-    : fallback
-}
-
 /**
  * Read the litho-segmenter prefs out of a project's ``view_state`` bag.
  *
@@ -143,14 +134,8 @@ function readBoundedNumber(
 export function readLithoSegmenterPrefs(
   viewState: Record<string, unknown> | null | undefined,
 ): LithoSegmenterPrefs {
-  if (!viewState || typeof viewState !== 'object') {
-    return { ...LITHO_SEGMENTER_DEFAULTS }
-  }
-  const raw = (viewState as Record<string, unknown>)[VIEW_STATE_KEY]
-  if (!raw || typeof raw !== 'object') {
-    return { ...LITHO_SEGMENTER_DEFAULTS }
-  }
-  const dict = raw as Record<string, unknown>
+  const dict = readViewStateBag(viewState, VIEW_STATE_KEY)
+  if (!dict) return { ...LITHO_SEGMENTER_DEFAULTS }
   return {
     minimumLayerThicknessM: readBoundedNumber(
       dict.minimum_layer_thickness_m,

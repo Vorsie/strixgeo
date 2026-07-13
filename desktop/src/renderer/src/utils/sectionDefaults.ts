@@ -11,6 +11,8 @@
 // AFTER existing sections were created does NOT retroactively patch
 // them — that would surprise the user.
 
+import { readBoundedNumber, readViewStateBag } from './viewStatePrefs'
+
 export interface SectionDefaults {
   /** Half-width of the projection corridor in metres for new
    *  sections. Backend default 50 m; the dogfeed project uses
@@ -40,16 +42,6 @@ export const SECTION_DEFAULTS_BOUNDS = {
 
 const VIEW_STATE_KEY = 'section_defaults'
 
-function readBoundedNumber(
-  v: unknown,
-  bounds: { min: number; max: number },
-  fallback: number,
-): number {
-  return typeof v === 'number' && Number.isFinite(v) && v >= bounds.min && v <= bounds.max
-    ? v
-    : fallback
-}
-
 /**
  * Read the per-project section-defaults out of ``view_state``. Each
  * field is bounds-checked independently and falls back to the global
@@ -58,14 +50,8 @@ function readBoundedNumber(
 export function readSectionDefaults(
   viewState: Record<string, unknown> | null | undefined,
 ): SectionDefaults {
-  if (!viewState || typeof viewState !== 'object') {
-    return { ...SECTION_DEFAULTS }
-  }
-  const raw = (viewState as Record<string, unknown>)[VIEW_STATE_KEY]
-  if (!raw || typeof raw !== 'object') {
-    return { ...SECTION_DEFAULTS }
-  }
-  const dict = raw as Record<string, unknown>
+  const dict = readViewStateBag(viewState, VIEW_STATE_KEY)
+  if (!dict) return { ...SECTION_DEFAULTS }
   return {
     bufferM: readBoundedNumber(
       dict.buffer_m,

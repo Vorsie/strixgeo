@@ -16,6 +16,8 @@
 // addition because the DEM_SOURCES map is the only thing that needs
 // to know about a new country.
 
+import { readViewStateBag } from './viewStatePrefs'
+
 export interface DemSource {
   /** WMS service endpoint (no query string). */
   url: string
@@ -103,10 +105,8 @@ export const DEFAULT_DEM_OVERLAY: DemOverlayState = {
  * always returns a usable shape.
  */
 export function readDemOverlay(viewState: Record<string, unknown> | null | undefined): DemOverlayState {
-  if (!viewState || typeof viewState !== 'object') return { ...DEFAULT_DEM_OVERLAY }
-  const raw = (viewState as Record<string, unknown>).dem_overlay
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_DEM_OVERLAY }
-  const dict = raw as Record<string, unknown>
+  const dict = readViewStateBag(viewState, 'dem_overlay')
+  if (!dict) return { ...DEFAULT_DEM_OVERLAY }
   const enabled = typeof dict.enabled === 'boolean' ? dict.enabled : DEFAULT_DEM_OVERLAY.enabled
   const opacityRaw = typeof dict.opacity === 'number' ? dict.opacity : DEFAULT_DEM_OVERLAY.opacity
   // Clamp opacity to [0, 1]. NaN, Infinity, and out-of-range values
