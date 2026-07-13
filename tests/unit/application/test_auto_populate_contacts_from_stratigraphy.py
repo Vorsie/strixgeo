@@ -1000,7 +1000,7 @@ async def test_scan_manual_map_merges_candidates():
     borehole are both mapped to "Holoceen". The scan must return ONE candidate
     for "Holoceen" (borehole_count=1) and emit ONE LumpingCollision.
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         normalize_formation_key,
     )
 
@@ -1055,7 +1055,7 @@ async def test_scan_no_collision_when_different_boreholes():
     A collision requires ≥2 layers resolving to the same key WITHIN one
     borehole.  Across boreholes is the normal multi-borehole scenario.
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         normalize_formation_key,
     )
 
@@ -1342,7 +1342,7 @@ async def test_execute_deep_first_layers_keeps_shallowest_contact():
 
 def test_resolve_effective_key_empty_target_treated_as_unmapped():
     """Empty target string in manual_map → raw key returned (no nameless formation)."""
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         _resolve_effective_key,
         normalize_formation_key,
     )
@@ -1356,7 +1356,7 @@ def test_resolve_effective_key_empty_target_treated_as_unmapped():
 
 def test_resolve_effective_key_blank_target_treated_as_unmapped():
     """Whitespace-only target in manual_map → raw key returned (no nameless formation)."""
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         _resolve_effective_key,
         normalize_formation_key,
     )
@@ -1841,7 +1841,7 @@ async def test_bridge_B6_no_overlap_produces_no_pair():
 
 def test_resolve_bridge_R1_formal_in_bridge_returns_mapped_key():
     """R1: formal key present in bridge → returns the mapped informal key."""
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         _resolve_bridge_key,
         normalize_formation_key,
     )
@@ -1865,7 +1865,7 @@ def test_resolve_bridge_R2_formal_not_in_bridge_returns_raw():
     misses (a real code like "Q" now resolves via #59 — covered by the
     C-series).
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         _resolve_bridge_key,
         normalize_formation_key,
     )
@@ -1882,7 +1882,7 @@ def test_resolve_bridge_R3_informal_untouched_even_when_in_bridge():
     The bridge is formal→informal; informal keys must never be remapped —
     doing so would create a double-remap and corrupt the identity model.
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         _resolve_bridge_key,
         normalize_formation_key,
     )
@@ -1900,7 +1900,7 @@ def test_resolve_bridge_R4_none_bridge_is_noop():
     Synthetic non-DOV code so the #59 lexicon misses; a real code with
     bridge=None now resolves via the lexicon (the #59 point) — C-series.
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         _resolve_bridge_key,
         normalize_formation_key,
     )
@@ -2081,7 +2081,7 @@ async def test_invariant_I2_no_bridge_regression_guard():
         f"I2: bridge=None must produce 2 separate candidates, got {len(candidates)}"
     )
     keys = {c.key for c in candidates}
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         normalize_formation_key,
     )
 
@@ -2099,7 +2099,7 @@ async def test_invariant_I3_manual_map_overrides_bridge():
     a custom target "Kortrijk Formation".  The effective key must be the
     manual_map target, NOT the bridged key.
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         normalize_formation_key,
     )
 
@@ -2234,7 +2234,7 @@ async def test_scan_L4_pre58_stale_lump_map_resolves_without_relump():
     pre-#58 saved-map shape).  The scan must return ONE candidate under the
     user's lump target — NOT a fresh bridge/formal-keyed candidate.
     """
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         normalize_formation_key,
     )
 
@@ -2371,7 +2371,7 @@ _KORO_CANON = "Lid van Roubaix (Formatie van Kortrijk)"
 async def test_scan_C1_formal_only_codelist_hit_uses_canonical_name():
     """C1: a formal-only 'KoRo' borehole resolves to the canonical DOV name;
     regional_ref keeps the raw code (provenance), key = normalize(canonical)."""
-    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    from groundmodel.application.stratigraphy_bridge import (
         normalize_formation_key,
     )
 
