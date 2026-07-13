@@ -24,7 +24,7 @@ _build_valid_formation_ids
 _build_valid_model_ids
     Return the union of DB + payload model ids for FK guards.
 _restore_cross_sections
-    Insert cross-section rows, deferring the companion_lens_id FK.
+    Insert cross-section rows, deferring the companion_body_id FK.
 _restore_investigation_reviews
     Insert investigation review rows with target-entity validation.
 _restore_project_bundle_impl
@@ -55,7 +55,7 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # bundle_build.py.
 from .bundle_build import BundleIntegrityError
 from .bundle_restore_litho import (
-    _attach_companion_lens_links,
+    _attach_companion_body_links,
     _restore_bodies,
     _restore_contact_edges,
     _restore_formation_absences,
@@ -459,12 +459,12 @@ async def _restore_cross_sections(
 ) -> tuple[int, dict[UUID, UUID]]:
     """Insert cross-section rows from the bundle, deferring the body FK (#196).
 
-    ``cross_section.companion_lens_id`` is an FK → ``body.id``, but bodies
+    ``cross_section.companion_body_id`` is an FK → ``body.id``, but bodies
     restore in a LATER phase (Phase 8) than sections (Phase 6). Inserting a
-    lens-companion section with that column set therefore FK-violates on flush
+    body-companion section with that column set therefore FK-violates on flush
     on a cold restore. We strip the column here and return a
     ``{section_id: body_id}`` map so the caller re-attaches it after the bodies
-    phase (see ``_attach_companion_lens_links``). ``is_lens_companion`` (a bool
+    phase (see ``_attach_companion_body_links``). ``is_body_companion`` (a bool
     flag, not an FK) stays on the row so the companion is flagged immediately.
 
     This phase writes its own dedupe+insert loop rather than sharing
@@ -504,7 +504,7 @@ async def _restore_cross_sections(
         kwargs = _apply_json_to_kwargs(CrossSectionOrm, item)
         kwargs["app_project_id"] = project_id
         # Defer the body FK — bodies don't exist yet on a cold restore.
-        companion_id = _uuid(kwargs.pop("companion_lens_id", None))
+        companion_id = _uuid(kwargs.pop("companion_body_id", None))
         if companion_id is not None:
             deferred[item_id] = companion_id
         session.add(CrossSectionOrm(**kwargs))
@@ -814,7 +814,7 @@ async def _restore_project_bundle_impl(
     )
 
     # ---- Phase 6: Cross-sections -----------------------------------------
-    # companion_lens_id is deferred (FK → body, which restores in Phase 8).
+    # companion_body_id is deferred (FK → body, which restores in Phase 8).
     new_sections, deferred_companion_links = await _restore_cross_sections(
         session, project_id, cross_sections_payload
     )
@@ -841,10 +841,10 @@ async def _restore_project_bundle_impl(
         logger=logger,
     )
 
-    # ---- Phase 8b: Re-attach deferred companion-lens links (#196) --------
-    # Now bodies exist, set the cross_section.companion_lens_id FKs that
+    # ---- Phase 8b: Re-attach deferred companion-body links (#196) --------
+    # Now bodies exist, set the cross_section.companion_body_id FKs that
     # Phase 6 stripped to avoid the cold-restore FK violation.
-    reattached_companions = await _attach_companion_lens_links(
+    reattached_companions = await _attach_companion_body_links(
         session, project_id, deferred_companion_links, logger=logger
     )
 

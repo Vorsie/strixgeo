@@ -703,7 +703,7 @@ async def test_cold_restore_reattaches_companion_lens_section_after_bodies(
 ) -> None:
     """A lens-companion section restores after its body, FK intact (#196).
 
-    ``cross_section.companion_lens_id`` is an FK → ``body.id``. Sections restore
+    ``cross_section.companion_body_id`` is an FK → ``body.id``. Sections restore
     in Phase 6, bodies in Phase 8, so a cold restore of any project that ran
     "Materialise lens companions" would FK-violate when the section row was
     inserted before its body existed. The restore must defer the link and
@@ -761,8 +761,8 @@ async def test_cold_restore_reattaches_companion_lens_section_after_bodies(
         projection_buffer_m=50.0,
         excluded_borehole_ids=[],
         excluded_cpt_ids=[],
-        companion_lens_id=body.id,
-        is_lens_companion=True,
+        companion_body_id=body.id,
+        is_body_companion=True,
         display_order=0,
     )
     db_session.add(companion)
@@ -773,8 +773,8 @@ async def test_cold_restore_reattaches_companion_lens_section_after_bodies(
 
     bundle = await build_project_bundle(db_session, source)
     csec = next(s for s in bundle["cross_sections"] if s["id"] == str(companion_id))
-    assert csec["companion_lens_id"] == str(body_id)
-    assert csec["is_lens_companion"] is True
+    assert csec["companion_body_id"] == str(body_id)
+    assert csec["is_body_companion"] is True
 
     # Wipe end-to-end (fresh DB on another machine).
     await db_session.execute(
@@ -810,9 +810,9 @@ async def test_cold_restore_reattaches_companion_lens_section_after_bodies(
     restored = (
         await db_session.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == companion_id))
     ).scalar_one()
-    assert restored.is_lens_companion is True
-    assert restored.companion_lens_id == body_id, (
-        "companion_lens_id must be re-attached after the bodies phase"
+    assert restored.is_body_companion is True
+    assert restored.companion_body_id == body_id, (
+        "companion_body_id must be re-attached after the bodies phase"
     )
 
 

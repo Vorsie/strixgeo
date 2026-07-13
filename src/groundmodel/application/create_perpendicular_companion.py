@@ -3,7 +3,7 @@
 A lens is a 3D body; a single cross-section only constrains it in one
 direction.  This use case generates a second section perpendicular to the
 primary section, centred on the lens, and links it to the lens via
-``cross_section.companion_lens_id``.
+``cross_section.companion_body_id``.
 
 Algorithm (Q3 directive from debt #101):
 
@@ -26,8 +26,8 @@ Algorithm (Q3 directive from debt #101):
    investigation is found on that side (Q3 rule).
 7. Build start/end endpoints of the companion section.
 8. Create the companion ``CrossSectionOrm`` row via
-   ``CrossSectionRepository.create()``, setting ``companion_lens_id`` and
-   ``is_lens_companion=True`` on the row AFTER flush.
+   ``CrossSectionRepository.create()``, setting ``companion_body_id`` and
+   ``is_body_companion=True`` on the row AFTER flush.
 9. Commit.  Return the new section.
 
 Single-companion invariant: at most one perpendicular companion per lens.
@@ -166,7 +166,7 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         # 3. Idempotency guard — at most one companion per body.
         # ------------------------------------------------------------------
         existing_companion_stmt = (
-            select(CrossSectionOrm).where(CrossSectionOrm.companion_lens_id == body_id).limit(1)
+            select(CrossSectionOrm).where(CrossSectionOrm.companion_body_id == body_id).limit(1)
         )
         existing_companion = (
             await self._session.execute(existing_companion_stmt)
@@ -258,9 +258,8 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         )
 
         # Tag as companion — must set after flush gives us the row.
-        # companion_lens_id is the DB column name (historical); body_id is the value.
-        companion.companion_lens_id = body_id
-        companion.is_lens_companion = True
+        companion.companion_body_id = body_id
+        companion.is_body_companion = True
         await self._session.flush()
         await self._session.commit()
         await self._session.refresh(companion)

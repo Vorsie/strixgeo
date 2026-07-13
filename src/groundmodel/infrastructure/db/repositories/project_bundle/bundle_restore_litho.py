@@ -21,8 +21,8 @@ _restore_litho_solids
     Insert cached watertight body-solid rows (dedup on (model_id, body_id)).
 _restore_lens_shapes_and_nodes
     Insert body-boundary shape + node rows.
-_attach_companion_lens_links
-    Re-attach deferred ``cross_section.companion_lens_id`` FKs after
+_attach_companion_body_links
+    Re-attach deferred ``cross_section.companion_body_id`` FKs after
     bodies have been inserted.
 """
 
@@ -375,14 +375,14 @@ async def _restore_geological_models(
     return new_models, new_contacts
 
 
-async def _attach_companion_lens_links(
+async def _attach_companion_body_links(
     session: AsyncSession,
     project_id: UUID,
     deferred_companion_links: dict[UUID, UUID],
     *,
     logger: GroundModelLogger,
 ) -> int:
-    """Set the deferred ``cross_section.companion_lens_id`` now bodies exist (#196).
+    """Set the deferred ``cross_section.companion_body_id`` now bodies exist (#196).
 
     Runs after the bodies phase. Re-queries the project's body ids (forcing an
     autoflush of the pending body inserts) so a link whose body was dropped /
@@ -416,7 +416,7 @@ async def _attach_companion_lens_links(
         if body_id not in valid_body_ids:
             logger.warning(
                 f"restore_project_bundle({project_id}): companion section {section_id} "
-                f"→ body {body_id} not present after restore — leaving companion_lens_id NULL"
+                f"→ body {body_id} not present after restore — leaving companion_body_id NULL"
             )
             continue
         await session.execute(
@@ -425,7 +425,7 @@ async def _attach_companion_lens_links(
                 CrossSectionOrm.id == section_id,
                 CrossSectionOrm.app_project_id == project_id,
             )
-            .values(companion_lens_id=body_id)
+            .values(companion_body_id=body_id)
         )
         attached += 1
     return attached

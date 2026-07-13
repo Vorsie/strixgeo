@@ -72,7 +72,7 @@ from .bundle_restore_core import (
     _wipe_project_scoped_rows,
 )
 from .bundle_restore_litho import (
-    _attach_companion_lens_links,
+    _attach_companion_body_links,
     _restore_bodies,
     _restore_contact_edges,
     _restore_formation_absences,
@@ -174,7 +174,7 @@ __all__ = [
     "_restore_formation_absences",
     "_restore_contact_edges",
     "_restore_lens_shapes_and_nodes",
-    "_attach_companion_lens_links",
+    "_attach_companion_body_links",
     # Build impl
     "_build_project_bundle_impl",
 ]

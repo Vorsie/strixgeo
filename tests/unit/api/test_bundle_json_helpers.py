@@ -17,7 +17,9 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
+    _apply_json_to_kwargs,
     _from_json,
     _to_json,
 )
@@ -116,3 +118,36 @@ def test_seeded_formation_contact_ids_round_trip() -> None:
     # Empty set is the common case (freshly-drawn, never-seeded section).
     assert _to_json([]) == []
     assert _from_json([], list) == []
+
+
+# ---------------------------------------------------------------------------
+# Read-side bundle-key aliases (_RESTORE_KEY_ALIASES) — renamed columns must
+# keep restoring from bundles written BEFORE the rename. One test per
+# aliased key: an old-key payload lands in the NEW ORM column.
+# ---------------------------------------------------------------------------
+
+
+def test_old_companion_lens_id_key_restores_into_companion_body_id() -> None:
+    """A pre-#222 bundle key ``companion_lens_id`` maps onto ``companion_body_id``."""
+    body_id = "33333333-3333-3333-3333-333333333333"
+    kwargs = _apply_json_to_kwargs(CrossSectionOrm, {"companion_lens_id": body_id})
+    assert kwargs == {"companion_body_id": UUID(body_id)}
+
+
+def test_old_is_lens_companion_key_restores_into_is_body_companion() -> None:
+    """A pre-#222 bundle key ``is_lens_companion`` maps onto ``is_body_companion``."""
+    kwargs = _apply_json_to_kwargs(CrossSectionOrm, {"is_lens_companion": True})
+    assert kwargs == {"is_body_companion": True}
+
+
+def test_new_companion_keys_win_over_stale_old_keys() -> None:
+    """When both spellings appear, the current key's value is kept."""
+    new_id = "44444444-4444-4444-4444-444444444444"
+    kwargs = _apply_json_to_kwargs(
+        CrossSectionOrm,
+        {
+            "companion_lens_id": "33333333-3333-3333-3333-333333333333",
+            "companion_body_id": new_id,
+        },
+    )
+    assert kwargs == {"companion_body_id": UUID(new_id)}

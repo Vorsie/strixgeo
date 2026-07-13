@@ -109,21 +109,21 @@ class CrossSectionOrm(Base):
     # frontend defaults apply via ``readCptChannels`` and similar.
     view_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, default=None)
 
-    # Lens companion linkage (Slice 4 of debt #101).
+    # Body companion linkage (Slice 4 of debt #101; lens→body rename #222).
     # When set, this section was auto-created as the perpendicular companion
-    # for the referenced lens.  FK is ON DELETE SET NULL so deleting a lens
+    # for the referenced body.  FK is ON DELETE SET NULL so deleting a body
     # reverts the section to a plain user section rather than cascading the
     # delete.
-    companion_lens_id: Mapped[UUID | None] = mapped_column(
+    companion_body_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey(f"{_BODY_TABLE}.id", ondelete="SET NULL"),
         nullable=True,
     )
 
-    # Stays True even after companion_lens_id is nulled by a lens deletion.
-    # The UI uses this flag to show a "was a lens companion" badge without a
+    # Stays True even after companion_body_id is nulled by a body deletion.
+    # The UI uses this flag to show a "was a body companion" badge without a
     # separate query.  Defaults False so all existing sections are unaffected.
-    is_lens_companion: Mapped[bool] = mapped_column(
+    is_body_companion: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,

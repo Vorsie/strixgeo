@@ -16,7 +16,7 @@
  * 4. POST .../body-companions/materialise → returns 200 with the
  *    counters; if companion sections were created they're visible in
  *    ``GET /cross_sections?project_id={pid}`` with
- *    ``is_lens_companion=true``.
+ *    ``is_body_companion=true``.
  *
  * This flow exercises the same code path the frontend toolbar buttons fire
  * (``api.geology.autoCorrelateContacts`` → ``acceptContactCorrelations`` →
@@ -102,7 +102,7 @@ async function countContactCorrelationEdges(
 }
 
 /**
- * Count ``cross_section`` rows flagged ``is_lens_companion=true`` for a
+ * Count ``cross_section`` rows flagged ``is_body_companion=true`` for a
  * project.
  *
  * Parameters
@@ -115,7 +115,7 @@ async function countContactCorrelationEdges(
  * number
  *   Row count.
  */
-async function countLensCompanionSections(projectId: string): Promise<number> {
+async function countBodyCompanionSections(projectId: string): Promise<number> {
   const client = new Client({ connectionString: DATABASE_URL })
   await client.connect()
   try {
@@ -123,7 +123,7 @@ async function countLensCompanionSections(projectId: string): Promise<number> {
       `SELECT COUNT(*) AS n
          FROM cross_section
         WHERE app_project_id = $1
-          AND is_lens_companion = true`,
+          AND is_body_companion = true`,
       [projectId],
     )
     return parseInt(res.rows[0].n, 10)
@@ -328,7 +328,7 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       //    companion section for every lens whose primary section is fully
       //    correlated.
       // -----------------------------------------------------------------------
-      const companionsBefore = await countLensCompanionSections(FIXTURE_PROJECT_ID)
+      const companionsBefore = await countBodyCompanionSections(FIXTURE_PROJECT_ID)
       const sectionsBefore = sections.length
 
       const matRes = await page.evaluate(
@@ -353,7 +353,7 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       expect(typeof mat.skipped_unfinished_section).toBe('number')
       expect(typeof mat.errored).toBe('number')
 
-      const companionsAfter = await countLensCompanionSections(FIXTURE_PROJECT_ID)
+      const companionsAfter = await countBodyCompanionSections(FIXTURE_PROJECT_ID)
       // DB grew by exactly companion_sections_created.
       expect(companionsAfter - companionsBefore).toBe(
         mat.companion_sections_created,

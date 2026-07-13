@@ -74,22 +74,22 @@ export interface CrossSectionResponse {
    */
   seeded_formation_contact_ids: string[]
   /**
-   * Lens companion linkage (#101 Slice 4).
+   * Body companion linkage (#101 Slice 4; lens→body rename #222).
    * Set when this section was auto-created as the perpendicular companion
-   * for the referenced lens; null for plain user sections. Cleared to null
-   * if the lens is deleted (FK ON DELETE SET NULL).
+   * for the referenced body; null for plain user sections. Cleared to null
+   * if the body is deleted (FK ON DELETE SET NULL).
    * Optional because pre-Slice-4 API responses and test fixtures omit it;
    * consumers should treat absence as null.
    */
-  companion_lens_id?: string | null
+  companion_body_id?: string | null
   /**
-   * Stays true even after companion_lens_id is nulled by a lens deletion,
-   * so the UI can display a "was a lens companion" badge without a separate
+   * Stays true even after companion_body_id is nulled by a body deletion,
+   * so the UI can display a "was a body companion" badge without a separate
    * query. False for all pre-Slice-4 sections (server default).
    * Optional because pre-Slice-4 API responses and test fixtures omit it;
    * consumers should treat absence as false.
    */
-  is_lens_companion?: boolean
+  is_body_companion?: boolean
   /**
    * Human-readable body name for the "Companion of: <name>" header badge
    * (#101 Slice 6).  Only populated by the perpendicular-companion endpoint

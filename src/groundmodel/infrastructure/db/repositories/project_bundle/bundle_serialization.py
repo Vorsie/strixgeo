@@ -43,6 +43,21 @@ from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHI
 # on restore — see the parent module docstring.
 _SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"})
 
+# Read-side bundle-key aliases: old bundle key → renamed ORM column, keyed
+# by ORM class name (string keys avoid importing every ORM model here).
+# ``_apply_json_to_kwargs`` silently drops unknown keys, so a column rename
+# would otherwise LOSE the value when an older .strix (written before the
+# rename) is restored. Aliases map the old key onto the new column; the new
+# key wins when both are present (a bundle should never carry both).
+# Build always writes the new key — these are restore-only.
+_RESTORE_KEY_ALIASES: dict[str, dict[str, str]] = {
+    # 2026-07-13 lens→body cross-section rename (debt #222).
+    "CrossSectionOrm": {
+        "companion_lens_id": "companion_body_id",
+        "is_lens_companion": "is_body_companion",
+    },
+}
+
 # Restore-boundary caps for FormationSurface TIN blobs (debt #19). The
 # .strix bundle's ``vertices`` / ``triangles`` JSONB arrays are deserialised
 # straight into PostgreSQL with no inherent bound — a malicious or
@@ -180,7 +195,10 @@ def _apply_json_to_kwargs(cls: type[Any], data: dict[str, Any]) -> dict[str, Any
     For each column known to ``cls`` that appears in ``data``, look up
     the column's Python type and run ``_from_json``. Unknown keys are
     silently dropped — older bundle versions that included a now-removed
-    column shouldn't blow up the restore.
+    column shouldn't blow up the restore. Renamed columns are covered by
+    ``_RESTORE_KEY_ALIASES``: an old bundle key is remapped onto the new
+    column (new key wins if both appear) so pre-rename ``.strix`` files
+    keep restoring losslessly.
 
     Parameters
     ----------
@@ -195,6 +213,17 @@ def _apply_json_to_kwargs(cls: type[Any], data: dict[str, Any]) -> dict[str, Any
     dict[str, Any]
         Filtered and type-converted kwargs safe to pass to ``cls(**kwargs)``.
     """
+    aliases = _RESTORE_KEY_ALIASES.get(cls.__name__)
+    if aliases:
+        remapped = {}
+        for key, value in data.items():
+            new_key = aliases.get(key, key)
+            # New key wins on collision — don't let a stale old-name entry
+            # overwrite a value already present under the current name.
+            if new_key not in data or new_key == key:
+                remapped[new_key] = value
+        data = remapped
+
     known: dict[str, type[Any] | None] = {}
     for col in cls.__mapper__.column_attrs:
         try:

@@ -291,7 +291,7 @@ async def test_gate_pass_creates_companion(
     companion_rows = (
         (
             await db_session.execute(
-                select(CrossSectionOrm).where(CrossSectionOrm.companion_lens_id == the_lens.id)
+                select(CrossSectionOrm).where(CrossSectionOrm.companion_body_id == the_lens.id)
             )
         )
         .scalars()
@@ -300,7 +300,7 @@ async def test_gate_pass_creates_companion(
     assert len(companion_rows) == 1, (
         f"Expected 1 companion CrossSectionOrm; got {len(companion_rows)}"
     )
-    assert companion_rows[0].is_lens_companion is True
+    assert companion_rows[0].is_body_companion is True
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +370,7 @@ async def test_gate_fail_skips_companion(
     companion_rows = (
         (
             await db_session.execute(
-                select(CrossSectionOrm).where(CrossSectionOrm.companion_lens_id == the_lens.id)
+                select(CrossSectionOrm).where(CrossSectionOrm.companion_body_id == the_lens.id)
             )
         )
         .scalars()
@@ -495,7 +495,7 @@ async def test_idempotent(
     companion_rows = (
         (
             await db_session.execute(
-                select(CrossSectionOrm).where(CrossSectionOrm.companion_lens_id == the_lens.id)
+                select(CrossSectionOrm).where(CrossSectionOrm.companion_body_id == the_lens.id)
             )
         )
         .scalars()
@@ -618,8 +618,8 @@ async def test_per_body_error_calls_rollback(
             end_y=0.0,
             epsg=31370,
             projection_buffer_m=10.0,
-            companion_lens_id=body_id,
-            is_lens_companion=True,
+            companion_body_id=body_id,
+            is_body_companion=True,
         )
         self._session.add(dirty_row)
         raise RuntimeError("simulated companion-creation failure mid-write")

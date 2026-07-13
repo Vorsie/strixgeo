@@ -170,11 +170,11 @@ export default function SectionHeader({
         </span>
         {/* Lens companion badge — visible when this section was auto-created
             as a perpendicular companion for a lens (#101 Slice 6). */}
-        {section.is_lens_companion && (
+        {section.is_body_companion && (
           <span
             className="text-[10px] text-violet-600 font-medium mt-0.5"
             title={
-              section.companion_lens_id
+              section.companion_body_id
                 ? 'This section was auto-created as a perpendicular companion for a litho lens'
                 : 'This section was a lens companion (the lens has since been deleted)'
             }

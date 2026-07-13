@@ -116,9 +116,9 @@ class MaterialiseBodyCompanions(GroundModelLogger):
         self.info(f"MaterialiseBodyCompanions: model={model_id}")
 
         # 1. Load bodies for the model that lack a companion section.
-        #    NOT EXISTS subquery against cross_section.companion_lens_id.
+        #    NOT EXISTS subquery against cross_section.companion_body_id.
         no_companion = ~exists(
-            select(CrossSectionOrm.id).where(CrossSectionOrm.companion_lens_id == BodyOrm.id)
+            select(CrossSectionOrm.id).where(CrossSectionOrm.companion_body_id == BodyOrm.id)
         )
         bodies_stmt = select(BodyOrm).where(
             BodyOrm.model_id == model_id,
