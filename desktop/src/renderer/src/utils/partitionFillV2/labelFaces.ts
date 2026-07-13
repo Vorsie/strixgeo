@@ -67,10 +67,19 @@ export function labelFaces(
     let nTie = 0
     let nClose = 0
     let lensLabel: LensLabel | undefined
+    let substrateLabel: LensLabel | undefined
     for (const id of face.boundingCurveIds) {
       const m = COL_RE.exec(id)
       if (m) {
         units.push({ ci: Number(m[1]), ui: Number(m[2]) })
+      } else if (id.startsWith('btfloor') || id.startsWith('btcurtain')) {
+        // A deep-to-deep flat-floor SUBSTRATE curve (emitBottomTieSubstrate): its
+        // label carries the bottom-tie formation. The sub-TD wedge below every
+        // column TD is bounded only by these curves (no column vertical reaches
+        // there), so it is labelled from here as a BAND (the tie fill is authoritative).
+        const l = lensLabels?.get(id)
+        if (l) substrateLabel = l
+        nTie++
       } else if (id.startsWith('tie') || id.startsWith('bridge')) {
         // A ``bridge`` is a deep-to-deep substrate jump tie (emitSubstrate) — it
         // anchors the face the same way an ordinary tie does, so it counts toward
@@ -94,6 +103,15 @@ export function labelFaces(
     // label leaked in via the shared hole-ring curve id. Ignore it there.
     if (lensLabel && face.holes.length === 0) {
       out.push({ face, formationId: lensLabel.formationId, bodyId: lensLabel.bodyId, klass: 'lens', units })
+      continue
+    }
+    // A sub-TD substrate wedge is bounded only by flat-floor + curtain curves — no
+    // column vertical reaches below TD, so ``units`` is empty. Stamp it from the
+    // bottom-tie label as an authoritative BAND (quad). A face that ALSO has a column
+    // vertical is real drilled data — the column label wins (handled below), so the
+    // substrate label only applies when there is no column vertical.
+    if (substrateLabel && units.length === 0) {
+      out.push({ face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units })
       continue
     }
     if (units.length === 0) continue // no column vertical bounds this cell — skip.

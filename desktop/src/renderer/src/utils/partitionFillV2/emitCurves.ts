@@ -33,6 +33,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
@@ -133,6 +134,15 @@ export function emitCurves(section: SectionInput): EmittedCurves {
 
   const lensLabels = new Map<string, LensLabel>()
   emitEnclosedLensCurves(section, curves, lensLabels)
+
+  // Deep-to-deep FLAT-FLOOR substrate (design §4 increment-6): where a bottom-tie
+  // bracket reaches below a shallow column's TD, flatten the deepest band's base to
+  // that flat floor (v1 ``computeBottomTieLine`` + ``isDeepestBridge``). This fills
+  // the triangular sub-TD void the sloping TD line left (CS1 gap-0/gap-21). A strip
+  // with no bracket stays empty (owner §8 Q3 — ``tieElev`` null). Substrate curves
+  // carry an explicit bottom-tie label in ``lensLabels`` so the sub-TD wedge is
+  // stamped with the tie formation, not the shallow column's deepest unit.
+  emitBottomTieSubstrate(section, curves, lensLabels)
 
   return { curves, conflicts, activeTies: active, lensLabels }
 }
