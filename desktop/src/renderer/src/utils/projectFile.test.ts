@@ -219,19 +219,13 @@ describe('parseProjectFile — missing required top-level keys', () => {
     }
   })
 
-  it('accepts a file whose project block is an ARRAY (current behaviour — suspected bug)', () => {
-    // NOTE (suspected bug): the type guard checks `typeof project === 'object'
-    // && project !== null`, but `typeof [] === 'object'` is true in JS, so an
-    // array slips through as a valid "project" block. Such a file parses OK
-    // here, then blows up later: projectIdFromFile reads `project.id` off the
-    // array (undefined) and throws "missing a string id". A tighter guard
-    // would also reject Array.isArray(project). Pinning current behaviour;
-    // NOT fixing per task scope.
+  it('rejects a file whose project block is an ARRAY', () => {
+    // A corrupt file must be rejected AT the gatekeeper ("may be corrupt"
+    // dialog), not one layer later: `typeof [] === 'object'` is true in JS,
+    // so without an explicit Array.isArray check an array-shaped project
+    // block used to slip through and only blow up in projectIdFromFile.
     const raw = JSON.stringify(makeWellFormedV3({ project: ['array'] }))
-    const parsed = parseProjectFile(raw)
-    expect(parsed).not.toBeNull()
-    // Downstream anchor lookup is where the malformed file actually fails.
-    expect(() => projectIdFromFile(parsed as ProjectFileV3)).toThrow(/string id/)
+    expect(parseProjectFile(raw)).toBeNull()
   })
 
   it('rejects a file missing any one of the six required data/decision arrays', () => {

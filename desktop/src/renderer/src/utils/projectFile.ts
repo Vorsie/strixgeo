@@ -178,6 +178,9 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     v.format_version === 3 &&
     typeof v.project === 'object' &&
     v.project !== null &&
+    // typeof [] === 'object' — without this an array-shaped project block
+    // slips past the gatekeeper and only fails later in projectIdFromFile.
+    !Array.isArray(v.project) &&
     Array.isArray(v.cpts) &&
     Array.isArray(v.boreholes) &&
     Array.isArray(v.geological_formations) &&
