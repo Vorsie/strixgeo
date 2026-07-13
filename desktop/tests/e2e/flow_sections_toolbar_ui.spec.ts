@@ -139,7 +139,7 @@ test.describe('flow_sections_toolbar_ui', () => {
       // bands + pinch-outs + lenses in pure geometry. Materialise companions +
       // the Fill-bands toggle remain.
       await openDropdown(page, 'litho-bodies-dropdown')
-      await expect(page.getByTestId('litho-materialise-lens-companions')).toBeVisible()
+      await expect(page.getByTestId('litho-materialise-body-companions')).toBeVisible()
       await expect(page.getByTestId('litho-fill-bands')).toBeVisible()
       await dismissMenu(page)
 

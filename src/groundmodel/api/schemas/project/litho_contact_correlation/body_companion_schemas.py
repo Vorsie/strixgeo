@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
-class MaterialiseLensCompanionsResponse(BaseModel):
+class MaterialiseBodyCompanionsResponse(BaseModel):
     """Response body for the body-companions materialise endpoint.
 
     Attributes
@@ -16,12 +16,12 @@ class MaterialiseLensCompanionsResponse(BaseModel):
         Bodies skipped because ``BodyOrm.primary_section_id`` is
         ``None`` or the section row has been deleted.
     skipped_unfinished_section : int
-        Lenses skipped because at least one seeded contact on the primary
+        Bodies skipped because at least one seeded contact on the primary
         section lacks a ``user_approved=True`` outbound edge.
     errored : int
-        Lenses where ``CreatePerpendicularCompanion`` raised an exception.
+        Bodies where ``CreatePerpendicularCompanion`` raised an exception.
         The loop continues past each error; ``errored > 0`` warrants
-        investigation but does not block the other lenses.
+        investigation but does not block the other bodies.
     """
 
     companion_sections_created: int

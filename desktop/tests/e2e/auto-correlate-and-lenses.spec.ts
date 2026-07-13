@@ -20,7 +20,7 @@
  *
  * This flow exercises the same code path the frontend toolbar buttons fire
  * (``api.geology.autoCorrelateContacts`` → ``acceptContactCorrelations`` →
- * ``materialiseLensCompanions``).  Like every other litho-flow spec in this
+ * ``materialiseBodyCompanions``).  Like every other litho-flow spec in this
  * suite (flow_bulk_accept, flow_auto_correlate, flow_single_accept) we
  * drive via the API: the UI buttons require
  * ghost-suggestion + section-selection state that needs the full Electron
@@ -324,7 +324,7 @@ test.describe('#133 Phase 2+3 — auto-correlate + accept + lens companions', ()
       // -----------------------------------------------------------------------
       // 5. Materialise lens companions — POST .../body-companions/materialise.
       //    Mirrors the "Materialise lens companions" toolbar button (testid:
-      //    litho-materialise-lens-companions).  Creates a perpendicular
+      //    litho-materialise-body-companions).  Creates a perpendicular
       //    companion section for every lens whose primary section is fully
       //    correlated.
       // -----------------------------------------------------------------------

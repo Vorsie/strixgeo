@@ -48,8 +48,8 @@ from groundmodel.api.schemas.project.litho_contact_correlation.auto_schemas impo
     CrossingPinchOutResponse,
     DeleteAutoCorrelationsResponse,
 )
-from groundmodel.api.schemas.project.litho_contact_correlation.lens_companion_schemas import (
-    MaterialiseLensCompanionsResponse,
+from groundmodel.api.schemas.project.litho_contact_correlation.body_companion_schemas import (
+    MaterialiseBodyCompanionsResponse,
 )
 from groundmodel.api.schemas.project.litho_contact_correlation.litho_contact_correlation_schemas import (  # noqa: E501
     ContactCorrelationEdgeListItem,
@@ -558,15 +558,15 @@ async def accept_single_contact_correlation(
 
 @router.post(
     "/models/{model_id}/body-companions/materialise",
-    response_model=MaterialiseLensCompanionsResponse,
+    response_model=MaterialiseBodyCompanionsResponse,
     status_code=status.HTTP_200_OK,
     summary="Create perpendicular companion sections for qualifying lenses (#133 Phase 2)",
 )
-async def materialise_lens_companions(
+async def materialise_body_companions(
     project_id: UUID,
     model_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> MaterialiseLensCompanionsResponse:
+) -> MaterialiseBodyCompanionsResponse:
     """Auto-create companion sections for lenses whose primary section is fully correlated.
 
     A lens qualifies when every contact seeded on its primary section has
@@ -582,7 +582,7 @@ async def materialise_lens_companions(
 
     Returns
     -------
-    MaterialiseLensCompanionsResponse
+    MaterialiseBodyCompanionsResponse
         Counts of sections created, lenses skipped for various reasons,
         and lenses that errored.
 
@@ -600,7 +600,7 @@ async def materialise_lens_companions(
     result = await MaterialiseBodyCompanions(session).execute(
         project_id=project_id, model_id=model_id
     )
-    return MaterialiseLensCompanionsResponse(
+    return MaterialiseBodyCompanionsResponse(
         companion_sections_created=result.companion_sections_created,
         skipped_no_primary=result.skipped_no_primary,
         skipped_unfinished_section=result.skipped_unfinished_section,

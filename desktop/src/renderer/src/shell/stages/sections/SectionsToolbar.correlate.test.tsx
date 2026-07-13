@@ -1057,7 +1057,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
 // ---------------------------------------------------------------------------
 // Tests â€” Materialise lens companions button (M1 â€” Task 20)
 //
-// handleMaterialiseLensCompanions (litho-materialise-lens-companions):
+// handleMaterialiseBodyCompanions (litho-materialise-body-companions):
 //   M1-1  Button present + enabled on litho axis with model + section.
 //   M1-2  Clicking calls materialiseBodyCompanions(projectId, modelId) and
 //         toasts the four-counter breakdown on success.
@@ -1085,7 +1085,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
       }),
     )
     openBodies()
-    const btn = screen.getByTestId('litho-materialise-lens-companions')
+    const btn = screen.getByTestId('litho-materialise-body-companions')
     expect(btn).not.toBeNull()
     expect(btn).not.toBeDisabled()
   })
@@ -1109,7 +1109,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     )
 
     openBodies()
-    const btn = screen.getByTestId('litho-materialise-lens-companions')
+    const btn = screen.getByTestId('litho-materialise-body-companions')
     await act(async () => { fireEvent.click(btn) })
 
     expect(api.geology.materialiseBodyCompanions).toHaveBeenCalledWith('proj-1', 'model-litho-1')
@@ -1137,7 +1137,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
     )
 
     openBodies()
-    const btn = screen.getByTestId('litho-materialise-lens-companions')
+    const btn = screen.getByTestId('litho-materialise-body-companions')
     await act(async () => { fireEvent.click(btn) })
 
     expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Materialise lens companions failed'))
@@ -1152,7 +1152,7 @@ describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
       }),
     )
     openBodies()
-    expect(screen.getByTestId('litho-materialise-lens-companions')).toBeDisabled()
+    expect(screen.getByTestId('litho-materialise-body-companions')).toBeDisabled()
   })
 })
 

@@ -380,7 +380,7 @@ export default function SectionsToolbar(): JSX.Element {
   // change refreshes the section list naturally.  When the plumbing lands
   // we'll thread the refetch calls here; the toast keeps the user informed
   // in the meantime so the missing refresh isn't load-bearing.
-  const handleMaterialiseLensCompanions = useCallback(async (): Promise<void> => {
+  const handleMaterialiseBodyCompanions = useCallback(async (): Promise<void> => {
     if (!activeLithoModel || materialisingCompanions) return
     log.info('sections', `materialiseBodyCompanions: model=${activeLithoModel.id}`)
     setMaterialisingCompanions(true)
@@ -1063,9 +1063,9 @@ export default function SectionsToolbar(): JSX.Element {
                   ? 'Materialising…'
                   : 'Materialise lens companions',
                 icon: <GitMerge size={12} />,
-                onClick: () => { void handleMaterialiseLensCompanions() },
+                onClick: () => { void handleMaterialiseBodyCompanions() },
                 disabled: !hasSection || materialisingCompanions,
-                testid: 'litho-materialise-lens-companions',
+                testid: 'litho-materialise-body-companions',
                 title: !hasSection
                   ? 'Open a cross-section to materialise lens companions'
                   : 'Create perpendicular companion sections for every LithoLens whose primary section is fully correlated',
