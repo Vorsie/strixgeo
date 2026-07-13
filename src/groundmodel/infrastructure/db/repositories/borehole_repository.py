@@ -34,6 +34,53 @@ LAB_TEST_RELATIONSHIPS: tuple[str, ...] = (
 )
 
 
+def borehole_full_tree_options(include_set: set[str] | None = None) -> list:
+    """Build the selectinload option list for the full borehole detail tree.
+
+    Single source of truth for the borehole eager-load chain
+    (drill_segments, field_log_intervals, observations → layers →
+    admixtures, samples → the six lab-test families). Shared by
+    :meth:`BoreholeRepository.get_by_id` / :meth:`get_many` (dynamic
+    ``include_lab_tests`` variant), ``ProjectRepository.duplicate`` and
+    the bundle build — previously each carried its own byte-identical
+    copy, so adding a seventh lab-test family needed edits in four
+    places.
+
+    Uses ``selectinload`` rather than ``joinedload`` so each collection
+    comes back as one extra round-trip per type — keeps the parent row
+    small and avoids a Cartesian explosion, and each child query
+    receives the parent ids in a single ``IN (...)`` so the count is
+    constant in the number of boreholes.
+
+    Parameters
+    ----------
+    include_set : set[str] | None
+        ``None`` (default) loads all six lab-test families. Otherwise
+        only the named families get a selectinload chain — the bare
+        ``samples`` collection is always loaded so excluded families
+        still have samples to stamp empty on.
+
+    Returns
+    -------
+    list
+        Loader options ready for ``select(BoreholeOrm).options(*...)``.
+    """
+    options = [
+        selectinload(BoreholeOrm.drill_segments),
+        selectinload(BoreholeOrm.field_log_intervals),
+        selectinload(BoreholeOrm.observations)
+        .selectinload(ObservationOrm.layers)
+        .selectinload(ObservationLayerOrm.admixtures),
+        selectinload(BoreholeOrm.samples),
+    ]
+    for rel_name in LAB_TEST_RELATIONSHIPS:
+        if include_set is None or rel_name in include_set:
+            options.append(
+                selectinload(BoreholeOrm.samples).selectinload(getattr(SampleOrm, rel_name))
+            )
+    return options
+
+
 class BoreholeRepository(GroundModelLogger):
     """Async CRUD operations for ``BoreholeOrm`` records.
 
@@ -47,6 +94,67 @@ class BoreholeRepository(GroundModelLogger):
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__)
         self._session = session
+
+    @staticmethod
+    def _validated_include_set(include_lab_tests: Iterable[str] | None) -> set[str] | None:
+        """Validate ``include_lab_tests`` against the known family names.
+
+        Parameters
+        ----------
+        include_lab_tests : Iterable[str] | None
+            Caller-supplied family names, or ``None`` for "all".
+
+        Returns
+        -------
+        set[str] | None
+            The validated set, or ``None`` when all families are wanted.
+
+        Raises
+        ------
+        ValueError
+            When a name isn't in ``LAB_TEST_RELATIONSHIPS``. Defensive —
+            callers should validate input before reaching here, but a
+            hard error beats a silent mis-load.
+        """
+        if include_lab_tests is None:
+            return None
+        include_set = set(include_lab_tests)
+        unknown = include_set - set(LAB_TEST_RELATIONSHIPS)
+        if unknown:
+            raise ValueError(
+                f"Unknown lab-test relationship(s): {sorted(unknown)!r}. "
+                f"Valid: {LAB_TEST_RELATIONSHIPS!r}",
+            )
+        return include_set
+
+    @staticmethod
+    def _stamp_excluded_families(
+        boreholes: Iterable[BoreholeOrm], include_set: set[str] | None
+    ) -> None:
+        """Stamp excluded lab-test families empty on every sample.
+
+        For excluded families, an empty list is written on every sample
+        so Pydantic's ``model_validate`` sees ``[]`` rather than
+        triggering a lazy load (which fails with ``MissingGreenlet``
+        under async SQLAlchemy because Pydantic's attribute walk runs
+        without an active greenlet). ``set_committed_value`` writes the
+        attribute WITHOUT marking the relationship dirty — no spurious
+        UPDATE on the next flush.
+
+        Parameters
+        ----------
+        boreholes : Iterable[BoreholeOrm]
+            Loaded boreholes whose samples get stamped.
+        include_set : set[str] | None
+            The loaded families; ``None`` (all loaded) is a no-op.
+        """
+        if include_set is None:
+            return
+        excluded = [r for r in LAB_TEST_RELATIONSHIPS if r not in include_set]
+        for borehole in boreholes:
+            for sample in borehole.samples:
+                for rel_name in excluded:
+                    set_committed_value(sample, rel_name, [])
 
     async def save(self, borehole: BoreholeOrm, *, flush: bool = True) -> None:
         """Persist a new or updated borehole and its children.
@@ -128,59 +236,19 @@ class BoreholeRepository(GroundModelLogger):
             input before reaching here, but a hard error beats a silent
             mis-load.
         """
-        include_set: set[str] | None
-        if include_lab_tests is None:
-            include_set = None
-        else:
-            include_set = set(include_lab_tests)
-            unknown = include_set - set(LAB_TEST_RELATIONSHIPS)
-            if unknown:
-                raise ValueError(
-                    f"Unknown lab-test relationship(s): {sorted(unknown)!r}. "
-                    f"Valid: {LAB_TEST_RELATIONSHIPS!r}",
-                )
-
-        # Build the option list: always-loaded children + per-family
-        # selectinload only for the requested set. The samples selectinload
-        # itself is unconditional because every excluded family still needs
-        # a sample to hang off; without it ``set_committed_value`` would
-        # have nothing to stamp.
-        options = [
-            selectinload(BoreholeOrm.drill_segments),
-            selectinload(BoreholeOrm.field_log_intervals),
-            selectinload(BoreholeOrm.observations)
-            .selectinload(ObservationOrm.layers)
-            .selectinload(ObservationLayerOrm.admixtures),
-            selectinload(BoreholeOrm.samples),
-        ]
-        for rel_name in LAB_TEST_RELATIONSHIPS:
-            if include_set is None or rel_name in include_set:
-                options.append(
-                    selectinload(BoreholeOrm.samples).selectinload(getattr(SampleOrm, rel_name))
-                )
+        include_set = self._validated_include_set(include_lab_tests)
 
         stmt = select(BoreholeOrm).where(BoreholeOrm.id == borehole_id)
         if app_project_id is not None:
             # IDOR scope guard fused into the fetch — see app_project_id docstring.
             stmt = stmt.where(BoreholeOrm.app_project_id == app_project_id)
-        stmt = stmt.options(*options)
+        stmt = stmt.options(*borehole_full_tree_options(include_set))
         result = await self._session.execute(stmt)
         borehole = result.scalar_one_or_none()
         if borehole is None:
             return None
 
-        # For excluded families, stamp an empty list on every sample so
-        # Pydantic's ``model_validate`` sees ``[]`` rather than triggering
-        # a lazy load (which fails with ``MissingGreenlet`` under async
-        # SQLAlchemy because Pydantic's attribute walk runs without an
-        # active greenlet). ``set_committed_value`` writes the attribute
-        # WITHOUT marking the relationship dirty — no spurious UPDATE on
-        # the next flush.
-        if include_set is not None:
-            excluded = [r for r in LAB_TEST_RELATIONSHIPS if r not in include_set]
-            for sample in borehole.samples:
-                for rel_name in excluded:
-                    set_committed_value(sample, rel_name, [])
+        self._stamp_excluded_families([borehole], include_set)
         return borehole
 
     async def get_many(
@@ -237,46 +305,16 @@ class BoreholeRepository(GroundModelLogger):
         if not borehole_ids:
             return []
 
-        include_set: set[str] | None
-        if include_lab_tests is None:
-            include_set = None
-        else:
-            include_set = set(include_lab_tests)
-            unknown = include_set - set(LAB_TEST_RELATIONSHIPS)
-            if unknown:
-                raise ValueError(
-                    f"Unknown lab-test relationship(s): {sorted(unknown)!r}. "
-                    f"Valid: {LAB_TEST_RELATIONSHIPS!r}",
-                )
-
-        options = [
-            selectinload(BoreholeOrm.drill_segments),
-            selectinload(BoreholeOrm.field_log_intervals),
-            selectinload(BoreholeOrm.observations)
-            .selectinload(ObservationOrm.layers)
-            .selectinload(ObservationLayerOrm.admixtures),
-            selectinload(BoreholeOrm.samples),
-        ]
-        for rel_name in LAB_TEST_RELATIONSHIPS:
-            if include_set is None or rel_name in include_set:
-                options.append(
-                    selectinload(BoreholeOrm.samples).selectinload(getattr(SampleOrm, rel_name))
-                )
+        include_set = self._validated_include_set(include_lab_tests)
 
         stmt = select(BoreholeOrm).where(BoreholeOrm.id.in_(borehole_ids))
         if app_project_id is not None:
             stmt = stmt.where(BoreholeOrm.app_project_id == app_project_id)
-        stmt = stmt.options(*options)
+        stmt = stmt.options(*borehole_full_tree_options(include_set))
         result = await self._session.execute(stmt)
         boreholes = list(result.scalars().all())
 
-        # Stamp excluded families empty on every sample (mirror get_by_id).
-        if include_set is not None:
-            excluded = [r for r in LAB_TEST_RELATIONSHIPS if r not in include_set]
-            for borehole in boreholes:
-                for sample in borehole.samples:
-                    for rel_name in excluded:
-                        set_committed_value(sample, rel_name, [])
+        self._stamp_excluded_families(boreholes, include_set)
         return boreholes
 
     async def list_all(self, app_project_id: UUID | None = None) -> list[BoreholeOrm]:

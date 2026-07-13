@@ -40,10 +40,10 @@ from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodyS
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
-from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.repositories.borehole_repository import (
+    borehole_full_tree_options,
+)
 from groundmodel.shared.bundle_format import BUNDLE_FORMAT_VERSION
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -143,19 +143,7 @@ async def _build_project_bundle_impl(
     boreholes_stmt = (
         select(BoreholeOrm)
         .where(BoreholeOrm.app_project_id == project.id)
-        .options(
-            selectinload(BoreholeOrm.drill_segments),
-            selectinload(BoreholeOrm.field_log_intervals),
-            selectinload(BoreholeOrm.observations)
-            .selectinload(ObservationOrm.layers)
-            .selectinload(ObservationLayerOrm.admixtures),
-            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.grain_sizes),
-            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.atterberg_limits_tests),
-            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.caco3_content_tests),
-            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.organic_content_tests),
-            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.water_content_tests),
-            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.scalar_lab_tests),
-        )
+        .options(*borehole_full_tree_options())
     )
     # Geological-model tree. The bundle carries the user's interpretation
     # work (formations + models + every contact) so re-opening the file

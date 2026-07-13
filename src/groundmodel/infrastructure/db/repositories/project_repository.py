@@ -18,6 +18,9 @@ from groundmodel.infrastructure.db.models.observation_layer_orm import Observati
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.repositories.borehole_repository import (
+    borehole_full_tree_options,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Columns that must NEVER be carried across a deep clone — every clone
@@ -192,19 +195,7 @@ class ProjectRepository(GroundModelLogger):
         boreholes_stmt = (
             select(BoreholeOrm)
             .where(BoreholeOrm.app_project_id == source_id)
-            .options(
-                selectinload(BoreholeOrm.drill_segments),
-                selectinload(BoreholeOrm.field_log_intervals),
-                selectinload(BoreholeOrm.observations)
-                .selectinload(ObservationOrm.layers)
-                .selectinload(ObservationLayerOrm.admixtures),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.grain_sizes),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.atterberg_limits_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.caco3_content_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.organic_content_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.water_content_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.scalar_lab_tests),
-            )
+            .options(*borehole_full_tree_options())
         )
         source_cpts = (await self._session.execute(cpts_stmt)).scalars().all()
         source_boreholes = (await self._session.execute(boreholes_stmt)).scalars().all()
