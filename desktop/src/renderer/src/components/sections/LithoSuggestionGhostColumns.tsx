@@ -33,6 +33,7 @@ import LithoGhostCompositionEditor from '../interpretation/LithoGhostComposition
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import MultiLineLabel from './MultiLineLabel'
+import { depthAxisAtSurface } from './utils'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
 import {
@@ -473,15 +474,14 @@ export default function LithoSuggestionGhostColumns({
     }
   }, [contextMenu, boundaryContextMenu])
 
-  // pxPerM derived from levelToScreen (a linear transform — sample
-  // two points). Guards against zero when the section is too narrow
-  // to render the band. Lifted before the early returns so the ref
-  // stays stable; the inner JSX guards on surfaceElevationM anyway.
-  const surfaceY = surfaceElevationM != null ? levelToScreen(surfaceElevationM) : 0
-  const pxPerM =
+  // pxPerM derived from levelToScreen via depthAxisAtSurface (a linear
+  // transform — sample two points). Guards against zero when the section
+  // is too narrow to render the band. Lifted before the early returns so
+  // the ref stays stable; the inner JSX guards on surfaceElevationM anyway.
+  const { surfaceY, pxPerMetreDown: pxPerM } =
     surfaceElevationM != null
-      ? levelToScreen(surfaceElevationM - 1) - surfaceY
-      : 0
+      ? depthAxisAtSurface(levelToScreen, surfaceElevationM)
+      : { surfaceY: 0, pxPerMetreDown: 0 }
 
   const { drag, startDrag } = useBoundaryDrag({
     pxPerM,

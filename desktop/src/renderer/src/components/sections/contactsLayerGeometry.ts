@@ -35,7 +35,7 @@ import type {
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import { nadClassColor, nadClassName } from '../../utils/nadClasses'
 import type { SectionLine2D } from '../../utils/sliceTin'
-import { columnMaxDepthM, type PlacedColumn } from './utils'
+import { columnMaxDepthM, depthAxisAtSurface, type PlacedColumn } from './utils'
 
 // Average glyph width at fontSize=9 — used by the truncation budget.
 const APPROX_GLYPH_WIDTH_PX = 5
@@ -236,9 +236,9 @@ export function columnUnderCursor(
  * Derive screen-space vertical metrics for a placed column.
  *
  * Helper for the snap math when the active target column has a surface
- * elevation.  Mirrors the depth derivation in ``handleMove`` but
- * factored out so the value can be precomputed at drag start without
- * duplicating the ``(cursorY - surfaceY) / pxPerMetre`` arithmetic.
+ * elevation.  Thin wrapper over ``depthAxisAtSurface`` (the single
+ * source of the section's depth ↔ pixel rate) that adds the
+ * ``PlacedColumn`` unwrap + the null-elevation guard.
  *
  * Parameters
  * ----------
@@ -262,13 +262,10 @@ export function surfaceYForColumn(
   if (item.elevation_m === null) {
     return { surfaceY: 0, pxPerMetre: 0, surfaceElevationM: null }
   }
-  const surfaceY = levelToScreen(item.elevation_m)
-  // pxPerMetre derives from a 1m delta in level → screen Y.
-  const oneMetreDown = levelToScreen(item.elevation_m - 1)
-  const pxPerMetre = oneMetreDown - surfaceY
+  const axis = depthAxisAtSurface(levelToScreen, item.elevation_m)
   return {
-    surfaceY,
-    pxPerMetre,
+    surfaceY: axis.surfaceY,
+    pxPerMetre: axis.pxPerMetreDown,
     surfaceElevationM: item.elevation_m,
   }
 }

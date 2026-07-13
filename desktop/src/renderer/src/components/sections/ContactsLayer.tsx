@@ -58,7 +58,7 @@ import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
-import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
+import { buildFillBand, columnsBetween, depthAxisAtSurface, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 import { nadCompactFromName } from '../../utils/nadClasses'
 import { isTypingTarget } from '../../utils/keyboard'
@@ -832,9 +832,10 @@ export default function ContactsLayer({
       // to larger Y in the flipped section transform. Needed both at
       // render time (to draw the segment after a drag override) and
       // in the drag move handler.
-      const surfaceY = levelToScreen(slab.surfaceElevationM)
-      const pxPerMetre =
-        levelToScreen(slab.surfaceElevationM - 1) - surfaceY
+      const { surfaceY, pxPerMetreDown: pxPerMetre } = depthAxisAtSurface(
+        levelToScreen,
+        slab.surfaceElevationM,
+      )
       layersOut.push({
         key: `${slab.anchorId}-${slab.contactId}`,
         contactId: slab.contactId,
@@ -1198,9 +1199,10 @@ export default function ContactsLayer({
       const ghostHoles = pendingGhostRangesByAnchorId?.get(anchorId) ?? []
       const halfW = col.width / 2
       const x = col.nudgedX - halfW
-      const surfaceY = levelToScreen(surfaceLevel)
-      const oneMetreDown = levelToScreen(surfaceLevel - 1)
-      const pxPerMetre = oneMetreDown - surfaceY
+      const { surfaceY, pxPerMetreDown: pxPerMetre } = depthAxisAtSurface(
+        levelToScreen,
+        surfaceLevel,
+      )
       const anchorMeta = {
         anchorKind: col.kind,
         anchorId,
