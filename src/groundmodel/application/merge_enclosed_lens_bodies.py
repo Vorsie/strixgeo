@@ -2,11 +2,18 @@
 
 A lithology split on one column only by a LOCAL lens should read as ONE body
 (owner directive 2026-06-05: "the big sand is one body"). This use case plans the
-cross-column edges with :func:`plan_enclosed_lens_merges` (which only fires when
-the lens lithology is absent on a section-adjacent neighbour — a true pinch),
-creates them as user-approved ``manual`` correlation edges, and re-resolves so
-the bracketing host halves join the neighbour's continuous host into one body.
-The lens stays its own body and renders as a wedge cut out of the merged matrix.
+merge edges with :func:`plan_enclosed_lens_merges`, creates them as user-approved
+``manual`` correlation edges, and re-resolves so the split halves join into one
+body. Two cases:
+
+* **Different-lithology lens** (e.g. clay between two sands): the planner fires
+  only when the lens lithology is absent on a section-adjacent neighbour (a true
+  pinch); the bracketing host halves join the neighbour's continuous host into
+  one body, and the lens keeps its own body (rendered as a wedge cut out of the
+  merged matrix).
+* **Same-lithology lens** (owner ruling 2026-07-13): a lens of the SAME
+  lithology as its enclosing matrix merges INTO that matrix body — the enclosed
+  unit and its bracketing hosts become one body_id.
 
 Idempotent: existing edges are skipped (``ON CONFLICT DO NOTHING`` on the
 canonical triple). Section-scoped via ``project_investigations_onto_section`` —
