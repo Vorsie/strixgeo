@@ -71,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.litho_solid_persistence import (
     LithoSolidPersistenceMixin,
     LithoSolidsOutcome,
+    _SolidMeta,
     storage_body_id,
 )
 from groundmodel.application.load_geo_surfaces import digest_surfaces, load_geo_surfaces
@@ -502,22 +503,9 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"BuildVoxelLithoModel: model={model_id} — labelling produced no body; "
                 "clearing cache"
             )
-            # Reuse the already-loaded existing rows — ``_delete_orphans`` only
+            # Reuse the already-loaded existing rows — ``_handle_empty`` only
             # reads the keys, so no second read is needed for the empty path.
-            orphans_deleted = await self._delete_orphans(model_id, existing_by_body, set())
-            await self._session.commit()
-            self.success(
-                f"BuildVoxelLithoModel: model={model_id} — empty payload, "
-                f"{orphans_deleted} orphan(s) deleted"
-            )
-            return LithoSolidsOutcome(
-                bodies_considered=0,
-                bodies_built=0,
-                bodies_skipped_checksum=0,
-                bodies_flagged=0,
-                orphans_deleted=orphans_deleted,
-                marked_test_ids=[],
-            )
+            return await self._handle_empty(model_id, existing_by_body=existing_by_body)
 
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
         bodies_considered = len(wanted_storage_ids)
@@ -560,7 +548,11 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             marked_test_ids=[],
         )
 
-    async def _handle_empty(self, model_id: UUID) -> LithoSolidsOutcome:
+    async def _handle_empty(
+        self,
+        model_id: UUID,
+        existing_by_body: dict[str, _SolidMeta] | None = None,
+    ) -> LithoSolidsOutcome:
         """Clear every solid row for the model and return a zero outcome.
 
         Used when the payload is empty / degenerate (no sections, an unbuildable
@@ -572,13 +564,19 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         ----------
         model_id : UUID
             The model whose solids are cleared.
+        existing_by_body : dict[str, _SolidMeta] | None
+            Already-loaded existing solid rows keyed by body id (the no-mesh
+            path has them in hand from the checksum check) — passing them
+            skips a second ``_load_existing`` round-trip. ``None`` (default)
+            loads them here.
 
         Returns
         -------
         LithoSolidsOutcome
             All counts zero except ``orphans_deleted``.
         """
-        existing_by_body = await self._load_existing(model_id)
+        if existing_by_body is None:
+            existing_by_body = await self._load_existing(model_id)
         orphans_deleted = await self._delete_orphans(model_id, existing_by_body, set())
         await self._session.commit()
         self.success(
