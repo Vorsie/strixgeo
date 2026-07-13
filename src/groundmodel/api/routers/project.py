@@ -63,6 +63,14 @@ async def list_projects(
         When ``False`` (default), hide rows whose ``archived_at`` is set so
         the desktop's projects-list keeps active work front-and-centre. Set
         to ``True`` for an "Archived projects" view.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[ProjectOrm]
+        Project rows (serialised as ``list[ProjectResponse]``), ordered
+        most-recent first.
     """
     repo = ProjectRepository(session)
     return await repo.list_all(include_archived=include_archived)
@@ -72,7 +80,19 @@ async def list_projects(
 async def list_archived_projects(
     session: AsyncSession = Depends(get_session),
 ) -> list[ProjectOrm]:
-    """List only archived projects, ordered by archive date (most-recent first)."""
+    """List only archived projects, ordered by archive date (most-recent first).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[ProjectOrm]
+        Archived project rows (serialised as ``list[ProjectResponse]``),
+        ordered by ``archived_at`` most-recent first.
+    """
     repo = ProjectRepository(session)
     return await repo.list_archived()
 
@@ -86,6 +106,21 @@ async def create_project(
 
     The generated UUID is the canonical project id — desktop clients write
     it into the ``.gmproj`` file alongside the metadata.
+
+    Parameters
+    ----------
+    request : ProjectCreateRequest
+        New-project metadata (name, project number, client, site label,
+        description, tags, default horizontal/vertical EPSG, phase, status).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The newly-created project row (serialised as ``ProjectResponse``),
+        refreshed so server-side defaults (``created_at`` / ``updated_at`` /
+        ``tags``) are populated. Response status is ``201 Created``.
     """
     logger.info(f"POST /projects: name={request.name!r}")
     project = ProjectOrm(
@@ -119,7 +154,25 @@ async def get_project(
     project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOrm:
-    """Return a single project by id."""
+    """Return a single project by id.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the project to fetch.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The matching project row (serialised as ``ProjectResponse``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no project with that id exists.
+    """
     repo = ProjectRepository(session)
     project = await repo.get_by_id(project_id)
     if project is None:
@@ -139,6 +192,30 @@ async def update_project(
     Sending ``null`` for an optional field clears it; omitting the field
     leaves it unchanged. ``name`` and ``status`` are NOT NULL in the DB —
     sending ``null`` for either is rejected with a 400.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the project to update.
+    request : ProjectUpdateRequest
+        Partial metadata update; only fields explicitly present in the JSON
+        body are applied (``model_dump(exclude_unset=True)``).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The updated project row (serialised as ``ProjectResponse``),
+        refreshed after commit.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no project with that id exists.
+    HTTPException(400)
+        When the body explicitly sets ``name`` or ``status`` to ``null``
+        (both are NOT NULL — omit the field to leave it unchanged).
     """
     repo = ProjectRepository(session)
     project = await repo.get_by_id(project_id)
@@ -171,7 +248,26 @@ async def archive_project(
     project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOrm:
-    """Soft-delete a project — hide from default listings, keep all data."""
+    """Soft-delete a project — hide from default listings, keep all data.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the project to archive.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The archived project row (serialised as ``ProjectResponse``), with
+        ``archived_at`` now set.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no project with that id exists.
+    """
     repo = ProjectRepository(session)
     project = await repo.archive(project_id)
     if project is None:
@@ -186,7 +282,26 @@ async def unarchive_project(
     project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOrm:
-    """Restore a previously-archived project to active status."""
+    """Restore a previously-archived project to active status.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the project to unarchive.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The reactivated project row (serialised as ``ProjectResponse``), with
+        ``archived_at`` cleared.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no project with that id exists.
+    """
     repo = ProjectRepository(session)
     project = await repo.unarchive(project_id)
     if project is None:
@@ -215,6 +330,32 @@ async def get_project_bundle(
     (``buildProjectFile`` drops the key) and nothing in the client reads
     them from the bundle, so the ~10 MB of vertices/triangles was pure
     over-the-wire waste that made every save slow.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the project to snapshot.
+    include_solids : bool
+        When ``True`` (default), embed the cached ``litho_solids`` 3-D
+        meshes. Pass ``False`` (as File → Save does) to omit them.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    dict[str, object]
+        The full project bundle (serialised as ``ProjectBundleResponse``):
+        project metadata plus every CPT and borehole, with UUIDs/dates as
+        strings and geometry dropped (rebuilt from x/y/epsg on restore).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no project with that id exists.
+    HTTPException(422)
+        When the DB is self-inconsistent (e.g. layers reference formations
+        that no longer exist) so the bundle cannot be safely written
+        (``BundleIntegrityError``).
     """
     # File → Save round-trips this ~10 MB export on every save; log its
     # entry + outcome (counts + latency) so a slow or failed save is
@@ -285,6 +426,39 @@ async def restore_project(
     Always 200 (vs. 200/201 split) because the caller treats this as a
     single "ensure exists" semantic regardless of how many rows we
     actually inserted.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Target project id — used both as the URL scope and, when the project
+        row is missing, as the id of the freshly-inserted shell.
+    request : ProjectBundleRequest
+        The bundle to materialise (project metadata + CPTs + boreholes +
+        geological/litho payloads). ``format_version`` gates acceptance.
+    replace : bool
+        When ``True`` (``?replace=true``), wipe the project's child
+        collections before insert so the result matches the bundle exactly
+        (revert-to-last-save, debt #160). Defaults to ``False``.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The materialised project row (serialised as ``ProjectResponse``),
+        refreshed after commit.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``format_version`` is not in ``SUPPORTED_BUNDLE_VERSIONS``, or
+        the bundle shape is invalid (``ValueError`` / ``KeyError`` /
+        ``TypeError`` from the restore).
+    HTTPException(422)
+        When the bundle parsed cleanly but is self-inconsistent (e.g.
+        contacts/layers reference formations not in the bundle) —
+        ``BundleIntegrityError``. The replace-restore guard refuses to wipe
+        the DB in this state.
     """
     n_cpts = len(request.cpts) if request.cpts else 0
     n_bh = len(request.boreholes) if request.boreholes else 0
@@ -415,7 +589,26 @@ async def duplicate_project(
     ``"Copy of <source name>"`` when omitted. The new project starts in
     ``active`` status regardless of the source's lifecycle.
 
-    Returns 404 when the source id is unknown.
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the source project to clone.
+    request : ProjectDuplicateRequest
+        Duplicate options; ``name`` is the new project's name (defaults to
+        ``"Copy of <source name>"`` when omitted).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The newly-created clone (serialised as ``ProjectResponse``),
+        refreshed after commit. Response status is ``201 Created``.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the source project id is unknown.
     """
     # File → Save As deep-clones the whole CPT + borehole tree — a heavy write;
     # log entry + outcome (new id + latency) so a slow/failed Save As is

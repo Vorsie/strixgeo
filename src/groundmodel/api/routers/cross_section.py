@@ -159,6 +159,27 @@ async def create_section(
 
     Rejects a non-metric ``epsg`` with 400 — see
     :func:`_require_supported_section_crs` (debt #31).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard from the URL prefix; the new section is created
+        under this project.
+    request : CrossSectionCreateRequest
+        Section definition: endpoints, CRS, projection buffer, exaggeration,
+        exclusions, depth clamps, display order, and view state.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CrossSectionResponse
+        The persisted cross-section row.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``request.epsg`` is not a supported projected metric CRS.
     """
     _require_supported_section_crs(request.epsg, context="create a cross-section")
     repo = CrossSectionRepository(session)
@@ -199,6 +220,26 @@ async def batch_create_sections(
 
     Each section is validated (including the CRS check and distinct-endpoints
     invariant) before any row is written.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard from the URL prefix; every created section is
+        placed under this project.
+    request : BatchCreateSectionsRequest
+        Body carrying the list of section definitions to create.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    BatchCreateSectionsResponse
+        The persisted cross-section rows (empty when ``sections`` is empty).
+
+    Raises
+    ------
+    HTTPException(400)
+        When any section's ``epsg`` is not a supported projected metric CRS.
     """
     for req in request.sections:
         _require_supported_section_crs(req.epsg, context="batch-create cross-sections")
@@ -223,7 +264,22 @@ async def list_sections(
     project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> list[CrossSectionOrm]:
-    """List every section for a project, ordered by display_order then name."""
+    """List every section for a project, ordered by display_order then name.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard from the URL prefix; only sections belonging to
+        this project are returned.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[CrossSectionResponse]
+        Every cross-section for the project, ordered by ``display_order``
+        then ``name``.
+    """
     repo = CrossSectionRepository(session)
     return await repo.list_all(project_id)
 
@@ -234,7 +290,29 @@ async def get_section(
     section_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> CrossSectionOrm:
-    """Fetch a single section by id. 404 when missing or not in this project."""
+    """Fetch a single section by id. 404 when missing or not in this project.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard from the URL prefix; the section must belong to
+        this project.
+    section_id : UUID
+        Primary key of the cross-section to fetch.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CrossSectionResponse
+        The requested cross-section row.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no section with the given id exists, or it belongs to a
+        different project.
+    """
     repo = CrossSectionRepository(session)
     return await get_in_project_or_404(
         repo.get(section_id), project_id, detail="Cross-section not found"
@@ -248,7 +326,36 @@ async def update_section(
     request: CrossSectionUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> CrossSectionOrm:
-    """Partial update — only fields present in the body are written."""
+    """Partial update — only fields present in the body are written.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard from the URL prefix; the section must belong to
+        this project.
+    section_id : UUID
+        Primary key of the cross-section to update.
+    request : CrossSectionUpdateRequest
+        Partial update body; only fields present are written. ``view_state``
+        follows shallow-merge semantics (absent = no change, ``null`` =
+        untouched, ``{}`` = clear, non-empty = merge).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CrossSectionResponse
+        The updated cross-section row.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no section with the given id exists, it belongs to a different
+        project, or the row vanishes in a TOCTOU race during update.
+    HTTPException(400)
+        When the update would collapse the section endpoints (start equals
+        end after the patch).
+    """
     repo = CrossSectionRepository(session)
     section = await get_in_project_or_404(
         repo.get(section_id), project_id, detail="Cross-section not found"
@@ -296,7 +403,29 @@ async def delete_section(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Delete a section. Polylines drawn on it (when the editor lands)
-    cascade via FK; today there's nothing to cascade."""
+    cascade via FK; today there's nothing to cascade.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard from the URL prefix; the section must belong to
+        this project before deletion is permitted.
+    section_id : UUID
+        Primary key of the cross-section to delete.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    None
+        Responds with ``204 No Content`` on success.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no section with the given id exists, or it belongs to a
+        different project.
+    """
     repo = CrossSectionRepository(session)
     await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
     await repo.delete(section_id)

@@ -434,6 +434,16 @@ async def delete_formation(
         Formation to delete.
     session : AsyncSession
         DB session provided by DI.
+
+    Returns
+    -------
+    None
+        204 No Content on success.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the formation is missing or belongs to a different project.
     """
     repo = GeologyRepository(session)
     await get_in_project_or_404(

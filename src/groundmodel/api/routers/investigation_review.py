@@ -67,6 +67,19 @@ async def list_reviews(
     Most callers won't iterate this — they prefer the per-target
     lookup. The list endpoint exists for the .gmproj round-trip and
     for the desktop sidebar's "show all reviewed/hidden" filter.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project whose review rows are returned.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[InvestigationReviewOrm]
+        Every review row for the project, oldest first (serialised as
+        ``list[InvestigationReviewResponse]``).
     """
     repo = InvestigationReviewRepository(session)
     return await repo.list_all(project_id)
@@ -87,6 +100,30 @@ async def get_review_for_target(
     404 when no row has been written yet — callers should treat the
     absence as the default ``unreviewed`` / not-hidden state. The route
     handler doesn't auto-create on read to keep GET semantics pure.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the review row must belong to this
+        project.
+    target_kind : ReviewTargetKind
+        Investigation kind (``"cpt"`` or ``"borehole"``).
+    target_id : UUID
+        Id of the investigation the decision row is keyed on.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    InvestigationReviewOrm
+        The decision row (serialised as
+        ``InvestigationReviewResponse``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no review row exists for this investigation in this
+        project.
     """
     repo = InvestigationReviewRepository(session)
     return await get_in_project_or_404(
@@ -117,6 +154,36 @@ async def upsert_review_for_target(
     Validates that the target row actually exists for this project — a
     leaked id from another project (or a typo) is rejected as 404
     rather than silently inserting a review pointing at nothing.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the target investigation must belong to
+        this project.
+    target_kind : ReviewTargetKind
+        Investigation kind (``"cpt"`` or ``"borehole"``).
+    target_id : UUID
+        Id of the investigation the decision row is keyed on.
+    request : InvestigationReviewUpsertRequest
+        Body carrying the decision fields to write (only fields
+        explicitly set are applied).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    InvestigationReviewOrm
+        The inserted or updated decision row (serialised as
+        ``InvestigationReviewResponse``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no investigation of ``target_kind`` with ``target_id``
+        exists in this project.
+    HTTPException(422)
+        When the repository rejects the patch (invalid field
+        combination surfaced as a ``ValueError``).
     """
     target_exists = await _target_exists_in_project(session, project_id, target_kind, target_id)
     if not target_exists:
@@ -165,6 +232,24 @@ async def delete_review_for_target(
 
     Returning 204 (rather than 404) on the wrong-project case also
     avoids leaking the existence of a review id in a sibling project.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — a row belonging to another project is
+        left untouched (still 204).
+    target_kind : ReviewTargetKind
+        Investigation kind (``"cpt"`` or ``"borehole"``).
+    target_id : UUID
+        Id of the investigation whose decision row is dropped.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    None
+        HTTP 204 No Content — always, whether or not a row was
+        actually deleted (idempotent post-condition).
     """
     repo = InvestigationReviewRepository(session)
     row = await repo.get_for_target(target_kind, target_id)
@@ -193,6 +278,25 @@ async def patch_project_view_state(
 
     Returns the full ProjectResponse so the caller can refresh its
     in-memory project handle without a second GET.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project whose ``view_state`` bag is patched.
+    request : ProjectViewStatePatchRequest
+        Body carrying the shallow ``patch`` dict to merge in.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    ProjectOrm
+        The updated project row (serialised as ``ProjectResponse``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no project with ``project_id`` exists.
     """
     repo = ProjectRepository(session)
     project = await repo.get_by_id(project_id)

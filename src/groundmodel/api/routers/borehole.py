@@ -294,6 +294,12 @@ async def list_boreholes(
     session:
         Database session injected by FastAPI dependency injection.
 
+    Returns
+    -------
+    list[BoreholeListItem]
+        Lightweight per-borehole summaries (header columns + denormalised
+        counts), scoped to ``project_id`` when provided.
+
     Raises
     ------
     HTTPException(400)
@@ -433,6 +439,28 @@ async def post_borehole_detail_batch(
     Body cap: 500 ids (matches CPT plot-batch). Project scope guard
     fused into the repository query so a crafted batch can't pull
     foreign-project boreholes.
+
+    Parameters
+    ----------
+    request : BoreholeDetailBatchRequest
+        Batch request: the borehole ``ids`` to load, the ``app_project_id``
+        scope guard, and an optional ``include`` list of lab-test family
+        aliases (``include=[]`` skips every family).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[BoreholeDetailResponse]
+        Full borehole trees for the requested ids that exist within the
+        given project. Unknown or foreign-project ids drop silently, so the
+        result may be shorter than ``request.ids``.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``include`` contains an alias not in
+        ``LAB_TEST_INCLUDE_ALIASES``.
     """
     include_relationships: list[str] | None = None
     if request.include is not None:

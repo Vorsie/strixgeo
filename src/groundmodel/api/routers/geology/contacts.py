@@ -192,6 +192,31 @@ async def list_contacts(
     The ``project_id`` in the URL is a scope guard: we reject if the
     model doesn't belong to the project, preventing trivial id-guessing
     across projects.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model whose contacts are listed.
+    borehole_id : UUID | None
+        Optional filter — only contacts anchored to this borehole.
+    formation_id : UUID | None
+        Optional filter — only contacts for this formation.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[FormationContactOrm]
+        Matching contact rows (serialised as
+        ``list[FormationContactResponse]``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to the
+        project.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
@@ -219,6 +244,35 @@ async def update_contact(
     the body — the unused side must be explicitly null — so the
     XOR invariant survives partial patches. The schema validator
     rejects malformed shapes with a 422.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model that owns the contact.
+    contact_id : UUID
+        Contact to update; its ``model_id`` must match the URL.
+    request : FormationContactUpdateRequest
+        Partial patch; only fields explicitly set in the body are
+        applied (``exclude_unset``).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    FormationContactResult
+        The updated contact snapshot (serialised as
+        ``FormationContactResponse``). Returns HTTP 204 No Content
+        instead when the drag-down cross-merge absorbed the contact
+        into the formation above.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the contact does not belong to the model, the model does
+        not belong to the project, or the row vanishes between the
+        scope check and the update (TOCTOU race).
     """
     # Two-stage scope guard: the contact's model_id must match the URL,
     # AND the model itself must live in the URL's project. Single 404
@@ -259,7 +313,30 @@ async def delete_contact(
     contact_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a contact."""
+    """Delete a contact.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model that owns the contact.
+    contact_id : UUID
+        Contact to delete; its ``model_id`` must match the URL.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    None
+        HTTP 204 No Content on success.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the contact does not belong to the model, or the model
+        does not belong to the project.
+    """
     await get_in_project_or_404(
         session.get(FormationContactOrm, contact_id),
         model_id,
@@ -297,6 +374,30 @@ async def update_contacts_batch(
     404 without touching the DB. On success, one commit covers the
     whole list and the response returns the updated rows in input
     order so the client can patch its local state by index.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model that owns every contact in the batch.
+    request : FormationContactBatchUpdateRequest
+        Body carrying the list of per-contact updates (each entry a
+        ``contact_id`` plus its patch fields).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    FormationContactBatchUpdateResponse
+        The updated contact rows in input order.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project, or any contact
+        in the batch is not found in this model (all-or-nothing — no
+        rows are mutated).
     """
     # Model scope guard up front — the use case re-checks per-contact
     # but failing on a wrong model_id here gives a cleaner error

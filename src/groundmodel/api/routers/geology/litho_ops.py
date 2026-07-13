@@ -183,6 +183,30 @@ async def auto_populate_from_stratigraphy(
     Sections "Seed from stratigraphy" path) it is skipped and counted
     in ``skipped_not_in_model`` — Seed never creates formations
     (CLAUDE.md explicit-content invariant).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model to seed — must belong to ``project_id``.
+    request : AutoPopulateFromStratigraphyRequest
+        Body with ``borehole_ids``, optional ``selected_keys`` /
+        ``manual_map`` / ``section_id`` and the
+        ``create_missing_formations`` flag.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    AutoPopulateFromStratigraphyResponse
+        Created / found / deleted ids, the per-reason skip counts,
+        lumping collisions, and optionally the updated section row.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
     """
     # Model scope guard up-front — same shape as the batch update
     # endpoint. Per-borehole project membership is also re-checked
@@ -344,6 +368,26 @@ async def dedupe_existing_contacts(
     Idempotent — running on a clean model is a no-op. Used to clean
     up duplicates created before the per-(model, anchor, formation)
     uniqueness rule landed.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model to dedupe — must belong to ``project_id``.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    DeduplicateContactsResponse
+        The inspected-group count, the removed-duplicate count, and the
+        list of removed contact ids.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -451,7 +495,8 @@ async def seed_litho_from_parent(
 ) -> SeedLithoFromParentResponse:
     """Copy the parent geological model's contacts into a lithostratigraphic model.
 
-    Called from the Sections editor's "Seed from geology" button (litho axis).
+    Dormant endpoint (debt #60): the frontend caller was removed 2026-07-12;
+    retained for external scripts / a future automated litho-seed workflow.
     The model must be ``kind='lithostratigraphic'`` with a non-null
     ``parent_model_id``; any other shape returns 422. Only
     borehole-anchored contacts are copied; the copy carries

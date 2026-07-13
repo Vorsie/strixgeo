@@ -116,6 +116,31 @@ async def rebuild_model_surfaces(
 
     Method param scaffolds the future kriging selector. v1 enforces
     ``method=tin`` via regex; an unknown value returns 422.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model whose formation surfaces are rebuilt.
+    method : str
+        Surface interpolation method. Constrained to ``"tin"`` by the
+        query regex in v1.0; scaffolds kriging / RBF / GemPy for
+        Phase 5+.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    RebuildSurfacesResponse
+        Counts of formations considered, rebuilt, and reordered.
+        ``formations_rebuilt=0`` when the model was already clean.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to the
+        project.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -148,6 +173,26 @@ async def list_model_surfaces(
     The section-view consumer fetches this once on section load,
     indexes by formation_id, and slices each surface against the
     section line for off-line-pick-aware polylines.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model whose cached surfaces are returned.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[FormationSurfaceResponse]
+        One entry per cached TIN surface in the model.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to the
+        project.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -179,6 +224,24 @@ async def validate_no_gaps(
     Returns the list of issues found (empty list ⇒ all good). The
     editor calls this on save; the response surfaces as inline warnings
     in the section view.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — both the model and the borehole must
+        belong to this project.
+    model_id : UUID
+        Geological model providing the formation contacts.
+    borehole_id : UUID
+        Borehole whose stratigraphy is validated.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    GapValidationResponse
+        The model/borehole ids plus the list of gap/overlap issues
+        (empty list ⇒ a clean stratigraphy).
 
     Raises
     ------
@@ -220,6 +283,27 @@ async def validate_no_crossings(
     superposition rule. Returns the list of ``formation_crossing``
     issues; empty list ⇒ all surfaces stack consistently. Editor
     surfaces these as inline warnings.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        Geological model whose cached surfaces are checked.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CrossingValidationResponse
+        The model id plus the list of ``formation_crossing`` issues
+        (empty list ⇒ all surfaces stack consistently).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to the
+        project.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"

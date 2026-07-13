@@ -82,6 +82,22 @@ async def list_lagenmodellen() -> list[VirtueleBoringLagenmodelEntry]:
     Live passthrough — DOV's catalog is small (12 entries today) and
     cheap to fetch. The desktop client caches the result for the
     session so the dropdown opens without delay after the first call.
+
+    Returns
+    -------
+    list[VirtueleBoringLagenmodelEntry]
+        One entry per DOV lagenmodel (code, description, available
+        resolutions), skipping catalogue rows without a ``code``.
+
+    Raises
+    ------
+    HTTPException(502)
+        When DOV returns an unexpected response
+        (``VirtueleBoringFetchError``).
+    HTTPException(503)
+        When DOV is unreachable (connection error).
+    HTTPException(504)
+        When the DOV request times out.
     """
     async with make_dov_async_client() as http:
         try:
@@ -138,6 +154,31 @@ async def fetch_predictions(
     A per-investigation per-model fetch failure is logged at WARNING
     on the server and surfaces as a missing key in
     ``predictions_by_model`` — the rest of the sweep still returns.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Primary key of the project whose investigations to overlay.
+    models : str
+        Comma-separated DOV lagenmodel codes (e.g. ``"g3dv3_F,hcovv2_H"``).
+        At least one is required; at most ``_MAX_MODELS_PER_REQUEST`` (12).
+        Each code must match ``_VALID_MODEL_CODE_RE`` before fan-out.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    VirtueleBoringPredictionsResponse
+        The requested model codes, a ``skipped_count`` of investigations
+        outside Lambert 72, and per-investigation predictions keyed by
+        model code.
+
+    Raises
+    ------
+    HTTPException(400)
+        When no valid model code is supplied, more than
+        ``_MAX_MODELS_PER_REQUEST`` codes are requested, or one or more
+        codes fail the lagenmodel-code format gate.
     """
     requested = [m.strip() for m in models.split(",") if m.strip()]
     if not requested:

@@ -323,6 +323,11 @@ async def delete_body_endpoint(
     session : AsyncSession
         Database session provided by DI.
 
+    Returns
+    -------
+    None
+        204 No Content on success.
+
     Raises
     ------
     HTTPException(404)

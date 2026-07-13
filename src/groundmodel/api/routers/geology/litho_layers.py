@@ -93,6 +93,35 @@ async def list_layers(
         Restrict to one formation across all anchors.
     status : "pending" | "accepted" | "rejected" | None
         Restrict to one status. Absence returns all three.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    borehole_id : UUID | None
+        Optional query filter — restrict to one borehole anchor.
+    cpt_id : UUID | None
+        Optional query filter — restrict to one CPT anchor.
+    formation_id : UUID | None
+        Optional query filter — restrict to one formation.
+    status : "pending" | "accepted" | "rejected" | None
+        Optional query filter — restrict to one layer status.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[LithoLayerResponse]
+        Matching layer rows sorted by ``depth_top_m`` ascending;
+        empty list for a non-litho model or when no row matches.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -131,6 +160,28 @@ async def bulk_create_layers(
     endpoint (only seeded ids pass the section's filter so the user
     actually sees what they just drew). Non-fatal: a seeding failure
     leaves the set stale but the 200 still stands.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model to insert into (path param).
+    request : LithoLayerBulkCreateRequest
+        Body with the ``layers`` array and an optional ``section_id``.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[LithoLayerResponse]
+        The freshly-created layer rows.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -181,7 +232,33 @@ async def move_boundary(
     request: LithoLayerBoundaryMoveRequest,
     session: AsyncSession = Depends(get_session),
 ) -> LithoLayerBoundaryMoveResponse:
-    """Atomic two-row depth update on the shared boundary."""
+    """Atomic two-row depth update on the shared boundary.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    request : LithoLayerBoundaryMoveRequest
+        Body with ``upper_layer_id``, ``lower_layer_id``, and the
+        ``new_depth_m`` for the shared boundary.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerBoundaryMoveResponse
+        The updated upper + lower layer rows.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``.
+    HTTPException(422)
+        When the boundary move is invalid (``BoundaryMoveError``).
+    """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
@@ -222,6 +299,30 @@ async def batch_update_status(
     a batch update whose every patch is ``{"status": <new_status>}``
     (audit BE-APPLICATION-LITHO-04 — the hand-rolled twin use case with
     identical control flow was merged into ``BatchUpdateLithoLayers``).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    request : LithoLayerBatchStatusRequest
+        Body with the ``layer_ids`` list and the target ``status``.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerBatchStatusResponse
+        The updated-row count and the updated layer rows.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``.
+    HTTPException(422)
+        When the batch status update is invalid (``BatchUpdateError``).
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -260,6 +361,31 @@ async def batch_update_layers(
     Mirrors the existing ``POST /contacts/batch`` semantics so the FE
     multi-drag + cross-column MOVE gestures preserve the all-or-nothing
     contract after the A4 slice-4b cut-over.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    request : LithoLayerBatchUpdateRequest
+        Body with the ``updates`` list; each item carries a
+        ``layer_id`` plus the fields to patch (only sent fields apply).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerBatchUpdateResponse
+        The updated-row count and the updated layer rows.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``.
+    HTTPException(422)
+        When the batch update is invalid (``BatchUpdateError``).
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -311,6 +437,30 @@ async def link_layer_to_geo(
     Returns 200 with the updated layer, or 200 with a null body when no
     geo contact is within tolerance. 404 when the layer doesn't exist or
     isn't in the URL model.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    layer_id : UUID
+        The layer to link to its nearest geological contact (path param).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerResponse | None
+        The refreshed layer row when a link was made, or ``None`` when no
+        geo contact is within tolerance.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``, when the layer does not exist or is not in the
+        URL model, or when the link use case reports the row as missing.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -359,10 +509,18 @@ async def delete_layer(
         The lithostratigraphic model (path param).
     layer_id : UUID
         The layer to delete (path param).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    None
+        204 No Content on success (idempotent — 204 whether the row
+        existed or not).
 
     Raises
     ------
-    404
+    HTTPException(404)
         When the model does not exist or does not belong to
         ``project_id``. A missing layer is silently 204 (idempotent).
     """
@@ -394,6 +552,33 @@ async def update_layer(
     Mirrors ``PATCH /contacts/{cid}`` semantics: only fields present
     in the body are written. The anchor pair (borehole_id / cpt_id)
     is updatable with the XOR rule enforced at the request schema.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    layer_id : UUID
+        The layer to update (path param).
+    request : LithoLayerUpdateRequest
+        Partial body; only fields present are written.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerResponse
+        The updated layer row.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to
+        ``project_id``, or when the layer does not exist.
+    HTTPException(409)
+        When the depth edit would overlap an accepted sibling layer on
+        the same investigation column (``LithoLayerOverlapError``).
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),

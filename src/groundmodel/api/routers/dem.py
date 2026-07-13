@@ -57,6 +57,41 @@ async def sample_along_line(
     Transport errors against the upstream provider surface as 5xx
     with a category-only detail so the desktop client can distinguish
     "service down" from "bad request".
+
+    Parameters
+    ----------
+    start_x : float
+        Line start X in the project CRS.
+    start_y : float
+        Line start Y in the project CRS.
+    end_x : float
+        Line end X in the project CRS.
+    end_y : float
+        Line end Y in the project CRS.
+    epsg : int
+        EPSG of the endpoint coordinates; selects the DEM provider.
+    n_samples : int
+        Number of evenly-spaced samples to return (default 200, clamped to
+        ``2 <= n_samples <= _MAX_SAMPLES``).
+
+    Returns
+    -------
+    DemSampleLineResponse
+        The selected provider id plus ``n_samples`` points, each carrying
+        its along-line distance and sampled elevation.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``epsg`` has no DEM provider (``NoDemProviderError``), or the
+        two endpoints are identical (zero-length line).
+    HTTPException(502)
+        When the upstream provider returns an error or a malformed /
+        non-TIFF response.
+    HTTPException(503)
+        When the DEM service is unreachable (connection error).
+    HTTPException(504)
+        When the DEM request times out.
     """
     try:
         provider = build_dem_provider(
