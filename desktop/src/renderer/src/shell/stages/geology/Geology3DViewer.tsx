@@ -59,8 +59,8 @@ import { computeSplitPlane, type DrawState, type SplitLine } from './geology3DPr
 // geology3DPrimitives in the #201 round-2 split.
 export type { SplitLine } from './geology3DPrimitives'
 
-// Disable Cesium ion. All basemaps and terrain come from our own providers.
-Cesium.Ion.defaultAccessToken = ''
+// (Cesium.Ion.defaultAccessToken is disabled once, in geology3DPrimitives.ts —
+// the module every Cesium consumer here imports.)
 
 // ---------------------------------------------------------------------------
 // Types
