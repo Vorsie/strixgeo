@@ -33,6 +33,7 @@
 
 import { emitClosingCurves } from './emitClosings'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
+import { emitSubstrateBridges } from './emitSubstrate'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -113,7 +114,15 @@ export function emitCurves(section: SectionInput): EmittedCurves {
     })
   }
 
-  emitClosingCurves(section, active, curves)
+  // Deep-to-deep substrate bridges: jump ties (non-adjacent correlation edges)
+  // become bridge curves through the intervening columns so the sub-shallow-TD
+  // region traces as ordinary faces (design §4; owner §8 Q3). Emitted BEFORE the
+  // closings so the closing pass can skip a deep anchor unit whose contacts a
+  // bridge already carries (else it pinches to a lens apex into the gap).
+  const bridgeAnchored = new Set<string>()
+  emitSubstrateBridges(section, curves, bridgeAnchored)
+
+  emitClosingCurves(section, active, curves, bridgeAnchored)
 
   const lensLabels = new Map<string, LensLabel>()
   emitEnclosedLensCurves(section, curves, lensLabels)

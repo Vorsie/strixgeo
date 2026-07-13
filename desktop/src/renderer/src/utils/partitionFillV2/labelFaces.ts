@@ -71,7 +71,10 @@ export function labelFaces(
       const m = COL_RE.exec(id)
       if (m) {
         units.push({ ci: Number(m[1]), ui: Number(m[2]) })
-      } else if (id.startsWith('tie')) {
+      } else if (id.startsWith('tie') || id.startsWith('bridge')) {
+        // A ``bridge`` is a deep-to-deep substrate jump tie (emitSubstrate) — it
+        // anchors the face the same way an ordinary tie does, so it counts toward
+        // BAND classification.
         nTie++
       } else if (id.startsWith('close')) {
         nClose++

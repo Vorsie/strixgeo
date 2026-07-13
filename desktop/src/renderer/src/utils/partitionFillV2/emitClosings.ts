@@ -46,11 +46,9 @@ export function emitClosingCurves(
   section: SectionInput,
   activeTies: readonly ResolvedTie[],
   out: InputCurve[],
+  bridgeAnchored: ReadonlySet<string>,
 ): void {
   const { columns } = section
-  // TODO(increment 3): substrate bridges — below a shallow TD with no tie anchor,
-  // synthesize deep-to-deep bridge curves so the sub-TD strip becomes ordinary
-  // faces (v1 ``computeBracketSubstrate``). Until then the strip stays unfilled.
 
   // Per (gap, side, unitIndex, contactSide) tie lookup: the ResolvedTie whose
   // endpoint sits on that unit's top / base contact toward the facing column. Used
@@ -78,8 +76,9 @@ export function emitClosingCurves(
     const right = columns[gi + 1]
     const gapWidth = right.x - left.x
     // LEFT column units close into the gap to their RIGHT; RIGHT units to their LEFT.
-    emitColumnClosings(gi, 'left', left, gapWidth, tieAt, tieKey, section, () => `close${closeSeq++}`, out)
-    emitColumnClosings(gi, 'right', right, gapWidth, tieAt, tieKey, section, () => `close${closeSeq++}`, out)
+    // The column INDEX (gi / gi+1) resolves each unit's bridge-anchored contacts.
+    emitColumnClosings(gi, gi, 'left', left, gapWidth, tieAt, tieKey, bridgeAnchored, section, () => `close${closeSeq++}`, out)
+    emitColumnClosings(gi, gi + 1, 'right', right, gapWidth, tieAt, tieKey, bridgeAnchored, section, () => `close${closeSeq++}`, out)
   }
 }
 
@@ -100,11 +99,13 @@ function tieElevAtX(tie: ResolvedTie, x: number): number {
  */
 function emitColumnClosings(
   gapIndex: number,
+  colIndex: number,
   side: 'left' | 'right',
   col: ColumnGeom,
   gapWidth: number,
   tieAt: ReadonlyMap<string, ResolvedTie>,
   tieKey: (gap: number, side: 'left' | 'right', ui: number, c: 'top' | 'base') => string,
+  bridgeAnchored: ReadonlySet<string>,
   section: SectionInput,
   nextId: () => string,
   out: InputCurve[],
@@ -114,6 +115,16 @@ function emitColumnClosings(
 
   for (let ui = 0; ui < col.units.length; ui++) {
     const u = col.units[ui]
+    // A unit whose top OR base contact is carried by a deep-to-deep substrate
+    // BRIDGE is bounded by that bridge curve — it must not ALSO pinch to a lens /
+    // onlap apex into the gap (the CS1 gap-7 deep-anchor units would otherwise
+    // paint lens wedges over the bridged bands). The bridge is the boundary.
+    if (
+      bridgeAnchored.has(`${colIndex}|${ui}|top`) ||
+      bridgeAnchored.has(`${colIndex}|${ui}|base`)
+    ) {
+      continue
+    }
     const topTie = tieAt.get(tieKey(gapIndex, side, ui, 'top'))
     const baseTie = tieAt.get(tieKey(gapIndex, side, ui, 'base'))
     const nTied = (topTie ? 1 : 0) + (baseTie ? 1 : 0)
