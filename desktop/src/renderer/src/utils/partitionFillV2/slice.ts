@@ -22,6 +22,9 @@ import { type PartitionPoint, type SectionRegion } from '../partitionFill'
 
 /** Snap grid for the OUTPUT fraction axis (design §3 numerical robustness). */
 const FRACTION_SNAP = 1e-6
+/** Elevation snap grid (metres) — the same 1 mm grid the arrangement uses; collapses
+ *  clip-interpolation float noise so a shared contact is ONE canonical vertex. */
+const ELEV_SNAP_M = 0.001
 /** Minimum area (fraction·metres) below which a sliced region is dropped. */
 const MIN_SLICE_AREA = 1e-7
 
@@ -60,14 +63,23 @@ export function sliceFaces(
       const clip = clipToStrip(ring, x0, x1)
       if (clip.length < 3) continue
       const poly = toFractionSpace(clip, x0, x1)
-      if (polygonAbsArea(poly) < MIN_SLICE_AREA) continue
-      out.push({
-        formationId: lf.formationId,
-        bodyId: lf.bodyId,
-        kind,
-        polygon: poly,
-        gapIndex: gi,
-      })
+      // Slicing a face that pinches to a column vertical (a seam apex on the strip
+      // edge, a lobe touching x=x0/x1 at one point) can leave the fraction-space ring
+      // WEAKLY simple — a repeated (fraction, elevation) vertex where two lobes meet.
+      // The output contract is a SIMPLE ``SectionRegion.polygon`` (downstream consumers
+      // — geotech refinement, voxel builder, DXF export — assume it), so split at every
+      // repeat into simple sub-rings; each above the min-area floor is its own region.
+      for (const sub of splitAtRepeatedPoints(poly)) {
+        if (sub.length < 3) continue
+        if (polygonAbsArea(sub) < MIN_SLICE_AREA) continue
+        out.push({
+          formationId: lf.formationId,
+          bodyId: lf.bodyId,
+          kind,
+          polygon: sub,
+          gapIndex: gi,
+        })
+      }
     }
   }
   // Deterministic ordering: gap, then kind (quad<lens<pinch alpha), then first pt.
@@ -192,9 +204,15 @@ function intersectX(a: Point, b: Point, xLine: number): Point {
  */
 function toFractionSpace(poly: readonly Point[], x0: number, x1: number): PartitionPoint[] {
   const w = x1 - x0
+  // Snap elevation to the SAME 1 mm grid the arrangement snaps metres-x/y to. The
+  // strip-clip interpolates crossing points (float noise ~1e-5 m), which would leave
+  // two "different" vertices ~0.01 mm apart on a shared contact — sub-grid ghosts
+  // that make the ring weakly non-simple (the ZAND-onlap-around-a-SILT-lens seam
+  // apex). Snapping to 1 mm collapses each to one canonical vertex; the fraction is
+  // snapped to the output 1e-6 grid as before.
   const raw: PartitionPoint[] = poly.map((p) => ({
     fraction: snapFraction((p.x - x0) / w),
-    elevation: p.y,
+    elevation: Math.round(p.y / ELEV_SNAP_M) * ELEV_SNAP_M,
   }))
   const out: PartitionPoint[] = []
   for (let i = 0; i < raw.length; i++) {
@@ -212,6 +230,42 @@ function toFractionSpace(poly: readonly Point[], x0: number, x1: number): Partit
       out.pop()
   }
   return out
+}
+
+/**
+ * Split a fraction-space ring that self-touches (a repeated vertex) into simple
+ * sub-rings at each repeat — the fraction-space twin of ``faces.splitAtRepeats``.
+ *
+ * A face simple in metres space can slice to a WEAKLY simple ring: two distinct
+ * metres-x vertices collapse onto the same fraction (both on a column vertical =
+ * fraction 0 or 1), or a lobe pinches to a seam apex exactly on the strip edge.
+ * The first re-sighting of a vertex marks a closed inner loop ``[i..j)``; the
+ * remainder is the outer ring. Recursing on both yields strictly simple rings.
+ *
+ * Parameters
+ * ----------
+ * ring : readonly PartitionPoint[]
+ *     A fraction-space ring (no repeated closing vertex).
+ *
+ * Returns
+ * -------
+ * PartitionPoint[][]
+ *     One or more simple rings whose union is the input.
+ */
+function splitAtRepeatedPoints(ring: readonly PartitionPoint[]): PartitionPoint[][] {
+  const key = (p: PartitionPoint): string => `${Math.round(p.fraction / FRACTION_SNAP)}|${p.elevation}`
+  const firstAt = new Map<string, number>()
+  for (let j = 0; j < ring.length; j++) {
+    const k = key(ring[j])
+    const i = firstAt.get(k)
+    if (i !== undefined) {
+      const inner = ring.slice(i, j)
+      const outer = [...ring.slice(0, i), ...ring.slice(j)]
+      return [...splitAtRepeatedPoints(inner), ...splitAtRepeatedPoints(outer)]
+    }
+    firstAt.set(k, j)
+  }
+  return [ring as PartitionPoint[]]
 }
 
 /** Snap a fraction to the 1e-6 grid and clamp to [0, 1]. */

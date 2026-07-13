@@ -166,8 +166,20 @@ function walkLoops(vertices: readonly GridPoint[], halfEdges: readonly DcelHalfE
     // changing the face's real area or its curve provenance.
     const clean = stripSpurs(verts)
     if (clean.length < 3) continue
-    const signedArea = signedGridArea(clean.map((v) => vertices[v]))
-    loops.push({ edges, verts: clean, signedArea, curveIds })
+    // A traced boundary can still be WEAKLY simple: at a pinch/apex vertex (a
+    // seam meeting a tie, a lens apex shared by two lobes) the walk visits the
+    // SAME vertex twice, so ``clean`` is a self-touching (figure-8) ring. Left
+    // as-is it triangulates as non-simple (the sliver gate's ``sampled`` false
+    // positives) and is a hazard for downstream consumers that assume simple
+    // rings. Split it at every repeated vertex into simple sub-loops — each
+    // shares the pinch vertex only as a corner, never as a crossing. Every
+    // sub-loop inherits the parent's curve provenance (the pinch belongs to all).
+    for (const sub of splitAtRepeats(clean)) {
+      if (sub.length < 3) continue
+      const signedArea = signedGridArea(sub.map((v) => vertices[v]))
+      if (signedArea === 0) continue
+      loops.push({ edges, verts: sub, signedArea, curveIds })
+    }
   }
   return loops
 }
@@ -216,6 +228,51 @@ function stripSpurs(verts: readonly number[]): number[] {
     ring = dedup
   }
   return ring
+}
+
+/**
+ * Split a self-touching (weakly-simple) vertex-index ring into strictly-simple
+ * sub-rings at every repeated vertex.
+ *
+ * A traced face boundary visits a pinch/apex vertex twice when two lobes of the
+ * face meet at a single point (a seam apex landing on a tie, a lens apex shared
+ * by the matrix above and below). Such a ring — ``…, V, …, V, …`` — is one
+ * figure-8 loop, not a simple polygon. Splitting at the first repeat cuts the
+ * inner segment ``[i..j)`` off as its own loop and stitches the remainder
+ * (``ring`` with that segment removed) back; recursion handles nested pinches.
+ *
+ * Each emitted sub-ring touches the pinch vertex only as a CORNER (its two
+ * neighbours differ), so it is a simple polygon. Zero-area sub-rings (a pinch
+ * with a degenerate lobe) are kept in the output and dropped by the area test at
+ * the call site.
+ *
+ * Parameters
+ * ----------
+ * ring : readonly number[]
+ *     A cleaned (spur-free) vertex-index ring, no repeated CLOSING vertex.
+ *
+ * Returns
+ * -------
+ * number[][]
+ *     One or more simple vertex-index rings whose union is the input.
+ */
+function splitAtRepeats(ring: readonly number[]): number[][] {
+  const n = ring.length
+  // First-seen position of each vertex; a second sighting is a self-touch.
+  const firstAt = new Map<number, number>()
+  for (let j = 0; j < n; j++) {
+    const v = ring[j]
+    const i = firstAt.get(v)
+    if (i !== undefined) {
+      // ``[i..j)`` is one closed loop through the pinch vertex ``v``; the outer
+      // remainder is ``ring`` with that inner segment excised. Recurse on both.
+      const inner = ring.slice(i, j)
+      const outer = [...ring.slice(0, i), ...ring.slice(j)]
+      return [...splitAtRepeats(inner), ...splitAtRepeats(outer)]
+    }
+    firstAt.set(v, j)
+  }
+  return [ring as number[]]
 }
 
 /** Signed polygon area in grid-unit² via the shoelace formula (CCW positive). */
