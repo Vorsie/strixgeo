@@ -81,3 +81,71 @@ def test_no_enclosed_lens_plans_nothing() -> None:
     along = {s1: 0.0, b4: 1.0}
 
     assert plan_enclosed_lens_merges(stacks, along) == []
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling 2026-07-13: a same-formation enclosed lens merges into its
+# matrix body; a different-formation enclosed lens stays its own body.
+# ---------------------------------------------------------------------------
+
+
+def test_same_litho_enclosed_lens_merges_into_its_matrix_body() -> None:
+    """A sand lens fully enclosed by sand of the SAME lithology merges into the
+    surrounding sand matrix — the three same-formation halves become one body.
+
+    Owner ruling 2026-07-13 (reverses "lens stays its own body" for the
+    same-litho case only): edges tie the enclosed same-soil middle unit to its
+    own bracketing hosts on the same column, so the resolver unions all three
+    into one body_id.
+    """
+    s1 = uuid4()
+    sand_top = _layer(s1, 8, 2, "ZAND")
+    sand_lens = _layer(s1, 2, 1, "ZAND")  # same-litho enclosed lens
+    sand_bot = _layer(s1, 1, -4, "ZAND")
+    stacks = {s1: [sand_top, sand_lens, sand_bot]}
+    along = {s1: 0.0}
+
+    edges = plan_enclosed_lens_merges(stacks, along)
+
+    # The enclosed same-litho lens is tied to its bracketing matrix so all three
+    # resolve to one body (order-agnostic on the pair endpoints).
+    tied = {frozenset((e.host_layer_id, e.neighbour_layer_id)) for e in edges}
+    assert frozenset((sand_lens.layer_id, sand_top.layer_id)) in tied
+    assert frozenset((sand_lens.layer_id, sand_bot.layer_id)) in tied
+
+
+def test_different_litho_enclosed_lens_stays_its_own_body() -> None:
+    """A clay lens enclosed by sand (DIFFERENT lithology) keeps its own body —
+    no edge ties the clay lens to the surrounding sand.
+
+    The owner reversal is same-litho ONLY; the different-litho lens path is
+    unchanged (it only ever plans host↔neighbour edges, never a lens↔host tie).
+    """
+    s1, b4 = uuid4(), uuid4()
+    sand_top = _layer(s1, 8, 2, "ZAND")
+    clay_lens = _layer(s1, 2, 1, "KLEI")  # different-litho enclosed lens
+    sand_bot = _layer(s1, 1, -4, "ZAND")
+    b4_sand = _layer(b4, 7, -5, "ZAND")  # clay absent on neighbour → true pinch
+    stacks = {s1: [sand_top, clay_lens, sand_bot], b4: [b4_sand]}
+    along = {s1: 0.0, b4: 1.0}
+
+    edges = plan_enclosed_lens_merges(stacks, along)
+
+    # The clay lens is NEVER an endpoint — it stays its own body.
+    lens_touched = any(clay_lens.layer_id in (e.host_layer_id, e.neighbour_layer_id) for e in edges)
+    assert not lens_touched
+
+
+def test_non_enclosed_same_litho_body_is_not_merged() -> None:
+    """A same-litho unit that is NOT enclosed (top or bottom of the column, not
+    bracketed by the same soil on both sides) is not a lens → no lens-merge edge.
+    """
+    s1 = uuid4()
+    # ZAND at the top, then KLEI to the base: the sand is bounded above by
+    # nothing and below by clay — it is not enclosed by same-soil on both sides.
+    sand_top = _layer(s1, 8, 2, "ZAND")
+    clay_bot = _layer(s1, 2, -4, "KLEI")
+    stacks = {s1: [sand_top, clay_bot]}
+    along = {s1: 0.0}
+
+    assert plan_enclosed_lens_merges(stacks, along) == []
