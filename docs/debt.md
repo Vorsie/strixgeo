@@ -5634,9 +5634,16 @@ starts to matter.
   gmproj-format.md example shows v4 (DOC-06). Plus the one-class-per-file rule is
   violated 50× by co-located result dataclasses (DOC-07/MAINT-05 — recommend
   *amending the rule* to sanction co-located I/O dataclasses rather than splitting).
-* **#110 / #169** (Plaxis exporter dup) — `#169` resolved 4 shared methods; the audit
-  finds `_emit_boreholes` + `_emit_header` still duplicated byte-for-byte (DRY-02/03)
-  — finish the extraction into `plaxis_script_helpers.py`.
+* **#110 / #169** (Plaxis exporter dup) — ~~DRY-02/03~~ **CLOSED 2026-07-13,
+  audit premise stale:** re-diffed — `_emit_boreholes` and `_emit_header` are
+  NOT duplicates. The shared building blocks (`emit_borehole_layer_levels`
+  inherit-cascade keyed via TypeVar; `emit_header` skeleton) were already
+  extracted by #169; the residual per-exporter methods differ substantively
+  (3D: coord-tuple keys, name-keyed cascade, nullable surface-z with
+  skip-accounting and a test-pinned `(lines, skipped)` return; 2D: projection
+  inputs, UUID-keyed cascade, pre-filtered non-null, list return, dynamic
+  notes). Merging = over-abstraction of 2 subtly-varying instances
+  (CLAUDE.md counterweight). 53 exporter unit tests green on the baseline.
 * **#116 / #174 / #175** (test gaps) — add: `computeSectionFill` whole-section path
   has 1 test (TEST-01); `parseProjectFile`/`isProjectFileV3` (the sole .strix
   gatekeeper) has zero (TEST-02); the `SaveBodyBoundary` advisory-lock has no
