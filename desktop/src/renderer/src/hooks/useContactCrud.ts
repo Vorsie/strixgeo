@@ -62,6 +62,50 @@ function formationContactBatchToLayerItem(
   return out
 }
 
+/**
+ * Resolve a contact id to its snapshot, owning model id and axis.
+ *
+ * The contact carries its own ``model_id`` — deriving the model + the target
+ * contact-set from the contact itself is what makes every handler work on the
+ * litho axis too (dogfeed 2026-05-22: the contact-edit handlers were
+ * hard-wired to the geological model). This preamble used to open five
+ * handlers as copy-pasted blocks (audit 2026-07-12 FE-HOOKS-09).
+ *
+ * Optimistic-patch note (formerly a per-handler comment): the geo-axis
+ * branches patch via ``setContacts`` directly — the historical noop-on-litho
+ * ``applyPatch`` ternary was dead code, because the litho branches
+ * early-return into ``refetchLithoContacts`` before any patch call (or, in
+ * the delete path, filter an id that is never in the geo list).
+ *
+ * Parameters
+ * ----------
+ * contactId : string
+ *     The contact (or litho layer — UUID-preserved) id to resolve.
+ * contacts : readonly FormationContactResponse[]
+ *     The composer's geological contacts list.
+ * lithoContacts : readonly FormationContactResponse[]
+ *     The derived litho contacts list.
+ *
+ * Returns
+ * -------
+ * { snapshot, modelId, isLitho } | null
+ *     Null when the id is in neither list.
+ */
+function resolveContactAxis(
+  contactId: string,
+  contacts: readonly FormationContactResponse[],
+  lithoContacts: readonly FormationContactResponse[],
+): { snapshot: FormationContactResponse; modelId: string; isLitho: boolean } | null {
+  const snapshot =
+    contacts.find(c => c.id === contactId) ?? lithoContacts.find(c => c.id === contactId)
+  if (!snapshot) return null
+  return {
+    snapshot,
+    modelId: snapshot.model_id,
+    isLitho: lithoContacts.some(c => c.id === contactId),
+  }
+}
+
 /** Inputs for {@link useContactCrud}. */
 export interface UseContactCrudParams {
   /** The open project, or null when none is loaded. */
@@ -172,18 +216,9 @@ export function useContactCrud({
         // the target contact-set from the contact so this works on the
         // litho axis too (the contact-edit handlers were hard-wired to
         // the geological model — dogfeed 2026-05-22).
-        const previous =
-          contacts.find(c => c.id === contactId) ??
-          lithoContacts.find(c => c.id === contactId)
-        if (!previous) return
-        const modelId = previous.model_id
-        const isLitho = lithoContacts.some(c => c.id === contactId)
-        // applyPatch only fires in the geo `else` branch (litho path
-        // early-returns into refetchLithoContacts before reaching
-        // any applyPatch call). The variable is geo-only by
-        // construction — the historical noop-on-litho ternary was
-        // dead code.
-        const applyPatch = setContacts
+        const resolved = resolveContactAxis(contactId, contacts, lithoContacts)
+        if (!resolved) return
+        const { snapshot: previous, modelId, isLitho } = resolved
         // Diagnostic: drag-up cross-merge regression repro (2026-05-26).
         // Records the FE→BE handoff so the user can see exactly what
         // depth+axis the hook dispatched on a buggy drag.
@@ -462,7 +497,7 @@ export function useContactCrud({
               beforePayload,
             )
             if (reverted !== null) {
-              applyPatch(prev => prev.map(c => (c.id === contactId ? reverted : c)))
+              setContacts(prev => prev.map(c => (c.id === contactId ? reverted : c)))
             }
           },
           reapply: async () => {
@@ -478,7 +513,7 @@ export function useContactCrud({
               afterPayload,
             )
             if (reapplied !== null) {
-              applyPatch(prev => prev.map(c => (c.id === contactId ? reapplied : c)))
+              setContacts(prev => prev.map(c => (c.id === contactId ? reapplied : c)))
             }
           },
         })
@@ -889,24 +924,15 @@ export function useContactCrud({
         // contact-set) from the contacts themselves so this works on
         // the litho axis too — dogfeed 2026-05-22: was hard-wired to
         // the geological model, so a litho-contact batch 404'd.
-        const firstContact =
-          contacts.find(c => c.id === updateIds[0]) ??
-          lithoContacts.find(c => c.id === updateIds[0])
-        if (!firstContact) {
+        const resolved = resolveContactAxis(updateIds[0], contacts, lithoContacts)
+        if (!resolved) {
           log.error(
             'geology',
             `batchUpdateContacts: contact ${updateIds[0]} not in local state`,
           )
           return
         }
-        const modelId = firstContact.model_id
-        const isLitho = lithoContacts.some(c => c.id === updateIds[0])
-        // applyPatch only fires in the geo `else` branch (litho path
-        // early-returns into refetchLithoContacts before reaching
-        // any applyPatch call). The variable is geo-only by
-        // construction — the historical noop-on-litho ternary was
-        // dead code.
-        const applyPatch = setContacts
+        const { modelId, isLitho } = resolved
         const beforeById = new Map(
           [...contacts, ...lithoContacts]
             .filter(c => idSet.has(c.id))
@@ -927,7 +953,7 @@ export function useContactCrud({
         } else {
           const res = await api.geology.updateContactsBatch(project.id, modelId, updates)
           const byId = new Map(res.contacts.map(c => [c.id, c]))
-          applyPatch(prev => prev.map(c => byId.get(c.id) ?? c))
+          setContacts(prev => prev.map(c => byId.get(c.id) ?? c))
         }
         // Batch depth/anchor mutation of pre-existing contacts — mark dirty
         // so a close-without-save reverts it (#160).
@@ -970,7 +996,7 @@ export function useContactCrud({
               beforeUpdates,
             )
             const map = new Map(back.contacts.map(c => [c.id, c]))
-            applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
+            setContacts(prev => prev.map(c => map.get(c.id) ?? c))
           },
           reapply: async () => {
             if (isLitho) {
@@ -988,7 +1014,7 @@ export function useContactCrud({
               afterUpdates,
             )
             const map = new Map(fwd.contacts.map(c => [c.id, c]))
-            applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
+            setContacts(prev => prev.map(c => map.get(c.id) ?? c))
           },
         })
       } catch (err) {
@@ -1017,18 +1043,9 @@ export function useContactCrud({
         // the target contact-set from it so this works on the litho
         // axis too (dogfeed 2026-05-22 — was hard-wired to the
         // geological model, so a litho contact could not be deleted).
-        const snapshot =
-          contacts.find(c => c.id === contactId) ??
-          lithoContacts.find(c => c.id === contactId)
-        if (!snapshot) return
-        const modelId = snapshot.model_id
-        const isLitho = lithoContacts.some(c => c.id === contactId)
-        // applyPatch only fires in the geo `else` branch (litho path
-        // early-returns into refetchLithoContacts before reaching
-        // any applyPatch call). The variable is geo-only by
-        // construction — the historical noop-on-litho ternary was
-        // dead code.
-        const applyPatch = setContacts
+        const resolved = resolveContactAxis(contactId, contacts, lithoContacts)
+        if (!resolved) return
+        const { snapshot, modelId, isLitho } = resolved
         // A4 slice 3 — litho writers target /layers; the LL→FC
         // mirror trigger keeps formation_contact + correlation FKs
         // coherent. Geological models stay on /contacts (no Shape A
@@ -1041,7 +1058,7 @@ export function useContactCrud({
         } else {
           await api.geology.deleteContact(project.id, modelId, contactId)
         }
-        applyPatch(prev => prev.filter(c => c.id !== contactId))
+        setContacts(prev => prev.filter(c => c.id !== contactId))
         // Keep lithoLayers + lithoContacts in lockstep after the
         // optimistic prune. The trigger deleted the FC mirror; the
         // refetch propagates that into FE state.
@@ -1109,7 +1126,7 @@ export function useContactCrud({
               recreatePayload,
             )
             currentId = recreated.id
-            applyPatch(prev => [...prev, recreated])
+            setContacts(prev => [...prev, recreated])
             addToSessionImports('contact', [recreated.id])
           },
           reapply: async () => {
@@ -1122,7 +1139,7 @@ export function useContactCrud({
             }
             await api.geology.deleteContact(projectId, modelId, currentId)
             const deletedId = currentId
-            applyPatch(prev => prev.filter(c => c.id !== deletedId))
+            setContacts(prev => prev.filter(c => c.id !== deletedId))
             currentId = null
           },
         })
@@ -1150,10 +1167,9 @@ export function useContactCrud({
   const handleUnlinkLithoFromGeo = useCallback(
     async (contactId: string): Promise<void> => {
       if (!project) return
-      const snapshot =
-        lithoContacts.find(c => c.id === contactId) ?? contacts.find(c => c.id === contactId)
-      if (!snapshot) return
-      const modelId = snapshot.model_id
+      const resolved = resolveContactAxis(contactId, contacts, lithoContacts)
+      if (!resolved) return
+      const { modelId } = resolved
       log.debug('geology', `unlinkLithoFromGeo entry id=${contactId}`)
       try {
         // A4 remaining-writer cut — unlink is a single-field PATCH on the
@@ -1185,10 +1201,9 @@ export function useContactCrud({
   const handleLinkLithoToGeo = useCallback(
     async (contactId: string): Promise<void> => {
       if (!project) return
-      const snapshot =
-        lithoContacts.find(c => c.id === contactId) ?? contacts.find(c => c.id === contactId)
-      if (!snapshot) return
-      const modelId = snapshot.model_id
+      const resolved = resolveContactAxis(contactId, contacts, lithoContacts)
+      if (!resolved) return
+      const { modelId } = resolved
       log.debug('geology', `linkLithoToGeo entry id=${contactId}`)
       try {
         // A4 cleanup — link-geo on /layers (contactId == layerId by UUID
