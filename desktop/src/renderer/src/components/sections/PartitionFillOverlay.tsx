@@ -58,12 +58,16 @@ import {
   type CorrelationEdge,
   type LensApexOverride,
   type PartitionColumn,
-  type PartitionUnit,
   type PartitionRegion,
   LENS_PINCH_FRACTION,
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
+import {
+  assembleSectionPartitionInput,
+  type FenceLayerInput,
+  type FenceProjectedColumn,
+} from '../../utils/sectionFenceData'
 import {
   clipPolygonToElevBand,
   refineLithoPartition,
@@ -734,45 +738,57 @@ export default function PartitionFillOverlay({
     }
   }, [lensDrag, onSaveBoundary, screenXToAlong, screenToLevel, boundariesByBodyId])
 
-  // Build each column's gap-free unit stack + its screen x-edges (identical to
-  // the morph overlay — the partition consumes the same PartitionColumn input).
+  // Build each column's gap-free unit stack + its screen x-edges. The unit-
+  // stack assembly (accepted-only filter, drop empty / elevation-less columns,
+  // along-sort, shallow→deep unit sort) is the SHARED core wired through
+  // ``assembleSectionPartitionInput`` (audit FE-UTILS-08) — the same pure util
+  // ``buildProjectFence`` and ``buildVoxelRequest`` consume, so the on-screen
+  // partition and the 3D fence/voxel builds assemble identical columns. Only
+  // the screen x-edge derivation from ``placedColumns`` stays overlay-local.
   const { orderedInvs, colByInv, screenByInv } = useMemo(() => {
-    const unitsByInv = new Map<string, PartitionUnit[]>()
+    const fenceLayers: FenceLayerInput[] = []
     for (const layer of lithoLayers) {
-      if (layer.status !== 'accepted') continue
       const inv = layer.cpt_id ?? layer.borehole_id
       if (!inv) continue
-      const unit: PartitionUnit = {
-        topDepthM: layer.depth_top_m,
-        baseDepthM: layer.depth_base_m,
+      fenceLayers.push({
+        investigationId: inv,
+        layerId: layer.id, // what correlation edges reference (the band signal)
         formationId: layer.formation_id,
         bodyId: layer.body_id ?? null,
-        layerId: layer.id, // what correlation edges reference (the band signal)
-      }
-      const bucket = unitsByInv.get(inv)
-      if (bucket) bucket.push(unit)
-      else unitsByInv.set(inv, [unit])
+        topDepthM: layer.depth_top_m,
+        baseDepthM: layer.depth_base_m,
+        accepted: layer.status === 'accepted',
+      })
     }
+    const placedById = new Map<string, PlacedColumn>()
+    const projected: FenceProjectedColumn[] = (placedColumns as readonly PlacedColumn[]).map(
+      (col) => {
+        placedById.set(col.proj.item.id, col)
+        return {
+          investigationId: col.proj.item.id,
+          alongM: col.proj.along,
+          surfaceElevM: col.proj.item.elevation_m ?? null,
+        }
+      },
+    )
+    const { columns, orderedColumns } = assembleSectionPartitionInput(projected, fenceLayers)
 
     const cols = new Map<string, PartitionColumn>()
     const screen = new Map<string, ColumnScreen>()
     const ordered: string[] = []
-    for (const col of placedColumns as readonly PlacedColumn[]) {
-      const elev = col.proj.item.elevation_m
-      if (elev === null || elev === undefined) continue
-      const id = col.proj.item.id
-      const units = (unitsByInv.get(id) ?? []).slice().sort((a, b) => a.topDepthM - b.topDepthM)
-      if (units.length === 0) continue
-      const halfW = col.width / 2
-      cols.set(id, { investigationId: id, surfaceElevM: elev, units })
+    for (let i = 0; i < columns.length; i += 1) {
+      const id = orderedColumns[i].investigationId
+      const placed = placedById.get(id)
+      if (!placed) continue // unreachable: every assembled column came from placedColumns
+      const halfW = placed.width / 2
+      cols.set(id, columns[i])
       screen.set(id, {
-        rightX: col.nudgedX + halfW,
-        leftX: col.nudgedX - halfW,
-        along: col.proj.along,
+        rightX: placed.nudgedX + halfW,
+        leftX: placed.nudgedX - halfW,
+        along: orderedColumns[i].alongM,
       })
       ordered.push(id)
     }
-    ordered.sort((a, b) => (screen.get(a)?.along ?? 0) - (screen.get(b)?.along ?? 0))
     return { orderedInvs: ordered, colByInv: cols, screenByInv: screen }
   }, [lithoLayers, placedColumns])
 
