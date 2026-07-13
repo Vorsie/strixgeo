@@ -100,6 +100,15 @@ curve-placement rule, is retired consciously, or stays a consumer concern)
 | `computePartitionFill(left, right)` 2-column wrapper | KEPT — thin wrapper over the v2 section call (public API compat; the pure-geometry unit tests ride it) |
 | Open bug: horizontal-only band-emit (band dips below shallow TD) | Must be FIXED-BY-DESIGN in v2 (bridge curves are the mechanism); add a gate from the dogfeed repro before cutover |
 
+Discovered during the increment-2 build (2026-07-13) and added per the rule
+below:
+
+| v1 rule / pass | v2 disposition |
+|---|---|
+| Derived base-tie: a top-tie on unit *k* also ties the BASE of unit *k−1* (`classifyTermination` case (a)) | KEPT — without it a unit sandwiched between two top-ties never reads fully-banded; implemented in `emitClosings` tie registration |
+| Implicit top closure via full-width matrix bands | CHANGED — the face-tracing model needs an EXPLICIT surface curve per gap (`emitSurfaceCurves`) or near-surface pinch vacancies stay untraced |
+| Enclosed-lens matrix merge (v1 step-0 interval extraction → matrix continuous, lens overlaid) | KEPT as lens-as-HOLE face, but BLOCKED on the substrate floor: the hole representation is a true partition only when the enclosing matrix band is itself a CLOSED face, which needs increment-3 bridge curves. Until then enclosed minorities flow through the ordinary 0-tied lens closing path (wired but void-guarded in `emitLenses`) |
+
 Anything discovered in v1 during the build that is NOT in this table gets
 ADDED to this table with a disposition — nothing is dropped silently.
 
