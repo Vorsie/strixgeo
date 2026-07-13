@@ -242,20 +242,27 @@ test.describe('flow_bottom_tie_correlate', () => {
 
       expect(errorLogs, `unexpected error log(s): ${errorLogs.join(' | ')}`).toHaveLength(0)
 
-      // 4. The base/mixed tie renders as a dashed interpretive line (the tie hit
-      //    line carries the same dasharray story; the visible interpretive tie
-      //    has stroke-dasharray). Assert at least one dashed correlation line is
-      //    present in the contact-edges overlay.
-      const dashedTie = page.locator('[data-testid="contact-edges-overlay"] line[stroke-dasharray]').first()
-      // Dashed lines exist for unapproved (amber) OR interpretive (cyan base)
-      // ties; the freshly-created base tie is one of them. Visibility of an SVG
-      // line can be finicky, so assert presence in the DOM rather than visual.
+      // 4. The base/mixed tie renders as a dashed interpretive line. The
+      //    interpretive (base/mixed) tie is drawn as a <polyline> — either the
+      //    cross-lithology surface tie (``tie-line-<id>``) or the same-lithology
+      //    ribbon seam (``ribbon-seam-<id>``), both warp-aware and carrying
+      //    ``strokeDasharray={BASE_TIE_DASH}``. (It is NOT a plain <line>; only
+      //    the transient drag ghost is, and that lives outside this overlay.)
+      //    Assert at least one dashed correlation polyline is present in the
+      //    contact-edges overlay.
+      const dashedTie = page
+        .locator('[data-testid="contact-edges-overlay"] polyline[stroke-dasharray]')
+        .first()
+      // Dashed polylines exist for unapproved (amber) OR interpretive (cyan
+      // base) ties; the freshly-created base tie is one of them. Visibility of
+      // an SVG polyline can be finicky, so assert presence in the DOM rather
+      // than visual.
       await expect(dashedTie).toHaveCount(1, { timeout: 8_000 }).catch(async () => {
-        // Fall back to >=1 if multiple dashed lines render.
+        // Fall back to >=1 if multiple dashed polylines render.
         const n = await page
-          .locator('[data-testid="contact-edges-overlay"] line[stroke-dasharray]')
+          .locator('[data-testid="contact-edges-overlay"] polyline[stroke-dasharray]')
           .count()
-        expect(n, 'expected at least one dashed (base/interpretive) tie line').toBeGreaterThanOrEqual(1)
+        expect(n, 'expected at least one dashed (base/interpretive) tie polyline').toBeGreaterThanOrEqual(1)
       })
 
       // 5. Right-click-delete the base-side tie. The interpretive tie exposes a

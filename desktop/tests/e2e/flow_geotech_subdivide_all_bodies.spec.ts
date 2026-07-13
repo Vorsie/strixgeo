@@ -20,11 +20,14 @@
  * Endpoint
  * --------
  * ``POST /projects/{projectId}/geology/models/{lithoModelId}/geotech/subdivide-all-bodies``
- * body: ``{ section_id }``
+ * body: ``{ litho_model_id }`` — the operation is model-wide (every in-model
+ * investigation is classified in one atomic pass); the body's
+ * ``litho_model_id`` MUST equal the URL ``model_id`` (the handler rejects a
+ * mismatch with 422). It is NOT section-scoped.
  *
  * Steps
  * -----
- *   1. Open the fixture project + resolve litho model id + section id.
+ *   1. Open the fixture project + resolve litho model id.
  *   2. Call the subdivision endpoint.
  *   3. Assert the response: HTTP 200, body_count ≥ 1.
  *   4. Re-open the project so the shell picks up the newly created geotech
@@ -87,41 +90,29 @@ test.describe('flow_geotech_subdivide_all_bodies', () => {
         expect(lithoModel, 'fixture must have a lithostratigraphic model').toBeTruthy()
         const lithoModelId: string = lithoModel.id
 
-        // Step 2: Resolve Section B — CPTs 3/4/5 carry realistic qc series and
-        // the fixture seeds them with accepted KLEI/ZAND litho contacts + a
-        // bilateral body, giving the subdivider real data to classify.
-        const sectionsJson = await page.evaluate(
-          async ([base, pid]) => {
-            const r = await fetch(`${base}/projects/${pid}/sections`)
-            return r.json()
-          },
-          [API_BASE, FIXTURE_PROJECT_ID] as const,
-        )
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sectionB = (sectionsJson as any[]).find((s: any) =>
-          (s.name as string).includes('Section B'),
-        )
-        expect(sectionB, 'fixture must include Section B').toBeTruthy()
-        const sectionId: string = sectionB.id
-
-        // Step 3: Call the subdivision endpoint.
-        // Same HTTP call the frontend handleSubdivideAllBodies fires.
+        // Step 2: Call the subdivision endpoint.
+        // Same HTTP call the frontend handleSubdivideAllBodies fires. The
+        // operation is model-wide (not section-scoped): the request body
+        // carries litho_model_id, which the handler asserts equals the URL
+        // model_id. The fixture's Section B (CPTs 3/4/5 with qc series +
+        // accepted KLEI/ZAND contacts + a bilateral body) is what the
+        // subdivider classifies, but no section_id is passed.
         const subdivideResult = await page.evaluate(
-          async ([base, pid, mid, sid]) => {
+          async ([base, pid, mid]) => {
             const r = await fetch(
               `${base}/projects/${pid}/geology/models/${mid}/geotech/subdivide-all-bodies`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ section_id: sid }),
+                body: JSON.stringify({ litho_model_id: mid }),
               },
             )
             return { status: r.status, body: await r.json() }
           },
-          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, sectionId] as const,
+          [API_BASE, FIXTURE_PROJECT_ID, lithoModelId] as const,
         )
 
-        // Step 4: Verify the endpoint succeeded.
+        // Step 3: Verify the endpoint succeeded.
         expect(
           subdivideResult.status,
           `subdivide-all-bodies returned HTTP ${subdivideResult.status}: ${JSON.stringify(subdivideResult.body)}`,
@@ -137,7 +128,7 @@ test.describe('flow_geotech_subdivide_all_bodies', () => {
           'at least one body must be classified (fixture Section B has KLEI + ZAND bodies)',
         ).toBeGreaterThanOrEqual(1)
 
-        // Step 5: Re-open the project so the shell picks up the newly created
+        // Step 4: Re-open the project so the shell picks up the newly created
         // geotech model + NAD formations.  The React state for
         // geotechFormations/activeGeotechModel only refreshes when the project
         // is opened (useGeologicalModel's [project] useEffect), so a plain
@@ -154,10 +145,10 @@ test.describe('flow_geotech_subdivide_all_bodies', () => {
         await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
         tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
-        // Step 6: Navigate to the Geotech spine stage.
+        // Step 5: Navigate to the Geotech spine stage.
         await goToStage(page, 'Geotech')
 
-        // Step 7: At least one NAD unit row must be visible in the inspector.
+        // Step 6: At least one NAD unit row must be visible in the inspector.
         // The subdivider created NAD formations (geotechFormations filters on
         // isGeotechUnit); the geotechLayers useEffect loads them via listLayers.
         // CPTs 3/4/5 carry realistic qc series → NAD classes are CPT-derived
