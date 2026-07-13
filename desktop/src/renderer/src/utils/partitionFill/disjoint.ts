@@ -433,6 +433,140 @@ export function pairOverlapArea(a: readonly PartitionPoint[], b: readonly Partit
 }
 
 /**
+ * Carve every lens overlay back out of the DIFFERENT-formation regions it
+ * overlaps, in place — the true-partition guarantee for lens overlays (owner
+ * dogfeed 2026-07-13, "sand spilling over the correlation band").
+ *
+ * The per-gap ``carveOverlays`` pass makes a lens rest on the SINGLE tightest
+ * region that encloses its column-edge span, but a lens can still overlap OTHER
+ * different-formation regions in the same gap: a sibling onlap/lens sharing the
+ * same span, a boundary pinch it never rode, or a region its convex clip could
+ * not resolve. At 0.62 fill opacity the lens lithology then tints through the
+ * neighbouring band — a broken partition (and, for the 3D voxel labelling that
+ * consumes this output, a double-labelled cell).
+ *
+ * A lens deliberately overlaps its OWN matrix (same ``formationId``) — that
+ * nested-body overlay is the correct geological representation and is left
+ * untouched. Only DIFFERENT-formation overlaps are removed, and only the LENS is
+ * carved back (the different-formation region is the subtrahend). Two priorities
+ * keep this hole-free:
+ *
+ *   1. A lens is carved out of every DIFFERENT-formation NON-lens region (the
+ *      solid quad/pinch partition) it overlaps. Where the matrix was notched for
+ *      this lens the matrix does not cover the notch, so the subtraction removes
+ *      nothing there and the lens keeps its notch; everywhere else the matrix
+ *      still covers the carved-away space, so no hole appears.
+ *   2. For two overlapping DIFFERENT-formation overlays (the KLEI-band case where
+ *      two overlays ride the same matrix edge and ``insertNotches`` had to drop
+ *      one of two overlapping notches), the EARLIER-in-array overlay wins and the
+ *      LATER one is carved out of it — asymmetric, so the two never mutually
+ *      destroy their shared region (which would leave a hole). Earlier = the onlap
+ *      that laps a real band, emitted before the weaker fully-enclosed lens, so
+ *      the geologically stronger overlay is the one kept.
+ *
+ * Boundaries, formations and body assignments are never changed — the pass only
+ * removes overlap area from lens polygons.
+ *
+ * Runs BEFORE the non-lens hairline pass; it never reads or mutates a non-lens
+ * region, so that pass stays byte-identical.
+ *
+ * Parameters
+ * ----------
+ * regions : SectionRegion[]
+ *     The full region list; mutated in place — carved lens polygons are replaced
+ *     (a lens that splits into pieces keeps the first in its slot, the rest append
+ *     as sibling lens regions; a fully-covered lens is dropped).
+ */
+export function carveLensOverlaysDisjoint(regions: SectionRegion[]): void {
+  const byGap = new Map<number, number[]>()
+  regions.forEach((r, i) => {
+    const list = byGap.get(r.gapIndex) ?? []
+    list.push(i)
+    byGap.set(r.gapIndex, list)
+  })
+
+  const boxes = new Map<number, CarveBbox>()
+  const boxOf = (i: number): CarveBbox => {
+    let b = boxes.get(i)
+    if (!b) {
+      b = carveBbox(regions[i].polygon)
+      boxes.set(i, b)
+    }
+    return b
+  }
+  const simpleCache = new Map<number, boolean>()
+  const isSimple = (i: number): boolean => {
+    let s = simpleCache.get(i)
+    if (s === undefined) {
+      s = earClip(regions[i].polygon) !== null
+      simpleCache.set(i, s)
+    }
+    return s
+  }
+
+  // Per lens index → the different-formation subtrahend rings to carve out of it.
+  const toSubtract = new Map<number, PartitionPoint[][]>()
+  for (const list of byGap.values()) {
+    for (const li of list) {
+      if (regions[li].kind !== 'lens') continue
+      const subs: PartitionPoint[][] = []
+      for (const oj of list) {
+        if (oj === li) continue
+        // Same formation = the lens's own matrix (or a same-litho sibling) — the
+        // legitimate overlay, never carved. Only carve out DIFFERENT lithologies.
+        if (regions[oj].formationId === regions[li].formationId) continue
+        // Overlay-vs-overlay: only carve THIS lens out of an EARLIER overlay (oj <
+        // li). The later overlay yields; the earlier one keeps the shared space, so
+        // the pair never mutually destroys it (which would open a hole). A NON-lens
+        // region is always a subtrahend (the lens must never paint over the solid
+        // partition, regardless of array order).
+        if (regions[oj].kind === 'lens' && oj > li) continue
+        if (!bboxesOverlap(boxOf(li), boxOf(oj))) continue
+        // Measure the real overlap (the lens is simple; the other region may be
+        // concave from earlier notches but subtractPolygon honours it by winding).
+        const ov = pairOverlapArea(regions[li].polygon, regions[oj].polygon, isSimple(li), isSimple(oj))
+        if (ov <= CARVE_MIN_AREA) continue // touch only, not a real overlap
+        subs.push(regions[oj].polygon)
+      }
+      if (subs.length > 0) toSubtract.set(li, subs)
+    }
+  }
+
+  if (toSubtract.size === 0) return
+
+  const newPolys = new Map<number, PartitionPoint[]>()
+  const dropped = new Set<number>()
+  const extras: SectionRegion[] = []
+  for (const [i, subs] of toSubtract) {
+    // A lens is always a simple ring (apex / seam-riding chain) so it is a valid
+    // minuend; subtractPolygon returns clean boundary rings covering exactly
+    // lens \ union(different-formation regions).
+    const origArea = Math.abs(ringSignedArea2(regions[i].polygon)) / 2
+    const pieces = subtractPolygon(regions[i].polygon, subs)
+    const newArea = pieces.reduce((s, p) => s + Math.abs(ringSignedArea2(p)) / 2, 0)
+    if (origArea - newArea < CARVE_MIN_AREA) continue // nothing removed
+    if (pieces.length === 0) {
+      dropped.add(i)
+      continue
+    }
+    newPolys.set(i, pieces[0])
+    for (let k = 1; k < pieces.length; k++) extras.push({ ...regions[i], polygon: pieces[k] })
+  }
+
+  if (newPolys.size === 0 && dropped.size === 0 && extras.length === 0) return
+  for (const [i, poly] of newPolys) regions[i] = { ...regions[i], polygon: poly }
+  if (dropped.size > 0) {
+    let w = 0
+    for (let r = 0; r < regions.length; r++) {
+      if (dropped.has(r)) continue
+      regions[w++] = regions[r]
+    }
+    regions.length = w
+  }
+  if (extras.length > 0) regions.push(...extras)
+}
+
+/**
  * Make every gap's non-lens regions pairwise disjoint, in place — for the
  * HAIRLINE sliver class only (debt #228).
  *
@@ -455,6 +589,13 @@ export function pairOverlapArea(a: readonly PartitionPoint[], b: readonly Partit
  *     The full region list; mutated in place.
  */
 export function makeGapRegionsDisjoint(regions: SectionRegion[]): void {
+  // Lens phase — carve each lens overlay back out of any DIFFERENT-formation
+  // region it overlaps (owner dogfeed 2026-07-13 "sand spilling over the band").
+  // A lens's own-matrix overlap (same formation) is left untouched. Runs first;
+  // it never reads/mutates a non-lens region, so the non-lens phases below stay
+  // byte-identical.
+  carveLensOverlaysDisjoint(regions)
+
   // Phase 0 — repair self-intersecting / degenerate non-lens rings (a carve notch
   // riding its own boundary). The nonzero-winding filled area is preserved, so the
   // render is unchanged; the ring becomes simple, dissolving the degenerate
