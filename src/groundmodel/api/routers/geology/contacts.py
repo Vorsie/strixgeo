@@ -13,7 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import (
+    get_in_project_or_404,
+    require_model_kind,
+)
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.formation_contact import (
     AutoPopulateFromStratigraphyRequest,
@@ -1006,17 +1009,7 @@ async def accept_litho_suggestions(
         project_id,
         detail="Model not found",
     )
-    if model.kind != "lithostratigraphic":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "invalid_model_kind",
-                "message": (
-                    f"Model {model_id} has kind='{model.kind}'; "
-                    "accept-litho-suggestions requires kind='lithostratigraphic'"
-                ),
-            },
-        )
+    require_model_kind(model, "lithostratigraphic", "accept-litho-suggestions")
 
     # Convert API suggestion items back to domain objects so the use case
     # can operate on typed data rather than raw dicts.
@@ -1153,17 +1146,7 @@ async def batch_accept_litho_suggestions(
         project_id,
         detail="Model not found",
     )
-    if model.kind != "lithostratigraphic":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "invalid_model_kind",
-                "message": (
-                    f"Model {model_id} has kind='{model.kind}'; "
-                    "batch-accept-litho-suggestions requires kind='lithostratigraphic'"
-                ),
-            },
-        )
+    require_model_kind(model, "lithostratigraphic", "batch-accept-litho-suggestions")
 
     # Convert each anchor's suggestion items to domain objects.
     anchor_inputs = [

@@ -43,7 +43,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import (
+    get_in_project_or_404,
+    require_model_kind,
+)
 from groundmodel.api.schemas.project.body import (
     BodyBoundaryNodeItem,
     BodyBoundaryResponse,
@@ -292,14 +295,7 @@ async def merge_enclosed_lenses(
         project_id,
         detail="Geological model not found",
     )
-    if model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Model {model_id} is of kind {model.kind!r}; "
-                "lens merging only runs on lithostratigraphic models."
-            ),
-        )
+    require_model_kind(model, MODEL_KIND_LITHOSTRATIGRAPHIC, "merge-enclosed-lenses")
     result = await MergeEnclosedLensBodies(session).execute(
         project_id=project_id,
         model_id=model_id,
@@ -843,7 +839,7 @@ async def recompute_all_absences_for_model(
     HTTPException(422)
         When the model kind is not ``'lithostratigraphic'``.
     """
-    await get_in_project_or_404(
+    model = await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
         detail="Geological model not found",
@@ -851,18 +847,7 @@ async def recompute_all_absences_for_model(
 
     # Kind guard: must be lithostratigraphic — callers that accidentally
     # pass a geological model_id get a clear 422 rather than a silent no-op.
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is not None and model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "wrong_model_kind",
-                "message": (
-                    f"Model {model_id} has kind='{model.kind}'; "
-                    f"recompute-all-absences requires kind='{MODEL_KIND_LITHOSTRATIGRAPHIC}'."
-                ),
-            },
-        )
+    require_model_kind(model, MODEL_KIND_LITHOSTRATIGRAPHIC, "recompute-all-absences")
 
     try:
         result = await RecomputeAllAbsencesForModel(session).execute(

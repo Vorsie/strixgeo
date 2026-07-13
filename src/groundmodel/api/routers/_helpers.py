@@ -67,6 +67,48 @@ def merge_view_state(
     return merged
 
 
+def require_model_kind(model: Any, expected_kind: str, verb: str) -> None:
+    """Raise HTTP 422 unless ``model.kind`` matches ``expected_kind``.
+
+    Wraps the model-kind guard that every litho/geotech verb runs right
+    after ``get_in_project_or_404``: reject a model of the wrong kind
+    with a structured 422 so callers that accidentally pass e.g. a
+    geological ``model_id`` to a litho-only verb get a clear error
+    instead of a silent no-op. Before extraction the same block lived
+    in 5 places with drifting error codes (``wrong_model_kind``, a
+    bare-string detail); the canonical shape is the 4-of-5 majority:
+    ``{"code": "invalid_model_kind", "message": ...}``.
+
+    Parameters
+    ----------
+    model
+        Fetched model row; must expose ``id`` and ``kind`` attributes.
+    expected_kind
+        Required ``kind`` token (e.g. ``"lithostratigraphic"``).
+    verb
+        Short verb name interpolated into the message so the caller can
+        see WHICH operation rejected the model (e.g.
+        ``"accept-litho-suggestions"``).
+
+    Raises
+    ------
+    fastapi.HTTPException
+        Status 422 with ``detail={"code": "invalid_model_kind", ...}``
+        when the kind does not match.
+    """
+    if model.kind != expected_kind:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": (
+                    f"Model {model.id} has kind='{model.kind}'; "
+                    f"{verb} requires kind='{expected_kind}'"
+                ),
+            },
+        )
+
+
 async def get_in_project_or_404(
     fetch: Awaitable[T | None],
     project_id: UUID,

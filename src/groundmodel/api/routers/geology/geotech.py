@@ -21,7 +21,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import (
+    get_in_project_or_404,
+    require_model_kind,
+)
 from groundmodel.api.schemas.project.geotech_suggestion import (
     DivideBoreholeResponse,
     SubdivideAllBodiesRequest,
@@ -111,18 +114,7 @@ async def subdivide_all_bodies(
         project_id,
         detail="Model not found",
     )
-    if model.kind != "lithostratigraphic":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "invalid_model_kind",
-                "message": (
-                    f"Model {model_id} has kind='{model.kind}'; "
-                    "geotech/subdivide-all-bodies requires kind='lithostratigraphic'"
-                ),
-                "actual_kind": model.kind,
-            },
-        )
+    require_model_kind(model, "lithostratigraphic", "geotech/subdivide-all-bodies")
     # The body carries litho_model_id for forward-compatibility; the URL
     # model_id is authoritative. Reject a mismatched body rather than silently
     # discard it (the handler always uses the URL id).
