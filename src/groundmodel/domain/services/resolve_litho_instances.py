@@ -39,7 +39,8 @@ This module also hosts ``connected_formation_ids`` (+ its ``CorrelationEdge``
 input DTO), a separate pure BFS helper consumed by
 ``application.propagate_litho_admixtures`` to walk the formation-level
 correlation graph. It is intentionally kept distinct from the layer-level
-resolver above.
+resolver above (different node kind, different filters), but both share the
+``_bfs_reachable`` traversal core.
 """
 
 from __future__ import annotations
@@ -146,6 +147,39 @@ class ResolveResult:
     layer_to_formation: dict[UUID, UUID]
 
 
+def _bfs_reachable(seed: UUID, adjacency: dict[UUID, set[UUID]]) -> list[UUID]:
+    """Return every node reachable from ``seed``, in BFS discovery order.
+
+    Shared BFS core for :func:`_components` (layer-level resolver) and
+    :func:`connected_formation_ids` (formation-level graph) — the two loops
+    were hand-rolled copies of the same traversal before this helper.
+
+    Parameters
+    ----------
+    seed : UUID
+        Node to start from. Always included (first) in the result.
+    adjacency : dict[UUID, set[UUID]]
+        Undirected adjacency list (both directions populated by the caller).
+        A seed absent from ``adjacency`` yields ``[seed]``.
+
+    Returns
+    -------
+    list[UUID]
+        The connected component containing ``seed``, in discovery order.
+    """
+    visited: set[UUID] = {seed}
+    order: list[UUID] = []
+    queue: deque[UUID] = deque([seed])
+    while queue:
+        cur = queue.popleft()
+        order.append(cur)
+        for nb in adjacency.get(cur, ()):
+            if nb not in visited:
+                visited.add(nb)
+                queue.append(nb)
+    return order
+
+
 def _components(node_ids: set[UUID], adjacency: dict[UUID, set[UUID]]) -> list[list[UUID]]:
     """Return connected components (BFS). Singletons are single-element lists.
 
@@ -166,16 +200,8 @@ def _components(node_ids: set[UUID], adjacency: dict[UUID, set[UUID]]) -> list[l
     for start in node_ids:
         if start in visited:
             continue
-        comp: list[UUID] = []
-        queue: deque[UUID] = deque([start])
-        visited.add(start)
-        while queue:
-            cur = queue.popleft()
-            comp.append(cur)
-            for nb in adjacency.get(cur, ()):
-                if nb not in visited:
-                    visited.add(nb)
-                    queue.append(nb)
+        comp = _bfs_reachable(start, adjacency)
+        visited.update(comp)
         out.append(comp)
     return out
 
@@ -335,13 +361,4 @@ def connected_formation_ids(
         adjacency.setdefault(edge.formation_a_id, set()).add(edge.formation_b_id)
         adjacency.setdefault(edge.formation_b_id, set()).add(edge.formation_a_id)
 
-    visited: set[UUID] = set()
-    queue: deque[UUID] = deque([seed])
-    visited.add(seed)
-    while queue:
-        current = queue.popleft()
-        for neighbour in adjacency.get(current, ()):
-            if neighbour not in visited:
-                visited.add(neighbour)
-                queue.append(neighbour)
-    return visited
+    return set(_bfs_reachable(seed, adjacency))
