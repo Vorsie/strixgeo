@@ -61,7 +61,6 @@ import polars as pl
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
-    DOV_GML_TAG_PREFIX,
     DOV_HORIZONTAL_EPSG,
     DOV_VERTICAL_EPSG,
     DOV_XML_NAMESPACE,
@@ -76,6 +75,9 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
     make_issue as _issue,
 )
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.dov.dov_gml_location import (
+    parse_gml_point_location,
+)
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import float_value, text
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -202,47 +204,20 @@ class DovParser(GroundModelLogger):
         with srsName urn:ogc:def:crs:EPSG::6190 — but the numeric values match
         Belgian Lambert 72 (EPSG:31370), confirmed against the WFS X_mL72/Y_mL72
         properties. We treat them as 31370.
+
+        Shares the structural GML walk with the boring parser via
+        ``parse_gml_point_location``; only the failure channel (warning
+        + Nones, no ValidationIssues) is CPT-specific.
         """
-        location_elem = cpt_elem.find("ligging")  # ligging = location
-        if location_elem is None:
-            self.warning(f"DOV XML '{name}': <ligging> not found — no coordinates")
+        loc = parse_gml_point_location(cpt_elem, "ligging")  # ligging = location
+        if loc.failure_detail is not None:
+            self.warning(f"DOV XML '{name}': {loc.failure_detail}")
             return None, None, None
-
-        point_elem = location_elem.find(f"{DOV_GML_TAG_PREFIX}Point")
-        if point_elem is None:
-            self.warning(
-                f"DOV XML '{name}': <gml:Point> not found inside <ligging>. "
-                f"<ligging> children: {[c.tag for c in location_elem]}"
+        if loc.z_non_numeric is not None:
+            self.debug(
+                f"DOV XML '{name}': <gml:pos> Z component non-numeric: {loc.z_non_numeric!r}"
             )
-            return None, None, None
-
-        pos_elem = point_elem.find(f"{DOV_GML_TAG_PREFIX}pos")
-        if pos_elem is None or not pos_elem.text:
-            self.warning(f"DOV XML '{name}': <gml:pos> empty or missing")
-            return None, None, None
-
-        parts = pos_elem.text.strip().split()
-        if len(parts) < 2:
-            self.warning(
-                f"DOV XML '{name}': <gml:pos> has fewer than 2 components: {pos_elem.text!r}"
-            )
-            return None, None, None
-
-        try:
-            x = float(parts[0])
-            y = float(parts[1])
-        except ValueError:
-            self.warning(f"DOV XML '{name}': <gml:pos> non-numeric: {pos_elem.text!r}")
-            return None, None, None
-
-        z: float | None = None
-        if len(parts) >= 3:
-            try:
-                z = float(parts[2])
-            except ValueError:
-                self.debug(f"DOV XML '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}")
-
-        return x, y, z
+        return loc.x, loc.y, loc.z
 
     def _parse_cone_metadata(
         self, cpt_elem: ET.Element, name: str

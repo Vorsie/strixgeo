@@ -111,7 +111,6 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_BORING_TOTAL_DEPTH_TAG,
     DOV_BORING_TYPE_TAG,
     DOV_BORING_VAN_TAG,
-    DOV_GML_TAG_PREFIX,
     DOV_HORIZONTAL_EPSG,
     DOV_VERTICAL_EPSG,
     DOV_XML_NAMESPACE,
@@ -123,6 +122,9 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
     make_issue as _issue,
 )
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.dov.dov_gml_location import (
+    parse_gml_point_location,
+)
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
     date_iso,
     float_value,
@@ -328,39 +330,28 @@ class DovBoringParser(GroundModelLogger):
         numeric values match Lambert 72 (EPSG:31370). We treat them as 31370 —
         confirmed via the matching WFS Boringen row's X_mL72 / Y_mL72 columns.
         """
-        location_elem = boring_elem.find(DOV_BORING_LOCATION_TAG)
-        if location_elem is None:
-            return self._no_coords(name, f"missing <{DOV_BORING_LOCATION_TAG}> element", issues)
+        loc = parse_gml_point_location(boring_elem, DOV_BORING_LOCATION_TAG)
+        if loc.failure_detail is not None:
+            return self._no_coords(name, loc.failure_detail, issues)
+        x, y = loc.x, loc.y
+        # parse_gml_point_location guarantees x/y non-None on success;
+        # these assertions document the invariant for mypy + the reader.
+        assert x is not None and y is not None  # noqa: S101
 
-        point_elem = location_elem.find(f"{DOV_GML_TAG_PREFIX}Point")
-        if point_elem is None:
-            return self._no_coords(
-                name,
-                f"missing <gml:Point> inside <{DOV_BORING_LOCATION_TAG}> "
-                f"(children: {[c.tag for c in location_elem]})",
-                issues,
+        z = loc.z
+        if loc.z_non_numeric is not None:
+            self.warning(
+                f"DOV boring '{name}': <gml:pos> Z component non-numeric: {loc.z_non_numeric!r}"
             )
-
-        pos_elem = point_elem.find(f"{DOV_GML_TAG_PREFIX}pos")
-        if pos_elem is None or not pos_elem.text:
-            return self._no_coords(name, "empty <gml:pos>", issues)
-
-        parts = pos_elem.text.strip().split()
-        if len(parts) < 2:
-            return self._no_coords(
-                name,
-                f"<gml:pos> only {len(parts)} component(s): {pos_elem.text!r}",
-                issues,
+            issues.append(
+                _issue(
+                    ValidationLevel.WARNING,
+                    "NO_ELEVATION",
+                    f"DOV boring '{name}': <gml:pos> Z component non-numeric: "
+                    f"{loc.z_non_numeric!r}",
+                )
             )
-
-        try:
-            x = float(parts[0])
-            y = float(parts[1])
-        except ValueError:
-            return self._no_coords(name, f"non-numeric <gml:pos> {pos_elem.text!r}", issues)
-
-        z: float | None = None
-        if len(parts) < 3:
+        elif z is None:
             # X/Y only — surface elevation absent. Cross-borehole layer
             # correlation needs Z, so flag it for the import report. The
             # orchestrator (Phase C) can fill from the WFS Z_mTAW column.
@@ -370,23 +361,9 @@ class DovBoringParser(GroundModelLogger):
                     ValidationLevel.WARNING,
                     "NO_ELEVATION",
                     f"DOV boring '{name}': <gml:pos> has no Z component "
-                    f"({len(parts)} component(s))",
+                    f"({loc.n_components} component(s))",
                 )
             )
-        else:
-            try:
-                z = float(parts[2])
-            except ValueError:
-                self.warning(
-                    f"DOV boring '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}"
-                )
-                issues.append(
-                    _issue(
-                        ValidationLevel.WARNING,
-                        "NO_ELEVATION",
-                        f"DOV boring '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}",
-                    )
-                )
 
         if x == 0.0 and y == 0.0:
             issues.append(
