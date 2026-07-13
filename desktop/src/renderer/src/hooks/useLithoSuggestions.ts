@@ -168,6 +168,16 @@ export type AcceptLithoUndoOp = {
   acceptedEntries: ReadonlyArray<{ anchorId: string; idx: number }>
 }
 
+/** Accepted-index marks one accept applies to a ghost entry (see
+ * ``commitAcceptTail``). ``contactIdsByIdx`` is set only on the one-layer
+ * accept paths, where every returned contact id belongs to the single
+ * accepted suggestion. */
+type AcceptedGhostMark = {
+  anchorId: string
+  indices: readonly number[]
+  contactIdsByIdx?: ReadonlyMap<number, readonly string[]>
+}
+
 // ---- Module-local helpers --------------------------------------------------
 
 /**
@@ -994,6 +1004,87 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [project, pushUndo, refetchLithoContacts, refetchFormations],
   )
 
+  // ---- Shared post-accept tail (audit 2026-07-12 FE-HOOKS-04, debt #232) ----
+  // Every accept handler ends with the same sequence; it lived as four
+  // drifting copies before this helper. Steps, in order:
+  //   1. recordCreatedRows — land the created ids in the session-imports
+  //      manifest so the amber dirty flag lights (debt #144).
+  //   2. Forward updated_section so the section's explicit-content filter
+  //      includes the newly seeded contacts (#57 class trap).
+  //   3. Mark the accepted indices on their ghost entries in the unified Map
+  //      (debt #77) so the overlay shows the tick. One-layer paths also stash
+  //      the returned contact ids per idx (contactIdsByAcceptedIdx) so the
+  //      cross-store dispatch in ``useBoundaryDrag`` can resolve the committed
+  //      contact by IDENTITY (dogfeed 2026-05-30); multi-layer paths skip it
+  //      (no idx→contact association without a backend ordering contract) and
+  //      fall back to the documented depth-tolerance match.
+  //   4. Refetch litho contacts (committed contacts must land in local state
+  //      — dogfeed bug 2026-05-20) + the global formations list (debt #89:
+  //      lithoFormations derives from it, updating inspector + picker).
+  //   5. Push one undo entry for the whole accept (dogfeed 2026-05-22).
+  const commitAcceptTail = useCallback(
+    (params: {
+      createdContactIds: readonly string[]
+      createdFormationIds: readonly string[]
+      updatedSection: CrossSectionResponse | null | undefined
+      onSectionUpdated: ((s: CrossSectionResponse) => void) | undefined
+      marks: readonly AcceptedGhostMark[]
+      undoDescription: string
+      modelId: string
+      undoOps: AcceptLithoUndoOp[]
+    }): void => {
+      recordCreatedRows(addToSessionImports, {
+        created_contact_ids: [...params.createdContactIds],
+        created_formation_ids: [...params.createdFormationIds],
+      })
+      if (params.updatedSection != null && params.onSectionUpdated != null) {
+        params.onSectionUpdated(params.updatedSection)
+      }
+      if (params.marks.length > 0) {
+        // Single setState covering every mark (the batch path marks many
+        // anchors at once); Map identity is preserved when nothing matched.
+        setGhostsByAnchor(prev => {
+          const next = new Map(prev)
+          let changed = false
+          for (const mark of params.marks) {
+            const existing = next.get(mark.anchorId)
+            if (!existing) continue
+            const nextAccepted = new Set(existing.accepted)
+            for (const i of mark.indices) nextAccepted.add(i)
+            if (mark.contactIdsByIdx) {
+              const nextContactIds = new Map(existing.contactIdsByAcceptedIdx ?? [])
+              for (const [i, ids] of mark.contactIdsByIdx) nextContactIds.set(i, ids)
+              next.set(mark.anchorId, {
+                ...existing,
+                accepted: nextAccepted,
+                contactIdsByAcceptedIdx: nextContactIds,
+              })
+            } else {
+              next.set(mark.anchorId, { ...existing, accepted: nextAccepted })
+            }
+            changed = true
+          }
+          return changed ? next : prev
+        })
+      }
+      refetchLithoContacts()
+      refetchFormations()
+      pushAcceptLithoUndo(
+        params.undoDescription,
+        params.modelId,
+        params.undoOps,
+        params.onSectionUpdated ?? null,
+      )
+    },
+    [
+      addToSessionImports,
+      setGhostsByAnchor,
+      refetchLithoContacts,
+      refetchFormations,
+      pushAcceptLithoUndo,
+    ],
+  )
+
   // Accept one suggestion layer via the bulk endpoint (one-item payload).
   // The server handles formation find-or-create and section seeding
   // atomically. The caller MUST forward onSectionUpdated
@@ -1044,58 +1135,33 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
 
-        // Debt #144: an accept writes to the DB immediately but must also
-        // land its created rows in the session-imports manifest, or the amber
-        // dirty flag never lights and the .gmproj goes silently stale on close.
-        recordCreatedRows(addToSessionImports, result)
-        // Forward updated_section so the section's explicit-content filter
-        // includes the newly seeded contacts — #57 class trap.
-        if (result.updated_section != null && onSectionUpdated != null) {
-          onSectionUpdated(result.updated_section)
-        }
-        // Mark accepted so the ghost overlay shows the tick — updates
-        // the focused entry in the unified Map (debt #77).
-        //
-        // Robust-fix (dogfeed 2026-05-30 follow-up to Slice 3): also
-        // stash the contact ids the API returned for this suggestion
-        // so the cross-store dispatch in ``useBoundaryDrag`` can look
-        // up the matching contact by identity (not by depth match).
-        // The single-suggestion accept path is the simplest case —
-        // every returned contact id belongs to THIS suggestion.
+        // Shared post-accept tail (manifest, #57 section forward, ghost tick,
+        // refetches, undo). One-layer accept is the simplest identity case —
+        // every returned contact id belongs to THIS suggestion, so the mark
+        // carries contactIdsByIdx (dogfeed 2026-05-30 robust-fix).
         const allContactIds = [
           ...result.created_contact_ids,
           ...result.found_contact_ids,
         ]
         const focusedAcceptId = focusedSuggestAnchorIdRef.current
-        if (focusedAcceptId !== null) {
-          _updateGhostEntry(focusedAcceptId, existing => {
-            const nextAccepted = new Set(existing.accepted)
-            nextAccepted.add(idx)
-            const nextContactIds = new Map(existing.contactIdsByAcceptedIdx ?? [])
-            nextContactIds.set(idx, allContactIds)
-            return { accepted: nextAccepted, contactIdsByAcceptedIdx: nextContactIds }
-          })
-        }
-        // Refetch litho contacts so the committed contact lands in
-        // local state. Without this the section view keeps rendering
-        // off stale `lithoContacts` — when the user focuses a
-        // different investigation and re-suggests, the previous
-        // CPT's accepted contacts vanish from view (dogfeed bug
-        // 2026-05-20). The contact IS in the DB; only local state
-        // was stale.
-        refetchLithoContacts()
-        // Refresh the global formations list so newly-created units land
-        // in the inspector + picker dialog + overlays. lithoFormations
-        // is a useMemo derived from formations (debt #89) so this single
-        // call updates both.
-        refetchFormations()
-        // Record the accept on the undo stack (dogfeed 2026-05-22 —
-        // accept was the one mutation Ctrl+Z couldn't reach).
-        // Re-uses focusedAcceptId (same ref, same call frame).
-        pushAcceptLithoUndo(
-          `Accept litho layer (${layer.suggested_lithology})`,
-          model.id,
-          [
+        commitAcceptTail({
+          createdContactIds: result.created_contact_ids,
+          createdFormationIds: result.created_formation_ids,
+          updatedSection: result.updated_section,
+          onSectionUpdated,
+          marks:
+            focusedAcceptId !== null
+              ? [
+                  {
+                    anchorId: focusedAcceptId,
+                    indices: [idx],
+                    contactIdsByIdx: new Map([[idx, allContactIds]]),
+                  },
+                ]
+              : [],
+          undoDescription: `Accept litho layer (${layer.suggested_lithology})`,
+          modelId: model.id,
+          undoOps: [
             {
               body,
               createdContactIds: result.created_contact_ids.slice(),
@@ -1104,8 +1170,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
                 focusedAcceptId !== null ? [{ anchorId: focusedAcceptId, idx }] : [],
             },
           ],
-          onSectionUpdated ?? null,
-        )
+        })
         // Debt #134-C — return the API result so the caller (the
         // SectionsCanvas wrapper) can run the post-accept litho-geo
         // snap check: scan the new contact ids against the geological
@@ -1131,12 +1196,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       lithoSuggestionAnchorKind,
       lithoSuggestionInvestigationId,
       effectiveLithoSuggestionAt,
-      _updateGhostEntry,
-      refetchLithoContacts,
-      refetchFormations,
+      commitAcceptTail,
       toast,
-      pushAcceptLithoUndo,
-      addToSessionImports,
     ],
   )
 
@@ -1190,37 +1251,23 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           'geology',
           `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
-        // Debt #144: record created rows so accept-all lights the dirty flag.
-        recordCreatedRows(addToSessionImports, result)
-        // Forward updated_section — #57 invariant.
-        if (result.updated_section != null && onSectionUpdated != null) {
-          onSectionUpdated(result.updated_section)
-        }
-        // Mark all pending layers accepted in the focused entry
-        // (debt #77 — single + bulk now share the unified Map).
+        // Shared post-accept tail. Multi-layer accept: no contactIdsByIdx —
+        // associating N returned contact ids to N suggestion indices needs a
+        // backend ordering contract (owner decision pending), so the
+        // cross-store dispatch falls back to the depth-tolerance match.
         const focusedAllId = focusedSuggestAnchorIdRef.current
-        if (focusedAllId !== null) {
-          _updateGhostEntry(focusedAllId, existing => {
-            const nextAccepted = new Set(existing.accepted)
-            for (const i of pendingIndices) nextAccepted.add(i)
-            return { accepted: nextAccepted }
-          })
-        }
-        // Refetch litho contacts so the committed contacts land in
-        // local state — without this the previous investigation's
-        // committed contacts vanish from the section view when the
-        // user re-focuses (dogfeed bug 2026-05-20, see handler above).
-        refetchLithoContacts()
-        // Single global-formations refresh — lithoFormations derives
-        // from it (debt #89), so the inspector roster + picker dialog
-        // update automatically.
-        refetchFormations()
-        // One undo entry for the whole accept-all (dogfeed 2026-05-22).
-        // Re-uses focusedAllId (same ref, same call frame).
-        pushAcceptLithoUndo(
-          `Accept all litho layers (${pendingLayers.length})`,
-          model.id,
-          [
+        commitAcceptTail({
+          createdContactIds: result.created_contact_ids,
+          createdFormationIds: result.created_formation_ids,
+          updatedSection: result.updated_section,
+          onSectionUpdated,
+          marks:
+            focusedAllId !== null
+              ? [{ anchorId: focusedAllId, indices: pendingIndices }]
+              : [],
+          undoDescription: `Accept all litho layers (${pendingLayers.length})`,
+          modelId: model.id,
+          undoOps: [
             {
               body,
               createdContactIds: result.created_contact_ids.slice(),
@@ -1231,8 +1278,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
                   : [],
             },
           ],
-          onSectionUpdated ?? null,
-        )
+        })
       } catch (err) {
         log.error('geology', 'acceptAllLithoSuggestions failed', err)
         toast('error', 'Could not accept all litho suggestions.')
@@ -1251,12 +1297,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       lithoSuggestionInvestigationId,
       lithoSuggestionRejected,
       effectiveLithoSuggestionAt,
-      _updateGhostEntry,
-      refetchLithoContacts,
-      refetchFormations,
+      commitAcceptTail,
       toast,
-      pushAcceptLithoUndo,
-      addToSessionImports,
     ],
   )
 
@@ -1450,24 +1492,30 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           'geology',
           `acceptBulkLitho ok anchor=${anchorId} idx=${idx} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
-        // Debt #144: record created rows so this bulk accept lights the dirty flag.
-        recordCreatedRows(addToSessionImports, result)
-        if (result.updated_section != null && onSectionUpdated != null) {
-          onSectionUpdated(result.updated_section)
-        }
-        // Mark this idx accepted on the anchor (unified Map — debt #77).
-        _updateGhostEntry(anchorId, existing => {
-          const nextAccepted = new Set(existing.accepted)
-          nextAccepted.add(idx)
-          return { accepted: nextAccepted }
-        })
-        refetchLithoContacts()
-        refetchFormations()
-        // Record the accept on the undo stack (dogfeed 2026-05-22).
-        pushAcceptLithoUndo(
-          `Accept litho layer (${layer.suggested_lithology})`,
-          model.id,
-          [
+        // Shared post-accept tail. One-layer accept: every returned contact
+        // id belongs to THIS suggestion, so the mark carries contactIdsByIdx
+        // — the same identity association the focused single-accept path
+        // records (debt #232: this path previously left it unpopulated and
+        // the cross-store dispatch fell back to the depth-tolerance match).
+        const allContactIds = [
+          ...result.created_contact_ids,
+          ...result.found_contact_ids,
+        ]
+        commitAcceptTail({
+          createdContactIds: result.created_contact_ids,
+          createdFormationIds: result.created_formation_ids,
+          updatedSection: result.updated_section,
+          onSectionUpdated,
+          marks: [
+            {
+              anchorId,
+              indices: [idx],
+              contactIdsByIdx: new Map([[idx, allContactIds]]),
+            },
+          ],
+          undoDescription: `Accept litho layer (${layer.suggested_lithology})`,
+          modelId: model.id,
+          undoOps: [
             {
               body,
               createdContactIds: result.created_contact_ids.slice(),
@@ -1475,8 +1523,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
               acceptedEntries: [{ anchorId, idx }],
             },
           ],
-          onSectionUpdated ?? null,
-        )
+        })
       } catch (err) {
         log.error('geology', `acceptBulkLitho failed anchor=${anchorId} idx=${idx}`, err)
         toast('error', 'Could not accept the litho suggestion.')
@@ -1490,12 +1537,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [
       project,
       ghostsByAnchor,
-      _updateGhostEntry,
-      refetchLithoContacts,
-      refetchFormations,
+      commitAcceptTail,
       toast,
-      pushAcceptLithoUndo,
-      addToSessionImports,
     ],
   )
 
@@ -1579,9 +1622,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       const resultByAnchor = new Map(
         resp.anchors.map(a => [(a.cpt_id ?? a.borehole_id) as string, a]),
       )
-      if (resp.updated_section != null && onSectionUpdated != null) {
-        onSectionUpdated(resp.updated_section)
-      }
       // Mark accepted indices for every committed anchor in a single setState,
       // and collect one undo op per committed anchor.
       const collectedOps: AcceptLithoUndoOp[] = []
@@ -1608,24 +1648,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           acceptedEntries: plan.pendingIndices.map(idx => ({ anchorId: plan.anchorId, idx })),
         })
       }
-      recordCreatedRows(addToSessionImports, {
-        created_formation_ids: createdFormationIdsAll,
-        created_contact_ids: createdContactIdsAll,
-      })
-      setGhostsByAnchor(prev => {
-        const next = new Map(prev)
-        let changed = false
-        for (const [anchorId, indices] of acceptedByAnchor) {
-          const existing = next.get(anchorId)
-          if (!existing) continue
-          const nextAccepted = new Set(existing.accepted)
-          for (const i of indices) nextAccepted.add(i)
-          next.set(anchorId, { ...existing, accepted: nextAccepted })
-          changed = true
-        }
-        return changed ? next : prev
-      })
-
       const committedCount = plans.length - failures.length
       log.success(
         'geology',
@@ -1647,16 +1669,21 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       if (failures.length > 0) {
         toast('error', `Accepted ${committedCount}/${plans.length} — ${failures.length} failed.`)
       }
-      refetchLithoContacts()
-      refetchFormations()
-      pushAcceptLithoUndo(
-        `Accept all litho layers (${collectedOps.length} investigation${
+      // Shared post-accept tail. Multi-anchor, multi-layer accept: no
+      // contactIdsByIdx (see handleAcceptAllLithoSuggestions — the
+      // cross-store dispatch falls back to the depth-tolerance match).
+      commitAcceptTail({
+        createdContactIds: createdContactIdsAll,
+        createdFormationIds: createdFormationIdsAll,
+        updatedSection: resp.updated_section,
+        onSectionUpdated,
+        marks: Array.from(acceptedByAnchor, ([anchorId, indices]) => ({ anchorId, indices })),
+        undoDescription: `Accept all litho layers (${collectedOps.length} investigation${
           collectedOps.length === 1 ? '' : 's'
         })`,
-        model.id,
-        collectedOps,
-        onSectionUpdated ?? null,
-      )
+        modelId: model.id,
+        undoOps: collectedOps,
+      })
     },
     // reason: activeLithoModelRef is a ref. bulkGhostsByAnchor is in
     // deps so the snapshot the loop iterates is always the latest
@@ -1665,11 +1692,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [
       project,
       bulkGhostsByAnchor,
-      refetchLithoContacts,
-      refetchFormations,
+      commitAcceptTail,
       toast,
-      pushAcceptLithoUndo,
-      addToSessionImports,
     ],
   )
 
