@@ -166,10 +166,11 @@ async def merge_enclosed_lenses(
 ) -> MergeEnclosedLensResponse:
     """Merge a lithology split only by a local lens into one body (Fill bands).
 
-    For each enclosed lens on the active section whose lithology is ABSENT on a
-    neighbour (a true pinch), correlates the bracketing host halves to that
-    neighbour's continuous host and re-resolves, so they become one body. The
-    lens stays its own body. Idempotent — re-running adds only new edges.
+    For a DIFFERENT-lithology enclosed lens absent on a neighbour (a true pinch),
+    correlates the bracketing host halves to that neighbour's continuous host and
+    re-resolves, so they become one body while the lens keeps its own body. A
+    SAME-lithology enclosed lens (owner ruling 2026-07-13) merges INTO its matrix
+    body instead. Idempotent — re-running adds only new edges.
 
     Parameters
     ----------
