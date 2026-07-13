@@ -6,30 +6,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+# Re-exported here for backwards compatibility — the shared schema now
+# lives in ``groundmodel.api.schemas.project.admixture_item`` (it also
+# serves the admixture-propagation request family).
+from groundmodel.api.schemas.project.admixture_item import AdmixtureItem
 from groundmodel.shared.constants.litho_constants import BaseLithology
 from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 
-
-class AdmixtureItem(BaseModel):
-    """Secondary soil component within a suggested litho layer.
-
-    Mirrors :class:`groundmodel.domain.value_objects.admixture.Admixture`
-    at the API boundary.
-
-    Parameters
-    ----------
-    soil_code : str
-        DOV vocabulary code (e.g. ``"KL"`` for clay, ``"GL"`` for glauconite).
-    amount : str
-        Amount qualifier (e.g. ``"Z"`` = weak, ``"M"`` = medium, ``"S"`` =
-        strong).  Empty string when unspecified.
-    locally : bool
-        ``True`` when the admixture is only locally present within the interval.
-    """
-
-    soil_code: str
-    amount: str = ""
-    locally: bool = False
+__all__ = ["AdmixtureItem", "LithoLayerSuggestionItem"]
 
 
 class LithoLayerSuggestionItem(BaseModel):

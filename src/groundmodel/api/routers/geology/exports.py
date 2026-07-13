@@ -12,7 +12,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import (
+    get_in_project_or_404,
+    safe_filename_stem,
+)
 from groundmodel.application.build_ground_model_snapshot import (
     BuildGroundModelSnapshot,
 )
@@ -79,12 +82,7 @@ async def export_model_plaxis3d(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     payload = PlaxisExporter().export(snapshot)
-    safe_name = (
-        "".join(
-            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.project_name
-        ).strip()
-        or "project"
-    )
+    safe_name = safe_filename_stem(snapshot.project_name, "project")
     filename = f"{safe_name}_plaxis3d.py"
     return Response(
         content=payload,

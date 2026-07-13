@@ -14,7 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404, merge_view_state
+from groundmodel.api.routers._helpers import (
+    get_in_project_or_404,
+    merge_view_state,
+    safe_filename_stem,
+)
 from groundmodel.api.schemas.project.batch_create_sections_request import (
     BatchCreateSectionsRequest,
 )
@@ -139,31 +143,6 @@ async def _build_export_snapshot(
         ) from exc
     _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
     return snapshot
-
-
-def _section_safe_name(section_name: str) -> str:
-    """Sanitise a section name into a safe filename stem.
-
-    Strips characters that cause problems in filenames or
-    ``Content-Disposition`` headers (forward slashes, control chars,
-    double-quotes, etc.). Falls back to ``"section"`` when nothing
-    safe remains.
-
-    Parameters
-    ----------
-    section_name : str
-        Raw section name from the snapshot.
-
-    Returns
-    -------
-    str
-        Alphanumeric + ``-_`` filename stem, stripped of leading/trailing
-        spaces.
-    """
-    return (
-        "".join(c if c.isalnum() or c in ("-", "_", " ") else "_" for c in section_name).strip()
-        or "section"
-    )
 
 
 @router.post(
@@ -373,7 +352,7 @@ async def export_section_dxf(
     logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/dxf (model={model_id})")
     snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     payload = DxfSectionExporter().export(snapshot)
-    filename = f"{_section_safe_name(snapshot.section_name)}.dxf"
+    filename = f"{safe_filename_stem(snapshot.section_name, 'section')}.dxf"
     return Response(
         content=payload,
         media_type="application/dxf",
@@ -442,7 +421,7 @@ async def export_section_pdf(
         notes=notes or "",
     )
     payload = SectionPdfReportExporter().export(snapshot, metadata)
-    filename = f"{_section_safe_name(snapshot.section_name)}.pdf"
+    filename = f"{safe_filename_stem(snapshot.section_name, 'section')}.pdf"
     return Response(
         content=payload,
         media_type="application/pdf",
@@ -496,7 +475,7 @@ async def export_section_plaxis2d(
     )
     snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     payload = PlaxisSectionExporter().export(snapshot)
-    filename = f"{_section_safe_name(snapshot.section_name)}_plaxis2d.py"
+    filename = f"{safe_filename_stem(snapshot.section_name, 'section')}_plaxis2d.py"
     return Response(
         content=payload,
         media_type="text/x-python",

@@ -67,6 +67,34 @@ def merge_view_state(
     return merged
 
 
+def safe_filename_stem(name: str, fallback: str) -> str:
+    """Sanitise a user-supplied name into a safe filename stem.
+
+    Strips characters that cause problems in filenames or
+    ``Content-Disposition`` headers (forward slashes, control chars,
+    double-quotes, etc.), replacing them with underscores. Falls back
+    to ``fallback`` when nothing safe remains. Single source of truth
+    for download-filename safety across the export endpoints.
+
+    Parameters
+    ----------
+    name : str
+        Raw name (project name, section name, ...).
+    fallback : str
+        Stem to use when the sanitised result is empty (e.g.
+        ``"project"`` or ``"section"``).
+
+    Returns
+    -------
+    str
+        Alphanumeric + ``-_`` + space filename stem, stripped of
+        leading/trailing spaces.
+    """
+    return (
+        "".join(c if c.isalnum() or c in ("-", "_", " ") else "_" for c in name).strip() or fallback
+    )
+
+
 def require_model_kind(model: Any, expected_kind: str, verb: str) -> None:
     """Raise HTTP 422 unless ``model.kind`` matches ``expected_kind``.
 

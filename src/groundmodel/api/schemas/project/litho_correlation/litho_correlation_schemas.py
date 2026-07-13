@@ -15,26 +15,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from groundmodel.api.schemas.project.admixture_item import AdmixtureItem
 from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
-
-
-class AdmixtureItemSchema(BaseModel):
-    """One admixture entry in a litho formation's admixture list.
-
-    Attributes
-    ----------
-    soil_code : str
-        BaseLithology token for the admixture (ZAND, KLEI, SILT, GRIND, VEEN,
-        or an extended admixture code such as ZN, KL, SL, GR, VE, OM).
-    amount : str
-        Qualitative amount token (e.g. 'M' = moderate, 'S' = strongly).
-    locally : bool
-        ``True`` when the admixture is present only locally (sporadic lens).
-    """
-
-    soil_code: str
-    amount: str
-    locally: bool
 
 
 class PropagateAdmixturesRequest(BaseModel):
@@ -46,13 +28,13 @@ class PropagateAdmixturesRequest(BaseModel):
         Any formation in the target correlated body.  BFS finds every other
         formation in the same connected component and applies the admixtures
         to all of them.
-    admixtures : list[AdmixtureItemSchema]
+    admixtures : list[AdmixtureItem]
         The new admixture list to write.  An empty list clears admixtures for
         the entire correlated body.
     """
 
     formation_id: UUID
-    admixtures: list[AdmixtureItemSchema] = []
+    admixtures: list[AdmixtureItem] = []
 
 
 class PropagateAdmixturesResponse(BaseModel):
