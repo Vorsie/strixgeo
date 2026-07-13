@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from groundmodel.domain.services.tin_surface import evaluate_tin_at
+from groundmodel.domain.services.tin_surface import evaluate_tin_at, nearest_vertex_elevation
 from groundmodel.domain.value_objects.tin_surface import TinSurface
 
 
@@ -126,7 +126,6 @@ class SurfaceBound:
             return elevation
         if not self.vertices:
             raise ValueError("SurfaceBound has no vertices to sample")
-        # Off-footprint: nearest-vertex elevation (squared distance — no sqrt
-        # needed for the arg-min).  Matches eval_geo_bounded_cycles.band_index.
-        nearest = min(self.vertices, key=lambda v: (v[0] - x) ** 2 + (v[1] - y) ** 2)
-        return nearest[2]
+        # Off-footprint: nearest-vertex elevation (shared fallback helper).
+        # Matches eval_geo_bounded_cycles.band_index.
+        return nearest_vertex_elevation(self.vertices, x, y)

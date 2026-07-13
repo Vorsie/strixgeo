@@ -44,6 +44,7 @@ non-collinear pick before interpolation produces anything.
 from __future__ import annotations
 
 import hashlib
+import math
 import struct
 from collections.abc import Sequence
 
@@ -72,6 +73,7 @@ __all__ = [
     "compute_tin",
     "checksum_contacts",
     "evaluate_tin_at",
+    "nearest_vertex_elevation",
     "slice_tin",
 ]
 
@@ -315,6 +317,43 @@ def evaluate_tin_at(surface: TinSurface, x: float, y: float) -> float | None:
         if w_a >= 0.0 and w_b >= 0.0 and w_c >= 0.0:
             return w_a * az + w_b * bz + w_c * cz
     return None
+
+
+def nearest_vertex_elevation(
+    vertices: Sequence[tuple[float, float, float]], x: float, y: float
+) -> float:
+    """Return the elevation of the vertex nearest to ``(x, y)``.
+
+    Shared off-footprint fallback for TIN sampling: when
+    :func:`evaluate_tin_at` returns ``None`` (the query point is outside
+    every triangle), callers degrade to the closest vertex's elevation so
+    they always hand back a finite value. Distance is compared squared —
+    no ``sqrt`` needed for the arg-min. Consumed by
+    ``ModelDomain.top_at`` / ``deep_base_at`` and ``SurfaceBound.evaluate``
+    (previously two hand-rolled copies).
+
+    Parameters
+    ----------
+    vertices : Sequence[tuple[float, float, float]]
+        TIN vertices as ``(x_m, y_m, elevation_m)``.
+    x, y : float
+        Query coordinates in the surface's CRS.
+
+    Returns
+    -------
+    float
+        Elevation of the closest vertex by Euclidean distance; ``0.0``
+        when ``vertices`` is empty (callers that need a hard error guard
+        for the empty case before calling).
+    """
+    best_dist = math.inf
+    best_elev = 0.0
+    for vx, vy, vz in vertices:
+        d = (vx - x) ** 2 + (vy - y) ** 2
+        if d < best_dist:
+            best_dist = d
+            best_elev = vz
+    return best_elev
 
 
 def slice_tin(surface: TinSurface, line: SectionLine2D) -> list[SlicePoint]:

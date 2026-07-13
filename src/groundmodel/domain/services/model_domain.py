@@ -39,6 +39,7 @@ from groundmodel.domain.services.tin_surface import (
     ContactPoint3D,
     compute_tin,
     evaluate_tin_at,
+    nearest_vertex_elevation,
 )
 from groundmodel.domain.services.tin_surface_constants import CONCAVE_HULL_ALPHA_FACTOR
 from groundmodel.domain.value_objects.tin_surface import TinSurface
@@ -275,36 +276,6 @@ def deep_reaching_mask(
 # ---------------------------------------------------------------------------
 
 
-def _nearest_vertex_elevation(
-    vertices: list[tuple[float, float, float]], x: float, y: float
-) -> float:
-    """Return the elevation of the vertex nearest to (x, y).
-
-    Used as a fallback when ``evaluate_tin_at`` returns ``None`` (the query
-    point is outside the TIN's footprint).
-
-    Parameters
-    ----------
-    vertices : list[tuple[float, float, float]]
-        TIN vertices as (x_m, y_m, elevation_m).
-    x, y : float
-        Query coordinates.
-
-    Returns
-    -------
-    float
-        Elevation of the closest vertex by Euclidean distance.
-    """
-    best_dist = math.inf
-    best_elev = 0.0
-    for vx, vy, vz in vertices:
-        d = (vx - x) ** 2 + (vy - y) ** 2
-        if d < best_dist:
-            best_dist = d
-            best_elev = vz
-    return best_elev
-
-
 class ModelDomain:
     """Spatial bounds of the loft: footprint + top + deep-base surfaces.
 
@@ -446,7 +417,7 @@ class ModelDomain:
         """
         result = evaluate_tin_at(self._top, x, y)
         if result is None:
-            return _nearest_vertex_elevation(self._top.vertices, x, y)
+            return nearest_vertex_elevation(self._top.vertices, x, y)
         return result
 
     def deep_base_at(self, x: float, y: float) -> float:
@@ -468,7 +439,7 @@ class ModelDomain:
         """
         result = evaluate_tin_at(self._base, x, y)
         if result is None:
-            return _nearest_vertex_elevation(self._base.vertices, x, y)
+            return nearest_vertex_elevation(self._base.vertices, x, y)
         return result
 
 
