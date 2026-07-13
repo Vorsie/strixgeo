@@ -37,6 +37,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from tests.integration._litho_builders import (
     contact as _contact,
@@ -264,3 +265,89 @@ async def test_no_enclosed_lens_is_noop(
 
     assert result.edges_created == 0
     assert result.edges_skipped_existing == 0
+
+
+# ---------------------------------------------------------------------------
+# MB3 — SAME-formation enclosed lens merges INTO its matrix body
+# (owner ruling 2026-07-13). A ZAND lens (distinct formation row, same
+# litho_main_soil_code="ZAND") enclosed by ZAND matrix top/bottom must end up
+# sharing ONE body_id after the merge, not three separate bodies.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_same_litho_enclosed_lens_merges_into_matrix_body(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """A same-litho enclosed lens (ZAND · ZAND-lens · ZAND on one column) resolves
+    to ONE body after the merge — the enclosed same-formation unit merges into its
+    matrix body rather than staying its own body.
+    """
+    geo = _geo_model(project, name="Geo MELB MB3")
+    litho = _litho_model(project, geo, name="Litho MELB MB3")
+    geo_parent = _geo_parent(project, name="Quaternary MELB MB3")
+
+    # Two DISTINCT ZAND formation rows, both litho_main_soil_code="ZAND", so the
+    # middle layer is a distinct same-soil unit (a same-formation lens by the
+    # merge axis) — the resolver would otherwise leave it its own body.
+    f_zand_matrix = _formation(
+        project, geo_parent, name="ZAND matrix MB3", soil_code="ZAND", order=1
+    )
+    f_zand_lens = _formation(project, geo_parent, name="ZAND lens MB3", soil_code="ZAND", order=2)
+
+    bh_a = _borehole(project.id, suffix="MB3-A", x=152000.0, elevation_m=0.0)
+    db_session.add_all([geo, litho, geo_parent, f_zand_matrix, f_zand_lens, bh_a])
+    await db_session.flush()
+
+    # Column A: ZAND(matrix) 0-3 m, ZAND(lens) 3-5 m, ZAND(matrix) 5-10 m.
+    ca_top = _contact(litho, f_zand_matrix, bh_a, depth=0.0)
+    ca_lens = _contact(litho, f_zand_lens, bh_a, depth=3.0)
+    ca_bot = _contact(litho, f_zand_matrix, bh_a, depth=5.0)
+    db_session.add_all([ca_top, ca_lens, ca_bot])
+    await db_session.flush()
+
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Sec-MELB-MB3",
+        start_x=151900.0,
+        start_y=200000.0,
+        end_x=152100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=500.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+        seeded_formation_contact_ids=[],
+        vertical_exaggeration=1.0,
+        display_order=0,
+    )
+    db_session.add(section)
+    await db_session.commit()
+
+    await MergeEnclosedLensBodies(db_session).execute(
+        project_id=project.id,
+        model_id=litho.id,
+        section_id=section.id,
+    )
+
+    # After the merge all three accepted ZAND layers must share one body_id.
+    body_ids = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.body_id).where(
+                    LithoLayerOrm.model_id == litho.id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(body_ids) == 3, f"Expected 3 accepted ZAND layers; got {len(body_ids)}"
+    assert all(b is not None for b in body_ids), "Every merged layer must carry a body_id"
+    assert len(set(body_ids)) == 1, (
+        f"Same-formation enclosed lens must merge into its matrix body — expected "
+        f"one shared body_id, got {len(set(body_ids))} distinct: {set(body_ids)}"
+    )
