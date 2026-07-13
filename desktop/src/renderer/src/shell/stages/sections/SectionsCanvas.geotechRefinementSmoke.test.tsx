@@ -59,11 +59,15 @@ import SectionsCanvas from './SectionsCanvas'
 // stub only its two heavyweight children.
 // ---------------------------------------------------------------------------
 
+import { useSectionScope } from '../../../components/sections/SectionScopeContext'
+
 let capturedRefinement: GeotechRefinement | undefined = undefined
 
+// The refinement bundle rides SectionScopeContext since the #201 round-2
+// rerouting — the mock reads it from the scope, not from a prop.
 vi.mock('../../../components/SectionPanel', () => ({
-  default: (props: { refinement?: GeotechRefinement; [key: string]: unknown }) => {
-    capturedRefinement = props.refinement
+  default: () => {
+    capturedRefinement = useSectionScope().refinement
     return null
   },
 }))

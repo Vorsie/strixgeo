@@ -56,6 +56,7 @@ import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
 import { useManualLithoUnit } from './useManualLithoUnit'
+import { SectionScopeContext } from '../../../components/sections/SectionScopeContext'
 
 /**
  * Center canvas for the Sections stage.
@@ -1626,6 +1627,73 @@ export default function SectionsCanvas(): JSX.Element {
     // both dialogs are reachable from the section view (#101 fix-up 2).
     return (
       <>
+        {/* Section-scoped data slices (debt #201 round 2): a fresh object per
+            render is deliberate — nothing below is React.memo, and skipping
+            useMemo removes the stale-dep-array failure mode. See
+            SectionScopeContext.tsx. */}
+        <SectionScopeContext.Provider
+          value={{
+            focusableContacts: axisContacts,
+            excludedBoreholeIds: axisExcludedBoreholeIds,
+            surfacesByFormationId: axisSurfacesByFormationId,
+            focusedContactIds,
+            undoStack,
+            // Geological surface backdrop (#60): litho axis only, and only when
+            // at least one geological formation exists; surfaces come from the
+            // user-triggered handleLoadBackdropSurfaces ("Sync geology").
+            referenceFormations: isLitho && formations.length > 0 ? formations : undefined,
+            referenceSurfacesByFormationId:
+              isLitho && backdropSurfacesByFormationId.size > 0
+                ? backdropSurfacesByFormationId
+                : undefined,
+            // Snap-to-contact backdrop: litho axis passes the geological
+            // contacts through so ContactsLayer draws a polyline EXACTLY
+            // through each pick (no 3D-to-2D projection error).
+            referenceContacts: isLitho && contacts.length > 0 ? contacts : undefined,
+            // Debt #134-B drag-readout "snap on release" hint - pre-release
+            // telegraph for the same prompt handleLithoSnapAwareUpdateContactDepth
+            // fires post-release. Litho axis only; ContactsLayer also guards on
+            // a non-empty referenceContacts set.
+            geoSnapToleranceM: isLitho ? lithoSnapToleranceM : undefined,
+            openExtentLengthM,
+            // 3-D model fill (litho-3D M3): prebuilt body solids feed the 2-D
+            // section overlay so the geometric fill matches the 3-D viewer.
+            // Litho axis only - no ModelFillOverlay on the geological axis.
+            lithoSolids: isLitho ? lithoSolids : undefined,
+            sectionFillAtSectionLine: isLitho ? sectionFillAtSectionLine : undefined,
+            // #133: contact-level correlation edges; CorrelationEdgesOverlay is
+            // mounted on the litho/geotech axes only - zero geological regression.
+            contactEdges: isLitho || isGeotech ? contactCorrelationEdges : undefined,
+            // Geotech "Correlate packing" edges (2026-06-25): SEPARATE from
+            // contactEdges (the litho-framed partition list on both axes); read
+            // on the geotech axis only, never feeds the partition / spacing
+            // (commit 7329738b regression).
+            geotechCorrelationEdges: isGeotech ? geotechPackingEdges : undefined,
+            // Auto-lens (2026-06-02): pinch-out candidates from the last
+            // auto-correlate run, amber diamonds on the litho axis.
+            crossingPinchOuts: isLitho ? lithoCrossingPinchOuts : undefined,
+            // #163f Slice 2 - lens wedges + shaping (litho axis only).
+            lenses: isLitho
+              ? lensList
+              : isGeotech
+                ? [] // geotech axis: bodies resolved via correlations; no lens entities yet
+                : undefined,
+            // Frames the partition columns. sectionLayers == lithoLayers on BOTH
+            // the litho and geotech axes - the geotech partition is the litho
+            // partition REFINED by NAD packing class (geotechRefinement,
+            // owner-locked 2026-07-06), not a direct geotech-model fill.
+            lithoLayers: isLitho || isGeotech ? sectionLayers : undefined,
+            refinement: geotechRefinement,
+            lensBoundaries,
+            pulsingFormationIds,
+            virtueleBoringActiveModels: virtueleBoringSectionModels,
+            virtueleBoringPredictions,
+            virtueleBoringModelA: virtueleBoringOverlay.modelA,
+            virtueleBoringModelB: virtueleBoringOverlay.modelB,
+            virtueleBoringMaxDepthM: virtueleBoringOverlay.maxDepthM,
+            virtueleBoringShowOnSection: showOverlayOnSection,
+          }}
+        >
         <SectionPanel
           section={selectedSection}
           zEpsg={project.default_vertical_epsg}
@@ -1633,16 +1701,11 @@ export default function SectionsCanvas(): JSX.Element {
           boreholes={visibleBoreholes}
           onPatch={handlePatchSelectedSection}
           onClose={clearSectionSelection}
-          undoStack={undoStack}
           onSelectCpt={handleSelect}
           onSelectBorehole={handleSelectBorehole}
           contacts={sectionContacts}
-          focusableContacts={axisContacts}
           liveContactDepthOverride={lithoSuggestionContactPreview}
           formations={axisFormations}
-          surfacesByFormationId={axisSurfacesByFormationId}
-          focusedContactIds={focusedContactIds}
-          excludedBoreholeIds={axisExcludedBoreholeIds}
           // On the litho axis, left-click must never open the formation
           // picker â€” the right-click ghost flow is the intended entry point
           // (dogfeed 2026-05-26). Passing undefined here prevents
@@ -1690,35 +1753,12 @@ export default function SectionsCanvas(): JSX.Element {
                   )
               : undefined
           }
-          virtueleBoringActiveModels={virtueleBoringSectionModels}
-          virtueleBoringPredictions={virtueleBoringPredictions}
-          virtueleBoringModelA={virtueleBoringOverlay.modelA}
-          virtueleBoringModelB={virtueleBoringOverlay.modelB}
-          virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
-          virtueleBoringShowOnSection={showOverlayOnSection}
           onChangeVirtueleBoringPicker={handleChangeVirtueleBoringPicker}
           onChangeVirtueleBoringShowOnSection={next =>
             handleSetShowOverlay('section', next)
           }
           lithoGhostState={lithoGhostState}
           bulkLithoGhostState={bulkLithoGhostState}
-          // Geological surface backdrop (#60): only on the litho axis and only
-          // when at least one geological formation exists. The geological
-          // ``formations`` list is already loaded by the model bootstrap; the
-          // surfaces come from the user-triggered ``handleLoadBackdropSurfaces``
-          // call (the rewired "Sync geology" verb in SectionsToolbar).
-          referenceFormations={isLitho && formations.length > 0 ? formations : undefined}
-          referenceSurfacesByFormationId={
-            isLitho && backdropSurfacesByFormationId.size > 0
-              ? backdropSurfacesByFormationId
-              : undefined
-          }
-          // Snap-to-contact backdrop: on the litho axis, the geological
-          // contacts are passed through so ContactsLayer can draw a
-          // polyline that goes EXACTLY through each pick (no 3Dâ†’2D
-          // projection error). The user picks each strato contact with
-          // intent; the rendered backdrop honours that.
-          referenceContacts={isLitho && contacts.length > 0 ? contacts : undefined}
           // Lift the section-local focused column to the shell so
           // SectionsToolbar can use it for the litho-axis Suggest button.
           onFocusedColumnChange={setSectionFocusedColumn}
@@ -1732,35 +1772,9 @@ export default function SectionsCanvas(): JSX.Element {
                 ? 'lithostratigraphic'
                 : 'geological'
           }
-          // Debt #134-B â€” drag-readout "â†¦ snap on release" hint.  Pure
-          // pre-release telegraph for the same prompt the post-release
-          // wrapper above (handleLithoSnapAwareUpdateContactDepth)
-          // fires.  Wired only on the litho axis; ContactsLayer also
-          // guards on a non-empty referenceContacts set.
-          geoSnapToleranceM={isLitho ? lithoSnapToleranceM : undefined}
-          openExtentLengthM={openExtentLengthM}
-          // 3-D model fill (Task 5, litho-3D M3): feed the prebuilt body solids
-          // into the 2-D section overlay so the geometric fill is consistent with
-          // the 3-D viewer.  Litho axis only â€” undefined on the geological axis so
-          // SectionPanel renders no ModelFillOverlay there (zero regression).
-          lithoSolids={isLitho ? lithoSolids : undefined}
-          sectionFillAtSectionLine={isLitho ? sectionFillAtSectionLine : undefined}
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
           onLithoExistingUnitPick={isLitho ? handleLithoExistingUnitPick : undefined}
           activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
-          // #133 Phase 1 + Phase 2+3: contact-level correlation edges + gesture
-          // state, litho axis only.  CorrelationEdgesOverlay is mounted on the
-          // litho axis (SectionPanel gates on axisMode === 'lithostratigraphic')
-          // and absent on the geological axis â€” zero regression.
-          contactEdges={(isLitho || isGeotech) ? contactCorrelationEdges : undefined}
-          // Geotech "Correlate packing" overlay edges (Phase 1, 2026-06-25):
-          // SEPARATE from contactEdges (which stays the litho-framed partition
-          // list on both axes). The overlay reads this on the geotech axis only;
-          // never feeds the partition / spacing (commit 7329738b regression).
-          geotechCorrelationEdges={isGeotech ? geotechPackingEdges : undefined}
-          // Auto-lens (2026-06-02): pinch-out lens candidates from the last
-          // auto-correlate run, rendered as amber diamonds on the litho axis.
-          crossingPinchOuts={isLitho ? lithoCrossingPinchOuts : undefined}
           contactGestureState={contactGestureState}
           onUnapprovedDragStart={isLitho ? handleUnapprovedDragStart : undefined}
           unapprovedEdgeDrag={unapprovedEdgeDrag}
@@ -1793,28 +1807,10 @@ export default function SectionsCanvas(): JSX.Element {
           onRequestAcceptEdge={
             isLitho ? edge => void handleAcceptContactCorrelation(edge.id) : undefined
           }
-          // #163f Slice 2 â€” lens wedges + shaping (litho axis only).
-          lenses={
-            isLitho
-              ? lensList
-              : isGeotech
-                ? [] // geotech axis: bodies resolved via correlations; no lens entities yet
-                : undefined
-          }
-          // Frames the partition columns. On the litho axis these are the litho
-          // layers; on the geotech axis it is ALSO the litho layers now â€” the
-          // geotech partition is the litho partition REFINED by NAD packing
-          // class (see `geotechRefinement`, owner-locked 2026-07-06), not a
-          // direct geotech-model fill. `sectionLayers` == `lithoLayers` on both
-          // axes; the refinement bundle carries the geotech sub-bands.
-          lithoLayers={(isLitho || isGeotech) ? sectionLayers : undefined}
-          refinement={geotechRefinement}
-          lensBoundaries={lensBoundaries}
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
           onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}
-          pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
           // geological axis (no correlation bodies exist there).
@@ -1838,6 +1834,7 @@ export default function SectionsCanvas(): JSX.Element {
               : undefined
           }
         />
+        </SectionScopeContext.Provider>
         {/* Inspect-lens-body panel (#101 Blocker 1) â€” shared between section-selected
             and no-section branches; Portal via Modal escapes the SVG stacking context. */}
         {inspectTarget !== null && (

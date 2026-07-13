@@ -1,0 +1,223 @@
+/**
+ * Section-scoped data context — the read-only data slices SectionsCanvas
+ * derives per selected section, consumed by SectionPanel and (in later
+ * phases) its leaf overlays directly (debt #201 round 2 / #178).
+ *
+ * Owner decision 2026-07-13: replaces 26 of SectionPanel's 69 threaded
+ * props. Viewport/transform values (``levelToScreen`` et al.) deliberately
+ * STAY props — the #168 investigation (2026-05-29) declined moving those.
+ *
+ * The provider value is intentionally NOT memoised in SectionsCanvas:
+ * nothing under the provider is ``React.memo``, so a fresh object per
+ * render changes no render behaviour, and skipping the ``useMemo`` removes
+ * the stale-dep-array failure mode entirely. Revisit if memoisation ever
+ * lands in the section tree.
+ *
+ * The context default is the all-absent scope, matching the old optional-
+ * prop defaults — tests that mount SectionPanel without a provider get
+ * exactly the prop-omitted behaviour.
+ */
+import { createContext, useContext } from 'react'
+
+import type {
+  BodyBoundaryResponse,
+  BodyListItem,
+  CrossingPinchOut,
+  FormationContactResponse,
+  FormationSurfaceResponse,
+  GeologicalFormationResponse,
+  LithoBodySolidResponse,
+  LithoContactCorrelationEdge,
+  LithoLayerResponse,
+  VirtueleBoringInvestigationPrediction,
+} from '../../api/client'
+import type { GeotechRefinement } from './PartitionFillOverlay'
+
+/** Read-only per-section data slices provided by SectionsCanvas. */
+export interface SectionScope {
+  /** UNFILTERED active-axis contacts (NOT seeded-only). Used by the
+   * crossings-banner zoom-to-detail effect to resolve focused
+   * contact ids → anchor → column, because the offending crossing
+   * contacts are global to the geological model and may not be in
+   * this section's seeded set. Optional; falls back to ``contacts``
+   * when omitted (older tests + integration sites that don't supply
+   * the full list). */
+  focusableContacts?: readonly FormationContactResponse[]
+  /** Borehole IDs the active model excludes from contact rendering.
+   * The ContactsLayer skips polyline vertices at these anchors. */
+  excludedBoreholeIds?: readonly string[]
+  /** Cached TIN surfaces for the active geological model, keyed by
+   * formation id. Forwarded straight to ContactsLayer; when present
+   * the surface line renders as a slice-of-TIN against the section
+   * line so off-line picks contribute properly. Absent → connect-the-
+   * dots fallback in ContactsLayer (still works for sparse data). */
+  surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Reference (backdrop) formations from the parent geological model — rendered
+   * as faint read-only polylines behind the active litho contacts.  Only
+   * populated on the litho axis; absent on the geological axis (zero regression).
+   * Forwarded straight to ContactsLayer which owns the backdrop render path.
+   */
+  referenceFormations?: readonly GeologicalFormationResponse[]
+  /**
+   * Cached TIN surfaces for the geological backdrop model, keyed by formation id.
+   * Forwarded straight to ContactsLayer.  Absent when no backdrop is loaded yet.
+   */
+  referenceSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Geological contacts for the backdrop polyline render — snap-to-contact
+   * version of the backdrop on the litho axis. The TIN-slice backdrop
+   * (``referenceSurfacesByFormationId``) shows the formation surface AT the
+   * section line's (x,y), but investigations are projected onto the section
+   * from offset positions and the slice elevation at the projected_x diverges
+   * from the user's actual contact depth. These contacts let ContactsLayer
+   * draw the backdrop as a polyline through every contact's (anchor_x,
+   * contact_elevation) so the line goes exactly through the picks.
+   */
+  referenceContacts?: readonly FormationContactResponse[]
+  /** Contact ids the user has asked to be visually highlighted —
+   * driven by the crossings banner click (debt #9). Forwarded to
+   * ContactsLayer which renders the ring + pulse. Transient: App
+   * clears the array on a short timer after dispatch. */
+  focusedContactIds?: readonly string[]
+  /**
+   * Undo stack push hook (dogfeed 2026-05-23). When present, the
+   * "Remove from section" gesture (right-click a column → "Remove
+   * from section") pushes an undo command so Ctrl+Z restores the
+   * previous excluded_*_ids list. Optional so the test-render path
+   * + read-only callers can mount without an undo seam.
+   */
+  undoStack?: {
+    push: (cmd: {
+      description: string
+      revert: () => Promise<void>
+      reapply: () => Promise<void>
+    }) => void
+  }
+  /**
+   * Inclusive snap tolerance (m) for the litho↔geological drag-
+   * indicator (debt #134-B).  Threaded straight to ContactsLayer.
+   * Only meaningful on the litho axis; the geological axis ignores
+   * it.  When ``undefined`` on the litho axis the in-flight badge
+   * is suppressed (still post-release behaviour via SectionsCanvas).
+   */
+  geoSnapToleranceM?: number
+  /**
+   * Fixed length (m, along-section) an ``open`` body extent draws past the
+   * source test's column (litho axis). From litho-segmenter prefs; default
+   * 3 m. Forwarded to BodyExtentOverlay.
+   */
+  openExtentLengthM?: number
+  /**
+   * 3-D body solids from the litho model (already built + fetched by
+   * ``useLithoSolids``).  When present on the litho axis, a
+   * ``ModelFillOverlay`` is rendered as a sibling of ``PartitionFillOverlay``
+   * showing the geometric solid fill derived from the 3-D builder.  Absent /
+   * undefined on the geological axis or before any solids are built.
+   */
+  lithoSolids?: readonly LithoBodySolidResponse[]
+  /**
+   * When ``true`` (default) the model-fill overlay uses Mode B (section-plane
+   * slice of the body solids via ``sliceSolidsAtPlane``).  When ``false`` it
+   * uses Mode A (per-test vertical strips sampled at each test's map position
+   * via ``sampleSolidColumns``).
+   *
+   * Read from ``view_state.litho_segmenter.section_fill_at_section_line``
+   * by SectionsCanvas and passed in as a pre-resolved boolean to avoid
+   * introducing a shell dependency inside SectionPanel.
+   */
+  sectionFillAtSectionLine?: boolean
+  /**
+   * Contact-level correlation edges (#133 Phase 1).
+   *
+   * Forwarded to ``CorrelationEdgesOverlay`` which draws point-to-point
+   * solid emerald lines between the topY of each correlated contact's
+   * band.  Absent / undefined = no contact-edge overlay (zero regression
+   * on the geological axis or when the model has no contact correlations).
+   */
+  contactEdges?: readonly LithoContactCorrelationEdge[]
+  /**
+   * The geotech model's packing-correlation edges (Phase 1, 2026-06-25).
+   *
+   * Drives the ``CorrelationEdgesOverlay`` ribbons + right-click targets on
+   * the GEOTECH axis ONLY. This is a SEPARATE list from ``contactEdges``: on
+   * the geotech axis ``contactEdges`` carries the LITHO model's edges, which
+   * FRAME the partition fill (``computeSectionFill``) + the correlated-pair
+   * column spacing and must NOT be repurposed for the geotech overlay (doing
+   * so pinched every litho band to a lens — dogfeed/commit 7329738b). The
+   * partition stays framed by ``contactEdges``; only the overlay ribbons read
+   * this list. Absent / undefined on the litho + geological axes (zero
+   * regression there — the overlay reads ``contactEdges``).
+   */
+  geotechCorrelationEdges?: readonly LithoContactCorrelationEdge[]
+  /**
+   * Auto-lens (2026-06-02): pinch-out lens candidates from the last
+   * auto-correlate run — crossings dropped from persistence and surfaced as
+   * lenses. Rendered as amber lens-candidate markers (litho axis only).
+   */
+  crossingPinchOuts?: readonly CrossingPinchOut[]
+  /**
+   * Detected body list for the active litho model (#163f Slice 6). When
+   * present, rendered as shapeable wedges by ``BodyExtentOverlay``. Absent =
+   * no body wedges.
+   */
+  lenses?: readonly BodyListItem[]
+  /**
+   * Accepted litho layers for the active model — each carries ``body_id``.
+   * Forwarded to ``BodyExtentOverlay`` so committed bodies frame from their
+   * own member layer (Bug C "body jump" fix). Absent / empty falls back to the
+   * correlation-graph derivation.
+   */
+  lithoLayers?: readonly LithoLayerResponse[]
+  /**
+   * Geotech fraction-space refinement bundle (owner-locked 2026-07-06). When
+   * set (the geotech axis), forwarded to PartitionFillOverlay which refines the
+   * litho partition by NAD packing class. See ``GeotechRefinement``.
+   */
+  refinement?: GeotechRefinement
+  /** Stored boundary shape per body id (render style + control nodes). */
+  lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
+  /**
+   * Formation ids whose committed bands should pulse amber briefly —
+   * the "your correlation succeeded" cue. Set transiently after a
+   * successful correlate; cleared by the caller after PULSE_MS.
+   * Passed through to CorrelationEdgesOverlay. Optional.
+   */
+  pulsingFormationIds?: ReadonlySet<string>
+  /** DOV Virtuele Boring overlay — informative-only ghost columns
+   * rendered next to each investigation. Empty array / undefined
+   * prop = no overlay. Up to two model codes are honoured (the UI
+   * provides two dropdowns); extras are silently truncated. */
+  virtueleBoringActiveModels?: readonly string[]
+  /** Per-investigation overlay payload — built by App.tsx from
+   * ``api.virtueleBoring.predictions`` and cached there across
+   * renders so toggling the section view doesn't refetch. */
+  virtueleBoringPredictions?: readonly VirtueleBoringInvestigationPrediction[]
+  /** Picker state, owned by App.tsx (round-trips via project
+   * view_state). The overlay strip mounts at the top of the section
+   * pane and writes through these props. */
+  virtueleBoringModelA?: string | null
+  virtueleBoringModelB?: string | null
+  virtueleBoringMaxDepthM?: number | null
+  /** Per-pane visibility flag (localStorage-backed in App). When
+   * false, the ghost columns hide but the picker stays expanded so
+   * the user can flip it back on without losing state. */
+  virtueleBoringShowOnSection?: boolean}
+
+/** All-absent scope — mirrors the old optional-prop defaults. */
+export const EMPTY_SECTION_SCOPE: SectionScope = {}
+
+export const SectionScopeContext = createContext<SectionScope>(EMPTY_SECTION_SCOPE)
+
+/**
+ * Read the section-scoped data slices.
+ *
+ * Returns
+ * -------
+ * SectionScope
+ *     The nearest provider's scope, or the all-absent default outside a
+ *     provider (test mounts).
+ */
+export function useSectionScope(): SectionScope {
+  return useContext(SectionScopeContext)
+}
