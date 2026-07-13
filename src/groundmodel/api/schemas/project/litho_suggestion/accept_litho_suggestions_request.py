@@ -35,10 +35,12 @@ class AcceptLithoSuggestionsRequest(BaseModel):
         When ``True``, the R7 inference hook
         (``RecomputeFormationAbsencesForFormation`` +
         ``MaterializeWedgeTipsForFormation``) is skipped for this call.
-        Contact-commit and section-seed still run.  The caller is responsible
-        for calling ``POST .../recompute-all-absences`` once after the full
-        batch of deferred accepts to run inference in a single pass.  Defaults
-        to ``False`` (original per-accept behaviour).
+        Contact-commit and section-seed still run.  Production bulk flows use
+        ``POST .../layers/batch-accept-litho-suggestions`` with
+        ``run_inference=True`` instead (the standalone recompute-all-absences
+        finaliser endpoint was removed — BE-API-07); this per-call flag remains
+        for callers that intentionally skip inference (e.g. seeding scripts /
+        e2e fixtures).  Defaults to ``False`` (per-accept inference).
     couple_tolerance_m : float
         Litho↔geo coupling coincidence tolerance (#162).  A litho contact
         within this distance of a geological contact on the same investigation
@@ -56,8 +58,9 @@ class AcceptLithoSuggestionsRequest(BaseModel):
         description=(
             "When True, skip the per-accept inference + wedge-tip pass (R7 hook). "
             "The contact-commit and section-seed steps still run. "
-            "The caller MUST follow with POST .../recompute-all-absences after all "
-            "deferred accepts complete so inference runs once for the whole batch. "
+            "Production bulk flows use the batch-accept endpoint with "
+            "run_inference=True instead; this flag remains for callers that "
+            "intentionally skip inference. "
             "Default False preserves the original per-accept behaviour."
         ),
     )

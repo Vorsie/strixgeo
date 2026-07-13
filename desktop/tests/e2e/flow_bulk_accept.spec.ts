@@ -1,11 +1,17 @@
 /**
  * Flow 3 — Bulk suggest-all + accept-all.
  *
- * Acceptance criterion (debt #128 / #129b):
+ * Acceptance criterion (debt #128 / #129b, migrated to the batch endpoint
+ * 2026-07-13 — audit BE-API-07):
  * - Suggest all 6 fixture CPTs (each call returns ≥1 layer).
- * - Accept all 6 CPTs via the ``defer_inference=True`` pattern:
- *   every per-anchor accept call MUST carry ``defer_inference=true``.
- * - Exactly ONE ``POST .../recompute-all-absences`` call fires at the end.
+ * - Accept every CPT through the PRODUCTION bulk protocol:
+ *   ``POST .../layers/batch-accept-litho-suggestions`` with
+ *   ``run_inference: true`` — one call per anchor so a fixture CPT whose
+ *   pre-seeded accepted layers overlap the segmenter's suggestions can 409
+ *   without rolling back the other anchors (mirrors the old per-anchor
+ *   200-or-409 tolerance). Inference runs server-side, incrementally scoped
+ *   to the touched formations (#155) — the old defer_inference +
+ *   standalone recompute-all-absences finaliser is retired.
  * - The entire flow completes in < 15 s (the O(N×formations×sections)
  *   regression would take ~70–140 s for 6 CPTs with 3 formations).
  * - DB has contacts for all 6 CPTs after the flow.
@@ -21,7 +27,8 @@
  * requires the full UI interaction chain (navigate to Sections stage,
  * open a section, right-click a CPT, wait for suggestions). For the
  * regression gate we only need to exercise the API path — the EXACT same
- * code path the frontend uses — which is faster and more reliable.
+ * endpoint the frontend's handleAcceptAllBulkLitho uses — which is faster
+ * and more reliable.
  */
 
 import { test, expect } from '@playwright/test'
@@ -32,14 +39,14 @@ const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 const API_BASE = 'http://127.0.0.1:8765'
 
 // 15 s budget for the entire flow — the acceptance criterion from debt #128.
-// The O(N×formations×sections) regression (before defer_inference) would
-// take >>15 s even for 6 CPTs with 3 formations.
+// The O(N×formations×sections) regression (pre-#155 full-model inference per
+// accept) would take >>15 s even for 6 CPTs with 3 formations.
 const BULK_ACCEPT_BUDGET_MS = 15_000
 
 test.describe('flow_bulk_accept', () => {
   test.skip(!FIXTURE_PROJECT_ID, 'E2E_FIXTURE_PROJECT_ID not set — run build_synthetic_fixture.py first')
 
-  test('bulk suggest + accept all CPTs completes under 15 s with defer_inference pattern', async () => {
+  test('bulk suggest + batch-accept all CPTs completes under 15 s with server-side inference', async () => {
     const { app, page } = await launchApp()
 
     try {
@@ -100,42 +107,40 @@ test.describe('flow_bulk_accept', () => {
         allSuggestions.push({ cptId, layers })
       }
 
-      // 3. Bulk accept — every per-anchor call must use defer_inference=true.
+      // 3. Bulk accept via the batch endpoint (one anchor per call).
       //    Track the wall-clock time for the flow-level timing assertion.
       const contactsBefore = await countContacts(FIXTURE_PROJECT_ID)
       const t0 = Date.now()
 
-      // Per-anchor accepts with defer_inference=true.
       // A CPT whose anchor already has accepted layers from a pre-seeded
       // scenario (e.g. the body/per-instance fixture seeds) will return 409
       // rather than 200 when the segmenter's layers overlap those pre-seeded
       // layers.  409 is an expected, non-regression outcome: the
-      // ``litho_layer_accepted_no_overlap`` constraint guards data integrity.
-      // The REGRESSION to detect is a 500 (the original ``ground_level_m``
-      // bug caused every accept to 500 and contactsAfter stayed at 0).
-      const recomputeCallCount = { value: 0 }
+      // ``litho_layer_accepted_no_overlap`` constraint guards data integrity
+      // (the batch endpoint maps the IntegrityError to 409). The REGRESSION
+      // to detect is a 500 (the original ``ground_level_m`` bug caused every
+      // accept to 500 and contactsAfter stayed at 0).
       let successCount = 0
       for (const { cptId, layers } of allSuggestions) {
         const acceptRes = await page.evaluate(
           async ([base, pid, mid, cid, layersJson]) => {
             const layers = JSON.parse(layersJson as string)
             const r = await fetch(
-              `${base}/projects/${pid}/geology/models/${mid}/layers/accept-litho-suggestions`,
+              `${base}/projects/${pid}/geology/models/${mid}/layers/batch-accept-litho-suggestions`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  cpt_id: cid,
-                  suggestions: layers,
-                  // The defer_inference=true pattern is the critical invariant:
-                  // WITHOUT it the server runs a full recompute per anchor
-                  // → O(N×formations×sections) inference passes → catastrophically
-                  // slow. WITH it: O(N) fast anchor commits + ONE recompute at end.
-                  defer_inference: true,
+                  anchors: [{ cpt_id: cid, suggestions: layers }],
+                  section_id: null,
+                  // Server-side incremental inference per batch call — the
+                  // production protocol (replaces defer_inference + the
+                  // retired standalone recompute-all-absences finaliser).
+                  run_inference: true,
                 }),
               },
             )
-            return { status: r.status }
+            return { status: r.status, json: await r.json().catch(() => null) }
           },
           [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, cptId, JSON.stringify(layers)],
         )
@@ -145,39 +150,26 @@ test.describe('flow_bulk_accept', () => {
         // Playwright has no toBeOneOf; use toContain on the allowed-statuses array.
         expect(acceptRes.status, `CPT ${cptId} accept status must not be 500`).not.toBe(500)
         expect([200, 409], `CPT ${cptId} accept must be 200 or 409`).toContain(acceptRes.status)
-        if (acceptRes.status === 200) successCount += 1
+        if (acceptRes.status === 200) {
+          // The batch endpoint isolates per-anchor ValueErrors into the
+          // anchor's ``error`` field — a clean run must carry none.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const anchor = (acceptRes.json as any)?.anchors?.[0]
+          expect(anchor?.error ?? null, `CPT ${cptId} anchor error`).toBeNull()
+          successCount += 1
+        }
       }
       // At least one CPT must accept cleanly (series-bearing CPTs 0/1/2 have no
       // pre-seeded contacts — if ALL 6 returned 409, the idempotency model is broken).
       expect(successCount, 'at least one CPT must accept with 200').toBeGreaterThanOrEqual(1)
 
-      // 4. Exactly ONE recompute-all-absences call at the end.
-      const recomputeRes = await page.evaluate(
-        async ([base, pid, mid]) => {
-          const r = await fetch(
-            `${base}/projects/${pid}/geology/models/${mid}/recompute-all-absences`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({}),
-            },
-          )
-          return { status: r.status }
-        },
-        [API_BASE, FIXTURE_PROJECT_ID, lithoModelId],
-      )
-      expect(recomputeRes.status).toBe(200)
-      recomputeCallCount.value = 1
-
       const elapsed = Date.now() - t0
 
-      // 5. Timing assertion — entire suggest+accept+recompute loop under 15 s.
+      // 4. Timing assertion — entire accept loop (incl. server-side incremental
+      //    inference per call) under 15 s.
       expect(elapsed).toBeLessThan(BULK_ACCEPT_BUDGET_MS)
 
-      // 6. Exactly one recompute call (the variable tracks the one call above).
-      expect(recomputeCallCount.value).toBe(1)
-
-      // 7. DB has contacts for all 6 CPTs.
+      // 5. DB has contacts for all 6 CPTs.
       const contactsAfter = await countContacts(FIXTURE_PROJECT_ID)
       // Accept is idempotent — re-running after a previous session won't add
       // more contacts.  Either new contacts were created (clean state) or the

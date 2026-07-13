@@ -1,11 +1,12 @@
 """Use case — re-run absence inference for every formation in a lithostratigraphic model.
 
-Designed as the one-shot "recompute all" companion to bulk-accept flows.  When
-the frontend accepts N anchors with ``defer_inference=True`` it avoids running
-the R7 inference hook per-anchor (which would multiply to ~N × formations ×
-sections inference passes).  Instead it calls this use case ONCE after all N
-accepts, which runs a single inference pass per formation — O(formations ×
-sections) regardless of N.
+Designed as the one-shot "recompute all" companion to bulk-accept flows.  The
+batch-accept endpoint accepts N anchors with ``defer_inference=True`` — avoiding
+the per-anchor R7 inference hook (which would multiply to ~N × formations ×
+sections inference passes) — then runs this use case ONCE (``run_inference``),
+a single inference pass per touched formation.  (The old standalone
+``POST .../recompute-all-absences`` finaliser endpoint was removed 2026-07-13,
+BE-API-07 — the batch endpoint is the only production caller now.)
 
 Architecture
 ------------
@@ -94,8 +95,8 @@ class RecomputeAllAbsencesForModel(GroundModelLogger):
     in one transaction, and commits once at the end.
 
     Intended as the final step in a ``defer_inference=True`` bulk-accept flow:
-    the caller skips per-accept inference (fast) and calls this once after all
-    accepts (single pass).
+    the batch-accept endpoint skips per-accept inference (fast) and calls this
+    once after all accepts (single pass, scoped to the touched formations).
 
     Parameters
     ----------

@@ -1568,6 +1568,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
             ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
             section_id: sectionId ?? null,
             suggestions: pendingLayers,
+            // NOT dead (audit BE-API-07 recount): the batch call below drops
+            // this field, but the undo's REAPPLY re-POSTs this body verbatim
+            // through the single-accept endpoint, where defer_inference=true
+            // skips the per-anchor inference pass on redo.
             defer_inference: true,
           },
         })

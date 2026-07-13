@@ -30,7 +30,6 @@ under the shared geology prefix for historical reasons):
 
 GET  /formations/{formation_id}/absences
 POST /formations/{formation_id}/absences
-POST /models/{mid}/recompute-all-absences
 """
 
 from __future__ import annotations
@@ -73,7 +72,6 @@ from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.get_body_geo_labels import GetBodyGeoLabels
 from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
-from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
@@ -703,79 +701,7 @@ async def upsert_formation_absence(
     )
 
 
-# ---------------------------------------------------------------------------
-# Formation absence — bulk recompute for entire model
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/models/{model_id}/recompute-all-absences",
-    status_code=status.HTTP_200_OK,
-)
-async def recompute_all_absences_for_model(
-    project_id: UUID,
-    model_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    """Re-run absence inference for every formation with contacts in the model.
-
-    Designed as the one-shot finaliser for ``defer_inference=True``
-    bulk-accept flows.  The model must be ``kind='lithostratigraphic'``.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Project scope guard.
-    model_id : UUID
-        The lithostratigraphic model to recompute.  Must belong to
-        ``project_id`` and have ``kind='lithostratigraphic'``.
-    session : AsyncSession
-        Database session provided by DI.
-
-    Returns
-    -------
-    dict
-        ``formations_processed``, ``total_written``, ``total_retracted``,
-        ``total_wedge_tips_created``, ``total_wedge_tips_deleted`` counts.
-
-    Raises
-    ------
-    HTTPException(404)
-        When the model does not belong to the project.
-    HTTPException(422)
-        When the model kind is not ``'lithostratigraphic'``.
-    """
-    model = await get_in_project_or_404(
-        session.get(GeologicalModelOrm, model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-
-    # Kind guard: must be lithostratigraphic — callers that accidentally
-    # pass a geological model_id get a clear 422 rather than a silent no-op.
-    require_model_kind(model, MODEL_KIND_LITHOSTRATIGRAPHIC, "recompute-all-absences")
-
-    try:
-        result = await RecomputeAllAbsencesForModel(session).execute(
-            project_id=project_id,
-            model_id=model_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "recompute_all_error", "message": str(exc)},
-        ) from exc
-
-    logger.info(
-        f"recompute_all_absences_for_model: project={project_id} model={model_id} → "
-        f"formations_processed={result.formations_processed} "
-        f"written={result.total_written} retracted={result.total_retracted} "
-        f"wedge_tips_created={result.total_wedge_tips_created}"
-    )
-    return {
-        "formations_processed": result.formations_processed,
-        "total_written": result.total_written,
-        "total_retracted": result.total_retracted,
-        "total_wedge_tips_created": result.total_wedge_tips_created,
-        "total_wedge_tips_deleted": result.total_wedge_tips_deleted,
-    }
+# The standalone POST /models/{mid}/recompute-all-absences endpoint was
+# deleted 2026-07-13 (audit BE-API-07): the batch-accept endpoint's
+# ``run_inference=True`` runs RecomputeAllAbsencesForModel server-side, so
+# the FE's defer-then-finalise dance (and this finaliser) had no callers.
