@@ -4,11 +4,12 @@ One endpoint today: ``GET /dem/sample`` returns evenly-spaced
 elevation samples between two endpoints. Used by the cross-section
 panel to draw the ground-surface polyline.
 
-Source selection: ``DHMVII`` for EPSG 31370 (Belgium). AHN
-(EPSG 28992 / NL) is reserved as a sibling source — the endpoint
-returns a clear 400 when called with an unsupported CRS, so the
-frontend can surface "no DEM source for this project's CRS" without
-having to know the mapping.
+Source selection rides the provider factory (#234): EPSG 31370 →
+DHMVII (BE/Flanders), EPSG 28992 → AHN4 (NL) — the same stack the
+ground-surface build uses, including the disk tile cache, so
+re-opening a section serves its strip from disk. An unsupported CRS
+returns a clear 400 so the frontend can surface "no DEM source for
+this project's CRS" without knowing the mapping.
 """
 
 from __future__ import annotations
@@ -17,7 +18,11 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 
 from groundmodel.api.schemas.dem import DemSampleLineResponse, DemSamplePointResponse
-from groundmodel.infrastructure.dem.dhmvii_sampler import DhmviiSampler
+from groundmodel.infrastructure.dem.dem_provider_factory import (
+    NoDemProviderError,
+    build_dem_provider,
+)
+from groundmodel.shared.config import settings
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -42,24 +47,28 @@ async def sample_along_line(
 ) -> DemSampleLineResponse:
     """Return ``n_samples`` evenly-spaced elevations along the requested line.
 
-    Source is auto-selected from ``epsg``:
+    Source is auto-selected from ``epsg`` via the DEM provider
+    factory:
 
     * 31370 (Belgian Lambert 72) → DHMVII (Flanders).
-    * Any other CRS → 400 with a "no DEM source mapped" message.
-      AHN slots in here once the implementation lands.
+    * 28992 (Amersfoort / RD New) → AHN4 (Netherlands).
+    * Any other CRS → 400 with a "no DEM provider" message.
 
     Transport errors against the upstream provider surface as 5xx
-    with the upstream type in the detail so the desktop client can
-    distinguish "service down" from "bad request".
+    with a category-only detail so the desktop client can distinguish
+    "service down" from "bad request".
     """
-    if epsg != 31370:
+    try:
+        provider = build_dem_provider(
+            epsg,
+            settings.dem_cache_dir,
+            max_cache_bytes=settings.dem_cache_max_bytes,
+        )
+    except NoDemProviderError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"No DEM source mapped for EPSG:{epsg}. Supported today: "
-                f"EPSG:31370 (DHMVII / Flanders)."
-            ),
-        )
+            detail=str(err),
+        ) from err
     if start_x == end_x and start_y == end_y:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -67,8 +76,10 @@ async def sample_along_line(
         )
 
     try:
-        async with DhmviiSampler() as sampler:
-            samples = await sampler.sample_along_line(
+        # ``build_dem_provider`` returns the ABC; both concrete providers are
+        # WcsDemProvider subclasses supporting the async-context protocol.
+        async with provider as p:  # type: ignore[attr-defined]
+            samples = await p.sample_along_line(
                 start_x=start_x,
                 start_y=start_y,
                 end_x=end_x,
@@ -78,33 +89,33 @@ async def sample_along_line(
     # User-facing detail stays category-only; the specific httpx
     # exception + message lives in the server-side log (debt #43).
     except httpx.ConnectError as err:
-        logger.warning(f"DHMVII connect error: {type(err).__name__}: {err}")
+        logger.warning(f"DEM provider connect error: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cannot reach DHMVII",
+            detail="Cannot reach the DEM service",
         ) from err
     except httpx.TimeoutException as err:
-        logger.warning(f"DHMVII timeout: {type(err).__name__}: {err}")
+        logger.warning(f"DEM provider timeout: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="DHMVII timed out",
+            detail="DEM service timed out",
         ) from err
     except (httpx.HTTPStatusError, httpx.RequestError) as err:
-        logger.warning(f"DHMVII upstream error: {type(err).__name__}: {err}")
+        logger.warning(f"DEM provider upstream error: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="DHMVII responded with an error",
+            detail="DEM service responded with an error",
         ) from err
     except ValueError as err:
-        # Malformed multipart from upstream — surface as 502, not 500.
-        logger.warning(f"DHMVII malformed multipart: {err}")
+        # Malformed multipart / non-TIFF from upstream — 502, not 500.
+        logger.warning(f"DEM provider malformed response: {err}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="DHMVII returned a malformed response",
+            detail="DEM service returned a malformed response",
         ) from err
 
     return DemSampleLineResponse(
-        source="dhmvii",
+        source=provider.provider_id,
         samples=[
             DemSamplePointResponse(along_m=s.along_m, elevation_m=s.elevation_m) for s in samples
         ],

@@ -39,6 +39,10 @@ from groundmodel.infrastructure.dem.dem_wcs_constants import (
     WCS_TIMEOUT_SECONDS,
     WCS_VERSION,
 )
+from groundmodel.infrastructure.dem.dhmvii_sampler import (
+    SamplePoint,
+    sample_geotiff_along_line,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -188,12 +192,133 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
         padded_max_x = bbox_max_x + WCS_BBOX_PADDING_M
         padded_max_y = bbox_max_y + WCS_BBOX_PADDING_M
 
+        tiff_bytes, from_cache = await self._fetch_tile_tiff(
+            padded_min_x, padded_min_y, padded_max_x, padded_max_y, res
+        )
+        grid = self._decode_tiff(
+            tiff_bytes,
+            padded_min_x,
+            padded_min_y,
+            padded_max_x,
+            padded_max_y,
+            from_cache=from_cache,
+        )
+        if not from_cache:
+            self.success(
+                f"{self.LOG_LABEL} grid fetched: {grid.n_cols}×{grid.n_rows} px, "
+                f"res={grid.resolution_m:.2f}m, "
+                f"none_cells={sum(1 for v in grid.values if v is None)}"
+            )
+        return grid
+
+    async def sample_along_line(
+        self,
+        *,
+        start_x: float,
+        start_y: float,
+        end_x: float,
+        end_y: float,
+        n_samples: int = 200,
+    ) -> list[SamplePoint]:
+        """Sample elevations along a line, riding the same tile cache.
+
+        Fetches (or reads from cache) one GeoTIFF strip covering the
+        line's padded envelope, then bilinear-samples the image
+        directly at ``n_samples`` evenly-spaced points via the pure
+        ``sample_geotiff_along_line`` helper — the full ``DemZGrid``
+        decode is deliberately skipped for a 1-D profile (#234).
+
+        Parameters
+        ----------
+        start_x, start_y, end_x, end_y : float
+            Line endpoints in the provider's native CRS (metres).
+        n_samples : int
+            Number of evenly-spaced points (inclusive of endpoints).
+
+        Returns
+        -------
+        list[SamplePoint]
+            Profile points; ``elevation_m`` is ``None`` on NoData.
+
+        Raises
+        ------
+        httpx.HTTPError
+            On transport failures.
+        ValueError
+            On a malformed WCS response (no decodable GeoTIFF).
+        """
+        # Bbox = line endpoints' axis-aligned envelope + small pad.
+        # Padding ensures the bilinear filter's neighbour pixels are
+        # always inside the request rectangle.
+        padded_min_x = min(start_x, end_x) - WCS_BBOX_PADDING_M
+        padded_max_x = max(start_x, end_x) + WCS_BBOX_PADDING_M
+        padded_min_y = min(start_y, end_y) - WCS_BBOX_PADDING_M
+        padded_max_y = max(start_y, end_y) + WCS_BBOX_PADDING_M
+        self.debug(
+            f"{self.LOG_LABEL} line profile: ({start_x:.1f},{start_y:.1f})→"
+            f"({end_x:.1f},{end_y:.1f}) n_samples={n_samples}"
+        )
+
+        tiff_bytes, from_cache = await self._fetch_tile_tiff(
+            padded_min_x, padded_min_y, padded_max_x, padded_max_y, self.DEFAULT_RESOLUTION_M
+        )
+        samples = sample_geotiff_along_line(
+            tiff_bytes,
+            bbox_min_x=padded_min_x,
+            bbox_max_x=padded_max_x,
+            bbox_min_y=padded_min_y,
+            bbox_max_y=padded_max_y,
+            start_x=start_x,
+            start_y=start_y,
+            end_x=end_x,
+            end_y=end_y,
+            n_samples=n_samples,
+            is_nodata=self._is_nodata,
+        )
+        self.debug(
+            f"{self.LOG_LABEL} line profile: {len(samples)} sample(s) "
+            f"({'cache hit' if from_cache else 'network fetch'})"
+        )
+        return samples
+
+    async def _fetch_tile_tiff(
+        self,
+        padded_min_x: float,
+        padded_min_y: float,
+        padded_max_x: float,
+        padded_max_y: float,
+        res: float,
+    ) -> tuple[bytes, bool]:
+        """Cache-first GeoTIFF fetch for one padded tile bbox.
+
+        The single WCS-GetCoverage path shared by :meth:`fetch_grid`
+        (2-D tiles) and :meth:`sample_along_line` (1-D strips): disk
+        cache lookup, network fetch on miss, per-source TIFF
+        extraction, write-through.
+
+        Parameters
+        ----------
+        padded_min_x, padded_min_y, padded_max_x, padded_max_y : float
+            Already-padded tile extents in the provider's native CRS.
+        res : float
+            Cell size used as part of the cache key.
+
+        Returns
+        -------
+        tuple[bytes, bool]
+            ``(tiff_bytes, from_cache)``.
+
+        Raises
+        ------
+        httpx.HTTPError
+            On network transport failures / non-2xx WCS responses.
+        ValueError
+            When the response body carries no decodable GeoTIFF.
+        """
         cached = self._cache.get(padded_min_x, padded_min_y, padded_max_x, padded_max_y, res)
         if cached is not None:
             self.debug(f"{self.LOG_LABEL} tile cache: warm hit ({len(cached)} B)")
-            return self._decode_tiff(
-                cached, padded_min_x, padded_min_y, padded_max_x, padded_max_y, from_cache=True
-            )
+            return cached, True
 
         x_axis, y_axis = self.AXIS_NAMES
         params = {
@@ -222,16 +347,7 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
         self.debug(f"{self.LOG_LABEL} WCS: TIFF blob {len(tiff_bytes)} B")
 
         self._cache.put(padded_min_x, padded_min_y, padded_max_x, padded_max_y, res, tiff_bytes)
-
-        grid = self._decode_tiff(
-            tiff_bytes, padded_min_x, padded_min_y, padded_max_x, padded_max_y, from_cache=False
-        )
-        self.success(
-            f"{self.LOG_LABEL} grid fetched: {grid.n_cols}×{grid.n_rows} px, "
-            f"res={grid.resolution_m:.2f}m, "
-            f"none_cells={sum(1 for v in grid.values if v is None)}"
-        )
-        return grid
+        return tiff_bytes, False
 
     def _decode_tiff(
         self,

@@ -20,8 +20,9 @@ import pathlib
 
 import pytest
 
+from groundmodel.infrastructure.dem.dem_tile_cache import DemTileCache
+from groundmodel.infrastructure.dem.dhmvii_dem_provider import DhmviiDemProvider
 from groundmodel.infrastructure.dem.dhmvii_sampler import (
-    DhmviiSampler,
     parse_wcs_multipart,
     sample_geotiff_along_line,
 )
@@ -126,14 +127,18 @@ import os
 def test_bench_live_round_trip_200_points(benchmark) -> None:
     """End-to-end including the WCS GetCoverage HTTP call.
 
-    Runs the async sampler synchronously inside the benchmark loop.
+    Runs the async provider synchronously inside the benchmark loop
+    (#234: the line profile now rides WcsDemProvider + the tile cache;
+    a per-iteration temp cache keeps the network in the measured path).
     Numbers vary with DHMVII server load; we capture wall-clock plus
     the breakdown via the unit-test benchmarks above.
     """
+    import tempfile
 
     def run() -> int:
         async def _go() -> int:
-            async with DhmviiSampler() as s:
+            cache = DemTileCache(pathlib.Path(tempfile.mkdtemp()), "dhmvii")
+            async with DhmviiDemProvider(cache) as s:
                 pts = await s.sample_along_line(
                     start_x=150000,
                     start_y=200000,

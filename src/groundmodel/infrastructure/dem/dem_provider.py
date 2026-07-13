@@ -30,6 +30,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from groundmodel.infrastructure.dem.dhmvii_sampler import SamplePoint
 
 
 @dataclass(frozen=True)
@@ -195,4 +199,43 @@ class DemProvider(ABC):
         ValueError
             When the WCS response body cannot be decoded as a valid
             GeoTIFF (e.g. the bbox is entirely outside the coverage).
+        """
+
+    @abstractmethod
+    async def sample_along_line(
+        self,
+        *,
+        start_x: float,
+        start_y: float,
+        end_x: float,
+        end_y: float,
+        n_samples: int = 200,
+    ) -> list[SamplePoint]:
+        """Sample elevations along a line in the provider's native CRS.
+
+        Backs the cross-section ground-surface polyline (#234 — the
+        line profile rides the same tile cache as ``fetch_grid``, so
+        re-opening a section never re-downloads its strip).
+
+        Parameters
+        ----------
+        start_x, start_y, end_x, end_y : float
+            Line endpoints in the provider's native CRS (metres).
+        n_samples : int
+            Number of evenly-spaced points returned (inclusive of both
+            endpoints). Fewer than 2, or a zero-length line, yields an
+            empty list.
+
+        Returns
+        -------
+        list[SamplePoint]
+            One point per sample; ``elevation_m`` is ``None`` on
+            NoData cells (outside coverage, permanent water, holes).
+
+        Raises
+        ------
+        httpx.HTTPError
+            On transport-level failures.
+        ValueError
+            When the WCS response carries no decodable GeoTIFF.
         """

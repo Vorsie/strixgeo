@@ -107,3 +107,34 @@ def test_dhmvii_extract_pulls_tiff_from_multipart_fixture() -> None:
         pytest.skip("multipart fixture not present")
     tiff = _dhmvii()._extract_tiff(_MULTIPART_FIXTURE.read_bytes())
     assert tiff[:2] in (b"II", b"MM")  # GeoTIFF magic
+
+
+# ---------------------------------------------------------------------------
+# Line profile through the provider stack (#234)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sample_along_line_serves_from_seeded_cache_without_network() -> None:
+    """A line profile whose padded strip is cached never touches the WCS.
+
+    Seeds the tile cache with a synthetic TIFF under the exact padded
+    bbox key the provider derives for the line (envelope ± 2 m pad,
+    native resolution), then samples. The provider has no live HTTP
+    transport in unit tests — a network attempt would error — so a
+    successful profile proves the cache-first path (#234: section
+    re-opens must not re-download their strip).
+    """
+    provider = _dhmvii()
+    # Line (1,1) → (9,1); padded envelope = (-1,-1) → (11,3) at 1 m/px.
+    tiff = _float_tiff([[5.0] * 12] * 4)
+    provider._cache.put(-1.0, -1.0, 11.0, 3.0, 1.0, tiff)
+
+    pts = await provider.sample_along_line(
+        start_x=1.0, start_y=1.0, end_x=9.0, end_y=1.0, n_samples=5
+    )
+
+    assert len(pts) == 5
+    assert pts[0].along_m == pytest.approx(0.0)
+    assert pts[-1].along_m == pytest.approx(8.0)
+    assert all(p.elevation_m == pytest.approx(5.0) for p in pts)

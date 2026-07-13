@@ -22,15 +22,12 @@ from typing import Final
 # 2.0.1 is the current stable revision; 1.1.x is the legacy fallback.
 WCS_VERSION: Final = "2.0.1"
 
-# Network timeout for tile-area requests (dem providers: a few km²).
-# Both providers can return multi-MB tiles over a slow link; 30 s
-# accommodates that without hanging a Build call indefinitely.
+# Network timeout for WCS GetCoverage requests. Tile-area requests (a few
+# km²) can return multi-MB tiles over a slow link; 30 s accommodates that
+# without hanging a Build call indefinitely. Line-profile requests (narrow
+# section strips) share the same client + ceiling since #234 routed them
+# through the provider stack.
 WCS_TIMEOUT_SECONDS: Final = 30.0
-
-# Network timeout for line-profile requests (dhmvii_sampler: 1D section
-# bbox only — typically a narrow strip of a few hundred metres).  A tighter
-# limit is appropriate; the bbox and TIFF payload are much smaller.
-WCS_SAMPLER_TIMEOUT_SECONDS: Final = 15.0
 
 # Padding (metres) added around every requested bbox before sending to the
 # WCS.  Ensures edge pixels have a bilinear neighbour; 2 m is sufficient at
