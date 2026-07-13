@@ -87,6 +87,39 @@ export async function request(
 }
 
 /**
+ * GET helper for binary export endpoints — returns the raw bytes.
+ *
+ * Callers pipe the ``ArrayBuffer`` straight to a file write (Electron
+ * save dialog → fs.writeFileSync); nothing is parsed on success.
+ *
+ * Parameters
+ * ----------
+ * path : string
+ *   URL path relative to `_base`, including leading slash.
+ * errorLabel : string, optional
+ *   Fallback error copy when the server sends no ``detail`` —
+ *   defaults to the historical ``"Export failed"``.
+ *
+ * Returns
+ * -------
+ * Promise<ArrayBuffer>
+ *   Raw response bytes.
+ *
+ * Throws
+ * ------
+ * Error
+ *   On non-2xx HTTP status (e.g. the 404 missing-section / missing-model
+ *   case, which surfaces through the caller's toast).
+ */
+export async function getBytes(
+  path: string,
+  errorLabel = 'Export failed',
+): Promise<ArrayBuffer> {
+  const res = await request('GET', path, undefined, errorLabel)
+  return res.arrayBuffer()
+}
+
+/**
  * Typed GET helper.
  *
  * Parameters

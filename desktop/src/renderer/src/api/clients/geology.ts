@@ -17,7 +17,7 @@
  *
  * @module clients/geology
  */
-import { _base, del, get, patch, post, put } from './shared'
+import { _base, del, get, getBytes, patch, post, put } from './shared'
 import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
 import type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
@@ -928,16 +928,11 @@ export const geologyClient = {
   // Download the geological model as a runnable Plaxis 3D
   // plxscripting Python script. Returns the raw bytes so the
   // caller can pipe to the Electron save-dialog + write-file IPC pair.
-  exportPlaxis3d: async (projectId: string, modelId: string): Promise<ArrayBuffer> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/geology/models/${modelId}/export/plaxis3d`,
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `Plaxis export failed (${res.status})`)
-    }
-    return res.arrayBuffer()
-  },
+  exportPlaxis3d: (projectId: string, modelId: string): Promise<ArrayBuffer> =>
+    getBytes(
+      `/projects/${projectId}/geology/models/${modelId}/export/plaxis3d`,
+      'Plaxis export failed',
+    ),
 
   // --- Formations vocabulary -------------------------------------------
   listFormations: (projectId: string): Promise<GeologicalFormationResponse[]> =>

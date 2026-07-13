@@ -7,7 +7,7 @@
  *
  * @module clients/section
  */
-import { _base, del, get, patch, post } from './shared'
+import { del, get, getBytes, patch, post } from './shared'
 
 // ---------------------------------------------------------------------------
 // DEM types
@@ -213,33 +213,16 @@ export const sectionClient = {
   delete: (projectId: string, sectionId: string): Promise<void> =>
     del(`/projects/${projectId}/sections/${sectionId}`),
 
-  // Download the section's DXF export as raw bytes. Returns the
-  // ``ArrayBuffer`` rather than parsing — callers pipe it straight
-  // to a file write (Electron save dialog → fs.writeFileSync).
-  // Throws on non-2xx; the 404 case (missing section / model)
-  // surfaces through the caller's toast.
-  exportDxf: async (
-    projectId: string,
-    sectionId: string,
-    modelId: string,
-  ): Promise<ArrayBuffer> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/sections/${sectionId}/export/dxf` +
-        `?model_id=${modelId}`,
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `Export failed (${res.status})`)
-    }
-    return res.arrayBuffer()
-  },
+  // Download the section's DXF export as raw bytes (byte-pipe
+  // contract — see `getBytes`).
+  exportDxf: (projectId: string, sectionId: string, modelId: string): Promise<ArrayBuffer> =>
+    getBytes(`/projects/${projectId}/sections/${sectionId}/export/dxf?model_id=${modelId}`),
 
   // Debt #52 slice 1: section PDF report. Same byte-pipe contract
-  // as exportDxf — the caller writes the ArrayBuffer to a .pdf via
-  // the Electron save dialog. The user-editable metadata (title,
-  // author, notes) is forwarded as query params; the backend builds
-  // sensible defaults when omitted.
-  exportPdf: async (
+  // as exportDxf. The user-editable metadata (title, author, notes)
+  // is forwarded as query params; the backend builds sensible
+  // defaults when omitted.
+  exportPdf: (
     projectId: string,
     sectionId: string,
     modelId: string,
@@ -250,34 +233,13 @@ export const sectionClient = {
     if (metadata.title) params.set('title', metadata.title)
     if (metadata.author) params.set('author', metadata.author)
     if (metadata.notes) params.set('notes', metadata.notes)
-    const res = await fetch(
-      `${_base}/projects/${projectId}/sections/${sectionId}/export/pdf?${params.toString()}`,
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `Export failed (${res.status})`)
-    }
-    return res.arrayBuffer()
+    return getBytes(`/projects/${projectId}/sections/${sectionId}/export/pdf?${params.toString()}`)
   },
 
   // Download the section's Plaxis 2D plxscripting script as raw
-  // bytes (debt #29). Same byte-pipe contract as exportDxf — the
-  // caller writes the ArrayBuffer straight to a .py file via the
-  // Electron save dialog. Throws on non-2xx; the 404 (missing
-  // section / model) surfaces through the caller's toast.
-  exportPlaxis2d: async (
-    projectId: string,
-    sectionId: string,
-    modelId: string,
-  ): Promise<ArrayBuffer> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/sections/${sectionId}/export/plaxis2d` +
-        `?model_id=${modelId}`,
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `Export failed (${res.status})`)
-    }
-    return res.arrayBuffer()
-  },
+  // bytes (debt #29). Same byte-pipe contract as exportDxf.
+  exportPlaxis2d: (projectId: string, sectionId: string, modelId: string): Promise<ArrayBuffer> =>
+    getBytes(
+      `/projects/${projectId}/sections/${sectionId}/export/plaxis2d?model_id=${modelId}`,
+    ),
 }
