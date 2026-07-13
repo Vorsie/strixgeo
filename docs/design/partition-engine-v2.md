@@ -107,7 +107,14 @@ below:
 |---|---|
 | Derived base-tie: a top-tie on unit *k* also ties the BASE of unit *k−1* (`classifyTermination` case (a)) | KEPT — without it a unit sandwiched between two top-ties never reads fully-banded; implemented in `emitClosings` tie registration |
 | Implicit top closure via full-width matrix bands | CHANGED — the face-tracing model needs an EXPLICIT surface curve per gap (`emitSurfaceCurves`) or near-surface pinch vacancies stay untraced |
-| Enclosed-lens matrix merge (v1 step-0 interval extraction → matrix continuous, lens overlaid) | KEPT as lens-as-HOLE face, but BLOCKED on the substrate floor: the hole representation is a true partition only when the enclosing matrix band is itself a CLOSED face, which needs increment-3 bridge curves. Until then enclosed minorities flow through the ordinary 0-tied lens closing path (wired but void-guarded in `emitLenses`) |
+| Enclosed-lens matrix merge (v1 step-0 interval extraction → matrix continuous, lens overlaid) | KEPT as lens-as-HOLE face, but BLOCKED: increment-3 re-evaluation showed the path mis-shapes even the pure synthetic lens case and adds false overlaps on 2 real sections — stays guarded (`ENABLE_ENCLOSED_LENS = false` in `sectionGeom.ts`) pending a dedicated pass that first fixes its pure-case geometry. Enclosed minorities flow through the ordinary 0-tied lens closing path meanwhile |
+
+Discovered during the increment-3 build (2026-07-14):
+
+| v1 rule / pass | v2 disposition |
+|---|---|
+| Deep-to-deep substrate (concrete v2 mechanism) | IMPLEMENTED as jump-tie BRIDGE curves (`emitSubstrate.ts`): a non-adjacent tie emits a bridge polyline from the lo anchor's contact through every intervening column x (real alongM) to the hi anchor; a deep anchor unit whose contact a bridge carries skips its own lens/onlap closing; bridge-bounded faces read BAND. Bridge-less strips stay empty (owner §8 Q3) |
+| Vacancy closure at terminations (v1 `emitInterval` two-pieces-plus-filler + the owner-validated "no auto-facies" straight midpoint seam) | MUST IMPLEMENT (increment 4) — the dominant residual above-TD hole class (274 across 5 sections) is space vacated past a pinch/lens apex that v1 tiles via filler pieces and seams. Fill is NOT an open question: the no-holes invariant (§1) and the cs1void gate (interior void 0) are the point of v2. Only the seam geometry follows v1 for parity |
 
 Anything discovered in v1 during the build that is NOT in this table gets
 ADDED to this table with a disposition — nothing is dropped silently.
@@ -143,6 +150,13 @@ closure→pinch, LENS→lens). Consumers that must not change:
     sections), `cs1lensdisjoint`, `cs1sandbody`, `cs1bandauthority`,
     `cs1void`, tie-straddle diag. The FROZEN gate pins v1 only; v2 gets its
     own frozen snapshot after owner dogfeed sign-off.
+  - Verification note (2026-07-14): overlap claims are settled by BOTH the
+    interval-scan diag AND an independent dense point-in-polygon
+    double-coverage sample — increment 3 asserted the CS1 gap18 triple
+    junction was a diag false positive, but the PIP sample proved a real
+    ~cm-scale patch claimed by three output polygons at once. The
+    `SectionRegion` polygons are the output contract; "the arrangement
+    faces are disjoint" is not sufficient — the sliced output must be.
   - Unit tests: the pure-geometry cases in `partitionFill.test.ts` /
     `partitionFill.oneGesture.test.ts` run against BOTH engines via the
     2-column wrapper (parameterised), except cases that pin v1 bug
