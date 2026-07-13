@@ -156,10 +156,66 @@ function walkLoops(vertices: readonly GridPoint[], halfEdges: readonly DcelHalfE
       // A 2-vertex loop is a dangling spur (edge + its twin) — no area, dropped.
       continue
     }
-    const signedArea = signedGridArea(verts.map((v) => vertices[v]))
-    loops.push({ edges, verts, signedArea, curveIds })
+    // Strip zero-width SPURS: a synthesized closing curve that dead-ends (an onlap
+    // tip landing mid-tie, a lens apex shared with the matrix) is walked out along
+    // an edge and immediately back along its twin, leaving an ``…, A, B, A, …``
+    // tendril in the face ring. The tendril has zero area but makes the polygon
+    // NON-SIMPLE, which breaks the even-odd coverage scan (spurious holes) and the
+    // per-gap slice (spurious different-litho overlaps). Collapsing it here — at
+    // trace time, before any downstream consumer — canonicalises the ring without
+    // changing the face's real area or its curve provenance.
+    const clean = stripSpurs(verts)
+    if (clean.length < 3) continue
+    const signedArea = signedGridArea(clean.map((v) => vertices[v]))
+    loops.push({ edges, verts: clean, signedArea, curveIds })
   }
   return loops
+}
+
+/**
+ * Collapse zero-width spurs from a vertex-index ring: repeatedly remove any vertex
+ * ``B`` whose ring-neighbours are the SAME vertex (``…, A, B, A, …`` → ``…, A, …``),
+ * i.e. an out-and-back tendril. Iterates to a fixpoint so nested spurs (a spur off a
+ * spur) also collapse. Returns the cleaned vertex-index ring.
+ *
+ * Parameters
+ * ----------
+ * verts : readonly number[]
+ *     The traced loop's vertex indices in walk order (no repeated closing vertex).
+ *
+ * Returns
+ * -------
+ * number[]
+ *     The ring with all out-and-back tendrils removed.
+ */
+function stripSpurs(verts: readonly number[]): number[] {
+  let ring = [...verts]
+  let changed = true
+  while (changed && ring.length >= 3) {
+    changed = false
+    const out: number[] = []
+    const n = ring.length
+    for (let i = 0; i < n; i++) {
+      const prev = ring[(i - 1 + n) % n]
+      const next = ring[(i + 1) % n]
+      // ``ring[i]`` is the tip of an out-and-back spur when its two neighbours are
+      // the same vertex — drop the tip (the neighbour is kept once, on its own turn).
+      if (prev === next) {
+        changed = true
+        continue
+      }
+      out.push(ring[i])
+    }
+    // A removal can leave an immediate ``A, A`` repeat (the two copies of the kept
+    // neighbour become adjacent); collapse those so the next pass sees a clean ring.
+    const dedup: number[] = []
+    for (const v of out) {
+      if (dedup.length === 0 || dedup[dedup.length - 1] !== v) dedup.push(v)
+    }
+    while (dedup.length > 1 && dedup[0] === dedup[dedup.length - 1]) dedup.pop()
+    ring = dedup
+  }
+  return ring
 }
 
 /** Signed polygon area in grid-unit² via the shoelace formula (CCW positive). */
