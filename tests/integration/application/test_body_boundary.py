@@ -73,7 +73,7 @@ async def scene(db_session: AsyncSession):
         app_project_id=proj.id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     section = CrossSectionOrm(
         id=uuid7(),

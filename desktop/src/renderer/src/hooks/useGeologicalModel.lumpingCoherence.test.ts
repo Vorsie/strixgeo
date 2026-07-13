@@ -111,7 +111,7 @@ const PROJ: ProjectResponse = {
 const ACTIVE_MODEL: GeologicalModelResponse = {
   id: 'model-1', app_project_id: 'proj-1', name: 'Default', kind: 'geological',
   description: null, is_active: true, excluded_borehole_ids: [],
-  parent_geological_model_id: null,
+  parent_model_id: null,
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 }
 

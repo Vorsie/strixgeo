@@ -81,7 +81,7 @@ async def built_solid_scene(db_session: AsyncSession) -> dict:
         app_project_id=proj.id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     db_session.add_all([geo, litho])
     await db_session.flush()

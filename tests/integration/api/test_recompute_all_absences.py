@@ -64,7 +64,7 @@ async def scenario(
         json={
             "name": "Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model["id"],
+            "parent_model_id": geo_model["id"],
         },
     )
     litho_model = litho_resp.json()

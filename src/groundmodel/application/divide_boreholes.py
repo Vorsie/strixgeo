@@ -213,7 +213,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             (
                 await self._session.execute(
                     select(GeologicalModelOrm).where(
-                        GeologicalModelOrm.parent_geological_model_id == litho_model.id,
+                        GeologicalModelOrm.parent_model_id == litho_model.id,
                         GeologicalModelOrm.kind == "geotechnical",
                     )
                 )
@@ -251,9 +251,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
 
         snap_tol = await self._read_geotech_snap_tolerance_m(project_id)
-        geo_surfaces = await self._load_geo_surfaces_with_formation(
-            litho_model.parent_geological_model_id
-        )
+        geo_surfaces = await self._load_geo_surfaces_with_formation(litho_model.parent_model_id)
         boundary_sampler = self._make_boundary_sampler(geo_surfaces)
         lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
 

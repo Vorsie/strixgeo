@@ -36,7 +36,7 @@ function makeGeotechModel(): GeologicalModelResponse {
     name: 'Geotech model',
     description: null,
     kind: 'geotechnical',
-    parent_geological_model_id: 'litho-1',
+    parent_model_id: 'litho-1',
     is_active: true,
     excluded_borehole_ids: [],
     created_at: '2026-01-01T00:00:00Z',

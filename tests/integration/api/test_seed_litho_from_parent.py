@@ -112,7 +112,7 @@ async def _create_litho_model(
 ) -> dict:
     resp = await client.post(
         f"/projects/{project_id}/geology/models",
-        json={"name": name, "kind": "lithostratigraphic", "parent_geological_model_id": parent_id},
+        json={"name": name, "kind": "lithostratigraphic", "parent_model_id": parent_id},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()

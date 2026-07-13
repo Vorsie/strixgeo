@@ -40,7 +40,7 @@ async def test_happy_path_labels_body_with_majority_formation() -> None:
     """
     session = AsyncMock()
     litho_model = MagicMock()
-    litho_model.parent_geological_model_id = GEO_MODEL_ID
+    litho_model.parent_model_id = GEO_MODEL_ID
     session.get.return_value = litho_model
     session.execute.side_effect = [
         # Member rows: (body_id, investigation_id, top, base).
@@ -73,7 +73,7 @@ async def test_no_parent_geological_model_returns_empty_map() -> None:
     """A litho model without a parent geological model has no labels."""
     session = AsyncMock()
     litho_model = MagicMock()
-    litho_model.parent_geological_model_id = None
+    litho_model.parent_model_id = None
     session.get.return_value = litho_model
 
     labels = await GetBodyGeoLabels(session).execute(litho_model_id=MODEL_ID, body_ids=[BODY_ID])
@@ -87,7 +87,7 @@ async def test_unresolvable_body_maps_to_none_none() -> None:
     """A body whose investigation has no geo contacts maps to (None, None)."""
     session = AsyncMock()
     litho_model = MagicMock()
-    litho_model.parent_geological_model_id = GEO_MODEL_ID
+    litho_model.parent_model_id = GEO_MODEL_ID
     session.get.return_value = litho_model
     session.execute.side_effect = [
         _result_with_rows([(BODY_ID, INV_ID, 0.0, 5.0)]),

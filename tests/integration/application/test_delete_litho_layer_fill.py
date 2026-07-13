@@ -64,7 +64,7 @@ async def three_contiguous_layers(db_session: AsyncSession) -> _Ctx:
         app_project_id=project.id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     parent = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="Quat", color="#ccc", display_order=0

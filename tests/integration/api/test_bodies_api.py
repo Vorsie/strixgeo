@@ -52,7 +52,7 @@ async def bodies_api_fixture(
         app_project_id=project.id,
         name="Litho-API",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     db_session.add_all([geo, litho])
     await db_session.flush()
@@ -140,7 +140,7 @@ async def idor_fixture(
         app_project_id=project_a.id,
         name="Litho-A",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_a.id,
+        parent_model_id=geo_a.id,
     )
     db_session.add_all([geo_a, model_a])
     await db_session.flush()
@@ -204,7 +204,7 @@ async def idor_fixture(
         app_project_id=project_b.id,
         name="Litho-B",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_b.id,
+        parent_model_id=geo_b.id,
     )
     db_session.add_all([geo_b, model_b])
 
@@ -329,7 +329,7 @@ async def test_list_bodies_derives_majority_geo_label(
     the majority maths).
     """
     project, litho, _litho_formation, bh, _nbr = bodies_api_fixture
-    geo_model_id = litho.parent_geological_model_id
+    geo_model_id = litho.parent_model_id
 
     quartair = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="Quartair", color="#ffcc00", display_order=0

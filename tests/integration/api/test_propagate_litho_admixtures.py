@@ -63,7 +63,7 @@ async def litho_model(project: ProjectOrm, db_session: AsyncSession) -> Geologic
         app_project_id=project.id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     db_session.add_all([geo, litho])
     await db_session.commit()

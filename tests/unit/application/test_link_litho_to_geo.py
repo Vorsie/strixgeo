@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
 
 import pytest
+
 from groundmodel.application.link_litho_to_geo import LinkLithoToGeo
 
 # ---------------------------------------------------------------------------
@@ -47,13 +48,13 @@ def _make_session(
     Wires up:
     - session.get(FormationContactOrm, CONTACT_ID) → litho contact stub
     - session.get(GeologicalModelOrm, LITHO_MODEL_ID) → litho model stub
-      with parent_geological_model_id = parent_geo_model_id
+      with parent_model_id = parent_geo_model_id
     - session.get(FormationContactOrm, GEO_CONTACT_ID) → geo contact stub
     - session.execute(...) → geo contacts at investigation
     """
     litho_model_stub = SimpleNamespace(
         app_project_id=contact_project_id,
-        parent_geological_model_id=parent_geo_model_id,
+        parent_model_id=parent_geo_model_id,
         id=LITHO_MODEL_ID,
     )
     litho_contact_stub = SimpleNamespace(

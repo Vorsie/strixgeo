@@ -72,7 +72,7 @@ async def stack(db_session: AsyncSession, project: ProjectOrm, async_client: Asy
         json={
             "name": "Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model["id"],
+            "parent_model_id": geo_model["id"],
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text

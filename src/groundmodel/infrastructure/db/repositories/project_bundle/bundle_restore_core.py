@@ -96,7 +96,7 @@ async def _wipe_project_scoped_rows(
     map (bulk ``delete()`` fires DB cascades, not ORM-relationship cascades):
 
     * ``geological_model`` is deleted by ``kind`` — geotechnical →
-      lithostratigraphic → geological — because ``parent_geological_model_id``
+      lithostratigraphic → geological — because ``parent_model_id``
       is ``ON DELETE RESTRICT`` (a child model pins its parent). Each model
       delete CASCADEs to its formation contacts, contact-correlation edges,
       lens metadata, and lens shapes (→ boundary nodes).

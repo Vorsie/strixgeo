@@ -341,7 +341,7 @@ async def sab_scene(
         json={
             "name": "SAB-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -1104,7 +1104,7 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
         app_project_id=proj.id,
         name="Litho-GBR",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
         is_active=True,
     )
     db_session.add_all([geo_model, litho_model])
@@ -1419,7 +1419,7 @@ async def multi_layer_body_scene(db_session: AsyncSession) -> dict:
         app_project_id=proj.id,
         name="Litho-B1",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
         is_active=True,
     )
     db_session.add_all([geo_model, litho_model])
@@ -1702,7 +1702,7 @@ async def connectivity_scene(
         json={
             "name": "Conn-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -1948,7 +1948,7 @@ async def no_clobber_scene(
         json={
             "name": "NC-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -2238,7 +2238,7 @@ async def borehole_extrapolation_scene(
         json={
             "name": "BHE-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -2451,7 +2451,7 @@ async def borehole_tin_division_scene(
         json={
             "name": "BHT-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -2784,7 +2784,7 @@ async def cpt_multi_segment_scene(
         json={
             "name": "B3-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -3059,7 +3059,7 @@ async def sab_lcs_scene(
         json={
             "name": "LCS-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text

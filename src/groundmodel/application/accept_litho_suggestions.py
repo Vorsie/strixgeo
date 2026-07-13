@@ -327,7 +327,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             litho_model = await load_scoped_or_raise(
                 self._session, GeologicalModelOrm, litho_model_id, project_id, label="Litho model"
             )
-            geology_model_id = litho_model.parent_geological_model_id
+            geology_model_id = litho_model.parent_model_id
 
         # --- Load existing geology contacts at this investigation (#162) ------
         # Used for litho↔geo coupling (#162 Task 3).
@@ -716,7 +716,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         litho_model = await load_scoped_or_raise(
             self._session, GeologicalModelOrm, litho_model_id, project_id, label="Litho model"
         )
-        geology_model_id: UUID | None = litho_model.parent_geological_model_id
+        geology_model_id: UUID | None = litho_model.parent_model_id
 
         litho_formations = self._build_litho_formation_lookup(
             await self._repo.list_formations(project_id)

@@ -107,7 +107,7 @@ async def litho_model_with_two_uncorrelated_sand_layers(
         app_project_id=project.id,
         name="Litho-RBI",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     parent = GeologicalFormationOrm(
         id=uuid7(),

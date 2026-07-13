@@ -53,14 +53,14 @@ async def create_model(
     """Create a model, enforcing the three-level parent invariant.
 
     ``geological`` → must have NO parent. ``lithostratigraphic`` /
-    ``geotechnical`` → ``parent_geological_model_id`` is required and
+    ``geotechnical`` → ``parent_model_id`` is required and
     must point at an existing same-project model of the required
     parent kind (geological / lithostratigraphic respectively). Any
     violation is a 422 — this is where "not optional for litho/geotech"
     is enforced (the column is DB-nullable; see model_kind.py).
     """
     required_parent_kind = REQUIRED_PARENT_KIND[request.kind]
-    parent_id = request.parent_geological_model_id
+    parent_id = request.parent_model_id
 
     if required_parent_kind is None:
         if parent_id is not None:
@@ -74,7 +74,7 @@ async def create_model(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
                     f"A {request.kind} model requires "
-                    f"parent_geological_model_id (a {required_parent_kind} model)."
+                    f"parent_model_id (a {required_parent_kind} model)."
                 ),
             )
         parent = await session.get(GeologicalModelOrm, parent_id)
@@ -86,7 +86,7 @@ async def create_model(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"parent_geological_model_id must reference an existing "
+                    f"parent_model_id must reference an existing "
                     f"{required_parent_kind} model in this project."
                 ),
             )
@@ -99,7 +99,7 @@ async def create_model(
         is_active=request.is_active,
         excluded_borehole_ids=request.excluded_borehole_ids,
         kind=request.kind,
-        parent_geological_model_id=parent_id,
+        parent_model_id=parent_id,
     )
     await session.commit()
     await session.refresh(model)

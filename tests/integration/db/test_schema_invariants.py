@@ -92,7 +92,7 @@ async def test_geological_model_kind_all_three_valid(
             app_project_id=project.id,
             name="litho",
             kind="lithostratigraphic",
-            parent_geological_model_id=geo_model.id,
+            parent_model_id=geo_model.id,
         )
     )
     db_session.add(
@@ -101,7 +101,7 @@ async def test_geological_model_kind_all_three_valid(
             app_project_id=project.id,
             name="gt",
             kind="geotechnical",
-            parent_geological_model_id=geo_model.id,
+            parent_model_id=geo_model.id,
         )
     )
     await db_session.flush()
@@ -133,20 +133,20 @@ async def test_body_ordinal_negative_rejected(
 
 
 # ---------------------------------------------------------------------------
-# Migration b2d3e4f5a6b7 — kind / parent_geological_model_id NULL invariant
+# Migration b2d3e4f5a6b7 — kind / parent_model_id NULL invariant
 # ---------------------------------------------------------------------------
 
 
 async def test_geological_model_with_parent_rejected(
     db_session: AsyncSession, project: ProjectOrm, geo_model: GeologicalModelOrm
 ) -> None:
-    """``kind='geological'`` MUST have ``parent_geological_model_id IS NULL``."""
+    """``kind='geological'`` MUST have ``parent_model_id IS NULL``."""
     bad = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="g-with-parent",
         kind="geological",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     db_session.add(bad)
     with pytest.raises(IntegrityError, match="ck_geological_model_kind_parent_null"):
@@ -276,7 +276,7 @@ async def test_active_geological_and_active_litho_same_project_accepted(
         name="Litho refinement",
         kind="lithostratigraphic",
         is_active=True,
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     db_session.add(litho)
     await db_session.flush()  # must not raise — different kinds

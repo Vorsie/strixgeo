@@ -745,7 +745,7 @@ async def seed_litho_from_parent(
 
     Called from the Sections editor's "Seed from geology" button (litho axis).
     The model must be ``kind='lithostratigraphic'`` with a non-null
-    ``parent_geological_model_id``; any other shape returns 422. Only
+    ``parent_model_id``; any other shape returns 422. Only
     borehole-anchored contacts are copied; the copy carries
     ``source='geological_model_seed'`` and ``confidence='medium'``.
     Re-running is idempotent: existing (formation, borehole) pairs in the
@@ -779,7 +779,7 @@ async def seed_litho_from_parent(
         When the model does not belong to the project.
     HTTPException(422)
         When the model is not ``kind='lithostratigraphic'`` or has no
-        ``parent_geological_model_id``.
+        ``parent_model_id``.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}"
@@ -1088,8 +1088,8 @@ async def accept_litho_suggestions(
     # RebuildModelSurfaces.execute does not accept only_formation_ids scoping;
     # it rebuilds the whole model.  Guarded on non-empty so no-coupling accepts
     # (most accepts) pay zero extra cost.
-    if result.touched_geo_formation_ids and model.parent_geological_model_id is not None:
-        await RebuildModelSurfaces(session).execute(model.parent_geological_model_id)
+    if result.touched_geo_formation_ids and model.parent_model_id is not None:
+        await RebuildModelSurfaces(session).execute(model.parent_model_id)
 
     return AcceptLithoSuggestionsResponse(
         created_formation_ids=result.created_formation_ids,
@@ -1273,8 +1273,8 @@ async def batch_accept_litho_suggestions(
     # touched_geo_formation_ids across anchors so this fires once, not per anchor.
     # RebuildModelSurfaces.execute rebuilds the whole geo model (no
     # only_formation_ids scoping); guarded on non-empty + parent present.
-    if batch_result.touched_geo_formation_ids and model.parent_geological_model_id is not None:
-        await RebuildModelSurfaces(session).execute(model.parent_geological_model_id)
+    if batch_result.touched_geo_formation_ids and model.parent_model_id is not None:
+        await RebuildModelSurfaces(session).execute(model.parent_model_id)
 
     return BatchAcceptLithoSuggestionsResponse(
         anchors=anchor_results,

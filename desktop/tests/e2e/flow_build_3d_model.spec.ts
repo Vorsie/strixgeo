@@ -153,7 +153,7 @@ test.describe('flow_build_3d_model (#130)', () => {
               name: 'E2E-Scratch-NoContacts',
               description: null,
               kind: 'geological',
-              parent_geological_model_id: null,
+              parent_model_id: null,
             }),
           })
           return { status: r.status, json: await r.json() }

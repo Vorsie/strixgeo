@@ -50,7 +50,7 @@ async def litho_column(db_session: AsyncSession) -> _Ctx:
         app_project_id=project.id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(),

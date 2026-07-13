@@ -1604,13 +1604,13 @@ async def test_geological_surfaces_fetchable_when_litho_sibling_exists(
         json={
             "name": "Litho model",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model["id"],
+            "parent_model_id": geo_model["id"],
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
     litho_model = litho_resp.json()
     assert litho_model["kind"] == "lithostratigraphic"
-    assert litho_model["parent_geological_model_id"] == geo_model["id"]
+    assert litho_model["parent_model_id"] == geo_model["id"]
 
     # The geological model's surfaces endpoint must return a valid list
     # (empty here — no contacts yet, so no TIN rows).
@@ -1797,7 +1797,7 @@ async def test_litho_rebuild_skips_age_reorder(
         json={
             "name": "Litho model",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model["id"],
+            "parent_model_id": geo_model["id"],
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text

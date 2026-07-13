@@ -99,7 +99,7 @@ async def _create_model(client: AsyncClient, project_id) -> dict:  # noqa: ANN00
         json={
             "name": "Model",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": parent.json()["id"],
+            "parent_model_id": parent.json()["id"],
         },
     )
     assert resp.status_code == 201, resp.text

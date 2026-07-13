@@ -166,7 +166,7 @@ def _make_session(
     litho_model_stub = SimpleNamespace(
         app_project_id=PROJECT_ID,
         kind=litho_model_kind,
-        parent_geological_model_id=geo_model_id,
+        parent_model_id=geo_model_id,
     )
     # The borehole ORM stub
     borehole_stub = SimpleNamespace(
@@ -855,7 +855,7 @@ async def test_v10_wrong_project_litho_model_raises_value_error() -> None:
     foreign_model = SimpleNamespace(
         app_project_id=other_project,  # NOT PROJECT_ID
         kind="lithostratigraphic",
-        parent_geological_model_id=GEO_MODEL_ID,
+        parent_model_id=GEO_MODEL_ID,
     )
 
     session = AsyncMock()

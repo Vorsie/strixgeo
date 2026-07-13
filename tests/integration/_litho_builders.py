@@ -57,7 +57,7 @@ def litho_model(
     project : ProjectOrm
         The owning project; supplies ``app_project_id``.
     geo : GeologicalModelOrm
-        The mandatory geological parent; supplies ``parent_geological_model_id``.
+        The mandatory geological parent; supplies ``parent_model_id``.
     name : str, optional
         Model name. Defaults to ``"Litho"``.
 
@@ -71,7 +71,7 @@ def litho_model(
         app_project_id=project.id,
         name=name,
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
 
 

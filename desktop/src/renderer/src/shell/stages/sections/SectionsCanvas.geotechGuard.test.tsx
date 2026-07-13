@@ -86,7 +86,7 @@ function makeGeotechModel(id = 'geotech-model-1'): GeologicalModelResponse {
     is_active: true,
     excluded_borehole_ids: [],
     kind: 'geotechnical',
-    parent_geological_model_id: 'litho-model-1',
+    parent_model_id: 'litho-model-1',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

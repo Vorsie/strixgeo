@@ -346,9 +346,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # snap tolerance so true near-coincident geo slivers snap to the litho
         # contact instead of carving thin geotech sub-units).
         snap_tol = await self._read_geotech_snap_tolerance_m(geotech_model.app_project_id)
-        geo_surfaces = await self._load_geo_surfaces_with_formation(
-            litho_model.parent_geological_model_id
-        )
+        geo_surfaces = await self._load_geo_surfaces_with_formation(litho_model.parent_model_id)
         boundary_sampler = self._make_boundary_sampler(geo_surfaces)
         lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
 

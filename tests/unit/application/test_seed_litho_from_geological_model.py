@@ -22,7 +22,7 @@ borehole_ids scope filter:
 
 Guard paths:
 - Non-lithostratigraphic model raises ValueError.
-- Litho model with null parent_geological_model_id raises ValueError.
+- Litho model with null parent_model_id raises ValueError.
 
 Source/confidence/null-observation assertions are verified on the created ORM rows.
 
@@ -50,7 +50,7 @@ from groundmodel.application.seed_litho_from_geological_model import (
 
 def _geo_model(
     *,
-    parent_geological_model_id=None,
+    parent_model_id=None,
     excluded_borehole_ids=None,
     kind="geological",
 ):
@@ -58,7 +58,7 @@ def _geo_model(
     return SimpleNamespace(
         id=uuid4(),
         kind=kind,
-        parent_geological_model_id=parent_geological_model_id,
+        parent_model_id=parent_model_id,
         excluded_borehole_ids=excluded_borehole_ids or [],
     )
 
@@ -72,7 +72,7 @@ def _litho_model(
     return SimpleNamespace(
         id=uuid4(),
         kind="lithostratigraphic",
-        parent_geological_model_id=parent_id,
+        parent_model_id=parent_id,
         excluded_borehole_ids=excluded_borehole_ids or [],
     )
 
@@ -471,13 +471,13 @@ async def test_non_litho_model_raises_value_error():
 
 @pytest.mark.asyncio
 async def test_litho_model_without_parent_raises_value_error():
-    """A lithostratigraphic model with null parent_geological_model_id raises ValueError."""
+    """A lithostratigraphic model with null parent_model_id raises ValueError."""
     # Simulate a mal-formed litho model that somehow has no parent (shouldn't
     # happen through the API, but the use case must guard against it defensively).
     orphan_litho = SimpleNamespace(
         id=uuid4(),
         kind="lithostratigraphic",
-        parent_geological_model_id=None,
+        parent_model_id=None,
         excluded_borehole_ids=[],
     )
 
@@ -486,7 +486,7 @@ async def test_litho_model_without_parent_raises_value_error():
 
     use_case = SeedLithoFromGeologicalModel(session)
 
-    with pytest.raises(ValueError, match="parent_geological_model_id"):
+    with pytest.raises(ValueError, match="parent_model_id"):
         await use_case.execute(
             project_id=uuid4(),
             model_id=orphan_litho.id,

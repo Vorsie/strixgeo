@@ -46,7 +46,7 @@ async def _create_model(
     """POST a model; return the JSON body (asserts 201)."""
     body: dict = {"name": name, "kind": kind, "is_active": is_active}
     if parent_id is not None:
-        body["parent_geological_model_id"] = parent_id
+        body["parent_model_id"] = parent_id
     resp = await client.post(f"/projects/{project_id}/geology/models", json=body)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -61,7 +61,7 @@ async def test_litho_model_requires_a_parent(
         json={"name": "L", "kind": "lithostratigraphic"},
     )
     assert resp.status_code == 422
-    assert "parent_geological_model_id" in resp.text
+    assert "parent_model_id" in resp.text
 
 
 async def test_geological_model_rejects_a_parent(
@@ -74,7 +74,7 @@ async def test_geological_model_rejects_a_parent(
         json={
             "name": "G2",
             "kind": "geological",
-            "parent_geological_model_id": geo["id"],
+            "parent_model_id": geo["id"],
         },
     )
     assert resp.status_code == 422
@@ -93,7 +93,7 @@ async def test_litho_model_with_geological_parent_ok(
         parent_id=geo["id"],
     )
     assert litho["kind"] == "lithostratigraphic"
-    assert litho["parent_geological_model_id"] == geo["id"]
+    assert litho["parent_model_id"] == geo["id"]
 
 
 async def test_litho_parent_must_be_geological_kind(
@@ -109,7 +109,7 @@ async def test_litho_parent_must_be_geological_kind(
         json={
             "name": "L2",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": litho["id"],
+            "parent_model_id": litho["id"],
         },
     )
     assert resp.status_code == 422
@@ -125,7 +125,7 @@ async def test_geotechnical_requires_lithostratigraphic_parent(
         json={
             "name": "GT",
             "kind": "geotechnical",
-            "parent_geological_model_id": geo["id"],
+            "parent_model_id": geo["id"],
         },
     )
     assert bad.status_code == 422
@@ -150,7 +150,7 @@ async def test_unknown_parent_id_is_422(async_client: AsyncClient, project: Proj
         json={
             "name": "L",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": str(uuid4()),
+            "parent_model_id": str(uuid4()),
         },
     )
     assert resp.status_code == 422

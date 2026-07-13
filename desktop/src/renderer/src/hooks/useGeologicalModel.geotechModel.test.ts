@@ -110,7 +110,7 @@ const GEO_MODEL: GeologicalModelResponse = {
   kind: 'geological',
   is_active: true,
   excluded_borehole_ids: [],
-  parent_geological_model_id: null,
+  parent_model_id: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }
@@ -123,7 +123,7 @@ const GEOTECH_MODEL: GeologicalModelResponse = {
   kind: 'geotechnical',
   is_active: true,
   excluded_borehole_ids: [],
-  parent_geological_model_id: GEO_MODEL_ID,
+  parent_model_id: GEO_MODEL_ID,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }

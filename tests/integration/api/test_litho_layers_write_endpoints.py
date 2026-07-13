@@ -60,7 +60,7 @@ async def project_with_two_layers(
         app_project_id=project.id,
         name="Litho M",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(),

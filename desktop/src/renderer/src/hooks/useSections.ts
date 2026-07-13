@@ -328,7 +328,7 @@ export function useSections({
   // zero regression. Session-only (not persisted to .gmproj).
   const [sectionModelAxis, _setSectionModelAxis] = useState<SectionModelAxis>('geological')
   // Geological backdrop model override (#60). Null = use the active litho
-  // model's parent_geological_model_id (derived in SectionsCanvas). Only
+  // model's parent_model_id (derived in SectionsCanvas). Only
   // relevant when the project has more than one geological model. Session-only.
   const [backdropModelIdOverride, setBackdropModelIdOverride] = useState<string | null>(null)
   // Section-local focused column — set by right-click → "Focus" in the

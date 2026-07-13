@@ -60,7 +60,7 @@ async def project_with_litho_layers(
         app_project_id=project.id,
         name="Litho M1",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     db_session.add_all([bh, geo_model, model])
     await db_session.flush()

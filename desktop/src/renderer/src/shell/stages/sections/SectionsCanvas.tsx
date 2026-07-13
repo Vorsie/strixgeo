@@ -1510,12 +1510,12 @@ export default function SectionsCanvas(): JSX.Element {
   const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : isGeotech ? undefined : handleInlineCreateFormation
 
   // Override #2 (owner): derive the default backdrop geological-model id at the
-  // prop boundary via useMemo from activeLithoModel?.parent_geological_model_id.
+  // prop boundary via useMemo from activeLithoModel?.parent_model_id.
   // When the project has more than one geological model the user can override via
   // the picker in SectionsInspector (backdropModelIdOverride from the sections
   // ShellContext slice); the effective id is the override if set, else the parent.
   const defaultBackdropModelId = useMemo(
-    () => activeLithoModel?.parent_geological_model_id ?? null,
+    () => activeLithoModel?.parent_model_id ?? null,
     [activeLithoModel],
   )
   // Effective backdrop model â€” the ShellContext override takes precedence when set.

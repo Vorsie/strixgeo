@@ -56,6 +56,11 @@ _RESTORE_KEY_ALIASES: dict[str, dict[str, str]] = {
         "companion_lens_id": "companion_body_id",
         "is_lens_companion": "is_body_companion",
     },
+    # 2026-07-13 kind-neutral parent rename (audit NAME-09) — the parent of a
+    # geotech model is a LITHO model, so "geological" in the old name lied.
+    "GeologicalModelOrm": {
+        "parent_geological_model_id": "parent_model_id",
+    },
 }
 
 # Restore-boundary caps for FormationSurface TIN blobs (debt #19). The

@@ -356,7 +356,7 @@ async def gvw_scene(
         json={
             "name": "GVW-Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text

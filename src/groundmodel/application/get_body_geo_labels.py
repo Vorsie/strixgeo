@@ -70,7 +70,7 @@ class GetBodyGeoLabels(GroundModelLogger):
             return {}
 
         litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
-        geo_model_id = litho_model.parent_geological_model_id if litho_model else None
+        geo_model_id = litho_model.parent_model_id if litho_model else None
         if geo_model_id is None:
             self.debug(
                 f"geo labels: model={litho_model_id} has no parent geological model — empty map"

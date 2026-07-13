@@ -50,7 +50,7 @@ async def project_and_model(db_session: AsyncSession) -> dict:
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     db_session.add_all([bh, geo, litho])
     await db_session.commit()

@@ -60,7 +60,7 @@ async def stack(
         json={
             "name": "Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model["id"],
+            "parent_model_id": geo_model["id"],
         },
     )
     assert litho_resp.status_code == 201

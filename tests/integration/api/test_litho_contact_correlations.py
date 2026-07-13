@@ -74,7 +74,7 @@ async def two_contacts_in_litho_model(
         json={
             "name": "Litho-CC",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_id,
+            "parent_model_id": geo_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text

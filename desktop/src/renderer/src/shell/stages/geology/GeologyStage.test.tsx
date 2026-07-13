@@ -595,7 +595,7 @@ describe('Geology stage (smoke)', () => {
         name: 'Default',
         description: null,
         kind: 'geological',
-        parent_geological_model_id: null,
+        parent_model_id: null,
         is_active: true,
         excluded_borehole_ids: [],
         created_at: '2026-01-01T00:00:00Z',

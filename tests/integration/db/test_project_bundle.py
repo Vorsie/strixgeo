@@ -887,7 +887,7 @@ async def test_bundle_round_trips_kind_parent_lithology_nad_class(
         is_active=True,
         excluded_borehole_ids=[],
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     sand_unit = GeologicalFormationOrm(
         id=uuid7(),
@@ -914,7 +914,7 @@ async def test_bundle_round_trips_kind_parent_lithology_nad_class(
             "is_active": False,
             "excluded_borehole_ids": [],
             "kind": "totally-not-a-kind",
-            "parent_geological_model_id": None,
+            "parent_model_id": None,
             "contacts": [],
         }
     )
@@ -955,9 +955,9 @@ async def test_bundle_round_trips_kind_parent_lithology_nad_class(
     }
     # S7: kind + parent FK survived verbatim.
     assert models[geo_id].kind == "geological"
-    assert models[geo_id].parent_geological_model_id is None
+    assert models[geo_id].parent_model_id is None
     assert models[litho_id].kind == "lithostratigraphic"
-    assert models[litho_id].parent_geological_model_id == geo_id
+    assert models[litho_id].parent_model_id == geo_id
     # S6: the unknown kind was coerced to the safe geological default.
     assert models[UUID(bogus_id)].kind == "geological"
 
@@ -1410,7 +1410,7 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
         kind="lithostratigraphic",
         is_active=True,
         excluded_borehole_ids=[],
-        parent_geological_model_id=geo_parent.id,
+        parent_model_id=geo_parent.id,
     )
     db_session.add_all([formation, geo_parent, model])
     await db_session.flush()
@@ -1643,7 +1643,7 @@ async def test_bundle_roundtrips_edge_section_id(db_session: AsyncSession) -> No
         kind="lithostratigraphic",
         is_active=True,
         excluded_borehole_ids=[],
-        parent_geological_model_id=geo_parent.id,
+        parent_model_id=geo_parent.id,
     )
     section = CrossSectionOrm(
         id=uuid7(),
@@ -1796,7 +1796,7 @@ async def test_restore_drops_edge_without_section_id(db_session: AsyncSession) -
         kind="lithostratigraphic",
         is_active=True,
         excluded_borehole_ids=[],
-        parent_geological_model_id=geo_parent.id,
+        parent_model_id=geo_parent.id,
     )
     section = CrossSectionOrm(
         id=uuid7(),
@@ -1971,7 +1971,7 @@ async def test_bundle_roundtrip_preserves_parent_geo_contact_id(
         kind="lithostratigraphic",
         is_active=True,
         excluded_borehole_ids=[],
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(),
@@ -2094,7 +2094,7 @@ async def test_replace_restore_reverts_mutations_creates_and_deletes(
     row gone, renamed field back.
 
     Also exercises the RESTRICT-ordered ``geological_model`` wipe: a litho model
-    pins its geological parent via ``parent_geological_model_id``
+    pins its geological parent via ``parent_model_id``
     (``ON DELETE RESTRICT``), so the wipe must delete child models (by ``kind``)
     before the backbone, or the DELETE raises.
     """
@@ -2122,7 +2122,7 @@ async def test_replace_restore_reverts_mutations_creates_and_deletes(
         app_project_id=project_id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(),
@@ -2223,7 +2223,7 @@ async def test_replace_restore_reverts_mutations_creates_and_deletes(
     )
     assert {m.kind for m in models} == {"geological", "lithostratigraphic"}
     litho_after = next(m for m in models if m.kind == "lithostratigraphic")
-    assert litho_after.parent_geological_model_id == geo_model_id
+    assert litho_after.parent_model_id == geo_model_id
 
 
 # ---------------------------------------------------------------------------
@@ -2279,7 +2279,7 @@ async def test_restore_ignores_legacy_extent_fields(db_session: AsyncSession) ->
         is_active=True,
         excluded_borehole_ids=[],
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_backbone.id,
+        parent_model_id=geo_backbone.id,
     )
     db_session.add(model)
     await db_session.flush()
@@ -2462,7 +2462,7 @@ async def test_body_display_color_round_trips_in_bundle(db_session: AsyncSession
         is_active=True,
         excluded_borehole_ids=[],
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_backbone.id,
+        parent_model_id=geo_backbone.id,
     )
     db_session.add(model)
     await db_session.flush()

@@ -365,7 +365,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         Parameters
         ----------
         geotech_model : GeologicalModelOrm
-            The geotechnical model whose ``parent_geological_model_id``
+            The geotechnical model whose ``parent_model_id``
             points to the lithostratigraphic model.
         contact_ids : list[UUID]
             Geotech contact (= litho_layer) ids to resolve.
@@ -377,7 +377,7 @@ class CorrelateLithoContacts(GroundModelLogger):
             are the parent litho ``body_id`` as a string, or ``None``
             when resolution fails.
         """
-        litho_model_id = geotech_model.parent_geological_model_id
+        litho_model_id = geotech_model.parent_model_id
         result: dict[str, str | None] = {}
 
         for contact_id in contact_ids:

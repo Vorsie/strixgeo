@@ -30,7 +30,7 @@ function model(id: string, name: string, kind: string, active = false) {
     is_active: active,
     excluded_borehole_ids: [],
     kind,
-    parent_geological_model_id: kind === 'geological' ? null : 'g1',
+    parent_model_id: kind === 'geological' ? null : 'g1',
     created_at: '',
     updated_at: '',
   }

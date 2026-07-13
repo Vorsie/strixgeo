@@ -18,6 +18,7 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
     _apply_json_to_kwargs,
     _from_json,
@@ -151,3 +152,10 @@ def test_new_companion_keys_win_over_stale_old_keys() -> None:
         },
     )
     assert kwargs == {"companion_body_id": UUID(new_id)}
+
+
+def test_old_parent_geological_model_id_key_restores_into_parent_model_id() -> None:
+    """A pre-NAME-09 bundle key ``parent_geological_model_id`` maps onto ``parent_model_id``."""
+    parent_id = "55555555-5555-5555-5555-555555555555"
+    kwargs = _apply_json_to_kwargs(GeologicalModelOrm, {"parent_geological_model_id": parent_id})
+    assert kwargs == {"parent_model_id": UUID(parent_id)}

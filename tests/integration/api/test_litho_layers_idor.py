@@ -49,14 +49,14 @@ async def project_two_models(db_session: AsyncSession) -> dict:
         app_project_id=project.id,
         name="A",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     model_b = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="B",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"

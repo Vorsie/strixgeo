@@ -78,7 +78,7 @@ async def scene(
         json={
             "name": "Litho",
             "kind": "lithostratigraphic",
-            "parent_geological_model_id": geo_model_id,
+            "parent_model_id": geo_model_id,
         },
     )
     assert litho_resp.status_code == 201, litho_resp.text
@@ -285,7 +285,7 @@ async def test_sab_it4_scope_guard_rejects_foreign_model(
         app_project_id=other_proj.id,
         name="OtherLitho",
         kind="lithostratigraphic",
-        parent_geological_model_id=other_geo.id,
+        parent_model_id=other_geo.id,
     )
     db_session.add_all([other_geo, other_litho])
     await db_session.commit()

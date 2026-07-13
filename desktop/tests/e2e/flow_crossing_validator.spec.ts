@@ -87,7 +87,7 @@ test.describe('flow_crossing_validator (#130)', () => {
           name: 'E2E-Crossing-Scratch',
           description: null,
           kind: 'geological',
-          parent_geological_model_id: null,
+          parent_model_id: null,
         },
       },
     )

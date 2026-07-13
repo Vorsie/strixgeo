@@ -67,7 +67,7 @@ class GeologicalModelOrm(Base):
     # "Not optional for litho/geotech" is enforced at creation
     # (REQUIRED_PARENT_KIND), not by DB NOT NULL, because geological
     # models legitimately share this nullable column with no parent.
-    parent_geological_model_id: Mapped[UUID | None] = mapped_column(
+    parent_model_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("geological_model.id", ondelete="RESTRICT"),
         nullable=True,

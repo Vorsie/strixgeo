@@ -165,7 +165,7 @@ export interface GeologicalModelResponse {
   kind: ModelKind
   // Mandatory for litho/geotech (a litho model refines a geological
   // one; geotech refines a litho one); null only for geological.
-  parent_geological_model_id: string | null
+  parent_model_id: string | null
   created_at: string
   updated_at: string
 }
@@ -177,7 +177,7 @@ export interface GeologicalModelCreatePayload {
   is_active?: boolean
   excluded_borehole_ids?: string[]
   kind?: ModelKind
-  parent_geological_model_id?: string | null
+  parent_model_id?: string | null
 }
 
 /** Request body for ``PATCH /projects/{pid}/geology/models/{mid}``. */

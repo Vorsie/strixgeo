@@ -203,7 +203,7 @@ export function useLithoModelOps({
         const created = await api.geology.createModel(project.id, {
           name,
           kind: 'lithostratigraphic',
-          parent_geological_model_id: parent.id,
+          parent_model_id: parent.id,
           is_active: true,
         })
         await refreshModels()

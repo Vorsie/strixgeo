@@ -611,9 +611,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         UUID | None
             The parent geological model id, or ``None`` when none is set.
         """
-        stmt = select(GeologicalModelOrm.parent_geological_model_id).where(
-            GeologicalModelOrm.id == model_id
-        )
+        stmt = select(GeologicalModelOrm.parent_model_id).where(GeologicalModelOrm.id == model_id)
         parent_id = (await self._session.execute(stmt)).scalar_one_or_none()
         return parent_id  # already a UUID | None (mapped column type)
 

@@ -18,7 +18,7 @@ class GeologicalModelCreateRequest(BaseModel):
     the active flag (which clears it on every SAME-KIND sibling).
 
     ``kind`` selects the hierarchy level (default ``geological``).
-    ``parent_geological_model_id`` is required for non-geological
+    ``parent_model_id`` is required for non-geological
     kinds (a lithostratigraphic model refines a geological one; a
     geotechnical model refines a lithostratigraphic one) and is
     rejected for ``geological`` — enforced at the endpoint, 422 on
@@ -30,7 +30,7 @@ class GeologicalModelCreateRequest(BaseModel):
     is_active: bool = False
     excluded_borehole_ids: list[UUID] = Field(default_factory=list)
     kind: ModelKind = "geological"
-    parent_geological_model_id: UUID | None = None
+    parent_model_id: UUID | None = None
 
 
 class GeologicalModelUpdateRequest(BaseModel):
@@ -62,6 +62,6 @@ class GeologicalModelResponse(BaseModel):
     is_active: bool
     excluded_borehole_ids: list[UUID]
     kind: str
-    parent_geological_model_id: UUID | None
+    parent_model_id: UUID | None
     created_at: datetime
     updated_at: datetime

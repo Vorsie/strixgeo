@@ -431,7 +431,7 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         "is_active": True,
         "excluded_borehole_ids": [],
         "kind": "geological",
-        "parent_geological_model_id": None,
+        "parent_model_id": None,
         "contacts": contacts,
         "surfaces": [],
     }
@@ -446,7 +446,7 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         "is_active": True,
         "excluded_borehole_ids": [],
         "kind": "lithostratigraphic",
-        "parent_geological_model_id": geo_model_id,
+        "parent_model_id": geo_model_id,
         "contacts": [],
         "surfaces": [],
     }

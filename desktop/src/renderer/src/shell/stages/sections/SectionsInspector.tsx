@@ -187,7 +187,7 @@ export default function SectionsInspector(): JSX.Element {
   // Effective backdrop model id: the user's override if set, else the active
   // litho model's parent. Mirrors the derivation in SectionsCanvas / SectionsToolbar.
   const effectiveBackdropModelId =
-    backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id ?? null
+    backdropModelIdOverride ?? activeLithoModel?.parent_model_id ?? null
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -281,7 +281,7 @@ export default function SectionsInspector(): JSX.Element {
                 const val = e.target.value
                 // Selecting the parent's model id with no override set is
                 // equivalent to clearing the override — keep the state tidy.
-                const parentId = activeLithoModel.parent_geological_model_id
+                const parentId = activeLithoModel.parent_model_id
                 setBackdropModelIdOverride(val === parentId ? null : val || null)
               }}
               className="w-full text-xs rounded border border-border-default bg-surface-card text-text-primary px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent"
@@ -1227,7 +1227,7 @@ function ModelActions({
   // surfaces as a read-only backdrop reference. Disabled when no
   // backdrop is resolved (no litho parent + no override).
   const effectiveBackdropModelId =
-    backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id ?? null
+    backdropModelIdOverride ?? activeLithoModel?.parent_model_id ?? null
 
   // Newly-imported boreholes — those without ANY contact in the active
   // geological model. The Seed-for-new-tests verb scopes the seed to

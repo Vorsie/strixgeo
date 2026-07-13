@@ -96,7 +96,7 @@ async function createThrowawayModels(
       [geoId, projectId],
     )
     await client.query(
-      `INSERT INTO geological_model (id, app_project_id, name, kind, parent_geological_model_id)
+      `INSERT INTO geological_model (id, app_project_id, name, kind, parent_model_id)
        VALUES ($1, $2, '__e2e_voxel_litho', 'lithostratigraphic', $3)`,
       [lithoId, projectId, geoId],
     )

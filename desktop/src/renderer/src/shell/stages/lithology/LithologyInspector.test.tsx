@@ -95,7 +95,7 @@ function makeGeoModel(): GeologicalModelResponse {
     kind: 'geological',
     is_active: true,
     excluded_borehole_ids: [],
-    parent_geological_model_id: null,
+    parent_model_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -110,7 +110,7 @@ function makeLithoModel(): GeologicalModelResponse {
     kind: 'lithostratigraphic',
     is_active: true,
     excluded_borehole_ids: [],
-    parent_geological_model_id: 'geo-1',
+    parent_model_id: 'geo-1',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

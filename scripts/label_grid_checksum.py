@@ -69,7 +69,7 @@ async def _load_inputs(model_id: UUID):
     domain = build_domain_from_sections(sections)
     async with AsyncSessionFactory() as session:
         model = await session.get(GeologicalModelOrm, model_id)
-        parent_id = model.parent_geological_model_id if model is not None else None
+        parent_id = model.parent_model_id if model is not None else None
         geo_surfaces = await load_geo_surfaces(session, parent_id) if parent_id else ()
         picks = await LithoLayerRepository(session).load_body_picks(model_id)
     return sections, domain, geo_surfaces, _investigation_columns_from_picks(picks)

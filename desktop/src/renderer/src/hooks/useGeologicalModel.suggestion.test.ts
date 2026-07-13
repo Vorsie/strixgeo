@@ -145,7 +145,7 @@ function makeModel(id: string, kind: string = 'lithostratigraphic'): GeologicalM
     kind: kind as GeologicalModelResponse['kind'],
     is_active: true,
     excluded_borehole_ids: [],
-    parent_geological_model_id: null,
+    parent_model_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

@@ -188,7 +188,7 @@ class GeologyRepository(GroundModelLogger):
         is_active: bool = False,
         excluded_borehole_ids: list[UUID] | None = None,
         kind: str = "geological",
-        parent_geological_model_id: UUID | None = None,
+        parent_model_id: UUID | None = None,
     ) -> GeologicalModelOrm:
         """Insert a new geological model under the given project.
 
@@ -222,7 +222,7 @@ class GeologyRepository(GroundModelLogger):
             is_active=is_active,
             excluded_borehole_ids=excluded_borehole_ids or [],
             kind=kind,
-            parent_geological_model_id=parent_geological_model_id,
+            parent_model_id=parent_model_id,
         )
         self._session.add(model)
         await self._session.flush()
@@ -314,9 +314,7 @@ class GeologyRepository(GroundModelLogger):
         commit. A lithostratigraphic model pins its geological parent;
         a geotechnical model pins its lithostratigraphic parent.
         """
-        stmt = select(GeologicalModelOrm.id).where(
-            GeologicalModelOrm.parent_geological_model_id == model_id
-        )
+        stmt = select(GeologicalModelOrm.id).where(GeologicalModelOrm.parent_model_id == model_id)
         return (await self._session.execute(stmt)).first() is not None
 
     async def delete_model(self, model_id: UUID) -> bool:

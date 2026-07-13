@@ -217,7 +217,7 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                 f"GeologicalFormation {formation_id} not found in project {project_id}"
             )
 
-        parent_model_id: UUID | None = model.parent_geological_model_id
+        parent_model_id: UUID | None = model.parent_model_id
         parent_formation_id: UUID | None = formation.parent_formation_id
 
         # Log prerequisites so failures are diagnosable without a debugger.

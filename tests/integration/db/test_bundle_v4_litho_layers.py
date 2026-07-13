@@ -113,7 +113,7 @@ async def project_with_litho(db_session: AsyncSession) -> dict:
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"
@@ -363,10 +363,10 @@ async def test_v3_bundle_still_restores(db_session: AsyncSession, project_with_l
                 "kind": "lithostratigraphic",
                 "is_active": False,
                 "excluded_borehole_ids": [],
-                # v3 bundles did not always carry parent_geological_model_id,
+                # v3 bundles did not always carry parent_model_id,
                 # but the new CHECK constraint requires it — include it here
                 # so the restore satisfies the DB invariant.
-                "parent_geological_model_id": str(p["geo_model"].id),
+                "parent_model_id": str(p["geo_model"].id),
                 "contacts": [
                     {
                         "id": str(contact_id),

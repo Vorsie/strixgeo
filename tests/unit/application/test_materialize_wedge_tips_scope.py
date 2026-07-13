@@ -68,7 +68,7 @@ def _make_model(project_id=PROJECT) -> SimpleNamespace:
     return SimpleNamespace(
         id=MODEL_ID,
         app_project_id=project_id,
-        parent_geological_model_id=None,
+        parent_model_id=None,
     )
 
 

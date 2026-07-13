@@ -74,7 +74,7 @@ async def test_stale_tip_cleanup_prunes_every_sections_seeded_ids(
         app_project_id=project.id,
         name="Litho",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     formation = GeologicalFormationOrm(
         id=uuid7(),

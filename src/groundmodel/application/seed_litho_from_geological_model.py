@@ -148,7 +148,7 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
         model_id : UUID
             Lithostratigraphic model to seed.  Must have
             ``kind='lithostratigraphic'`` and a non-null
-            ``parent_geological_model_id``; validated here and raises
+            ``parent_model_id``; validated here and raises
             ``ValueError`` on violation so the endpoint can map to 422.
         borehole_ids : list[UUID] or None, optional
             When provided, only contacts whose ``borehole_id`` is in this
@@ -166,7 +166,7 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
         ------
         ValueError
             When the model is not ``kind='lithostratigraphic'``, has no
-            ``parent_geological_model_id``, or when the parent model
+            ``parent_model_id``, or when the parent model
             cannot be found.
         """
         self.info(
@@ -186,12 +186,12 @@ class SeedLithoFromGeologicalModel(GroundModelLogger):
                 f"Model {model_id} has kind='{litho_model.kind}'; "
                 "seed-from-parent requires kind='lithostratigraphic'"
             )
-        if litho_model.parent_geological_model_id is None:
+        if litho_model.parent_model_id is None:
             raise ValueError(
-                f"Lithostratigraphic model {model_id} has no parent_geological_model_id; "
+                f"Lithostratigraphic model {model_id} has no parent_model_id; "
                 "it cannot be seeded from a geological model"
             )
-        parent_model_id = litho_model.parent_geological_model_id
+        parent_model_id = litho_model.parent_model_id
 
         # ----------------------------------------------------------------
         # 2. Build the effective borehole scope

@@ -62,7 +62,7 @@ async def project_with_coupled_pair(db_session: AsyncSession) -> dict:
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(), app_project_id=project.id, name="SAND", color="#fdcb6e"
@@ -163,7 +163,7 @@ async def test_link_geo_404_when_layer_in_different_model(
         app_project_id=p["project"].id,
         name="L2",
         kind="lithostratigraphic",
-        parent_geological_model_id=p["geo_model"].id,
+        parent_model_id=p["geo_model"].id,
     )
     db_session.add(other_litho)
     await db_session.commit()

@@ -100,7 +100,7 @@ async def scene(db_session: AsyncSession) -> dict:
         app_project_id=proj.id,
         name="Litho-LS",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo.id,
+        parent_model_id=geo.id,
     )
     db_session.add_all([geo, litho])
     await db_session.flush()
@@ -272,7 +272,7 @@ async def idor_scene(db_session: AsyncSession) -> dict:
         app_project_id=proj_a.id,
         name="L-A",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_a.id,
+        parent_model_id=geo_a.id,
     )
     db_session.add_all([geo_a, litho_a])
     await db_session.flush()
@@ -303,7 +303,7 @@ async def idor_scene(db_session: AsyncSession) -> dict:
         app_project_id=proj_b.id,
         name="L-B",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_b.id,
+        parent_model_id=geo_b.id,
     )
     db_session.add_all([geo_b, litho_b])
     await db_session.commit()

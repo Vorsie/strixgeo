@@ -156,7 +156,7 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
             (
                 await self._session.execute(
                     select(GeologicalModelOrm).where(
-                        GeologicalModelOrm.parent_geological_model_id == litho_model.id,
+                        GeologicalModelOrm.parent_model_id == litho_model.id,
                         GeologicalModelOrm.kind == "geotechnical",
                     )
                 )
@@ -186,7 +186,7 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
             name=f"{litho_model.name} — geotechnical",
             is_active=True,
             kind="geotechnical",
-            parent_geological_model_id=litho_model.id,
+            parent_model_id=litho_model.id,
         )
         self.info(f"_ensure_geotech_model: created geotech model {model.id}")
         return model, True

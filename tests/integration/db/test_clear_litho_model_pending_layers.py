@@ -70,14 +70,14 @@ async def setup(db_session: AsyncSession) -> dict:
         app_project_id=project.id,
         name="L",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     other_model = GeologicalModelOrm(
         id=uuid7(),
         app_project_id=project.id,
         name="L2",
         kind="lithostratigraphic",
-        parent_geological_model_id=geo_model.id,
+        parent_model_id=geo_model.id,
     )
     sand = GeologicalFormationOrm(
         id=uuid7(),

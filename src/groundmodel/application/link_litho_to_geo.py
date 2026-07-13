@@ -110,7 +110,7 @@ class LinkLithoToGeo(GroundModelLogger):
             raise ValueError(f"Contact {contact_id} not found in project {project_id}")
 
         # --- Resolve parent geological model ---
-        geology_model_id: UUID | None = model.parent_geological_model_id
+        geology_model_id: UUID | None = model.parent_model_id
         if geology_model_id is None:
             self.warning(
                 f"LinkLithoToGeo: litho model {contact.model_id} has no parent "
