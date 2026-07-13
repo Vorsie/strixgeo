@@ -128,9 +128,21 @@ function cleanRing(ring: readonly PartitionPoint[]): PartitionPoint[] {
   return out
 }
 
-/** Strict point-in-triangle (all three edge tests positive; ``tri`` is CCW). */
-function strictlyInTriangle(p: PartitionPoint, tri: Tri): boolean {
-  return cross(tri[0], tri[1], p) > 1e-15 && cross(tri[1], tri[2], p) > 1e-15 && cross(tri[2], tri[0], p) > 1e-15
+/**
+ * Point-in-triangle for the ear-clip block test (``tri`` is CCW). A candidate ear
+ * is invalid if ANY other ring vertex lies inside it OR on its boundary. The
+ * boundary case is load-bearing: a valid simple polygon can have a deep concave
+ * "comb" whose reflex vertices sit exactly ON a shared axis (e.g. several lens
+ * darts returning to the same column line x=0). A STRICT interior test misses those
+ * on-edge vertices, so the clipper accepts an invalid ear that swallows a comb
+ * tooth and DOUBLE-COVERS — the ring area no longer reconstructs and the whole
+ * triangulation is (wrongly) rejected as non-simple. Blocking on the closed
+ * triangle (``>= -eps``) keeps the clipper honest on such combs while still
+ * clipping genuine ears (no other vertex touches them).
+ */
+function inClosedTriangle(p: PartitionPoint, tri: Tri): boolean {
+  const EPS = 1e-12
+  return cross(tri[0], tri[1], p) >= -EPS && cross(tri[1], tri[2], p) >= -EPS && cross(tri[2], tri[0], p) >= -EPS
 }
 
 /**
@@ -164,7 +176,7 @@ function triangulate(ringIn: readonly PartitionPoint[]): Tri[] | null {
       let blocked = false
       for (const io of idx) {
         if (io === ia || io === ib || io === ic) continue
-        if (strictlyInTriangle(ring[io], [a, b, c])) {
+        if (inClosedTriangle(ring[io], [a, b, c])) {
           blocked = true
           break
         }
