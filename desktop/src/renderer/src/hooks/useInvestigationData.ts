@@ -262,8 +262,8 @@ export interface UseInvestigationDataResult {
   bboxImportType: 'cpt' | 'borehole' | null
   dovImporting: boolean
   /** Full SSE import state — status / phase / done / total / result / error.
-   *  ``dovImporting`` is derived from this as ``dovImportState.status === 'running'``
-   *  and is kept for backward compat with all existing callers. */
+   *  ``dovImporting`` above is derived from this as
+   *  ``dovImportState.status === 'running'`` (no parallel state). */
   dovImportState: DovImportState
   /**
    * Pending CPT pin markers emitted by the backend ``"pins"`` SSE event.
@@ -402,9 +402,12 @@ export function useInvestigationData({
 
   const [importing, setImporting] = useState(false)
   const [bboxImportType, setBboxImportType] = useState<'cpt' | 'borehole' | null>(null)
-  const [dovImporting, setDovImporting] = useState(false)
   const { state: dovImportState, start: startDovStream, reset: resetDovStream } =
     useDovImportStream()
+  // Derived, not parallel state (audit FE-HOOKS-10): start() sets
+  // status:'running' synchronously and every terminal transition leaves it,
+  // so the old manually-synced useState + 4 setter sites are redundant.
+  const dovImporting = dovImportState.status === 'running'
 
   // Project-local hide sets. Re-seeded from the review API on every
   // project change so the is_hidden state survives .gmproj round-trips.
@@ -822,21 +825,19 @@ export function useInvestigationData({
   })
 
   // Effect: when the SSE stream transitions to done/error, run the
-  // post-import state updates (toast, manifest, list refresh, selection)
-  // and sync ``dovImporting`` back to false. This mirrors the old
-  // handleBboxDrawn's ``finally`` block but decoupled from the async
-  // callback so the progress panel can render mid-stream.
+  // post-import state updates (toast, manifest, list refresh, selection).
+  // This mirrors the old handleBboxDrawn's ``finally`` block but decoupled
+  // from the async callback so the progress panel can render mid-stream.
+  // (``dovImporting`` needs no syncing — it derives from the stream state.)
   useEffect(() => {
     if (dovImportState.status === 'error') {
       log.error('import', `DOV stream error: ${dovImportState.message}`)
       toast('error', dovImportState.message)
-      setDovImporting(false)
       return
     }
 
     if (dovImportState.status !== 'done') return
     const { kind, result } = dovImportState
-    setDovImporting(false)
 
     if (kind === 'cpt') {
       const cptResult = result as import('./useDovImportStream').CptImportDonePayload
@@ -919,7 +920,6 @@ export function useInvestigationData({
         cptIds: new Set(cpts.map(c => c.id)),
         boreholeIds: new Set(boreholes.map(b => b.id)),
       }
-      setDovImporting(true)
       startDovStream({ kind: importType, bbox: { west, south, east, north }, projectId: project.id })
     },
     [project, bboxImportType, cpts, boreholes, startDovStream],
@@ -929,7 +929,6 @@ export function useInvestigationData({
   // button can return the stream state to idle (e.g. after a done/error).
   const resetDovImport = useCallback(() => {
     resetDovStream()
-    setDovImporting(false)
   }, [resetDovStream])
 
   // Derive pending pins from the running state — only present for CPT imports.
