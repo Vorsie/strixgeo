@@ -122,8 +122,8 @@ export async function countCorrelationEdges(projectId: string): Promise<number> 
 
 /**
  * Count correlation edges that touch a BASE side for a project's
- * lithostratigraphic models — i.e. rows where ``contact_a_side='base'`` OR
- * ``contact_b_side='base'``.
+ * lithostratigraphic models — i.e. rows where ``layer_a_side='base'`` OR
+ * ``layer_b_side='base'``.
  *
  * A base-side edge is the signature of the bottom-of-test correlation handle
  * gesture: arming a unit band (side='top') and clicking another column's
@@ -149,7 +149,7 @@ export async function countBaseSideCorrelationEdges(projectId: string): Promise<
          JOIN geological_model gm ON gm.id = lce.model_id
         WHERE gm.app_project_id = $1
           AND gm.kind = 'lithostratigraphic'
-          AND (lce.contact_a_side = 'base' OR lce.contact_b_side = 'base')`,
+          AND (lce.layer_a_side = 'base' OR lce.layer_b_side = 'base')`,
       [projectId],
     )
     return parseInt(res.rows[0].n, 10)

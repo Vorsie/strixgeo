@@ -172,8 +172,8 @@ class PropagateLithoAdmixtures(GroundModelLogger):
         skipped_orphan = 0
         skipped_self_loop = 0
         for ce in contact_edge_rows:
-            fa = formation_by_contact.get(ce.contact_a_id)
-            fb = formation_by_contact.get(ce.contact_b_id)
+            fa = formation_by_contact.get(ce.layer_a_id)
+            fb = formation_by_contact.get(ce.layer_b_id)
             if fa is None or fb is None:
                 skipped_orphan += 1
                 self.debug(

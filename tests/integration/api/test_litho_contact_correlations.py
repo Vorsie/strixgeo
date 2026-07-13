@@ -176,7 +176,7 @@ async def test_create_then_idempotent(
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     r1 = await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     assert r1.status_code == 201, r1.text
     body1 = r1.json()
@@ -185,7 +185,7 @@ async def test_create_then_idempotent(
 
     # Re-POST with endpoints swapped — canonical ordering makes it the same edge.
     r2 = await async_client.post(
-        base, json={"contact_a_id": cb, "contact_b_id": ca, "request_section_id": sid}
+        base, json={"layer_a_id": cb, "layer_b_id": ca, "request_section_id": sid}
     )
     assert r2.status_code == 200, r2.text
     body2 = r2.json()
@@ -203,17 +203,17 @@ async def test_delete_then_idempotent(
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
 
     r_del = await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        "DELETE", base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     assert r_del.status_code == 204, r_del.text
 
     # Second delete with nothing left — still 204 (section-scoped no-op).
     r_del2 = await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        "DELETE", base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     assert r_del2.status_code == 204, r_del2.text
 
@@ -228,17 +228,17 @@ async def test_recreate_after_delete(
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     r1 = await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     assert r1.status_code == 201, r1.text
     edge_id_first = r1.json()["edge_id"]
 
     await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        "DELETE", base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
 
     r2 = await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     assert r2.status_code == 201, r2.text
     assert r2.json()["was_created"] is True
@@ -255,7 +255,7 @@ async def test_self_loop_is_422(
     litho_id, ca, _cb, _sid = two_contacts_in_litho_model
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
-    r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": ca})
+    r = await async_client.post(base, json={"layer_a_id": ca, "layer_b_id": ca})
     assert r.status_code == 422, r.text
 
 
@@ -297,7 +297,7 @@ async def test_cross_lithology_correlation_is_allowed_as_surface_tie(
 
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
     r = await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     assert r.status_code == 201, r.text
 
@@ -317,7 +317,7 @@ async def test_cross_project_model_is_404(
     litho_id, ca, cb, _sid = two_contacts_in_litho_model
     base = f"/projects/{other_proj_id}/geology/models/{litho_id}/contact-correlations"
 
-    r = await async_client.post(base, json={"contact_a_id": ca, "contact_b_id": cb})
+    r = await async_client.post(base, json={"layer_a_id": ca, "layer_b_id": cb})
     assert r.status_code == 404, r.text
 
 
@@ -333,8 +333,8 @@ async def test_source_validation(
     ok = await async_client.post(
         base,
         json={
-            "contact_a_id": ca,
-            "contact_b_id": cb,
+            "layer_a_id": ca,
+            "layer_b_id": cb,
             "source": "manual",
             "request_section_id": sid,
         },
@@ -343,11 +343,11 @@ async def test_source_validation(
 
     # Delete so we can test the bad-source path fresh.
     await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        "DELETE", base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
 
     bad = await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "source": "g3dv3_seed"}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "source": "g3dv3_seed"}
     )
     assert bad.status_code == 422, bad.text
 
@@ -376,7 +376,7 @@ async def test_list_returns_created_edges(
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
 
     r = await async_client.get(base)
@@ -385,8 +385,8 @@ async def test_list_returns_created_edges(
     assert len(items) == 1
     item = items[0]
     assert "id" in item
-    assert "contact_a_id" in item
-    assert "contact_b_id" in item
+    assert "layer_a_id" in item
+    assert "layer_b_id" in item
     assert "source" in item
     assert item["source"] == "manual"
     assert "created_at" in item
@@ -401,7 +401,7 @@ async def test_correlate_base_tie_persists_and_returns_sides(
 
     Bottom-tie spec 2026-06-17 (§10 rules 1+3):
 
-    * A POST with ``contact_a_side='base'``/``contact_b_side='base'`` creates a
+    * A POST with ``layer_a_side='base'``/``layer_b_side='base'`` creates a
       bottom-tie (201) and the response carries both sides.
     * A default POST (no sides) on the SAME pair/section yields ``('top','top')``
       — and is a SEPARATE edge (the widened unique key includes the sides), so
@@ -415,18 +415,18 @@ async def test_correlate_base_tie_persists_and_returns_sides(
     r_base = await async_client.post(
         base,
         json={
-            "contact_a_id": ca,
-            "contact_b_id": cb,
+            "layer_a_id": ca,
+            "layer_b_id": cb,
             "request_section_id": sid,
-            "contact_a_side": "base",
-            "contact_b_side": "base",
+            "layer_a_side": "base",
+            "layer_b_side": "base",
         },
     )
     assert r_base.status_code == 201, r_base.text
     edge_base = r_base.json()
     assert edge_base["was_created"] is True
-    assert edge_base["contact_a_side"] == "base"
-    assert edge_base["contact_b_side"] == "base"
+    assert edge_base["layer_a_side"] == "base"
+    assert edge_base["layer_b_side"] == "base"
 
     # 2. A default (top↔top) edge on the SAME pair/section is a DISTINCT row —
     #    the side columns are part of the unique key, so this is a fresh create,
@@ -435,13 +435,13 @@ async def test_correlate_base_tie_persists_and_returns_sides(
     #    MultipleResultsFound 500.)
     r_top = await async_client.post(
         base,
-        json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid},
+        json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid},
     )
     assert r_top.status_code == 201, r_top.text
     edge_top = r_top.json()
     assert edge_top["was_created"] is True
-    assert edge_top["contact_a_side"] == "top"
-    assert edge_top["contact_b_side"] == "top"
+    assert edge_top["layer_a_side"] == "top"
+    assert edge_top["layer_b_side"] == "top"
     assert edge_top["edge_id"] != edge_base["edge_id"]
 
     # 3. GET lists both, each with its own sides.
@@ -449,7 +449,7 @@ async def test_correlate_base_tie_persists_and_returns_sides(
     assert listed.status_code == 200, listed.text
     items = listed.json()
     assert len(items) == 2
-    sides = {(it["contact_a_side"], it["contact_b_side"]) for it in items}
+    sides = {(it["layer_a_side"], it["layer_b_side"]) for it in items}
     assert sides == {("base", "base"), ("top", "top")}
 
 
@@ -463,10 +463,10 @@ async def test_list_empty_after_delete(
     base = f"/projects/{project.id}/geology/models/{litho_id}/contact-correlations"
 
     await async_client.post(
-        base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
     await async_client.request(
-        "DELETE", base, json={"contact_a_id": ca, "contact_b_id": cb, "request_section_id": sid}
+        "DELETE", base, json={"layer_a_id": ca, "layer_b_id": cb, "request_section_id": sid}
     )
 
     r = await async_client.get(base)

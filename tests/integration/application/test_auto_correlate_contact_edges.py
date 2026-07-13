@@ -534,7 +534,7 @@ async def test_same_pair_correlates_once_per_section(
 
     Before the section_id column landed, the second call would return the first
     edge (idempotent on the 3-col unique).  After section-scoping, the unique
-    constraint is (model_id, section_id, contact_a_id, contact_b_id), so the
+    constraint is (model_id, section_id, layer_a_id, layer_b_id), so the
     same pair on a different section is a distinct edge.
     """
     ctx = two_section_pair
@@ -542,16 +542,16 @@ async def test_same_pair_correlates_once_per_section(
     r1 = await uc.execute(
         project_id=ctx.project_id,
         model_id=ctx.model_id,
-        contact_a_id=ctx.layer_a_id,
-        contact_b_id=ctx.layer_b_id,
+        layer_a_id=ctx.layer_a_id,
+        layer_b_id=ctx.layer_b_id,
         source="manual",
         request_section_id=ctx.section1_id,
     )
     r2 = await uc.execute(
         project_id=ctx.project_id,
         model_id=ctx.model_id,
-        contact_a_id=ctx.layer_a_id,
-        contact_b_id=ctx.layer_b_id,
+        layer_a_id=ctx.layer_a_id,
+        layer_b_id=ctx.layer_b_id,
         source="manual",
         request_section_id=ctx.section2_id,
     )

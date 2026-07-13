@@ -233,8 +233,8 @@ test.describe('flow_auto_correlate', () => {
       expect(autoAfterFirst).toBeGreaterThan(0)
 
       // 2. Create a manual edge so we can verify it survives the DELETE.
-      // Post-#133 correlation edges are CONTACT-level (contact_a_id /
-      // contact_b_id), so pick two contacts on DIFFERENT investigations.
+      // Post-#133 correlation edges are CONTACT-level (layer_a_id /
+      // layer_b_id), so pick two contacts on DIFFERENT investigations.
       const edgeContacts = await page.evaluate(
         async ([base, pid, mid]) => {
           const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contacts`)
@@ -258,7 +258,7 @@ test.describe('flow_auto_correlate', () => {
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contact_a_id: ca, contact_b_id: cb, source: 'manual', request_section_id: sectionId }),
+                body: JSON.stringify({ layer_a_id: ca, layer_b_id: cb, source: 'manual', request_section_id: sectionId }),
               },
             )
             return { status: r.status }

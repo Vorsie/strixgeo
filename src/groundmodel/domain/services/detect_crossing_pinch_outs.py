@@ -102,8 +102,8 @@ def detect_crossing_pinch_outs(
     # dangling edges.
     by_pair: dict[frozenset[UUID], list[tuple[UUID, UUID, float, UUID, float]]] = defaultdict(list)
     for e in edges:
-        ma = meta.get(e.contact_a_id)
-        mb = meta.get(e.contact_b_id)
+        ma = meta.get(e.layer_a_id)
+        mb = meta.get(e.layer_b_id)
         if ma is None or mb is None:
             continue
         inv_a, depth_a = ma
@@ -113,7 +113,7 @@ def detect_crossing_pinch_outs(
         # store as (inv_a, contact_a, depth_a, contact_b, depth_b) — orientation
         # is normalised per-pair below.
         by_pair[frozenset((inv_a, inv_b))].append(
-            (inv_a, e.contact_a_id, depth_a, e.contact_b_id, depth_b)
+            (inv_a, e.layer_a_id, depth_a, e.layer_b_id, depth_b)
         )
 
     out: list[CrossingPinchOut] = []

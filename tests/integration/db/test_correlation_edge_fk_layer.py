@@ -1,7 +1,7 @@
 """Pin the FK migration: correlation edges cascade from litho_layer (A4 slice 4a).
 
 Migration ``q1k2l3m4n5o6_correlation_edge_fk_to_layer`` retargeted
-``litho_contact_correlation_edge.contact_a_id / contact_b_id`` from
+``litho_contact_correlation_edge.layer_a_id / layer_b_id`` from
 ``formation_contact(id)`` to ``litho_layer(id)``. The trigger pair
 keeps every accepted FC matched 1:1 with an LL row of the same UUID,
 so the cascade end state for the user is unchanged — only the
@@ -13,7 +13,7 @@ Covered:
 * DELETE formation_contact still dissolves edges, because the
   FC→LL trigger sees the FC gone, prunes the accepted LL row, and
   the LL CASCADE takes the edge down with it.
-* INSERTing an edge with a contact_a_id that exists in
+* INSERTing an edge with a layer_a_id that exists in
   formation_contact but NOT in litho_layer is now an FK violation
   (proves the FK target moved). This is the post-migration shape
   guarantee — pending/rejected layers don't get FCs, so a hand-
@@ -140,8 +140,8 @@ async def setup(db_session: AsyncSession) -> dict:
     edge = LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=litho_model.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
         section_id=section.id,
@@ -211,22 +211,22 @@ async def test_delete_fc_still_cascades_to_edge_via_trigger(
 @pytest.mark.asyncio
 async def test_edge_insert_requires_layer_to_exist(db_session: AsyncSession, setup: dict) -> None:
     """An edge referencing a UUID that does NOT exist in litho_layer is
-    rejected — the FK target moved, so a hand-crafted ``contact_a_id``
+    rejected — the FK target moved, so a hand-crafted ``layer_a_id``
     pointing at an FC that has no layer mirror (impossible in normal
     operation, but a real test for the FK invariant) fails."""
     # Build an FC on a NEW model so its corresponding LL row exists.
     layer_id = uuid7()
-    # Insert an edge whose contact_b_id refers to a non-existent layer.
+    # Insert an edge whose layer_b_id refers to a non-existent layer.
     a_id, b_id = sorted([setup["fc1"].id, layer_id])
     bad_edge = LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=setup["model"].id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
         # Reuse the section created by the setup fixture — the IntegrityError
-        # we expect is from the FK on contact_b_id, not from section_id.
+        # we expect is from the FK on layer_b_id, not from section_id.
         section_id=setup["section"].id,
     )
     db_session.add(bad_edge)
@@ -242,7 +242,7 @@ async def test_existing_edge_loads_via_new_fk(db_session: AsyncSession, setup: d
     edge = await db_session.get(LithoContactCorrelationEdgeOrm, setup["edge"].id)
     assert edge is not None
     # Each endpoint resolves to a litho_layer row (post-migration FK target).
-    layer_a = await db_session.get(LithoLayerOrm, edge.contact_a_id)
-    layer_b = await db_session.get(LithoLayerOrm, edge.contact_b_id)
+    layer_a = await db_session.get(LithoLayerOrm, edge.layer_a_id)
+    layer_b = await db_session.get(LithoLayerOrm, edge.layer_b_id)
     assert layer_a is not None
     assert layer_b is not None

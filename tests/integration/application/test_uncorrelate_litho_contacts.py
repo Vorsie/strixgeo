@@ -7,7 +7,7 @@ UC1.  When the SAME contact pair exists as edges on TWO sections (S1 and S2),
       NO exception is raised.
 
       Before the fix, ``UncorrelateLithoContacts.execute`` queried only
-      ``(model_id, contact_a_id, contact_b_id)`` and called
+      ``(model_id, layer_a_id, layer_b_id)`` and called
       ``scalar_one_or_none()`` — which raises ``MultipleResultsFound`` when
       two rows match (both sections have the same pair).
 
@@ -176,8 +176,8 @@ async def test_uncorrelate_section_scoped_leaves_other_section_edge(
     r1 = await correlate.execute(
         project_id=ctx.project_id,
         model_id=ctx.model_id,
-        contact_a_id=ctx.layer_a_id,
-        contact_b_id=ctx.layer_b_id,
+        layer_a_id=ctx.layer_a_id,
+        layer_b_id=ctx.layer_b_id,
         source="manual",
         request_section_id=ctx.section1_id,
     )
@@ -188,8 +188,8 @@ async def test_uncorrelate_section_scoped_leaves_other_section_edge(
     r2 = await correlate.execute(
         project_id=ctx.project_id,
         model_id=ctx.model_id,
-        contact_a_id=ctx.layer_a_id,
-        contact_b_id=ctx.layer_b_id,
+        layer_a_id=ctx.layer_a_id,
+        layer_b_id=ctx.layer_b_id,
         source="manual",
         request_section_id=ctx.section2_id,
     )
@@ -201,8 +201,8 @@ async def test_uncorrelate_section_scoped_leaves_other_section_edge(
     await UncorrelateLithoContacts(db_session).execute(
         project_id=ctx.project_id,
         model_id=ctx.model_id,
-        contact_a_id=ctx.layer_a_id,
-        contact_b_id=ctx.layer_b_id,
+        layer_a_id=ctx.layer_a_id,
+        layer_b_id=ctx.layer_b_id,
         request_section_id=ctx.section1_id,
     )
 
@@ -232,8 +232,8 @@ async def test_uncorrelate_no_edge_is_noop(
     await UncorrelateLithoContacts(db_session).execute(
         project_id=ctx.project_id,
         model_id=ctx.model_id,
-        contact_a_id=ctx.layer_a_id,
-        contact_b_id=ctx.layer_b_id,
+        layer_a_id=ctx.layer_a_id,
+        layer_b_id=ctx.layer_b_id,
         request_section_id=ctx.section1_id,
     )
 
@@ -273,7 +273,7 @@ async def test_uncorrelate_none_section_id_raises_value_error(
         await UncorrelateLithoContacts(db_session).execute(
             project_id=ctx.project_id,
             model_id=ctx.model_id,
-            contact_a_id=ctx.layer_a_id,
-            contact_b_id=ctx.layer_b_id,
+            layer_a_id=ctx.layer_a_id,
+            layer_b_id=ctx.layer_b_id,
             request_section_id=None,  # the bug: None reaches scalar_one_or_none
         )

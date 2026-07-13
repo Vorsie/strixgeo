@@ -30,7 +30,8 @@ Internal helpers (re-exported for the test suite that reaches into them
 directly):
 
 * ``_to_json``, ``_from_json`` — value-level encode/decode.
-* ``_column_to_json``, ``_apply_json_to_kwargs`` — row-level helpers.
+* ``_column_to_json``, ``_apply_json_to_kwargs``, ``_normalise_restore_keys``
+  — row-level helpers.
 * ``_cap``, ``_uuid``, ``_series_row_count``, ``_validate_tin_payload``
   — restore utility helpers.
 * ``_MAX_CPT_SERIES_ROWS``, ``_MAX_SURFACE_SOURCE_CONTACTS`` — caps.
@@ -113,6 +114,7 @@ from .bundle_serialization import (
     _from_json,
     _geological_model_to_dict,
     _layer_to_dict,
+    _normalise_restore_keys,
     _observation_to_dict,
     _sample_to_dict,
     _to_json,
@@ -129,6 +131,7 @@ __all__ = [
     "_from_json",
     "_column_to_json",
     "_apply_json_to_kwargs",
+    "_normalise_restore_keys",
     "_cpt_to_dict",
     "_borehole_to_dict",
     "_observation_to_dict",

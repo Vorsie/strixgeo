@@ -139,8 +139,8 @@ def _approved_edge(
     return LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=model.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
         section_id=section_id,
@@ -166,8 +166,8 @@ def _unapproved_edge(
     return LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=model.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="auto",
         user_approved=False,
         section_id=section_id,

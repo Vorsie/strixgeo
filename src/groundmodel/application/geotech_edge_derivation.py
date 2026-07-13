@@ -159,8 +159,8 @@ async def load_approved_litho_edges(
     rows = (
         await session.execute(
             select(
-                LithoContactCorrelationEdgeOrm.contact_a_id,
-                LithoContactCorrelationEdgeOrm.contact_b_id,
+                LithoContactCorrelationEdgeOrm.layer_a_id,
+                LithoContactCorrelationEdgeOrm.layer_b_id,
             ).where(
                 LithoContactCorrelationEdgeOrm.model_id == litho_model_id,
                 LithoContactCorrelationEdgeOrm.section_id == section_id,
@@ -193,8 +193,8 @@ async def load_existing_geotech_edge_pairs(
     rows = (
         await session.execute(
             select(
-                LithoContactCorrelationEdgeOrm.contact_a_id,
-                LithoContactCorrelationEdgeOrm.contact_b_id,
+                LithoContactCorrelationEdgeOrm.layer_a_id,
+                LithoContactCorrelationEdgeOrm.layer_b_id,
             ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
         )
     ).all()
@@ -350,10 +350,10 @@ async def derive_geotech_edges_from_litho(
                     id=uuid7(),
                     model_id=geotech_model_id,
                     section_id=section_id,
-                    contact_a_id=canonical_a,
-                    contact_b_id=canonical_b,
-                    contact_a_side="top",
-                    contact_b_side="top",
+                    layer_a_id=canonical_a,
+                    layer_b_id=canonical_b,
+                    layer_a_side="top",
+                    layer_b_side="top",
                     source="manual",
                     user_approved=True,
                 )

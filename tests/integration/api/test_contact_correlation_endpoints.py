@@ -131,8 +131,8 @@ async def _create_edge(
     client: AsyncClient,
     project_id,  # noqa: ANN001
     model_id: str,
-    contact_a_id: str,
-    contact_b_id: str,
+    layer_a_id: str,
+    layer_b_id: str,
     *,
     request_section_id: str,
 ) -> dict:
@@ -148,8 +148,8 @@ async def _create_edge(
     resp = await client.post(
         f"/projects/{project_id}/geology/models/{model_id}/contact-correlations",
         json={
-            "contact_a_id": contact_a_id,
-            "contact_b_id": contact_b_id,
+            "layer_a_id": layer_a_id,
+            "layer_b_id": layer_b_id,
             "request_section_id": request_section_id,
         },
     )
@@ -244,8 +244,8 @@ async def test_create_contact_correlation_with_request_section_id(
     resp = await async_client.post(
         f"/projects/{pid}/geology/models/{mid}/contact-correlations",
         json={
-            "contact_a_id": c1["id"],
-            "contact_b_id": c2["id"],
+            "layer_a_id": c1["id"],
+            "layer_b_id": c2["id"],
             "request_section_id": real_section_id,
         },
     )
@@ -282,8 +282,8 @@ async def test_delete_contact_correlation_with_request_section_id(
         "DELETE",
         f"/projects/{pid}/geology/models/{mid}/contact-correlations",
         json={
-            "contact_a_id": c1["id"],
-            "contact_b_id": c2["id"],
+            "layer_a_id": c1["id"],
+            "layer_b_id": c2["id"],
             "request_section_id": sid,
         },
     )
@@ -635,8 +635,8 @@ async def test_section_scoped_list_and_clear_preserves_off_section_edges(
         return LithoContactCorrelationEdgeOrm(
             id=uuid7(),
             model_id=UUID(mid),
-            contact_a_id=lo,
-            contact_b_id=hi,
+            layer_a_id=lo,
+            layer_b_id=hi,
             source="auto",
             user_approved=False,
             section_id=section.id,

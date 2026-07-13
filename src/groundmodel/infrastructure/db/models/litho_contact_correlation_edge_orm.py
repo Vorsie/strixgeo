@@ -25,9 +25,10 @@ from groundmodel.infrastructure.db.base import Base
 class LithoContactCorrelationEdgeOrm(Base):
     """Persisted LithoContactCorrelationEdge — contact-level correlation edge (#133).
 
-    Records that two ``formation_contact`` rows (both belonging to the same
-    lithostratigraphic model) represent the **same stratigraphic boundary** at
-    different investigation columns.  Two such edges — one at the top and one
+    Records that two ``litho_layer`` rows (both belonging to the same
+    lithostratigraphic model) carry the **same stratigraphic boundary** at
+    different investigation columns — each endpoint anchors the layer's
+    'top' or 'base' contact via its ``*_side`` column.  Two such edges — one at the top and one
     at the base — bound a body.  A layer between two paired boundary-edges
     whose lithology differs from the flanking bodies is a LENS (Phase 2 of
     #133 implements lens detection).
@@ -38,22 +39,22 @@ class LithoContactCorrelationEdgeOrm(Base):
 
     Canonical ordering
     ------------------
-    ``contact_a_id < contact_b_id`` is enforced by a DB CHECK constraint AND
+    ``layer_a_id < layer_b_id`` is enforced by a DB CHECK constraint AND
     by every use-case caller before INSERT, matching the pattern from
     ``litho_correlation_edge``.  Uniqueness is a standard ``UniqueConstraint``
     on the canonically-ordered columns
-    ``(model_id, section_id, contact_a_id, contact_b_id,
-    contact_a_side, contact_b_side)``; the CHECK + caller-normalisation make
+    ``(model_id, section_id, layer_a_id, layer_b_id,
+    layer_a_side, layer_b_side)``; the CHECK + caller-normalisation make
     the canonical order sufficient without a ``LEAST``/``GREATEST`` functional
     index (which PostgreSQL cannot express in a UNIQUE constraint directly).
-    The ``contact_*_side`` columns are part of the key so a top↔top edge and a
+    The ``layer_*_side`` columns are part of the key so a top↔top edge and a
     base↔base **bottom-tie** between the SAME two layers on the SAME section can
     coexist (bottom-tie spec 2026-06-17).
 
     Model-level scoping
     -------------------
     ``model_id`` duplicates the information available by following
-    ``contact_a.model_id``, but is stored explicitly so the index
+    the a-endpoint layer's ``model_id``, but is stored explicitly so the index
     ``idx_litho_contact_corr_model_id`` can satisfy the common
     "list all contact edges for this model" query without a join.
 
@@ -69,12 +70,12 @@ class LithoContactCorrelationEdgeOrm(Base):
         # Canonical ordering: use-case normalises (min, max) before every
         # INSERT; CHECK is defence in depth.
         CheckConstraint(
-            "contact_a_id < contact_b_id",
+            "layer_a_id < layer_b_id",
             name="ck_litho_contact_corr_canonical_order",
         ),
         # A contact cannot be correlated with itself.
         CheckConstraint(
-            "contact_a_id != contact_b_id",
+            "layer_a_id != layer_b_id",
             name="ck_litho_contact_corr_no_self_loop",
         ),
         # Section-scoped (owner directive 2026-06-08): one edge per
@@ -85,10 +86,10 @@ class LithoContactCorrelationEdgeOrm(Base):
         UniqueConstraint(
             "model_id",
             "section_id",
-            "contact_a_id",
-            "contact_b_id",
-            "contact_a_side",
-            "contact_b_side",
+            "layer_a_id",
+            "layer_b_id",
+            "layer_a_side",
+            "layer_b_side",
             name="uq_litho_contact_corr_triple",
         ),
         # Each endpoint addresses either the layer's 'top' contact (the legacy
@@ -96,7 +97,7 @@ class LithoContactCorrelationEdgeOrm(Base):
         # bottom-tie (bottom-tie spec 2026-06-17). Defence in depth alongside
         # the application-layer validation.
         CheckConstraint(
-            "contact_a_side IN ('top','base') AND contact_b_side IN ('top','base')",
+            "layer_a_side IN ('top','base') AND layer_b_side IN ('top','base')",
             name="ck_litho_contact_corr_edge_side_enum",
         ),
         # Source must be one of the two accepted provenance tokens.
@@ -147,16 +148,14 @@ class LithoContactCorrelationEdgeOrm(Base):
     #
     # A4 slice 4a — FK target migrated from formation_contact to
     # litho_layer (UUIDs identical via the backfill + trigger pair).
-    # Decoupling here lets slice 4c DELETE formation_contact rows for
-    # litho models without taking the correlation graph down with them.
-    # Column names are unchanged (still ``contact_a_id`` / ``contact_b_id``)
-    # to keep the FE client.ts surface stable; a rename is a separate cut.
-    contact_a_id: Mapped[UUID] = mapped_column(
+    # Renamed from contact_a_id/contact_b_id (ARCH-08, 2026-07-13) so the
+    # name states the FK target instead of a comment guarding against it.
+    layer_a_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("litho_layer.id", ondelete="CASCADE"),
         nullable=False,
     )
-    contact_b_id: Mapped[UUID] = mapped_column(
+    layer_b_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("litho_layer.id", ondelete="CASCADE"),
         nullable=False,
@@ -167,10 +166,10 @@ class LithoContactCorrelationEdgeOrm(Base):
     # A "bottom-tie" is an edge with side='base' on BOTH ends — it lets the
     # DEEPEST layer (which has no layer below, so no top-keyed base contact) be
     # correlated at its base so it can band. (bottom-tie spec 2026-06-17.)
-    contact_a_side: Mapped[str] = mapped_column(
+    layer_a_side: Mapped[str] = mapped_column(
         String(4), nullable=False, server_default=text("'top'")
     )
-    contact_b_side: Mapped[str] = mapped_column(
+    layer_b_side: Mapped[str] = mapped_column(
         String(4), nullable=False, server_default=text("'top'")
     )
 

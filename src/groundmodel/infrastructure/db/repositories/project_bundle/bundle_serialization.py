@@ -61,6 +61,14 @@ _RESTORE_KEY_ALIASES: dict[str, dict[str, str]] = {
     "GeologicalModelOrm": {
         "parent_geological_model_id": "parent_model_id",
     },
+    # 2026-07-13 edge endpoint rename (audit ARCH-08) — the endpoints have
+    # FK'd litho_layer.id since A4 slice 4a; the columns now say so.
+    "LithoContactCorrelationEdgeOrm": {
+        "contact_a_id": "layer_a_id",
+        "contact_b_id": "layer_b_id",
+        "contact_a_side": "layer_a_side",
+        "contact_b_side": "layer_b_side",
+    },
 }
 
 # Restore-boundary caps for FormationSurface TIN blobs (debt #19). The
@@ -194,6 +202,40 @@ def _column_to_json(orm: Any, exclude: frozenset[str]) -> dict[str, Any]:
     }
 
 
+def _normalise_restore_keys(cls: type[Any], data: dict[str, Any]) -> dict[str, Any]:
+    """Remap renamed bundle keys onto their current column names.
+
+    Applies the ``_RESTORE_KEY_ALIASES`` entry for ``cls`` (if any) so a
+    bundle written before a column rename still restores losslessly. The
+    new key wins on collision — a stale old-name entry never overwrites a
+    value already present under the current name. Idempotent; callers that
+    need the current keys BEFORE ``_apply_json_to_kwargs`` (e.g. FK
+    pre-validation in the restore pipeline) can call this directly.
+
+    Parameters
+    ----------
+    cls : type[Any]
+        The ORM class whose alias table applies.
+    data : dict[str, Any]
+        Raw JSON dict from the bundle.
+
+    Returns
+    -------
+    dict[str, Any]
+        ``data`` with old keys remapped (a copy when aliases apply,
+        ``data`` itself otherwise).
+    """
+    aliases = _RESTORE_KEY_ALIASES.get(cls.__name__)
+    if not aliases:
+        return data
+    remapped: dict[str, Any] = {}
+    for key, value in data.items():
+        new_key = aliases.get(key, key)
+        if new_key not in data or new_key == key:
+            remapped[new_key] = value
+    return remapped
+
+
 def _apply_json_to_kwargs(cls: type[Any], data: dict[str, Any]) -> dict[str, Any]:
     """Parse a JSON dict into ORM-constructor kwargs.
 
@@ -218,16 +260,7 @@ def _apply_json_to_kwargs(cls: type[Any], data: dict[str, Any]) -> dict[str, Any
     dict[str, Any]
         Filtered and type-converted kwargs safe to pass to ``cls(**kwargs)``.
     """
-    aliases = _RESTORE_KEY_ALIASES.get(cls.__name__)
-    if aliases:
-        remapped = {}
-        for key, value in data.items():
-            new_key = aliases.get(key, key)
-            # New key wins on collision — don't let a stale old-name entry
-            # overwrite a value already present under the current name.
-            if new_key not in data or new_key == key:
-                remapped[new_key] = value
-        data = remapped
+    data = _normalise_restore_keys(cls, data)
 
     known: dict[str, type[Any] | None] = {}
     for col in cls.__mapper__.column_attrs:

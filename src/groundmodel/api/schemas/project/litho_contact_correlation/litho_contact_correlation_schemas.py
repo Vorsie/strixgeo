@@ -25,11 +25,11 @@ class ContactCorrelationRequest(BaseModel):
 
     Attributes
     ----------
-    contact_a_id : UUID
+    layer_a_id : UUID
         One formation-contact endpoint.  May be supplied in either order —
         the use case normalises to canonical ``(min, max)`` before insert /
         delete.
-    contact_b_id : UUID
+    layer_b_id : UUID
         The other endpoint.
     source : Literal["manual"]
         Provenance token.  Only 'manual' is accepted in Phase 1; 'auto'
@@ -42,28 +42,28 @@ class ContactCorrelationRequest(BaseModel):
         ``ValueError`` (→ HTTP 422) when it is ``None``.  Declared optional
         here only so the validation error is raised by the use case with a
         clear message rather than by request parsing.
-    contact_a_side : Literal["top", "base"]
-        Which contact of ``contact_a`` the edge joins — ``'top'`` (default) or
+    layer_a_side : Literal["top", "base"]
+        Which contact of the ``layer_a_id`` layer the edge joins — ``'top'`` (default) or
         ``'base'``.  An edge with ``'base'`` on BOTH ends is a **bottom-tie**
         (bottom-tie spec 2026-06-17), correlating the deepest layer's base so
         the deepest unit can band.  The side travels with its contact through
         the use case's canonical ordering.
-    contact_b_side : Literal["top", "base"]
-        The same for ``contact_b``.
+    layer_b_side : Literal["top", "base"]
+        The same for the ``layer_b_id`` layer.
     """
 
-    contact_a_id: UUID
-    contact_b_id: UUID
+    layer_a_id: UUID
+    layer_b_id: UUID
     source: Literal["manual"] = "manual"
     request_section_id: UUID | None = None
-    contact_a_side: Literal["top", "base"] = "top"
-    contact_b_side: Literal["top", "base"] = "top"
+    layer_a_side: Literal["top", "base"] = "top"
+    layer_b_side: Literal["top", "base"] = "top"
 
     @model_validator(mode="after")
     def _no_self_loop(self) -> ContactCorrelationRequest:
         """Reject self-loops at the API boundary (defence in depth)."""
-        if self.contact_a_id == self.contact_b_id:
-            raise ValueError("contact_a_id and contact_b_id must be different contacts")
+        if self.layer_a_id == self.layer_b_id:
+            raise ValueError("layer_a_id and layer_b_id must be different layers")
         return self
 
 
@@ -74,15 +74,15 @@ class ContactCorrelationResponse(BaseModel):
     ----------
     edge_id : UUID
         Primary key of the canonical edge row (new or pre-existing).
-    contact_a_id : UUID
+    layer_a_id : UUID
         Canonical lesser endpoint (min-ordered).
-    contact_b_id : UUID
+    layer_b_id : UUID
         Canonical greater endpoint.
     model_id : UUID
         The lithostratigraphic model this edge belongs to.
-    contact_a_side : str
+    layer_a_side : str
         The side (``'top'`` / ``'base'``) of the canonical lesser endpoint.
-    contact_b_side : str
+    layer_b_side : str
         The side of the canonical greater endpoint.  A ``('base', 'base')``
         pair is a bottom-tie (bottom-tie spec 2026-06-17).
     source : str
@@ -93,10 +93,10 @@ class ContactCorrelationResponse(BaseModel):
     """
 
     edge_id: UUID
-    contact_a_id: UUID
-    contact_b_id: UUID
-    contact_a_side: Literal["top", "base"]
-    contact_b_side: Literal["top", "base"]
+    layer_a_id: UUID
+    layer_b_id: UUID
+    layer_a_side: Literal["top", "base"]
+    layer_b_side: Literal["top", "base"]
     model_id: UUID
     source: str
     was_created: bool
@@ -109,14 +109,14 @@ class ContactCorrelationEdgeListItem(BaseModel):
     ----------
     id : UUID
         Primary key of the ``litho_contact_correlation_edge`` row.
-    contact_a_id : UUID
+    layer_a_id : UUID
         Canonical lesser endpoint.
-    contact_b_id : UUID
+    layer_b_id : UUID
         Canonical greater endpoint.
-    contact_a_side : str
+    layer_a_side : str
         The side (``'top'`` / ``'base'``) of the lesser endpoint.  Maps from
         the ORM column via ``from_attributes``.
-    contact_b_side : str
+    layer_b_side : str
         The side of the greater endpoint.  A ``('base', 'base')`` pair is a
         bottom-tie (bottom-tie spec 2026-06-17).
     model_id : UUID
@@ -137,10 +137,10 @@ class ContactCorrelationEdgeListItem(BaseModel):
     model_config = {"from_attributes": True}
 
     id: UUID
-    contact_a_id: UUID
-    contact_b_id: UUID
-    contact_a_side: Literal["top", "base"]
-    contact_b_side: Literal["top", "base"]
+    layer_a_id: UUID
+    layer_b_id: UUID
+    layer_a_side: Literal["top", "base"]
+    layer_b_side: Literal["top", "base"]
     model_id: UUID
     section_id: UUID
     source: str

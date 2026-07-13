@@ -56,6 +56,7 @@ from .bundle_serialization import (
     _MAX_SURFACE_SOURCE_CONTACTS,
     _MAX_TIN_ARRAY_LEN,
     _apply_json_to_kwargs,
+    _normalise_restore_keys,
 )
 
 
@@ -660,7 +661,7 @@ async def _restore_contact_edges(
     AFTER cross-sections are restored (Phase 6), so ``valid_section_ids``
     built from the DB here always includes the sections the edges reference.
 
-    Both endpoints (contact_a_id, contact_b_id) FK ``litho_layer.id`` post-A4,
+    Both endpoints (layer_a_id, layer_b_id) FK ``litho_layer.id`` post-A4,
     so they must resolve to a litho_layer (or its mirrored formation_contact)
     belonging to this project's models. A canonical v4 litho-native bundle
     emits ``contacts: []`` and carries the endpoints as ``litho_layers``, so
@@ -794,8 +795,12 @@ async def _restore_contact_edges(
         if ce_model_id is None:
             dropped += 1
             continue
-        ca_id = _uuid(ce_payload.get("contact_a_id"))
-        cb_id = _uuid(ce_payload.get("contact_b_id"))
+        # Normalise renamed keys FIRST — the endpoint guards below must see
+        # the current column names even for pre-ARCH-08 bundles that still
+        # carry the retired contact_a_id / contact_b_id keys.
+        ce_payload = _normalise_restore_keys(LithoContactCorrelationEdgeOrm, ce_payload)
+        ca_id = _uuid(ce_payload.get("layer_a_id"))
+        cb_id = _uuid(ce_payload.get("layer_b_id"))
         if ca_id is None or cb_id is None:
             logger.warning(
                 f"[{i}/{total}] litho contact edge {ce_id} missing contact endpoint(s) — dropped"

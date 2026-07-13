@@ -7,7 +7,7 @@
  * ``<g data-testid="bottom-handles">`` (CorrelationEdgesOverlay.tsx). The
  * two-click gesture arms a source (clicking a unit band → side 'top', or a
  * bottom handle → side 'base') then clicks a target. An edge touching the
- * bottom handle is persisted with ``contact_a_side``/``contact_b_side =
+ * bottom handle is persisted with ``layer_a_side``/``layer_b_side =
  * 'base'`` on that endpoint.
  *
  * This spec proves the GESTURE end-to-end via REAL canvas interaction (not an
@@ -19,7 +19,7 @@
  *      upper hit-rect → side 'top'), then click ANOTHER column's
  *      ``correlate-bottom-handle-<invId>`` (→ side 'base'). A base-side edge
  *      is created — verified in the DB via ``countBaseSideCorrelationEdges``
- *      (a row with ``contact_a_side='base'`` OR ``contact_b_side='base'``).
+ *      (a row with ``layer_a_side='base'`` OR ``layer_b_side='base'``).
  *   3. The base/mixed tie renders dashed (``stroke-dasharray`` on the cyan
  *      interpretive tie), and right-click → ``edge-context-delete`` removes
  *      it (base-side edge count returns to its pre-gesture value).
@@ -222,7 +222,7 @@ test.describe('flow_bottom_tie_correlate', () => {
 
       // 2b. Click the target column's bottom handle (side 'base'). This fires
       //     handleCorrelateClick(deepest.id, targetInv, 'base') → onContactCorrelate
-      //     with contactBSide='base' → POST with the base side stamped.
+      //     with layerBSide='base' → POST with the base side stamped.
       const targetHandle = page.locator(`[data-testid="correlate-bottom-handle-${targetInv}"]`)
       await expect(targetHandle).toBeAttached({ timeout: 10_000 })
       await targetHandle.dispatchEvent('click')
@@ -266,14 +266,14 @@ test.describe('flow_bottom_tie_correlate', () => {
           const r = await fetch(`${base}/projects/${pid}/geology/models/${mid}/contact-correlations`)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const edges: any[] = await r.json()
-          const e = edges.find(x => x.contact_a_side === 'base' || x.contact_b_side === 'base')
+          const e = edges.find(x => x.layer_a_side === 'base' || x.layer_b_side === 'base')
           return e
             ? {
                 id: e.id as string,
-                contact_a_id: e.contact_a_id as string,
-                contact_b_id: e.contact_b_id as string,
-                contact_a_side: e.contact_a_side as string,
-                contact_b_side: e.contact_b_side as string,
+                layer_a_id: e.layer_a_id as string,
+                layer_b_id: e.layer_b_id as string,
+                layer_a_side: e.layer_a_side as string,
+                layer_b_side: e.layer_b_side as string,
                 section_id: e.section_id as string,
               }
             : null
@@ -331,10 +331,10 @@ test.describe('flow_bottom_tie_correlate', () => {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                contact_a_id: ca,
-                contact_b_id: cb,
-                contact_a_side: sa,
-                contact_b_side: sb,
+                layer_a_id: ca,
+                layer_b_id: cb,
+                layer_a_side: sa,
+                layer_b_side: sb,
                 // request_section_id is required by UncorrelateLithoContacts
                 // (raises 422 when null) — pass the edge's authored section.
                 request_section_id: sid,
@@ -345,10 +345,10 @@ test.describe('flow_bottom_tie_correlate', () => {
             API_BASE,
             FIXTURE_PROJECT_ID,
             lithoModelId,
-            baseEdge!.contact_a_id,
-            baseEdge!.contact_b_id,
-            baseEdge!.contact_a_side,
-            baseEdge!.contact_b_side,
+            baseEdge!.layer_a_id,
+            baseEdge!.layer_b_id,
+            baseEdge!.layer_a_side,
+            baseEdge!.layer_b_side,
             baseEdge!.section_id,
           ],
         )

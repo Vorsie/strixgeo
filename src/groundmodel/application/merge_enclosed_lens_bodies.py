@@ -197,8 +197,8 @@ class MergeEnclosedLensBodies(GroundModelLogger):
                     # specific section (Fill bands is a section verb).  Omitting
                     # this caused IntegrityError whenever a merge edge was created.
                     "section_id": section_id,
-                    "contact_a_id": a,
-                    "contact_b_id": b,
+                    "layer_a_id": a,
+                    "layer_b_id": b,
                     "source": _MERGE_SOURCE,
                     "user_approved": True,
                 }

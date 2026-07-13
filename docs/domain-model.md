@@ -60,9 +60,11 @@ Geophysical: MASW, Seismic CPT
   Exception: synthetic pinch-out contacts (anchor-less, debt #118
   litho-axis pinch-out wiring) stay on formation_contact — Shape A's
   anchor XOR doesn't fit.
-- Correlation edges (``litho_contact_correlation_edge.contact_a_id /
-  contact_b_id``) FK ``litho_layer.id`` post-A4 (UUIDs preserved
-  end-to-end since the A2.5 backfill).
+- Correlation edges (``litho_contact_correlation_edge.layer_a_id /
+  layer_b_id``, renamed from ``contact_a_id / contact_b_id`` in the
+  2026-07-13 ARCH-08 cut) FK ``litho_layer.id`` post-A4 (UUIDs
+  preserved end-to-end since the A2.5 backfill); the ``layer_*_side``
+  columns pick each endpoint's 'top'/'base' contact.
 - **Bodies** (``BodyOrm``) are single-lithology units traced across a
   section — the resolver's connected components of approved layer↔layer
   correlation edges, with ``body_id`` stamped on every member

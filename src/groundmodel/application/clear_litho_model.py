@@ -26,7 +26,7 @@ FK-cascade notes
   ON DELETE CASCADE. Deleting a model also drops all its edges; but here we
   are KEEPING the model and deleting content only, so we run a targeted bulk
   DELETE first.
-* ``litho_contact_correlation_edge.contact_a_id`` / ``contact_b_id`` →
+* ``litho_contact_correlation_edge.layer_a_id`` / ``layer_b_id`` →
   ``formation_contact`` ON DELETE CASCADE.  The step-2 contact bulk-DELETE
   would cascade to these edges anyway; we still issue the explicit edge
   delete first to keep the row-count returned in
@@ -168,7 +168,7 @@ class ClearLithoModel(GroundModelLogger):
 
         # Step 2 — bulk-delete contact-correlation edges for this model.
         # Done BEFORE the contact delete: FormationContact rows are the FK
-        # parents of LithoContactCorrelationEdge.contact_a_id/contact_b_id
+        # parents of LithoContactCorrelationEdge.layer_a_id/layer_b_id
         # (ON DELETE CASCADE), so a contact-first order would silently
         # cascade-delete these edges and the explicit edge DELETE's rowcount
         # would be 0.  Edges-first preserves an accurate count.

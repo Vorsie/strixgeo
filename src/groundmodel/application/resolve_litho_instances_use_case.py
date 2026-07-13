@@ -189,8 +189,8 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
     edge_rows = (
         await session.execute(
             select(
-                LithoContactCorrelationEdgeOrm.contact_a_id,
-                LithoContactCorrelationEdgeOrm.contact_b_id,
+                LithoContactCorrelationEdgeOrm.layer_a_id,
+                LithoContactCorrelationEdgeOrm.layer_b_id,
             ).where(
                 LithoContactCorrelationEdgeOrm.model_id == model_id,
                 LithoContactCorrelationEdgeOrm.user_approved.is_(True),

@@ -198,8 +198,8 @@ async def _dump(model_id: UUID, grid_spacing_m: float) -> dict[str, Any]:
         for e in edge_rows:
             edges_by_section[str(e.section_id)].append(
                 {
-                    "contact_a_id": str(e.contact_a_id),
-                    "contact_b_id": str(e.contact_b_id),
+                    "layer_a_id": str(e.layer_a_id),
+                    "layer_b_id": str(e.layer_b_id),
                     "user_approved": bool(e.user_approved),
                 }
             )

@@ -62,7 +62,7 @@ class AutoCorrelateContactResult:
         Net-new rows inserted (ON CONFLICT DO NOTHING — did not already exist).
     edges_skipped_existing : int
         Candidates that were skipped because an edge already existed for that
-        ``(model_id, contact_a_id, contact_b_id)`` triple.
+        ``(model_id, layer_a_id, layer_b_id)`` triple.
     crossing_pinch_outs : list[CrossingPinchOut]
         Pinch-out lens candidates inferred from correlation crossings among the
         proposed candidates. The two edges of each crossing are DROPPED (not
@@ -298,17 +298,14 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             for inv_id, entries in stacks.items()
         ]
         candidate_edges = [
-            ContactEdge(contact_a_id=c.contact_a_id, contact_b_id=c.contact_b_id)
-            for c in candidates
+            ContactEdge(layer_a_id=c.layer_a_id, layer_b_id=c.layer_b_id) for c in candidates
         ]
         crossing_pinch_outs = detect_crossing_pinch_outs(candidate_edges, body_stacks)
         excluded_edges: set[frozenset[UUID]] = set()
         for po in crossing_pinch_outs:
             excluded_edges.update(po.crossing_edges)
         flat_candidates = [
-            c
-            for c in candidates
-            if frozenset({c.contact_a_id, c.contact_b_id}) not in excluded_edges
+            c for c in candidates if frozenset({c.layer_a_id, c.layer_b_id}) not in excluded_edges
         ]
         edges_dropped = len(candidates) - len(flat_candidates)
         if crossing_pinch_outs:
@@ -338,13 +335,13 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                 "id": uuid7(),
                 "model_id": model_id,
                 "section_id": section_id,
-                "contact_a_id": c.contact_a_id,
-                "contact_b_id": c.contact_b_id,
+                "layer_a_id": c.layer_a_id,
+                "layer_b_id": c.layer_b_id,
                 # auto-correlate always proposes top-ties; the side columns
                 # participate in uq_litho_contact_corr_triple, so set them
                 # explicitly rather than relying on the column default.
-                "contact_a_side": "top",
-                "contact_b_side": "top",
+                "layer_a_side": "top",
+                "layer_b_side": "top",
                 "source": AUTO_SOURCE,
                 "user_approved": False,
             }

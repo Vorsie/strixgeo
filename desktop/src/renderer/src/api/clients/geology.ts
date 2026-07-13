@@ -741,16 +741,16 @@ export interface GroundSurfaceBuildResponse {
 /** Contact-level correlation edge (#133 Phase 1). */
 export interface LithoContactCorrelationEdge {
   id: string
-  contact_a_id: string
-  contact_b_id: string
+  layer_a_id: string
+  layer_b_id: string
   /** Side of contact_a the edge joins — `'top'` (default) or `'base'`. */
-  contact_a_side: 'top' | 'base'
+  layer_a_side: 'top' | 'base'
   /**
    * Side of contact_b the edge joins. A `('base','base')` pair is a
    * **bottom-tie** (bottom-tie spec 2026-06-17): it correlates the deepest
    * layer's base so the deepest unit can band.
    */
-  contact_b_side: 'top' | 'base'
+  layer_b_side: 'top' | 'base'
   model_id: string
   section_id: string
   source: string
@@ -1383,46 +1383,46 @@ export const geologyClient = {
   createContactCorrelation: (
     projectId: string,
     modelId: string,
-    contactAId: string,
-    contactBId: string,
+    layerAId: string,
+    layerBId: string,
     requestSectionId?: string | null,
     // Per-endpoint side (bottom-tie spec 2026-06-17). Both 'base' = a
     // bottom-tie. Default 'top' keeps every existing caller unchanged; the
     // base-handle gesture (Task 8) passes 'base'/'base'.
-    contactASide: 'top' | 'base' = 'top',
-    contactBSide: 'top' | 'base' = 'top',
+    layerASide: 'top' | 'base' = 'top',
+    layerBSide: 'top' | 'base' = 'top',
   ): Promise<{ edge_id: string; was_created: boolean }> =>
     post(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`, {
-      contact_a_id: contactAId,
-      contact_b_id: contactBId,
+      layer_a_id: layerAId,
+      layer_b_id: layerBId,
       source: 'manual',
       request_section_id: requestSectionId ?? null,
-      contact_a_side: contactASide,
-      contact_b_side: contactBSide,
+      layer_a_side: layerASide,
+      layer_b_side: layerBSide,
     }),
 
   // DELETE with JSON body — the shared del() helper does not pass a body.
   deleteContactCorrelation: async (
     projectId: string,
     modelId: string,
-    contactAId: string,
-    contactBId: string,
+    layerAId: string,
+    layerBId: string,
     requestSectionId?: string | null,
     // Side must match the edge being deleted — a base-tie and a top-tie on the
     // same pair are distinct rows (bottom-tie spec 2026-06-17). Default 'top'.
-    contactASide: 'top' | 'base' = 'top',
-    contactBSide: 'top' | 'base' = 'top',
+    layerASide: 'top' | 'base' = 'top',
+    layerBSide: 'top' | 'base' = 'top',
   ): Promise<void> => {
     const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations`
     const res = await fetch(`${_base}${path}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contact_a_id: contactAId,
-        contact_b_id: contactBId,
+        layer_a_id: layerAId,
+        layer_b_id: layerBId,
         request_section_id: requestSectionId ?? null,
-        contact_a_side: contactASide,
-        contact_b_side: contactBSide,
+        layer_a_side: layerASide,
+        layer_b_side: layerBSide,
       }),
     })
     if (!res.ok) {

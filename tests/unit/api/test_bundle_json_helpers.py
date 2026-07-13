@@ -19,9 +19,14 @@ from uuid import UUID
 
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
     _apply_json_to_kwargs,
     _from_json,
+    _normalise_restore_keys,
     _to_json,
 )
 
@@ -159,3 +164,29 @@ def test_old_parent_geological_model_id_key_restores_into_parent_model_id() -> N
     parent_id = "55555555-5555-5555-5555-555555555555"
     kwargs = _apply_json_to_kwargs(GeologicalModelOrm, {"parent_geological_model_id": parent_id})
     assert kwargs == {"parent_model_id": UUID(parent_id)}
+
+
+def test_old_edge_contact_keys_restore_into_layer_columns() -> None:
+    """Pre-ARCH-08 bundle keys ``contact_a_id``/``contact_b_id`` map onto
+    ``layer_a_id``/``layer_b_id``."""
+    a_id = "66666666-6666-6666-6666-666666666666"
+    b_id = "77777777-7777-7777-7777-777777777777"
+    kwargs = _apply_json_to_kwargs(
+        LithoContactCorrelationEdgeOrm, {"contact_a_id": a_id, "contact_b_id": b_id}
+    )
+    assert kwargs == {"layer_a_id": UUID(a_id), "layer_b_id": UUID(b_id)}
+
+
+def test_old_edge_contact_side_keys_restore_into_layer_side_columns() -> None:
+    """Pre-ARCH-08 bundle keys ``contact_a_side``/``contact_b_side`` map onto
+    ``layer_a_side``/``layer_b_side``."""
+    kwargs = _apply_json_to_kwargs(
+        LithoContactCorrelationEdgeOrm, {"contact_a_side": "top", "contact_b_side": "base"}
+    )
+    assert kwargs == {"layer_a_side": "top", "layer_b_side": "base"}
+
+
+def test_normalise_restore_keys_is_noop_without_alias_entry() -> None:
+    """ORM classes without an alias entry pass their payload through untouched."""
+    payload = {"id": "88888888-8888-8888-8888-888888888888", "unknown_key": 1}
+    assert _normalise_restore_keys(ObservationOrm, payload) is payload

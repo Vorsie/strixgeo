@@ -68,8 +68,8 @@ def _make_formation(fid: UUID, project_id: UUID = _PROJECT, soil: str = "ZAND") 
 def _make_contact_edge(contact_a: UUID, contact_b: UUID) -> MagicMock:
     """Return a mock LithoContactCorrelationEdgeOrm (contact-level edge)."""
     e = MagicMock()
-    e.contact_a_id = contact_a
-    e.contact_b_id = contact_b
+    e.layer_a_id = contact_a
+    e.layer_b_id = contact_b
     return e
 
 

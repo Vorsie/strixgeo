@@ -79,7 +79,7 @@ for row in psql(layers_sql):
 # Approved correlation edges scoped to CS1's section_id (matches the overlay,
 # which receives section-scoped contactEdges and filters user_approved).
 edges_sql = f"""
-SELECT contact_a_id::text, contact_b_id::text, contact_a_side, contact_b_side
+SELECT layer_a_id::text, layer_b_id::text, layer_a_side, layer_b_side
 FROM litho_contact_correlation_edge
 WHERE model_id = '{MODEL_ID}' AND user_approved = true AND section_id = '{CS1_ID}';
 """

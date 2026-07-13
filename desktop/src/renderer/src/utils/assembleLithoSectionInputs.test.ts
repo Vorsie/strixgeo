@@ -111,7 +111,7 @@ describe('assembleLithoSectionInputs', () => {
     // ``litho_layer`` rows + geotech correlation edges through this SAME
     // assembler — no geotech-specific code path. A geotech layer id is a
     // ``litho_layer.id`` on the geotech model; a geotech edge links two such
-    // ids (contact_a_id / contact_b_id). This pins that contract so the
+    // ids (layer_a_id / layer_b_id). This pins that contract so the
     // PartitionUnit.layerId / body_id / edges that ``buildVoxelRequest`` ->
     // ``computeSectionFill`` consume reference the geotech layers, not litho.
     const geotechLayers: LithoLayerLike[] = [

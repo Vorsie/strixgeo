@@ -13,7 +13,7 @@ Covered:
   anchor
 * terminal-anchor contact (no next) → falls back to anchor total depth
 * parent_geo_contact_id is mirrored onto the layer row
-* ``litho_correlation_edge.contact_a_id`` still resolves to a
+* ``litho_correlation_edge.layer_a_id`` still resolves to a
   ``litho_layer`` row after backfill (same UUID)
 * synthetic pinch-out contacts (no anchor) are skipped
 * contacts on geological (kind='geological') models are skipped
@@ -224,13 +224,13 @@ async def test_correlation_edge_still_resolves_after_backfill(
         projection_buffer_m=50.0,
         seeded_formation_contact_ids=[],
     )
-    # Edge requires canonical ordering: contact_a_id < contact_b_id.
+    # Edge requires canonical ordering: layer_a_id < layer_b_id.
     a_id, b_id = sorted([bh_top.id, cpt_top.id])
     edge = LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=p.litho_model.id,  # type: ignore[attr-defined]
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
         section_id=section.id,
@@ -242,10 +242,10 @@ async def test_correlation_edge_still_resolves_after_backfill(
     await db_session.commit()
 
     # The edge's contact ids must now resolve as layer ids.
-    layer_a = await db_session.get(LithoLayerOrm, edge.contact_a_id)
-    layer_b = await db_session.get(LithoLayerOrm, edge.contact_b_id)
-    assert layer_a is not None, "edge.contact_a_id orphaned after backfill"
-    assert layer_b is not None, "edge.contact_b_id orphaned after backfill"
+    layer_a = await db_session.get(LithoLayerOrm, edge.layer_a_id)
+    layer_b = await db_session.get(LithoLayerOrm, edge.layer_b_id)
+    assert layer_a is not None, "edge.layer_a_id orphaned after backfill"
+    assert layer_b is not None, "edge.layer_b_id orphaned after backfill"
     assert layer_a.borehole_id == p.bh.id  # type: ignore[attr-defined]
     assert layer_b.cpt_id == p.cpt.id  # type: ignore[attr-defined]
 

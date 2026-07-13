@@ -28,7 +28,7 @@ Algorithm
    generic core, applied PER adjacent column-pair (not group-wide) so a
    contact can link to both its neighbours along a chain without one pair
    stealing a shared endpoint from the other (#163 dogfeed 2026-05-29).
-5. Emit canonical-ordered ``(contact_a_id, contact_b_id)`` candidates.
+5. Emit canonical-ordered ``(layer_a_id, layer_b_id)`` candidates.
 
 No Theil-Sen dip transfer — see spec for the trade-off discussion.
 """
@@ -131,14 +131,14 @@ class _ContactCandidatePair:
 
     Attributes
     ----------
-    contact_a_id, contact_b_id : UUID
-        Endpoint contact ids, ``contact_a_id < contact_b_id``.
+    layer_a_id, layer_b_id : UUID
+        Endpoint contact ids, ``layer_a_id < layer_b_id``.
     residual : float
         Absolute depth residual ``|depth_a - depth_b|`` (metres).
     """
 
-    contact_a_id: UUID
-    contact_b_id: UUID
+    layer_a_id: UUID
+    layer_b_id: UUID
     residual: float
 
 
@@ -148,16 +148,16 @@ class ContactCorrelationCandidate:
 
     Attributes
     ----------
-    contact_a_id, contact_b_id : UUID
-        Endpoint contact ids, ``contact_a_id < contact_b_id``.
+    layer_a_id, layer_b_id : UUID
+        Endpoint contact ids, ``layer_a_id < layer_b_id``.
     source : str
         Provenance tag — always ``AUTO_SOURCE`` for this algorithm's
         output; downstream may persist it verbatim into
         ``litho_contact_correlation_edge.source``.
     """
 
-    contact_a_id: UUID
-    contact_b_id: UUID
+    layer_a_id: UUID
+    layer_b_id: UUID
     source: str = AUTO_SOURCE
 
 
@@ -339,22 +339,22 @@ def auto_correlate_contact_edges(
                             b_id = max(ca.contact_id, cb.contact_id)
                             pair_candidates.append(
                                 _ContactCandidatePair(
-                                    contact_a_id=a_id,
-                                    contact_b_id=b_id,
+                                    layer_a_id=a_id,
+                                    layer_b_id=b_id,
                                     residual=residual,
                                 )
                             )
 
                 for survivor in _mnn_by_id(
                     pair_candidates,
-                    key_a=lambda c: c.contact_a_id,
-                    key_b=lambda c: c.contact_b_id,
+                    key_a=lambda c: c.layer_a_id,
+                    key_b=lambda c: c.layer_b_id,
                     residual=lambda c: c.residual,
                 ):
                     out.append(
                         ContactCorrelationCandidate(
-                            contact_a_id=survivor.contact_a_id,
-                            contact_b_id=survivor.contact_b_id,
+                            layer_a_id=survivor.layer_a_id,
+                            layer_b_id=survivor.layer_b_id,
                         )
                     )
 

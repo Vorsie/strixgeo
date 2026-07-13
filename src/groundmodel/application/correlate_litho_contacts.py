@@ -41,10 +41,10 @@ _DEPTH_CONTAINMENT_EPS_M: float = 1e-3
 
 
 def canonical_contact_order(
-    contact_a_id: UUID,
-    contact_a_side: str,
-    contact_b_id: UUID,
-    contact_b_side: str,
+    layer_a_id: UUID,
+    layer_a_side: str,
+    layer_b_id: UUID,
+    layer_b_side: str,
 ) -> tuple[UUID, str, UUID, str]:
     """Canonicalise an edge endpoint pair to ``a_id < b_id``, sides paired.
 
@@ -58,13 +58,13 @@ def canonical_contact_order(
 
     Parameters
     ----------
-    contact_a_id : UUID
+    layer_a_id : UUID
         One endpoint's contact (layer) id.
-    contact_a_side : str
+    layer_a_side : str
         That endpoint's side (``'top'`` or ``'base'``).
-    contact_b_id : UUID
+    layer_b_id : UUID
         The other endpoint's contact id.
-    contact_b_side : str
+    layer_b_side : str
         That endpoint's side.
 
     Returns
@@ -74,9 +74,9 @@ def canonical_contact_order(
         still paired with its original contact id.  A base↔base pair is a
         bottom-tie; the pairing is preserved through the swap.
     """
-    if contact_a_id <= contact_b_id:
-        return contact_a_id, contact_a_side, contact_b_id, contact_b_side
-    return contact_b_id, contact_b_side, contact_a_id, contact_a_side
+    if layer_a_id <= layer_b_id:
+        return layer_a_id, layer_a_side, layer_b_id, layer_b_side
+    return layer_b_id, layer_b_side, layer_a_id, layer_a_side
 
 
 @dataclass
@@ -120,12 +120,12 @@ class CorrelateLithoContacts(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
-        contact_a_id: UUID,
-        contact_b_id: UUID,
+        layer_a_id: UUID,
+        layer_b_id: UUID,
         source: str = "manual",
         request_section_id: UUID | None = None,
-        contact_a_side: str = "top",
-        contact_b_side: str = "top",
+        layer_a_side: str = "top",
+        layer_b_side: str = "top",
     ) -> ContactCorrelateResult:
         """Insert a contact-level edge and return the result.
 
@@ -136,10 +136,10 @@ class CorrelateLithoContacts(GroundModelLogger):
             (IDOR defence — contacts from another project are rejected 404).
         model_id : UUID
             The lithostratigraphic model.  Both contacts must belong to it.
-        contact_a_id : UUID
+        layer_a_id : UUID
             One endpoint.  Order does not matter — the use case normalises
             to ``(min, max)`` before INSERT.
-        contact_b_id : UUID
+        layer_b_id : UUID
             The other endpoint.
         source : str
             Provenance token.  Defaults to ``'manual'``.
@@ -147,11 +147,11 @@ class CorrelateLithoContacts(GroundModelLogger):
             The section on which this correlation is authored (required —
             section-scoped, owner directive 2026-06-08).  Passing ``None``
             raises ``ValueError``; the router maps that to HTTP 422.
-        contact_a_side : str
+        layer_a_side : str
             Which contact of ``contact_a`` the edge joins — ``'top'`` (the
             legacy default for every existing edge) or ``'base'``.  Travels
-            with ``contact_a_id`` through canonical ordering.
-        contact_b_side : str
+            with ``layer_a_id`` through canonical ordering.
+        layer_b_side : str
             The same for ``contact_b``.  An edge with ``'base'`` on BOTH ends
             is a **bottom-tie** — it correlates the deepest layer's base (which
             has no layer below, hence no top-keyed base contact) so that the
@@ -173,7 +173,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         """
         self.info(
             f"CorrelateLithoContacts: model={model_id} "
-            f"a={contact_a_id}({contact_a_side}) b={contact_b_id}({contact_b_side}) "
+            f"a={layer_a_id}({layer_a_side}) b={layer_b_id}({layer_b_side}) "
             f"source={source!r}"
         )
 
@@ -194,8 +194,8 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 1. Self-loop guard.                                                  #
         # ------------------------------------------------------------------ #
-        if contact_a_id == contact_b_id:
-            raise ValueError(f"Cannot correlate a contact with itself: {contact_a_id}")
+        if layer_a_id == layer_b_id:
+            raise ValueError(f"Cannot correlate a contact with itself: {layer_a_id}")
 
         # ------------------------------------------------------------------ #
         # 2. Validate the model belongs to this project.                       #
@@ -207,11 +207,11 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 3. Validate both contacts belong to this model + project.            #
         # ------------------------------------------------------------------ #
-        ca = await self._session.get(FormationContactOrm, contact_a_id)
-        cb = await self._session.get(FormationContactOrm, contact_b_id)
+        ca = await self._session.get(FormationContactOrm, layer_a_id)
+        cb = await self._session.get(FormationContactOrm, layer_b_id)
 
         for label, contact in (("contact_a", ca), ("contact_b", cb)):
-            cid = contact_a_id if label == "contact_a" else contact_b_id
+            cid = layer_a_id if label == "contact_a" else layer_b_id
             if contact is None or contact.model_id != model_id:
                 raise ValueError(f"{label} {cid} not found in model {model_id}")
 
@@ -272,7 +272,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         # 5. Canonical ordering: (min, max), sides paired with their ids.      #
         # ------------------------------------------------------------------ #
         a_id, a_side, b_id, b_side = canonical_contact_order(
-            contact_a_id, contact_a_side, contact_b_id, contact_b_side
+            layer_a_id, layer_a_side, layer_b_id, layer_b_side
         )
 
         # ------------------------------------------------------------------ #
@@ -286,10 +286,10 @@ class CorrelateLithoContacts(GroundModelLogger):
         existing_stmt = select(LithoContactCorrelationEdgeOrm).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
             LithoContactCorrelationEdgeOrm.section_id == request_section_id,
-            LithoContactCorrelationEdgeOrm.contact_a_id == a_id,
-            LithoContactCorrelationEdgeOrm.contact_b_id == b_id,
-            LithoContactCorrelationEdgeOrm.contact_a_side == a_side,
-            LithoContactCorrelationEdgeOrm.contact_b_side == b_side,
+            LithoContactCorrelationEdgeOrm.layer_a_id == a_id,
+            LithoContactCorrelationEdgeOrm.layer_b_id == b_id,
+            LithoContactCorrelationEdgeOrm.layer_a_side == a_side,
+            LithoContactCorrelationEdgeOrm.layer_b_side == b_side,
         )
         existing = (await self._session.execute(existing_stmt)).scalar_one_or_none()
         if existing is not None:
@@ -308,10 +308,10 @@ class CorrelateLithoContacts(GroundModelLogger):
             id=uuid7(),
             model_id=model_id,
             section_id=request_section_id,
-            contact_a_id=a_id,
-            contact_b_id=b_id,
-            contact_a_side=a_side,
-            contact_b_side=b_side,
+            layer_a_id=a_id,
+            layer_b_id=b_id,
+            layer_a_side=a_side,
+            layer_b_side=b_side,
             source=source,
             user_approved=True,
         )
@@ -486,11 +486,11 @@ class UncorrelateLithoContacts(GroundModelLogger):
         *,
         project_id: UUID,
         model_id: UUID,
-        contact_a_id: UUID,
-        contact_b_id: UUID,
+        layer_a_id: UUID,
+        layer_b_id: UUID,
         request_section_id: UUID | None = None,
-        contact_a_side: str = "top",
-        contact_b_side: str = "top",
+        layer_a_side: str = "top",
+        layer_b_side: str = "top",
     ) -> None:
         """Delete the contact-level edge between two contacts.
 
@@ -500,9 +500,9 @@ class UncorrelateLithoContacts(GroundModelLogger):
             The owning project.  Used to scope-guard the model.
         model_id : UUID
             The lithostratigraphic model.
-        contact_a_id : UUID
+        layer_a_id : UUID
             One endpoint (order does not matter — canonical ordering applied).
-        contact_b_id : UUID
+        layer_b_id : UUID
             The other endpoint.
         request_section_id : UUID | None
             The section the edge was authored on.  Required — a correlation is
@@ -511,12 +511,12 @@ class UncorrelateLithoContacts(GroundModelLogger):
             because the same contact pair may exist as edges on multiple
             sections (each section's edge is an independent row).  Passing
             ``None`` raises ``ValueError``; the router maps that to HTTP 422.
-        contact_a_side : str
+        layer_a_side : str
             Which contact of ``contact_a`` the edge to delete joins —
-            ``'top'`` (default) or ``'base'``.  Travels with ``contact_a_id``
+            ``'top'`` (default) or ``'base'``.  Travels with ``layer_a_id``
             through canonical ordering and scopes the delete: a top-tie and a
             base-tie (bottom-tie) on the same pair are distinct rows.
-        contact_b_side : str
+        layer_b_side : str
             The same for ``contact_b``.
 
         Returns
@@ -532,7 +532,7 @@ class UncorrelateLithoContacts(GroundModelLogger):
         """
         self.info(
             f"UncorrelateLithoContacts: model={model_id} "
-            f"a={contact_a_id}({contact_a_side}) b={contact_b_id}({contact_b_side})"
+            f"a={layer_a_id}({layer_a_side}) b={layer_b_id}({layer_b_side})"
         )
 
         # ------------------------------------------------------------------ #
@@ -556,7 +556,7 @@ class UncorrelateLithoContacts(GroundModelLogger):
 
         # Canonical ordering, sides paired with their ids.
         a_id, a_side, b_id, b_side = canonical_contact_order(
-            contact_a_id, contact_a_side, contact_b_id, contact_b_side
+            layer_a_id, layer_a_side, layer_b_id, layer_b_side
         )
 
         # Side columns are part of the widened unique key — filter on them so a
@@ -566,10 +566,10 @@ class UncorrelateLithoContacts(GroundModelLogger):
         stmt = select(LithoContactCorrelationEdgeOrm).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
             LithoContactCorrelationEdgeOrm.section_id == request_section_id,
-            LithoContactCorrelationEdgeOrm.contact_a_id == a_id,
-            LithoContactCorrelationEdgeOrm.contact_b_id == b_id,
-            LithoContactCorrelationEdgeOrm.contact_a_side == a_side,
-            LithoContactCorrelationEdgeOrm.contact_b_side == b_side,
+            LithoContactCorrelationEdgeOrm.layer_a_id == a_id,
+            LithoContactCorrelationEdgeOrm.layer_b_id == b_id,
+            LithoContactCorrelationEdgeOrm.layer_a_side == a_side,
+            LithoContactCorrelationEdgeOrm.layer_b_side == b_side,
         )
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
         if existing is None:

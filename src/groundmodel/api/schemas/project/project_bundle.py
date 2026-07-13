@@ -260,7 +260,7 @@ class ProjectBundleRequest(BaseModel):
     # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
     # in bundles saved before this field shipped; default_factory=list so
     # older files open cleanly.  Restore order: after the litho models exist
-    # (both contact_a_id and contact_b_id FK litho_layer.id post-A4; a v3
+    # (both layer_a_id and layer_b_id FK litho_layer.id post-A4; a v3
     # bundle's endpoints resolve via the FC↔LL mirror).
     litho_contact_correlation_edges: list[dict[str, Any]] = Field(
         default_factory=list,

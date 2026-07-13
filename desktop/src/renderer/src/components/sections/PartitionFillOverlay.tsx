@@ -907,16 +907,16 @@ export default function PartitionFillOverlay({
     // Bands come from the APPROVED correlation edges (layer-id pairs) — the
     // trustworthy signal — NOT the over-lumped body_id. Geometry only fills the
     // uncorrelated remainder.
-    // contact_a_side / contact_b_side are threaded through so computeSectionFill
+    // layer_a_side / layer_b_side are threaded through so computeSectionFill
     // can split bottom-ties (base↔base) from normal top-keyed edges — letting the
     // deepest unit band without a base-tie polluting the topCorr signal.
     const edges: CorrelationEdge[] = (contactEdges ?? [])
       .filter((e) => e.user_approved)
       .map((e) => ({
-        a: e.contact_a_id,
-        b: e.contact_b_id,
-        aSide: e.contact_a_side,
-        bSide: e.contact_b_side,
+        a: e.layer_a_id,
+        b: e.layer_b_id,
+        aSide: e.layer_a_side,
+        bSide: e.layer_b_side,
       }))
 
     // True along-section position (metres) per column, 1:1 with orderedColumns

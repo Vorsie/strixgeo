@@ -180,15 +180,15 @@ export interface ContactGestureState {
   onClearArmedContact: () => void
   /**
    * Fired when a valid target contact is clicked — POST contact edge.
-   * ``contactASide`` / ``contactBSide`` carry which side each endpoint
+   * ``layerASide`` / ``layerBSide`` carry which side each endpoint
    * represents so the API can distinguish top↔top from base↔base or
    * top↔base ties.
    */
   onContactCorrelate: (
-    contactAId: string,
-    contactBId: string,
-    contactASide: 'top' | 'base',
-    contactBSide: 'top' | 'base',
+    layerAId: string,
+    layerBId: string,
+    layerASide: 'top' | 'base',
+    layerBSide: 'top' | 'base',
   ) => Promise<void>
   /**
    * Fired when the user right-clicks a contact hit-rect — caller presents
@@ -963,8 +963,8 @@ export default function CorrelationEdgesOverlay({
   const lensCandidateIds = useMemo(() => {
     const correlated = new Set<string>()
     for (const e of contactEdges ?? []) {
-      correlated.add(e.contact_a_id)
-      correlated.add(e.contact_b_id)
+      correlated.add(e.layer_a_id)
+      correlated.add(e.layer_b_id)
     }
     const byInv = groupContactsByAnchor(contacts)
     const out = new Set<string>()
@@ -1255,8 +1255,8 @@ export default function CorrelationEdgesOverlay({
       {contactEdges && contactEdges.length > 0 && (
         <g data-testid="contact-edges-overlay">
           {contactEdges.map(ce => {
-            const ptA = contactScreenMap.get(ce.contact_a_id)
-            const ptB = contactScreenMap.get(ce.contact_b_id)
+            const ptA = contactScreenMap.get(ce.layer_a_id)
+            const ptB = contactScreenMap.get(ce.layer_b_id)
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
 
@@ -1264,22 +1264,22 @@ export default function CorrelationEdgesOverlay({
             // A base-side endpoint anchors at the band's base (botY); a
             // top-side endpoint anchors at the band's top (topY).
             // Bug fix (spec §6): previously all edges used topY regardless
-            // of contact_a_side / contact_b_side, so base ties rendered
+            // of layer_a_side / layer_b_side, so base ties rendered
             // from the wrong boundary.
-            const yA = ce.contact_a_side === 'base' ? ptA.botY : ptA.topY
-            const yB = ce.contact_b_side === 'base' ? ptB.botY : ptB.topY
+            const yA = ce.layer_a_side === 'base' ? ptA.botY : ptA.topY
+            const yB = ce.layer_b_side === 'base' ? ptB.botY : ptB.topY
 
             // An edge is interpretive (base or mixed) when either endpoint
             // is a base tie — renders dashed + cyan (spec §6).
             const isInterpretive =
-              ce.contact_a_side === 'base' || ce.contact_b_side === 'base'
+              ce.layer_a_side === 'base' || ce.layer_b_side === 'base'
 
             // Cross-lithology edge → SURFACE TIE: draw the clean connecting
             // line only (no seam ribbon; a tie forms no body). The resolver
             // drops cross-lithology edges from body formation, so this is a
             // pure "same surface, different material" correlation (thread B).
-            const lithoA = lithoByContactId.get(ce.contact_a_id) ?? null
-            const lithoB = lithoByContactId.get(ce.contact_b_id) ?? null
+            const lithoA = lithoByContactId.get(ce.layer_a_id) ?? null
+            const lithoB = lithoByContactId.get(ce.layer_b_id) ?? null
             if (lithoA !== null && lithoB !== null && lithoA !== lithoB) {
               // Interpretive ties always use BASE_TIE_COLOR; approved top↔top
               // use emerald; pending use amber.
@@ -1368,8 +1368,8 @@ export default function CorrelationEdgesOverlay({
             // (no colour-stripe ribbon — there is no single "surface" to
             // straddle). The seam + hit geometry below handles the
             // right-click delete target.
-            const stripesA = isInterpretive ? null : stripeColorsByContactId.get(ce.contact_a_id)
-            const stripesB = isInterpretive ? null : stripeColorsByContactId.get(ce.contact_b_id)
+            const stripesA = isInterpretive ? null : stripeColorsByContactId.get(ce.layer_a_id)
+            const stripesB = isInterpretive ? null : stripeColorsByContactId.get(ce.layer_b_id)
             const aboveA = stripesA?.above ?? null
             const aboveB = stripesB?.above ?? null
             const belowA = stripesA?.below ?? null

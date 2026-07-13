@@ -423,9 +423,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'e1', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -447,9 +447,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'e2', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -483,9 +483,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-clay', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e1', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'e1', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fSand, fClay],
@@ -508,9 +508,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-sand', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e2', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'e2', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fSand],
@@ -530,9 +530,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e3', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'e3', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -557,9 +557,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('sb', 'f-silt', 'inv-B', 'cpt', 2),
     ]
     const edge = {
-      id: 'e4', contact_a_id: 'ka', contact_b_id: 'sb', model_id: 'm1',
+      id: 'e4', layer_a_id: 'ka', layer_b_id: 'sb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     const { container } = renderOverlay({
       contacts, formations: [fZand, fKlei, fSilt],
@@ -588,9 +588,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'e5', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'e5', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     // Columns: centres 100 / 200, width 40 → inner edges at 120 (A right)
     // and 180 (B left). The ribbon must use the edges, not the centres.
@@ -618,9 +618,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'em', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'em', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     // Centres 100 / 145, width 40 → inner edges 120 / 125 → a 5 px gap. The
     // gap-bridging ribbon would be a 5 px sliver; the floor must widen it.
@@ -650,9 +650,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'eg', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'eg', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -681,9 +681,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'ed', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'ed', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -709,9 +709,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'eok', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'eok', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -736,9 +736,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'epending', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'epending', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -765,9 +765,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'eapproved', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'eapproved', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'manual', user_approved: true, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -792,9 +792,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'eronly', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'eronly', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -818,9 +818,9 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
     ]
     const edge = {
-      id: 'ez', contact_a_id: 'ca', contact_b_id: 'cb', model_id: 'm1',
+      id: 'ez', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
       section_id: 's1',
-      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', contact_a_side: 'top' as const, contact_b_side: 'top' as const,
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
     }
     renderOverlay({
       contacts, formations: [fA],
@@ -1511,14 +1511,14 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
   it('CC11: unapproved edge renders both grab zones', () => {
     const edge: LithoContactCorrelationEdge = {
       id: 'e-unapproved',
-      contact_a_id: 'ca',
-      contact_b_id: 'cb1',
+      layer_a_id: 'ca',
+      layer_b_id: 'cb1',
       model_id: 'm1',
       section_id: 's1',
       source: 'auto',
       user_approved: false,
-      contact_a_side: 'top',
-      contact_b_side: 'top',
+      layer_a_side: 'top',
+      layer_b_side: 'top',
       created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -1541,14 +1541,14 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     const onUnapprovedDragStart = vi.fn()
     const edge: LithoContactCorrelationEdge = {
       id: 'e-unapproved-2',
-      contact_a_id: 'ca',
-      contact_b_id: 'cb1',
+      layer_a_id: 'ca',
+      layer_b_id: 'cb1',
       model_id: 'm1',
       section_id: 's1',
       source: 'auto',
       user_approved: false,
-      contact_a_side: 'top',
-      contact_b_side: 'top',
+      layer_a_side: 'top',
+      layer_b_side: 'top',
       created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
@@ -1591,14 +1591,14 @@ describe('CorrelationEdgesOverlay — lens candidates (#163 dogfeed 2026-05-29)'
   const columns = [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)]
   const mk = (id: string, a: string, b: string): LithoContactCorrelationEdge => ({
     id,
-    contact_a_id: a,
-    contact_b_id: b,
+    layer_a_id: a,
+    layer_b_id: b,
     model_id: 'm1',
     section_id: 's1',
     source: 'manual',
     user_approved: true,
-    contact_a_side: 'top',
-    contact_b_side: 'top',
+    layer_a_side: 'top',
+    layer_b_side: 'top',
     created_at: '2026-01-01T00:00:00Z',
   })
   const edges = [mk('e-top', 'a-top', 'b-top'), mk('e-bot', 'a-bot', 'b-bot')]
@@ -1656,7 +1656,7 @@ describe('CorrelationEdgesOverlay — lens candidates (#163 dogfeed 2026-05-29)'
 //   BT4  A base/mixed edge carries stroke-dasharray (interpretive).
 //   BT5  A top↔top approved edge does NOT carry stroke-dasharray (regression).
 //   BT6  Right-click a base-side ribbon → onRequestDeleteEdge receives the full
-//        edge object with correct contact_a_side / contact_b_side.
+//        edge object with correct layer_a_side / layer_b_side.
 // ---------------------------------------------------------------------------
 
 describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () => {
@@ -1683,14 +1683,14 @@ describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () =
   ): LithoContactCorrelationEdge {
     return {
       id,
-      contact_a_id: 'ca',
-      contact_b_id: 'cb',
+      layer_a_id: 'ca',
+      layer_b_id: 'cb',
       model_id: 'm1',
       section_id: 's1',
       source: 'manual',
       user_approved: approved,
-      contact_a_side: aSide,
-      contact_b_side: bSide,
+      layer_a_side: aSide,
+      layer_b_side: bSide,
       created_at: '2026-01-01T00:00:00Z',
     }
   }
@@ -1811,7 +1811,7 @@ describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () =
   })
 
   // BT6: right-click delete on a base↔base ribbon passes the full edge
-  // object including contact_a_side / contact_b_side to onRequestDeleteEdge.
+  // object including layer_a_side / layer_b_side to onRequestDeleteEdge.
   it('BT6: right-click base↔base ribbon → onRequestDeleteEdge receives edge with correct sides', () => {
     const onRequestDeleteEdge = vi.fn()
     const edge = makeEdge('e-bb3', 'base', 'base')
@@ -1832,7 +1832,7 @@ describe('CorrelationEdgesOverlay — base-side ties (spec §6 bug fixes)', () =
     expect(onRequestDeleteEdge).toHaveBeenCalledOnce()
     const receivedEdge = onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge
     expect(receivedEdge.id).toBe('e-bb3')
-    expect(receivedEdge.contact_a_side).toBe('base')
-    expect(receivedEdge.contact_b_side).toBe('base')
+    expect(receivedEdge.layer_a_side).toBe('base')
+    expect(receivedEdge.layer_b_side).toBe('base')
   })
 })

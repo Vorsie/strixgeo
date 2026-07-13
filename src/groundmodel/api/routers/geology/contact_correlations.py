@@ -127,7 +127,7 @@ async def create_contact_correlation(
     404
         When the model does not exist or does not belong to ``project_id``.
     422
-        When contact_a_id == contact_b_id (self-loop), when either contact
+        When layer_a_id == layer_b_id (self-loop), when either contact
         does not belong to the model / project, or when a geotech packing
         correlation crosses lithostratigraphic body boundaries
         (``CrossLithoBodyCorrelationError``).
@@ -142,12 +142,12 @@ async def create_contact_correlation(
         result = await CorrelateLithoContacts(session).execute(
             project_id=project_id,
             model_id=model_id,
-            contact_a_id=body.contact_a_id,
-            contact_b_id=body.contact_b_id,
+            layer_a_id=body.layer_a_id,
+            layer_b_id=body.layer_b_id,
             source=body.source,
             request_section_id=body.request_section_id,
-            contact_a_side=body.contact_a_side,
-            contact_b_side=body.contact_b_side,
+            layer_a_side=body.layer_a_side,
+            layer_b_side=body.layer_b_side,
         )
     except CrossLithoBodyCorrelationError as err:
         raise HTTPException(
@@ -162,10 +162,10 @@ async def create_contact_correlation(
 
     response = ContactCorrelationResponse(
         edge_id=result.edge.id,
-        contact_a_id=result.edge.contact_a_id,
-        contact_b_id=result.edge.contact_b_id,
-        contact_a_side=result.edge.contact_a_side,
-        contact_b_side=result.edge.contact_b_side,
+        layer_a_id=result.edge.layer_a_id,
+        layer_b_id=result.edge.layer_b_id,
+        layer_a_side=result.edge.layer_a_side,
+        layer_b_side=result.edge.layer_b_side,
         model_id=result.edge.model_id,
         source=result.edge.source,
         was_created=result.was_created,
@@ -224,11 +224,11 @@ async def delete_contact_correlation(
         await UncorrelateLithoContacts(session).execute(
             project_id=project_id,
             model_id=model_id,
-            contact_a_id=body.contact_a_id,
-            contact_b_id=body.contact_b_id,
+            layer_a_id=body.layer_a_id,
+            layer_b_id=body.layer_b_id,
             request_section_id=body.request_section_id,
-            contact_a_side=body.contact_a_side,
-            contact_b_side=body.contact_b_side,
+            layer_a_side=body.layer_a_side,
+            layer_b_side=body.layer_b_side,
         )
     except ValueError as err:
         raise HTTPException(

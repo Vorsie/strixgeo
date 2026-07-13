@@ -159,8 +159,8 @@ async def _correlate_litho(
     resp = await client.post(
         f"/projects/{project_id}/geology/models/{litho_model_id}/contact-correlations",
         json={
-            "contact_a_id": contact_a,
-            "contact_b_id": contact_b,
+            "layer_a_id": contact_a,
+            "layer_b_id": contact_b,
             "request_section_id": section_id,
         },
     )
@@ -429,8 +429,8 @@ async def test_gc_all(
     resp_same = await async_client.post(
         f"/projects/{pid}/geology/models/{geotech_model_id}/contact-correlations",
         json={
-            "contact_a_id": ga_id,
-            "contact_b_id": gb_id,
+            "layer_a_id": ga_id,
+            "layer_b_id": gb_id,
             "request_section_id": section_id,
         },
     )
@@ -447,12 +447,12 @@ async def test_gc_all(
                     LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id),
                     or_(
                         and_(
-                            LithoContactCorrelationEdgeOrm.contact_a_id == layer_a.id,
-                            LithoContactCorrelationEdgeOrm.contact_b_id == layer_b.id,
+                            LithoContactCorrelationEdgeOrm.layer_a_id == layer_a.id,
+                            LithoContactCorrelationEdgeOrm.layer_b_id == layer_b.id,
                         ),
                         and_(
-                            LithoContactCorrelationEdgeOrm.contact_a_id == layer_b.id,
-                            LithoContactCorrelationEdgeOrm.contact_b_id == layer_a.id,
+                            LithoContactCorrelationEdgeOrm.layer_a_id == layer_b.id,
+                            LithoContactCorrelationEdgeOrm.layer_b_id == layer_a.id,
                         ),
                     ),
                 )
@@ -471,8 +471,8 @@ async def test_gc_all(
     resp_cross = await async_client.post(
         f"/projects/{pid}/geology/models/{geotech_model_id}/contact-correlations",
         json={
-            "contact_a_id": ga_id,
-            "contact_b_id": gc_id,
+            "layer_a_id": ga_id,
+            "layer_b_id": gc_id,
             "request_section_id": section_id,
         },
     )
@@ -492,12 +492,12 @@ async def test_gc_all(
         LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id),
         or_(
             and_(
-                LithoContactCorrelationEdgeOrm.contact_a_id == layer_a.id,
-                LithoContactCorrelationEdgeOrm.contact_b_id == layer_c.id,
+                LithoContactCorrelationEdgeOrm.layer_a_id == layer_a.id,
+                LithoContactCorrelationEdgeOrm.layer_b_id == layer_c.id,
             ),
             and_(
-                LithoContactCorrelationEdgeOrm.contact_a_id == layer_c.id,
-                LithoContactCorrelationEdgeOrm.contact_b_id == layer_a.id,
+                LithoContactCorrelationEdgeOrm.layer_a_id == layer_c.id,
+                LithoContactCorrelationEdgeOrm.layer_b_id == layer_a.id,
             ),
         ),
     )

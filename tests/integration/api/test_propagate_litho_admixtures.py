@@ -133,8 +133,8 @@ def _contact_edge(
     return LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=model.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=user_approved,
         section_id=section_id,

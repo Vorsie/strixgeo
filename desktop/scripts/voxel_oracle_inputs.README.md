@@ -59,10 +59,10 @@ The controller produces this file by dumping **one litho model** from the dev DB
 
   // Correlation edges keyed by section id. Only `user_approved: true` edges
   // drive the band/onlap/lens classification (the harness filters the rest out,
-  // same as the app). `contact_a_id` / `contact_b_id` are litho-layer ids.
+  // same as the app). `layer_a_id` / `layer_b_id` are litho-layer ids (renamed from `contact_*_id`, ARCH-08 2026-07-13).
   "edges_by_section": {
     "section-uuid": [
-      { "contact_a_id": "layer-uuid-1", "contact_b_id": "layer-uuid-2", "user_approved": true }
+      { "layer_a_id": "layer-uuid-1", "layer_b_id": "layer-uuid-2", "user_approved": true }
     ]
   }
 }

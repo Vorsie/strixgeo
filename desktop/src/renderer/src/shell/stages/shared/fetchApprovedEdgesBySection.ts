@@ -66,7 +66,7 @@ export async function fetchApprovedEdgesBySection(
               section.id,
               edges
                 .filter(e => e.user_approved)
-                .map(e => ({ a: e.contact_a_id, b: e.contact_b_id })),
+                .map(e => ({ a: e.layer_a_id, b: e.layer_b_id })),
             ] as const,
         )
         .catch(() => {

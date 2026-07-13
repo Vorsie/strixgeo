@@ -132,8 +132,8 @@ class MaterialiseBodyCompanions(GroundModelLogger):
         #    does not change during this pass (each companion commit only
         #    writes cross_section rows, not edge rows).
         approved_stmt = select(
-            LithoContactCorrelationEdgeOrm.contact_a_id,
-            LithoContactCorrelationEdgeOrm.contact_b_id,
+            LithoContactCorrelationEdgeOrm.layer_a_id,
+            LithoContactCorrelationEdgeOrm.layer_b_id,
         ).where(
             LithoContactCorrelationEdgeOrm.model_id == model_id,
             LithoContactCorrelationEdgeOrm.user_approved.is_(True),
@@ -141,8 +141,8 @@ class MaterialiseBodyCompanions(GroundModelLogger):
         approved_rows = (await self._session.execute(approved_stmt)).all()
         approved_contact_ids: set[UUID] = set()
         for r in approved_rows:
-            approved_contact_ids.add(r.contact_a_id)
-            approved_contact_ids.add(r.contact_b_id)
+            approved_contact_ids.add(r.layer_a_id)
+            approved_contact_ids.add(r.layer_b_id)
         self.debug(
             f"MaterialiseBodyCompanions: {len(approved_contact_ids)} "
             "contact(s) covered by approved edges"

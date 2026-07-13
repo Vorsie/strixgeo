@@ -55,11 +55,11 @@ class ContactEdge:
 
     Parameters
     ----------
-    contact_a_id : UUID
+    layer_a_id : UUID
         First endpoint of the edge.
-    contact_b_id : UUID
+    layer_b_id : UUID
         Second endpoint of the edge.
     """
 
-    contact_a_id: UUID
-    contact_b_id: UUID
+    layer_a_id: UUID
+    layer_b_id: UUID

@@ -382,10 +382,10 @@ def _contact_edge_bundle(project_b_id: UUID, model_b_id: UUID) -> dict:
             "id": str(uuid7()),
             "model_id": str(model_b_id),  # cross-project!
             "section_id": str(uuid7()),
-            "contact_a_id": str(uuid7()),
-            "contact_b_id": str(uuid7()),
-            "contact_a_side": "top",
-            "contact_b_side": "top",
+            "layer_a_id": str(uuid7()),
+            "layer_b_id": str(uuid7()),
+            "layer_a_side": "top",
+            "layer_b_side": "top",
             "user_approved": False,
         }
     ]

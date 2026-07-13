@@ -650,27 +650,27 @@ export default function SectionsCanvas(): JSX.Element {
 
   const handleCreateContactCorrelation = useCallback(
     async (
-      contactAId: string,
-      contactBId: string,
-      contactASide: 'top' | 'base' = 'top',
-      contactBSide: 'top' | 'base' = 'top',
+      layerAId: string,
+      layerBId: string,
+      layerASide: 'top' | 'base' = 'top',
+      layerBSide: 'top' | 'base' = 'top',
     ): Promise<void> => {
       if (!activeLithoModel) return
       const modelId = activeLithoModel.id
       const sectionIdAtPush = selectedSectionId
       log.info(
         'section',
-        `contact-correlate: linking ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) on model ${modelId}`,
+        `contact-correlate: linking ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on model ${modelId}`,
       )
       try {
         await api.geology.createContactCorrelation(
           project.id,
           modelId,
-          contactAId,
-          contactBId,
+          layerAId,
+          layerBId,
           sectionIdAtPush,
-          contactASide,
-          contactBSide,
+          layerASide,
+          layerBSide,
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
@@ -678,8 +678,8 @@ export default function SectionsCanvas(): JSX.Element {
         // directive 2026-06-08). This retires the #135 sticky lens-pinch-out
         // gesture (the source staying armed for a second target) in favour of a
         // clean two-click correlate â€” re-arm the source to draw another edge.
-        const contactA = lithoContacts.find(c => c.id === contactAId)
-        const targetContact = lithoContacts.find(c => c.id === contactBId)
+        const contactA = lithoContacts.find(c => c.id === layerAId)
+        const targetContact = lithoContacts.find(c => c.id === layerBId)
         const targetTestId = targetContact?.cpt_id ?? targetContact?.borehole_id ?? null
         setArmedContactId(null)
         setArmedContactSide('top')
@@ -702,11 +702,11 @@ export default function SectionsCanvas(): JSX.Element {
             await api.geology.deleteContactCorrelation(
               project.id,
               modelId,
-              contactAId,
-              contactBId,
+              layerAId,
+              layerBId,
               sectionIdAtPush,
-              contactASide,
-              contactBSide,
+              layerASide,
+              layerBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -715,11 +715,11 @@ export default function SectionsCanvas(): JSX.Element {
             await api.geology.createContactCorrelation(
               project.id,
               modelId,
-              contactAId,
-              contactBId,
+              layerAId,
+              layerBId,
               sectionIdAtPush,
-              contactASide,
-              contactBSide,
+              layerASide,
+              layerBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -728,7 +728,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('success', 'Boundary correlation added.')
         log.success(
           'section',
-          `contact-correlate: edge ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) created` +
+          `contact-correlate: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) created` +
             (targetTestId ? ` (sticky target=${targetTestId})` : ''),
         )
       } catch (err) {
@@ -745,21 +745,21 @@ export default function SectionsCanvas(): JSX.Element {
 
   const handleDeleteContactCorrelation = useCallback(
     async (
-      contactAId: string,
-      contactBId: string,
+      layerAId: string,
+      layerBId: string,
       // Sides are required to distinguish a base-tie from a top-tie on the
       // same contact pair â€” the backend uniqueness is (a_id, b_id, a_side,
       // b_side), so deleting without sides silently matches nothing for a
       // base tie (spec Â§6 bug 2).
-      contactASide: 'top' | 'base' = 'top',
-      contactBSide: 'top' | 'base' = 'top',
+      layerASide: 'top' | 'base' = 'top',
+      layerBSide: 'top' | 'base' = 'top',
     ): Promise<void> => {
       if (!activeLithoModel) return
       const modelId = activeLithoModel.id
       const sectionIdAtPush = selectedSectionId
       log.info(
         'section',
-        `contact-uncorrelate: removing ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) on model ${modelId}`,
+        `contact-uncorrelate: removing ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on model ${modelId}`,
       )
       // Optimistic removal â€” filter on sides too so a top-tie on the same
       // pair is not accidentally removed when deleting a base-tie.
@@ -767,14 +767,14 @@ export default function SectionsCanvas(): JSX.Element {
         prev.filter(
           e =>
             !(
-              (e.contact_a_id === contactAId &&
-                e.contact_b_id === contactBId &&
-                e.contact_a_side === contactASide &&
-                e.contact_b_side === contactBSide) ||
-              (e.contact_a_id === contactBId &&
-                e.contact_b_id === contactAId &&
-                e.contact_a_side === contactBSide &&
-                e.contact_b_side === contactASide)
+              (e.layer_a_id === layerAId &&
+                e.layer_b_id === layerBId &&
+                e.layer_a_side === layerASide &&
+                e.layer_b_side === layerBSide) ||
+              (e.layer_a_id === layerBId &&
+                e.layer_b_id === layerAId &&
+                e.layer_a_side === layerBSide &&
+                e.layer_b_side === layerASide)
             ),
         ),
       )
@@ -782,11 +782,11 @@ export default function SectionsCanvas(): JSX.Element {
         await api.geology.deleteContactCorrelation(
           project.id,
           modelId,
-          contactAId,
-          contactBId,
+          layerAId,
+          layerBId,
           sectionIdAtPush,
-          contactASide,
-          contactBSide,
+          layerASide,
+          layerBSide,
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
@@ -799,11 +799,11 @@ export default function SectionsCanvas(): JSX.Element {
             await api.geology.createContactCorrelation(
               project.id,
               modelId,
-              contactAId,
-              contactBId,
+              layerAId,
+              layerBId,
               sectionIdAtPush,
-              contactASide,
-              contactBSide,
+              layerASide,
+              layerBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -812,11 +812,11 @@ export default function SectionsCanvas(): JSX.Element {
             await api.geology.deleteContactCorrelation(
               project.id,
               modelId,
-              contactAId,
-              contactBId,
+              layerAId,
+              layerBId,
               sectionIdAtPush,
-              contactASide,
-              contactBSide,
+              layerASide,
+              layerBSide,
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
@@ -824,7 +824,7 @@ export default function SectionsCanvas(): JSX.Element {
         })
         log.success(
           'section',
-          `contact-uncorrelate: edge ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) removed`,
+          `contact-uncorrelate: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) removed`,
         )
       } catch (err) {
         log.warn(
@@ -859,10 +859,10 @@ export default function SectionsCanvas(): JSX.Element {
 
   const handleCreateGeotechPackingCorrelation = useCallback(
     async (
-      contactAId: string,
-      contactBId: string,
-      contactASide: 'top' | 'base' = 'top',
-      contactBSide: 'top' | 'base' = 'top',
+      layerAId: string,
+      layerBId: string,
+      layerASide: 'top' | 'base' = 'top',
+      layerBSide: 'top' | 'base' = 'top',
     ): Promise<void> => {
       if (!activeGeotechModel) {
         log.warn('section', 'packing-connect: no geotech model â€” run Subdivide all bodies first')
@@ -876,24 +876,24 @@ export default function SectionsCanvas(): JSX.Element {
         setLastTargetTestId(null)
       }
       // Self-correlate short-circuit: a band cannot correlate to itself.
-      if (contactAId === contactBId) {
-        log.debug('section', 'packing-connect: self-correlate â€” no-op', { contactAId })
+      if (layerAId === layerBId) {
+        log.debug('section', 'packing-connect: self-correlate â€” no-op', { layerAId })
         clearArm()
         return
       }
       log.info(
         'section',
-        `packing-connect: linking ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) on geotech model ${modelId}`,
+        `packing-connect: linking ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on geotech model ${modelId}`,
       )
       try {
         await api.geology.createContactCorrelation(
           project.id,
           modelId,
-          contactAId,
-          contactBId,
+          layerAId,
+          layerBId,
           selectedSectionId,
-          contactASide,
-          contactBSide,
+          layerASide,
+          layerBSide,
         )
         clearArm()
         await refetchContactEdges()
@@ -906,7 +906,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('success', 'Packing correlation added.')
         log.success(
           'section',
-          `packing-connect: edge ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) created on model ${modelId}`,
+          `packing-connect: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) created on model ${modelId}`,
         )
       } catch (err) {
         log.warn('section', 'handleCreateGeotechPackingCorrelation: POST failed', err)
@@ -935,16 +935,16 @@ export default function SectionsCanvas(): JSX.Element {
 
   const handleDeleteGeotechPackingCorrelation = useCallback(
     async (
-      contactAId: string,
-      contactBId: string,
-      contactASide: 'top' | 'base' = 'top',
-      contactBSide: 'top' | 'base' = 'top',
+      layerAId: string,
+      layerBId: string,
+      layerASide: 'top' | 'base' = 'top',
+      layerBSide: 'top' | 'base' = 'top',
     ): Promise<void> => {
       if (!activeGeotechModel) return
       const modelId = activeGeotechModel.id
       log.info(
         'section',
-        `packing-disconnect: removing ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) on geotech model ${modelId}`,
+        `packing-disconnect: removing ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on geotech model ${modelId}`,
       )
       // Optimistic removal â€” mirror the litho handler's filter shape. The
       // overlay ribbons on the geotech axis read geotechPackingEdges, so the
@@ -956,14 +956,14 @@ export default function SectionsCanvas(): JSX.Element {
         e: LithoContactCorrelationEdge,
       ): boolean =>
         !(
-          (e.contact_a_id === contactAId &&
-            e.contact_b_id === contactBId &&
-            e.contact_a_side === contactASide &&
-            e.contact_b_side === contactBSide) ||
-          (e.contact_a_id === contactBId &&
-            e.contact_b_id === contactAId &&
-            e.contact_a_side === contactBSide &&
-            e.contact_b_side === contactASide)
+          (e.layer_a_id === layerAId &&
+            e.layer_b_id === layerBId &&
+            e.layer_a_side === layerASide &&
+            e.layer_b_side === layerBSide) ||
+          (e.layer_a_id === layerBId &&
+            e.layer_b_id === layerAId &&
+            e.layer_a_side === layerBSide &&
+            e.layer_b_side === layerASide)
         )
       setContactCorrelationEdges(prev => prev.filter(dropEdge))
       setGeotechPackingEdges(prev => prev.filter(dropEdge))
@@ -971,11 +971,11 @@ export default function SectionsCanvas(): JSX.Element {
         await api.geology.deleteContactCorrelation(
           project.id,
           modelId,
-          contactAId,
-          contactBId,
+          layerAId,
+          layerBId,
           selectedSectionId,
-          contactASide,
-          contactBSide,
+          layerASide,
+          layerBSide,
         )
         await refetchContactEdges()
         await refetchGeotechPackingEdges()
@@ -985,7 +985,7 @@ export default function SectionsCanvas(): JSX.Element {
         markBoreholesStale()
         log.success(
           'section',
-          `packing-disconnect: edge ${contactAId}(${contactASide}) â†” ${contactBId}(${contactBSide}) removed`,
+          `packing-disconnect: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) removed`,
         )
       } catch (err) {
         log.warn(
@@ -1261,8 +1261,8 @@ export default function SectionsCanvas(): JSX.Element {
       handle: 'a' | 'b',
     ): void => {
       e.preventDefault()
-      const draggedContactId = handle === 'a' ? edge.contact_a_id : edge.contact_b_id
-      const anchorContactId = handle === 'a' ? edge.contact_b_id : edge.contact_a_id
+      const draggedContactId = handle === 'a' ? edge.layer_a_id : edge.layer_b_id
+      const anchorContactId = handle === 'a' ? edge.layer_b_id : edge.layer_a_id
       // Resolve anchor investigation id to block same-investigation-as-anchor
       // drops. Ctrl/Cmd at drag start selects "leave + create another"
       // (duplicate â†’ lens) vs plain "retarget the grabbed end".
@@ -1380,11 +1380,11 @@ export default function SectionsCanvas(): JSX.Element {
           await api.geology.deleteContactCorrelation(
             project.id,
             capturedDrag.edge.model_id,
-            capturedDrag.edge.contact_a_id,
-            capturedDrag.edge.contact_b_id,
+            capturedDrag.edge.layer_a_id,
+            capturedDrag.edge.layer_b_id,
             selectedSectionId,
-            capturedDrag.edge.contact_a_side,
-            capturedDrag.edge.contact_b_side,
+            capturedDrag.edge.layer_a_side,
+            capturedDrag.edge.layer_b_side,
           )
           // Re-create the original (now approved) + the twin to the dropped
           // boundary. The second create completes the 1â†”2 and triggers the
@@ -1428,11 +1428,11 @@ export default function SectionsCanvas(): JSX.Element {
         await api.geology.deleteContactCorrelation(
           project.id,
           capturedDrag.edge.model_id,
-          capturedDrag.edge.contact_a_id,
-          capturedDrag.edge.contact_b_id,
+          capturedDrag.edge.layer_a_id,
+          capturedDrag.edge.layer_b_id,
           selectedSectionId,
-          capturedDrag.edge.contact_a_side,
-          capturedDrag.edge.contact_b_side,
+          capturedDrag.edge.layer_a_side,
+          capturedDrag.edge.layer_b_side,
         )
         // 2. Create the replacement edge (anchor + new target).
         //    source='manual' â†’ server defaults user_approved=True (Option Y).
@@ -2528,18 +2528,18 @@ export default function SectionsCanvas(): JSX.Element {
             isLitho
               ? edge =>
                   void handleDeleteContactCorrelation(
-                    edge.contact_a_id,
-                    edge.contact_b_id,
-                    edge.contact_a_side,
-                    edge.contact_b_side,
+                    edge.layer_a_id,
+                    edge.layer_b_id,
+                    edge.layer_a_side,
+                    edge.layer_b_side,
                   )
               : isGeotech
                 ? edge =>
                     void handleDeleteGeotechPackingCorrelation(
-                      edge.contact_a_id,
-                      edge.contact_b_id,
-                      edge.contact_a_side,
-                      edge.contact_b_side,
+                      edge.layer_a_id,
+                      edge.layer_b_id,
+                      edge.layer_a_side,
+                      edge.layer_b_side,
                     )
                 : undefined
           }

@@ -120,14 +120,14 @@ function makeLithoModel(): GeologicalModelResponse {
 function makeAutoEdge(id: string): LithoContactCorrelationEdge {
   return {
     id,
-    contact_a_id: 'ca-1',
-    contact_b_id: 'cb-1',
+    layer_a_id: 'ca-1',
+    layer_b_id: 'cb-1',
     model_id: 'm-1',
     section_id: 's-1',
     source: 'auto',
     user_approved: false,
-    contact_a_side: 'top',
-    contact_b_side: 'top',
+    layer_a_side: 'top',
+    layer_b_side: 'top',
     created_at: '2026-01-01T00:00:00Z',
   }
 }
@@ -815,14 +815,14 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
     // TODO Task 19: updated to LithoContactCorrelationEdge.
     const manualEdge: LithoContactCorrelationEdge = {
       id: 'edge-manual-1',
-      contact_a_id: 'ca-1',
-      contact_b_id: 'cb-1',
+      layer_a_id: 'ca-1',
+      layer_b_id: 'cb-1',
       model_id: 'm-1',
       section_id: 's-1',
       source: 'manual',
       user_approved: false,
-      contact_a_side: 'top',
-      contact_b_side: 'top',
+      layer_a_side: 'top',
+      layer_b_side: 'top',
       created_at: '2026-01-01T00:00:00Z',
     }
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([manualEdge])
@@ -852,14 +852,14 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
     // the user already accepted / never suggested on (dogfeed 2026-06-08).
     const acceptedAuto: LithoContactCorrelationEdge = {
       id: 'edge-auto-approved-1',
-      contact_a_id: 'ca-1',
-      contact_b_id: 'cb-1',
+      layer_a_id: 'ca-1',
+      layer_b_id: 'cb-1',
       model_id: 'm-1',
       section_id: 's-1',
       source: 'auto',
       user_approved: true,
-      contact_a_side: 'top',
-      contact_b_side: 'top',
+      layer_a_side: 'top',
+      layer_b_side: 'top',
       created_at: '2026-01-01T00:00:00Z',
     }
     vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([acceptedAuto])

@@ -276,8 +276,8 @@ async def _correlate(
     resp = await client.post(
         f"/projects/{project_id}/geology/models/{litho_model_id}/contact-correlations",
         json={
-            "contact_a_id": contact_a,
-            "contact_b_id": contact_b,
+            "layer_a_id": contact_a,
+            "layer_b_id": contact_b,
             "request_section_id": section_id,
         },
     )
@@ -811,7 +811,7 @@ async def test_sab_all(
     cross_position_edges = [
         edge
         for edge in geotech_edges
-        if layer_formation.get(edge.contact_a_id) != layer_formation.get(edge.contact_b_id)
+        if layer_formation.get(edge.layer_a_id) != layer_formation.get(edge.layer_b_id)
     ]
     assert len(cross_position_edges) == 0, (
         f"SAB-7 (TRAP 1): {len(cross_position_edges)} cross-position edge(s) found — "
@@ -958,8 +958,8 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
                 await db_session.execute(
                     select(LithoContactCorrelationEdgeOrm).where(
                         LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                        LithoContactCorrelationEdgeOrm.contact_a_id.in_(layer_ids)
-                        | LithoContactCorrelationEdgeOrm.contact_b_id.in_(layer_ids),
+                        LithoContactCorrelationEdgeOrm.layer_a_id.in_(layer_ids)
+                        | LithoContactCorrelationEdgeOrm.layer_b_id.in_(layer_ids),
                     )
                 )
             )
@@ -1034,7 +1034,7 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
     )
     # No edge-connected BH-A layer may be a NULL-body orphan (the B6-top-KLEI bug).
     connected_bh_layer_ids = (
-        {e.contact_a_id for e in bh_edges} | {e.contact_b_id for e in bh_edges}
+        {e.layer_a_id for e in bh_edges} | {e.layer_b_id for e in bh_edges}
     ) & bh_a_layer_ids
     # Guard against a vacuous pass: on the OLD code (0 borehole edges) this set is
     # empty and the loop below never runs → ADB-4 would pass for the wrong reason.
@@ -1250,10 +1250,10 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
         id=uuid7(),
         model_id=litho_model.id,
         section_id=section.id,
-        contact_a_id=min(layer_x.id, layer_y.id),
-        contact_b_id=max(layer_x.id, layer_y.id),
-        contact_a_side="top",
-        contact_b_side="top",
+        layer_a_id=min(layer_x.id, layer_y.id),
+        layer_b_id=max(layer_x.id, layer_y.id),
+        layer_a_side="top",
+        layer_b_side="top",
         source="manual",
         user_approved=True,
     )
@@ -1350,8 +1350,8 @@ async def test_sab_c1_geo_band_group_isolation(
     # a difference well above 0.5 m tolerance.
     cross_group_edges = []
     for edge in geotech_edges:
-        top_a = layer_top.get(edge.contact_a_id)
-        top_b = layer_top.get(edge.contact_b_id)
+        top_a = layer_top.get(edge.layer_a_id)
+        top_b = layer_top.get(edge.layer_b_id)
         if top_a is None or top_b is None:
             continue
         if abs(top_a - top_b) > 0.5:
@@ -1553,10 +1553,10 @@ async def multi_layer_body_scene(db_session: AsyncSession) -> dict:
         id=uuid7(),
         model_id=litho_model.id,
         section_id=section.id,
-        contact_a_id=min(layer_p1.id, layer_q.id),
-        contact_b_id=max(layer_p1.id, layer_q.id),
-        contact_a_side="top",
-        contact_b_side="top",
+        layer_a_id=min(layer_p1.id, layer_q.id),
+        layer_b_id=max(layer_p1.id, layer_q.id),
+        layer_a_side="top",
+        layer_b_side="top",
         source="manual",
         user_approved=True,
     )
@@ -1564,10 +1564,10 @@ async def multi_layer_body_scene(db_session: AsyncSession) -> dict:
         id=uuid7(),
         model_id=litho_model.id,
         section_id=section.id,
-        contact_a_id=min(layer_p2.id, layer_q.id),
-        contact_b_id=max(layer_p2.id, layer_q.id),
-        contact_a_side="top",
-        contact_b_side="top",
+        layer_a_id=min(layer_p2.id, layer_q.id),
+        layer_b_id=max(layer_p2.id, layer_q.id),
+        layer_a_side="top",
+        layer_b_side="top",
         source="manual",
         user_approved=True,
     )
@@ -1605,7 +1605,7 @@ async def test_sab_bug1_duplicate_investigation_id_regression(
           mode before the fix).
     B1-2  The geotech ``litho_contact_correlation_edge`` table has NO duplicate
           rows — the count of edges equals the count of DISTINCT
-          ``(model_id, contact_a_id, contact_b_id)`` triples.
+          ``(model_id, layer_a_id, layer_b_id)`` triples.
     B1-3  At least one geotech edge was created (the positive guard — the
           no-duplicate assertion cannot pass vacuously on zero edges).
           CPT-Q is set to qc=22 MPa (zeer dicht) matching CPT-P's 4–8 m
@@ -1642,8 +1642,8 @@ async def test_sab_bug1_duplicate_investigation_id_regression(
         "the correlation edge between CPT-P and CPT-Q must produce at least one edge"
     )
 
-    # B1-2: no duplicate edges — all (contact_a_id, contact_b_id) pairs are distinct.
-    canonical_pairs = [(e.contact_a_id, e.contact_b_id) for e in geotech_edges]
+    # B1-2: no duplicate edges — all (layer_a_id, layer_b_id) pairs are distinct.
+    canonical_pairs = [(e.layer_a_id, e.layer_b_id) for e in geotech_edges]
     distinct_pairs = set(canonical_pairs)
     assert len(canonical_pairs) == len(distinct_pairs), (
         f"B1-2: found {len(canonical_pairs) - len(distinct_pairs)} duplicate geotech edge(s) — "
@@ -1888,7 +1888,7 @@ async def test_sab_connectivity_edge_count(
     cross_class_edges = [
         edge
         for edge in geotech_edges
-        if layer_formation.get(edge.contact_a_id) != layer_formation.get(edge.contact_b_id)
+        if layer_formation.get(edge.layer_a_id) != layer_formation.get(edge.layer_b_id)
     ]
     assert len(cross_class_edges) == 0, (
         f"SAB-10c: {len(cross_class_edges)} cross-NAD-class edge(s) found — "
@@ -3232,8 +3232,8 @@ async def test_sab_lcs_connectivity(
     cross_edges = [
         e
         for e in all_geotech_edges
-        if (e.contact_a_id in g_layer_ids and e.contact_b_id in h_layer_ids)
-        or (e.contact_b_id in g_layer_ids and e.contact_a_id in h_layer_ids)
+        if (e.layer_a_id in g_layer_ids and e.layer_b_id in h_layer_ids)
+        or (e.layer_b_id in g_layer_ids and e.layer_a_id in h_layer_ids)
     ]
 
     # LCS-1a: at least one geotech edge connects CPT-G to CPT-H.
@@ -3249,7 +3249,7 @@ async def test_sab_lcs_connectivity(
     cross_class_edges = [
         e
         for e in cross_edges
-        if layer_formation.get(e.contact_a_id) != layer_formation.get(e.contact_b_id)
+        if layer_formation.get(e.layer_a_id) != layer_formation.get(e.layer_b_id)
     ]
     assert len(cross_class_edges) == 0, (
         f"LCS-1b: {len(cross_class_edges)} cross-class edge(s) between "

@@ -123,8 +123,8 @@ def _raw_edge(
     return LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=model.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source=source,
         user_approved=user_approved,
         section_id=section_id,
@@ -596,7 +596,7 @@ async def test_accept_scoped_to_section(
     Call execute(section_id=S1) → only the S1 edge flips; S2 edge stays False.
 
     With the OLD seeded-set code, the contacts appear in S1's seeded list
-    so both edges pass the `contact_a_id.in_(seeded) AND contact_b_id.in_(seeded)`
+    so both edges pass the `layer_a_id.in_(seeded) AND layer_b_id.in_(seeded)`
     filter regardless of their section_id stamp → the old code would approve
     both edges (wrong).  The new section_id column filter approves only the
     one edge with section_id=S1 (correct).

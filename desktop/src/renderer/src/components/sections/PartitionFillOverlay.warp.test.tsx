@@ -112,15 +112,15 @@ function layer(
 
 function edge(
   id: string,
-  contactAId: string,
-  contactBId: string,
+  layerAId: string,
+  layerBId: string,
 ): LithoContactCorrelationEdge {
   return {
     id,
-    contact_a_id: contactAId,
-    contact_b_id: contactBId,
-    contact_a_side: 'top',
-    contact_b_side: 'top',
+    layer_a_id: layerAId,
+    layer_b_id: layerBId,
+    layer_a_side: 'top',
+    layer_b_side: 'top',
     model_id: 'm1',
     section_id: 's1',
     source: 'manual',
@@ -135,7 +135,7 @@ const colors = new Map([
 ])
 
 // Minimal matched stack: sand(0-5m) + clay(5-10m) on all three columns.
-// layer ids are used as contact_a_id / contact_b_id in the edges.
+// layer ids are used as layer_a_id / layer_b_id in the edges.
 const warpLayers: LithoLayerResponse[] = [
   layer('L-sa', 'L', 'sand', 'fSand', 0, 5),
   layer('L-cl', 'L', 'clay', 'fClay', 5, 10),

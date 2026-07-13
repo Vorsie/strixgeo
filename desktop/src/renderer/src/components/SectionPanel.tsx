@@ -1504,8 +1504,8 @@ export default function SectionPanel({
     }
     const correlatedInvPairs = new Set<string>()
     for (const edge of contactEdges ?? []) {
-      const invA = investigationByContactId.get(edge.contact_a_id)
-      const invB = investigationByContactId.get(edge.contact_b_id)
+      const invA = investigationByContactId.get(edge.layer_a_id)
+      const invB = investigationByContactId.get(edge.layer_b_id)
       if (!invA || !invB || invA === invB) continue
       const lo = invA < invB ? invA : invB
       const hi = invA < invB ? invB : invA

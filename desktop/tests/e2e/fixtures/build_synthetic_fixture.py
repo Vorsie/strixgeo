@@ -751,8 +751,8 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
                 LithoContactCorrelationEdgeOrm(
                     id=uuid7(),
                     model_id=mid,
-                    contact_a_id=a,
-                    contact_b_id=b,
+                    layer_a_id=a,
+                    layer_b_id=b,
                     source="manual",
                     user_approved=True,
                     section_id=section_id,

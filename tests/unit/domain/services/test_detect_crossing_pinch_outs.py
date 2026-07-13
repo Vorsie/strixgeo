@@ -48,8 +48,8 @@ def test_crossing_edges_emit_one_pinch_out() -> None:
         _stack(11, {3: 3.0, 4: 5.0}),
     ]
     edges = [
-        ContactEdge(contact_a_id=_uid(1), contact_b_id=_uid(4)),  # A@2 → B@5
-        ContactEdge(contact_a_id=_uid(2), contact_b_id=_uid(3)),  # A@4 → B@3
+        ContactEdge(layer_a_id=_uid(1), layer_b_id=_uid(4)),  # A@2 → B@5
+        ContactEdge(layer_a_id=_uid(2), layer_b_id=_uid(3)),  # A@4 → B@3
     ]
     result = detect_crossing_pinch_outs(edges, stacks)
     assert len(result) == 1
@@ -78,8 +78,8 @@ def test_monotonic_edges_emit_nothing() -> None:
         _stack(11, {3: 3.0, 4: 5.0}),
     ]
     edges = [
-        ContactEdge(contact_a_id=_uid(1), contact_b_id=_uid(3)),
-        ContactEdge(contact_a_id=_uid(2), contact_b_id=_uid(4)),
+        ContactEdge(layer_a_id=_uid(1), layer_b_id=_uid(3)),
+        ContactEdge(layer_a_id=_uid(2), layer_b_id=_uid(4)),
     ]
     assert detect_crossing_pinch_outs(edges, stacks) == []
 
@@ -87,14 +87,14 @@ def test_monotonic_edges_emit_nothing() -> None:
 def test_single_edge_cannot_cross() -> None:
     """One edge per column pair can never invert — no pinch-out."""
     stacks = [_stack(10, {1: 2.0}), _stack(11, {3: 5.0})]
-    edges = [ContactEdge(contact_a_id=_uid(1), contact_b_id=_uid(3))]
+    edges = [ContactEdge(layer_a_id=_uid(1), layer_b_id=_uid(3))]
     assert detect_crossing_pinch_outs(edges, stacks) == []
 
 
 def test_unknown_contact_ids_are_skipped() -> None:
     """Edges referencing contacts absent from the stacks are ignored, not raised."""
     stacks = [_stack(10, {1: 2.0, 2: 4.0})]
-    edges = [ContactEdge(contact_a_id=_uid(1), contact_b_id=_uid(999))]
+    edges = [ContactEdge(layer_a_id=_uid(1), layer_b_id=_uid(999))]
     assert detect_crossing_pinch_outs(edges, stacks) == []
 
 
@@ -105,8 +105,8 @@ def test_output_is_a_crossing_pinch_out() -> None:
         _stack(11, {3: 3.0, 4: 5.0}),
     ]
     edges = [
-        ContactEdge(contact_a_id=_uid(1), contact_b_id=_uid(4)),
-        ContactEdge(contact_a_id=_uid(2), contact_b_id=_uid(3)),
+        ContactEdge(layer_a_id=_uid(1), layer_b_id=_uid(4)),
+        ContactEdge(layer_a_id=_uid(2), layer_b_id=_uid(3)),
     ]
     (po,) = detect_crossing_pinch_outs(edges, stacks)
     assert isinstance(po, CrossingPinchOut)

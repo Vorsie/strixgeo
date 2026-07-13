@@ -225,7 +225,7 @@ def _canonical_edge(
     """Build a user-approved correlation edge with canonical endpoint order.
 
     The ``litho_contact_correlation_edge`` table enforces
-    ``contact_a_id < contact_b_id`` (CHECK + caller normalisation), so the
+    ``layer_a_id < layer_b_id`` (CHECK + caller normalisation), so the
     two layer ids are sorted before assignment.
 
     Parameters
@@ -246,8 +246,8 @@ def _canonical_edge(
     return LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=model_id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
         section_id=section_id,

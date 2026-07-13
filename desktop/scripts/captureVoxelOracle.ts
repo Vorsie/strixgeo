@@ -39,7 +39,7 @@
 //   ],
 //   "edges_by_section": {
 //     "<section_id>": [
-//       { "contact_a_id": str, "contact_b_id": str, "user_approved": bool }
+//       { "layer_a_id": str, "layer_b_id": str, "user_approved": bool }
 //     ]
 //   }
 // }
@@ -118,8 +118,8 @@ interface RawSection {
 
 /** One approved-or-not correlation edge (contact-id pair). */
 interface RawEdge {
-  contact_a_id: string
-  contact_b_id: string
+  layer_a_id: string
+  layer_b_id: string
   user_approved: boolean
 }
 
@@ -200,7 +200,7 @@ function reconstructFenceSectionInputs(raw: RawInputs): FenceSectionInput[] {
     const rawEdges = raw.edges_by_section[section.id] ?? []
     const edges = rawEdges
       .filter((e) => e.user_approved)
-      .map((e) => ({ a: e.contact_a_id, b: e.contact_b_id }))
+      .map((e) => ({ a: e.layer_a_id, b: e.layer_b_id }))
 
     return {
       section: {

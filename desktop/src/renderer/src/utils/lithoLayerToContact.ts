@@ -12,7 +12,7 @@
  *   * `lithoContacts.find(c => c.id === layer.id)` and
  *     `lithoLayers.find(l => l.id === contact.id)` resolve to the
  *     same row across the migration boundary
- *   * `litho_correlation_edge.contact_a_id` continues to point at a
+ *   * `litho_correlation_edge.layer_a_id` continues to point at a
  *     visible thing in either shape
  *   * `cross_section.seeded_formation_contact_ids` UUID arrays
  *     continue to filter the same set

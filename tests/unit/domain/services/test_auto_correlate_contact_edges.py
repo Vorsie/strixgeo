@@ -98,7 +98,7 @@ def test_happy_path_three_columns_two_boundaries_each() -> None:
     result = auto_correlate_contact_edges(contacts, locations)
     # MNN keeps the two adjacent-column pairings per group, not the
     # diagonal A↔C (which has a larger residual).
-    pairs = {(c.contact_a_id, c.contact_b_id) for c in result}
+    pairs = {(c.layer_a_id, c.layer_b_id) for c in result}
     # Group sand/clay: contacts 1, 3, 5 — MNN keeps 1↔3 and 3↔5
     assert (_uid(1), _uid(3)) in pairs
     assert (_uid(3), _uid(5)) in pairs
@@ -130,7 +130,7 @@ def test_below_litho_no_longer_gates_pairing() -> None:
     result = auto_correlate_contact_edges(contacts, locations)
     assert len(result) == 1
     pair = result[0]
-    assert {pair.contact_a_id, pair.contact_b_id} == {_uid(1), _uid(2)}
+    assert {pair.layer_a_id, pair.layer_b_id} == {_uid(1), _uid(2)}
 
 
 def test_below_litho_does_not_restrict_same_lithology() -> None:
@@ -151,7 +151,7 @@ def test_below_litho_does_not_restrict_same_lithology() -> None:
         InvestigationLocation(_uid(12), 100.0, 0.0),
     ]
     pairs = {
-        frozenset((c.contact_a_id, c.contact_b_id))
+        frozenset((c.layer_a_id, c.layer_b_id))
         for c in auto_correlate_contact_edges(contacts, locations)
     }
     assert frozenset((_uid(1), _uid(2))) in pairs
@@ -177,7 +177,7 @@ def test_different_parent_same_lithology_still_correlates() -> None:
     ]
     result = auto_correlate_contact_edges(contacts, locations)
     assert len(result) == 1
-    assert {result[0].contact_a_id, result[0].contact_b_id} == {_uid(1), _uid(2)}
+    assert {result[0].layer_a_id, result[0].layer_b_id} == {_uid(1), _uid(2)}
 
 
 def test_distance_gate_rejects_far_pairs() -> None:
@@ -217,7 +217,7 @@ def test_adjacent_only_keeps_consecutive_chain_not_skip_over_diagonals() -> None
         InvestigationLocation(_uid(13), 150.0, 0.0),
     ]
     pairs = {
-        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+        (c.layer_a_id, c.layer_b_id) for c in auto_correlate_contact_edges(contacts, locations)
     }
     # Consecutive chain only.
     assert (_uid(1), _uid(2)) in pairs
@@ -253,7 +253,7 @@ def test_dipping_bed_correlates_with_default_window() -> None:
         InvestigationLocation(_uid(11), 50.0, 0.0),  # ~50 m apart
     ]
     pairs = {
-        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+        (c.layer_a_id, c.layer_b_id) for c in auto_correlate_contact_edges(contacts, locations)
     }
     # The dipping ZAND boundary must correlate with the DEFAULT params.
     assert (_uid(1), _uid(3)) in pairs
@@ -299,7 +299,7 @@ def test_gentle_dip_over_long_distance_still_autocorrelates() -> None:
         InvestigationLocation(_uid(11), 150.0, 0.0),
     ]
     pairs = {
-        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+        (c.layer_a_id, c.layer_b_id) for c in auto_correlate_contact_edges(contacts, locations)
     }
     assert (_uid(1), _uid(2)) in pairs
 
@@ -325,7 +325,7 @@ def test_depth_window_param_widens_what_correlates() -> None:
     # Widening the base to 1.5 m (→ 3.5 m window) lets the pair through.
     widened = AutoCorrelateContactParams(base_depth_threshold_m=1.5)
     result = auto_correlate_contact_edges(contacts, locations, widened)
-    assert {(_uid(1), _uid(2))} == {(c.contact_a_id, c.contact_b_id) for c in result}
+    assert {(_uid(1), _uid(2))} == {(c.layer_a_id, c.layer_b_id) for c in result}
 
 
 def test_chain_does_not_orphan_a_boundary_when_neighbour_matches_a_third_test() -> None:
@@ -354,7 +354,7 @@ def test_chain_does_not_orphan_a_boundary_when_neighbour_matches_a_third_test() 
         InvestigationLocation(_uid(12), 100.0, 0.0),
     ]
     pairs = {
-        (c.contact_a_id, c.contact_b_id) for c in auto_correlate_contact_edges(contacts, locations)
+        (c.layer_a_id, c.layer_b_id) for c in auto_correlate_contact_edges(contacts, locations)
     }
     # A-B links (canonical (1, 3)).
     assert (_uid(1), _uid(3)) in pairs
@@ -400,7 +400,7 @@ def test_explicit_adjacency_overrides_map_plane_rng() -> None:
     ]
     # Default map-plane RNG: consecutive only, 1-3 blocked by 2.
     default_pairs = {
-        frozenset((c.contact_a_id, c.contact_b_id))
+        frozenset((c.layer_a_id, c.layer_b_id))
         for c in auto_correlate_contact_edges(contacts, locations)
     }
     assert frozenset((_uid(1), _uid(2))) in default_pairs
@@ -410,7 +410,7 @@ def test_explicit_adjacency_overrides_map_plane_rng() -> None:
     # Explicit adjacency {1, 3} only: 1-3 is the sole surviving edge.
     forced = {frozenset((_uid(1), _uid(3)))}
     overridden = {
-        frozenset((c.contact_a_id, c.contact_b_id))
+        frozenset((c.layer_a_id, c.layer_b_id))
         for c in auto_correlate_contact_edges(contacts, locations, adjacency=forced)
     }
     assert overridden == {frozenset((_uid(1), _uid(3)))}

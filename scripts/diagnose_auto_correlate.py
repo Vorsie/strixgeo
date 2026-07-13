@@ -426,20 +426,20 @@ def _report_candidates(
     touched = [
         c
         for c in candidates
-        if inv_by_contact.get(c.contact_a_id) in focus_set
-        or inv_by_contact.get(c.contact_b_id) in focus_set
+        if inv_by_contact.get(c.layer_a_id) in focus_set
+        or inv_by_contact.get(c.layer_b_id) in focus_set
     ]
     print(
         f"{len(candidates)} total candidate edges model-wide; {len(touched)} touch the focus set\n"
     )
     for c in touched:
-        ia = inv_by_contact.get(c.contact_a_id)
-        ib = inv_by_contact.get(c.contact_b_id)
+        ia = inv_by_contact.get(c.layer_a_id)
+        ib = inv_by_contact.get(c.layer_b_id)
         print(
             f"  {names.get(ia, '?')}[{kinds.get(ia, '?')}] "
-            f"@ {depth_by_contact.get(c.contact_a_id, float('nan')):.2f} m  <->  "
+            f"@ {depth_by_contact.get(c.layer_a_id, float('nan')):.2f} m  <->  "
             f"{names.get(ib, '?')}[{kinds.get(ib, '?')}] "
-            f"@ {depth_by_contact.get(c.contact_b_id, float('nan')):.2f} m"
+            f"@ {depth_by_contact.get(c.layer_b_id, float('nan')):.2f} m"
         )
     if not touched:
         print("  (no proposed edges involve the focus investigations)")

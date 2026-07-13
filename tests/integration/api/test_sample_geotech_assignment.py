@@ -249,8 +249,8 @@ async def _correlate(
     resp = await client.post(
         f"/projects/{project_id}/geology/models/{litho_model_id}/contact-correlations",
         json={
-            "contact_a_id": contact_a,
-            "contact_b_id": contact_b,
+            "layer_a_id": contact_a,
+            "layer_b_id": contact_b,
             "request_section_id": section_id,
         },
     )

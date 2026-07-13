@@ -1459,8 +1459,8 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
     edge = LithoContactCorrelationEdgeOrm(
         id=uuid7(),
         model_id=model.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
         section_id=section.id,
@@ -1476,8 +1476,8 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
     )
     assert len(bundle["litho_contact_correlation_edges"]) == 1
     bundled = bundle["litho_contact_correlation_edges"][0]
-    assert bundled["contact_a_id"] == str(a_id)
-    assert bundled["contact_b_id"] == str(b_id)
+    assert bundled["layer_a_id"] == str(a_id)
+    assert bundled["layer_b_id"] == str(b_id)
     assert bundled["user_approved"] is True
 
     # ---- Wipe (simulate fresh DB on a new device) ------------------------
@@ -1529,8 +1529,8 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
     )
     assert len(edges_after) == 1
     assert edges_after[0].id == original_edge_id
-    assert edges_after[0].contact_a_id == a_id
-    assert edges_after[0].contact_b_id == b_id
+    assert edges_after[0].layer_a_id == a_id
+    assert edges_after[0].layer_b_id == b_id
     assert edges_after[0].user_approved is True
 
     # ---- Second restore is idempotent ------------------------------------
@@ -1686,8 +1686,8 @@ async def test_bundle_roundtrips_edge_section_id(db_session: AsyncSession) -> No
         id=uuid7(),
         model_id=model.id,
         section_id=section.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
     )
@@ -1839,8 +1839,8 @@ async def test_restore_drops_edge_without_section_id(db_session: AsyncSession) -
         id=uuid7(),
         model_id=model.id,
         section_id=section.id,
-        contact_a_id=a_id,
-        contact_b_id=b_id,
+        layer_a_id=a_id,
+        layer_b_id=b_id,
         source="manual",
         user_approved=True,
     )

@@ -8,7 +8,7 @@
  *   returns 422 (a boundary cannot be correlated with itself at one column —
  *   the same-investigation guard in ``CorrelateLithoContacts``).
  *
- * Post-#133 correlation is contact-level (contact_a_id / contact_b_id), not
+ * Post-#133 correlation is contact-level (layer_a_id / layer_b_id), not
  * the old formation-level shape, and manual correlate is free-form: there is
  * no lithology-match guard (that was a formation-level concept; lithology
  * grouping now lives only in auto-correlate). The correlation endpoints
@@ -117,7 +117,7 @@ test.describe('flow_correlate', () => {
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId, request_section_id: sectionId }),
+                body: JSON.stringify({ layer_a_id: aId, layer_b_id: bId, request_section_id: sectionId }),
               },
             )
             return { status: r.status }
@@ -149,7 +149,7 @@ test.describe('flow_correlate', () => {
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contact_a_id: aId, contact_b_id: bId, request_section_id: sectionId }),
+                body: JSON.stringify({ layer_a_id: aId, layer_b_id: bId, request_section_id: sectionId }),
               },
             )
             return { status: r.status, json: r.status < 200 || r.status >= 300 ? await r.json() : null }
