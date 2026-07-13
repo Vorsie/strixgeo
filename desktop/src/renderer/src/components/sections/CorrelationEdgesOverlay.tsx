@@ -34,9 +34,7 @@ import type {
 } from '../../api/client'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { GhostAdmixtureItem } from '../interpretation/LithoGhostCompositionEditor'
-import ContextMenu from '../ui/ContextMenu'
 import { contactAnchorId, groupContactsByAnchor } from './contactsLayerGeometry'
-import { columnMaxDepthM } from './utils'
 import type { PlacedColumn } from './utils'
 
 // ---------------------------------------------------------------------------
