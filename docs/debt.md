@@ -5645,13 +5645,20 @@ starts to matter.
   notes). Merging = over-abstraction of 2 subtly-varying instances
   (CLAUDE.md counterweight). 53 exporter unit tests green on the baseline.
 * **#116 / #174 / #175** (test gaps) — add: `computeSectionFill` whole-section path
-  has 1 test (TEST-01); `parseProjectFile`/`isProjectFileV3` (the sole .strix
-  gatekeeper) has zero (TEST-02); the `SaveBodyBoundary` advisory-lock has no
+  has 1 test (TEST-01); ~~TEST-02~~ **RESOLVED 2026-07-13**
+  (`projectFile.test.ts`, 32 cases; also fixed the array-shaped-project-block
+  gatekeeper gap it surfaced); the `SaveBodyBoundary` advisory-lock has no
   contention test (TEST-05); no migration upgrade→downgrade→upgrade roundtrip across
   75 migrations (TEST-08); a few impl-shaped / over-precise partition-fill assertions
   (TEST-06/11); 5 permanently-skipped e2e specs untracked (TEST-07); sleep-based
-  Playwright waits (TEST-09); the Py↔TS dip-extrapolation mirror has no parity fixture
-  (DRY-04) and `LITHOLOGY_COLORS` TS↔Python parity is comment-enforced only (DRY-05).
+  Playwright waits (TEST-09); ~~DRY-04~~ **CLOSED 2026-07-13, audit premise
+  stale:** there is NO Py↔TS dip-extrapolation mirror — Python
+  `compute_lens_pinch_tip` (metric dip gradient + ray↔polyline intersection →
+  synthetic DB contacts, backend-only) and the TS fraction-space
+  pinch/lens/onlap polygon builders share no contract, coordinate space, or
+  math; a cross-language fixture has nothing to assert. ~~DRY-05~~
+  **RESOLVED 2026-07-13** (`lithoConstants.parity.test.ts` reads the Python
+  palette from the repo and asserts token + hex parity both ways).
 * **#178 / #201** (god-component splits) — the audit confirms growth beyond the
   original four: `partitionFill.ts` (2,081 lines, classifier+geometry+coordinator),
   the three 1,600+-line section overlays (PartitionFillOverlay / CorrelationEdgesOverlay
