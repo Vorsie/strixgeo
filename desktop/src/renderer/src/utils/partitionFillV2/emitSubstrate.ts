@@ -33,7 +33,7 @@ import { type InputCurve, type Point } from './types'
 /**
  * Key for a bridge-anchored column contact: ``ci|ui|top`` or ``ci|ui|base``.
  * A contact that is a jump-tie (bridge) endpoint is anchored — the substrate
- * bridge already provides its boundary, so ``emitClosings`` must NOT also emit a
+ * bridge already provides its boundary, so ``emitIntervals`` must NOT also tile a
  * competing lens/onlap closing for the unit that owns it (the deep anchor units
  * would otherwise pinch to a lens apex into the gap instead of banding across the
  * bridge — the CS1 gap-7 sub-TD lens-vacancy bug).
@@ -61,7 +61,7 @@ export function bridgeAnchorKey(ci: number, ui: number, contact: 'top' | 'base')
  * anchored : Set<string>
  *     Populated with a ``bridgeAnchorKey`` per bridge endpoint contact (both the
  *     lo and hi anchor's tied contact, plus the derived-base rule: a top anchor on
- *     unit k also anchors the base of unit k−1). ``emitClosings`` skips a unit that
+ *     unit k also anchors the base of unit k−1). ``emitIntervals`` skips a unit that
  *     owns an anchored contact.
  */
 export function emitSubstrateBridges(
@@ -104,7 +104,7 @@ export function emitSubstrateBridges(
     const hiElev = hiSide === 'top' ? hiU.topElev : hiU.baseElev
     if (Math.abs(hiX - loX) < 1e-9) continue
 
-    // Mark both anchor contacts so emitClosings does not emit a competing closing.
+    // Mark both anchor contacts so emitIntervals does not tile a competing cell.
     anchor(loLoc.ci, loLoc.ui, loSide)
     anchor(hiLoc.ci, hiLoc.ui, hiSide)
 

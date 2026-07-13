@@ -15,24 +15,26 @@
  *      curve per unit face, so the arrangement has a vertex at every contact.)
  *   3. tie           — an approved correlation edge spanning a gap, side-aware
  *      (top/base), connecting facing contact endpoints.
- *   4. closing       — synthesized pinch/apex geometry that closes a boundary
- *      that has no tie to continue on (lens apex, one-sided pinch tip), plus
- *      per-body lens-apex overrides and freedraw nodes that REPLACE the synth.
+ *   4. closing       — synthesized vacancy-closure geometry (``emitIntervals``):
+ *      the untied units of each interval between tie-anchored bands TILE it fully,
+ *      meeting at a seam, so the space past a pinch/lens apex is CLAIMED (design §4
+ *      increment 4 — no above-TD holes). Enclosed minorities pinch to a 0.45 lens
+ *      apex inside a continuous matrix; per-body apex overrides / freedraw nodes
+ *      REPLACE the synthesized apex.
  *
- * Deep-to-deep substrate bridges are DEFERRED to increment 3 (see the TODO
- * marker in ``emitClosingCurves``); below a shallow TD with no tie anchor this
- * increment emits nothing and the region stays unfilled.
+ * Deep-to-deep substrate bridges (``emitSubstrate``) run before the closings so a
+ * bridge-anchored deep unit skips its interval tiling. Below a shallow TD with no
+ * bridge the region stays unfilled (owner §8 Q3).
  *
  * Crossing approved ties are a HARD CONFLICT (owner §8 Q4): a pair of
  * geometrically crossing ties in the same gap both drop out of emission and are
- * reported in ``conflicts``; the two units then close via synthesized closing
- * curves (pinch/lens fallback).
+ * reported in ``conflicts``; the two units then fall back to the interval tiling.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { emitClosingCurves } from './emitClosings'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
+import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
@@ -122,7 +124,12 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   const bridgeAnchored = new Set<string>()
   emitSubstrateBridges(section, curves, bridgeAnchored)
 
-  emitClosingCurves(section, active, curves, bridgeAnchored)
+  // Vacancy closure (design §4 increment 4): the untied units of each interval
+  // between tie-anchored bands TILE it fully (opposing pinches meeting at a seam),
+  // so the vacated space past a pinch/lens apex is CLAIMED — no above-TD holes.
+  // Replaces the per-unit lens / onlap triangle closings (which left the space
+  // between apexes empty).
+  emitIntervalCurves(section, active, bridgeAnchored, curves)
 
   const lensLabels = new Map<string, LensLabel>()
   emitEnclosedLensCurves(section, curves, lensLabels)
