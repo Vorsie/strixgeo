@@ -55,6 +55,13 @@ for row in psql("SELECT id::text, elevation_m FROM cpt WHERE elevation_m IS NOT 
 for row in psql("SELECT id::text, elevation_m FROM borehole WHERE elevation_m IS NOT NULL;"):
     elev[row[0]] = float(row[1])
 
+# Investigation names (the cs1sandbody gate locates B2 by name).
+names: dict[str, str] = {}
+for row in psql("SELECT id::text, name FROM cpt WHERE name IS NOT NULL;"):
+    names[row[0]] = row[1]
+for row in psql("SELECT id::text, name FROM borehole WHERE name IS NOT NULL;"):
+    names[row[0]] = row[1]
+
 # Accepted litho layers for the model, keyed by investigation (cpt OR borehole).
 layers_sql = f"""
 SELECT id::text, COALESCE(cpt_id, borehole_id)::text AS inv,
@@ -98,10 +105,15 @@ for inv in order:
             "investigationId": inv,
             "surfaceElevM": elev.get(inv),
             "units": units,
+            "name": names.get(inv),
         }
     )
 
-out = {"columns": columns, "edges": edges, "order": order}
+# Real along-section metres — offline runs MUST thread these (uniform-spacing
+# fallback diverges on the deep-to-deep substrate).
+along = [c["along_m"] for c in cs1["columns"]]
+
+out = {"columns": columns, "edges": edges, "order": order, "along": along}
 json.dump(out, open(OUT, "w"), indent=1)
 
 # Report a quick inventory.
