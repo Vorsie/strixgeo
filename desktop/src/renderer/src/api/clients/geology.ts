@@ -1061,7 +1061,7 @@ export const geologyClient = {
   },
 
   /** POST /models/{mid}/layers — bulk-create N layers in one transaction. */
-  bulkCreateLayers: async (
+  bulkCreateLayers: (
     projectId: string,
     modelId: string,
     layers: readonly LithoLayerCreateItem[],
@@ -1069,62 +1069,36 @@ export const geologyClient = {
   ): Promise<LithoLayerResponse[]> => {
     const body: { layers: readonly LithoLayerCreateItem[]; section_id?: string } = { layers }
     if (sectionId) body.section_id = sectionId
-    const res = await fetch(
-      `${_base}/projects/${projectId}/geology/models/${modelId}/layers`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
+    return post(
+      `/projects/${projectId}/geology/models/${modelId}/layers`,
+      body,
+      'bulkCreateLayers failed',
     )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `bulkCreateLayers failed (${res.status})`)
-    }
-    return res.json()
   },
 
   /** PATCH /models/{mid}/layers/boundary-move — atomic shared-boundary move. */
-  moveLayerBoundary: async (
+  moveLayerBoundary: (
     projectId: string,
     modelId: string,
     payload: LithoLayerBoundaryMovePayload,
-  ): Promise<LithoLayerBoundaryMoveResponse> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/geology/models/${modelId}/layers/boundary-move`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `moveLayerBoundary failed (${res.status})`)
-    }
-    return res.json()
-  },
+  ): Promise<LithoLayerBoundaryMoveResponse> =>
+    patch(
+      `/projects/${projectId}/geology/models/${modelId}/layers/boundary-move`,
+      payload,
+      'moveLayerBoundary failed',
+    ),
 
   /** PATCH /models/{mid}/layers/batch-update — atomic N-row PATCH. */
-  batchUpdateLayers: async (
+  batchUpdateLayers: (
     projectId: string,
     modelId: string,
     updates: readonly LithoLayerBatchUpdateItem[],
-  ): Promise<LithoLayerBatchUpdateResponse> => {
-    const res = await fetch(
-      `${_base}/projects/${projectId}/geology/models/${modelId}/layers/batch-update`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
-      },
-    )
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `batchUpdateLayers failed (${res.status})`)
-    }
-    return res.json()
-  },
+  ): Promise<LithoLayerBatchUpdateResponse> =>
+    patch(
+      `/projects/${projectId}/geology/models/${modelId}/layers/batch-update`,
+      { updates },
+      'batchUpdateLayers failed',
+    ),
 
   /** POST /models/{mid}/layers/{lid}/link-geo — link layer to nearest geo contact. */
   linkLayerToGeo: async (
@@ -1345,24 +1319,15 @@ export const geologyClient = {
    * 3-D viewer.  Uses the ``/color`` sub-route, not the generic PATCH body
    * endpoint (which requires a non-empty ``name``).
    */
-  setBodyColor: async (
+  setBodyColor: (
     projectId: string,
     modelId: string,
     bodyId: string,
     color: string | null,
-  ): Promise<UpdateBodyColorResponse> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/color`
-    const res = await fetch(`${_base}${path}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_color: color }),
-    })
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
-    }
-    return res.json()
-  },
+  ): Promise<UpdateBodyColorResponse> =>
+    patch(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}/color`, {
+      display_color: color,
+    }),
 
   validateCrossings: (
     projectId: string,
@@ -1545,18 +1510,8 @@ export const geologyClient = {
       body,
     ),
 
-  deleteBody: async (
-    projectId: string,
-    modelId: string,
-    bodyId: string,
-  ): Promise<void> => {
-    const path = `/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`
-    const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
-    }
-  },
+  deleteBody: (projectId: string, modelId: string, bodyId: string): Promise<void> =>
+    del(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`),
 
   updateBody: (
     projectId: string,

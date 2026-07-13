@@ -2,9 +2,10 @@
  * Shared HTTP primitives for all Ground Model API client modules.
  *
  * Provides the mutable base-URL state, the `setBaseUrl` configuration
- * function, and the five typed fetch wrappers (`get`, `del`, `patch`,
- * `put`, `post`) consumed by every domain client. Nothing in this
- * module talks to any domain endpoint directly.
+ * function, the single `request` core every wrapper funnels through,
+ * and the five typed fetch wrappers (`get`, `del`, `patch`, `put`,
+ * `post`) consumed by every domain client. Nothing in this module
+ * talks to any domain endpoint directly.
  *
  * @module clients/shared
  */
@@ -31,6 +32,61 @@ export function setBaseUrl(url: string): void {
 const stripQuery = (p: string): string => p.split('?')[0]
 
 /**
+ * Single request core — every typed wrapper funnels through here.
+ *
+ * Performs the fetch, and on non-2xx parses the server ``detail``,
+ * logs the failure, and throws. Callers that need the response body
+ * pick the shape themselves (``res.json()`` / ``res.arrayBuffer()``).
+ *
+ * Parameters
+ * ----------
+ * method : string
+ *   HTTP verb, e.g. ``'GET'``.
+ * path : string
+ *   URL path relative to `_base`, including leading slash.
+ * body : unknown, optional
+ *   Request body; serialised as JSON when provided.
+ * errorLabel : string, optional
+ *   Overrides the default ```${method} ${path} → ${status}``` fallback
+ *   error text with ```${errorLabel} (${status})``` — used by client
+ *   methods whose historical error copy predates the shared core.
+ *
+ * Returns
+ * -------
+ * Promise<Response>
+ *   The raw successful response.
+ *
+ * Throws
+ * ------
+ * Error
+ *   On non-2xx HTTP status; includes server `detail` when parseable.
+ */
+export async function request(
+  method: string,
+  path: string,
+  body?: unknown,
+  errorLabel?: string,
+): Promise<Response> {
+  const init: RequestInit = { method }
+  if (body !== undefined) {
+    init.headers = { 'Content-Type': 'application/json' }
+    init.body = JSON.stringify(body)
+  }
+  const res = await fetch(`${_base}${path}`, init)
+  if (!res.ok) {
+    // Surface the server's `detail` (e.g. the 409 "delete the dependent
+    // model first" guard) instead of an opaque "→ 409".
+    const detail = await res.json().catch(() => ({}))
+    log.error('api', method, stripQuery(path), res.status, detail.detail)
+    throw new Error(
+      detail.detail ??
+        (errorLabel ? `${errorLabel} (${res.status})` : `${method} ${path} → ${res.status}`),
+    )
+  }
+  return res
+}
+
+/**
  * Typed GET helper.
  *
  * Parameters
@@ -49,12 +105,7 @@ const stripQuery = (p: string): string => p.split('?')[0]
  *   On non-2xx HTTP status.
  */
 export async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${_base}${path}`)
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    log.error('api', 'GET', stripQuery(path), res.status, detail.detail)
-    throw new Error(detail.detail ?? `GET ${path} → ${res.status}`)
-  }
+  const res = await request('GET', path)
   return res.json()
 }
 
@@ -76,14 +127,7 @@ export async function get<T>(path: string): Promise<T> {
  *   On non-2xx HTTP status; includes server `detail` when parseable.
  */
 export async function del(path: string): Promise<void> {
-  const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
-  if (!res.ok) {
-    // Surface the server's `detail` (e.g. the 409 "delete the dependent
-    // model first" guard) instead of an opaque "→ 409" — mirrors patch/put.
-    const detail = await res.json().catch(() => ({}))
-    log.error('api', 'DELETE', stripQuery(path), res.status, detail.detail)
-    throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
-  }
+  await request('DELETE', path)
 }
 
 /**
@@ -95,6 +139,8 @@ export async function del(path: string): Promise<void> {
  *   URL path relative to `_base`, including leading slash.
  * body : unknown
  *   Request body; serialised as JSON.
+ * errorLabel : string, optional
+ *   Historical fallback error copy — see `request`.
  *
  * Returns
  * -------
@@ -106,17 +152,8 @@ export async function del(path: string): Promise<void> {
  * Error
  *   On non-2xx HTTP status; includes server `detail` when parseable.
  */
-export async function patch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${_base}${path}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    log.error('api', 'PATCH', stripQuery(path), res.status, detail.detail)
-    throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
-  }
+export async function patch<T>(path: string, body: unknown, errorLabel?: string): Promise<T> {
+  const res = await request('PATCH', path, body, errorLabel)
   return res.json()
 }
 
@@ -129,6 +166,8 @@ export async function patch<T>(path: string, body: unknown): Promise<T> {
  *   URL path relative to `_base`, including leading slash.
  * body : unknown
  *   Request body; serialised as JSON.
+ * errorLabel : string, optional
+ *   Historical fallback error copy — see `request`.
  *
  * Returns
  * -------
@@ -140,17 +179,8 @@ export async function patch<T>(path: string, body: unknown): Promise<T> {
  * Error
  *   On non-2xx HTTP status; includes server `detail` when parseable.
  */
-export async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${_base}${path}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    log.error('api', 'PUT', stripQuery(path), res.status, detail.detail)
-    throw new Error(detail.detail ?? `PUT ${path} → ${res.status}`)
-  }
+export async function put<T>(path: string, body: unknown, errorLabel?: string): Promise<T> {
+  const res = await request('PUT', path, body, errorLabel)
   return res.json()
 }
 
@@ -163,6 +193,8 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
  *   URL path relative to `_base`, including leading slash.
  * body : unknown, optional
  *   Request body; omitted for bodyless POSTs.
+ * errorLabel : string, optional
+ *   Historical fallback error copy — see `request`.
  *
  * Returns
  * -------
@@ -174,17 +206,7 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
  * Error
  *   On non-2xx HTTP status; includes server `detail` when parseable.
  */
-export async function post<T>(path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method: 'POST' }
-  if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' }
-    init.body = JSON.stringify(body)
-  }
-  const res = await fetch(`${_base}${path}`, init)
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}))
-    log.error('api', 'POST', stripQuery(path), res.status, detail.detail)
-    throw new Error(detail.detail ?? `POST ${path} → ${res.status}`)
-  }
+export async function post<T>(path: string, body?: unknown, errorLabel?: string): Promise<T> {
+  const res = await request('POST', path, body, errorLabel)
   return res.json()
 }
