@@ -415,6 +415,17 @@ async def list_cpts(
         When absent, return all CPTs (used by tests and admin tools).
     session:
         Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[CptListItem]
+        Lightweight per-CPT summary rows (id, name, type, depth, location,
+        elevation, start date) for the list/sidebar view.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``project_id`` is provided but is not a valid UUID.
     """
     app_project_uuid: UUID | None = None
     if project_id:
@@ -500,6 +511,13 @@ async def get_cpt(
     project_id : UUID
         Required project scope guard — the CPT must belong to this project.
         Prevents cross-project id enumeration (VULN-1).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CptResponse
+        Full CPT header metadata.
 
     Raises
     ------
@@ -587,6 +605,11 @@ async def delete_cpt(
     session : AsyncSession
         Database session injected by FastAPI dependency injection.
 
+    Returns
+    -------
+    None
+        Responds with ``204 No Content`` on success.
+
     Raises
     ------
     HTTPException(404)
@@ -594,7 +617,8 @@ async def delete_cpt(
     """
     logger.info(f"DELETE /cpt/{cpt_id}")
     repo = CptRepository(session)
-    cpt = await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
+    # Scope guard only — the 404 side effect is the point (VULN-2 class).
+    await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
     # Cascade-drop the polymorphic review row for this CPT before the
     # CPT itself goes away — investigation_review has no DB-side FK
     # to cpt, so without this call the review row dangles and shows
@@ -677,6 +701,14 @@ async def get_cpt_plot(
         Primary key of the CPT record.
     project_id : UUID
         Required project scope guard (VULN-4).
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CptPlotResponse
+        Raw depth-series arrays (qc, fs, u2, rf, qt, q_total) plus the
+        on-read-derived Ic series for plotting.
 
     Raises
     ------
@@ -710,6 +742,20 @@ async def post_cpt_plot_batch(
     DOS'ing the API with one giant batch. The cross-section view's
     typical N is <30 today; 500 leaves headroom for very dense
     project bboxes.
+
+    Parameters
+    ----------
+    request : CptPlotBatchRequest
+        Body carrying the list of CPT ids to plot (capped at 500) and an
+        optional ``app_project_id`` scope guard.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    list[CptPlotResponse]
+        One plot-response per resolvable CPT that has series data; unknown
+        ids and series-less CPTs are silently omitted.
     """
     logger.info(f"POST /cpt/plot-batch: {len(request.ids)} ids, scope={request.app_project_id}")
     repo = CptRepository(session)
