@@ -52,6 +52,14 @@ interface Bracket {
   leftElev: number
   /** Elevation on the RIGHT column of the interface line. */
   rightElev: number
+  /**
+   * Whether this bracket is a real tie/bridge ANCHOR (vs the section surface or the
+   * shallow-TD fill floor). Only an interval bounded by anchors on BOTH sides is
+   * "bracketed" in v1's sense — the midpoint no-auto-facies seam fires only there
+   * (``emit.ts`` ``mismatchedMatrix`` gate); a surface/floor-bounded pair keeps the
+   * thickness weight.
+   */
+  anchor: boolean
 }
 
 /**
@@ -156,7 +164,7 @@ function emitGapIntervals(
   // shallow-TD floor. Each bracket is an interface (leftElev, rightElev) — a
   // straight line across the gap. Brackets are ordered top (shallow) -> bottom.
   const brackets: Bracket[] = []
-  brackets.push({ leftElev: left.surfaceElevM, rightElev: right.surfaceElevM })
+  brackets.push({ leftElev: left.surfaceElevM, rightElev: right.surfaceElevM, anchor: false })
   const anchorLines = collectAnchorLines(gapIndex, left, right, activeTies, bridgeAnchored)
   for (const a of anchorLines) brackets.push(a)
   // Fill floor: the shallow TD (the higher of the two columns' base elevations).
@@ -165,7 +173,7 @@ function emitGapIntervals(
   const leftTD = left.units[left.units.length - 1].baseElev
   const rightTD = right.units[right.units.length - 1].baseElev
   const shallowTD = Math.max(leftTD, rightTD)
-  brackets.push({ leftElev: shallowTD, rightElev: shallowTD })
+  brackets.push({ leftElev: shallowTD, rightElev: shallowTD, anchor: false })
 
   // Deduplicate + sort brackets by mid-elevation, shallow (high) -> deep (low).
   const mid = (b: Bracket): number => (b.leftElev + b.rightElev) / 2
@@ -173,8 +181,16 @@ function emitGapIntervals(
   const uniq: Bracket[] = []
   for (const b of brackets) {
     const prev = uniq[uniq.length - 1]
-    if (prev && Math.abs(prev.leftElev - b.leftElev) < ELEV_EPS && Math.abs(prev.rightElev - b.rightElev) < ELEV_EPS)
+    if (
+      prev &&
+      Math.abs(prev.leftElev - b.leftElev) < ELEV_EPS &&
+      Math.abs(prev.rightElev - b.rightElev) < ELEV_EPS
+    ) {
+      // Coincident brackets merge; keep ANCHOR status if either is an anchor (an
+      // anchor line landing exactly on the surface/floor still brackets the interval).
+      if (b.anchor) prev.anchor = true
       continue
+    }
     uniq.push(b)
   }
 
@@ -188,7 +204,10 @@ function emitGapIntervals(
     const leftUnits = untiedUnitsInInterval(left, leftFlags, top.leftElev, base.leftElev, 'left')
     const rightUnits = untiedUnitsInInterval(right, rightFlags, top.rightElev, base.rightElev, 'right')
     if (leftUnits.length === 0 && rightUnits.length === 0) continue
-    tileInterval(left, right, top, base, leftUnits, rightUnits, nextId, out)
+    // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
+    // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
+    const bracketed = top.anchor && base.anchor
+    tileInterval(left, right, top, base, leftUnits, rightUnits, bracketed, nextId, out)
     // A tiled interval whose BASE is the shallow-TD floor needs an explicit floor
     // curve to CLOSE it from below — the surface / tie-line brackets are already
     // arrangement curves, but the shallow-TD floor is not (sub-TD stays empty,
@@ -222,7 +241,7 @@ function collectAnchorLines(
   const lines: Bracket[] = []
   for (const t of activeTies) {
     if (t.gapIndex !== gapIndex) continue
-    lines.push({ leftElev: t.left.y, rightElev: t.right.y })
+    lines.push({ leftElev: t.left.y, rightElev: t.right.y, anchor: true })
   }
   // Bridge-anchored contacts become horizontal-ish bracket lines from the left
   // column contact elevation to the right column contact elevation. We reconstruct
@@ -243,7 +262,7 @@ function collectAnchorLines(
   const ls = [...lE].sort((a, b) => b - a)
   const rs = [...rE].sort((a, b) => b - a)
   const n = Math.min(ls.length, rs.length)
-  for (let i = 0; i < n; i++) lines.push({ leftElev: ls[i], rightElev: rs[i] })
+  for (let i = 0; i < n; i++) lines.push({ leftElev: ls[i], rightElev: rs[i], anchor: true })
   return lines
 }
 
@@ -283,8 +302,14 @@ function untiedUnitsInInterval(
  * The meet fraction follows v1 ``emitInterval``:
  *   - lone side (only left OR only right) → the present side fills the whole width
  *     (meet 1 for left-only, 0 for right-only);
- *   - one left + one right of DIFFERENT lithology → MIDPOINT 0.5 (no-auto-facies);
+ *   - one left + one right of DIFFERENT lithology, the interval bracketed above AND
+ *     below → MIDPOINT 0.5 (no-auto-facies); a surface/floor-bracketed pair keeps
+ *     the thickness weight (v1 ``emitInterval`` ``bracketed`` gate);
  *   - otherwise → thickness-weighted (sumLeft / (sumLeft + sumRight)).
+ *
+ * ``bracketed`` — whether this interval is bounded by a real tie/bridge anchor on
+ * BOTH sides (not the surface or the shallow-TD floor). The caller passes it so the
+ * midpoint no-auto-facies rule only fires between two bands (v1's gate).
  */
 function tileInterval(
   left: ColumnGeom,
@@ -293,6 +318,7 @@ function tileInterval(
   base: Bracket,
   leftUnits: IntervalUnit[],
   rightUnits: IntervalUnit[],
+  bracketed: boolean,
   nextId: () => string,
   out: InputCurve[],
 ): void {
@@ -319,7 +345,7 @@ function tileInterval(
   // the cell instead of subtracting the overlap. An apex sitting exactly ON the seam
   // creates a degenerate 3-face junction that leaves a triangle uncovered (the TS6
   // VEEN-above hole), so the margin is mandatory, not cosmetic.
-  let meet = meetFraction(leftMatrix, rightMatrix)
+  let meet = meetFraction(leftMatrix, rightMatrix, bracketed)
   const LENS_MARGIN = 0.03
   if (leftLenses.length > 0) meet = Math.max(meet, LENS_PINCH_FRACTION + LENS_MARGIN)
   if (rightLenses.length > 0) meet = Math.min(meet, 1 - LENS_PINCH_FRACTION - LENS_MARGIN)
@@ -400,20 +426,35 @@ function emitSideSubSeams(
  * v1 ``emitInterval`` meeting-fraction rule (``emit.ts``):
  *   lone left  -> 1 (fills to the right column)
  *   lone right -> 0
- *   1 left + 1 right, DIFFERENT lithology -> 0.5 (mismatched matrix, midpoint seam)
+ *   1 left + 1 right, DIFFERENT lithology, bracketed above AND below -> 0.5
+ *     (mismatched matrix, midpoint seam — the ``bracketed`` gate keeps surface/floor
+ *     opposing pinches on the weighted fraction, v1 ``emit.ts`` ``mismatchedMatrix``)
  *   otherwise -> thickness-weighted sumLeft / (sumLeft + sumRight).
+ *
+ * The thickness weight uses each unit's OWN FULL span (``u.unit.topElev/baseElev``),
+ * NOT the interval-CLAMPED span (``u.topElev/baseElev``): v1 ``emitInterval`` weights
+ * by ``p.ownTopDepth``/``p.ownBaseDepth`` — the pinch unit's full thickness, before
+ * any interval clamping (a unit poking out of the interval still contributes its
+ * whole thickness to the seam weight). Clamping the weight to the interval moved the
+ * seam off v1's placement (the increment-5 equal-and-opposite formation-pair drift).
  */
-function meetFraction(leftUnits: IntervalUnit[], rightUnits: IntervalUnit[]): number {
+function meetFraction(
+  leftUnits: IntervalUnit[],
+  rightUnits: IntervalUnit[],
+  bracketed: boolean,
+): number {
   if (leftUnits.length > 0 && rightUnits.length === 0) return 1
   if (rightUnits.length > 0 && leftUnits.length === 0) return 0
   if (
+    bracketed &&
     leftUnits.length === 1 &&
     rightUnits.length === 1 &&
     leftUnits[0].unit.formationId !== rightUnits[0].unit.formationId
   ) {
     return 0.5
   }
-  const sumLeft = leftUnits.reduce((s, u) => s + Math.max(0, u.topElev - u.baseElev), 0)
-  const sumRight = rightUnits.reduce((s, u) => s + Math.max(0, u.topElev - u.baseElev), 0)
+  const ownSpan = (u: IntervalUnit): number => Math.max(0, u.unit.topElev - u.unit.baseElev)
+  const sumLeft = leftUnits.reduce((s, u) => s + ownSpan(u), 0)
+  const sumRight = rightUnits.reduce((s, u) => s + ownSpan(u), 0)
   return sumLeft + sumRight > ELEV_EPS ? sumLeft / (sumLeft + sumRight) : 0.5
 }
