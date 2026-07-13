@@ -1,9 +1,10 @@
 # Partition Engine v2 — closed-loop (face-tracing) model
 
-**Status: DESIGN DRAFT (2026-07-13, owner-commissioned) — review with owner
-before any code.** Decision record: CLAUDE.local.md → "DECISION 2026-07-13 —
-partition engine v2". Target: closed beta ~mid-August; v2 built in parallel,
-cut over behind a dev flag, old engine stays as fallback.
+**Status: APPROVED (2026-07-13 — owner reviewed the §8 open questions one by
+one; decisions recorded in §8).** Decision record: CLAUDE.local.md →
+"DECISION 2026-07-13 — partition engine v2". Target: closed beta ~mid-August;
+v2 built in parallel, cut over behind a dev flag, old engine stays as
+fallback.
 
 ## 1. Why (one paragraph)
 
@@ -93,7 +94,8 @@ curve-placement rule, is retired consciously, or stays a consumer concern)
 | `computeBottomTieLine` | KEPT as tie-curve construction for base-side ties |
 | `collapseAdjacentSameFormation` / `closeColumnGaps` | KEPT — input normalisation before curve emission |
 | Interval extraction (`extractIntervalMinorities`) | RETIRED as a pre-pass; enclosed minorities become lens faces naturally. VERIFY on parity: the minority-extraction heuristics may encode placement choices that need porting to closing curves |
-| Band authority (cs1bandauthority semantics) | KEPT — arbitration when two ties disagree becomes curve-priority at arrangement build |
+| Band authority (cs1bandauthority semantics) | CHANGED (owner ruling, §8 Q4) — crossing approved ties are a HARD CONFLICT: neither tie bands, both units fall back to pinch/lens, and the section surfaces a visual validation warning (crossings endpoint already detects the pair) until the user deletes one. No silent winner. |
+| Band dips below a shallow neighbour's TD when a tie reaches it (`facingBandTd` / `reanchorBandToFacing`) | KEPT (owner re-affirmed, §8 Q3) — a tie anchored at/into the shallow test's TD region counts as an anchor: the band follows that tie line and colours below the TD |
 | Same-formation lens-on-own-matrix overlay retained for nested-body render | CHANGED — in v2 the enclosed unit is its own face (not an overlay on the matrix). The overlay render must draw it as a face; nested-body visuals come from face adjacency, not painting order |
 | `computePartitionFill(left, right)` 2-column wrapper | KEPT — thin wrapper over the v2 section call (public API compat; the pure-geometry unit tests ride it) |
 | Open bug: horizontal-only band-emit (band dips below shallow TD) | Must be FIXED-BY-DESIGN in v2 (bridge curves are the mechanism); add a gate from the dogfeed repro before cutover |
@@ -148,24 +150,28 @@ edges — Track 2 handles same-litho enclosed-lens merging), geotech
 refinement internals, render warp/spacing (consumer-side), 3D voxel builder
 internals, sedimentological feature-shapes (Phase 5).
 
-## 8. Open questions (owner)
+## 8. Owner decisions (recorded 2026-07-13, reviewed one-by-one with visuals)
 
-1. **Closing-curve defaults** — keep 0.45/0.55 apex fractions as-is for v2
-   parity, or take the opportunity to revisit? (Recommend: keep for parity;
-   revisit after cutover.)
-2. **Onlap apex on the bracket** — when an onlap loop rides a bracket
-   tie-line, v1 clips it to the seam ("ride the seam", Solution 2). v2 gets
-   this from the arrangement automatically — confirm the visual matches on
-   the CARVE1-5 dogfeed cases.
-3. **Sub-TD faces under shallow tests** — v2 naturally fills the column
-   footprint below TD from the bridge curves (v1 needed the under-column
-   pass). Is always-fill correct, or should a genuinely uncorrelated void
-   stay empty (v1 behaviour: no gap region sampled → stays empty)? Default:
-   match v1 (empty when no bridge exists).
-4. **Where band arbitration lands** when two approved ties conflict
-   (crossing ties) — v1 band-authority rules; v2 needs an explicit
-   curve-priority order. Propose: newer edge wins + a validation warning
-   (crossings endpoint already exists).
+1. **Closing-curve defaults — KEEP for parity.** v2 uses v1's apex fractions
+   verbatim (`LENS_PINCH_FRACTION` 0.45 / `INTERIOR_PINCH_FRACTION` 0.5) so
+   the A/B diff compares like-for-like. Any retune is a post-cutover
+   follow-up with its own dogfeed.
+2. **Onlap-on-bracket verification — CARVE tests + dogfeed.** No extra
+   dedicated seam gate before dogfeed: run CARVE1-5 against v2 plus the
+   0-overlap invariant gate on all 14 sections; owner visually confirms the
+   seam-riding spots on the real model during dogfeed week.
+3. **Sub-TD strip with no bridge — STAYS EMPTY (match v1),** with the
+   owner's explicit qualifier: **a tie that reaches the shallow test's TD
+   counts as an anchor** — the band follows that tie line and colours below
+   the TD (v1's `facingBandTd`/`reanchorBandToFacing` behaviour, kept as a
+   curve rule; see the §4 row). White is only correct where genuinely
+   nothing anchors the fill.
+4. **Crossing approved ties — HARD CONFLICT, neither bands.** Both ties are
+   suspended for banding (units fall back to pinch/lens) and the user gets a
+   visual warning in the section until the conflict is resolved by deleting
+   one tie. No silent winner (the "newest wins" proposal was rejected).
+   Detection reuses the existing crossings endpoint; the warning surface is
+   part of the cutover scope.
 
 ## 9. Build plan (subagent-driven; month shape)
 
