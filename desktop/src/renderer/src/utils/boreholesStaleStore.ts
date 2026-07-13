@@ -17,36 +17,26 @@
  * freshly-opened project's boreholes match whatever was last divided + saved).
  */
 
-import { useSyncExternalStore } from 'react'
+import { createBooleanStore } from './createBooleanStore'
 
-let stale = false
-const listeners = new Set<() => void>()
+const store = createBooleanStore(false)
 
 /** Mark the borehole division out of date (bodies/correlations changed). */
 export function markBoreholesStale(): void {
-  if (stale) return
-  stale = true
-  listeners.forEach(listener => listener())
+  store.set(true)
 }
 
 /** Clear staleness after a successful "Divide boreholes". */
 export function clearBoreholesStale(): void {
-  if (!stale) return
-  stale = false
-  listeners.forEach(listener => listener())
+  store.set(false)
 }
 
 /** Current stale state (non-reactive read). */
 export function getBoreholesStale(): boolean {
-  return stale
-}
-
-function subscribe(callback: () => void): () => void {
-  listeners.add(callback)
-  return () => listeners.delete(callback)
+  return store.get()
 }
 
 /** Reactive hook — re-renders the caller when staleness flips. */
 export function useBoreholesStale(): boolean {
-  return useSyncExternalStore(subscribe, getBoreholesStale)
+  return store.use()
 }

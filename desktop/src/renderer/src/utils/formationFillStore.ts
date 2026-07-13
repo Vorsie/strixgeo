@@ -24,28 +24,21 @@
  * persisted).
  */
 
-import { useSyncExternalStore } from 'react'
+import { createBooleanStore } from './createBooleanStore'
 
-let visible = true
-const listeners = new Set<() => void>()
+const store = createBooleanStore(true)
 
 /** Flip the model-fill visibility and notify subscribers. */
 export function toggleFormationFill(): void {
-  visible = !visible
-  listeners.forEach(listener => listener())
+  store.toggle()
 }
 
 /** Current model-fill visibility (non-reactive read). */
 export function getFormationFillVisible(): boolean {
-  return visible
-}
-
-function subscribe(callback: () => void): () => void {
-  listeners.add(callback)
-  return () => listeners.delete(callback)
+  return store.get()
 }
 
 /** Reactive hook — re-renders the caller when the toggle flips. */
 export function useFormationFillVisible(): boolean {
-  return useSyncExternalStore(subscribe, getFormationFillVisible)
+  return store.use()
 }

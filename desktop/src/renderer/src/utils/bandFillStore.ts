@@ -14,28 +14,21 @@
  * is an explicit, finish-then-click verb — never persisted-on).
  */
 
-import { useSyncExternalStore } from 'react'
+import { createBooleanStore } from './createBooleanStore'
 
-let visible = false
-const listeners = new Set<() => void>()
+const store = createBooleanStore(false)
 
 /** Flip the band-fill visibility and notify subscribers. */
 export function toggleBandFill(): void {
-  visible = !visible
-  listeners.forEach(listener => listener())
+  store.toggle()
 }
 
 /** Current band-fill visibility (non-reactive read). */
 export function getBandFillVisible(): boolean {
-  return visible
-}
-
-function subscribe(callback: () => void): () => void {
-  listeners.add(callback)
-  return () => listeners.delete(callback)
+  return store.get()
 }
 
 /** Reactive hook — re-renders the caller when the toggle flips. */
 export function useBandFillVisible(): boolean {
-  return useSyncExternalStore(subscribe, getBandFillVisible)
+  return store.use()
 }

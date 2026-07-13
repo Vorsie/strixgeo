@@ -19,28 +19,21 @@
  * never persisted).
  */
 
-import { useSyncExternalStore } from 'react'
+import { createBooleanStore } from './createBooleanStore'
 
-let visible = true
-const listeners = new Set<() => void>()
+const store = createBooleanStore(true)
 
 /** Flip the correlation-overlay visibility and notify subscribers. */
 export function toggleCorrelationOverlay(): void {
-  visible = !visible
-  listeners.forEach(listener => listener())
+  store.toggle()
 }
 
 /** Current correlation-overlay visibility (non-reactive read). */
 export function getCorrelationOverlayVisible(): boolean {
-  return visible
-}
-
-function subscribe(callback: () => void): () => void {
-  listeners.add(callback)
-  return () => listeners.delete(callback)
+  return store.get()
 }
 
 /** Reactive hook — re-renders the caller when the toggle flips. */
 export function useCorrelationOverlayVisible(): boolean {
-  return useSyncExternalStore(subscribe, getCorrelationOverlayVisible)
+  return store.use()
 }
