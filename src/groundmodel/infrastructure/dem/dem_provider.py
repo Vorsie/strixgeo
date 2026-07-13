@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     from groundmodel.infrastructure.dem.dhmvii_sampler import SamplePoint
@@ -143,6 +143,24 @@ class DemProvider(ABC):
     Concrete subclasses also inherit ``GroundModelLogger`` to honour the
     project's logging convention — they are not pure data classes.
     """
+
+    async def __aenter__(self) -> Self:
+        """Async-context entry — returns self unchanged."""
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        """Async-context exit — releases network resources via :meth:`close`."""
+        await self.close()
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Release the provider's network resources (HTTP client).
+
+        Callers that don't use the async-context form MUST call this
+        explicitly. Declared on the ABC because both the ground-surface
+        build and the line-profile endpoint manage providers through
+        ``async with`` against the abstract type.
+        """
 
     @property
     @abstractmethod

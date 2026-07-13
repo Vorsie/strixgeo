@@ -7,6 +7,8 @@ this package __init__; paths are unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -52,7 +54,7 @@ logger = LoggerFactory.get_logger(__name__)
 router = APIRouter()
 
 
-def _to_gap_issues(issues) -> list[GapIssueResponse]:
+def _to_gap_issues(issues: Iterable[Any]) -> list[GapIssueResponse]:
     """Map domain validation issues to their API response schema.
 
     One conversion for the three handlers that surface

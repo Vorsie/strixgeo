@@ -7,6 +7,8 @@ prefix by this package's ``__init__``; paths are unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -148,7 +150,7 @@ def _to_domain_suggestions(
     ]
 
 
-def _to_collision_items(collisions) -> list[LumpingCollisionItem]:
+def _to_collision_items(collisions: Iterable[Any]) -> list[LumpingCollisionItem]:
     """Map domain lumping collisions to their API response schema.
 
     Shared by the auto-populate and discover-from-stratigraphy handlers

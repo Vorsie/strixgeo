@@ -76,9 +76,7 @@ async def sample_along_line(
         )
 
     try:
-        # ``build_dem_provider`` returns the ABC; both concrete providers are
-        # WcsDemProvider subclasses supporting the async-context protocol.
-        async with provider as p:  # type: ignore[attr-defined]
+        async with provider as p:
             samples = await p.sample_along_line(
                 start_x=start_x,
                 start_y=start_y,
