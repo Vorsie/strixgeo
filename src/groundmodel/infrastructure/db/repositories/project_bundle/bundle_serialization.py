@@ -33,6 +33,9 @@ from uuid import UUID
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.lab_test_family_constants import (
+    LAB_TEST_RELATIONSHIP_NAMES,
+)
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
@@ -375,8 +378,8 @@ def _sample_to_dict(sample: SampleOrm) -> dict[str, Any]:
     """Serialise a ``SampleOrm`` with all six lab-test family children.
 
     Every lab-test family shares the same leaf shape — flat columns,
-    FK back to sample.id.  Each family is listed alongside its
-    bundle-key name.
+    FK back to sample.id.  The family list comes from the shared
+    ``LAB_TEST_FAMILIES`` registry.
 
     Parameters
     ----------
@@ -390,24 +393,12 @@ def _sample_to_dict(sample: SampleOrm) -> dict[str, Any]:
         JSON-friendly dict with nested arrays for each lab-test family.
     """
     payload = _column_to_json(sample, _SKIP_COLUMNS | {"borehole_id"})
-    payload["grain_sizes"] = [
-        _column_to_json(g, _SKIP_COLUMNS | {"sample_id"}) for g in sample.grain_sizes
-    ]
-    payload["atterberg_limits_tests"] = [
-        _column_to_json(a, _SKIP_COLUMNS | {"sample_id"}) for a in sample.atterberg_limits_tests
-    ]
-    payload["caco3_content_tests"] = [
-        _column_to_json(c, _SKIP_COLUMNS | {"sample_id"}) for c in sample.caco3_content_tests
-    ]
-    payload["organic_content_tests"] = [
-        _column_to_json(o, _SKIP_COLUMNS | {"sample_id"}) for o in sample.organic_content_tests
-    ]
-    payload["water_content_tests"] = [
-        _column_to_json(w, _SKIP_COLUMNS | {"sample_id"}) for w in sample.water_content_tests
-    ]
-    payload["scalar_lab_tests"] = [
-        _column_to_json(s, _SKIP_COLUMNS | {"sample_id"}) for s in sample.scalar_lab_tests
-    ]
+    # Registry-driven: bundle key == relationship name for every family,
+    # and registry order == the established bundle key order.
+    for rel_name in LAB_TEST_RELATIONSHIP_NAMES:
+        payload[rel_name] = [
+            _column_to_json(row, _SKIP_COLUMNS | {"sample_id"}) for row in getattr(sample, rel_name)
+        ]
     return payload
 
 

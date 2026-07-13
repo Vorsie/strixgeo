@@ -14,6 +14,9 @@ from groundmodel.domain.services.elevation_rollback import (
 )
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.lab_test_family_constants import (
+    LAB_TEST_RELATIONSHIP_NAMES,
+)
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
@@ -21,17 +24,13 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Names of the lab-test relationships on ``SampleOrm`` — used by the
 # scoped ``get_by_id`` path (debt #2) to decide which selectinload
-# chains to attach and which to stamp with empty lists. Order is the
-# canonical display order so the route's query-parameter validation
-# can surface a stable "valid values" message.
-LAB_TEST_RELATIONSHIPS: tuple[str, ...] = (
-    "grain_sizes",
-    "atterberg_limits_tests",
-    "caco3_content_tests",
-    "organic_content_tests",
-    "water_content_tests",
-    "scalar_lab_tests",
-)
+# chains to attach and which to stamp with empty lists. Derived from
+# the shared LAB_TEST_FAMILIES registry (single source of truth for
+# the family list); order is the canonical display order so the
+# route's query-parameter validation can surface a stable "valid
+# values" message. The name is re-exported here because the borehole
+# router + its tests import it from this module.
+LAB_TEST_RELATIONSHIPS: tuple[str, ...] = LAB_TEST_RELATIONSHIP_NAMES
 
 
 def borehole_full_tree_options(include_set: set[str] | None = None) -> list:

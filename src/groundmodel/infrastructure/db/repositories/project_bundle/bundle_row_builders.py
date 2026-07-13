@@ -31,6 +31,7 @@ from geoalchemy2 import WKTElement
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.lab_test_family_constants import LAB_TEST_FAMILIES
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
@@ -315,17 +316,12 @@ def _build_borehole(
     # Local imports to dodge circular references — each leaf class lives
     # alongside its own ORM module, and importing them at module top
     # would balloon the import graph for callers that never restore.
+    # (The six lab-test leaf classes now ride in via LAB_TEST_FAMILIES.)
     from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
-    from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
-    from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
     from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
     from groundmodel.infrastructure.db.models.field_log_interval_orm import (
         FieldLogIntervalOrm,
     )
-    from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
-    from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
-    from groundmodel.infrastructure.db.models.scalar_lab_test_orm import ScalarLabTestOrm
-    from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
 
     bh.drill_segments = [
         DrillSegmentOrm(**_apply_json_to_kwargs(DrillSegmentOrm, d)) for d in drill_segments
@@ -337,19 +333,7 @@ def _build_borehole(
     bh.observations = [
         _build_observation(obs_data, AdmixtureOrm, logger=logger) for obs_data in observations
     ]
-    bh.samples = [
-        _build_sample(
-            sample_data,
-            GrainSizeOrm,
-            AtterbergLimitsOrm,
-            CaCO3ContentOrm,
-            OrganicContentOrm,
-            WaterContentOrm,
-            ScalarLabTestOrm,
-            logger=logger,
-        )
-        for sample_data in samples
-    ]
+    bh.samples = [_build_sample(sample_data, logger=logger) for sample_data in samples]
     return bh
 
 
@@ -422,37 +406,21 @@ def _build_layer(
 
 def _build_sample(
     data: dict[str, Any],
-    grain_size_cls: type[Any],
-    atterberg_cls: type[Any],
-    caco3_cls: type[Any],
-    organic_cls: type[Any],
-    water_cls: type[Any],
-    scalar_cls: type[Any],
     *,
     logger: GroundModelLogger,
 ) -> SampleOrm:
     """Construct a ``SampleOrm`` with all six lab-test family children.
 
     Each lab-test family is its own child array; all are capped (debt
-    #112, F2) before building ORM instances.
+    #112, F2) before building ORM instances. The family list (name +
+    leaf ORM class) comes from the shared ``LAB_TEST_FAMILIES``
+    registry, so a new typed family needs no edit here.
 
     Parameters
     ----------
     data : dict[str, Any]
         Raw sample payload from the bundle, carrying nested arrays for
         each lab-test family.
-    grain_size_cls : type[Any]
-        ORM class for grain-size test rows.
-    atterberg_cls : type[Any]
-        ORM class for Atterberg limits test rows.
-    caco3_cls : type[Any]
-        ORM class for CaCO3 content test rows.
-    organic_cls : type[Any]
-        ORM class for organic content test rows.
-    water_cls : type[Any]
-        ORM class for water content test rows.
-    scalar_cls : type[Any]
-        ORM class for scalar lab test (catch-all) rows.
     logger : GroundModelLogger
         Caller's logger (cap warnings).
 
@@ -463,58 +431,18 @@ def _build_sample(
     """
     sample = SampleOrm(**_apply_json_to_kwargs(SampleOrm, data))
     sample_label = data.get("id", "?")
-    sample.grain_sizes = [
-        grain_size_cls(**_apply_json_to_kwargs(grain_size_cls, d))
-        for d in _cap(
-            data.get("grain_sizes") or [],
-            _MAX_SAMPLE_LAB_TESTS,
-            f"grain_sizes on sample {sample_label}",
-            logger,
+    for rel_name, orm_cls in LAB_TEST_FAMILIES:
+        setattr(
+            sample,
+            rel_name,
+            [
+                orm_cls(**_apply_json_to_kwargs(orm_cls, d))
+                for d in _cap(
+                    data.get(rel_name) or [],
+                    _MAX_SAMPLE_LAB_TESTS,
+                    f"{rel_name} on sample {sample_label}",
+                    logger,
+                )
+            ],
         )
-    ]
-    sample.atterberg_limits_tests = [
-        atterberg_cls(**_apply_json_to_kwargs(atterberg_cls, d))
-        for d in _cap(
-            data.get("atterberg_limits_tests") or [],
-            _MAX_SAMPLE_LAB_TESTS,
-            f"atterberg_limits_tests on sample {sample_label}",
-            logger,
-        )
-    ]
-    sample.caco3_content_tests = [
-        caco3_cls(**_apply_json_to_kwargs(caco3_cls, d))
-        for d in _cap(
-            data.get("caco3_content_tests") or [],
-            _MAX_SAMPLE_LAB_TESTS,
-            f"caco3_content_tests on sample {sample_label}",
-            logger,
-        )
-    ]
-    sample.organic_content_tests = [
-        organic_cls(**_apply_json_to_kwargs(organic_cls, d))
-        for d in _cap(
-            data.get("organic_content_tests") or [],
-            _MAX_SAMPLE_LAB_TESTS,
-            f"organic_content_tests on sample {sample_label}",
-            logger,
-        )
-    ]
-    sample.water_content_tests = [
-        water_cls(**_apply_json_to_kwargs(water_cls, d))
-        for d in _cap(
-            data.get("water_content_tests") or [],
-            _MAX_SAMPLE_LAB_TESTS,
-            f"water_content_tests on sample {sample_label}",
-            logger,
-        )
-    ]
-    sample.scalar_lab_tests = [
-        scalar_cls(**_apply_json_to_kwargs(scalar_cls, d))
-        for d in _cap(
-            data.get("scalar_lab_tests") or [],
-            _MAX_SAMPLE_LAB_TESTS,
-            f"scalar_lab_tests on sample {sample_label}",
-            logger,
-        )
-    ]
     return sample

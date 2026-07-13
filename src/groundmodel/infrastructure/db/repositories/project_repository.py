@@ -14,6 +14,9 @@ from uuid6 import uuid7
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.lab_test_family_constants import (
+    LAB_TEST_RELATIONSHIP_NAMES,
+)
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
@@ -280,23 +283,14 @@ def _clone_sample(source: SampleOrm) -> SampleOrm:
         **_column_dict(source, _NEVER_COPY | {"borehole_id"}),
     )
     # All six lab-test families share the leaf-clone shape: copy every
-    # column except id + sample_id, generate a new id, attach.
-    new_sample.grain_sizes = [_clone_leaf(g, parent_fk="sample_id") for g in source.grain_sizes]
-    new_sample.atterberg_limits_tests = [
-        _clone_leaf(a, parent_fk="sample_id") for a in source.atterberg_limits_tests
-    ]
-    new_sample.caco3_content_tests = [
-        _clone_leaf(c, parent_fk="sample_id") for c in source.caco3_content_tests
-    ]
-    new_sample.organic_content_tests = [
-        _clone_leaf(o, parent_fk="sample_id") for o in source.organic_content_tests
-    ]
-    new_sample.water_content_tests = [
-        _clone_leaf(w, parent_fk="sample_id") for w in source.water_content_tests
-    ]
-    new_sample.scalar_lab_tests = [
-        _clone_leaf(s, parent_fk="sample_id") for s in source.scalar_lab_tests
-    ]
+    # column except id + sample_id, generate a new id, attach. The
+    # family list comes from the shared registry.
+    for rel_name in LAB_TEST_RELATIONSHIP_NAMES:
+        setattr(
+            new_sample,
+            rel_name,
+            [_clone_leaf(row, parent_fk="sample_id") for row in getattr(source, rel_name)],
+        )
     return new_sample
 
 
