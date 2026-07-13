@@ -23,6 +23,8 @@
  *     ``columnUnderCursor`` — nearest PlacedColumn within attraction hysteresis.
  *     ``surfaceYForColumn`` — derive screenY + pxPerMetre + elevationM for a column.
  *     ``subtractGhosts``    — subtract ghost depth ranges from a band interval.
+ *     ``contactAnchorId``   — a contact's investigation id (borehole XOR cpt).
+ *     ``groupContactsByAnchor`` — anchor id → contacts sorted by depth_top_m.
  *
  * Main function
  *     ``computeSlabsAndPolylines`` — Stage-A classification pass; pure of vertical axis.
@@ -426,6 +428,65 @@ export function geotechDisplayFormation(
   }
 }
 
+/**
+ * A contact's anchoring investigation id.
+ *
+ * The anchor is XOR by contract — exactly one of ``borehole_id`` /
+ * ``cpt_id`` is set on every contact row — so the read order is
+ * immaterial.
+ *
+ * Parameters
+ * ----------
+ * c
+ *     Any contact-shaped record carrying the anchor pair.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     The investigation id, or ``null`` on a (malformed) anchorless row.
+ */
+export function contactAnchorId(c: {
+  borehole_id: string | null
+  cpt_id: string | null
+}): string | null {
+  return c.borehole_id ?? c.cpt_id
+}
+
+/**
+ * Group contacts by anchoring investigation id, each group sorted
+ * ascending by ``depth_top_m`` (shallowest first).
+ *
+ * The "bucket by anchor, sort by depth" shape recurs across the section
+ * overlays (slabs, stripe colours, lens candidates, next-deeper lookup,
+ * band maps) — this is the single copy. Anchorless contacts are skipped.
+ *
+ * Parameters
+ * ----------
+ * contacts
+ *     Contact-shaped records (anchor pair + ``depth_top_m``).
+ *
+ * Returns
+ * -------
+ * Map<string, T[]>
+ *     Anchor id → its contacts, sorted shallowest-first.
+ */
+export function groupContactsByAnchor<
+  T extends { borehole_id: string | null; cpt_id: string | null; depth_top_m: number },
+>(contacts: readonly T[]): Map<string, T[]> {
+  const byAnchor = new Map<string, T[]>()
+  for (const c of contacts) {
+    const inv = contactAnchorId(c)
+    if (inv === null) continue
+    const bucket = byAnchor.get(inv)
+    if (bucket) bucket.push(c)
+    else byAnchor.set(inv, [c])
+  }
+  for (const list of byAnchor.values()) {
+    list.sort((a, b) => a.depth_top_m - b.depth_top_m)
+  }
+  return byAnchor
+}
+
 export function computeSlabsAndPolylines(
   contacts: readonly FormationContactResponse[],
   formations: readonly GeologicalFormationResponse[],
@@ -447,7 +508,7 @@ export function computeSlabsAndPolylines(
   // the inner work from ~100k iterations per pan to ~500.
   const contactsByAnchorId = new Map<string, FormationContactResponse[]>()
   for (const c of contacts) {
-    const anchorId = c.borehole_id ?? c.cpt_id
+    const anchorId = contactAnchorId(c)
     if (!anchorId) continue
     if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
     const bucket = contactsByAnchorId.get(anchorId)

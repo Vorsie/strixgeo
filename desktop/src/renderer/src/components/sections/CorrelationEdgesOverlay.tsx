@@ -35,6 +35,7 @@ import type {
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { GhostAdmixtureItem } from '../interpretation/LithoGhostCompositionEditor'
 import ContextMenu from '../ui/ContextMenu'
+import { contactAnchorId, groupContactsByAnchor } from './contactsLayerGeometry'
 import { columnMaxDepthM } from './utils'
 import type { PlacedColumn } from './utils'
 
@@ -318,10 +319,9 @@ interface Props {
 
 /**
  * Get the investigation id (cpt_id or borehole_id) from a contact.
+ * Shared shape — see ``contactAnchorId`` (the anchor pair is XOR).
  */
-function anchorId(c: FormationContactResponse): string | null {
-  return c.cpt_id ?? c.borehole_id ?? null
-}
+const anchorId = contactAnchorId
 
 /** One band entry on an investigation. Keyed by ``contact_id`` so two
  * contacts referencing the same formation (a repeated lithology) get
@@ -393,23 +393,15 @@ export function buildBandMap(
     }
   }
 
-  // investId → sorted contacts (highest elevation first = shallowest)
-  const byInvest = new Map<string, FormationContactResponse[]>()
-  for (const c of contacts) {
-    const inv = anchorId(c)
-    if (inv === null) continue
-    if (!byInvest.has(inv)) byInvest.set(inv, [])
-    byInvest.get(inv)!.push(c)
-  }
+  // investId → contacts sorted by depth_top_m ascending (shallowest first)
+  const byInvest = groupContactsByAnchor(contacts)
 
   const result: BandMap = new Map()
 
-  for (const [investId, cList] of byInvest) {
+  for (const [investId, sorted] of byInvest) {
     const surface = surfaceByInvest.get(investId)
     if (surface === undefined) continue
 
-    // Sort by depth_top_m ascending (shallowest first)
-    const sorted = [...cList].sort((a, b) => a.depth_top_m - b.depth_top_m)
     const bands = new Map<string, BandEntry>()
 
     const maxDepth = maxDepthByInvest.get(investId)
@@ -613,17 +605,9 @@ export function contactStripeColors(
   contacts: readonly FormationContactResponse[],
   formationById: ReadonlyMap<string, GeologicalFormationResponse>,
 ): Map<string, { above: string | null; below: string }> {
-  const byInvest = new Map<string, FormationContactResponse[]>()
-  for (const c of contacts) {
-    const inv = anchorId(c)
-    if (inv === null) continue
-    const bucket = byInvest.get(inv)
-    if (bucket) bucket.push(c)
-    else byInvest.set(inv, [c])
-  }
+  const byInvest = groupContactsByAnchor(contacts)
   const result = new Map<string, { above: string | null; below: string }>()
-  for (const [, list] of byInvest) {
-    const sorted = [...list].sort((a, b) => a.depth_top_m - b.depth_top_m)
+  for (const [, sorted] of byInvest) {
     for (let i = 0; i < sorted.length; i += 1) {
       const c = sorted[i]
       const below = formationById.get(c.formation_id)?.color
@@ -982,17 +966,9 @@ export default function CorrelationEdgesOverlay({
       correlated.add(e.contact_a_id)
       correlated.add(e.contact_b_id)
     }
-    const byInv = new Map<string, FormationContactResponse[]>()
-    for (const c of contacts) {
-      const inv = anchorId(c)
-      if (inv === null) continue
-      const bucket = byInv.get(inv)
-      if (bucket) bucket.push(c)
-      else byInv.set(inv, [c])
-    }
+    const byInv = groupContactsByAnchor(contacts)
     const out = new Set<string>()
-    for (const list of byInv.values()) {
-      const sorted = [...list].sort((a, b) => a.depth_top_m - b.depth_top_m)
+    for (const sorted of byInv.values()) {
       for (let i = 0; i < sorted.length; i += 1) {
         const c = sorted[i]
         if (correlated.has(c.id)) continue
@@ -1010,17 +986,9 @@ export default function CorrelationEdgesOverlay({
   // 2026-05-29: full-band targets armed the top, so clicking a unit's bottom
   // edge selected its top edge).
   const nextDeeperContactId = useMemo(() => {
-    const byInv = new Map<string, FormationContactResponse[]>()
-    for (const c of contacts) {
-      const inv = anchorId(c)
-      if (inv === null) continue
-      const bucket = byInv.get(inv)
-      if (bucket) bucket.push(c)
-      else byInv.set(inv, [c])
-    }
+    const byInv = groupContactsByAnchor(contacts)
     const out = new Map<string, string>()
-    for (const list of byInv.values()) {
-      const sorted = [...list].sort((a, b) => a.depth_top_m - b.depth_top_m)
+    for (const sorted of byInv.values()) {
       for (let i = 0; i < sorted.length - 1; i += 1) {
         out.set(sorted[i].id, sorted[i + 1].id)
       }

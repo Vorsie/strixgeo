@@ -66,6 +66,7 @@ import {
   clamp,
   columnUnderCursor,
   computeSlabsAndPolylines,
+  contactAnchorId,
   geotechDisplayFormation,
   subtractGhosts,
   surfaceYForColumn,
@@ -1006,7 +1007,7 @@ export default function ContactsLayer({
     // logic in slabs/polylineData above). O(K) per column.
     const refContactsByAnchorId = new Map<string, FormationContactResponse[]>()
     for (const c of referenceContacts) {
-      const anchorId = c.borehole_id ?? c.cpt_id
+      const anchorId = contactAnchorId(c)
       if (!anchorId) continue
       if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
       const bucket = refContactsByAnchorId.get(anchorId)
@@ -1192,7 +1193,7 @@ export default function ContactsLayer({
       const surfaceLevel = item.elevation_m
       const anchorId = item.id
       const colContacts = contacts
-        .filter(c => (c.borehole_id ?? c.cpt_id) === anchorId)
+        .filter(c => contactAnchorId(c) === anchorId)
         .slice()
         .sort((a, b) => a.depth_top_m - b.depth_top_m)
       if (colContacts.length === 0) continue
@@ -1548,11 +1549,7 @@ export default function ContactsLayer({
         const referenceDepth =
           depthAnchorId === d.anchorId ? startDepth : surfaceClamped
         const peers = contacts
-          .filter(
-            c =>
-              (c.borehole_id ?? c.cpt_id) === depthAnchorId
-              && c.id !== d.contactId,
-          )
+          .filter(c => contactAnchorId(c) === depthAnchorId && c.id !== d.contactId)
           .sort((a, b) => a.depth_top_m - b.depth_top_m)
         const above = peers
           .filter(c => c.depth_top_m < referenceDepth)
@@ -2108,7 +2105,7 @@ export default function ContactsLayer({
       if (c.parent_geo_contact_id != null) {
         coupledGeoIds.add(c.parent_geo_contact_id)
       }
-      const lithoAnchorId = c.borehole_id ?? c.cpt_id
+      const lithoAnchorId = contactAnchorId(c)
       if (lithoAnchorId != null) {
         const depths = lithoDepthsByAnchor.get(lithoAnchorId)
         if (depths) depths.push(c.depth_top_m)
@@ -2142,7 +2139,7 @@ export default function ContactsLayer({
       // — the litho contact's drag-strip already covers drag + the full menu.
       if (coupledGeoIds.has(c.id)) continue
       // Only anchor-backed contacts — synthetic lens tips have no column.
-      const anchorId = c.borehole_id ?? c.cpt_id
+      const anchorId = contactAnchorId(c)
       if (!anchorId) continue
       // Suppress the strip when a litho contact on the same anchor sits at the
       // same depth (#159 — coincident-but-not-coupled, e.g. after the snap
@@ -2209,7 +2206,7 @@ export default function ContactsLayer({
     const out = new Map<string, Map<string, string>>()
     if (!referenceContacts) return out
     for (const c of referenceContacts) {
-      const anchorId = c.borehole_id ?? c.cpt_id
+      const anchorId = contactAnchorId(c)
       if (!anchorId) continue
       let inner = out.get(anchorId)
       if (!inner) {
@@ -3375,13 +3372,13 @@ export default function ContactsLayer({
             lithoCode: string
           } | null = null
           if (pre) {
-            const anchor = pre.borehole_id ?? pre.cpt_id
+            const anchor = contactAnchorId(pre)
             if (anchor) {
               const lithoByFormation = new Map(
                 formations.map(f => [f.id, f.litho_main_soil_code ?? null]),
               )
               const peers = contacts
-                .filter(c => (c.borehole_id ?? c.cpt_id) === anchor && c.id !== id)
+                .filter(c => contactAnchorId(c) === anchor && c.id !== id)
                 .slice()
                 .sort((a, b) => a.depth_top_m - b.depth_top_m)
               const above = peers
