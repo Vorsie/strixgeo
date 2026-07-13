@@ -49,6 +49,7 @@ import {
   type SectionRegion,
 } from './partitionFill'
 import { computeSectionFillV2 } from './partitionFillV2'
+import { unionCoverageArea } from './partitionFillV2.parityCoverage'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
@@ -206,6 +207,31 @@ describe('v1↔v2 A/B parity diag', () => {
     const summaryRows: string[] = []
     const allDiffs: GroupDiff[] = []
 
+    /**
+     * Per-section reconciliation: Δ = v1 double-paint + explained + residual.
+     *
+     *   v1Sum / v2Sum   — Σ of every region's shoelace area (the parity delta lives here).
+     *   v1Union/v2Union — PIP union coverage (each cell once). v1Sum − v1Union is the
+     *                     v1 DOUBLE-PAINT (lens overlays on their matrix); v2 is a true
+     *                     partition so v2Sum ≈ v2Union.
+     *   doublePaint     — v1Sum − v1Union (the space v1 counts twice).
+     *   coverageDiff    — v1Union − v2Union (real coverage: v2's vacancy holes minus any
+     *                     area v2 covers that v1 leaves empty; the "explained items").
+     *   residual        — (v2Sum − v1Sum) − (−doublePaint) − coverageDiff, i.e. what the
+     *                     double-paint + coverage split does NOT account for. Should be ~0.
+     */
+    interface Reconciliation {
+      section: string
+      v1Sum: number
+      v2Sum: number
+      v1Union: number
+      v2Union: number
+      doublePaint: number
+      coverageDiff: number
+      residual: number
+    }
+    const reconciliations: Reconciliation[] = []
+
     for (const sec of raw.sections) {
       const keep = sec.columns
         .map((c, i) => ({ c, i }))
@@ -245,6 +271,25 @@ describe('v1↔v2 A/B parity diag', () => {
       const totV2 = v2.reduce((s, r) => s + ringArea(r.polygon), 0)
       gTotV1 += totV1
       gTotV2 += totV2
+
+      // ---- reconciliation: Δ = v1 double-paint + coverage-diff + residual ----
+      const v1Union = unionCoverageArea(v1)
+      const v2Union = unionCoverageArea(v2)
+      const doublePaint = totV1 - v1Union // space v1 counts twice (lens over matrix)
+      const coverageDiff = v1Union - v2Union // real coverage (v2 vacancy holes)
+      // Δ (v2Sum − v1Sum) explained as: −doublePaint (v1 has extra double-counted area)
+      // − coverageDiff (v2 covers less real space). Residual = the unexplained remainder.
+      const residual = totV2 - totV1 - (-doublePaint - coverageDiff)
+      reconciliations.push({
+        section: sec.name,
+        v1Sum: totV1,
+        v2Sum: totV2,
+        v1Union,
+        v2Union,
+        doublePaint,
+        coverageDiff,
+        residual,
+      })
 
       const aggV1 = aggregate(v1)
       const aggV2 = aggregate(v2)
@@ -374,6 +419,35 @@ describe('v1↔v2 A/B parity diag', () => {
         `labelled: double-paint=${gDoublePaint} vacancy-hole=${gVacancy} ##########`,
     )
 
+    // ---- per-section reconciliation table (design §6 verification note) ----
+    console.log(
+      '\n########## RECONCILIATION (fraction·metre): Δ = −doublePaint − coverageDiff + residual ##########',
+    )
+    console.log(
+      'section            v1Sum    v2Sum   v1Union  v2Union  dblPaint  covDiff  Δ(v2-v1)  residual',
+    )
+    let gDoublePaintArea = 0
+    let gCoverageDiff = 0
+    let gResidual = 0
+    let worstResidual = 0
+    for (const r of reconciliations) {
+      gDoublePaintArea += r.doublePaint
+      gCoverageDiff += r.coverageDiff
+      gResidual += r.residual
+      if (Math.abs(r.residual) > Math.abs(worstResidual)) worstResidual = r.residual
+      console.log(
+        `${r.section.padEnd(18)} ${r.v1Sum.toFixed(2).padStart(7)} ${r.v2Sum.toFixed(2).padStart(7)} ` +
+          `${r.v1Union.toFixed(2).padStart(7)} ${r.v2Union.toFixed(2).padStart(7)} ` +
+          `${r.doublePaint.toFixed(2).padStart(7)} ${r.coverageDiff.toFixed(2).padStart(7)} ` +
+          `${(r.v2Sum - r.v1Sum).toFixed(2).padStart(8)} ${r.residual.toFixed(3).padStart(8)}`,
+      )
+    }
+    console.log(
+      `\n[reconciliation] Σ doublePaint=${gDoublePaintArea.toFixed(3)} ` +
+        `Σ coverageDiff=${gCoverageDiff.toFixed(3)} Σ residual=${gResidual.toFixed(3)} ` +
+        `worstSectionResidual=${worstResidual.toFixed(3)} (residual gate: |·|<0.05/section)`,
+    )
+
     // Top-15 largest-magnitude RAW (unexplained) deltas across all sections.
     const rawUnexplained = allDiffs
       .filter((d) => d.label === 'raw' && Math.abs(d.delta) > AREA_EPS)
@@ -405,6 +479,7 @@ describe('v1↔v2 A/B parity diag', () => {
         labelledDoublePaint: gDoublePaint,
         labelledVacancyHole: gVacancy,
       },
+      reconciliation: reconciliations,
       diffs: allDiffs,
     }
     writeFileSync(OUT, JSON.stringify(dump, null, 2), 'utf8')
