@@ -370,27 +370,6 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // for the base. The edit is merged with any prior edit on the same idx
   // so dragging the same layer twice composes. Writes to the focused
   // anchor's entry in the unified Map (debt #77).
-  const handleEditLithoSuggestion = useCallback(
-    (idx: number, edit: LithoSuggestionEdit): void => {
-      setGhostsByAnchor(prev => {
-        const focusedId = focusedSuggestAnchorIdRef.current
-        if (focusedId === null) return prev
-        const existing = prev.get(focusedId)
-        if (!existing) return prev
-        // applyCrossMergeOnDrag detects whether the depth edit crossed a
-        // pending neighbour's boundary (plain-drag cross-merge — no Shift
-        // required). When a cross occurred it returns absorbLithoLayer's
-        // result (neighbour removed, dragger extended); when not, it
-        // returns a plain depth-edit ghost identical to the prior merge.
-        const updated = applyCrossMergeOnDrag(existing, idx, edit)
-        const next = new Map(prev)
-        next.set(focusedId, updated)
-        return next
-      })
-    },
-    [],
-  )
-
   /**
    * Returns the depth-effective layer for a suggestion index — original
    * suggestion with any user edits applied. Used at accept time so the
@@ -639,9 +618,11 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
-        // Same cross-merge logic as the focused-anchor path — plain drag
-        // on a bulk-suggest ghost also auto-absorbs on release when the
-        // dragged edge crosses a pending neighbour's boundary.
+        // applyCrossMergeOnDrag detects whether the depth edit crossed a
+        // pending neighbour's boundary (plain-drag cross-merge — no Shift
+        // required). When a cross occurred it returns absorbLithoLayer's
+        // result (neighbour removed, dragger extended); when not, it
+        // returns a plain depth-edit ghost identical to the prior merge.
         const updated = applyCrossMergeOnDrag(existing, idx, edit)
         const next = new Map(prev)
         next.set(anchorId, updated)
@@ -649,6 +630,19 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       })
     },
     [],
+  )
+
+  /**
+   * Focused-anchor flavour of ``handleEditBulkLitho`` (audit FE-HOOKS-06):
+   * resolves the focused anchor and delegates. No-op when nothing is focused.
+   */
+  const handleEditLithoSuggestion = useCallback(
+    (idx: number, edit: LithoSuggestionEdit): void => {
+      const focusedId = focusedSuggestAnchorIdRef.current
+      if (focusedId === null) return
+      handleEditBulkLitho(focusedId, idx, edit)
+    },
+    [handleEditBulkLitho],
   )
 
   // Debt #85: insert a new pending litho layer at the shared boundary
@@ -1302,43 +1296,28 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     ],
   )
 
+  // Focused-anchor flavour of ``handleRejectBulkLitho`` (audit FE-HOOKS-06):
+  // resolves the focused anchor and delegates (debt #77 unified Map).
   const handleRejectLithoSuggestion = useCallback((idx: number): void => {
-    // Update the focused entry in the unified Map (debt #77).
     const focusedId = focusedSuggestAnchorIdRef.current
     if (focusedId !== null) {
-      _updateGhostEntry(focusedId, existing => {
-        const nextRejected = new Set(existing.rejected)
-        nextRejected.add(idx)
-        return { rejected: nextRejected }
-      })
+      handleRejectBulkLitho(focusedId, idx)
     }
     log.debug('geology', `rejectLithoSuggestion idx=${idx}`)
-  // reason: focusedSuggestAnchorIdRef is a ref (always current); _updateGhostEntry
-  // is a stable useCallback with an empty dep array.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [_updateGhostEntry])
+  }, [handleRejectBulkLitho])
 
   /**
    * Undo a prior reject — return the ghost layer to pending state.
    * Debt #80 (2026-05-20 dogfeed). No-op when idx wasn't rejected.
+   * Focused-anchor flavour of ``handleUnrejectBulkLitho`` (FE-HOOKS-06).
    */
   const handleUnrejectLithoSuggestion = useCallback((idx: number): void => {
-    // Direct setState (not _updateGhostEntry): the guard `!rejected.has(idx)`
-    // returns `prev` unchanged, preserving Map identity and skipping a re-render.
-    // _updateGhostEntry always produces a new Map so it cannot short-circuit here.
-    setGhostsByAnchor(prev => {
-      const focusedId = focusedSuggestAnchorIdRef.current
-      if (focusedId === null) return prev
-      const existing = prev.get(focusedId)
-      if (!existing || !existing.rejected.has(idx)) return prev
-      const nextRejected = new Set(existing.rejected)
-      nextRejected.delete(idx)
-      const next = new Map(prev)
-      next.set(focusedId, { ...existing, rejected: nextRejected })
-      return next
-    })
+    const focusedId = focusedSuggestAnchorIdRef.current
+    if (focusedId !== null) {
+      handleUnrejectBulkLitho(focusedId, idx)
+    }
     log.debug('geology', `unrejectLithoSuggestion idx=${idx}`)
-  }, [])
+  }, [handleUnrejectBulkLitho])
 
   // ---------- Bulk-suggest fan-out + accept (debt #73) ----------
 
