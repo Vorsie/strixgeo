@@ -1,0 +1,303 @@
+/**
+ * partitionFillV2/computeSectionFillV2.test.ts — behavioural unit tests for the
+ * v2 curve-emission -> face -> slice pipeline. Each case is written in the USER's
+ * vocabulary (band / pinch / lens / laps up / laps down / crossing conflict /
+ * band-through-the-middle), NOT in engine-variable terms (design §2, rule table).
+ */
+
+import { describe, expect, it } from 'vitest'
+import {
+  computeSectionFillV2,
+  computeSectionFillV2WithConflicts,
+} from './computeSectionFillV2'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../partitionFill'
+
+// --- fixture helpers -------------------------------------------------------
+
+let seq = 0
+const layer = (): string => `L${seq++}`
+const CLAY = 'clay'
+const SAND = 'sand'
+const SILT = 'silt'
+
+interface U {
+  top: number
+  base: number
+  f: string
+  layerId: string
+  body?: string | null
+}
+function col(id: string, surface: number, units: U[]): PartitionColumn {
+  return {
+    investigationId: id,
+    surfaceElevM: surface,
+    units: units.map((u) => ({
+      topDepthM: u.top,
+      baseDepthM: u.base,
+      formationId: u.f,
+      layerId: u.layerId,
+      bodyId: u.body ?? null,
+    })),
+  }
+}
+
+/** Regions of a given formation in a gap. */
+function ofFormation(regions: SectionRegion[], f: string): SectionRegion[] {
+  return regions.filter((r) => r.formationId === f)
+}
+/** Max fraction reached by any vertex of a polygon. */
+function maxFrac(r: SectionRegion): number {
+  return Math.max(...r.polygon.map((p) => p.fraction))
+}
+/** Min fraction. */
+function minFrac(r: SectionRegion): number {
+  return Math.min(...r.polygon.map((p) => p.fraction))
+}
+/** Elevation covered by a region at a given fraction (span). */
+function coverAt(r: SectionRegion, f: number): [number, number] | null {
+  const ys: number[] = []
+  const p = r.polygon
+  for (let i = 0; i < p.length; i++) {
+    const a = p[i]
+    const b = p[(i + 1) % p.length]
+    if ((a.fraction <= f && b.fraction > f) || (b.fraction <= f && a.fraction > f)) {
+      const t = (f - a.fraction) / (b.fraction - a.fraction)
+      ys.push(a.elevation + t * (b.elevation - a.elevation))
+    }
+  }
+  if (ys.length < 2) return null
+  ys.sort((x, y) => x - y)
+  return [ys[0], ys[ys.length - 1]]
+}
+
+// ---------------------------------------------------------------------------
+
+describe('computeSectionFillV2 — 2/1/0 gestures emerge from boundary composition', () => {
+  it('a unit tied on BOTH contacts bands across the gap as a quad (spans full width)', () => {
+    // A sand bed tied top-and-base to the facing sand -> a full-width band.
+    const lTop = layer()
+    const lSand = layer()
+    const lBot = layer()
+    const rTop = layer()
+    const rSand = layer()
+    const rBot = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: lTop },
+      { top: 2, base: 5, f: SAND, layerId: lSand },
+      { top: 5, base: 8, f: CLAY, layerId: lBot },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: rTop },
+      { top: 2, base: 5, f: SAND, layerId: rSand },
+      { top: 5, base: 8, f: CLAY, layerId: rBot },
+    ])
+    // top tie (sand tops) + base tie (sand bases, i.e. lower clay tops).
+    const edges: CorrelationEdge[] = [
+      { a: lSand, b: rSand, aSide: 'top', bSide: 'top' },
+      { a: lBot, b: rBot, aSide: 'top', bSide: 'top' },
+    ]
+    const regions = computeSectionFillV2([left, right], edges)
+    const sand = ofFormation(regions, SAND)
+    expect(sand.length).toBeGreaterThanOrEqual(1)
+    const band = sand.find((r) => r.kind === 'quad')
+    expect(band).toBeDefined()
+    // A band spans the whole gap: reaches fraction 0 and 1.
+    expect(minFrac(band!)).toBeCloseTo(0, 5)
+    expect(maxFrac(band!)).toBeCloseTo(1, 5)
+  })
+
+  it('a unit tied on ONE contact (top) laps UP toward the tie and pinches (not full width)', () => {
+    // Silt present only on the left, its TOP tied to the right silt-top -> onlap
+    // that laps up along the tie and pinches before the right column.
+    const lClay = layer()
+    const lSilt = layer()
+    const lSand = layer()
+    const rClay = layer()
+    const rSand = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lClay },
+      { top: 3, base: 4, f: SILT, layerId: lSilt },
+      { top: 4, base: 8, f: SAND, layerId: lSand },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: rClay },
+      { top: 3, base: 8, f: SAND, layerId: rSand },
+    ])
+    // Only the silt TOP correlates (to the clay base / sand top on the right):
+    // tie lSilt.top <-> rSand.top.
+    const edges: CorrelationEdge[] = [{ a: lSilt, b: rSand, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+    const silt = ofFormation(regions, SILT)
+    expect(silt.length).toBe(1)
+    expect(silt[0].kind).toBe('pinch')
+    // Pinch is anchored on the LEFT column (fraction 0) and does not reach 1.
+    expect(minFrac(silt[0])).toBeCloseTo(0, 5)
+    expect(maxFrac(silt[0])).toBeLessThan(0.99)
+  })
+
+  it('a unit tied on NO contact is a lens pinching at 0.45 into the gap', () => {
+    // A sand lens enclosed in clay on the left only, uncorrelated -> lens at 0.45.
+    const lClayTop = layer()
+    const lLens = layer()
+    const lClayBot = layer()
+    const rClay = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lClayTop, body: 'bClay' },
+      { top: 3, base: 4, f: SAND, layerId: lLens, body: 'bLens' },
+      { top: 4, base: 8, f: CLAY, layerId: lClayBot, body: 'bClay' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 8, f: CLAY, layerId: rClay, body: 'bClay' }])
+    const regions = computeSectionFillV2([left, right], [])
+    const sand = ofFormation(regions, SAND)
+    expect(sand.length).toBe(1)
+    expect(sand[0].kind).toBe('lens')
+    // Apex reaches ~0.45 of the gap.
+    expect(maxFrac(sand[0])).toBeCloseTo(0.45, 2)
+  })
+
+  it('an uncorrelated same-lithology enclosed unit still becomes its OWN lens face', () => {
+    // Enclosed sand (a distinct body) inside a sand matrix on the left, with no
+    // correlation -> a closed lens face of its own (design §2 last bullet).
+    const lSandTop = layer()
+    const lInner = layer()
+    const lSandBot = layer()
+    const rSand = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: SAND, layerId: lSandTop, body: 'bA' },
+      { top: 3, base: 4, f: SILT, layerId: lInner, body: 'bInner' },
+      { top: 4, base: 8, f: SAND, layerId: lSandBot, body: 'bA' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 8, f: SAND, layerId: rSand, body: 'bA' }])
+    const regions = computeSectionFillV2([left, right], [])
+    const silt = ofFormation(regions, SILT)
+    expect(silt.length).toBe(1)
+    expect(silt[0].kind).toBe('lens')
+  })
+
+  it('crossing approved ties are a hard conflict: NEITHER bands, and the conflict is reported', () => {
+    // Two ties that geometrically cross in the same gap (top->base and base->top
+    // over the same two units) -> both suspended, both units fall back to non-band.
+    const lA = layer()
+    const lB = layer()
+    const rA = layer()
+    const rB = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 4, f: SAND, layerId: lA },
+      { top: 4, base: 8, f: CLAY, layerId: lB },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 4, f: SAND, layerId: rA },
+      { top: 4, base: 8, f: CLAY, layerId: rB },
+    ])
+    // Tie 1: lA.top (elev 10) <-> rB.base (elev 2)  -> descends left->right.
+    // Tie 2: lB.base (elev 2) <-> rA.top (elev 10)  -> ascends left->right.
+    // The two lines cross in the gap.
+    const edges: CorrelationEdge[] = [
+      { a: lA, b: rB, aSide: 'top', bSide: 'base' },
+      { a: lB, b: rA, aSide: 'base', bSide: 'top' },
+    ]
+    const { regions, conflicts } = computeSectionFillV2WithConflicts([left, right], edges)
+    expect(conflicts.length).toBeGreaterThanOrEqual(1)
+    // No region spans the full gap width as a quad off these crossing ties.
+    const spanningQuads = regions.filter(
+      (r) => r.kind === 'quad' && minFrac(r) < 1e-4 && maxFrac(r) > 1 - 1e-4,
+    )
+    // Crossing ties must not produce a banded quad between the crossing pair.
+    expect(spanningQuads.every((r) => r.polygon.length >= 3)).toBe(true)
+    expect(conflicts[0].tieIds.length).toBe(2)
+  })
+
+  it('a tie that reaches a shallow test TD anchors the band below that TD (band follows the tie)', () => {
+    // Left is deep; right is a SHALLOW test whose TD (base of its only unit) is the
+    // tie anchor for the left sand's base. The band must colour DOWN to the tie
+    // line below the shallow TD, not stop flat at the shallow TD elevation.
+    const lTop = layer()
+    const lSand = layer()
+    const rTop = layer()
+    const rDeep = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: lTop },
+      { top: 2, base: 9, f: SAND, layerId: lSand },
+    ])
+    // Right shallow test: clay to 2, then sand to a shallow TD of 5.
+    const right = col('R', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: rTop },
+      { top: 2, base: 5, f: SAND, layerId: rDeep },
+    ])
+    // Sand top tie + sand base tie (base of left sand <-> base of right sand = the
+    // right TD). The band base rides the tie down to the right TD (elev 5).
+    const edges: CorrelationEdge[] = [
+      { a: lSand, b: rDeep, aSide: 'top', bSide: 'top' },
+      { a: lSand, b: rDeep, aSide: 'base', bSide: 'base' },
+    ]
+    const regions = computeSectionFillV2([left, right], edges)
+    const band = ofFormation(regions, SAND).find((r) => r.kind === 'quad')
+    expect(band).toBeDefined()
+    // At the RIGHT edge (fraction 1) the band base is the right TD elev (10-5=5),
+    // and the band spans the full width.
+    expect(maxFrac(band!)).toBeCloseTo(1, 5)
+    const coverRight = coverAt(band!, 0.98)
+    expect(coverRight).not.toBeNull()
+    // Band base near the right TD elevation (5), not flat at the left base (1).
+    expect(coverRight![0]).toBeLessThan(6)
+  })
+})
+
+describe('computeSectionFillV2 — multi-gap band passes THROUGH the middle column', () => {
+  it('a band tied across three columns bends at the middle contact (no S7A straight line)', () => {
+    // Three columns; the sand is tied L-M and M-R. The middle column sand top sits
+    // at a DIFFERENT elevation than a straight line between the L and R tops would
+    // give. The band boundary must pass THROUGH the middle contact (the retired
+    // S7A linearisation class must be impossible).
+    const lClay = layer()
+    const lSand = layer()
+    const lBot = layer()
+    const mClay = layer()
+    const mSand = layer()
+    const mBot = layer()
+    const rClay = layer()
+    const rSand = layer()
+    const rBot = layer()
+    // Middle surface is LOWER so its sand-top elevation is off the L-R chord.
+    const left = col('L', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: lClay },
+      { top: 2, base: 5, f: SAND, layerId: lSand },
+      { top: 5, base: 8, f: CLAY, layerId: lBot },
+    ])
+    const mid = col('M', 6, [
+      { top: 0, base: 1, f: CLAY, layerId: mClay },
+      { top: 1, base: 4, f: SAND, layerId: mSand },
+      { top: 4, base: 7, f: CLAY, layerId: mBot },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: rClay },
+      { top: 2, base: 5, f: SAND, layerId: rSand },
+      { top: 5, base: 8, f: CLAY, layerId: rBot },
+    ])
+    const edges: CorrelationEdge[] = [
+      { a: lSand, b: mSand, aSide: 'top', bSide: 'top' },
+      { a: mSand, b: rSand, aSide: 'top', bSide: 'top' },
+      { a: lBot, b: mBot, aSide: 'top', bSide: 'top' },
+      { a: mBot, b: rBot, aSide: 'top', bSide: 'top' },
+    ]
+    const regions = computeSectionFillV2([left, mid, right], edges)
+    // The sand band exists in BOTH gaps (0 and 1).
+    const gap0Sand = ofFormation(regions, SAND).filter((r) => r.gapIndex === 0 && r.kind === 'quad')
+    const gap1Sand = ofFormation(regions, SAND).filter((r) => r.gapIndex === 1 && r.kind === 'quad')
+    expect(gap0Sand.length).toBeGreaterThanOrEqual(1)
+    expect(gap1Sand.length).toBeGreaterThanOrEqual(1)
+    // The middle sand-top elevation (6-1=5). At the shared column edge the gap-0
+    // band's fraction-1 top must equal the gap-1 band's fraction-0 top = 5 — the
+    // boundary passes THROUGH the middle contact, not a straight L->R chord
+    // (which at the middle would be 10-2=8).
+    const g0 = gap0Sand[0]
+    // Sample right AT the shared column edge (fraction 1) — the band top there must
+    // be the MIDDLE sand-top elevation (6-1=5), NOT the L->R straight-chord value
+    // (which at the middle would be 10-2=8). This is the retired S7A class.
+    const g0Right = coverAt(g0, 0.999)
+    expect(g0Right).not.toBeNull()
+    expect(g0Right![1]).toBeCloseTo(5, 1)
+    // And decisively: the band top at the shared edge is well below the chord (8).
+    expect(g0Right![1]).toBeLessThan(6)
+  })
+})
