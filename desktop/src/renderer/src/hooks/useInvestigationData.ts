@@ -26,6 +26,229 @@ import type { UndoCommand } from './useUndoStack'
 import type { DovImportState, PendingPin } from './useDovImportStream'
 import { useDovImportStream } from './useDovImportStream'
 
+// ---------------------------------------------------------------------------
+// Kind-parameterised hide / restore / elevation helpers (audit 2026-07-12
+// FE-HOOKS-11). The CPT and borehole handler pairs were the same control
+// flow differing only in the review kind + which state slice they touch;
+// each pair is one shared implementation with two thin wrappers in the hook
+// (public API unchanged).
+// ---------------------------------------------------------------------------
+
+/** Review-row kind discriminator shared by the helpers below. */
+type InvestigationKind = 'cpt' | 'borehole'
+
+/** Log-label per kind (`hide-CPT upserts failed`, `restore-borehole ...`). */
+const KIND_LOG_LABEL: Record<InvestigationKind, string> = {
+  cpt: 'CPT',
+  borehole: 'borehole',
+}
+
+/**
+ * Clear ids from the removed-set and flip the server-side ``is_hidden`` off.
+ *
+ * Re-importing or re-fetching a record is an explicit "make this visible
+ * again" signal. Without this a 409-duplicate import returns the existing id
+ * but the sidebar's removed-filter keeps it hidden and the user sees no
+ * change.
+ *
+ * ``touched`` is computed from the CURRENT removed-set BEFORE calling
+ * setState. A React 18 functional updater is deferred to the render phase,
+ * so a ``touched`` array mutated inside the updater is still empty when read
+ * synchronously below — that silently skipped the is_hidden upsert, so a
+ * 409-re-imported CPT came back hidden on the next project load (the exact
+ * failure this logic exists to prevent). Reads state directly, mirroring
+ * ``restoreAllInvestigations``.
+ *
+ * Parameters
+ * ----------
+ * ids : Iterable<string>
+ *     Candidate ids to unhide (only ones actually in the removed-set count).
+ * kind : InvestigationKind
+ *     Review-row kind for the upsert.
+ * removedIds : ReadonlySet<string>
+ *     The kind's current removed-set.
+ * setRemovedIds : Dispatch<SetStateAction<Set<string>>>
+ *     The kind's removed-set setter.
+ * projectId : string | null
+ *     Active project id; the server upsert is skipped when null (the local
+ *     removed-set is still updated, matching the historical behaviour).
+ */
+function unhideInvestigations(
+  ids: Iterable<string>,
+  kind: InvestigationKind,
+  removedIds: ReadonlySet<string>,
+  setRemovedIds: Dispatch<SetStateAction<Set<string>>>,
+  projectId: string | null,
+): void {
+  const touched = Array.from(ids).filter(id => removedIds.has(id))
+  if (touched.length === 0) return
+  setRemovedIds(prev => {
+    const next = new Set(prev)
+    for (const id of touched) next.delete(id)
+    return next
+  })
+  if (!projectId) return
+  void Promise.allSettled(
+    touched.map(id => api.review.upsert(projectId, kind, id, { is_hidden: false })),
+  )
+}
+
+/**
+ * Project-local hide: add ids to the removed-set, deselect the current
+ * investigation when it is among them, and flip ``is_hidden`` on
+ * server-side. Upsert failures are logged, not surfaced — hide is a
+ * reversible action.
+ *
+ * Parameters
+ * ----------
+ * cfg.ids : string[]
+ *     Ids to hide.
+ * cfg.kind : InvestigationKind
+ *     Review-row kind for the upsert.
+ * cfg.projectId : string
+ *     Active project id.
+ * cfg.setRemovedIds : Dispatch<SetStateAction<Set<string>>>
+ *     The kind's removed-set setter.
+ * cfg.selectedId : string | null
+ *     The currently selected investigation of this kind, if any.
+ * cfg.deselect : () => void
+ *     Clears the selection + navigates back to the map.
+ */
+function removeInvestigations(cfg: {
+  ids: string[]
+  kind: InvestigationKind
+  projectId: string
+  setRemovedIds: Dispatch<SetStateAction<Set<string>>>
+  selectedId: string | null
+  deselect: () => void
+}): void {
+  const { ids, kind, projectId, setRemovedIds, selectedId, deselect } = cfg
+  setRemovedIds(prev => {
+    const next = new Set(prev)
+    for (const id of ids) next.add(id)
+    return next
+  })
+  if (selectedId && ids.includes(selectedId)) {
+    deselect()
+  }
+  void Promise.allSettled(
+    ids.map(id => api.review.upsert(projectId, kind, id, { is_hidden: true })),
+  ).then(results => {
+    const failed = results.filter(r => r.status === 'rejected').length
+    if (failed > 0) {
+      log.warn(
+        'reviews',
+        `${failed}/${ids.length} hide-${KIND_LOG_LABEL[kind]} upserts failed`,
+      )
+    }
+  })
+}
+
+/**
+ * Restore every hidden id of one kind: empty the removed-set and flip
+ * ``is_hidden`` off server-side for each formerly hidden row.
+ *
+ * Parameters
+ * ----------
+ * kind : InvestigationKind
+ *     Review-row kind for the upsert.
+ * removedIds : ReadonlySet<string>
+ *     The kind's current removed-set (snapshotted before it is emptied).
+ * setRemovedIds : Dispatch<SetStateAction<Set<string>>>
+ *     The kind's removed-set setter.
+ * projectId : string
+ *     Active project id.
+ */
+function restoreAllInvestigations(
+  kind: InvestigationKind,
+  removedIds: ReadonlySet<string>,
+  setRemovedIds: Dispatch<SetStateAction<Set<string>>>,
+  projectId: string,
+): void {
+  const ids = Array.from(removedIds)
+  setRemovedIds(new Set())
+  void Promise.allSettled(
+    ids.map(id => api.review.upsert(projectId, kind, id, { is_hidden: false })),
+  ).then(results => {
+    const failed = results.filter(r => r.status === 'rejected').length
+    if (failed > 0) {
+      log.warn(
+        'reviews',
+        `${failed}/${ids.length} restore-${KIND_LOG_LABEL[kind]} upserts failed`,
+      )
+    }
+  })
+}
+
+/**
+ * Shared elevation-patch skeleton: PATCH → apply → undo/redo closures.
+ *
+ * The per-kind ``apply`` updates the list row + detail cache — the one part
+ * that genuinely differs between CPT (detail-cache entry replaced with the
+ * full PATCH response) and borehole (detail patched in place so the lab-test
+ * children / drill segments are untouched). The undo closures capture the
+ * project id as a plain string so they don't close over the reactive
+ * project reference (avoids a stale closure if the user switches projects
+ * while an undo is pending).
+ *
+ * Parameters
+ * ----------
+ * cfg.id : string
+ *     Investigation id.
+ * cfg.projectId : string
+ *     Active project id (captured into the undo closures).
+ * cfg.elevationM / cfg.zEpsg
+ *     The new elevation value + vertical CRS.
+ * cfg.before
+ *     Pre-edit list row (snapshot for undo), if present.
+ * cfg.patch
+ *     The kind's PATCH call (``api.cpt.patchElevation`` / borehole).
+ * cfg.apply
+ *     Applies a PATCH response to the kind's list + detail-cache state.
+ * cfg.logKind : InvestigationKind
+ *     Log channel.
+ * cfg.undoDescription : string
+ *     Undo-stack entry description.
+ * cfg.pushUndo
+ *     The undo-stack push.
+ */
+async function patchInvestigationElevation<R>(cfg: {
+  id: string
+  projectId: string
+  elevationM: number | null
+  zEpsg: number | null
+  before: { elevation_m: number | null; z_epsg: number | null } | undefined
+  patch: (
+    id: string,
+    projectId: string,
+    body: { elevation_m: number | null; z_epsg: number | null },
+  ) => Promise<R>
+  apply: (id: string, resp: R) => void
+  logKind: InvestigationKind
+  undoDescription: string
+  pushUndo: (cmd: UndoCommand) => void
+}): Promise<void> {
+  const { id, projectId, elevationM, zEpsg, before, patch, apply, logKind } = cfg
+  // Snapshot pre-edit values from the list so undo can PATCH them back even
+  // if the user has been clicking around between edits.
+  const beforeElev = before?.elevation_m ?? null
+  const beforeZ = before?.z_epsg ?? null
+  const updated = await patch(id, projectId, { elevation_m: elevationM, z_epsg: zEpsg })
+  apply(id, updated)
+  log.info(logKind, `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
+  cfg.pushUndo({
+    description: cfg.undoDescription,
+    revert: async () => {
+      const back = await patch(id, projectId, { elevation_m: beforeElev, z_epsg: beforeZ })
+      apply(id, back)
+    },
+    reapply: async () => {
+      const fwd = await patch(id, projectId, { elevation_m: elevationM, z_epsg: zEpsg })
+      apply(id, fwd)
+    },
+  })
+}
+
 export interface UseInvestigationDataResult {
   // CPT state
   cpts: CptListItem[]
@@ -332,51 +555,24 @@ export function useInvestigationData({
   // Hide / restore
   // ---------------------------------------------------------------------------
 
-  // Re-importing or re-fetching a record is an explicit "make this
-  // visible again" signal — clear its id from the removed-set and flip
-  // the server-side is_hidden flag. Without this a 409-duplicate import
-  // returns the existing id but the sidebar's removed-filter keeps it
-  // hidden and the user sees no change.
+  // Thin per-kind wrappers over the shared kind-parameterised helpers above
+  // (audit FE-HOOKS-11) — public API unchanged.
+
   const unhideCpts = useCallback(
     (ids: Iterable<string>) => {
-      // Compute the touched ids from the CURRENT removed-set BEFORE calling
-      // setState. A React 18 functional updater is deferred to the render
-      // phase, so a `touched` array mutated inside the updater is still empty
-      // when read synchronously below — that silently skipped the is_hidden
-      // upsert, so a 409-re-imported CPT came back hidden on the next project
-      // load (the exact failure this logic exists to prevent). Reads state
-      // directly, mirroring handleRestoreAllCpts.
-      const touched = Array.from(ids).filter(id => removedCptIds.has(id))
-      if (touched.length === 0) return
-      setRemovedCptIds(prev => {
-        const next = new Set(prev)
-        for (const id of touched) next.delete(id)
-        return next
-      })
-      if (!project) return
-      void Promise.allSettled(
-        touched.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
-      )
+      unhideInvestigations(ids, 'cpt', removedCptIds, setRemovedCptIds, project?.id ?? null)
     },
     [project, removedCptIds],
   )
 
   const unhideBoreholes = useCallback(
     (ids: Iterable<string>) => {
-      // See unhideCpts: touched must be computed from current state before the
-      // deferred setState, or the is_hidden=false upsert silently never fires.
-      const touched = Array.from(ids).filter(id => removedBoreholeIds.has(id))
-      if (touched.length === 0) return
-      setRemovedBoreholeIds(prev => {
-        const next = new Set(prev)
-        for (const id of touched) next.delete(id)
-        return next
-      })
-      if (!project) return
-      void Promise.allSettled(
-        touched.map(id =>
-          api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
-        ),
+      unhideInvestigations(
+        ids,
+        'borehole',
+        removedBoreholeIds,
+        setRemovedBoreholeIds,
+        project?.id ?? null,
       )
     },
     [project, removedBoreholeIds],
@@ -387,22 +583,16 @@ export function useInvestigationData({
   const handleRemoveCpts = useCallback(
     (ids: string[]) => {
       if (ids.length === 0 || !project) return
-      setRemovedCptIds(prev => {
-        const next = new Set(prev)
-        for (const id of ids) next.add(id)
-        return next
-      })
-      if (selectedId && ids.includes(selectedId)) {
-        setSelectedId(null)
-        setView('map')
-      }
-      void Promise.allSettled(
-        ids.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: true })),
-      ).then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length
-        if (failed > 0) {
-          log.warn('reviews', `${failed}/${ids.length} hide-CPT upserts failed`)
-        }
+      removeInvestigations({
+        ids,
+        kind: 'cpt',
+        projectId: project.id,
+        setRemovedIds: setRemovedCptIds,
+        selectedId,
+        deselect: () => {
+          setSelectedId(null)
+          setView('map')
+        },
       })
     },
     [project, selectedId, setSelectedId, setView],
@@ -411,24 +601,16 @@ export function useInvestigationData({
   const handleRemoveBoreholes = useCallback(
     (ids: string[]) => {
       if (ids.length === 0 || !project) return
-      setRemovedBoreholeIds(prev => {
-        const next = new Set(prev)
-        for (const id of ids) next.add(id)
-        return next
-      })
-      if (selectedBoreholeId && ids.includes(selectedBoreholeId)) {
-        setSelectedBoreholeId(null)
-        setView('map')
-      }
-      void Promise.allSettled(
-        ids.map(id =>
-          api.review.upsert(project.id, 'borehole', id, { is_hidden: true }),
-        ),
-      ).then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length
-        if (failed > 0) {
-          log.warn('reviews', `${failed}/${ids.length} hide-borehole upserts failed`)
-        }
+      removeInvestigations({
+        ids,
+        kind: 'borehole',
+        projectId: project.id,
+        setRemovedIds: setRemovedBoreholeIds,
+        selectedId: selectedBoreholeId,
+        deselect: () => {
+          setSelectedBoreholeId(null)
+          setView('map')
+        },
       })
     },
     [project, selectedBoreholeId, setSelectedBoreholeId, setView],
@@ -436,32 +618,17 @@ export function useInvestigationData({
 
   const handleRestoreAllCpts = useCallback(() => {
     if (!project) return
-    const ids = Array.from(removedCptIds)
-    setRemovedCptIds(new Set())
-    void Promise.allSettled(
-      ids.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
-    ).then(results => {
-      const failed = results.filter(r => r.status === 'rejected').length
-      if (failed > 0) {
-        log.warn('reviews', `${failed}/${ids.length} restore-CPT upserts failed`)
-      }
-    })
+    restoreAllInvestigations('cpt', removedCptIds, setRemovedCptIds, project.id)
   }, [project, removedCptIds])
 
   const handleRestoreAllBoreholes = useCallback(() => {
     if (!project) return
-    const ids = Array.from(removedBoreholeIds)
-    setRemovedBoreholeIds(new Set())
-    void Promise.allSettled(
-      ids.map(id =>
-        api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
-      ),
-    ).then(results => {
-      const failed = results.filter(r => r.status === 'rejected').length
-      if (failed > 0) {
-        log.warn('reviews', `${failed}/${ids.length} restore-borehole upserts failed`)
-      }
-    })
+    restoreAllInvestigations(
+      'borehole',
+      removedBoreholeIds,
+      setRemovedBoreholeIds,
+      project.id,
+    )
   }, [project, removedBoreholeIds])
 
   // ---------------------------------------------------------------------------
@@ -471,62 +638,35 @@ export function useInvestigationData({
   // Both elevation handlers update three pieces of state in one go:
   // the list (so the sidebar badge clears), the detail-cache entry
   // (so the chart/borelog header reflects the new value without a
-  // re-fetch), and register an undo command.
+  // re-fetch), and register an undo command. The skeleton is the shared
+  // patchInvestigationElevation (FE-HOOKS-11); only the per-kind ``apply``
+  // differs.
   const handlePatchCptElevation = useCallback(
     async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
       if (!project) return
-      // Snapshot pre-edit values from the list so undo can PATCH them
-      // back even if the user has been clicking around between edits.
-      const before = cpts.find(c => c.id === id)
-      const beforeElev = before?.elevation_m ?? null
-      const beforeZ = before?.z_epsg ?? null
-      // Capture project.id in a local so the undo closures below don't
-      // close over the reactive reference (avoids a stale closure if the
-      // user somehow switches projects while an undo is pending).
-      const pid = project.id
-      const updated = await api.cpt.patchElevation(id, pid, {
-        elevation_m: elevationM,
-        z_epsg: zEpsg,
-      })
-      setDetailMap(prev => new Map(prev).set(id, updated))
-      setCpts(prev =>
-        prev.map(c =>
-          c.id === id
-            ? { ...c, elevation_m: updated.elevation_m, z_epsg: updated.z_epsg }
-            : c,
-        ),
-      )
-      log.info('cpt', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
-      pushUndo({
-        description: 'Edit CPT elevation',
-        revert: async () => {
-          const back = await api.cpt.patchElevation(id, pid, {
-            elevation_m: beforeElev,
-            z_epsg: beforeZ,
-          })
-          setDetailMap(prev => new Map(prev).set(id, back))
-          setCpts(prev =>
-            prev.map(c =>
-              c.id === id
-                ? { ...c, elevation_m: back.elevation_m, z_epsg: back.z_epsg }
-                : c,
-            ),
-          )
-        },
-        reapply: async () => {
-          const fwd = await api.cpt.patchElevation(id, pid, {
-            elevation_m: elevationM,
-            z_epsg: zEpsg,
-          })
-          setDetailMap(prev => new Map(prev).set(id, fwd))
-          setCpts(prev =>
-            prev.map(c =>
-              c.id === id
-                ? { ...c, elevation_m: fwd.elevation_m, z_epsg: fwd.z_epsg }
-                : c,
-            ),
-          )
-        },
+      // The CPT PATCH returns the full detail, so the cache entry is
+      // replaced outright.
+      const apply = (cptId: string, resp: CptResponse): void => {
+        setDetailMap(prev => new Map(prev).set(cptId, resp))
+        setCpts(prev =>
+          prev.map(c =>
+            c.id === cptId
+              ? { ...c, elevation_m: resp.elevation_m, z_epsg: resp.z_epsg }
+              : c,
+          ),
+        )
+      }
+      await patchInvestigationElevation({
+        id,
+        projectId: project.id,
+        elevationM,
+        zEpsg,
+        before: cpts.find(c => c.id === id),
+        patch: (i, pid, body) => api.cpt.patchElevation(i, pid, body),
+        apply,
+        logKind: 'cpt',
+        undoDescription: 'Edit CPT elevation',
+        pushUndo,
       })
     },
     [cpts, project, pushUndo],
@@ -535,87 +675,42 @@ export function useInvestigationData({
   const handlePatchBoreholeElevation = useCallback(
     async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
       if (!project) return
-      const before = boreholes.find(b => b.id === id)
-      const beforeElev = before?.elevation_m ?? null
-      const beforeZ = before?.z_epsg ?? null
-      // Capture project.id so undo closures don't close over the
-      // reactive reference (mirrors the CPT elevation handler pattern).
-      const pid = project.id
-      const updated = await api.borehole.patchElevation(id, pid, {
-        elevation_m: elevationM,
-        z_epsg: zEpsg,
-      })
-      setBoreholes(prev =>
-        prev.map(b =>
-          b.id === id
-            ? { ...b, elevation_m: updated.elevation_m, z_epsg: updated.z_epsg }
-            : b,
-        ),
-      )
-      // Patch the detail cache in place — the lab-test children, drill
-      // segments, etc. are unchanged so a full re-fetch is wasteful.
-      setBoreholeDetailMap(prev => {
-        const existing = prev.get(id)
-        if (!existing) return prev
-        const next = new Map(prev)
-        next.set(id, {
-          ...existing,
-          elevation_m: updated.elevation_m,
-          z_epsg: updated.z_epsg,
+      const apply = (
+        bhId: string,
+        resp: { elevation_m: number | null; z_epsg: number | null },
+      ): void => {
+        setBoreholes(prev =>
+          prev.map(b =>
+            b.id === bhId
+              ? { ...b, elevation_m: resp.elevation_m, z_epsg: resp.z_epsg }
+              : b,
+          ),
+        )
+        // Patch the detail cache in place — the lab-test children, drill
+        // segments, etc. are unchanged so a full re-fetch is wasteful.
+        setBoreholeDetailMap(prev => {
+          const existing = prev.get(bhId)
+          if (!existing) return prev
+          const next = new Map(prev)
+          next.set(bhId, {
+            ...existing,
+            elevation_m: resp.elevation_m,
+            z_epsg: resp.z_epsg,
+          })
+          return next
         })
-        return next
-      })
-      log.info('borehole', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
-      pushUndo({
-        description: 'Edit borehole elevation',
-        revert: async () => {
-          const back = await api.borehole.patchElevation(id, pid, {
-            elevation_m: beforeElev,
-            z_epsg: beforeZ,
-          })
-          setBoreholes(prev =>
-            prev.map(b =>
-              b.id === id
-                ? { ...b, elevation_m: back.elevation_m, z_epsg: back.z_epsg }
-                : b,
-            ),
-          )
-          setBoreholeDetailMap(prev => {
-            const existing = prev.get(id)
-            if (!existing) return prev
-            const next = new Map(prev)
-            next.set(id, {
-              ...existing,
-              elevation_m: back.elevation_m,
-              z_epsg: back.z_epsg,
-            })
-            return next
-          })
-        },
-        reapply: async () => {
-          const fwd = await api.borehole.patchElevation(id, pid, {
-            elevation_m: elevationM,
-            z_epsg: zEpsg,
-          })
-          setBoreholes(prev =>
-            prev.map(b =>
-              b.id === id
-                ? { ...b, elevation_m: fwd.elevation_m, z_epsg: fwd.z_epsg }
-                : b,
-            ),
-          )
-          setBoreholeDetailMap(prev => {
-            const existing = prev.get(id)
-            if (!existing) return prev
-            const next = new Map(prev)
-            next.set(id, {
-              ...existing,
-              elevation_m: fwd.elevation_m,
-              z_epsg: fwd.z_epsg,
-            })
-            return next
-          })
-        },
+      }
+      await patchInvestigationElevation({
+        id,
+        projectId: project.id,
+        elevationM,
+        zEpsg,
+        before: boreholes.find(b => b.id === id),
+        patch: (i, pid, body) => api.borehole.patchElevation(i, pid, body),
+        apply,
+        logKind: 'borehole',
+        undoDescription: 'Edit borehole elevation',
+        pushUndo,
       })
     },
     [boreholes, project, pushUndo],
