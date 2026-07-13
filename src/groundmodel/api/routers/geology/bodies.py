@@ -35,12 +35,11 @@ POST /models/{mid}/recompute-all-absences
 
 from __future__ import annotations
 
-from collections import defaultdict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
@@ -71,17 +70,14 @@ from groundmodel.application.body_boundary import (
 )
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
+from groundmodel.application.get_body_geo_labels import GetBodyGeoLabels
 from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
-from groundmodel.domain.services.body_geo_label import majority_geo_formation
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
-from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -89,99 +85,6 @@ from groundmodel.shared.logging.logger_factory import LoggerFactory
 logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter()
-
-
-async def _geo_labels_by_body(
-    session: AsyncSession, litho_model_id: UUID, body_ids: list[UUID]
-) -> dict[UUID, tuple[UUID | None, str | None]]:
-    """Return each body's derived majority geological-formation label.
-
-    A2: the geological name on a body is DERIVED, not stored — the geological
-    formation owning the majority of the body's member-layer thickness,
-    recomputed fresh on every read so it stays correct as bodies merge/split or
-    the geological surfaces are edited. The caller injects the result into the
-    ``BodyListItem`` response.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active database session.
-    litho_model_id : UUID
-        The lithostratigraphic model the bodies belong to; its parent
-        geological model supplies the chrono contacts.
-    body_ids : list[UUID]
-        The bodies to label.
-
-    Returns
-    -------
-    dict[UUID, tuple[UUID | None, str | None]]
-        ``body_id -> (geo_formation_id, geo_formation_name)``. A body absent
-        from the map (or mapped to ``(None, None)``) has no resolvable
-        geological label — e.g. no geological model is defined at its
-        investigations.
-    """
-    if not body_ids:
-        return {}
-
-    litho_model = await session.get(GeologicalModelOrm, litho_model_id)
-    geo_model_id = litho_model.parent_geological_model_id if litho_model else None
-    if geo_model_id is None:
-        return {}
-
-    # Members per body: (investigation_id, depth_top_m, depth_base_m).
-    member_rows = (
-        await session.execute(
-            select(
-                LithoLayerOrm.body_id,
-                func.coalesce(LithoLayerOrm.borehole_id, LithoLayerOrm.cpt_id),
-                LithoLayerOrm.depth_top_m,
-                LithoLayerOrm.depth_base_m,
-            ).where(
-                LithoLayerOrm.body_id.in_(body_ids),
-                LithoLayerOrm.status == "accepted",
-            )
-        )
-    ).all()
-    members_by_body: dict[UUID, list[tuple[UUID, float, float]]] = defaultdict(list)
-    for body_id, inv_id, top, base in member_rows:
-        if body_id is not None and inv_id is not None:
-            members_by_body[body_id].append((inv_id, top, base))
-
-    # Geological contacts grouped per investigation, ascending by depth.
-    contact_rows = (
-        await session.execute(
-            select(
-                func.coalesce(FormationContactOrm.borehole_id, FormationContactOrm.cpt_id),
-                FormationContactOrm.depth_top_m,
-                FormationContactOrm.formation_id,
-            ).where(FormationContactOrm.model_id == geo_model_id)
-        )
-    ).all()
-    geo_contacts_by_inv: dict[UUID, list[tuple[float, UUID]]] = defaultdict(list)
-    for inv_id, depth, fid in contact_rows:
-        if inv_id is not None:
-            geo_contacts_by_inv[inv_id].append((depth, fid))
-    for entries in geo_contacts_by_inv.values():
-        entries.sort(key=lambda t: t[0])
-
-    # Names for whichever geological formations the majority can resolve to.
-    geo_fids = {fid for entries in geo_contacts_by_inv.values() for _, fid in entries}
-    names: dict[UUID, str] = {}
-    if geo_fids:
-        name_rows = (
-            await session.execute(
-                select(GeologicalFormationOrm.id, GeologicalFormationOrm.name).where(
-                    GeologicalFormationOrm.id.in_(geo_fids)
-                )
-            )
-        ).all()
-        names = {fid: name for fid, name in name_rows}
-
-    labels: dict[UUID, tuple[UUID | None, str | None]] = {}
-    for body_id in body_ids:
-        geo_fid = majority_geo_formation(members_by_body.get(body_id, []), geo_contacts_by_inv)
-        labels[body_id] = (geo_fid, names.get(geo_fid) if geo_fid is not None else None)
-    return labels
 
 
 def _to_list_item(body: BodyOrm, geo_label: tuple[UUID | None, str | None]) -> BodyListItem:
@@ -245,7 +148,9 @@ async def list_bodies(
     )
     result = await session.execute(stmt)
     bodies = list(result.scalars().all())
-    labels = await _geo_labels_by_body(session, model_id, [b.id for b in bodies])
+    labels = await GetBodyGeoLabels(session).execute(
+        litho_model_id=model_id, body_ids=[b.id for b in bodies]
+    )
     logger.debug(f"list_bodies: project={project_id} model={model_id} → {len(bodies)} body row(s)")
     return [_to_list_item(b, labels.get(b.id, (None, None))) for b in bodies]
 
