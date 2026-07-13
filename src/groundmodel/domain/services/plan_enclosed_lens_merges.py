@@ -6,15 +6,25 @@ body"). A sand split by a silt/clay that pinches out toward a neighbour is one
 sand; the silt/clay is the lens that wedges out.
 
 This planner finds, per column, each *enclosed lens* — a ``host · lens · host``
-triple where the two bracketing host units share a lithology and the middle unit
-differs — whose lens lithology is **absent on a section-adjacent neighbour where
-the host lithology runs continuously across the lens depth**. That neighbour is
-proof the lens is a TRUE pinch-out, not a continuous interbed. For each such lens
-it returns the cross-column edges joining the bracketing host halves to that
-neighbour's continuous host unit, so the resolver groups them into one body.
+triple where the two bracketing host units share a lithology.
 
-The absent-on-a-neighbour guard is the safety rail: a genuine continuous clay
-interbed (present on every neighbour) is never merged.
+Two cases, by whether the enclosed middle unit shares the host lithology:
+
+* **Different-lithology lens** (e.g. a silt/clay between two sands): the lens
+  keeps its own body. The two bracketing host halves merge, but ONLY when the
+  lens lithology is **absent on a section-adjacent neighbour where the host
+  lithology runs continuously across the lens depth** — that neighbour is proof
+  the lens is a TRUE pinch-out, not a continuous interbed. The returned edges
+  join the bracketing host halves to that neighbour's continuous host unit, so
+  the resolver groups them into one body. The absent-on-a-neighbour guard is
+  the safety rail: a genuine continuous clay interbed (present on every
+  neighbour) is never merged.
+* **Same-lithology lens** (owner ruling 2026-07-13): a lens of the SAME
+  lithology as its bracketing matrix on both sides IS one body with that
+  matrix. The enclosed unit is tied to its own hosts on the same column (no
+  neighbour proof required — a same-soil middle unit is enclosed by its own
+  matrix), so the resolver merges all three into one body_id. This REVERSES
+  the earlier "lens stays its own body" line for the same-litho case only.
 
 Cross-column depth is compared in absolute ELEVATION (mTAW), since adjacent
 investigations have different surface levels. Pure function — no I/O, no DB, no
@@ -107,7 +117,23 @@ def plan_enclosed_lens_merges(
 
         for i in range(1, n - 1):
             host_above, lens, host_below = units[i - 1], units[i], units[i + 1]
-            # Enclosed-lens pattern: same host lithology bracketing a different one.
+            # SAME-FORMATION enclosed lens (owner ruling 2026-07-13): a lens of
+            # the SAME lithology as its bracketing matrix on both sides is one
+            # body with that matrix. Tie the enclosed unit to its own hosts on
+            # this column so the resolver unions all three into one body_id —
+            # no neighbour proof needed (a same-soil middle unit is enclosed by
+            # its own matrix). This REVERSES the old "lens stays its own body"
+            # line for the same-litho case only.
+            if host_above.soil == lens.soil == host_below.soil:
+                for h in (host_above, host_below):
+                    key = (lens.layer_id, h.layer_id)
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(MergeEdge(lens.layer_id, h.layer_id))
+                continue
+            # Enclosed-lens pattern: same host lithology bracketing a DIFFERENT
+            # one. A different-lithology lens keeps its own body — only the
+            # bracketing hosts merge (to the neighbour, below).
             if host_above.soil != host_below.soil or lens.soil == host_above.soil:
                 continue
             host_soil = host_above.soil
