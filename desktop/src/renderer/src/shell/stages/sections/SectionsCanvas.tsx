@@ -52,6 +52,7 @@ import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
+import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 
 /**
  * Center canvas for the Sections stage.
@@ -838,181 +839,24 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack],
   )
 
-  // ---------------------------------------------------------------------------
-  // Geotech packing-correlation handlers (spec Â§5).
-  //
-  // These mirror the litho correlate handlers above but:
-  //   (a) use activeGeotechModel instead of activeLithoModel,
-  //   (b) call requestGeotechLayersRefetch after success so body_id stamps
-  //       re-render (the geotech layer list is the body_id source, not the
-  //       edges themselves).
-  //   (c) do NOT touch litho state (refetchLithoContacts / undoStack pulse),
-  //       keeping the geotech gesture self-contained.
-  //
-  // R1 directive (owner, 2026-06-25): the same-class / same-litho-body
-  // canConnectPacking guard was DROPPED entirely â€” geotech packing ties are
-  // now as permissive as litho's contact-correlate (no class / body /
-  // lithology rejection). The litho-partition frame + the per-region
-  // band/onlap/lens render keep the result sensible; an out-of-region
-  // (nonsense) tie simply doesn't render, exactly like litho.
-  // ---------------------------------------------------------------------------
-
-  const handleCreateGeotechPackingCorrelation = useCallback(
-    async (
-      layerAId: string,
-      layerBId: string,
-      layerASide: 'top' | 'base' = 'top',
-      layerBSide: 'top' | 'base' = 'top',
-    ): Promise<void> => {
-      if (!activeGeotechModel) {
-        log.warn('section', 'packing-connect: no geotech model â€” run Subdivide all bodies first')
-        return
-      }
-      const modelId = activeGeotechModel.id
-      // Clear arm state regardless so the gesture always resets cleanly.
-      const clearArm = () => {
-        setArmedContactId(null)
-        setArmedContactSide('top')
-        setLastTargetTestId(null)
-      }
-      // Self-correlate short-circuit: a band cannot correlate to itself.
-      if (layerAId === layerBId) {
-        log.debug('section', 'packing-connect: self-correlate â€” no-op', { layerAId })
-        clearArm()
-        return
-      }
-      log.info(
-        'section',
-        `packing-connect: linking ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on geotech model ${modelId}`,
-      )
-      try {
-        await api.geology.createContactCorrelation(
-          project.id,
-          modelId,
-          layerAId,
-          layerBId,
-          selectedSectionId,
-          layerASide,
-          layerBSide,
-        )
-        clearArm()
-        await refetchContactEdges()
-        await refetchGeotechPackingEdges()
-        requestGeotechLayersRefetch()
-        markMutated()
-        // Bodies changed â†’ the borehole division is now out of date (amber the
-        // "Divide boreholes" button until the engineer re-divides).
-        markBoreholesStale()
-        toast('success', 'Packing correlation added.')
-        log.success(
-          'section',
-          `packing-connect: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) created on model ${modelId}`,
-        )
-      } catch (err) {
-        log.warn('section', 'handleCreateGeotechPackingCorrelation: POST failed', err)
-        clearArm()
-        // Propagate the server's detail string verbatim (post() throws
-        // new Error(detail.detail) for non-2xx responses, so err.message
-        // IS the server message â€” e.g. CrossLithoBodyCorrelationError).
-        const message =
-          err instanceof Error
-            ? err.message
-            : 'Could not create the packing correlation â€” try again.'
-        toast('error', message)
-      }
-    },
-    [
+  // Geotech packing-correlation handlers (spec §5) — extracted to
+  // useGeotechPackingCorrelation (debt #201 round 2); behaviour unchanged.
+  const { handleCreateGeotechPackingCorrelation, handleDeleteGeotechPackingCorrelation } =
+    useGeotechPackingCorrelation({
       activeGeotechModel,
-      project.id,
+      projectId: project.id,
       selectedSectionId,
       refetchContactEdges,
       refetchGeotechPackingEdges,
       requestGeotechLayersRefetch,
       markMutated,
       toast,
-    ],
-  )
-
-  const handleDeleteGeotechPackingCorrelation = useCallback(
-    async (
-      layerAId: string,
-      layerBId: string,
-      layerASide: 'top' | 'base' = 'top',
-      layerBSide: 'top' | 'base' = 'top',
-    ): Promise<void> => {
-      if (!activeGeotechModel) return
-      const modelId = activeGeotechModel.id
-      log.info(
-        'section',
-        `packing-disconnect: removing ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on geotech model ${modelId}`,
-      )
-      // Optimistic removal â€” mirror the litho handler's filter shape. The
-      // overlay ribbons on the geotech axis read geotechPackingEdges, so the
-      // optimistic edit removes the deleted edge from THAT list (the litho
-      // contactCorrelationEdges list frames the partition and never carries a
-      // geotech edge id â€” filtering it here is a harmless no-op, kept for
-      // parity with the litho handler).
-      const dropEdge = (
-        e: LithoContactCorrelationEdge,
-      ): boolean =>
-        !(
-          (e.layer_a_id === layerAId &&
-            e.layer_b_id === layerBId &&
-            e.layer_a_side === layerASide &&
-            e.layer_b_side === layerBSide) ||
-          (e.layer_a_id === layerBId &&
-            e.layer_b_id === layerAId &&
-            e.layer_a_side === layerBSide &&
-            e.layer_b_side === layerASide)
-        )
-      setContactCorrelationEdges(prev => prev.filter(dropEdge))
-      setGeotechPackingEdges(prev => prev.filter(dropEdge))
-      try {
-        await api.geology.deleteContactCorrelation(
-          project.id,
-          modelId,
-          layerAId,
-          layerBId,
-          selectedSectionId,
-          layerASide,
-          layerBSide,
-        )
-        await refetchContactEdges()
-        await refetchGeotechPackingEdges()
-        requestGeotechLayersRefetch()
-        markMutated()
-        // Bodies changed â†’ the borehole division is now out of date.
-        markBoreholesStale()
-        log.success(
-          'section',
-          `packing-disconnect: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) removed`,
-        )
-      } catch (err) {
-        log.warn(
-          'section',
-          'handleDeleteGeotechPackingCorrelation: DELETE failed â€” rolling back optimistic removal',
-          err,
-        )
-        // markMutated() is intentionally NOT called here: the optimistic edit
-        // is rolled back and the server state is unchanged on a failed delete,
-        // so the project is not actually dirty.
-        await refetchContactEdges()
-        await refetchGeotechPackingEdges()
-        // Refresh geotech layers too (mirrors the success path) so body_id
-        // stamps stay consistent even if an intermediate mutation changed them.
-        requestGeotechLayersRefetch()
-      }
-    },
-    [
-      activeGeotechModel,
-      project.id,
-      selectedSectionId,
-      refetchContactEdges,
-      refetchGeotechPackingEdges,
-      requestGeotechLayersRefetch,
-      markMutated,
-    ],
-  )
+      setArmedContactId,
+      setArmedContactSide,
+      setLastTargetTestId,
+      setContactCorrelationEdges,
+      setGeotechPackingEdges,
+    })
 
   // Right-click a pending correlation edge â†’ "Accept correlation" (dogfeed
   // 2026-05-31).  Single-edge accept: flips user_approved=True on the server,
