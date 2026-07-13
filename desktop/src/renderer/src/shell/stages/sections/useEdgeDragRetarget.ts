@@ -8,7 +8,7 @@
  * creates an extra one (the lens gesture, #31). See the inline comments for
  * the drop-validation and Option-Y approval semantics.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../../../api/client'
 import type {
@@ -118,7 +118,15 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
   // -----------------------------------------------------------------------
 
 
-  const [edgeDrag, setEdgeDrag] = useState<EdgeDragState | null>(null)  // eslint-disable-line -- moved verbatim
+  const [edgeDrag, setEdgeDrag] = useState<EdgeDragState | null>(null)
+
+  // Fresh-read ref: the window-level mouseup must judge the drop against the
+  // CURRENT contact list, not the drag-start snapshot — a refetch completing
+  // mid-drag can reassign the drop target's investigation, and the
+  // same-investigation guard has to see that (review finding 2026-07-13).
+  // Updated every render; read inside handleMouseUp only.
+  const lithoContactsRef = useRef(lithoContacts)
+  lithoContactsRef.current = lithoContacts
 
   const handleUnapprovedDragStart = useCallback(
     (
@@ -205,7 +213,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
         return
       }
       // Reject same-investigation: the server rejects this too, but fail early.
-      const dropContact = lithoContacts.find(c => c.id === dropContactId)
+      const dropContact = lithoContactsRef.current.find(c => c.id === dropContactId)
       const dropInvestigationId = dropContact?.cpt_id ?? dropContact?.borehole_id ?? null
       if (
         edgeDrag.anchorInvestigationId !== null &&
@@ -335,10 +343,9 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
     //   activeLithoModel, projectId, selectedSectionId, the api/log/toast
     //   refs, and markMutated (a stable App useCallback) are stable or
     //   captured in the same closure. lithoContacts is NOT stable (useMemo
-    //   value) — the same-investigation guard deliberately reads the
-    //   snapshot taken at drag start; a refetch completing mid-drag (a
-    //   seconds-wide window, and refetches only fire on mutation completion)
-    //   is accepted rather than re-registering window listeners mid-drag.
+    //   value) — the same-investigation guard reads it through
+    //   lithoContactsRef so a refetch completing mid-drag is respected
+    //   without re-registering window listeners mid-drag.
     //   The cleanup fn removes both listeners with the SAME named function
     //   references captured in this closure, which is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
