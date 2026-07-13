@@ -92,7 +92,7 @@ subdivision is built on top of it. Priority order:
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
   * **#224 — Geotech formation find-or-create DRY pass — RESOLVED 2026-07-13 (B1 dedup batch).** Post-recount outcome: the heavy half resolved **by attrition** when the C1/C2 skeleton flow was deleted (#237.2) — `_find_or_create_classified`, `_find_or_create_skeleton`, and `_resolve_anchor_kinds` (GEOTECH-IMPORT-03) each survive as a SINGLE copy on the shared `GeotechBoreholeMaterialiser` base class, and the admixture-JSONB parse (GEOTECH-IMPORT-08) survives only in `subdivide_all_bodies._formation_admixtures`; single copies were NOT extracted. The still-multi copies were extracted: the nearest-geo-contact-within-tolerance loop ×2 + geo-contacts-at-investigation loader ×2 (GEOTECH-IMPORT-07) → `application/litho_geo_link_helpers.py` (shared by AcceptLithoSuggestions + LinkLithoToGeo); the view-state float-knob readers ×4 live sites (litho snap tolerance / geotech snap tolerance / min thickness / gradient window) → `application/view_state_helpers.py` (`read_view_state_float` + `load_project_view_state`). `_read_min_thickness_m` itself stays a 1-copy thin wrapper over the shared reader. Any future 2nd copy of the find-or-create pair belongs on the materialiser base class, not a new module.
-* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #222, #229, #232, #234, #235, #236 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231/#233 are Tier-G/pre-gate; #237 is the owner-decision batch)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #222, #229, #234, #235, #236 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #237 is the owner-decision batch)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -5908,42 +5908,41 @@ synthetic contacts) needs a 2-section integration fixture to pin RED first.
 **When to revisit.** Next litho backend touch, or before dogfeeding wedge tips
 on any project with 2+ sections.
 
-## 232. Post-accept pipeline ×4 in useLithoSuggestions — extract the shared tail (Tier E — frontend DRY, M)
+## 232. ~~Post-accept pipeline ×4 in useLithoSuggestions — extract the shared tail~~ — RESOLVED 2026-07-13
 
-**What.** Prior-audit DRY-07 grown: four accept handlers repeat the same 9-step
-tail (accept call → recordCreatedRows → parent-summary toast → stale-TIN
-aggregation → onSectionUpdated → accepted-mark → refetches → undo push), already
-drifted. Verifier-corrected scope (2026-07-12, FE-HOOKS-04): extract one
-`commitAcceptResult` helper; populate `contactIdsByAcceptedIdx` in BOTH
-one-layer paths (single already does; add bulk-single); leave the accept-all /
-batch multi-layer population as the documented `useBoundaryDrag` fallback OR
-design the idx→contact association deliberately (needs a backend ordering
-contract — not a free side effect). Fix the stale `BulkAnchorGhost` doc at
-`useGeologicalModel.ts:180-186` claiming three handlers populate the map.
+**Was.** Prior-audit DRY-07 grown: four accept handlers repeated the same
+post-accept tail, already drifted; `contactIdsByAcceptedIdx` doc claimed three
+populating handlers while only one did (audit 2026-07-12, FE-HOOKS-04).
 
-**Why deferred.** M-effort refactor in the most-mocked hook; must not land
-under a live dogfeed.
+**Resolution (`f6bfc81eb` + `fb8e2af74`, B2 batch).** One `commitAcceptTail`
+useCallback owns the tail (recordCreatedRows → updated_section forward →
+ghost accepted-mark → refetches → pushAcceptLithoUndo) across all four
+handlers; `handleAcceptBulkLitho` (the second one-layer path) now populates
+`contactIdsByAcceptedIdx` by identity like the focused single accept; the
+multi-layer paths deliberately keep the documented `useBoundaryDrag`
+depth-tolerance fallback (idx→contact association needs a backend ordering
+contract — owner decision still pending); the stale `BulkAnchorGhost` doc now
+describes the real state. Note: the audit's parent-summary-toast + stale-TIN
+steps had already been removed by `b77be9871` — the live tail is 5 steps.
+Same batch (`22e114f31`, FE-HOOKS-06): the focused reject/unreject/edit
+handlers folded into thin wrappers over their bulk siblings.
 
-**When to revisit.** Next useLithoSuggestions feature touch — the fifth copy is
-the hard trigger.
+## 233. ~~Geotech/Litho/Geology canvas triplication — extract the shared 3D-view plumbing~~ — RESOLVED 2026-07-13
 
-## 233. Geotech/Litho/Geology canvas triplication — extract the shared 3D-view plumbing (Tier G — frontend DRY, M)
+**Was.** `GeotechnicalCanvas` was a ~350-line admitted-verbatim copy of
+`LithologyCanvas`; `GeologyCanvas` carried a third copy of the split-state +
+ground-surface blocks; the per-section approved-edge fetch was duplicated
+twice WITHIN each canvas (audit 2026-07-12, FE-SHELL-CLIENTS-10 + -11).
 
-**What.** `GeotechnicalCanvas` is a ~350-line admitted-verbatim copy of
-`LithologyCanvas` (module-ref trio, split state, ground-surface fetch effect,
-fence-edge fetch, voxel-build callback, view-pill JSX — byte-equal modulo
-identifiers); `GeologyCanvas` carries a third copy of the split-state +
-ground-surface blocks. Every fence/voxel fix currently needs 2–3 synchronized
-edits (audit 2026-07-12, FE-SHELL-CLIENTS-10 + -11: the per-section edge fetch
-is also duplicated twice WITHIN each canvas — 4 copies total). Fix shape: a
-`useBody3DViewState` hook + `<BodyViewModePills>` component + a
-`makeVoxelRequestBuilder` factory.
-
-**Why deferred.** Geotech stage is mid-dogfeed; canvas extraction under a live
-visual-verification cycle risks masking render regressions.
-
-**When to revisit.** First fence/voxel bug that needs the same fix in two
-canvases — do the extraction as the fix.
+**Resolution (`6c5823a3c`…`a15ea3205`, B2 batch).** New
+`shell/stages/shared/`: `useBody3DViewState` (view mode + wireframe + split
+state + ground-surface fetch + lazy fence-edge fetch + fence memos +
+voxel-ref unmount-null; Geology passes `fenceActive: false` so the fence
+machinery stays inert), `BodyViewModePills` (Solid/Fence/Wireframe pills +
+empty-fence hint, testid-prefix parameterised), `makeVoxelRequestBuilder`
+(the ~45-line async voxel callback) and `fetchApprovedEdgesBySection` (the
+4-copy fan-out). All three canvases wired; testids, hint copy, module refs
+and effect semantics unchanged (behaviour-preserving; full vitest green).
 
 ## 234. DHMVII dual WCS client — route the section line-profile through the provider stack (Tier E — backend, M)
 
