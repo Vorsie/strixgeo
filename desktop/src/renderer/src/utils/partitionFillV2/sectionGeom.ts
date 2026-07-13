@@ -26,6 +26,27 @@ import {
 } from '../partitionFill'
 import { closeColumnGaps } from '../partitionFill/columnReduce'
 
+/**
+ * Whether to extract enclosed lenses (matrix merge + lens-as-HOLE face) vs. let an
+ * enclosed minority flow through the ordinary 0-tied lens closing path.
+ *
+ * Held OFF (increment-3 evaluation, 2026-07-13). Re-enabling it was tried once the
+ * substrate bridges closed the deep matrix bands (design §4 said the hole path was
+ * blocked exactly on that floor). Result: NET NEGATIVE and still buggy —
+ *   - it broke the two pure synthetic lens unit tests ("a unit tied on NO contact
+ *     is a lens", "an uncorrelated same-lithology enclosed unit is its OWN lens"),
+ *     so the extraction path mis-shapes even the clean case;
+ *   - on the 14 real sections it fixed ONE above-TD-hole section (Tie-section 5,
+ *     -22) but introduced FALSE lens×pinch overlaps on two others (Tie-section 6,
+ *     Cross-section 3, ~28 cm), and did NOT touch the dominant pinch-vacancy holes
+ *     (Tie-sections 10/12, Cross-section 1) — those are a different root cause (see
+ *     the STAGE-4 note at the call site).
+ * So the ordinary 0-tied lens path stays the shipped behaviour; the extraction
+ * machinery is kept, wired, and guarded for a future dedicated pass that first
+ * fixes its pure-case geometry.
+ */
+const ENABLE_ENCLOSED_LENS = false
+
 /** One unit with precomputed elevations (mTAW) plus its litho identity. */
 export interface UnitGeom {
   layerId: string
@@ -119,16 +140,19 @@ export function buildSectionInput(
       topElev: c.surfaceElevM - u.topDepthM,
       baseElev: c.surfaceElevM - u.baseDepthM,
     }))
-    // Enclosed-lens extraction (matrix merge + lens-as-hole) is DEFERRED: it only
-    // yields a true partition when the enclosing matrix band is itself a CLOSED
-    // face, which requires the deep-to-deep substrate floor (increment 3). Without
-    // it, an untied matrix band has no bottom boundary and the lens-as-hole
-    // produces malformed faces. Until then, an enclosed minority flows through the
-    // ordinary 0-tied -> lens closing path in ``emitCurves`` (a lens overlay on the
-    // matrix band, matching v1). ``extractEnclosedLenses`` is kept, unused, for the
-    // increment-3 wiring.
-    void extractEnclosedLenses
-    const enclosedLenses: EnclosedLens[] = []
+    // Enclosed-lens extraction (matrix merge + lens-as-hole) — guarded OFF; see the
+    // ``ENABLE_ENCLOSED_LENS`` doc for the increment-3 evaluation. STAGE-4 note: the
+    // DOMINANT above-TD "pinch-vacancy" holes on the real sections are NOT an
+    // enclosed-lens problem — they are uncorrelated same-formation matrix strips
+    // that v1 auto-banded (implicit same-formation connect) but v2 (edge-driven,
+    // design §2) leaves as LENS pinches, so the vacated space between the pinch
+    // apexes is genuinely empty (up to ~48 % of a gap's above-TD envelope on
+    // Tie-section 10). Whether that space SHOULD fill (implicit same-formation
+    // banding) or STAY empty (owner "correlate-or-gap" model) is a model-semantics
+    // decision (Track 2 / owner), not an engine bug this increment resolves.
+    const enclosedLenses = ENABLE_ENCLOSED_LENS
+      ? extractEnclosedLenses(stack, edgedLayerIds)
+      : []
     geom.push({
       investigationId: c.investigationId,
       // Real x filled in below once we know the surviving index.
