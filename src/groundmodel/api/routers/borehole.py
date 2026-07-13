@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._dov_stream_helpers import (
+    DOV_UPSTREAM_ERRORS,
+    dov_error_event,
+    dov_sse_stream_response,
+    map_dov_upstream_error,
+)
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.borehole.borehole_detail_batch_request import (
     BoreholeDetailBatchRequest,
@@ -107,32 +111,8 @@ async def import_borehole_dov(
     # exception messages stay server-side; user-facing detail carries
     # only the category + (when safe) the upstream HTTP status.
     # Debt #43.
-    except httpx.TimeoutException as exc:
-        logger.warning(f"DOV import timeout: {type(exc).__name__}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="DOV did not respond in time",
-        ) from exc
-    except httpx.ConnectError as exc:
-        logger.warning(f"DOV import connect error: {type(exc).__name__}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cannot reach DOV — check your internet connection",
-        ) from exc
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            f"DOV import upstream {exc.response.status_code}: {type(exc).__name__}: {exc}",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"DOV returned HTTP {exc.response.status_code}",
-        ) from exc
-    except httpx.RequestError as exc:
-        logger.warning(f"DOV import request error: {type(exc).__name__}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="DOV request failed",
-        ) from exc
+    except DOV_UPSTREAM_ERRORS as exc:
+        raise map_dov_upstream_error(exc, logger=logger) from exc
 
     return ImportBoreholeDovResponse(
         imported=result.imported,
@@ -219,35 +199,10 @@ def _make_borehole_dov_import_coro(
                             "scalar_lab_tests_failed": result.scalar_lab_tests_failed,
                         }
                     )
-                except httpx.TimeoutException as exc:
-                    logger.warning(f"DOV borehole stream timeout: {type(exc).__name__}: {exc}")
-                    await queue.put({"type": "error", "message": "DOV did not respond in time"})
-                except httpx.ConnectError as exc:
-                    logger.warning(
-                        f"DOV borehole stream connect error: {type(exc).__name__}: {exc}"
-                    )
+                except DOV_UPSTREAM_ERRORS as exc:
                     await queue.put(
-                        {
-                            "type": "error",
-                            "message": "Cannot reach DOV — check your internet connection",
-                        }
+                        dov_error_event(exc, logger=logger, log_prefix="DOV borehole stream")
                     )
-                except httpx.HTTPStatusError as exc:
-                    logger.warning(
-                        f"DOV borehole stream upstream {exc.response.status_code}: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                    await queue.put(
-                        {
-                            "type": "error",
-                            "message": f"DOV returned HTTP {exc.response.status_code}",
-                        }
-                    )
-                except httpx.RequestError as exc:
-                    logger.warning(
-                        f"DOV borehole stream request error: {type(exc).__name__}: {exc}"
-                    )
-                    await queue.put({"type": "error", "message": "DOV request failed"})
                 except Exception as exc:  # noqa: BLE001
                     logger.error(
                         f"DOV borehole stream unexpected error: {type(exc).__name__}: {exc}"
@@ -259,28 +214,6 @@ def _make_borehole_dov_import_coro(
         return run_import()
 
     return factory  # type: ignore[return-value]
-
-
-async def _borehole_sse_from_registry(
-    job_id: UUID,
-    registry: JobRegistry,
-) -> AsyncGenerator[str, None]:
-    """Drain a borehole job's event queue as SSE-formatted frames.
-
-    Parameters
-    ----------
-    job_id : UUID
-        Job-id registered by ``POST /borehole/import-dov/stream``.
-    registry : JobRegistry
-        The shared in-process job registry.
-
-    Yields
-    ------
-    str
-        SSE frames ``data: <json>\\n\\n``.
-    """
-    async for event in registry.stream(job_id):
-        yield f"data: {json.dumps(event)}\n\n"
 
 
 @router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
@@ -337,19 +270,7 @@ async def get_borehole_dov_stream(
     HTTPException(404)
         When no job with that id is registered.
     """
-    if job_id not in registry._jobs:  # noqa: SLF001
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No active import job with id {job_id}",
-        )
-    return StreamingResponse(
-        _borehole_sse_from_registry(job_id, registry),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return dov_sse_stream_response(job_id, registry)
 
 
 @router.get("/", response_model=list[BoreholeListItem])

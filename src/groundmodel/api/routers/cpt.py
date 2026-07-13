@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import tempfile
 from collections.abc import AsyncGenerator
 from concurrent.futures import ProcessPoolExecutor
@@ -11,11 +10,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._dov_stream_helpers import (
+    DOV_UPSTREAM_ERRORS,
+    dov_error_event,
+    dov_sse_stream_response,
+    map_dov_upstream_error,
+)
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.cpt.cpt_list_item import CptListItem
 from groundmodel.api.schemas.cpt.cpt_plot_batch_request import CptPlotBatchRequest
@@ -205,32 +209,8 @@ async def import_cpt_dov(
     # names + exception messages are logged server-side so debugging
     # stays possible without leaking dependency versions or internal
     # topology to a future non-trusted caller (debt #43).
-    except httpx.TimeoutException as exc:
-        logger.warning(f"DOV import timeout: {type(exc).__name__}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="DOV did not respond in time",
-        ) from exc
-    except httpx.ConnectError as exc:
-        logger.warning(f"DOV import connect error: {type(exc).__name__}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cannot reach DOV — check your internet connection",
-        ) from exc
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            f"DOV import upstream {exc.response.status_code}: {type(exc).__name__}: {exc}",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"DOV returned HTTP {exc.response.status_code}",
-        ) from exc
-    except httpx.RequestError as exc:
-        logger.warning(f"DOV import request error: {type(exc).__name__}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="DOV request failed",
-        ) from exc
+    except DOV_UPSTREAM_ERRORS as exc:
+        raise map_dov_upstream_error(exc, logger=logger) from exc
 
     return ImportDovResponse(
         imported=result.imported,
@@ -317,31 +297,10 @@ def _make_cpt_dov_import_coro(
                             "cpt_ids": [str(cid) for cid in result.cpt_ids],
                         }
                     )
-                except httpx.TimeoutException as exc:
-                    logger.warning(f"DOV stream import timeout: {type(exc).__name__}: {exc}")
-                    await queue.put({"type": "error", "message": "DOV did not respond in time"})
-                except httpx.ConnectError as exc:
-                    logger.warning(f"DOV stream import connect error: {type(exc).__name__}: {exc}")
+                except DOV_UPSTREAM_ERRORS as exc:
                     await queue.put(
-                        {
-                            "type": "error",
-                            "message": "Cannot reach DOV — check your internet connection",
-                        }
+                        dov_error_event(exc, logger=logger, log_prefix="DOV stream import")
                     )
-                except httpx.HTTPStatusError as exc:
-                    logger.warning(
-                        f"DOV stream import upstream {exc.response.status_code}: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                    await queue.put(
-                        {
-                            "type": "error",
-                            "message": f"DOV returned HTTP {exc.response.status_code}",
-                        }
-                    )
-                except httpx.RequestError as exc:
-                    logger.warning(f"DOV stream import request error: {type(exc).__name__}: {exc}")
-                    await queue.put({"type": "error", "message": "DOV request failed"})
                 except Exception as exc:  # noqa: BLE001
                     logger.error(f"DOV stream import unexpected error: {type(exc).__name__}: {exc}")
                     await queue.put({"type": "error", "message": "Import failed unexpectedly"})
@@ -352,28 +311,6 @@ def _make_cpt_dov_import_coro(
         return run_import()
 
     return factory  # type: ignore[return-value]
-
-
-async def _sse_from_registry(
-    job_id: UUID,
-    registry: JobRegistry,
-) -> AsyncGenerator[str, None]:
-    """Drain a job's event queue as SSE-formatted frames.
-
-    Parameters
-    ----------
-    job_id : UUID
-        Job-id registered by ``POST /import-dov/stream``.
-    registry : JobRegistry
-        The shared in-process job registry.
-
-    Yields
-    ------
-    str
-        SSE frames ``data: <json>\\n\\n``.
-    """
-    async for event in registry.stream(job_id):
-        yield f"data: {json.dumps(event)}\n\n"
 
 
 @router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
@@ -461,19 +398,7 @@ async def get_cpt_dov_stream(
         When no job with that id is registered (already finished and
         cleaned up, or never existed).
     """
-    if job_id not in registry._jobs:  # noqa: SLF001 — registry is a plain dict wrapper
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No active import job with id {job_id}",
-        )
-    return StreamingResponse(
-        _sse_from_registry(job_id, registry),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return dov_sse_stream_response(job_id, registry)
 
 
 @router.get("/", response_model=list[CptListItem])
