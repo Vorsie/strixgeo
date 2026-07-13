@@ -5630,8 +5630,10 @@ starts to matter.
   `api.md` documents a phantom `/lenses/detect` + misses ~17 live routes (DOC-03);
   `architecture.md` lists 3 of 19 routers / 6 of 73 use cases (DOC-02); CLAUDE.md is
   59% inline debt history with 3 dangling file refs (DOC-04 — prune the resolved
-  history into debt.md); 113/117 router endpoints lack docstrings (DOC-05); the
-  gmproj-format.md example shows v4 (DOC-06). Plus the one-class-per-file rule is
+  history into debt.md); ~~DOC-05~~ **RESOLVED 2026-07-13** (all 106 current
+  endpoints carry full numpy docstrings with body-read Raises; the real gap
+  was 56 endpoints with summary-only docstrings — the 113/117 count had
+  drifted); the gmproj-format.md example shows v4 (DOC-06). Plus the one-class-per-file rule is
   violated 50× by co-located result dataclasses (DOC-07/MAINT-05 — recommend
   *amending the rule* to sanction co-located I/O dataclasses rather than splitting).
 * **#110 / #169** (Plaxis exporter dup) — ~~DRY-02/03~~ **CLOSED 2026-07-13,
