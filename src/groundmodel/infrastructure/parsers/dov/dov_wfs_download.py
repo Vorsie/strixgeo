@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from concurrent.futures import BrokenExecutor
 from typing import TypeVar
 
 import httpx
@@ -56,7 +57,35 @@ ResultT = TypeVar("ResultT")
 XmlUrlFn = Callable[[RowT], str]
 PermkeyFn = Callable[[RowT], str]
 ProcessFn = Callable[[RowT, bytes], ResultT]
+ProcessAsyncFn = Callable[[RowT, bytes], Awaitable[ResultT]]
 ErrorIdFn = Callable[[RowT], str]
+
+
+def classify_download_failure(exc: BaseException) -> str:
+    """Categorise a per-row download/parse failure for the operator log.
+
+    The three categories map to three different fixes: a network/HTTP
+    failure means DOV was slow or unreachable (retry / check the endpoint);
+    a broken parse-pool means a worker process crashed (an OOM or a native
+    parser fault — reduce parallelism / investigate the offending XML); an
+    XML parse/processing failure means the document itself was malformed
+    (a parser bug or an upstream schema drift).
+
+    Parameters
+    ----------
+    exc : BaseException
+        The exception captured by ``asyncio.gather(return_exceptions=True)``.
+
+    Returns
+    -------
+    str
+        A short human-readable failure-class label for the log line.
+    """
+    if isinstance(exc, httpx.HTTPStatusError | httpx.RequestError):
+        return "network/HTTP download failed"
+    if isinstance(exc, BrokenExecutor):
+        return "parse-pool worker crashed"
+    return "XML parse/processing failed"
 
 
 async def parallel_download_and_process(
@@ -66,7 +95,8 @@ async def parallel_download_and_process(
     rows: Sequence[RowT],
     xml_url_of: XmlUrlFn[RowT],
     permkey_of: PermkeyFn[RowT],
-    process: ProcessFn[RowT, ResultT],
+    process: ProcessFn[RowT, ResultT] | None = None,
+    process_async: ProcessAsyncFn[RowT, ResultT] | None = None,
     label: str,
     logger: GroundModelLogger,
     parallelism: int = DOV_DOWNLOAD_PARALLELISM,
@@ -103,7 +133,13 @@ async def parallel_download_and_process(
     process
         Callable ``(row, xml_bytes) -> result``. Invoked synchronously
         inside the download task so parse work overlaps the next
-        download's semaphore acquire.
+        download's semaphore acquire. Exactly one of ``process`` /
+        ``process_async`` must be supplied.
+    process_async
+        Awaitable variant ``(row, xml_bytes) -> result`` for callers
+        that offload parsing (e.g. the CPT client's process-pool
+        offload for oversized XMLs). Runs outside the semaphore like
+        ``process``.
     label
         Short log prefix (e.g. ``"DOV"``, ``"DOV interpretation"``,
         ``"DOV grain-size"``) so log scopes stay greppable across
@@ -132,6 +168,9 @@ async def parallel_download_and_process(
         successfully and survived ``process()``. Per-row failures are
         logged at ERROR with full context and dropped from the result.
     """
+    if (process is None) == (process_async is None):
+        raise ValueError("supply exactly one of process / process_async")
+
     total = len(rows)
     if total == 0:
         return []
@@ -155,6 +194,7 @@ async def parallel_download_and_process(
             xml_url_of=xml_url_of,
             permkey_of=permkey_of,
             process=process,
+            process_async=process_async,
             sem=sem,
             label=label,
             logger=logger,
@@ -173,7 +213,7 @@ async def parallel_download_and_process(
         if isinstance(result, BaseException):
             ident = (error_id_of or permkey_of)(row)
             logger.error(
-                f"{label}: download/process failed for {ident}  "
+                f"{label}: {classify_download_failure(result)} for {ident}  "
                 f"url={xml_url_of(row)}  "
                 f"error={type(result).__name__}: {result}"
             )
@@ -195,7 +235,8 @@ async def _download_one(
     cache: DovXmlCache | None,
     xml_url_of: XmlUrlFn[RowT],
     permkey_of: PermkeyFn[RowT],
-    process: ProcessFn[RowT, ResultT],
+    process: ProcessFn[RowT, ResultT] | None,
+    process_async: ProcessAsyncFn[RowT, ResultT] | None,
     sem: asyncio.Semaphore,
     label: str,
     logger: GroundModelLogger,
@@ -223,8 +264,11 @@ async def _download_one(
         Extracts the download URL from a row.
     permkey_of : PermkeyFn[RowT]
         Extracts the cache key from a row.
-    process : ProcessFn[RowT, ResultT]
+    process : ProcessFn[RowT, ResultT] | None
         Invoked synchronously inside the task after download.
+    process_async : ProcessAsyncFn[RowT, ResultT] | None
+        Awaited variant; exactly one of the two is non-None (validated
+        by the caller).
     sem : asyncio.Semaphore
         Bounded concurrency slot.
     label : str
@@ -278,8 +322,13 @@ async def _download_one(
             cache.put(permkey, xml_bytes)
 
     # Process runs outside the semaphore — parse blocks the event loop
-    # briefly while the freed slot starts the next download.
-    result = process(row, xml_bytes)
+    # briefly while the freed slot starts the next download (the async
+    # variant may instead await a parse-pool worker, freeing the loop).
+    if process_async is not None:
+        result = await process_async(row, xml_bytes)
+    else:
+        assert process is not None  # caller validated exactly-one-of
+        result = process(row, xml_bytes)
     progress["done"] += 1
     if from_cache:
         progress["hits"] += 1

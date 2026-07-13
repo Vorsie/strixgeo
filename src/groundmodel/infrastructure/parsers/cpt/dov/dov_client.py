@@ -38,21 +38,16 @@ from __future__ import annotations
 import asyncio
 import gzip
 from collections.abc import Callable
-from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx
 
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
-    DOV_DOWNLOAD_PARALLELISM,
     DOV_FICHE_URL_PREFIX,
-    DOV_HORIZONTAL_EPSG,
     DOV_PROXY_URL_PREFIX,
-    DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_LAYER,
-    DOV_WFS_NUMBER_MATCHED_RE,
-    DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
     PARSE_OFFLOAD_MIN_BYTES,
 )
@@ -61,7 +56,14 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
+from groundmodel.infrastructure.parsers.dov.dov_wfs_download import (
+    parallel_download_and_process,
+)
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
+    wfs_count,
+    wfs_features_json,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.progress import ProgressCallback, fire_progress
 
@@ -99,33 +101,6 @@ class WfsIndexEntry:
     xml_url: str
     x_lambert72: float
     y_lambert72: float
-
-
-def _classify_download_failure(exc: BaseException) -> str:
-    """Categorise a per-CPT download/parse failure for the operator log.
-
-    The three categories map to three different fixes: a network/HTTP
-    failure means DOV was slow or unreachable (retry / check the endpoint);
-    a broken parse-pool means a worker process crashed (an OOM or a native
-    parser fault — reduce parallelism / investigate the offending XML); an
-    XML parse/processing failure means the document itself was malformed
-    (a parser bug or an upstream schema drift).
-
-    Parameters
-    ----------
-    exc : BaseException
-        The exception captured by ``asyncio.gather(return_exceptions=True)``.
-
-    Returns
-    -------
-    str
-        A short human-readable failure-class label for the log line.
-    """
-    if isinstance(exc, httpx.HTTPStatusError | httpx.RequestError):
-        return "network/HTTP download failed"
-    if isinstance(exc, BrokenExecutor):
-        return "parse-pool worker crashed"
-    return "XML parse/processing failed"
 
 
 class DovClient(GroundModelLogger):
@@ -274,162 +249,48 @@ class DovClient(GroundModelLogger):
         total = len(index)
         # Report WFS discovery complete so the UI can show "N CPTs found".
         await fire_progress(progress_cb, "wfs", total, total)
+        self.debug(f"DOV: parse offload pool={'on' if pool is not None else 'off'}")
 
-        pool_state = f"pool={pool is not None}"
-        cache_state = "with cache" if self._cache is not None else "no cache"
-        self.info(
-            f"DOV: streaming download+process of {total} XMLs "
-            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state}, {pool_state})"
-        )
-        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
-        # Mutable counter shared across tasks — asyncio is single-threaded so
-        # increments are atomic without a lock. Used purely for progress logging.
-        progress = {"done": 0, "hits": 0}
-        progress_step = max(50, total // 5)  # log every 50 OR every 20% of total
-        tasks = [
-            self._download_and_process(
-                entry.xml_url,
-                entry.name,
-                process,
-                sem,
-                progress,
-                total,
-                progress_step,
-                progress_cb,
-                pool,
-            )
-            for entry in index
-        ]
-        raw = await asyncio.gather(*tasks, return_exceptions=True)
+        async def _process_entry(entry: WfsIndexEntry, xml_bytes: bytes) -> _T:
+            """Parse one CPT XML — in the pool for oversized payloads, else inline.
 
-        out: list[tuple[str, _T]] = []
-        for entry, result in zip(index, raw):
-            if isinstance(result, BaseException):
-                # Distinguish the failure class so an operator can tell whether
-                # DOV was unreachable (network), a parse-pool worker crashed, or
-                # the XML itself failed to parse — three very different fixes.
-                self.error(
-                    f"DOV: {_classify_download_failure(result)} for '{entry.name}'  "
-                    f"url={entry.xml_url}  error={type(result).__name__}: {result}"
-                )
-            else:
-                out.append((entry.name, result))
-
-        if self._cache is not None:
-            hits = progress["hits"]
-            misses = progress["done"] - hits
-            pct = (hits * 100 // progress["done"]) if progress["done"] else 0
-            self.info(f"DOV cache: {hits} hits, {misses} misses ({pct}% hit rate)")
-        return out
-
-    async def _download_and_process(
-        self,
-        xml_url: str,
-        name: str,
-        process: ProcessFn[_T],
-        sem: asyncio.Semaphore,
-        progress: dict[str, int],
-        total: int,
-        progress_step: int,
-        progress_cb: ProgressCallback | None = None,
-        pool: ProcessPoolExecutor | None = None,
-    ) -> _T:
-        """Download (or read from cache), then parse — optionally in a worker process.
-
-        On cache hit the network is skipped entirely. On cache miss the XML is
-        downloaded and then written back to the cache for next time. Parsing
-        runs after the semaphore is released so the slot becomes available for
-        the next download immediately.
-
-        When *pool* is supplied and ``len(xml_bytes) >= PARSE_OFFLOAD_MIN_BYTES``,
-        the parse is offloaded to the pool via ``dov_parse_worker.parse_cpt_xml``
-        (gzip-compressed bytes to minimise IPC payload).  The event loop is
-        free to start the next download while the child process parses.
-
-        *progress* is shared across tasks; asyncio is single-threaded so the
-        increment is race-free without a lock.
-
-        Parameters
-        ----------
-        xml_url : str
-            Absolute URL of the CPT XML document to fetch.
-        name : str
-            Human-readable CPT name (sondeernummer) for log messages.
-        process : ProcessFn[_T]
-            Callable run as ``process(xml_bytes, name)`` for inline parsing
-            (used when *pool* is ``None`` or the payload is below threshold).
-        sem : asyncio.Semaphore
-            Bounded download concurrency slot.
-        progress : dict[str, int]
-            Shared mutable counter ``{"done": int, "hits": int}``.
-        total : int
-            Total number of CPTs in this batch (for ``[done/total]`` logs).
-        progress_step : int
-            Fire progress log every this many items.
-        progress_cb : ProgressCallback | None
-            Optional callback.  Receives ``("download", done, total)`` on
-            every logging tick.
-        pool : ProcessPoolExecutor | None
-            Optional process pool for offloading large XML parsing.  ``None``
-            keeps the original single-process behaviour.
-        """
-        permkey = last_path_segment(xml_url)
-        xml_bytes: bytes | None = None
-        from_cache = False
-
-        # Cache lookup — file read is ~0.1ms, faster than acquiring the semaphore
-        # on a contended import, so we check before queueing for download.
-        if self._cache is not None:
-            xml_bytes = self._cache.get(permkey)
-            from_cache = xml_bytes is not None
-
-        if xml_bytes is None:
-            async with sem:
-                try:
-                    resp = await self._http.get(xml_url)
-                except httpx.RequestError as exc:
-                    self.error(f"DOV: network error fetching '{name}' ({xml_url}): {exc}")
-                    raise
-                if not resp.is_success:
-                    self.error(
-                        f"DOV: HTTP {resp.status_code} for '{name}'  "
-                        f"url={xml_url}  body={resp.text[:200]!r}"
-                    )
-                    resp.raise_for_status()
-                xml_bytes = resp.content
-            # Write-through cache: store the fresh bytes so next import skips this
-            # round-trip. Cache write failures are logged but never raised.
-            if self._cache is not None:
-                self._cache.put(permkey, xml_bytes)
-
-        # Parse outside the semaphore — the freed slot starts the next download
-        # while this task parses (or waits for a pool worker to finish).
-        if pool is not None and len(xml_bytes) >= PARSE_OFFLOAD_MIN_BYTES:
-            # Gzip-compress before IPC: a typical DOV XML (~500 kB) shrinks to
-            # ~50 kB at level=1, reducing pipe overhead ~10× with minimal CPU cost.
-            compressed = gzip.compress(xml_bytes, compresslevel=1)
-            # get_running_loop(), not get_event_loop(): we are inside a running
-            # coroutine. get_event_loop() in this context is deprecated on
-            # Python 3.12+ and becomes a hard error — see CLAUDE.md Python
-            # upgrade-path watch item.
-            loop = asyncio.get_running_loop()
-            # parse_cpt_xml is a top-level function in dov_parse_worker — picklable
-            # on Windows spawn. The return type is always GEFParseResult regardless
-            # of the ProcessFn[_T] generic; callers that pass a non-DovParser
-            # process function (e.g. tests) should not supply a pool.
-            result: _T = await loop.run_in_executor(pool, parse_cpt_xml, compressed, name)  # type: ignore[assignment]
-        else:
+            When *pool* is supplied and the payload exceeds
+            ``PARSE_OFFLOAD_MIN_BYTES``, the parse is offloaded via
+            ``dov_parse_worker.parse_cpt_xml`` (gzip-compressed bytes to
+            minimise IPC payload) so the event loop is free to start the
+            next download while the child process parses.
+            """
+            if pool is not None and len(xml_bytes) >= PARSE_OFFLOAD_MIN_BYTES:
+                # Gzip-compress before IPC: a typical DOV XML (~500 kB) shrinks to
+                # ~50 kB at level=1, reducing pipe overhead ~10× with minimal CPU cost.
+                compressed = gzip.compress(xml_bytes, compresslevel=1)
+                # get_running_loop(), not get_event_loop(): we are inside a running
+                # coroutine. get_event_loop() in this context is deprecated on
+                # Python 3.12+ and becomes a hard error — see CLAUDE.md Python
+                # upgrade-path watch item.
+                loop = asyncio.get_running_loop()
+                # parse_cpt_xml is a top-level function in dov_parse_worker — picklable
+                # on Windows spawn. The return type is always GEFParseResult regardless
+                # of the ProcessFn[_T] generic; callers that pass a non-DovParser
+                # process function (e.g. tests) should not supply a pool.
+                return await loop.run_in_executor(pool, parse_cpt_xml, compressed, entry.name)  # type: ignore[arg-type]
             # Inline path: used for small XMLs (below threshold) and when no pool
             # is configured — matches the original behaviour exactly.
-            result = process(xml_bytes, name)
+            return process(xml_bytes, entry.name)
 
-        progress["done"] += 1
-        if from_cache:
-            progress["hits"] += 1
-        if progress["done"] % progress_step == 0 or progress["done"] == total:
-            self.info(f"DOV progress: {progress['done']}/{total} downloaded+parsed")
-            await fire_progress(progress_cb, "download", progress["done"], total)
-        return result
+        pairs = await parallel_download_and_process(
+            http=self._http,
+            cache=self._cache,
+            rows=index,
+            xml_url_of=lambda e: e.xml_url,
+            permkey_of=lambda e: e.permkey,
+            process_async=_process_entry,
+            label="DOV",
+            logger=self,
+            error_id_of=lambda e: f"'{e.name}'",
+            progress_cb=progress_cb,
+        )
+        return [(entry.name, result) for entry, result in pairs]
 
     # ------------------------------------------------------------------
     # WFS request layer (count + features). Recursive bbox-split is
@@ -440,41 +301,19 @@ class DovClient(GroundModelLogger):
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of CPTs in the Lambert72 bbox without fetching features.
 
-        DOV's WFS returns XML for resultType=hits even when JSON is requested.
-        We extract the numberMatched attribute from the FeatureCollection root.
+        Delegates to the shared ``dov_wfs_request.wfs_count`` (which also
+        normalises thin/inverted bboxes before DOV's validator sees them).
         """
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        params = {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": DOV_WFS_LAYER,
-            "resultType": "hits",
-            "BBOX": bbox,
-        }
-        self.trace(f"DOV WFS count request: BBOX={bbox}")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV WFS count request failed (network error): {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(f"DOV WFS count returned HTTP {resp.status_code}  body: {resp.text[:500]!r}")
-            resp.raise_for_status()
-
-        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
-        if match is None:
-            self.error(
-                f"DOV WFS count: 'numberMatched' attribute not found. "
-                f"Response head: {resp.text[:300]!r}"
-            )
-            return 0
-
-        count = int(match.group(1))
-        self.trace(f"DOV WFS count: {count}  bbox={bbox}")
-        return count
+        return await wfs_count(
+            self._http,
+            self,
+            layer=DOV_WFS_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="sonderingen",
+        )
 
     async def _wfs_features(
         self, x1: float, y1: float, x2: float, y2: float
@@ -493,33 +332,16 @@ class DovClient(GroundModelLogger):
             quadrant boundaries; the calling ``fetch_wfs_index`` materialises
             the list into ``WfsIndexEntry`` objects at the end.
         """
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        params = {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": DOV_WFS_LAYER,
-            "outputFormat": "application/json",
-            "count": str(DOV_WFS_FEATURE_LIMIT),
-            "BBOX": bbox,
-        }
-        self.trace(f"DOV WFS features request: BBOX={bbox}")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV WFS features request failed (network error): {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV WFS features returned HTTP {resp.status_code}  body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        data = resp.json()
-        features = data.get("features", [])
-        self.debug(f"DOV WFS: {len(features)} features in response (bbox={bbox})")
+        features = await wfs_features_json(
+            self._http,
+            self,
+            layer=DOV_WFS_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="sonderingen",
+        )
 
         if features:
             # Log the property keys from the first feature so schema renames are obvious.

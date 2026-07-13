@@ -1,6 +1,7 @@
-"""Unit tests for pure helpers in ``dov_client``.
+"""Unit tests for the shared download-failure classifier.
 
-``_classify_download_failure`` maps a per-CPT download/parse exception to a
+``classify_download_failure`` (shared ``dov_wfs_download`` module; formerly
+``dov_client._classify_download_failure``) maps a per-row download/parse exception to a
 human-readable failure class for the operator log. The three categories map to
 three different operator fixes (retry the endpoint / reduce parallelism /
 investigate the XML), so the classification must not silently collapse them.
@@ -13,8 +14,8 @@ from concurrent.futures.process import BrokenProcessPool
 import httpx
 import pytest
 
-from groundmodel.infrastructure.parsers.cpt.dov.dov_client import (
-    _classify_download_failure,
+from groundmodel.infrastructure.parsers.dov.dov_wfs_download import (
+    classify_download_failure,
 )
 
 
@@ -42,4 +43,4 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_client import (
 )
 def test_classify_download_failure(exc: BaseException, expected: str) -> None:
     """Each failure class maps to its distinct operator-facing label."""
-    assert _classify_download_failure(exc) == expected
+    assert classify_download_failure(exc) == expected
