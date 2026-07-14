@@ -346,7 +346,7 @@ export function meetFraction(
 export function emitSideSubSeams(
   units: IntervalUnit[],
   colX: number,
-  seamX: number,
+  seamXAt: (elev: number) => number,
   colTopElev: number,
   colBaseElev: number,
   seamTopElev: number,
@@ -355,7 +355,11 @@ export function emitSideSubSeams(
   out: InputCurve[],
 ): void {
   if (units.length <= 1) return
-  if (Math.abs(seamX - colX) < 1e-9) return // lone-opposite side: no cell on this side
+  // ``seamXAt`` is the (possibly slanted) seam's x at a given elevation — a sub-seam's far
+  // endpoint lands ON the seam polyline (an exact T-junction). A lone-opposite side has the
+  // seam coincident with this column vertical (seam x == colX at every elevation), so there is
+  // no cell to sub-divide.
+  if (Math.abs(seamXAt(seamTopElev) - colX) < 1e-9) return
   const colSpan = colTopElev - colBaseElev
   if (colSpan <= ELEV_EPS) return
   // Consecutive internal boundaries are the base elevations of all but the last unit.
@@ -369,7 +373,7 @@ export function emitSideSubSeams(
       kind: 'closing',
       points: [
         { x: colX, y: boundaryElev },
-        { x: seamX, y: seamElev },
+        { x: seamXAt(seamElev), y: seamElev },
       ],
     })
   }

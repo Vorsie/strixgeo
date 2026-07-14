@@ -37,6 +37,7 @@ import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emi
 import { type LensLabel } from './emitLenses'
 import { routeLoneSidePinch } from './emitLonePinch'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
+import { seamAnchorOnBracket } from './seamAnchor'
 import { type InputCurve } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -470,31 +471,43 @@ function tileInterval(
   for (const u of leftLenses) emitLensClosing(u, leftX, rightX, LENS_PINCH_FRACTION, nextId, out)
   for (const u of rightLenses) emitLensClosing(u, rightX, leftX, LENS_PINCH_FRACTION, nextId, out)
 
-  // The seam interface elevations at the meet fraction (linear across the interval
-  // top and base brackets).
-  const seamTopElev = top.leftElev + meet * (top.rightElev - top.leftElev)
-  const seamBaseElev = base.leftElev + meet * (base.rightElev - base.leftElev)
+  // The seam endpoints must ATTACH to the interval's top / base bracket CURVES so the seam
+  // PARTITIONS the interval. A plain metres-space interpolation of the bracket line dangles on
+  // a SLOPING bracket (grid-snap collinearity failure — the TS6 VEEN full-width band).
+  // ``seamAnchorOnBracket`` returns a point EXACTLY collinear with the snapped bracket, at the
+  // lattice x nearest ``seamX``: the arrangement then attaches the seam as a grid-exact
+  // T-junction. Top and base anchor independently (each on its own bracket), so the seam is a
+  // hair slanted rather than dead-vertical — it still cuts the interval, and holes/overlaps
+  // stay 0 (the shared bracket vertices keep everything connected).
+  const topAnchor = seamAnchorOnBracket(leftX, top.leftElev, rightX, top.rightElev, seamX)
+  const baseAnchor = seamAnchorOnBracket(leftX, base.leftElev, rightX, base.rightElev, seamX)
+  const seamTopElev = topAnchor.y
+  const seamBaseElev = baseAnchor.y
+  // The seam is emitted as a POLYLINE top-anchor -> base-anchor. The two anchors may differ in
+  // x by at most one lattice step (each is the collinear lattice point nearest ``seamX`` on its
+  // own bracket), so the seam is a hair slanted; the sub-seams meet it at the elevation-matched
+  // x along that polyline (linear between the two anchor x's), keeping the T-junctions exact.
+  const seamXAt = (elev: number): number => {
+    const dyTot = seamBaseElev - seamTopElev
+    const t = Math.abs(dyTot) < ELEV_EPS ? 0 : (elev - seamTopElev) / dyTot
+    return topAnchor.x + t * (baseAnchor.x - topAnchor.x)
+  }
 
-  // The vertical SEAM curve at seamX from the top interface to the base interface.
-  // When the two lithologies mismatch this is the straight midpoint seam; when a
-  // side is lone (meet 0 or 1) the seam coincides with that column vertical and is
-  // a zero-width no-op (skipped).
+  // When a side is lone (meet 0 or 1) the seam coincides with that column vertical and is a
+  // zero-width no-op (skipped); otherwise emit the seam between the two grid-exact anchors.
   if (meet > FRAC_EPS && meet < 1 - FRAC_EPS) {
     out.push({
       id: nextId(),
       kind: 'closing',
-      points: [
-        { x: seamX, y: seamTopElev },
-        { x: seamX, y: seamBaseElev },
-      ],
+      points: [topAnchor, baseAnchor],
     })
   }
 
   // Sub-seam curves: within each side's [column, seam] cell, cut a horizontal-ish
   // divider at every internal boundary between stacked units so each untied unit
-  // gets its own face. The interval top/base brackets already bound the outermost
-  // units; only the internal boundaries need a curve.
-  emitSideSubSeams(leftMatrix, leftX, seamX, top.leftElev, base.leftElev, seamTopElev, seamBaseElev, nextId, out)
-  emitSideSubSeams(rightMatrix, rightX, seamX, top.rightElev, base.rightElev, seamTopElev, seamBaseElev, nextId, out)
+  // gets its own face. Each sub-seam meets the (slanted) seam at the x matching its own
+  // elevation, so its far endpoint lands ON the seam polyline (an exact T-junction).
+  emitSideSubSeams(leftMatrix, leftX, seamXAt, top.leftElev, base.leftElev, seamTopElev, seamBaseElev, nextId, out)
+  emitSideSubSeams(rightMatrix, rightX, seamXAt, top.rightElev, base.rightElev, seamTopElev, seamBaseElev, nextId, out)
 }
 
