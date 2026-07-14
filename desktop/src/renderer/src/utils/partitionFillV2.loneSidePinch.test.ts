@@ -517,10 +517,13 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     // The pinch reads its OWN lithology (SAND), never the facing SILT.
     expect(sandKinds).toContain('pinch')
     expect(sandKinds).not.toContain('lens')
-    // Its top rides the SURFACE band: the SAND covers up to the surface (elev ~9.9) at the
-    // right column, NOT stopping at its drilled top (9.2). Kills the "silt across the no-data
-    // top" read while keeping the strip fully covered.
-    expect(coverAt(regions, 0, 0.95, 9.9)).toBe(SAND)
+    // Ruling 5-REVISED (2026-07-14 evening): the onlap's TOP re-anchors to the SAND's OWN
+    // DRILLED top (elev 9.2), NOT the ground surface. The strip between the top-band line
+    // (first-litho boundary) and the ground (9.9) stays EMPTY — the owner rejected the
+    // surface extension ("that quad is made up"). So near the right column the SAND covers
+    // down FROM its drilled top (9.15 is inside), and the no-data strip above (9.9) is empty.
+    expect(coverAt(regions, 0, 0.95, 9.15)).toBe(SAND)
+    expect(coverAt(regions, 0, 0.95, 9.9)).toBeNull()
     // The SILT band claims the width past the tip (0.5): near the LEFT column at the SAND's
     // own elevation the covering lithology is SILT (the facing band), not empty.
     expect(coverAt(regions, 0, 0.1, 9)).toBe(SILT)
@@ -561,9 +564,13 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     const clayKinds = regions.filter((r) => r.gapIndex === 0 && r.formationId === CLAY).map((r) => r.kind)
     expect(clayKinds).toContain('pinch')
     expect(clayKinds).not.toContain('lens')
-    // Its top rides the SURFACE band (elev ~9.9 at the left column is CLAY, not the facing
-    // SILT interpolated across the no-data top).
-    expect(coverAt(regions, 0, 0.05, 9.9)).toBe(CLAY)
+    // Ruling 5-REVISED (2026-07-14 evening): the onlap's TOP re-anchors to the CLAY's OWN
+    // DRILLED top (elev 8.5), NOT the ground surface. The strip between the top-band line
+    // (first-litho boundary) and the ground (9.9) stays EMPTY — no invented lithology above
+    // the first data point. So near the left column the CLAY covers down FROM its drilled
+    // top (8.4 is inside), and the no-data strip above (9.9) is empty.
+    expect(coverAt(regions, 0, 0.05, 8.4)).toBe(CLAY)
+    expect(coverAt(regions, 0, 0.05, 9.9)).toBeNull()
     // The CLAY pinches out SHORT of the far column — it does NOT run full-width (the collapse
     // defect): near the RIGHT column at the CLAY's own elevation the cover is SILT, not CLAY.
     expect(coverAt(regions, 0, 0.9, 7)).toBe(SILT)
