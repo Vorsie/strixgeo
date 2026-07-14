@@ -134,11 +134,35 @@ function walkLoops(vertices: readonly GridPoint[], halfEdges: readonly DcelHalfE
   const visited = new Array<boolean>(halfEdges.length).fill(false)
   const loops: Loop[] = []
 
+  // Undirected vertex-pair -> curve ids, so a sub-loop split off a self-touching walk
+  // carries ONLY the curve ids of ITS OWN edges — not the parent walk's union. Without
+  // this, splitting a figure-8 ring (two adjacent lens/notch triangles meeting at a
+  // shared apex/seam vertex) hands every sub-triangle the whole band's curve ids, and
+  // ``labelFaces`` then majority-votes the enclosed minority's own notch to the matrix
+  // colour (the increment-17 adjacent-minority mislabel: S6 gap19 KLEI reads SILT).
+  const pairCurves = new Map<string, string[]>()
+  for (const he of halfEdges) {
+    const lo = Math.min(he.origin, he.target)
+    const hi = Math.max(he.origin, he.target)
+    pairCurves.set(`${lo}-${hi}`, he.curveIds)
+  }
+  const ringCurveIds = (ring: readonly number[]): Set<string> => {
+    const ids = new Set<string>()
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]
+      const b = ring[(i + 1) % ring.length]
+      if (a === b) continue
+      const key = `${Math.min(a, b)}-${Math.max(a, b)}`
+      const cs = pairCurves.get(key)
+      if (cs) for (const id of cs) ids.add(id)
+    }
+    return ids
+  }
+
   for (let start = 0; start < halfEdges.length; start++) {
     if (visited[start]) continue
     const edges: number[] = []
     const verts: number[] = []
-    const curveIds = new Set<string>()
     let e = start
     // Guard against a malformed next-chain (should not happen on a wired DCEL).
     let guard = 0
@@ -147,7 +171,6 @@ function walkLoops(vertices: readonly GridPoint[], halfEdges: readonly DcelHalfE
       visited[e] = true
       edges.push(e)
       verts.push(halfEdges[e].origin)
-      for (const id of halfEdges[e].curveIds) curveIds.add(id)
       e = halfEdges[e].next
       guard++
     } while (e !== start && e !== -1 && !visited[e] && guard <= limit)
@@ -178,7 +201,11 @@ function walkLoops(vertices: readonly GridPoint[], halfEdges: readonly DcelHalfE
       if (sub.length < 3) continue
       const signedArea = signedGridArea(sub.map((v) => vertices[v]))
       if (signedArea === 0) continue
-      loops.push({ edges, verts: sub, signedArea, curveIds })
+      // Per-sub-loop curve ids from ITS OWN consecutive vertex pairs (not the parent
+      // walk's ``curveIds`` union) — the increment-17 adjacent-minority label fix. When
+      // the walk is a single simple loop (no repeat), ``ringCurveIds`` reproduces the
+      // parent union, so unsplit faces are unchanged.
+      loops.push({ edges, verts: sub, signedArea, curveIds: ringCurveIds(sub) })
     }
   }
   return loops
