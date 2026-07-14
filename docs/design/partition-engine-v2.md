@@ -229,6 +229,20 @@ split the annulus at the lens's fraction extents, v1-carve style);
 (2) increment 13 = the lone multi-unit stack fills as own-elevation lenses
 holing into the facing matrix.**
 
+Increment-13 status (2026-07-14 afternoon): the LONE MULTI-UNIT STACK class
+is IMPLEMENTED (`edc74fe55`, `emitLoneStack.ts`) — a lone stack reduces to
+the enclosing matrix (facing lithology at the facing-convergence point,
+v1's `belowLith ?? aboveLith`) flooded as a wedge, each minority an
+own-elevation 0.45 lens clamped inside the wedge (shared-apex banned —
+increment-11 self-inverts). S7 gap18 measured at v1 parity. STILL OPEN,
+each a distinct sub-class: B6 gap2 (two-sided interbedded), B4|S13 gap3
+(boundary-minority in a narrow wedge — bows out to full-width fallback via
+`MIN_CLAMPED_FRACTION`), S8 gap14 (facing-side lens), S6 gap19 (MEASUREMENT
+CONFLICT: increment 9 recorded v1 = right lenses at 0.55 apex; increment 13
+recorded v1 = @1.00 — settle by re-measuring v1 before any fix). Cosmetic:
+S7's matrix wedge reads kind='pinch' vs v1 'quad' (both non-lens; voxel/
+geotech filter on kind!=='lens' so coverage unaffected).
+
 Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 
 5. **Surface band ("let's go", owner).** The top of each test (ground
