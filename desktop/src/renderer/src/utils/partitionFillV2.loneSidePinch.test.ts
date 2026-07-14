@@ -377,4 +377,99 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     // near the far column past the apex, the covering lithology is CLAY, never SILT.
     expect(matrixAt(regions, 0, 0.9, 8.5)).toBe(CLAY)
   })
+
+  // ---------------------------------------------------------------------------
+  // ADJACENT-MINORITY LABEL (increment 17 residual (i)): two minorities stacked
+  // directly on each other with NO matrix run between them (the S6 gap19 KLEI-on-
+  // ZAND and S8 gap14 SILT-on-ZAND real-data shapes). Both pinch to a lens apex,
+  // but the UPPER one's notch triangle used to trace as a slice of the enclosing
+  // matrix band face and read the MATRIX colour by majority vote — "the KLEI lens
+  // reads SILT". The fix (per-sub-loop curve-id labelling) makes each notch read
+  // its OWN lithology. Owner's acceptance: KLEI reads KLEI + ZAND reads ZAND.
+  // ---------------------------------------------------------------------------
+  it('two ADJACENT minorities in one matrix band each read their OWN lithology (S6 gap19 / S8 gap14 class)', () => {
+    // Left: a matrix SILT band with a KLEI-on-ZAND pair stacked directly inside it
+    // (no SILT between them), the whole run enclosed by SILT above and below. Right:
+    // one continuous SILT (the enclosing matrix). Both minorities must LENS and read
+    // their OWN colour, NOT the SILT matrix.
+    const lSiltTop = layer()
+    const lKlei = layer()
+    const lZand = layer()
+    const lSiltBot = layer()
+    const rSilt = layer()
+    const left = col('L', 12, [
+      { top: 0, base: 1, f: SILT, layerId: lSiltTop, body: 'bSilt' },
+      { top: 1, base: 2, f: CLAY, layerId: lKlei, body: 'bKlei' },
+      { top: 2, base: 3, f: SAND, layerId: lZand, body: 'bZand' },
+      { top: 3, base: 6, f: SILT, layerId: lSiltBot, body: 'bSilt' },
+    ])
+    const right = col('R', 12, [{ top: 0, base: 6, f: SILT, layerId: rSilt, body: 'bSilt' }])
+    const regions = computeSectionFillV2([left, right], [])
+
+    // The upper (CLAY, elev 11..10) and lower (SAND, elev 10..9) minorities are on the
+    // LEFT column, so each lenses to a LEFT-side apex (f[0..~0.45]). Near the left column
+    // at each minority's own mid-elevation the covering lithology must be its OWN colour,
+    // NOT the SILT matrix. (Pre-fix the UPPER minority's notch read SILT — the adjacent-
+    // minority mislabel that this increment fixes; the KLEI-reads-SILT / SILT-reads-ZAND
+    // acceptance.)
+    expect(coverAt(regions, 0, 0.2, 10.5)).toBe(CLAY) // upper minority reads CLAY, not SILT
+    expect(coverAt(regions, 0, 0.2, 9.5)).toBe(SAND) // lower minority reads SAND, not SILT
+    // Each is a distinct LENS carrying its own lithology (not one merged matrix face).
+    const upperKinds = regions.filter((r) => r.formationId === CLAY).map((r) => r.kind)
+    const lowerKinds = regions.filter((r) => r.formationId === SAND).map((r) => r.kind)
+    expect(upperKinds).toContain('lens')
+    expect(lowerKinds).toContain('lens')
+    // Both pinch short of the far column (own-elevation lenses).
+    expect(maxFractionOf(regions, 0, CLAY)).toBeLessThan(0.7)
+    expect(maxFractionOf(regions, 0, SAND)).toBeLessThan(0.7)
+    // The far side past each apex is SILT (the enclosing matrix), never CLAY/SAND.
+    expect(coverAt(regions, 0, 0.95, 10.5)).toBe(SILT)
+    expect(coverAt(regions, 0, 0.95, 9.5)).toBe(SILT)
+  })
+
+  // ---------------------------------------------------------------------------
+  // BASE-TIED BOUNDARY ONLAP (increment 17 residual (ii); v1 ``kindFor``): a lone
+  // unit whose BASE contact is TIED laps the bracket as an ONLAP (kind 'pinch'),
+  // NOT a 0.45 own-elevation lens — even when the facing matrix happens to be one
+  // continuous lithology above AND below (the case the lens gate keyed on). This is
+  // the cs1bandauthority SAND shape: the non-lens SAND must be findable BELOW the
+  // band near the far column.
+  // ---------------------------------------------------------------------------
+  it('a base-tied boundary minority reads as an ONLAP (pinch), not a lens (residual ii)', () => {
+    // Left: SILT(0-3) over CLAY(3-8). Right: CLAY(0-3), SAND(3-4), CLAY(4-8). The two
+    // CLAY bands band top-to-top (the surface interval) and the deep CLAY bands too, so
+    // the SAND sits in a lone interval bracketed by two CLAY bands; its BASE contact is
+    // tied (to the deep CLAY band top). v1 renders it as a pinch/onlap, not a lens.
+    const lSilt = layer()
+    const lClay = layer()
+    const rClayTop = layer()
+    const rSand = layer()
+    const rClayBot = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: SILT, layerId: lSilt },
+      { top: 3, base: 8, f: CLAY, layerId: lClay },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: rClayTop },
+      { top: 3, base: 4, f: SAND, layerId: rSand },
+      { top: 4, base: 8, f: CLAY, layerId: rClayBot },
+    ])
+    // Tie the deep CLAY top-to-top (left CLAY top = 3, right deep CLAY top = 4): the
+    // SAND's base contact (right depth 4) IS the tied deep-CLAY top → the SAND is
+    // base-tied → ONLAP.
+    const edges: CorrelationEdge[] = [{ a: lClay, b: rClayBot, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+
+    // The SAND (right depth 3-4 → elev 7-6) is a NON-LENS (pinch/onlap) region —
+    // ``matrixAt`` (which skips lenses) finds it near the right column at its own
+    // elevation. A lens would be invisible to ``matrixAt`` (the pre-fix failure: the
+    // SAND lensed and the band read as unfilled — the cs1bandauthority defect).
+    expect(matrixAt(regions, 0, 0.9, 6.5)).toBe(SAND)
+    // And its kind is 'pinch', never 'lens'.
+    const sandKinds = regions
+      .filter((r) => r.gapIndex === 0 && r.formationId === SAND)
+      .map((r) => r.kind)
+    expect(sandKinds).toContain('pinch')
+    expect(sandKinds).not.toContain('lens')
+  })
 })
