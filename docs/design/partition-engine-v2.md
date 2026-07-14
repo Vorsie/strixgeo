@@ -206,6 +206,19 @@ internals, sedimentological feature-shapes (Phase 5).
    Detection reuses the existing crossings endpoint; the warning surface is
    part of the cutover scope.
 
+Status of the dogfeed-round-1 work (increment 10, 2026-07-14 afternoon):
+ruling 5 SHIPPED (`9c017b3d5` — first unit's column vertical extends to
+surface; parity grew to +3.6%, entirely the intentional ruling-5 strips).
+Ruling 6 verified ALREADY SATISFIED by the increment-6/9 substrate (B2
+measured: sand fills base −4.45 down to the clay-top tie −7.55, clay only
+below). The five boundary-minority repros stay OPEN — third attempt blocked:
+the vacancy flood is a single-material wedge, but the FACING column is
+interbedded across the span (un-gated port = +408 holes; gated = fixes
+nothing). Next mechanism (increment 11): extend the facing column's contact
+segments INTO the vacated wedge as closing curves clipped at the pinch
+boundary, so the wedge tiles per facing sub-band (v1's floor-walk in curve
+terms).
+
 Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 
 5. **Surface band ("let's go", owner).** The top of each test (ground
