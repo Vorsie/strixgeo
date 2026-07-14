@@ -317,4 +317,64 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     expect(coverAt(regions, 0, 0.9, 9.5)).toBe(CLAY)
     expect(coverAt(regions, 0, 0.95, 9.5)).toBe(CLAY)
   })
+
+  // ---------------------------------------------------------------------------
+  // LONE MULTI-UNIT INTERBEDDED STACK against a ZERO-THICKNESS facing bracket
+  // (increment 13): the S7-gap18 class the ``routeLoneSidePinch`` single-matrix
+  // guard rejected. A lone stack CLAY/SILT/CLAY/SILT/CLAY sits between two ties
+  // whose facing endpoints CONVERGE to a point (the facing has no counterpart
+  // there). The enclosing CLAY matrix floods the interval wedge; every SILT
+  // minority pinches at its OWN mid-elevation (~0.45), NOT running to the far
+  // column (increment-11 proved a shared-apex wedge self-inverts). Owner's words:
+  // "the lenses must pinch out short of the next test, not run all the way to it."
+  // ---------------------------------------------------------------------------
+  it('a lone MULTI-UNIT interbedded stack against a converging facing bracket pinches each minority at its own elevation', () => {
+    // Left: a deep SAND banded to the right SAND (base tie) brackets the interval
+    // below. Above it, an interbedded CLAY/SILT/CLAY/SILT/CLAY stack tied at its
+    // TOP to the right (a top tie whose right endpoint sits at the SAND top — the
+    // interval's facing bracket therefore converges to one point). The right column
+    // has NO unit inside the interval → lone-left multi-unit stack. Each SILT must
+    // pinch at ~0.45 into the enclosing CLAY; the CLAY floods behind.
+    const lClayTop = layer()
+    const lSilt1 = layer()
+    const lClayMid = layer()
+    const lSilt2 = layer()
+    const lClayBot = layer()
+    const lSand = layer()
+    const rSand = layer()
+    // The three enclosing CLAY units carry DIFFERENT bodyIds so the column-level
+    // enclosed-lens pre-pass (which requires the two enclosing units to share a body)
+    // does NOT pull the SILTs early — the interval tiler sees the FULL interbedded
+    // stack and must route it through the lone-multi-unit path (the S7-gap18 shape).
+    const left = col('L', 10, [
+      { top: 0, base: 1, f: CLAY, layerId: lClayTop, body: 'bC1' },
+      { top: 1, base: 2, f: SILT, layerId: lSilt1, body: 'bS1' },
+      { top: 2, base: 3, f: CLAY, layerId: lClayMid, body: 'bC2' },
+      { top: 3, base: 4, f: SILT, layerId: lSilt2, body: 'bS2' },
+      { top: 4, base: 5, f: CLAY, layerId: lClayBot, body: 'bC3' },
+      { top: 5, base: 9, f: SAND, layerId: lSand, body: 'bSand' },
+    ])
+    // Right: one continuous CLAY (the enclosing matrix) over a deep SAND. The CLAY
+    // stack has no per-unit counterpart, but the facing CLAY IS the enclosing matrix
+    // at the interval's convergence elevation. The SAND bands top+base to the deep
+    // SAND (converging the interval's facing bracket to the SAND top point).
+    const rClay = layer()
+    const right = col('R', 10, [
+      { top: 0, base: 5, f: CLAY, layerId: rClay, body: 'bCR' },
+      { top: 5, base: 9, f: SAND, layerId: rSand, body: 'bSand' },
+    ])
+    const edges: CorrelationEdge[] = [
+      { a: lSand, b: rSand, aSide: 'top', bSide: 'top' },
+      { a: lSand, b: rSand, aSide: 'base', bSide: 'base' },
+    ]
+    const regions = computeSectionFillV2([left, right], edges)
+    // Each SILT minority pinches SHORT of the far column (own-elevation lens ~0.45),
+    // NOT running to the far edge — the whole point of the increment.
+    const siltMax = maxFractionOf(regions, 0, SILT)
+    expect(siltMax).toBeGreaterThan(0.3) // it DOES pinch into the gap (not zero)
+    expect(siltMax).toBeLessThan(0.6) // but stops short of the far column
+    // The CLAY matrix floods behind: at the top SILT's own elevation (~8.5 mTAW),
+    // near the far column past the apex, the covering lithology is CLAY, never SILT.
+    expect(matrixAt(regions, 0, 0.9, 8.5)).toBe(CLAY)
+  })
 })
