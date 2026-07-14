@@ -472,4 +472,101 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     expect(sandKinds).toContain('pinch')
     expect(sandKinds).not.toContain('lens')
   })
+
+  // ---------------------------------------------------------------------------
+  // SURFACE-ANCHORED ONLAP (increment 18; design §4 increment-18 row): a lone TOP
+  // boundary minority that is the column's FIRST unit reaches the ground surface via
+  // ruling 5, and its BASE contact is tied to a band that CONVERGES on the facing (the
+  // band's facing endpoint is at the facing surface). v1 renders it as an onlap; the v2
+  // SURFACE-ANCHORED variant reads pinch, tip at INTERIOR_PINCH_FRACTION (0.5), top on the
+  // SURFACE band (the ruling-5 improvement — the layer reaches the ground, measurement just
+  // starts lower). Real repros: B4|S13 gap3 ZAND (right side) + B6 gap2 KLEI (left, dipping
+  // band). Owner's words: "the lenses must pinch out short of the next test, not run all the
+  // way to it" — here the pinch also rides the surface band on top.
+  // ---------------------------------------------------------------------------
+  it('a surface-topped first unit base-tied to a converging band onlaps: tip at 0.5, top on the surface band (B4|S13 gap3 ZAND class)', () => {
+    // Right (surface 10): a SAND cap whose DRILLED top is BELOW the surface (top 0.8 → elev
+    // 9.2, ruling-5 extends its fill up to 10), over a SILT band that ties top-to-top to the
+    // LEFT column's SILT whose top IS the left surface — so the band CONVERGES at the left
+    // surface (zero facing thickness there). Left (surface 10): one SILT reaching the surface,
+    // then CLAY. The right SAND is a lone surface unit base-tied to the SILT band → it onlaps
+    // the band with its top on the surface, NOT running full-width across the gap.
+    const rSand = layer()
+    const rSilt = layer()
+    const lSilt = layer()
+    const lClay = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 4, f: SILT, layerId: lSilt },
+      { top: 4, base: 9, f: CLAY, layerId: lClay },
+    ])
+    const right = col('R', 10, [
+      { top: 0.8, base: 2, f: SAND, layerId: rSand },
+      { top: 2, base: 9, f: SILT, layerId: rSilt },
+    ])
+    // SILT band top-to-top: left SILT top (surface, depth 0) ↔ right SILT top (depth 2 →
+    // elev 8). The band's LEFT endpoint is the left surface (10) → the interval facing bracket
+    // CONVERGES there. The right SAND's base (depth 2 → elev 8) IS the tied SILT-band top →
+    // the SAND is base-tied → surface-anchored onlap.
+    const edges: CorrelationEdge[] = [{ a: lSilt, b: rSilt, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+
+    // The SAND onlaps: its region is a NON-LENS pinch — ``matrixAt`` (skips lenses) finds it
+    // near the RIGHT column at its own elevation (a lens would be invisible there).
+    expect(matrixAt(regions, 0, 0.85, 9)).toBe(SAND)
+    const sandKinds = regions.filter((r) => r.gapIndex === 0 && r.formationId === SAND).map((r) => r.kind)
+    // The pinch reads its OWN lithology (SAND), never the facing SILT.
+    expect(sandKinds).toContain('pinch')
+    expect(sandKinds).not.toContain('lens')
+    // Its top rides the SURFACE band: the SAND covers up to the surface (elev ~9.9) at the
+    // right column, NOT stopping at its drilled top (9.2). Kills the "silt across the no-data
+    // top" read while keeping the strip fully covered.
+    expect(coverAt(regions, 0, 0.95, 9.9)).toBe(SAND)
+    // The SILT band claims the width past the tip (0.5): near the LEFT column at the SAND's
+    // own elevation the covering lithology is SILT (the facing band), not empty.
+    expect(coverAt(regions, 0, 0.1, 9)).toBe(SILT)
+  })
+
+  it('a surface-topped first unit base-tied to a DIPPING band onlaps with a rising tip, top on the surface band (B6 gap2 KLEI class)', () => {
+    // Left (surface 10): a CLAY whose DRILLED top is BELOW the surface (top 1.5 → elev 8.5,
+    // ruling-5 extends it to 10), over a SILT then SAND. Right (surface 10): a SILT reaching
+    // the surface, over SAND. The SILT band ties LEFT SILT top (deep, depth 6.5 → elev 3.5) to
+    // RIGHT SILT top (surface, depth 0) — a STEEPLY DIPPING band converging at the right
+    // surface. The left CLAY is base-tied to that dipping SILT band → the surface-anchored
+    // onlap must RISE its tip (not land on the dipping band, which would collapse the pinch to
+    // a full-width band — the B6 gap2 defect). The facing lithology at the CLAY's deep base is
+    // SAND (mixed bracket), yet it still onlaps.
+    const lClay = layer()
+    const lSilt = layer()
+    const lSand = layer()
+    const rSilt = layer()
+    const rSand = layer()
+    const left = col('L', 10, [
+      { top: 1.5, base: 6.5, f: CLAY, layerId: lClay },
+      { top: 6.5, base: 8, f: SILT, layerId: lSilt },
+      { top: 8, base: 12, f: SAND, layerId: lSand },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 8, f: SILT, layerId: rSilt },
+      { top: 8, base: 12, f: SAND, layerId: rSand },
+    ])
+    // SILT band top-to-top: left SILT top (depth 6.5 → elev 3.5) ↔ right SILT top (surface,
+    // depth 0 → elev 10). Steeply dipping, converging at the right surface. The left CLAY base
+    // (depth 6.5 → elev 3.5) IS the tied SILT-band left endpoint → CLAY is base-tied.
+    const edges: CorrelationEdge[] = [{ a: lSilt, b: rSilt, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+
+    // The CLAY onlaps as a NON-LENS pinch (not the full-width band the dipping-band collapse
+    // produced): ``matrixAt`` finds it near the LEFT column at its own elevation.
+    expect(matrixAt(regions, 0, 0.1, 7)).toBe(CLAY)
+    const clayKinds = regions.filter((r) => r.gapIndex === 0 && r.formationId === CLAY).map((r) => r.kind)
+    expect(clayKinds).toContain('pinch')
+    expect(clayKinds).not.toContain('lens')
+    // Its top rides the SURFACE band (elev ~9.9 at the left column is CLAY, not the facing
+    // SILT interpolated across the no-data top).
+    expect(coverAt(regions, 0, 0.05, 9.9)).toBe(CLAY)
+    // The CLAY pinches out SHORT of the far column — it does NOT run full-width (the collapse
+    // defect): near the RIGHT column at the CLAY's own elevation the cover is SILT, not CLAY.
+    expect(coverAt(regions, 0, 0.9, 7)).toBe(SILT)
+    expect(maxFractionOf(regions, 0, CLAY, 'pinch')).toBeLessThan(0.75)
+  })
 })
