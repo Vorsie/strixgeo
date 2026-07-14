@@ -234,14 +234,18 @@ is IMPLEMENTED (`edc74fe55`, `emitLoneStack.ts`) — a lone stack reduces to
 the enclosing matrix (facing lithology at the facing-convergence point,
 v1's `belowLith ?? aboveLith`) flooded as a wedge, each minority an
 own-elevation 0.45 lens clamped inside the wedge (shared-apex banned —
-increment-11 self-inverts). S7 gap18 measured at v1 parity. STILL OPEN,
-each a distinct sub-class: B6 gap2 (two-sided interbedded), B4|S13 gap3
-(boundary-minority in a narrow wedge — bows out to full-width fallback via
-`MIN_CLAMPED_FRACTION`), S8 gap14 (facing-side lens), S6 gap19 (MEASUREMENT
-CONFLICT: increment 9 recorded v1 = right lenses at 0.55 apex; increment 13
-recorded v1 = @1.00 — settle by re-measuring v1 before any fix). Cosmetic:
+increment-11 self-inverts). S7 gap18 measured at v1 parity. Cosmetic:
 S7's matrix wedge reads kind='pinch' vs v1 'quad' (both non-lens; voxel/
 geotech filter on kind!=='lens' so coverage unaffected).
+
+Increment-14 verdict (2026-07-14, nothing shipped — §8 ruling 7 held):
+**S6 gap19 SETTLED — increment 9 was correct** (v1 = right lenses
+f[0.55..1.00], apex 0.55; increment-13's "@1.00" was a mis-measurement),
+so S6 IS a v2 defect. The four remaining repros unified into ONE class:
+
+| v1 rule / pass | v2 disposition |
+|---|---|
+| Boundary minority riding an interval bracket in a lone stack (S6 gap19 KLEI, S8 gap14 SILT, B4\|S13 gap3 ZAND, B6 gap2 KLEI) | BLOCKED (increment 14) — v1 renders a pinch/lens (0.45 lens / 0.5 onlap tip) over a FULL-WIDTH matrix band; v2's converging flood-wedge (`emitLoneStackWedge`) cannot hold the apex (measured: the apex sits above the wedge's sloping edge → the lens merges into the matrix, mislabel + self-intersecting ring; or the ruling-5 surface-strip fill-check bails to full-width). Interior minorities are correct (S7 parity holds). FIX (increment 15): replace the converging wedge with a FULL-WIDTH matrix band — facing adjacent same-formation band + ruling-5 surface-strip closure tiling gaplessly — so a boundary minority becomes a clean interior hole (the increment-12 annulus slicer's real target). Every partial version broke holes/simplerings; it must land as one coherent mechanism |
 
 Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 
