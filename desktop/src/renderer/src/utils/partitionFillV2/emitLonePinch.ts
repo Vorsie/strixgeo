@@ -42,6 +42,7 @@
 
 import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
+import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
@@ -309,12 +310,43 @@ export function routeLoneSidePinch(
   //   (b) the facing column carries ONE continuous matrix formation across that span — a
   //       true lens laterally enclosed in one material (the finding-A gate shape, whose
   //       both-sided flood tiles gaplessly BY CONSTRUCTION).
-  // Broader lone cases (boundary pinch against a mismatched bracket, multi-unit
-  // interbedded stacks, data-void sideways, a unit thinner than its interval) keep the
-  // ordinary full-width fill — porting them needs v1's floor-walk above/below context
-  // this per-interval view lacks; misfiring there produced sliver holes + lens×pinch
-  // overlaps on the real sections.
-  if (loneMatrix.length !== 1) return false
+  // LONE MULTI-UNIT INTERBEDDED STACK (increment 13): the loneMatrix carries several
+  // units (e.g. S7 gap18 SILT/KLEI/SILT/VEEN/KLEI). v1 renders each minority as an
+  // own-elevation lens over the enclosing matrix band (design §4 increment-11/12/13,
+  // owner CS1 repros). Reduce the stack to a single dominant facing-carried matrix +
+  // its pinching minorities; the reduced single matrix then takes the same-formation
+  // flood path below (the matrix floods full-width, minorities pinch as own-elevation
+  // lens holes). ``extractLoneStackLenses`` returns ``null`` when no single dominant
+  // facing-carried matrix exists (a genuinely interbedded lone stack with no enclosing
+  // lithology) — that stack keeps the full-width fallback.
+  // Reduce a multi-unit stack into LOCAL scratch arrays first; only merge them into
+  // the shared lens accumulator once the flood path below is confirmed (returning
+  // false must leave the caller's ``leftLenses``/``rightLenses`` untouched, else the
+  // full-width fallback double-covers the pulled minorities).
+  const baseLenses = loneSide === 'left' ? leftLenses : rightLenses
+  // LONE MULTI-UNIT INTERBEDDED STACK (increment 13): the enclosing matrix floods the
+  // interval wedge while every minority pinches at its own elevation. Delegated to
+  // ``routeLoneStack`` (returns false to fall through to the single-unit / full-width
+  // paths when no single facing-carried enclosing matrix exists).
+  if (loneMatrix.length !== 1) {
+    return routeLoneStack(
+      loneMatrix,
+      facing,
+      loneSide,
+      loneX,
+      facingX,
+      top,
+      base,
+      baseLenses,
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+    )
+  }
+  // SINGLE-UNIT lone pinch (finding A): the conservative clean-lateral-lens case (a
+  // single unit filling the interval against a facing that carries ONE continuous
+  // matrix). See the guard comments below.
   const u0 = loneMatrix[0]
   if (
     Math.abs(u0.topElev - intervalTopElev) > ELEV_EPS ||
@@ -352,8 +384,7 @@ export function routeLoneSidePinch(
         { x: facingX, y: facingBaseElevOf(base, loneSide) },
       ],
     })
-    const loneLenses = loneSide === 'left' ? leftLenses : rightLenses
-    for (const u of loneLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+    for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
     return true
   }
   emitLonePinch(
@@ -372,8 +403,7 @@ export function routeLoneSidePinch(
   )
   // Enclosed lenses on the lone side still pinch to their own 0.45 apex — their matrix
   // band IS the lone-pinch flood, which reaches them.
-  const loneLenses = loneSide === 'left' ? leftLenses : rightLenses
-  for (const u of loneLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+  for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
   return true
 }
 

@@ -135,6 +135,74 @@ export function extractEnclosedLenses(
 }
 
 /**
+ * Reduce a LONE-side interbedded stack to a single continuous MATRIX band plus its
+ * pinching MINORITY lenses — the increment-13 lone-multi-unit-stack path (design §4
+ * increment-11/12/13; owner CS1 repros S7 gap18 / S6 gap19 / B6 gap2 / B4|S13 gap3).
+ *
+ * The ordinary ``extractEnclosedLenses`` interior-lens walk only pulls a minority
+ * enclosed by ONE formation above AND below on its OWN column, and BAILS (returns the
+ * whole stack, full-width) when the residual is still multi-formation — the boundary
+ * minority (a stack's TOP or BASE unit) and an interbedded stack whose interior scan
+ * leaves ``[SILT,KLEI,SILT,VEEN,KLEI]`` never reduce (design §4 increment-9 blocker
+ * note). v1's ``runIntervalExtraction`` handles them with its onlap-top / onlap-base /
+ * lone-candidate branches (2/3/4), pulling every non-matrix unit as an own-elevation
+ * lens over a matrix placeholder that floods behind (``flood:`` units).
+ *
+ * v2 expresses the SAME outcome as a partition: pick the DOMINANT matrix formation —
+ * the one that, once every OTHER-formation unit is pulled, leaves a single-formation
+ * residual — verify the FACING column carries it across the stack's span (a real
+ * lateral matrix, not a data void), then pull EVERY non-matrix unit as an
+ * own-elevation lens. The matrix reduces to ONE continuous band the caller floods
+ * full-width behind the pinching minorities (the lens closings cut it into
+ * notch/annulus pieces — increment-12 machinery). Returns ``null`` when no single
+ * facing-carried dominant matrix exists (the stack stays on the caller's full-width
+ * fallback — a genuinely interbedded lone stack with no enclosing lithology).
+ *
+ * Parameters
+ * ----------
+ * units : IntervalUnit[]
+ *     The lone side's interval units, top->down (post the caller's ordinary
+ *     ``extractEnclosedLenses`` which returned them unreduced).
+ * facingFormations : ReadonlySet<string>
+ *     The facing column's full formation set (the lateral-matrix reach context).
+ * lenses : IntervalUnit[]
+ *     Accumulator the pulled minorities are pushed to.
+ *
+ * Returns
+ * -------
+ * IntervalUnit[] | null
+ *     The single-formation matrix run (one merged band), or ``null`` when no
+ *     dominant facing-carried matrix could be found.
+ */
+export function extractLoneStackLenses(
+  units: IntervalUnit[],
+  matrixFid: string,
+  lenses: IntervalUnit[],
+): IntervalUnit[] | null {
+  if (units.length < 2) return null
+  // The ENCLOSING matrix is the bracket lithology the caller supplies (the facing
+  // formation at the interval's convergence point — v1's ``belowLith ?? aboveLith``,
+  // NOT the thickest formation in the stack: an interbedded stack SILT/KLEI/SILT/VEEN/
+  // KLEI is enclosed in KLEI even though SILT is the thicker lithology). Every unit
+  // whose formation differs from the matrix is a minority lens; the matrix units form
+  // the flood band.
+  const matrix: IntervalUnit[] = []
+  const pulled: IntervalUnit[] = []
+  for (const u of units) {
+    if (u.unit.formationId === matrixFid) matrix.push(u)
+    else pulled.push(u)
+  }
+  if (matrix.length === 0 || pulled.length === 0) return null
+  for (const l of pulled) lenses.push(l)
+  // Merge the matrix units into ONE continuous band spanning the whole stack (the
+  // pulled minorities were the gaps between them). The band runs from the stack's
+  // top to its base so every minority lens holes INTO it.
+  const top = Math.max(...units.map((u) => u.topElev))
+  const bottom = Math.min(...units.map((u) => u.baseElev))
+  return [{ unit: matrix[0].unit, topElev: top, baseElev: bottom }]
+}
+
+/**
  * Emit a lens closing for one enclosed minority: two curves from the column top /
  * base corners to a shared apex at ``apexFrac`` of the gap width, at the unit's own
  * mid-elevation (so it terminates horizontally at its own level).
