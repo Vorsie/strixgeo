@@ -27,6 +27,9 @@ const FRACTION_SNAP = 1e-6
 const ELEV_SNAP_M = 0.001
 /** Minimum area (fraction·metres) below which a sliced region is dropped. */
 const MIN_SLICE_AREA = 1e-7
+/** Minimum fraction WIDTH a sliced region must span — below this it is a degenerate
+ *  far-edge sliver pinned against a column vertical (float noise at fraction ~1.0). */
+const MIN_FRACTION_WIDTH = 1e-3
 
 /**
  * Slice all labelled faces into per-gap ``SectionRegion`` polygons.
@@ -77,6 +80,19 @@ export function sliceFaces(
         for (const sub of splitAtRepeatedPoints(poly)) {
           if (sub.length < 3) continue
           if (polygonAbsArea(sub) < MIN_SLICE_AREA) continue
+          // Drop a DEGENERATE far-edge sliver: a region whose entire fraction span is a
+          // sub-pixel width pinned against a column vertical (all vertices within
+          // MIN_FRACTION_WIDTH of one fraction). These are float-noise slices at
+          // fraction ~1.0 (0.9999..1.0000) that clear the area floor but paint nothing
+          // visible — the B6 gap2 ``f[1.00..1.00]`` slivers (design §4 increment-16
+          // sweep). A real region spans a meaningful fraction width.
+          let fMin = Infinity
+          let fMax = -Infinity
+          for (const p of sub) {
+            if (p.fraction < fMin) fMin = p.fraction
+            if (p.fraction > fMax) fMax = p.fraction
+          }
+          if (fMax - fMin < MIN_FRACTION_WIDTH) continue
           out.push({
             formationId: lf.formationId,
             bodyId: lf.bodyId,
