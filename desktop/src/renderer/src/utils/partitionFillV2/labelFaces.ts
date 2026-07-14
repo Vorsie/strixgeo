@@ -66,6 +66,17 @@ export function labelFaces(
     const units: { ci: number; ui: number }[] = []
     let nTie = 0
     let nClose = 0
+    let nLensCurves = 0
+    // Any synthesized boundary curve that is NOT an enclosed-lens curve. An enclosed
+    // lens's OWN triangle face is bounded ONLY by lens curves + its single emitting
+    // column vertical; the enclosing MATRIX face (a concave notch touching the same
+    // lens curves where the notch bites the column edge) is ALSO bounded by the
+    // surface / close / floor / tie curves. This flag is what tells the lens triangle
+    // (the small own-elevation face) from the matrix notch that shares its lens ids —
+    // the ``face.holes.length === 0`` test alone cannot, because a NOTCH (lens riding
+    // the matrix column edge, the pure-case shape) leaves BOTH faces hole-free
+    // (adjacent-simple, not nested). See design §4 increment-12 row.
+    let nonLensBoundary = false
     let lensLabel: LensLabel | undefined
     let substrateLabel: LensLabel | undefined
     let floodLabel: LensLabel | undefined
@@ -83,6 +94,7 @@ export function labelFaces(
         // stamped from the flood label below.
         const l = lensLabels?.get(id)
         if (l) floodLabel = l
+        nonLensBoundary = true
         nTie++
       } else if (id.startsWith('btfloor') || id.startsWith('btcurtain')) {
         // A deep-to-deep flat-floor SUBSTRATE curve (emitBottomTieSubstrate): its
@@ -91,29 +103,44 @@ export function labelFaces(
         // there), so it is labelled from here as a BAND (the tie fill is authoritative).
         const l = lensLabels?.get(id)
         if (l) substrateLabel = l
+        nonLensBoundary = true
         nTie++
       } else if (id.startsWith('tie') || id.startsWith('bridge')) {
         // A ``bridge`` is a deep-to-deep substrate jump tie (emitSubstrate) — it
         // anchors the face the same way an ordinary tie does, so it counts toward
         // BAND classification.
+        nonLensBoundary = true
         nTie++
       } else if (id.startsWith('close')) {
+        nonLensBoundary = true
         nClose++
       } else if (id.startsWith('lens')) {
-        // A synthesized enclosed-lens curve. It appears on TWO faces: the lens
-        // face's OUTER ring (a hole-free triangle) AND the enclosing matrix
-        // annulus's HOLE ring (which ``faces.ts`` folds into the annulus's
-        // boundingCurveIds). Only the hole-free face is the lens (guarded below by
-        // ``face.holes.length === 0``); the annulus keeps its matrix label.
+        // A synthesized enclosed-lens curve (emitLenses / emitEnclosedLensCurves). It
+        // appears on TWO faces: the lens's OWN triangle (bounded ONLY by lens curves +
+        // its single emitting column vertical) AND the enclosing MATRIX face that the
+        // lens bites into (a concave notch when the lens rides the matrix column edge —
+        // the pure case — or a true annulus HOLE ring when the lens floats interior to a
+        // gap-spanning band). Only the lens's own triangle wins the lens label; the
+        // discriminator is ``nonLensBoundary`` (the matrix face always also carries a
+        // surface/close/floor/tie curve) + ``!spansGap`` (the matrix notch spans the gap),
+        // computed after the loop. See design §4 increment-12 row.
         const l = lensLabels?.get(id)
         if (l) lensLabel = l
+        nLensCurves++
         nClose++
       }
     }
 
-    // A face WITH holes is the enclosing matrix annulus, never the lens — the lens
-    // label leaked in via the shared hole-ring curve id. Ignore it there.
-    if (lensLabel && face.holes.length === 0) {
+    // The enclosed lens's OWN face: it carries a lens label, its ENTIRE synthesized
+    // boundary is lens curves (``!nonLensBoundary`` — no surface / close / floor / tie
+    // curve), and it does NOT span the gap (it rides a single column, apex mid-gap).
+    // The enclosing matrix face shares the SAME lens curve ids (where the lens bites its
+    // edge) but is disqualified on both counts — it always carries the surface / floor /
+    // close boundary and spans the gap. This replaces the old ``face.holes.length === 0``
+    // test, which mislabelled the matrix NOTCH as the lens (a notch leaves both faces
+    // hole-free — adjacent-simple, not nested; see the loop comment + design §4 incr-12).
+    const spansGap = new Set(units.map((u) => u.ci)).size >= 2
+    if (lensLabel && !nonLensBoundary && nLensCurves > 0 && !spansGap) {
       out.push({ face, formationId: lensLabel.formationId, bodyId: lensLabel.bodyId, klass: 'lens', units })
       continue
     }
@@ -145,8 +172,7 @@ export function labelFaces(
     // untied lens, e.g. clay between two sands) that carries no explicit tie, which the
     // tie-count classifier alone reads as LENS (v1 ``emitInterval`` connects a single
     // same-formation unit per side as a band quad). A lens/onlap face touches only its
-    // OWN column vertical, so it is unaffected.
-    const spansGap = new Set(units.map((u) => u.ci)).size >= 2
+    // OWN column vertical, so it is unaffected. (``spansGap`` is computed above.)
     const klass = spansGap ? 'band' : classifyFace(nTie, nClose)
     out.push({ face, formationId, bodyId, klass, units })
   }

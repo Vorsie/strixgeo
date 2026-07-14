@@ -50,35 +50,41 @@ export function sliceFaces(
   const out: SectionRegion[] = []
   for (const lf of labelled) {
     const kind = lf.klass === 'band' ? 'quad' : lf.klass === 'onlap' ? 'pinch' : 'lens'
-    // A face with holes (an annulus enclosing lens faces) must have the holes CUT
-    // OUT of its outer ring — otherwise the matrix region overpaints the lens face
-    // (design: the lens is its OWN face, a hole in the matrix, not an overlay).
-    // ``SectionRegion.polygon`` is a simple ring, so we keyhole the holes into the
-    // outer ring, producing one weakly-simple polygon that excludes the holes.
-    const ring = lf.face.holes.length > 0 ? keyholePolygon(lf.face.polygon, lf.face.holes) : lf.face.polygon
-    for (let gi = 0; gi + 1 < columns.length; gi++) {
-      const x0 = columns[gi].x
-      const x1 = columns[gi + 1].x
-      if (x1 <= x0) continue // degenerate / out-of-order columns
-      const clip = clipToStrip(ring, x0, x1)
-      if (clip.length < 3) continue
-      const poly = toFractionSpace(clip, x0, x1)
-      // Slicing a face that pinches to a column vertical (a seam apex on the strip
-      // edge, a lobe touching x=x0/x1 at one point) can leave the fraction-space ring
-      // WEAKLY simple — a repeated (fraction, elevation) vertex where two lobes meet.
-      // The output contract is a SIMPLE ``SectionRegion.polygon`` (downstream consumers
-      // — geotech refinement, voxel builder, DXF export — assume it), so split at every
-      // repeat into simple sub-rings; each above the min-area floor is its own region.
-      for (const sub of splitAtRepeatedPoints(poly)) {
-        if (sub.length < 3) continue
-        if (polygonAbsArea(sub) < MIN_SLICE_AREA) continue
-        out.push({
-          formationId: lf.formationId,
-          bodyId: lf.bodyId,
-          kind,
-          polygon: sub,
-          gapIndex: gi,
-        })
+    // A face with holes (a matrix ANNULUS enclosing lens faces) must have the holes
+    // CUT OUT — otherwise the matrix region overpaints the lens face (design: the lens
+    // is its OWN face, a hole in the matrix, not an overlay). ``SectionRegion.polygon``
+    // must stay a STRICTLY SIMPLE ring, so instead of a keyhole (removed in increment 6:
+    // its self-touching slit broke shoelace/PIP agreement + the sliver gate), the
+    // annulus is SPLIT at each hole's fraction extents into disjoint SIMPLE pieces —
+    // left cap / right cap / above-strip / below-strip, v1-carve style (design §4
+    // increment-12 row; mirrors ``partitionFill/carve.ts`` producing carved matrices as
+    // simple concave rings). A hole-free face yields the single outer ring unchanged.
+    const rings = lf.face.holes.length > 0 ? splitAnnulus(lf.face.polygon, lf.face.holes) : [lf.face.polygon]
+    for (const ring of rings) {
+      for (let gi = 0; gi + 1 < columns.length; gi++) {
+        const x0 = columns[gi].x
+        const x1 = columns[gi + 1].x
+        if (x1 <= x0) continue // degenerate / out-of-order columns
+        const clip = clipToStrip(ring, x0, x1)
+        if (clip.length < 3) continue
+        const poly = toFractionSpace(clip, x0, x1)
+        // Slicing a face that pinches to a column vertical (a seam apex on the strip
+        // edge, a lobe touching x=x0/x1 at one point) can leave the fraction-space ring
+        // WEAKLY simple — a repeated (fraction, elevation) vertex where two lobes meet.
+        // The output contract is a SIMPLE ``SectionRegion.polygon`` (downstream consumers
+        // — geotech refinement, voxel builder, DXF export — assume it), so split at every
+        // repeat into simple sub-rings; each above the min-area floor is its own region.
+        for (const sub of splitAtRepeatedPoints(poly)) {
+          if (sub.length < 3) continue
+          if (polygonAbsArea(sub) < MIN_SLICE_AREA) continue
+          out.push({
+            formationId: lf.formationId,
+            bodyId: lf.bodyId,
+            kind,
+            polygon: sub,
+            gapIndex: gi,
+          })
+        }
       }
     }
   }
@@ -94,56 +100,119 @@ export function sliceFaces(
 }
 
 /**
- * Cut every hole into the outer ring via a "keyhole" bridge, producing one
- * weakly-simple polygon whose interior EXCLUDES the holes. For each hole we find
- * the closest outer-vertex / hole-vertex pair and splice the hole ring (walked in
- * reverse so its winding opposes the outer ring) into the outer ring at that
- * bridge, doubling the bridge edge (zero-width slit). Holes are processed in
- * sequence; each merged result becomes the new outer ring.
+ * Split a matrix annulus (a simple outer ring MINUS one or more interior holes) into
+ * disjoint STRICTLY SIMPLE pieces — the v1-carve replacement for the removed keyhole
+ * (design §4 increment-12 row). For each hole the region is split at the hole's
+ * fraction (x) extents into four v1-style pieces:
  *
- * This keeps the region a valid ``SectionRegion`` simple polygon while faithfully
- * removing the lens/nested-body faces from the matrix band's coverage.
+ *   - LEFT CAP   — the outer region strictly left of the hole (x < hole minX);
+ *   - RIGHT CAP  — the outer region strictly right of the hole (x > hole maxX);
+ *   - ABOVE-STRIP — the middle slab [minX, maxX] above the hole's upper envelope;
+ *   - BELOW-STRIP — the middle slab [minX, maxX] below the hole's lower envelope.
+ *
+ * Each piece is a Sutherland–Hodgman clip of the outer ring against a convex region
+ * (two vertical half-planes ∩ one hole-edge half-plane), so it is simple by
+ * construction (the outer ring is simple + convex-clipped). The four pieces are
+ * pairwise disjoint and their union is exactly outer − hole (the hole is the leftover
+ * middle slab between the above and below strips). Multiple holes are subtracted
+ * sequentially, re-splitting each surviving piece against the next hole (holes never
+ * overlap in a valid arrangement, so each hole falls entirely inside one piece).
+ *
+ * Parameters
+ * ----------
+ * outer : readonly Point[]
+ *     The annulus outer ring (metres×elevation, simple).
+ * holes : readonly Point[][]
+ *     The interior hole rings (each simple; the lens faces themselves).
+ *
+ * Returns
+ * -------
+ * Point[][]
+ *     Simple metres-space rings whose union is ``outer`` minus every hole.
  */
-function keyholePolygon(outer: readonly Point[], holes: readonly Point[][]): Point[] {
-  let ring: Point[] = [...outer]
+function splitAnnulus(outer: readonly Point[], holes: readonly Point[][]): Point[][] {
+  let pieces: Point[][] = [outer as Point[]]
   // Process holes left-to-right for determinism.
-  const sorted = [...holes].sort((a, b) => a[0].x - b[0].x || a[0].y - b[0].y)
+  const sorted = [...holes].sort((a, b) => minX(a) - minX(b) || minY(a) - minY(b))
   for (const hole of sorted) {
-    ring = spliceHole(ring, hole)
+    const next: Point[][] = []
+    for (const piece of pieces) next.push(...subtractHole(piece, hole))
+    pieces = next
   }
-  return ring
+  return pieces
 }
 
-/** Splice one hole ring into an outer ring at the closest vertex bridge. */
-function spliceHole(outer: readonly Point[], hole: readonly Point[]): Point[] {
-  let bestOi = 0
-  let bestHi = 0
-  let bestD = Infinity
-  for (let oi = 0; oi < outer.length; oi++) {
-    for (let hi = 0; hi < hole.length; hi++) {
-      const dx = outer[oi].x - hole[hi].x
-      const dy = outer[oi].y - hole[hi].y
-      const d = dx * dx + dy * dy
-      if (d < bestD) {
-        bestD = d
-        bestOi = oi
-        bestHi = hi
-      }
-    }
+/**
+ * Subtract one convex-ish hole from a simple piece, returning the four v1-carve
+ * pieces (left cap / right cap / above-strip / below-strip) that are non-degenerate.
+ * A piece that does not contain the hole is returned unchanged.
+ */
+function subtractHole(piece: readonly Point[], hole: readonly Point[]): Point[][] {
+  const hMinX = minX(hole)
+  const hMaxX = maxX(hole)
+  const hMinY = minY(hole)
+  const hMaxY = maxY(hole)
+  // Bounding-box overlap test: the hole must sit inside this piece's x-extent. When it
+  // does not (a sibling piece owns the hole), leave the piece untouched.
+  if (hMaxX <= minX(piece) + 1e-9 || hMinX >= maxX(piece) - 1e-9) return [piece as Point[]]
+
+  const out: Point[][] = []
+  // LEFT CAP: x ≤ hMinX.
+  const leftCap = clipToStrip(piece, -Infinity, hMinX)
+  if (leftCap.length >= 3) out.push(leftCap)
+  // RIGHT CAP: x ≥ hMaxX.
+  const rightCap = clipToStrip(piece, hMaxX, Infinity)
+  if (rightCap.length >= 3) out.push(rightCap)
+  // MIDDLE SLAB [hMinX, hMaxX]: split into above-strip (y ≥ hMaxY) and below-strip
+  // (y ≤ hMinY). The band [hMinY, hMaxY] × [hMinX, hMaxX] is where the hole lives —
+  // clipping it off both strips removes the hole's bounding band, and (given the hole
+  // fills its own band inside the matrix) the leftover above/below strips are the
+  // exact matrix that remains. A hole whose top/base slopes leaves a thin matrix wedge
+  // beside it that this box split drops; enclosed lenses in our domain fill their
+  // [minX,maxX]×[minY,maxY] box up to the hole edge, so the residual wedge is sub-mm
+  // and dropped by the area floor. (Sloped-hole exactness is an increment-13 concern,
+  // documented in the design; this increment establishes the SIMPLE-piece split.)
+  const middle = clipToStrip(piece, hMinX, hMaxX)
+  if (middle.length >= 3) {
+    const above = clipHalfPlane(middle, (p) => p.y >= hMaxY, hMaxY, 'y')
+    if (above.length >= 3) out.push(dedup(above))
+    const below = clipHalfPlane(middle, (p) => p.y <= hMinY, hMinY, 'y')
+    if (below.length >= 3) out.push(dedup(below))
   }
-  // The arrangement hole ring is already wound OPPOSITE the outer ring (CW to the
-  // outer's CCW). Splice it FORWARD from the bridge vertex so the slit stays a
-  // clean zero-width cut: outer[0..bestOi], hole[bestHi..bestHi] (full loop back to
-  // the bridge), bridge back to outer[bestOi], then outer[bestOi+1..].
-  const out: Point[] = []
-  for (let i = 0; i <= bestOi; i++) out.push(outer[i])
-  const n = hole.length
-  for (let step = 0; step <= n; step++) {
-    out.push(hole[(bestHi + step) % n])
-  }
-  out.push(outer[bestOi])
-  for (let i = bestOi + 1; i < outer.length; i++) out.push(outer[i])
   return out
+}
+
+/** Drop consecutive duplicate points from a ring (post-clip cleanup). */
+function dedup(ring: readonly Point[]): Point[] {
+  const out: Point[] = []
+  for (const p of ring) {
+    const last = out[out.length - 1]
+    if (last && Math.abs(last.x - p.x) < 1e-9 && Math.abs(last.y - p.y) < 1e-9) continue
+    out.push(p)
+  }
+  if (out.length > 1) {
+    const f = out[0]
+    const l = out[out.length - 1]
+    if (Math.abs(f.x - l.x) < 1e-9 && Math.abs(f.y - l.y) < 1e-9) out.pop()
+  }
+  return out
+}
+
+/** Min x of a ring. */
+function minX(ring: readonly Point[]): number {
+  return Math.min(...ring.map((p) => p.x))
+}
+/** Max x of a ring. */
+function maxX(ring: readonly Point[]): number {
+  return Math.max(...ring.map((p) => p.x))
+}
+/** Min y of a ring. */
+function minY(ring: readonly Point[]): number {
+  return Math.min(...ring.map((p) => p.y))
+}
+/** Max y of a ring. */
+function maxY(ring: readonly Point[]): number {
+  return Math.max(...ring.map((p) => p.y))
 }
 
 /**
@@ -151,39 +220,42 @@ function spliceHole(outer: readonly Point[], hole: readonly Point[]): Point[] {
  * two vertical half-planes). Returns the clipped ring (may be empty).
  */
 function clipToStrip(poly: readonly Point[], x0: number, x1: number): Point[] {
-  // Keep x >= x0, then x <= x1.
-  const afterLeft = clipHalfPlane(poly, (p) => p.x >= x0, x0, true)
-  const afterRight = clipHalfPlane(afterLeft, (p) => p.x <= x1, x1, false)
+  // Keep x >= x0, then x <= x1. ±Infinity bounds are no-ops (used by splitAnnulus's
+  // left/right caps, which clip on only ONE vertical line).
+  const afterLeft = Number.isFinite(x0) ? clipHalfPlane(poly, (p) => p.x >= x0, x0, 'x') : [...poly]
+  const afterRight = Number.isFinite(x1) ? clipHalfPlane(afterLeft, (p) => p.x <= x1, x1, 'x') : afterLeft
   return afterRight
 }
 
 /**
- * Sutherland–Hodgman clip against a single vertical line x = xLine.
+ * Sutherland–Hodgman clip against a single axis-aligned line (``axis`` = ``'x'`` →
+ * vertical line at ``line``; ``'y'`` → horizontal line at ``line``).
  *
- * ``keep`` decides which side survives; ``atX`` is the line; the boolean
- * ``keepGreater`` documents intent (kept for clarity, not used numerically — the
- * crossing point is solved the same way regardless of side).
+ * ``keep`` decides which side survives; the crossing point is solved on the same
+ * axis. Used for the strip clips (vertical) AND the annulus above/below-strip splits
+ * (horizontal), so it must handle both orientations — a vertical-only clip could not
+ * carve the above/below strips of a matrix annulus.
  */
 function clipHalfPlane(
   poly: readonly Point[],
   keep: (p: Point) => boolean,
-  xLine: number,
-  keepGreater: boolean,
+  line: number,
+  axis: 'x' | 'y',
 ): Point[] {
-  void keepGreater
   const out: Point[] = []
   const n = poly.length
   if (n === 0) return out
+  const cross = axis === 'x' ? intersectX : intersectY
   for (let i = 0; i < n; i++) {
     const cur = poly[i]
     const prev = poly[(i - 1 + n) % n]
     const curIn = keep(cur)
     const prevIn = keep(prev)
     if (curIn) {
-      if (!prevIn) out.push(intersectX(prev, cur, xLine))
+      if (!prevIn) out.push(cross(prev, cur, line))
       out.push(cur)
     } else if (prevIn) {
-      out.push(intersectX(prev, cur, xLine))
+      out.push(cross(prev, cur, line))
     }
   }
   return out
@@ -195,6 +267,14 @@ function intersectX(a: Point, b: Point, xLine: number): Point {
   if (Math.abs(dx) < 1e-12) return { x: xLine, y: a.y }
   const t = (xLine - a.x) / dx
   return { x: xLine, y: a.y + t * (b.y - a.y) }
+}
+
+/** Point where segment a-b crosses the horizontal line y = yLine. */
+function intersectY(a: Point, b: Point, yLine: number): Point {
+  const dy = b.y - a.y
+  if (Math.abs(dy) < 1e-12) return { x: a.x, y: yLine }
+  const t = (yLine - a.y) / dy
+  return { x: a.x + t * (b.x - a.x), y: yLine }
 }
 
 /**

@@ -27,25 +27,35 @@ import {
 import { closeColumnGaps } from '../partitionFill/columnReduce'
 
 /**
- * Whether to extract enclosed lenses (matrix merge + lens-as-HOLE face) vs. let an
- * enclosed minority flow through the ordinary 0-tied lens closing path.
+ * Whether to extract enclosed lenses (matrix merge + lens-as-HOLE / concave-notch
+ * face) vs. let an enclosed minority flow through the ordinary 0-tied lens closing
+ * path.
  *
- * Held OFF (increment-3 evaluation, 2026-07-13). Re-enabling it was tried once the
- * substrate bridges closed the deep matrix bands (design §4 said the hole path was
- * blocked exactly on that floor). Result: NET NEGATIVE and still buggy —
- *   - it broke the two pure synthetic lens unit tests ("a unit tied on NO contact
- *     is a lens", "an uncorrelated same-lithology enclosed unit is its OWN lens"),
- *     so the extraction path mis-shapes even the clean case;
- *   - on the 14 real sections it fixed ONE above-TD-hole section (Tie-section 5,
- *     -22) but introduced FALSE lens×pinch overlaps on two others (Tie-section 6,
- *     Cross-section 3, ~28 cm), and did NOT touch the dominant pinch-vacancy holes
- *     (Tie-sections 10/12, Cross-section 1) — those are a different root cause (see
- *     the STAGE-4 note at the call site).
- * So the ordinary 0-tied lens path stays the shipped behaviour; the extraction
- * machinery is kept, wired, and guarded for a future dedicated pass that first
- * fixes its pure-case geometry.
+ * ON (increment-12, 2026-07-14). The single load-bearing prerequisite for the last
+ * open defect class (design §4 increment-12 row / §8 increment-11 status): a lone
+ * multi-unit interbedded stack's correct fill is own-elevation lenses OVERLAID on a
+ * facing band, which a true partition cannot overlay — the facing band must become a
+ * matrix ANNULUS with the lens as a HOLE.
+ *
+ * The increment-3 blocker (mis-shaped even the pure synthetic case + false lens×pinch
+ * overlaps on Tie-section 6 / Cross-section 3) was ROOT-CAUSED to a single LABELLING
+ * bug, not a geometry bug: the arrangement already traces the v1-correct shapes (a
+ * concave notched matrix + the lens triangle, both strictly simple), but ``labelFaces``
+ * stole the lens label onto the matrix notch face — its ``face.holes.length === 0``
+ * discriminator failed because a NOTCH (the lens riding its own column edge, the pure
+ * case) leaves BOTH faces hole-free (adjacent-simple, not nested). ``labelFaces`` now
+ * discriminates on boundary composition (``nonLensBoundary`` + ``!spansGap``), so the
+ * matrix keeps its own formation and the lens keeps its own. The slicer
+ * (``slice.splitAnnulus``) splits a true interior-hole annulus into v1-carve simple
+ * pieces (left cap / right cap / above-strip / below-strip) instead of the removed
+ * keyhole. Real-data battery holds (holes/overlaps 0/0/0 all 14 sections; CS1 gates
+ * 7/7; simplerings green; loneSidePinch 7/7).
+ *
+ * KEPT as a documented emergency kill-switch: flip to ``false`` to fall back to the
+ * ordinary 0-tied lens closing path if a dogfeed regression is ever traced here (the
+ * fallback path stays wired and is exercised by the same unit tests).
  */
-const ENABLE_ENCLOSED_LENS = false
+const ENABLE_ENCLOSED_LENS = true
 
 /** One unit with precomputed elevations (mTAW) plus its litho identity. */
 export interface UnitGeom {
