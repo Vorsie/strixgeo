@@ -31,6 +31,7 @@
  */
 
 import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { collectGapBands, emitBandContourCurve, untiedUnitsInInterval, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
@@ -90,8 +91,21 @@ export function emitIntervalCurves(
   const { columns } = section
   let seq = 0
   const nextId = (): string => `close${seq++}`
+  // Band-contour curves get their OWN ``bandc`` id prefix — ``labelFaces`` counts it
+  // as NEITHER a tie nor a closing, so the band face (tie + column verticals + these
+  // contours) still classifies as BAND and an adjacent fill abutting a contour is not
+  // mis-promoted to onlap.
+  let bseq = 0
+  const nextBandId = (): string => `bandc${bseq++}`
   for (let gi = 0; gi + 1 < columns.length; gi++) {
-    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, nextId, out)
+    // Matched-pair bands (v1 ``matchColumns`` semantics): a top-tie (or base-tie)
+    // pair of same-formation facing units is a full-width band whose OWN base (top)
+    // contour brackets the interval below (above) it. Band-first tiling (design §4
+    // increment-7): the band's boundaries become BRACKET LINES so a facing untied
+    // unit tiles only the residue OUTSIDE the band — its lone-side fill stops at the
+    // band boundary instead of overrunning the band interior (cs1bandauthority).
+    const bands = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
+    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, nextId, nextBandId, out)
   }
 }
 
@@ -154,11 +168,22 @@ function emitGapIntervals(
   right: ColumnGeom,
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
+  bands: readonly GapBand[],
   nextId: () => string,
+  nextBandId: () => string,
   out: InputCurve[],
 ): void {
   const leftFlags = tiedContacts(gapIndex, 'left', gapIndex, left.units.length, activeTies, bridgeAnchored)
   const rightFlags = tiedContacts(gapIndex, 'right', gapIndex + 1, right.units.length, activeTies, bridgeAnchored)
+  // Per-column banded unit indices (a matched-pair member). A banded unit is carried
+  // by its band contour curves — never tiled. The band's own top/base contour + the
+  // interval brackets confine any facing fill to the residue outside the band.
+  const leftBanded = new Set<number>()
+  const rightBanded = new Set<number>()
+  for (const b of bands) {
+    leftBanded.add(b.leftUnitIndex)
+    rightBanded.add(b.rightUnitIndex)
+  }
 
   // Build the bracket lines: surface (top), each tie/bridge anchor line, then the
   // shallow-TD floor. Each bracket is an interface (leftElev, rightElev) — a
@@ -167,6 +192,19 @@ function emitGapIntervals(
   brackets.push({ leftElev: left.surfaceElevM, rightElev: right.surfaceElevM, anchor: false })
   const anchorLines = collectAnchorLines(gapIndex, left, right, activeTies, bridgeAnchored)
   for (const a of anchorLines) brackets.push(a)
+  // Band-first brackets (design §4 increment-7): each matched-pair band's OWN top
+  // and base contour is a bracket line. Without this, a top-tie band whose base is
+  // its unit's own (untied) contact leaves the interval between the tie ABOVE and
+  // the tie BELOW open across the whole width, so a facing untied unit's lone-side
+  // fill overruns the band interior (cs1bandauthority). Adding the band contours as
+  // brackets confines that fill to the residue OUTSIDE the band. The contour is a
+  // real correlation boundary → ``anchor: true`` (v1's ``bracketed`` gate: a
+  // matched-pair band above/below is a real bracket for the midpoint no-auto-facies
+  // seam).
+  for (const b of bands) {
+    brackets.push({ leftElev: b.leftTop, rightElev: b.rightTop, anchor: true })
+    brackets.push({ leftElev: b.leftBase, rightElev: b.rightBase, anchor: true })
+  }
   // Fill floor: the shallow TD (the higher of the two columns' base elevations).
   // Below this only bridges may fill; a vacancy floor deeper than this would tile
   // into the sub-TD void (owner Q3 — stays empty).
@@ -174,6 +212,17 @@ function emitGapIntervals(
   const rightTD = right.units[right.units.length - 1].baseElev
   const shallowTD = Math.max(leftTD, rightTD)
   brackets.push({ leftElev: shallowTD, rightElev: shallowTD, anchor: false })
+
+  // Emit each band's OWN top / base contour as an arrangement curve so the band face
+  // closes against the fill above / below it (the interval brackets only DEFINE the
+  // tiling; the arrangement needs a real curve at the band boundary or the fill's
+  // top/base edge is unbounded). A contour AT or BELOW the shallow TD is skipped —
+  // that zone is owned by the deep-to-deep substrate, and a duplicate contour there
+  // splits the deep band into overlapping slivers (the sandbody GAP-14/15/16 regress).
+  for (const b of bands) {
+    emitBandContourCurve(left.x, right.x, b.leftTop, b.rightTop, shallowTD, nextBandId, out)
+    emitBandContourCurve(left.x, right.x, b.leftBase, b.rightBase, shallowTD, nextBandId, out)
+  }
 
   // Deduplicate + sort brackets by mid-elevation, shallow (high) -> deep (low).
   const mid = (b: Bracket): number => (b.leftElev + b.rightElev) / 2
@@ -201,8 +250,8 @@ function emitGapIntervals(
     const base = uniq[bi + 1]
     // Skip a fully sub-TD interval (both sides below the shallow TD).
     if (mid(top) <= shallowTD + ELEV_EPS) continue
-    const leftUnits = untiedUnitsInInterval(left, leftFlags, top.leftElev, base.leftElev, 'left')
-    const rightUnits = untiedUnitsInInterval(right, rightFlags, top.rightElev, base.rightElev, 'right')
+    const leftUnits = untiedUnitsInInterval(left, leftFlags, leftBanded, top.leftElev, base.leftElev)
+    const rightUnits = untiedUnitsInInterval(right, rightFlags, rightBanded, top.rightElev, base.rightElev)
     if (leftUnits.length === 0 && rightUnits.length === 0) continue
     // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
     // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
@@ -264,35 +313,6 @@ function collectAnchorLines(
   const n = Math.min(ls.length, rs.length)
   for (let i = 0; i < n; i++) lines.push({ leftElev: ls[i], rightElev: rs[i], anchor: true })
   return lines
-}
-
-/**
- * The untied units of one column whose span overlaps the interval [topElev,
- * baseElev] on that column, top->down. A unit is "in the interval" if its own span
- * intersects it; it is UNTIED when neither of its contacts is tied (a fully banded
- * unit is carried by the arrangement's tie curves, not tiled here). Its span is
- * CLAMPED to the interval so the sub-seams line up with the bracket interfaces.
- */
-function untiedUnitsInInterval(
-  col: ColumnGeom,
-  flags: { top: boolean; base: boolean }[],
-  topElev: number,
-  baseElev: number,
-  side: 'left' | 'right',
-): IntervalUnit[] {
-  void side
-  const out: IntervalUnit[] = []
-  for (let ui = 0; ui < col.units.length; ui++) {
-    const u = col.units[ui]
-    // Fully banded (both contacts tied) → carried by the tie curves, not tiled.
-    if (flags[ui].top && flags[ui].base) continue
-    // Overlap of the unit's span with the interval.
-    const spanTop = Math.min(u.topElev, topElev)
-    const spanBase = Math.max(u.baseElev, baseElev)
-    if (spanTop - spanBase <= ELEV_EPS) continue // no overlap
-    out.push({ unit: u, topElev: spanTop, baseElev: spanBase })
-  }
-  return out
 }
 
 /**
