@@ -272,6 +272,18 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 7. **Process standard (owner):** no partial fixes and no gaps — a
    termination-shape class is either at v1 parity (or better, per these
    rulings) or the increment is not done.
+8. **STRICT 2/1/0 (owner, 2026-07-14 evening, after the model-wide shape
+   audit).** Uncorrelated units TERMINATE — always. Facing same-formation
+   units with no drawn tie render as opposing lenses/pinches (apex
+   conventions unchanged); they band ONLY when a correlation edge is
+   drawn/accepted. v1's geometric same-formation auto-matching is
+   RETIRED in v2 (an intentional, owner-ruled divergence — most of the
+   round-2 dogfeed list is this class, present in BOTH engines). The
+   parity target for termination shapes is hereby superseded: the
+   acceptance is the shape-audit instrument at strict-2/1/0 semantics
+   (every 0-corr unit terminates; every band maps to a drawn tie), not
+   v1 equivalence. Side effect embraced: the ~60 untied same-litho
+   overlaps will show as double lenses until the owner ties them.
 
 ## 9. Build plan (subagent-driven; month shape)
 
