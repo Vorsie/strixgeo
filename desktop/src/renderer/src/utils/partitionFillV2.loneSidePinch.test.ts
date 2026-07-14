@@ -78,6 +78,15 @@ function matrixAt(regions: SectionRegion[], gap: number, f: number, e: number): 
   return null
 }
 
+/** ANY formation covering (f, e) in a gap (lens or matrix), or null — a coverage probe. */
+function coverAt(regions: SectionRegion[], gap: number, f: number, e: number): string | null {
+  for (const r of regions) {
+    if (r.gapIndex !== gap) continue
+    if (inPoly(f, e, r.polygon)) return r.formationId
+  }
+  return null
+}
+
 /** Max fraction any vertex of a region of formation ``fid`` reaches in a gap. */
 function maxFractionOf(
   regions: SectionRegion[],
@@ -232,5 +241,80 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     // elevation, the matrix is CLAY (not empty, not the minority litho).
     expect(matrixAt(regions, 0, 0.9, 10.5)).toBe(CLAY) // past the upper sand lens
     expect(matrixAt(regions, 0, 0.9, 7.25)).toBe(CLAY) // past the silt lens
+  })
+
+  // ---------------------------------------------------------------------------
+  // BOUNDARY minorities (increment 10): the S7-gap18 / S6-gap19 / B4-gap3 class.
+  // The prior two increments left these running to the far column because a
+  // BOUNDARY minority (the top or base unit of a lone stack, NOT enclosed by one
+  // matrix above AND below) does not reduce to a lens-in-continuous-matrix, so the
+  // interior-lens walk bailed and the stack tiled full-width. With the surface band
+  // (ruling 5) as the top bracket and the tie/substrate as the bottom bracket, every
+  // boundary unit now has both brackets → it pinches at ~0.45 and the bracket matrix
+  // claims the vacated wedge (v1 ``runIntervalExtraction`` branches 2/3/4 + the
+  // ``emitOneSidedPinch`` flood closure). Owner's words: "the lenses must pinch out
+  // short of the next test, not run all the way to it".
+  // ---------------------------------------------------------------------------
+  it('a lone stack whose TOP unit is a boundary minority pinches short of the far column (S7 gap18 class)', () => {
+    // Left: a top SILT boundary minority (surface above, CLAY below) over a CLAY matrix
+    // that BANDS into the right column's deep CLAY via a base tie. That base tie makes the
+    // deep CLAY a matched band (excluded from the interval), so the surface interval that
+    // holds the left SILT is a LONE interval (the right has no unit there) — the exact
+    // S7-gap18 shape. The SILT must pinch short of the far column; the CLAY floods past it.
+    const lSiltTop = layer()
+    const lClayBot = layer()
+    const rSand = layer()
+    const rClay = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 2, f: SILT, layerId: lSiltTop },
+      { top: 2, base: 8, f: CLAY, layerId: lClayBot },
+    ])
+    // Right: a SAND cap (surface interval counterpart is SAND, not SILT) over a deep CLAY.
+    const right = col('R', 10, [
+      { top: 0, base: 2, f: SAND, layerId: rSand },
+      { top: 2, base: 8, f: CLAY, layerId: rClay },
+    ])
+    // Band the deep CLAY top-to-top: the CLAY is a matched band → the surface interval
+    // (SILT on the left vs SAND on the right) is bracketed above by the surface and below
+    // by the CLAY band. The left SILT is a lone-side boundary minority there.
+    const edges: CorrelationEdge[] = [{ a: lClayBot, b: rClay, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+    // The SILT boundary minority (~elev 9) pinches short of the far column.
+    expect(maxFractionOf(regions, 0, SILT)).toBeLessThan(0.6)
+    // The facing SAND matrix claims the vacated width past the apex, right up to the far
+    // column (no untraced hole — the two prior increments' failure mode).
+    expect(matrixAt(regions, 0, 0.9, 9)).toBe(SAND)
+    expect(matrixAt(regions, 0, 0.95, 9)).toBe(SAND)
+  })
+
+  it('a lone interbedded stack (multiple boundary minorities) pinches, the matrix bands across', () => {
+    // Left: an interbedded surface stack SILT / CLAY / SILT bracketed below by a CLAY band
+    // (tied to the right). The right's surface counterpart is one continuous CLAY, so the
+    // interval is lone on the left AND the residual reduces to a CLAY matrix + SILT lenses.
+    // Every SILT (incl. the top boundary one) must pinch; the CLAY bands across.
+    const lSilt1 = layer()
+    const lClayMid = layer()
+    const lSilt2 = layer()
+    const lClayBot = layer()
+    const rClayTop = layer()
+    const rClayBot = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 1, f: SILT, layerId: lSilt1 },
+      { top: 1, base: 2, f: CLAY, layerId: lClayMid },
+      { top: 2, base: 3, f: SILT, layerId: lSilt2 },
+      { top: 3, base: 8, f: CLAY, layerId: lClayBot },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: rClayTop },
+      { top: 3, base: 8, f: CLAY, layerId: rClayBot },
+    ])
+    const edges: CorrelationEdge[] = [{ a: lClayBot, b: rClayBot, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+    // Both SILT minorities pinch short of the far column.
+    expect(maxFractionOf(regions, 0, SILT)).toBeLessThan(0.6)
+    // The CLAY matrix claims the width past each apex, at the top SILT's own elevation —
+    // the space is covered by CLAY (the flooding matrix face), not empty, not SILT.
+    expect(coverAt(regions, 0, 0.9, 9.5)).toBe(CLAY)
+    expect(coverAt(regions, 0, 0.95, 9.5)).toBe(CLAY)
   })
 })
