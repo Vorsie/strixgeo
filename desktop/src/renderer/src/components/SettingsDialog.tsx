@@ -30,6 +30,10 @@ import {
   type LithoSegmenterPrefs,
 } from '../utils/lithoSegmenterPrefs'
 import {
+  setPartitionEngineV2,
+  usePartitionEngineV2,
+} from '../utils/partitionEngineSelect'
+import {
   SECTION_DEFAULTS,
   SECTION_DEFAULTS_BOUNDS,
   type SectionDefaults,
@@ -213,6 +217,11 @@ function LithoSection({
   hasProject: boolean
   onSubmit: () => void
 }): JSX.Element {
+  // Device-local partition-engine pref (dev only). Reversible chrome — applied
+  // immediately via setPartitionEngineV2, no Save step (matches the theme
+  // toggle). Read as a hook so the checkbox reflects flips from elsewhere.
+  const partitionEngineV2 = usePartitionEngineV2()
+
   const thicknessBounds = LITHO_SEGMENTER_BOUNDS.minimumLayerThicknessM
   const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
@@ -431,6 +440,26 @@ function LithoSection({
         disabled={!hasProject}
         invalid={!voxelVValid}
       />
+
+      {/* Dev-only experimental engine toggle. Device-scoped (localStorage),
+          NOT part of the project draft — applied immediately, no Save. The
+          section badge reads "Stored in this project"; this one row is the
+          exception, hence the "(this device)" hint. Hidden in production
+          builds — gated on !import.meta.env.PROD (the typed env flag under
+          this tsconfig; DEV === !PROD). */}
+      {!import.meta.env.PROD && (
+        <div className="pt-1 border-t border-border-subtle mt-2">
+          <div className="pt-3">
+            <CheckboxRow
+              id="settings-partition-engine-v2"
+              label="Partition engine v2 (experimental)"
+              hint="Closed-loop face-tracing engine. Renders 2D fill, 3D build and fences. Off = stable v1. Stored on this device (does not travel with the project); applied immediately."
+              checked={partitionEngineV2}
+              onChange={setPartitionEngineV2}
+            />
+          </div>
+        </div>
+      )}
 
       <SectionFooter
         hasProject={hasProject}
