@@ -267,3 +267,110 @@ export function untiedUnitsInInterval(
   }
   return out
 }
+
+/**
+ * v1 ``emitInterval`` meeting-fraction rule (``emit.ts``):
+ *   lone left  -> 1 (fills to the right column)
+ *   lone right -> 0
+ *   1 left + 1 right, DIFFERENT lithology, bracketed above AND below -> 0.5
+ *     (mismatched matrix, midpoint seam — the ``bracketed`` gate keeps surface/floor
+ *     opposing pinches on the weighted fraction, v1 ``emit.ts`` ``mismatchedMatrix``)
+ *   otherwise -> thickness-weighted sumLeft / (sumLeft + sumRight).
+ *
+ * The thickness weight uses each unit's OWN FULL span (``u.unit.topElev/baseElev``),
+ * NOT the interval-CLAMPED span (``u.topElev/baseElev``): v1 ``emitInterval`` weights
+ * by ``p.ownTopDepth``/``p.ownBaseDepth`` — the pinch unit's full thickness, before
+ * any interval clamping (a unit poking out of the interval still contributes its
+ * whole thickness to the seam weight). Clamping the weight to the interval moved the
+ * seam off v1's placement (the increment-5 equal-and-opposite formation-pair drift).
+ *
+ * NOTE: the lone-side branches (return 1 / 0) are the FULL-WIDTH fallback for a
+ * data-void lone unit; a genuine lone-side PINCH is intercepted upstream by
+ * ``routeLoneSidePinch`` (finding A) before this is consulted.
+ *
+ * Parameters
+ * ----------
+ * leftUnits, rightUnits : IntervalUnit[]
+ *     The interval's per-side matrix units (post enclosed-lens extraction).
+ * bracketed : boolean
+ *     Whether both interval boundaries are real tie/bridge anchors (v1's gate).
+ *
+ * Returns
+ * -------
+ * number
+ *     The meet fraction in [0, 1].
+ */
+export function meetFraction(
+  leftUnits: IntervalUnit[],
+  rightUnits: IntervalUnit[],
+  bracketed: boolean,
+): number {
+  if (leftUnits.length > 0 && rightUnits.length === 0) return 1
+  if (rightUnits.length > 0 && leftUnits.length === 0) return 0
+  if (
+    bracketed &&
+    leftUnits.length === 1 &&
+    rightUnits.length === 1 &&
+    leftUnits[0].unit.formationId !== rightUnits[0].unit.formationId
+  ) {
+    return 0.5
+  }
+  const ownSpan = (u: IntervalUnit): number => Math.max(0, u.unit.topElev - u.unit.baseElev)
+  const sumLeft = leftUnits.reduce((s, u) => s + ownSpan(u), 0)
+  const sumRight = rightUnits.reduce((s, u) => s + ownSpan(u), 0)
+  return sumLeft + sumRight > ELEV_EPS ? sumLeft / (sumLeft + sumRight) : 0.5
+}
+
+/**
+ * Emit the internal sub-seam dividers for one side's stacked units in a tiled interval.
+ * Each divider runs from the column edge (at the boundary elevation between two
+ * consecutive units) to the seam (at the interpolated elevation), so each stacked untied
+ * unit gets its own face. The outermost boundaries (the interval top / base) are already
+ * the bracket interfaces, so only the boundaries BETWEEN consecutive units need a curve.
+ *
+ * Parameters
+ * ----------
+ * units : IntervalUnit[]
+ *     One side's stacked matrix units (top->down).
+ * colX, seamX : number
+ *     The column edge x and the seam x (metres).
+ * colTopElev, colBaseElev : number
+ *     The interval's top / base elevation on this column.
+ * seamTopElev, seamBaseElev : number
+ *     The interval's top / base elevation at the seam.
+ * nextId : () => string
+ *     Curve-id allocator.
+ * out : InputCurve[]
+ *     Curve accumulator.
+ */
+export function emitSideSubSeams(
+  units: IntervalUnit[],
+  colX: number,
+  seamX: number,
+  colTopElev: number,
+  colBaseElev: number,
+  seamTopElev: number,
+  seamBaseElev: number,
+  nextId: () => string,
+  out: InputCurve[],
+): void {
+  if (units.length <= 1) return
+  if (Math.abs(seamX - colX) < 1e-9) return // lone-opposite side: no cell on this side
+  const colSpan = colTopElev - colBaseElev
+  if (colSpan <= ELEV_EPS) return
+  // Consecutive internal boundaries are the base elevations of all but the last unit.
+  for (let i = 0; i + 1 < units.length; i++) {
+    const boundaryElev = units[i].baseElev
+    // Fraction of the column span this boundary sits at (0 = top, 1 = base).
+    const t = (colTopElev - boundaryElev) / colSpan
+    const seamElev = seamTopElev + t * (seamBaseElev - seamTopElev)
+    out.push({
+      id: nextId(),
+      kind: 'closing',
+      points: [
+        { x: colX, y: boundaryElev },
+        { x: seamX, y: seamElev },
+      ],
+    })
+  }
+}

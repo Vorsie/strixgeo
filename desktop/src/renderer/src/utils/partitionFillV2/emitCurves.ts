@@ -125,14 +125,20 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   const bridgeAnchored = new Set<string>()
   emitSubstrateBridges(section, curves, bridgeAnchored)
 
+  // The shared ``lensLabels`` map: created BEFORE the interval closures so a lone-side
+  // pinch's flood-wedge curves (emitLonePinch) can register their bracket-matrix label
+  // here, then consumed by ``labelFaces`` (design §4 finding A). Enclosed-lens and
+  // substrate curves append to the same map below.
+  const lensLabels = new Map<string, LensLabel>()
+
   // Vacancy closure (design §4 increment 4): the untied units of each interval
   // between tie-anchored bands TILE it fully (opposing pinches meeting at a seam),
-  // so the vacated space past a pinch/lens apex is CLAIMED — no above-TD holes.
-  // Replaces the per-unit lens / onlap triangle closings (which left the space
-  // between apexes empty).
-  emitIntervalCurves(section, active, bridgeAnchored, curves)
+  // so the vacated space past a pinch/lens apex is CLAIMED — no above-TD holes. A
+  // LONE-side untied unit (no facing counterpart) that v1 would pinch now emits a
+  // pinch apex short of the far column + a flood wedge claiming the rest (finding A),
+  // registering the flood label in ``lensLabels``.
+  emitIntervalCurves(section, active, bridgeAnchored, lensLabels, curves)
 
-  const lensLabels = new Map<string, LensLabel>()
   emitEnclosedLensCurves(section, curves, lensLabels)
 
   // Deep-to-deep FLAT-FLOOR substrate (design §4 increment-6): where a bottom-tie

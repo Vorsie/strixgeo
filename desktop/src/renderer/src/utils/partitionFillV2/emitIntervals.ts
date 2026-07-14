@@ -31,9 +31,11 @@
  */
 
 import { LENS_PINCH_FRACTION } from '../partitionFill'
-import { collectGapBands, emitBandContourCurve, untiedUnitsInInterval, type GapBand } from './emitBands'
+import { collectGapBands, emitBandContourCurve, emitSideSubSeams, meetFraction, untiedUnitsInInterval, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emitIntervalLenses'
+import { type LensLabel } from './emitLenses'
+import { routeLoneSidePinch } from './emitLonePinch'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve } from './types'
 
@@ -79,6 +81,9 @@ interface Bracket {
  *     Ties that survived crossing-conflict pruning.
  * bridgeAnchored : ReadonlySet<string>
  *     ``ci|ui|top`` / ``ci|ui|base`` contacts carried by a deep-to-deep bridge.
+ * lensLabels : Map<string, LensLabel>
+ *     Shared label map — a lone-side pinch's flood-wedge curves register their
+ *     bracket-matrix formation here (consumed by ``labelFaces``, finding A).
  * out : InputCurve[]
  *     Curve accumulator (appended to).
  */
@@ -86,11 +91,16 @@ export function emitIntervalCurves(
   section: SectionInput,
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
+  lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
 ): void {
   const { columns } = section
   let seq = 0
   const nextId = (): string => `close${seq++}`
+  // Flood-wedge curves (emitLonePinch) get their OWN ``flood`` id prefix — ``labelFaces``
+  // stamps a flood-bounded wedge from its bracket-matrix label as a BAND (finding A).
+  let fseq = 0
+  const nextFloodId = (): string => `flood${fseq++}`
   // Band-contour curves get their OWN ``bandc`` id prefix — ``labelFaces`` counts it
   // as NEITHER a tie nor a closing, so the band face (tie + column verticals + these
   // contours) still classifies as BAND and an adjacent fill abutting a contour is not
@@ -105,7 +115,7 @@ export function emitIntervalCurves(
     // unit tiles only the residue OUTSIDE the band — its lone-side fill stops at the
     // band boundary instead of overrunning the band interior (cs1bandauthority).
     const bands = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
-    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, nextId, nextBandId, out)
+    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, nextId, nextBandId, nextFloodId, lensLabels, out)
   }
 }
 
@@ -171,6 +181,8 @@ function emitGapIntervals(
   bands: readonly GapBand[],
   nextId: () => string,
   nextBandId: () => string,
+  nextFloodId: () => string,
+  lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
 ): void {
   const leftFlags = tiedContacts(gapIndex, 'left', gapIndex, left.units.length, activeTies, bridgeAnchored)
@@ -244,7 +256,18 @@ function emitGapIntervals(
   }
 
   // Walk each interval [topBracket, baseBracket] and tile the untied units inside.
+  // A matched band whose BASE bottoms at the shallow TD (the section floor for this gap
+  // — no deeper column, no sub-TD void) needs the floor curve to CLOSE it, else its face
+  // is unbounded below and never traces (the isolated same-TD band case). The tiled-
+  // interval-reaches-floor path below covers the untied-fill case; this covers the pure
+  // band-to-floor case.
   let floorReached = false
+  for (const b of bands) {
+    if (Math.abs(b.leftBase - shallowTD) < ELEV_EPS && Math.abs(b.rightBase - shallowTD) < ELEV_EPS) {
+      floorReached = true
+      break
+    }
+  }
   for (let bi = 0; bi + 1 < uniq.length; bi++) {
     const top = uniq[bi]
     const base = uniq[bi + 1]
@@ -256,7 +279,7 @@ function emitGapIntervals(
     // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
     // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
     const bracketed = top.anchor && base.anchor
-    tileInterval(left, right, top, base, leftUnits, rightUnits, bracketed, nextId, out)
+    tileInterval(left, right, top, base, leftUnits, rightUnits, bracketed, nextId, nextFloodId, lensLabels, out)
     // A tiled interval whose BASE is the shallow-TD floor needs an explicit floor
     // curve to CLOSE it from below — the surface / tie-line brackets are already
     // arrangement curves, but the shallow-TD floor is not (sub-TD stays empty,
@@ -340,6 +363,8 @@ function tileInterval(
   rightUnits: IntervalUnit[],
   bracketed: boolean,
   nextId: () => string,
+  nextFloodId: () => string,
+  lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
 ): void {
   const leftX = left.x
@@ -358,6 +383,41 @@ function tileInterval(
   const leftMatrix = extractEnclosedLenses(leftUnits, leftLenses)
   const rightMatrix = extractEnclosedLenses(rightUnits, rightLenses)
   if (leftMatrix.length === 0 && rightMatrix.length === 0) return
+
+  // LONE-SIDE pinch (finding A): one side has matrix units, the other is empty. v1
+  // makes such a lone untied unit PINCH short of the far column (apex at 0.45 lens /
+  // 0.5 onlap) and the FACING matrix claim the vacated width — NOT run full-width
+  // (the old meet 1/0). ``routeLoneSidePinch`` emits that geometry when the facing
+  // column REACHES the unit (a genuine pinch) and returns ``true``; a data-void unit
+  // (facing too shallow) returns ``false`` and falls through to the ordinary
+  // full-width tiling below (v1's sideways continuation — NOT the defect).
+  if (
+    routeLoneSidePinch(
+      { left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses },
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+    )
+  ) {
+    return
+  }
+
+  // Geometric same-formation band (v1 ``emitInterval`` connectivity inference, emit.ts
+  // lines 61-74): a single left unit + single right unit of the SAME formation are one
+  // matrix body bridging the gap even without an explicit tie. Emit NO seam — the band
+  // face spans both columns (``labelFaces`` promotes a 2-column-spanning face to BAND),
+  // instead of the seam splitting it into two half-width LENS faces (the "clay between
+  // two sands" SAND matrix mis-read as lens). Enclosed lenses still pinch inside it.
+  if (
+    leftMatrix.length === 1 &&
+    rightMatrix.length === 1 &&
+    leftMatrix[0].unit.formationId === rightMatrix[0].unit.formationId
+  ) {
+    for (const u of leftLenses) emitLensClosing(u, leftX, rightX, LENS_PINCH_FRACTION, nextId, out)
+    for (const u of rightLenses) emitLensClosing(u, rightX, leftX, LENS_PINCH_FRACTION, nextId, out)
+    return
+  }
 
   // The seam must sit strictly OUTSIDE each lens-bearing side's apex — a small margin
   // PAST 0.45 — so the enclosed lens stays a hole fully inside its own matrix cell and
@@ -403,78 +463,3 @@ function tileInterval(
   emitSideSubSeams(rightMatrix, rightX, seamX, top.rightElev, base.rightElev, seamTopElev, seamBaseElev, nextId, out)
 }
 
-/**
- * Emit the internal sub-seam dividers for one side's stacked units. Each divider is
- * a line from the column edge (at the boundary elevation between two consecutive
- * units) to the seam (at the interpolated elevation). The outermost boundaries (the
- * interval top / base) are already the bracket interfaces, so we only cut BETWEEN
- * consecutive units.
- */
-function emitSideSubSeams(
-  units: IntervalUnit[],
-  colX: number,
-  seamX: number,
-  colTopElev: number,
-  colBaseElev: number,
-  seamTopElev: number,
-  seamBaseElev: number,
-  nextId: () => string,
-  out: InputCurve[],
-): void {
-  if (units.length <= 1) return
-  if (Math.abs(seamX - colX) < 1e-9) return // lone-opposite side: no cell on this side
-  const colSpan = colTopElev - colBaseElev
-  if (colSpan <= ELEV_EPS) return
-  // Consecutive internal boundaries are the base elevations of all but the last unit.
-  for (let i = 0; i + 1 < units.length; i++) {
-    const boundaryElev = units[i].baseElev
-    // Fraction of the column span this boundary sits at (0 = top, 1 = base).
-    const t = (colTopElev - boundaryElev) / colSpan
-    const seamElev = seamTopElev + t * (seamBaseElev - seamTopElev)
-    out.push({
-      id: nextId(),
-      kind: 'closing',
-      points: [
-        { x: colX, y: boundaryElev },
-        { x: seamX, y: seamElev },
-      ],
-    })
-  }
-}
-
-/**
- * v1 ``emitInterval`` meeting-fraction rule (``emit.ts``):
- *   lone left  -> 1 (fills to the right column)
- *   lone right -> 0
- *   1 left + 1 right, DIFFERENT lithology, bracketed above AND below -> 0.5
- *     (mismatched matrix, midpoint seam — the ``bracketed`` gate keeps surface/floor
- *     opposing pinches on the weighted fraction, v1 ``emit.ts`` ``mismatchedMatrix``)
- *   otherwise -> thickness-weighted sumLeft / (sumLeft + sumRight).
- *
- * The thickness weight uses each unit's OWN FULL span (``u.unit.topElev/baseElev``),
- * NOT the interval-CLAMPED span (``u.topElev/baseElev``): v1 ``emitInterval`` weights
- * by ``p.ownTopDepth``/``p.ownBaseDepth`` — the pinch unit's full thickness, before
- * any interval clamping (a unit poking out of the interval still contributes its
- * whole thickness to the seam weight). Clamping the weight to the interval moved the
- * seam off v1's placement (the increment-5 equal-and-opposite formation-pair drift).
- */
-function meetFraction(
-  leftUnits: IntervalUnit[],
-  rightUnits: IntervalUnit[],
-  bracketed: boolean,
-): number {
-  if (leftUnits.length > 0 && rightUnits.length === 0) return 1
-  if (rightUnits.length > 0 && leftUnits.length === 0) return 0
-  if (
-    bracketed &&
-    leftUnits.length === 1 &&
-    rightUnits.length === 1 &&
-    leftUnits[0].unit.formationId !== rightUnits[0].unit.formationId
-  ) {
-    return 0.5
-  }
-  const ownSpan = (u: IntervalUnit): number => Math.max(0, u.unit.topElev - u.unit.baseElev)
-  const sumLeft = leftUnits.reduce((s, u) => s + ownSpan(u), 0)
-  const sumRight = rightUnits.reduce((s, u) => s + ownSpan(u), 0)
-  return sumLeft + sumRight > ELEV_EPS ? sumLeft / (sumLeft + sumRight) : 0.5
-}

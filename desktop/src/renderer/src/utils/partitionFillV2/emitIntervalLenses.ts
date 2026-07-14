@@ -79,12 +79,16 @@ export function extractEnclosedLenses(units: IntervalUnit[], lenses: IntervalUni
     return units
   }
   for (const l of candidateLenses) lenses.push(l)
-  // Collapse now-adjacent same-formation matrix units (the lens between them was
-  // removed) so the enclosing matrix is one continuous band, no interior sub-seam.
+  // Collapse now-adjacent same-formation matrix units into one continuous band (the
+  // pulled lens between them was the gap). The units NEED NOT already touch: removing an
+  // enclosed lens leaves an elevation gap where the lens sat (SAND 10-7 / [CLAY 7-5] /
+  // SAND 5-2 -> matrix SAND 10-7 + SAND 5-2), and the enclosing matrix is ONE body that
+  // spans the lens's level (v1 ``reduceColumn`` grows ``above.baseElev = below.baseElev``).
+  // Merging spans the gap so the matrix is a single continuous band the lens holes into.
   const merged: IntervalUnit[] = []
   for (const u of matrix) {
     const prev = merged[merged.length - 1]
-    if (prev && prev.unit.formationId === u.unit.formationId && Math.abs(prev.baseElev - u.topElev) < ELEV_EPS) {
+    if (prev && prev.unit.formationId === u.unit.formationId) {
       merged[merged.length - 1] = { unit: prev.unit, topElev: prev.topElev, baseElev: u.baseElev }
     } else merged.push(u)
   }

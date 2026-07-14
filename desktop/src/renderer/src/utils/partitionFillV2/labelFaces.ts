@@ -68,10 +68,22 @@ export function labelFaces(
     let nClose = 0
     let lensLabel: LensLabel | undefined
     let substrateLabel: LensLabel | undefined
+    let floodLabel: LensLabel | undefined
     for (const id of face.boundingCurveIds) {
       const m = COL_RE.exec(id)
       if (m) {
         units.push({ ci: Number(m[1]), ui: Number(m[2]) })
+      } else if (id.startsWith('flood')) {
+        // A lone-side FLOOD-closure curve (emitLonePinch): the vacated wedge beyond a
+        // pinch apex, bounded only by these curves + the interval brackets + the
+        // pinch's own ``close`` curves (never a full facing column vertical — the wedge
+        // triangles are corner->conv->apex). Its label carries the bracket/facing
+        // matrix formation, so the wedge reads as a BAND. Same trick as the sub-TD
+        // substrate wedge (btfloor/btcurtain) — a face with no column vertical is
+        // stamped from the flood label below.
+        const l = lensLabels?.get(id)
+        if (l) floodLabel = l
+        nTie++
       } else if (id.startsWith('btfloor') || id.startsWith('btcurtain')) {
         // A deep-to-deep flat-floor SUBSTRATE curve (emitBottomTieSubstrate): its
         // label carries the bottom-tie formation. The sub-TD wedge below every
@@ -114,10 +126,28 @@ export function labelFaces(
       out.push({ face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units })
       continue
     }
+    // A lone-side flood wedge is bounded only by flood/close/bracket curves (its
+    // corner->conv->apex triangles never carry a full facing column vertical), so
+    // ``units`` is empty. Stamp it from the flood (bracket-matrix) label as a BAND — the
+    // facing matrix claiming the width past a pinch apex (finding A). As with the
+    // substrate label, a wedge face that ALSO has a real column vertical is drilled data;
+    // the column label wins (handled below).
+    if (floodLabel && units.length === 0) {
+      out.push({ face, formationId: floodLabel.formationId, bodyId: floodLabel.bodyId, klass: 'band', units })
+      continue
+    }
     if (units.length === 0) continue // no column vertical bounds this cell — skip.
 
     const { formationId, bodyId } = resolveLabel(units, columns)
-    const klass = classifyFace(nTie, nClose)
+    // A face bounded by column verticals on TWO OR MORE distinct columns SPANS the gap
+    // — design §2's "exits the section as a column vertical on both sides -> BAND". This
+    // catches a geometric same-formation band (a continuous matrix laterally enclosing an
+    // untied lens, e.g. clay between two sands) that carries no explicit tie, which the
+    // tie-count classifier alone reads as LENS (v1 ``emitInterval`` connects a single
+    // same-formation unit per side as a band quad). A lens/onlap face touches only its
+    // OWN column vertical, so it is unaffected.
+    const spansGap = new Set(units.map((u) => u.ci)).size >= 2
+    const klass = spansGap ? 'band' : classifyFace(nTie, nClose)
     out.push({ face, formationId, bodyId, klass, units })
   }
   return out
