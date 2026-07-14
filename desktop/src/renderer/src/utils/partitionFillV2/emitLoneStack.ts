@@ -37,6 +37,7 @@ import { LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing, extractLoneStackLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
+import { facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -224,37 +225,22 @@ export function routeLoneStack(
     if (f < MIN_CLAMPED_FRACTION) return false
     plan.push({ u, f })
   }
-  // A single stack-wide apex fraction (the tightest clamp) so every notch apex lands on
-  // ONE vertical line — the slab decomposition's vertical apex seam then meets each notch
-  // only at its apex vertex (simple by construction).
+  // The band's own top/base line uses the stack-wide tightest clamp so the flood band
+  // stays inside every notch. Each minority PINCHES to its OWN clamped apex fraction
+  // (v1's per-unit 0.45/0.38 apexes — restored in increment 17 now that residual-(i)'s
+  // per-sub-loop curve-id labelling separates adjacent notches without a shared apex
+  // line; the increment-16 single-apex constraint was only needed by the reverted
+  // vertical apex seam). The horizontal slab seams still separate a minority enclosed
+  // between two matrix runs, so the comb traces simple.
   const apexFrac = plan.reduce((m, p) => Math.min(m, p.f), LENS_PINCH_FRACTION)
 
   // Slab-seam decomposition of the matrix band (mechanism (b) — no converging wedge, so
   // no comb; horizontal seams separate a minority enclosed between two matrix runs).
   emitLoneStackBand(bracketMatrix, loneX, facingX, iTop, iBase, apexFrac, plan.map((p) => p.u), nextFloodId, lensLabels, out)
-  // Every minority pinches to the shared apex fraction as a notch biting the lone column
-  // edge (NOT a shared-apex WEDGE — increment-11 self-inverts; here each keeps its OWN
-  // mid-elevation, only the fraction is shared).
-  for (const { u } of plan) emitLensClosing(u, loneX, facingX, apexFrac, nextId, out)
+  // Every minority pinches to its OWN clamped apex fraction as a notch biting the lone
+  // column edge (NOT a shared-apex WEDGE — increment-11 self-inverts; each keeps its own
+  // mid-elevation AND its own fraction).
+  for (const { u, f } of plan) emitLensClosing(u, loneX, facingX, f, nextId, out)
   return true
 }
 
-/**
- * The facing column's matrix label at elevation ``e`` (the lithology enclosing the
- * stack). Picks the facing unit whose span contains ``e``; falls back to the nearest.
- */
-function facingMatrixLabel(facing: ColumnGeom, e: number): LensLabel | null {
-  let best: ColumnGeom['units'][number] | null = null
-  let bestDist = Infinity
-  for (const u of facing.units) {
-    if (u.topElev >= e - ELEV_EPS && e >= u.baseElev - ELEV_EPS) {
-      return { formationId: u.formationId, bodyId: u.bodyId }
-    }
-    const dist = e > u.topElev ? e - u.topElev : u.baseElev - e
-    if (dist < bestDist) {
-      bestDist = dist
-      best = u
-    }
-  }
-  return best ? { formationId: best.formationId, bodyId: best.bodyId } : null
-}

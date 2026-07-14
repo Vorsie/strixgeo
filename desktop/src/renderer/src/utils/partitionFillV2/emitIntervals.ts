@@ -44,6 +44,12 @@ const ELEV_EPS = 1e-6
 /** Fraction epsilon — a seam this close to a column vertical is a no-op. */
 const FRAC_EPS = 1e-9
 
+/** Layer ids whose TOP / BASE contact is tied across a gap (v1 ``kindFor`` input). */
+export interface TiedContacts {
+  top: Set<string>
+  base: Set<string>
+}
+
 /**
  * A per-column contact that a tie or bridge anchors — the interval BRACKET. Each
  * carries the anchor elevation on the emitting column and the facing column (so the
@@ -187,6 +193,21 @@ function emitGapIntervals(
 ): void {
   const leftFlags = tiedContacts(gapIndex, 'left', gapIndex, left.units.length, activeTies, bridgeAnchored)
   const rightFlags = tiedContacts(gapIndex, 'right', gapIndex + 1, right.units.length, activeTies, bridgeAnchored)
+  // Per-layerId tied-contact sets (v1 ``kindFor``): a lone boundary minority whose
+  // bracketing contact is TIED terminates as an ONLAP (laps the bracket, apex 0.5),
+  // UNTIED as a LENS (own-elevation, 0.45). The single-unit lone-pinch path reads these
+  // to decide (increment 17 residual (ii)); without them every single-unit lone pinch
+  // lenses, which mis-shapes a base-tied boundary unit v1 renders as an onlap.
+  const tiedOf = (col: ColumnGeom, flags: { top: boolean; base: boolean }[]): TiedContacts => {
+    const t: TiedContacts = { top: new Set<string>(), base: new Set<string>() }
+    for (let i = 0; i < col.units.length; i++) {
+      if (flags[i]?.top) t.top.add(col.units[i].layerId)
+      if (flags[i]?.base) t.base.add(col.units[i].layerId)
+    }
+    return t
+  }
+  const leftTied = tiedOf(left, leftFlags)
+  const rightTied = tiedOf(right, rightFlags)
   // Per-column banded unit indices (a matched-pair member). A banded unit is carried
   // by its band contour curves — never tiled. The band's own top/base contour + the
   // interval brackets confine any facing fill to the residue outside the band.
@@ -279,7 +300,7 @@ function emitGapIntervals(
     // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
     // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
     const bracketed = top.anchor && base.anchor
-    tileInterval(left, right, top, base, leftUnits, rightUnits, bracketed, nextId, nextFloodId, lensLabels, out)
+    tileInterval(left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, nextId, nextFloodId, lensLabels, out)
     // A tiled interval whose BASE is the shallow-TD floor needs an explicit floor
     // curve to CLOSE it from below — the surface / tie-line brackets are already
     // arrangement curves, but the shallow-TD floor is not (sub-TD stays empty,
@@ -362,6 +383,8 @@ function tileInterval(
   leftUnits: IntervalUnit[],
   rightUnits: IntervalUnit[],
   bracketed: boolean,
+  leftTied: TiedContacts,
+  rightTied: TiedContacts,
   nextId: () => string,
   nextFloodId: () => string,
   lensLabels: Map<string, LensLabel>,
@@ -401,7 +424,7 @@ function tileInterval(
   // full-width tiling below (v1's sideways continuation — NOT the defect).
   if (
     routeLoneSidePinch(
-      { left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses },
+      { left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftTied, rightTied },
       nextId,
       nextFloodId,
       lensLabels,

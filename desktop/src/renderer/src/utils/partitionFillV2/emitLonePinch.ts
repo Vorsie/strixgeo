@@ -44,6 +44,7 @@ import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
+import { facingCoversSpan, facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -148,6 +149,7 @@ export function emitLonePinch(
   nextFloodId: () => string,
   labels: Map<string, LensLabel>,
   out: InputCurve[],
+  forceKind?: 'onlap',
 ): void {
   if (loneUnits.length === 0) return
 
@@ -165,8 +167,14 @@ export function emitLonePinch(
   //     unit's OWN mid-elevation (tapers horizontally), matrix fills from BOTH sides;
   //   - otherwise → BOUNDARY pinch: apex at INTERIOR_PINCH_FRACTION on the base interface
   //     (above matrix descends), or the top interface at the surface (below rises).
+  // ``forceKind='onlap'`` (increment 17 residual (ii)) overrides the same-matrix lens
+  // heuristic: a tie-decided boundary onlap (v1 ``kindFor``) laps its bracket regardless
+  // of whether the facing matrix happens to be uniform above and below.
   const isLens =
-    aboveMatrix !== null && belowMatrix !== null && aboveMatrix.formationId === belowMatrix.formationId
+    forceKind !== 'onlap' &&
+    aboveMatrix !== null &&
+    belowMatrix !== null &&
+    aboveMatrix.formationId === belowMatrix.formationId
   const apexFrac = isLens ? LENS_PINCH_FRACTION : INTERIOR_PINCH_FRACTION
   const apexX = loneX + apexFrac * (facingX - loneX)
   let apexElev: number
@@ -183,8 +191,12 @@ export function emitLonePinch(
 
   // (a) Pinch sub-triangles: each stacked unit's own column span -> the shared apex.
   // Two ``close`` curves per unit (top corner -> apex, apex -> base corner); the unit's
-  // own column vertical closes the loop, so ``labelFaces`` reads its own formation and
-  // classifies it LENS (0 ties, 2 closings) — v1 emits both lens + onlap as ``kind:'lens'``.
+  // own column vertical closes the loop, so ``labelFaces`` reads its own formation. The
+  // triangle's KIND (onlap vs lens) falls out of the traced boundary: a BOUNDARY pinch
+  // (``!isLens``) is accompanied by the matrix-extension FLOOD wedge below, whose tie/
+  // flood curves make the unit's own face read as an ONLAP (nTie > 0); a same-matrix
+  // pinch closes as a 0-tied LENS. v1 emits both as ``kind:'lens'`` overlays; v2 keeps
+  // the distinction as a true partition (onlap → pinch region, lens → lens region).
   for (const u of loneUnits) {
     const label: LensLabel = { formationId: u.unit.formationId, bodyId: u.unit.bodyId }
     pushLabelled(nextId, label, labels, out, [{ x: loneX, y: u.topElev }, apex])
@@ -248,6 +260,9 @@ export interface LoneIntervalContext {
   rightMatrix: IntervalUnit[]
   leftLenses: IntervalUnit[]
   rightLenses: IntervalUnit[]
+  /** Layer ids tied on top/base per side (v1 ``kindFor`` — decides onlap vs lens). */
+  leftTied: { top: Set<string>; base: Set<string> }
+  rightTied: { top: Set<string>; base: Set<string> }
 }
 
 /**
@@ -357,11 +372,45 @@ export function routeLoneSidePinch(
   const aboveMatrix = facingMatrixLabel(facing, intervalTopElev)
   const belowMatrix = facingMatrixLabel(facing, intervalBaseElev)
   if (aboveMatrix === null || belowMatrix === null) return false
+
   if (
     aboveMatrix.formationId !== belowMatrix.formationId ||
     !facingCoversSpan(facing, aboveMatrix.formationId, intervalTopElev, intervalBaseElev)
   ) {
     return false
+  }
+  // ONLAP vs LENS on the CLEAN lateral context (increment 17 residual (ii); v1
+  // ``kindFor``): reaching here the facing carries ONE continuous matrix across the
+  // interval — a true lateral enclosure whose flood wedges tile gaplessly. v1 shapes the
+  // lone unit as an ONLAP when its bracketing contact is TIED (it laps the bracket, apex
+  // ``INTERIOR_PINCH_FRACTION``) and a LENS when untied (own-elevation 0.45). The prior
+  // single-unit path always lensed, mis-shaping a base-tied boundary unit v1 renders as a
+  // pinch/onlap (the cs1bandauthority SAND, B4|S13 gap3, B6 gap2). Deciding it HERE — after
+  // the clean-lateral guard — keeps the flood wedge gapless (never the band-overrunning
+  // full-width wedge a non-converging bracket would produce). A unit tied on BOTH or
+  // NEITHER contact keeps the lens shape (v1: a 2-tied unit bands, a 0-tied one lenses).
+  const tied = loneSide === 'left' ? ctx.leftTied : ctx.rightTied
+  const topTied = tied.top.has(u0.unit.layerId)
+  const baseTied = tied.base.has(u0.unit.layerId)
+  const onlap = (topTied || baseTied) && !(topTied && baseTied)
+  if (onlap && u0.unit.formationId !== aboveMatrix.formationId) {
+    emitLonePinch(
+      loneMatrix,
+      loneSide,
+      loneX,
+      facingX,
+      top,
+      base,
+      aboveMatrix,
+      belowMatrix,
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+      'onlap',
+    )
+    for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+    return true
   }
   // Continuous-band flood (v1 ``emitInterval`` connectivity inference): when the lone
   // matrix formation EQUALS the facing matrix formation, the matrix is ONE body banding
@@ -405,50 +454,4 @@ export function routeLoneSidePinch(
   // band IS the lone-pinch flood, which reaches them.
   for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
   return true
-}
-
-/**
- * Whether the facing column carries formation ``fid`` CONTINUOUSLY across the elevation
- * span [``base``..``top``] — i.e. every point of that span on the facing column is that
- * one formation (a single continuous matrix laterally enclosing the lone unit). This is
- * the guard that keeps the lone-pinch to the clean lateral-lens case whose flood wedges
- * tile gaplessly (v1 ``facingCarriesMatrix``, strengthened to require FULL coverage).
- */
-function facingCoversSpan(facing: ColumnGeom, fid: string, top: number, base: number): boolean {
-  // Walk the facing units overlapping [base..top]; the run must be all ``fid`` and cover
-  // the whole span with no gap (the normalised stack is gap-free, so contiguous ``fid``
-  // units spanning the range suffice).
-  let covered = base // highest elevation covered so far, working up from the base
-  const overlapping = facing.units
-    .filter((u) => u.topElev > base - ELEV_EPS && top > u.baseElev - ELEV_EPS)
-    .sort((a, b) => a.baseElev - b.baseElev)
-  for (const u of overlapping) {
-    if (u.formationId !== fid) return false
-    if (u.baseElev > covered + ELEV_EPS) return false // gap below this unit
-    if (u.topElev > covered) covered = u.topElev
-  }
-  return covered >= top - ELEV_EPS
-}
-
-/**
- * The facing column's matrix label at elevation ``e`` — the lithology that laterally
- * encloses the pinching unit on the facing side. Picks the facing unit whose elevation
- * span contains ``e``; falls back to the nearest unit (an ``e`` at/above the surface or
- * below TD). Returns ``null`` only when the facing column is empty (never, given a valid
- * section).
- */
-function facingMatrixLabel(facing: ColumnGeom, e: number): LensLabel | null {
-  let best: ColumnGeom['units'][number] | null = null
-  let bestDist = Infinity
-  for (const u of facing.units) {
-    if (u.topElev >= e - ELEV_EPS && e >= u.baseElev - ELEV_EPS) {
-      return { formationId: u.formationId, bodyId: u.bodyId }
-    }
-    const dist = e > u.topElev ? e - u.topElev : u.baseElev - e
-    if (dist < bestDist) {
-      bestDist = dist
-      best = u
-    }
-  }
-  return best ? { formationId: best.formationId, bodyId: best.bodyId } : null
 }
