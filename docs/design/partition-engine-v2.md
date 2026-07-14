@@ -211,13 +211,23 @@ ruling 5 SHIPPED (`9c017b3d5` — first unit's column vertical extends to
 surface; parity grew to +3.6%, entirely the intentional ruling-5 strips).
 Ruling 6 verified ALREADY SATISFIED by the increment-6/9 substrate (B2
 measured: sand fills base −4.45 down to the clay-top tie −7.55, clay only
-below). The five boundary-minority repros stay OPEN — third attempt blocked:
-the vacancy flood is a single-material wedge, but the FACING column is
-interbedded across the span (un-gated port = +408 holes; gated = fixes
-nothing). Next mechanism (increment 11): extend the facing column's contact
-segments INTO the vacated wedge as closing curves clipped at the pinch
-boundary, so the wedge tiles per facing sub-band (v1's floor-walk in curve
-terms).
+below). The five boundary-minority repros stay OPEN — increment 11 (the mandated
+contact-extension mechanism) hit the TRUE wall and reverted clean. Refined
+diagnosis: the repro class is a LONE MULTI-UNIT INTERBEDDED STACK against a
+zero-thickness facing bracket (S7 gap18: `[KLEI,SILT,KLEI,VEEN,SILT]`
+rejected by `routeLoneSidePinch`'s single-matrix guard). v1 renders it as
+own-elevation lenses OVERLAID on the facing bands — but a true partition
+cannot overlay: the facing band behind an own-elevation lens must become a
+matrix ANNULUS with the lens as a hole. That is exactly the disabled
+`ENABLE_ENCLOSED_LENS` path (this table, increment-3 row). A shared-apex
+multi-unit wedge instead self-inverts (+19 overlap pairs measured).
+**Dependency chain, now load-bearing: (1) increment 12 = make the
+enclosed-lens-as-hole annulus correct on its pure synthetic case AND
+slice annulus faces into per-gap SIMPLE polygons (the keyhole approach was
+removed in increment 6 for producing self-touching rings — the slicer must
+split the annulus at the lens's fraction extents, v1-carve style);
+(2) increment 13 = the lone multi-unit stack fills as own-elevation lenses
+holing into the facing matrix.**
 
 Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 
