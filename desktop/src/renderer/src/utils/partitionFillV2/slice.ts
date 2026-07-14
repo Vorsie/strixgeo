@@ -17,6 +17,7 @@
 
 import { type ColumnGeom } from './sectionGeom'
 import { type LabelledFace } from './labelFaces'
+import { splitAtSelfIntersections } from './ringSelfIntersect'
 import { type Point } from './types'
 import { type PartitionPoint, type SectionRegion } from '../partitionFill'
 
@@ -77,30 +78,40 @@ export function sliceFaces(
         // The output contract is a SIMPLE ``SectionRegion.polygon`` (downstream consumers
         // — geotech refinement, voxel builder, DXF export — assume it), so split at every
         // repeat into simple sub-rings; each above the min-area floor is its own region.
-        for (const sub of splitAtRepeatedPoints(poly)) {
-          if (sub.length < 3) continue
-          if (polygonAbsArea(sub) < MIN_SLICE_AREA) continue
-          // Drop a DEGENERATE far-edge sliver: a region whose entire fraction span is a
-          // sub-pixel width pinned against a column vertical (all vertices within
-          // MIN_FRACTION_WIDTH of one fraction). These are float-noise slices at
-          // fraction ~1.0 (0.9999..1.0000) that clear the area floor but paint nothing
-          // visible — the B6 gap2 ``f[1.00..1.00]`` slivers (design §4 increment-16
-          // sweep). A real region spans a meaningful fraction width.
-          let fMin = Infinity
-          let fMax = -Infinity
-          for (const p of sub) {
-            if (p.fraction < fMin) fMin = p.fraction
-            if (p.fraction > fMax) fMax = p.fraction
+        //
+        // Some folds are NOT an exact repeat: two closing curves converging to the SAME
+        // seam fraction at nearly-equal (but not identical) elevations trace a face that
+        // properly SELF-CROSSES (a figure-8) without any repeated vertex — the CS2 gap15
+        // banded-SILT-around-a-KLEI-lens face, exposed when the top band re-anchored to a
+        // sloped first-litho line. ``splitAtRepeatedPoints`` cannot see it (the two apexes
+        // differ by ~5 cm), so first split the ring at every genuine self-intersection
+        // (a crossing between two non-adjacent edges), THEN split the resulting simple
+        // sub-rings at any exact repeat. Both passes are no-ops on an already-simple ring.
+        for (const simpleRing of splitAtSelfIntersections(poly))
+          for (const sub of splitAtRepeatedPoints(simpleRing)) {
+            if (sub.length < 3) continue
+            if (polygonAbsArea(sub) < MIN_SLICE_AREA) continue
+            // Drop a DEGENERATE far-edge sliver: a region whose entire fraction span is a
+            // sub-pixel width pinned against a column vertical (all vertices within
+            // MIN_FRACTION_WIDTH of one fraction). These are float-noise slices at
+            // fraction ~1.0 (0.9999..1.0000) that clear the area floor but paint nothing
+            // visible — the B6 gap2 ``f[1.00..1.00]`` slivers (design §4 increment-16
+            // sweep). A real region spans a meaningful fraction width.
+            let fMin = Infinity
+            let fMax = -Infinity
+            for (const p of sub) {
+              if (p.fraction < fMin) fMin = p.fraction
+              if (p.fraction > fMax) fMax = p.fraction
+            }
+            if (fMax - fMin < MIN_FRACTION_WIDTH) continue
+            out.push({
+              formationId: lf.formationId,
+              bodyId: lf.bodyId,
+              kind,
+              polygon: sub,
+              gapIndex: gi,
+            })
           }
-          if (fMax - fMin < MIN_FRACTION_WIDTH) continue
-          out.push({
-            formationId: lf.formationId,
-            bodyId: lf.bodyId,
-            kind,
-            polygon: sub,
-            gapIndex: gi,
-          })
-        }
       }
     }
   }
