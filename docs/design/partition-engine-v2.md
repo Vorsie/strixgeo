@@ -206,6 +206,29 @@ internals, sedimentological feature-shapes (Phase 5).
    Detection reuses the existing crossings endpoint; the warning surface is
    part of the cutover scope.
 
+Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
+
+5. **Surface band ("let's go", owner).** The top of each test (ground
+   surface) acts as an implicit correlation band to the next test: a
+   surface polyline (test top → test top, real surface elevations) is a
+   band-authority curve no face may cross. The strip between the surface
+   band and each column's first contact is claimed by the FIRST unit
+   (extended up to surface — the layer reaches the ground; measurement
+   just starts lower). Kills the "silt interpolated across the no-data
+   top" read. v2-only; flag for owner visual confirmation on dogfeed.
+6. **Sub-TD fill follows the lowest tie lines (B2 finding — owner
+   overruled "v1 does it too, so not a bug": "it is wrong" in both).**
+   Under a column with no bottom tie to its TD, the substrate fill must
+   respect the LOWEST tie: at 23/126-B2 the lowest tie is clay-below /
+   sand-above, so the wedge under B2's sand down to that clay-top tie
+   line is SAND — clay may not rise above its tie line under the column.
+   General rule: a substrate formation is bounded above by its own tie
+   line traced across the gap, not by the shallow column's unit base.
+   Fix lands in v2 only (v1 stays the frozen fallback).
+7. **Process standard (owner):** no partial fixes and no gaps — a
+   termination-shape class is either at v1 parity (or better, per these
+   rulings) or the increment is not done.
+
 ## 9. Build plan (subagent-driven; month shape)
 
 * **Wk 1** — owner reviews this doc → arrangement core (curve emission,
