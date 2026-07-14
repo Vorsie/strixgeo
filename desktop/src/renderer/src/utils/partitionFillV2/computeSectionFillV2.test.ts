@@ -174,6 +174,44 @@ describe('computeSectionFillV2 — 2/1/0 gestures emerge from boundary compositi
     expect(silt[0].kind).toBe('lens')
   })
 
+  it('a lens enclosed inside a CORRELATED clay band keeps the band authoritative (band spans the gap, lens holes into it)', () => {
+    // The enclosed-lens-as-hole shape (design §4 increment-12): a sand lens sits inside
+    // a clay matrix whose UPPER clay is correlated across the gap (a real band). The
+    // clay band must stay AUTHORITATIVE — one clay region spanning the full gap width —
+    // while the sand lens is its OWN lens face cut OUT of the band (a hole/notch), NOT
+    // overpainting it. The band never loses authority to the lens (cs1bandauthority).
+    const lClayTop = layer()
+    const lLens = layer()
+    const lClayBot = layer()
+    const rClay = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lClayTop, body: 'bClay' },
+      { top: 3, base: 4, f: SAND, layerId: lLens, body: 'bLens' },
+      { top: 4, base: 8, f: CLAY, layerId: lClayBot, body: 'bClay' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 8, f: CLAY, layerId: rClay, body: 'bClay' }])
+    // Only the UPPER clay is correlated (the enclosed-lens extraction keeps ``above``
+    // correlated; ``below`` stays un-edged) — the clay is a banded matrix across the gap.
+    const edges: CorrelationEdge[] = [{ a: lClayTop, b: rClay, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+    // The clay band is authoritative: a single clay quad spanning fraction 0..1.
+    const clayBand = ofFormation(regions, CLAY).find((r) => r.kind === 'quad')
+    expect(clayBand).toBeDefined()
+    expect(minFrac(clayBand!)).toBeCloseTo(0, 5)
+    expect(maxFrac(clayBand!)).toBeCloseTo(1, 5)
+    // The sand lens is its OWN lens face, pinching at ~0.45 — cut out of the band.
+    const sand = ofFormation(regions, SAND)
+    expect(sand.length).toBe(1)
+    expect(sand[0].kind).toBe('lens')
+    expect(maxFrac(sand[0])).toBeCloseTo(0.45, 2)
+    // Band authority: at the lens's own elevation, NEAR the far column (fraction 0.9,
+    // past the lens apex), the covering lithology is CLAY (the band), never SAND.
+    const coverNearFar = coverAt(clayBand!, 0.9)
+    expect(coverNearFar).not.toBeNull()
+    expect(coverNearFar![0]).toBeLessThanOrEqual(6.5)
+    expect(coverNearFar![1]).toBeGreaterThanOrEqual(6.5)
+  })
+
   it('crossing approved ties are a hard conflict: NEITHER bands, and the conflict is reported', () => {
     // Two ties that geometrically cross in the same gap (top->base and base->top
     // over the same two units) -> both suspended, both units fall back to non-band.
