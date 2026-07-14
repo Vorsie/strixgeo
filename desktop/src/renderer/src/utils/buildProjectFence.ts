@@ -1,6 +1,7 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
-import { computeSectionFill, type CorrelationEdge } from './partitionFill'
+import { type CorrelationEdge } from './partitionFill'
+import { computeSectionFillActive } from './partitionEngineSelect'
 import {
   assembleSectionsWithCanonical,
   type FenceLayerInput,
@@ -67,7 +68,7 @@ export function buildProjectFence(sections: readonly FenceSectionInput[]): Fence
     // kept explicit rather than silently unified; align it deliberately (add
     // ``orderedColumns.map((c) => c.alongM)`` as the 4th arg) when the owner
     // signs off on the fence render change.
-    const regions = computeSectionFill(columns, input.edges)
+    const regions = computeSectionFillActive(columns, input.edges)
     const fenceRegions: FenceRegion[] = regions.map((r) => ({
       formationId: r.formationId,
       bodyId: r.bodyId,

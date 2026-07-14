@@ -53,15 +53,19 @@ import type {
   LithoLayerResponse,
 } from '../../api/client'
 import {
-  computeSectionFill,
   computeUnderColumnSubstrate,
   type CorrelationEdge,
   type LensApexOverride,
   type PartitionColumn,
   type PartitionRegion,
+  type SectionRegion,
   LENS_PINCH_FRACTION,
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
+import {
+  computeSectionFillActive,
+  usePartitionEngineV2,
+} from '../../utils/partitionEngineSelect'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
   assembleSectionPartitionInput,
@@ -289,6 +293,10 @@ export default function PartitionFillOverlay({
   refinement,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
+  // Active partition engine (v1 stable / v2 experimental), device-local dev
+  // pref. Read as a hook so a flip in Settings re-renders the overlay live; it
+  // feeds the sectionFillData memo's dep array so the partition recomputes.
+  const partitionEngineV2 = usePartitionEngineV2()
   // In correlate mode every interactive partition element drops its pointer
   // events so the correlate gesture targets beneath receive the click. Use
   // this in place of the literal ``'auto'`` at every interactive site.
@@ -538,7 +546,7 @@ export default function PartitionFillOverlay({
   // Deps intentionally ABSENT (they only affect pixel projection):
   //   levelToScreen, plotTop, plotBottom — elevation → screen-y mapping.
   const sectionFillData = useMemo((): {
-    sectionRegions: ReturnType<typeof computeSectionFill>
+    sectionRegions: SectionRegion[]
     orderedColumns: PartitionColumn[]
     gapXs: Array<{ leftX: number; rightX: number }>
     // Keyed lens apex overrides so the screen memo can skip the legacy path.
@@ -653,7 +661,7 @@ export default function PartitionFillOverlay({
     // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
     // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
     // ``sectionRegions`` here stay the litho partition.
-    const sectionRegions = computeSectionFill(orderedColumns, edges, apexOverrides, alongM)
+    const sectionRegions = computeSectionFillActive(orderedColumns, edges, apexOverrides, alongM)
     log.debug(
       'partition',
       `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions`,
@@ -670,6 +678,8 @@ export default function PartitionFillOverlay({
     alongToScreenX,
     screenToLevel,
     lensDrag,
+    // Recompute the partition when the active engine flips (Settings toggle).
+    partitionEngineV2,
   ])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------

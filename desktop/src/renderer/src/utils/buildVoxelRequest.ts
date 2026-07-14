@@ -13,7 +13,7 @@
 // validated 2-D partition the user sees on screen.
 
 import type { FenceSectionInput } from "./buildProjectFence";
-import { computeSectionFill } from "./partitionFill";
+import { computeSectionFillActive } from "./partitionEngineSelect";
 import { assembleSectionsWithCanonical } from "./sectionFenceData";
 
 /** One filled region of a 2-D section partition (mirrors `SectionRegion`). */
@@ -167,7 +167,7 @@ export function buildVoxelRequest(
     // spacing, so the 3D voxel model inherits the same substrate geometry the 2D
     // overlay renders. (3rd arg = lensApexOverrides, unused here → undefined.)
     const alongM = orderedColumns.map((c) => c.alongM);
-    const regions: RegionInput[] = computeSectionFill(
+    const regions: RegionInput[] = computeSectionFillActive(
       columns,
       input.edges,
       undefined,
