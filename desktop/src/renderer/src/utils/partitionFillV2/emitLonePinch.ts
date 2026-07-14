@@ -49,6 +49,16 @@ import { type InputCurve, type Point } from './types'
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
 
+/** The FACING column's top-bracket elevation for a given lone side. */
+function facingTopElevOf(top: LonePinchBracket, loneSide: 'left' | 'right'): number {
+  return loneSide === 'left' ? top.rightElev : top.leftElev
+}
+
+/** The FACING column's base-bracket elevation for a given lone side. */
+function facingBaseElevOf(base: LonePinchBracket, loneSide: 'left' | 'right'): number {
+  return loneSide === 'left' ? base.rightElev : base.leftElev
+}
+
 /**
  * A bracket interface across one gap (a straight line the interval is bounded by).
  * ``anchor`` marks a real tie/bridge line (vs the surface / TD floor) — a unit whose
@@ -320,6 +330,31 @@ export function routeLoneSidePinch(
     !facingCoversSpan(facing, aboveMatrix.formationId, intervalTopElev, intervalBaseElev)
   ) {
     return false
+  }
+  // Continuous-band flood (v1 ``emitInterval`` connectivity inference): when the lone
+  // matrix formation EQUALS the facing matrix formation, the matrix is ONE body banding
+  // across the gap — it floods FULL-WIDTH (not a 0.45 pinch). The facing column is EMPTY
+  // across this interval (a lone side), so its column-vertical curve is absent there and
+  // the full-width band face would be UNBOUNDED on the facing edge (an untraced HOLE —
+  // the CS1 gap0 multi-lens class before increment 9). Synthesize the facing column-
+  // vertical segment as a flood-labelled closing curve so the band face closes; then emit
+  // the (already facing-aware extracted) enclosed lenses' 0.45 closings — the minorities
+  // pinch, the clay matrix bands across. This is the same synthesized-edge trick
+  // ``emitBottomTieSubstrate`` uses for the sub-TD wedge.
+  if (u0.unit.formationId === aboveMatrix.formationId) {
+    const floodId = nextFloodId()
+    lensLabels.set(floodId, aboveMatrix)
+    out.push({
+      id: floodId,
+      kind: 'closing',
+      points: [
+        { x: facingX, y: facingTopElevOf(top, loneSide) },
+        { x: facingX, y: facingBaseElevOf(base, loneSide) },
+      ],
+    })
+    const loneLenses = loneSide === 'left' ? leftLenses : rightLenses
+    for (const u of loneLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+    return true
   }
   emitLonePinch(
     loneMatrix,

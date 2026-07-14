@@ -378,10 +378,18 @@ function tileInterval(
   // the remaining matrix reduces to one unit per side and connects as a band; the
   // lens CLOSING curves are emitted after ``meet`` is known so their apex can be
   // clamped INSIDE the matrix cell (a 0.45 apex must not spill past the seam).
+  // A lone side (the other side has NO interval units) gets the facing column's FULL
+  // formation set as the enclosed-lens reach context (v1 ``otherFormations``): the
+  // interval-local facing is empty, but the facing COLUMN carries the enclosing matrix
+  // lower down, so an interbedded lone stack (CS1 gap0 clay+sand+sand+silt) reduces to
+  // one flooding matrix + pinched lenses instead of tiling as full-width sub-seams. A
+  // two-sided interval passes no facing set (keeps the conservative single-matrix guard).
+  const leftFacing = rightUnits.length === 0 ? new Set(right.units.map((u) => u.formationId)) : undefined
+  const rightFacing = leftUnits.length === 0 ? new Set(left.units.map((u) => u.formationId)) : undefined
   const leftLenses: IntervalUnit[] = []
   const rightLenses: IntervalUnit[] = []
-  const leftMatrix = extractEnclosedLenses(leftUnits, leftLenses)
-  const rightMatrix = extractEnclosedLenses(rightUnits, rightLenses)
+  const leftMatrix = extractEnclosedLenses(leftUnits, leftLenses, leftFacing)
+  const rightMatrix = extractEnclosedLenses(rightUnits, rightLenses, rightFacing)
   if (leftMatrix.length === 0 && rightMatrix.length === 0) return
 
   // LONE-SIDE pinch (finding A): one side has matrix units, the other is empty. v1

@@ -48,37 +48,76 @@ export interface IntervalUnit {
  *     The remaining matrix units, adjacent same-formation runs collapsed into one
  *     continuous span (the enclosing band, no interior sub-seam).
  */
-export function extractEnclosedLenses(units: IntervalUnit[], lenses: IntervalUnit[]): IntervalUnit[] {
-  // Only extract when the enclosing matrix is a SINGLE formation once the minorities
-  // are removed — i.e. a clean lens-in-matrix (clay/sand/clay). A heavily interbedded
-  // stack (silt/klei/silt/klei/veen facing a band) does NOT reduce to one matrix
-  // formation; extracting its minorities as 0.45 lens triangles while the residual
-  // matrix merges produces overlapping multi-column faces (the CS1 gap-18 lens×lens
-  // overlap). Those stacks tile as ordinary seam-meeting units instead — no overlay,
-  // no overlap.
-  const candidateLenses: IntervalUnit[] = []
-  const matrix: IntervalUnit[] = []
-  for (let k = 0; k < units.length; k++) {
-    const above = k > 0 ? units[k - 1] : undefined
-    const below = k + 1 < units.length ? units[k + 1] : undefined
-    const u = units[k]
-    if (
-      above &&
-      below &&
-      above.unit.formationId === below.unit.formationId &&
-      above.unit.formationId !== u.unit.formationId
-    ) {
-      candidateLenses.push(u)
-      continue
+export function extractEnclosedLenses(
+  units: IntervalUnit[],
+  lenses: IntervalUnit[],
+  facingFormations?: ReadonlySet<string>,
+): IntervalUnit[] {
+  // Enclosed-minority walk (ports v1 ``runIntervalExtraction`` interior-lens branch 1,
+  // ``partitionFill/columnReduce.ts``): a unit whose OWN-side neighbours above AND below
+  // share ONE formation different from its own is a LENS. v1 extracts them ITERATIVELY —
+  // pull one, merge its enclosing neighbours into one matrix run, then re-scan — so an
+  // interbedded stack (clay/sand/clay/sand/silt/clay) reduces to ONE matrix (clay) with
+  // the sand+silt minorities pulled, NOT a permanent multi-formation stack.
+  //
+  // The reach guard (v1 ``otherFormations.has(m)``): a minority is a genuine lens ONLY
+  // when its enclosing matrix ``m`` is a formation the FACING column actually carries —
+  // otherwise the apparent enclosure is a data void, not a lateral matrix. In the
+  // lone-side multi-lens class (CS1 gap0), the interval-LOCAL facing is empty, but the
+  // facing COLUMN carries the matrix lower down; ``facingFormations`` (the facing
+  // column's full formation set) supplies that context so the walk fires there. When it
+  // is omitted (the ordinary two-sided path) the reach falls back to the interval-local
+  // matrix presence — the historically-conservative "matrix reduces to one formation"
+  // guard, which keeps the heavily-interbedded two-sided stacks (CS1 gap-18 lens×lens)
+  // tiling as ordinary seam units, no overlay.
+  const work = units.slice()
+  const pulled: IntervalUnit[] = []
+  let changed = true
+  while (changed) {
+    changed = false
+    for (let k = 1; k + 1 < work.length; k++) {
+      const above = work[k - 1]
+      const below = work[k + 1]
+      const u = work[k]
+      if (above.unit.formationId !== below.unit.formationId) continue
+      const m = above.unit.formationId
+      if (m === u.unit.formationId) continue
+      // Facing-aware reach: extract only if the enclosing matrix exists on the facing
+      // column (v1's ``otherFormations.has(m)``). Without a facing set, defer to the
+      // post-walk single-matrix check below (the conservative two-sided guard).
+      if (facingFormations && !facingFormations.has(m)) continue
+      pulled.push(u)
+      // Merge above+below into one continuous matrix run spanning u's level (v1
+      // ``stack.splice(i-1, 3, mergedMatrix)`` — grows ``above.baseElev = below.baseElev``).
+      work.splice(k - 1, 3, { unit: above.unit, topElev: above.topElev, baseElev: below.baseElev })
+      changed = true
+      break
     }
-    matrix.push(u)
   }
-  const matrixFormations = new Set(matrix.map((m) => m.unit.formationId))
-  if (candidateLenses.length === 0 || matrixFormations.size > 1) {
-    // Not a clean single-matrix lens context — tile the whole stack (no extraction).
+  // NOTE (documented blocker, §4-table candidate): v1 ``runIntervalExtraction`` also has
+  // branches 2/3/4 (onlap-top / onlap-base / lone-candidate) that pinch a BOUNDARY
+  // minority — the S13-top-sand / B6-top-clay / S7-into-clay class. Porting them here (as
+  // a boundary-unit pull that grows the matrix to the bracket) leaves the vacated wedge
+  // an UNTRACED HOLE: a boundary minority does not reduce to a lens-in-continuous-matrix,
+  // so the ordinary lens-closing + full-width flood double-cover or gap it (measured: +22
+  // above-TD holes on Tie-section 12). The correct port needs the ``emitLonePinch``
+  // flood-closure machinery (synthesized bracket-to-conv wedge curves per boundary unit),
+  // which the per-interval bracket view cannot yet feed. Left full-width; see the
+  // increment-9 report §4 candidates.
+  const matrixFormations = new Set(work.map((m) => m.unit.formationId))
+  if (pulled.length === 0) return units
+  if (matrixFormations.size > 1) {
+    // Residual matrix is still interleaved (a boundary minority the interior-lens branch
+    // cannot reach — v1 handles it with its onlap-top/base + lone-candidate branches,
+    // NOT ported here). Extracting only the interior minorities would leave a multi-unit
+    // residual that the full-width flood double-covers (the increment-8 lens×matrix
+    // overlap class). Tile the WHOLE stack instead (no extraction) — safe by construction.
+    // Applies to BOTH the two-sided (CS1 gap-18) and lone (facing-aware) paths: the lone
+    // multi-formation-residual class stays full-width (documented blocker, §4-table
+    // candidate — needs the branch-2/3/4 boundary-pinch port).
     return units
   }
-  for (const l of candidateLenses) lenses.push(l)
+  for (const l of pulled) lenses.push(l)
   // Collapse now-adjacent same-formation matrix units into one continuous band (the
   // pulled lens between them was the gap). The units NEED NOT already touch: removing an
   // enclosed lens leaves an elevation gap where the lens sat (SAND 10-7 / [CLAY 7-5] /
@@ -86,7 +125,7 @@ export function extractEnclosedLenses(units: IntervalUnit[], lenses: IntervalUni
   // spans the lens's level (v1 ``reduceColumn`` grows ``above.baseElev = below.baseElev``).
   // Merging spans the gap so the matrix is a single continuous band the lens holes into.
   const merged: IntervalUnit[] = []
-  for (const u of matrix) {
+  for (const u of work) {
     const prev = merged[merged.length - 1]
     if (prev && prev.unit.formationId === u.unit.formationId) {
       merged[merged.length - 1] = { unit: prev.unit, topElev: prev.topElev, baseElev: u.baseElev }
