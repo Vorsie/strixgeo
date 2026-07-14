@@ -165,7 +165,15 @@ export function labelFaces(
     }
     if (units.length === 0) continue // no column vertical bounds this cell — skip.
 
-    const { formationId, bodyId } = resolveLabel(units, columns)
+    // The face's elevation extent — resolveLabel weights each bounding unit by how much
+    // of its column edge falls on this face (overlap with [faceMinElev..faceMaxElev]).
+    let faceMinElev = Infinity
+    let faceMaxElev = -Infinity
+    for (const p of face.polygon) {
+      if (p.y < faceMinElev) faceMinElev = p.y
+      if (p.y > faceMaxElev) faceMaxElev = p.y
+    }
+    const { formationId, bodyId } = resolveLabel(units, columns, faceMinElev, faceMaxElev)
     // A face bounded by column verticals on TWO OR MORE distinct columns SPANS the gap
     // — design §2's "exits the section as a column vertical on both sides -> BAND". This
     // catches a geometric same-formation band (a continuous matrix laterally enclosing an
@@ -180,26 +188,40 @@ export function labelFaces(
 }
 
 /**
- * Resolve the formation + body for a face from its bounding units. The formation
- * is the one shared by the bounding units; if they disagree (a boundary shared
- * with a neighbour of a different formation), pick the formation of the majority,
- * ties broken by the smallest (ci, ui) for determinism. Body is taken from the
- * first bounding unit of the winning formation.
+ * Resolve the formation + body for a face from its bounding units. The formation is
+ * the one whose column-vertical edge contributes the LONGEST boundary to this face —
+ * measured as the overlap of each bounding unit's [base..top] elevation span with the
+ * face's own elevation extent. A pure unit COUNT mis-picks when a face touches two
+ * different-formation units of the same column (an interbedded onlap face at a
+ * SILT/ZAND contact): both count once, and the count tie fell to an ARBITRARY
+ * alphabetical id — which flipped a thin-ZAND / thick-SILT boundary face to ZAND and
+ * overran the SILT band (increment 17, CS1 gap21). Length-weighting picks the
+ * lithology that actually dominates the face's column face; ties (identical overlap)
+ * break by smallest (ci, ui) for determinism.
  */
 function resolveLabel(
   units: readonly { ci: number; ui: number }[],
   columns: readonly ColumnGeom[],
+  faceMinElev: number,
+  faceMaxElev: number,
 ): { formationId: string; bodyId: string | null } {
   const counts = new Map<string, number>()
   for (const { ci, ui } of units) {
     const u = columns[ci]?.units[ui]
     if (!u) continue
-    counts.set(u.formationId, (counts.get(u.formationId) ?? 0) + 1)
+    // Boundary length this unit's column edge contributes to the face = the overlap of
+    // its own [base..top] with the face's elevation extent. A unit fully spanning the
+    // face weighs its whole thickness; a unit clipped by the face weighs the clipped part.
+    const overlap = Math.max(0, Math.min(u.topElev, faceMaxElev) - Math.max(u.baseElev, faceMinElev))
+    // A degenerate/zero overlap (a unit touching only at a corner) still counts a tiny
+    // nonzero weight so a face bounded solely by corner-touching units resolves.
+    const w = overlap > 0 ? overlap : 1e-9
+    counts.set(u.formationId, (counts.get(u.formationId) ?? 0) + w)
   }
   let bestFormation = ''
   let bestCount = -1
   for (const [f, c] of counts) {
-    if (c > bestCount || (c === bestCount && f < bestFormation)) {
+    if (c > bestCount + 1e-9 || (Math.abs(c - bestCount) <= 1e-9 && f < bestFormation)) {
       bestFormation = f
       bestCount = c
     }
