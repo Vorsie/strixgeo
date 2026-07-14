@@ -188,4 +188,49 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     // near the far column the SAND matrix claims the space.
     expect(matrixAt(regions, 0, 0.8, 6)).toBe(SAND)
   })
+
+  it('a MULTI-LENS interbedded stack: every enclosed lens pinches at ~0.45, the matrix bands across (CS1 gap0 class)', () => {
+    // The real CS1 gap0 shape (GEO-22/115-S10 | GEO-10/170-S6): the left column carries a
+    // CLAY matrix with THREE enclosed minorities INTERBEDDED in it (sand / sand / silt),
+    // and the right column is one CONTINUOUS CLAY of the same matrix formation. The three
+    // minorities must each LENS (pinch to a ~0.45 apex at their own elevation) while the
+    // CLAY matrix bands ACROSS the gap. Increment 8's ``extractEnclosedLenses`` bailed on
+    // this stack — after pulling the first minority the residual was still interleaved
+    // (its single-pass scan saw a multi-formation matrix), so it tiled ALL of it as
+    // full-width sub-seam slabs and NO minority pinched — the owner's "23/125-s6 clay
+    // between the 2 sands isn't lensing" + "lenses run all the way to the next test".
+    // Increment 9 ports v1's ITERATIVE interior-lens walk (``runIntervalExtraction``
+    // branch 1): pull one, merge the enclosing neighbours into one matrix run, re-scan —
+    // so the stack reduces to ONE clay matrix + three pinched minorities.
+    const lClayTop = layer()
+    const lSand1 = layer()
+    const lClay2 = layer()
+    const lSand2 = layer()
+    const lClay3 = layer()
+    const lSilt = layer()
+    const lClay4 = layer()
+    const rClay = layer()
+    // Left: CLAY interbedded with sand / sand / silt (surface elev 12 → depth 0..6).
+    const left = col('L', 12, [
+      { top: 0, base: 1, f: CLAY, layerId: lClayTop },
+      { top: 1, base: 2, f: SAND, layerId: lSand1 },
+      { top: 2, base: 3, f: CLAY, layerId: lClay2 },
+      { top: 3, base: 4, f: SAND, layerId: lSand2 },
+      { top: 4, base: 4.5, f: CLAY, layerId: lClay3 },
+      { top: 4.5, base: 5, f: SILT, layerId: lSilt },
+      { top: 5, base: 6, f: CLAY, layerId: lClay4 },
+    ])
+    // Right: one continuous CLAY of the SAME matrix formation, surface aligned.
+    const right = col('R', 12, [{ top: 0, base: 6, f: CLAY, layerId: rClay }])
+    const regions = computeSectionFillV2([left, right], [])
+
+    // Each enclosed minority (sand ~elev 10.5, sand ~8.5, silt ~7.25) pinches SHORT of
+    // the far column — apex well left of the far edge.
+    expect(maxFractionOf(regions, 0, SAND)).toBeLessThan(0.6)
+    expect(maxFractionOf(regions, 0, SILT)).toBeLessThan(0.6)
+    // The CLAY matrix bands across the gap: near the far column, at each minority's own
+    // elevation, the matrix is CLAY (not empty, not the minority litho).
+    expect(matrixAt(regions, 0, 0.9, 10.5)).toBe(CLAY) // past the upper sand lens
+    expect(matrixAt(regions, 0, 0.9, 7.25)).toBe(CLAY) // past the silt lens
+  })
 })
