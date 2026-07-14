@@ -105,6 +105,15 @@ export function labelFaces(
         if (l) substrateLabel = l
         nonLensBoundary = true
         nTie++
+      } else if (id.startsWith('onlap')) {
+        // A SURFACE-ANCHORED ONLAP pinch's BASE edge (emitLonePinch, increment 18): the
+        // edge that laps the tied band. It carries NO litho label (the pinch face keeps its
+        // own column-vertical litho) but counts as a TIE so the pinch face classifies as
+        // ONLAP (``classifyFace`` needs nTie>0 AND nClose>0). The rising-apex surface onlap
+        // does not touch the base tie/band directly, so without this marker its face — a
+        // clean triangle bounded by a column vertical + closings — would misread as a LENS.
+        nonLensBoundary = true
+        nTie++
       } else if (id.startsWith('tie') || id.startsWith('bridge')) {
         // A ``bridge`` is a deep-to-deep substrate jump tie (emitSubstrate) — it
         // anchors the face the same way an ordinary tie does, so it counts toward

@@ -44,6 +44,7 @@ import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
+import { emitSurfaceOnlap, surfaceExtendedUnit } from './emitSurfaceOnlap'
 import { facingCoversSpan, facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
@@ -150,6 +151,7 @@ export function emitLonePinch(
   labels: Map<string, LensLabel>,
   out: InputCurve[],
   forceKind?: 'onlap',
+  apexElevOverride?: number,
 ): void {
   if (loneUnits.length === 0) return
 
@@ -178,7 +180,14 @@ export function emitLonePinch(
   const apexFrac = isLens ? LENS_PINCH_FRACTION : INTERIOR_PINCH_FRACTION
   const apexX = loneX + apexFrac * (facingX - loneX)
   let apexElev: number
-  if (isLens) {
+  if (apexElevOverride !== undefined) {
+    // SURFACE-ANCHORED ONLAP (increment 18): the caller pins the apex to a RISING interior
+    // elevation (v1's ``(own drilled top + conv)/2``) so the pinch tip does NOT land on a
+    // dipping base-band bracket — an apex sitting exactly on that band makes the pinch's
+    // lower ``close`` edge collinear with the band, the flood ``conv→apex`` edge coincide
+    // with the band, and the pinch face merge into a full-width band (B6 gap2 KLEI defect).
+    apexElev = apexElevOverride
+  } else if (isLens) {
     apexElev = (loneTopElev + loneBaseElev) / 2
   } else if (aboveMatrix) {
     // Apex on the BASE interface at the apex fraction (the above matrix descends to it).
@@ -197,10 +206,23 @@ export function emitLonePinch(
   // flood curves make the unit's own face read as an ONLAP (nTie > 0); a same-matrix
   // pinch closes as a 0-tied LENS. v1 emits both as ``kind:'lens'`` overlays; v2 keeps
   // the distinction as a true partition (onlap → pinch region, lens → lens region).
+  //
+  // SURFACE-ANCHORED ONLAP (increment 18, ``apexElevOverride`` set): the rising apex does
+  // NOT land on the base-band bracket, so unlike the increment-17 onlap (apex on the tie)
+  // the pinch face touches no tie/flood curve — ``classifyFace`` would read it a LENS. Emit
+  // the BASE edge (the one lapping the tied band) with an ``onlap`` id, which ``labelFaces``
+  // counts as a tie WITHOUT a label: the pinch face then reads ONLAP (nTie 1 + nClose 1) and
+  // keeps its own column-vertical litho, while the adjacent flood face (labelled by its own
+  // ``flood`` id, ``units`` empty) is unaffected.
+  const onlapEdge = apexElevOverride !== undefined
   for (const u of loneUnits) {
     const label: LensLabel = { formationId: u.unit.formationId, bodyId: u.unit.bodyId }
     pushLabelled(nextId, label, labels, out, [{ x: loneX, y: u.topElev }, apex])
-    pushLabelled(nextId, label, labels, out, [apex, { x: loneX, y: u.baseElev }])
+    if (onlapEdge) {
+      out.push({ id: `onlap${nextId()}`, kind: 'closing', points: [apex, { x: loneX, y: u.baseElev }] })
+    } else {
+      pushLabelled(nextId, label, labels, out, [apex, { x: loneX, y: u.baseElev }])
+    }
   }
 
   // (b) Matrix-extension (FLOOD) triangles closing the wedge beyond the apex (v1
@@ -363,39 +385,85 @@ export function routeLoneSidePinch(
   // single unit filling the interval against a facing that carries ONE continuous
   // matrix). See the guard comments below.
   const u0 = loneMatrix[0]
+  // SURFACE-ANCHORED ONLAP (increment 18): a ruling-5 surface-extended first unit fills up
+  // to the surface band, so its EFFECTIVE top is the surface bracket, not its drilled
+  // ``topElev``. Without this the fill-check below (drilled top ≠ surface bracket) bails to
+  // the full-width tiler — the B4|S13 gap3 ZAND / B6 gap2 KLEI defect (design §4 increment-17
+  // residual). ``surfaceExtendedUnit`` (emitSurfaceOnlap) decides + builds the effective unit.
+  const loneCol = loneSide === 'left' ? left : right
+  const { surfaceExtended, u0eff } = surfaceExtendedUnit(u0, loneCol, top, intervalTopElev)
   if (
-    Math.abs(u0.topElev - intervalTopElev) > ELEV_EPS ||
+    Math.abs(u0eff.topElev - intervalTopElev) > ELEV_EPS ||
     Math.abs(u0.baseElev - intervalBaseElev) > ELEV_EPS
   ) {
     return false // unit does not fill the interval — a strip would be left uncovered.
   }
-  const aboveMatrix = facingMatrixLabel(facing, intervalTopElev)
+  // The surface-effective matrix passed to ``emitLonePinch`` — the pinch triangle's TOP
+  // corner then rides the surface band (``u0eff.topElev`` = surface) instead of the
+  // drilled top, so the ruling-5 surface strip stays fully covered (increment 18).
+  const loneMatrixEff: IntervalUnit[] = [u0eff]
+  // The facing-column enclosing-matrix lookup must sample the FACING column at elevations
+  // the facing actually PRESENTS. For a surface-topped interval the lone column's surface
+  // (13.37 at B4|S13) sits ABOVE the facing column's own surface (13.13) — the surface
+  // band converges there. Sampling / covering the facing at the LONE column's surface
+  // would ask the facing to carry matrix above its own ground (it does not — ``facingCovers
+  // Span`` then falsely bails, the increment-18 defect). Clamp the sampled top DOWN to the
+  // facing column's surface so the lateral-enclosure test runs over the span the facing
+  // genuinely holds (increment 18; v1 ``kindFor`` samples the OPPOSITE column's real stack).
+  const sampleTopElev = surfaceExtended ? Math.min(intervalTopElev, facing.surfaceElevM) : intervalTopElev
+  const aboveMatrix = facingMatrixLabel(facing, sampleTopElev)
   const belowMatrix = facingMatrixLabel(facing, intervalBaseElev)
   if (aboveMatrix === null || belowMatrix === null) return false
 
-  if (
-    aboveMatrix.formationId !== belowMatrix.formationId ||
-    !facingCoversSpan(facing, aboveMatrix.formationId, intervalTopElev, intervalBaseElev)
-  ) {
-    return false
-  }
-  // ONLAP vs LENS on the CLEAN lateral context (increment 17 residual (ii); v1
-  // ``kindFor``): reaching here the facing carries ONE continuous matrix across the
-  // interval — a true lateral enclosure whose flood wedges tile gaplessly. v1 shapes the
-  // lone unit as an ONLAP when its bracketing contact is TIED (it laps the bracket, apex
-  // ``INTERIOR_PINCH_FRACTION``) and a LENS when untied (own-elevation 0.45). The prior
-  // single-unit path always lensed, mis-shaping a base-tied boundary unit v1 renders as a
-  // pinch/onlap (the cs1bandauthority SAND, B4|S13 gap3, B6 gap2). Deciding it HERE — after
-  // the clean-lateral guard — keeps the flood wedge gapless (never the band-overrunning
-  // full-width wedge a non-converging bracket would produce). A unit tied on BOTH or
-  // NEITHER contact keeps the lens shape (v1: a 2-tied unit bands, a 0-tied one lenses).
+  // ONLAP vs LENS (increment 17 residual (ii); v1 ``kindFor``): v1 shapes a lone unit as an
+  // ONLAP when EXACTLY ONE of its bracketing contacts is TIED (it laps that bracket, apex
+  // ``INTERIOR_PINCH_FRACTION``) and a LENS when untied (own-elevation 0.45).
   const tied = loneSide === 'left' ? ctx.leftTied : ctx.rightTied
   const topTied = tied.top.has(u0.unit.layerId)
   const baseTied = tied.base.has(u0.unit.layerId)
   const onlap = (topTied || baseTied) && !(topTied && baseTied)
+
+  // SURFACE-ANCHORED ONLAP (increment 18): a surface-extended first unit whose BASE contact
+  // is tied to a band that CONVERGES on the facing (the band's facing endpoint sits at/near
+  // the facing surface, so the interval has zero facing thickness there — B4|S13 gap3 ZAND /
+  // B6 gap2 KLEI). The pinch's top rides the surface band; its tip sits at 0.5 with a RISING
+  // apex (``emitSurfaceOnlap`` — v1's ``(own drilled top + conv)/2``), so a dipping base band
+  // never collapses the pinch into a full-width face (B6). Handles BOTH the clean-lateral
+  // (SILT above and below) and dipping mixed-bracket cases.
+  // The convergence gate is what keeps the unchanged repros (S7 gap18 surface SILT) OUT: when
+  // the facing carries REAL thickness across the interval (facingTop ≠ facingBase), the unit
+  // is not lapping out onto a converging band and stays on its existing route.
+  const facingTopE = facingTopElevOf(top, loneSide)
+  const facingBaseE = facingBaseElevOf(base, loneSide)
+  const facingConverges = Math.abs(facingTopE - facingBaseE) < ELEV_EPS
+  if (
+    surfaceExtended &&
+    onlap &&
+    baseTied &&
+    !topTied &&
+    facingConverges &&
+    u0.unit.formationId !== aboveMatrix.formationId
+  ) {
+    emitSurfaceOnlap(u0, u0eff, loneSide, loneX, facingX, facing, top, base, baseLenses, nextId, nextFloodId, lensLabels, out)
+    return true
+  }
+
+  if (
+    aboveMatrix.formationId !== belowMatrix.formationId ||
+    !facingCoversSpan(facing, aboveMatrix.formationId, sampleTopElev, intervalBaseElev)
+  ) {
+    return false
+  }
+  // ONLAP on the CLEAN lateral context (increment 17 residual (ii)): reaching here the
+  // facing carries ONE continuous matrix across the interval — a true lateral enclosure
+  // whose flood wedges tile gaplessly. Deciding the onlap HERE — after the clean-lateral
+  // guard — keeps the flood wedge gapless (never the band-overrunning full-width wedge a
+  // non-converging bracket would produce). A unit tied on BOTH or NEITHER contact keeps the
+  // lens shape (v1: a 2-tied unit bands, a 0-tied one lenses). (A surface-extended base-tied
+  // onlap is already handled above by ``emitSurfaceOnlap``.)
   if (onlap && u0.unit.formationId !== aboveMatrix.formationId) {
     emitLonePinch(
-      loneMatrix,
+      loneMatrixEff,
       loneSide,
       loneX,
       facingX,
@@ -437,7 +505,7 @@ export function routeLoneSidePinch(
     return true
   }
   emitLonePinch(
-    loneMatrix,
+    loneMatrixEff,
     loneSide,
     loneX,
     facingX,
