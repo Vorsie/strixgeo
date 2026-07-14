@@ -249,14 +249,17 @@ so S6 IS a v2 defect. The four remaining repros unified into ONE class:
 
 Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 
-5. **Surface band ("let's go", owner).** The top of each test (ground
-   surface) acts as an implicit correlation band to the next test: a
-   surface polyline (test top → test top, real surface elevations) is a
-   band-authority curve no face may cross. The strip between the surface
-   band and each column's first contact is claimed by the FIRST unit
-   (extended up to surface — the layer reaches the ground; measurement
-   just starts lower). Kills the "silt interpolated across the no-data
-   top" read. v2-only; flag for owner visual confirmation on dogfeed.
+5. **Top band — REVISED 2026-07-14 evening (owner rejected the surface
+   extension on round-2 dogfeed: "that quad is made up").** The implicit
+   top correlation band follows each test's FIRST LITHO BOUNDARY, snapped
+   to the first DATA point when within 10 cm; where they diverge, fall
+   back to the first data point (and only where a litho exists at all).
+   NEVER the ground surface unless first data starts there. The strip
+   between that line and the ground stays EMPTY — no invented lithology
+   above the first data point. (The original "extend first unit to
+   surface" implementation `9c017b3d5` is REVERTED by this ruling; the
+   band-authority top polyline mechanism stays, re-anchored to the
+   first-litho/data line.)
 6. **Sub-TD fill follows the lowest tie lines (B2 finding — owner
    overruled "v1 does it too, so not a bug": "it is wrong" in both).**
    Under a column with no bottom tie to its TD, the substrate fill must
