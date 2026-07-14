@@ -126,6 +126,14 @@ Discovered during increment 5 (2026-07-14, parity + gates against v2):
 | Onlap-on-shared-matrix placement — v1 bands the shared-formation matrix full-width and onlaps the odd unit; v2 tiled both as opposing seam-meeting pinches | RESOLVED with band-first tiling — v2 now bands the shared matrix full-width; the equal-and-opposite seam-share pairs (Tie-4 gap0 KLEI/SILT ±3920/±3400 cm²) are gone, parity kindChanges 142→94, grand Δ steady at +0.6% |
 | Output-polygon simplicity — v1 emits simple (concave, carved) polygons | FIXED (increment 6) — the real cause was NOT keyholes (0 faces carry holes on the real sections) but weakly-simple figure-8 rings from the tracer at pinch/apex vertices + float-noise near-duplicate slice vertices. `faces.splitAtRepeats` splits self-touching loops into strictly-simple sub-loops; `slice` snaps output elevations to the 1 mm grid and splits repeated points. A committed test asserts 0 self-intersections / 0 repeats across all 14 sections. Also fixed shared gate plumbing: the overlap-check ear clip accepted invalid ears on concave combs (exclusive triangle containment missed on-edge vertices) — inclusive containment now; v1 gates unaffected (verified) |
 
+Strict-2/1/0 build status (ruling 8; increment of 2026-07-15,
+`9c9450733`..`68ae66c6d`):
+
+| v1 rule / pass | v2 disposition |
+|---|---|
+| Geometric same-formation auto-match | RETIRED across four sites (ruling 8): `emitLonePinch` continuous-band full-flood (now gated to the enclosing-matrix-of-lens-stack case only), `routeLoneSidePinch`'s mixed-bracket bail (now routes to a 0.45 own-elevation lens via `forceLens`, gated `!facingConverges` so a genuine void stays sideways per Q3), and `labelFaces` `spansGap→band` (narrowed to require a real gap-crossing anchor). Acceptance = the `shapeaudit.zerocorr` counter: **22 → 16, target 0**. REMAINING (one class, the §-increment-14 boundary-minority wall again): an untied minority whose enclosing matrix ABOVE is a tied band, against an INTERBEDDED facing — not extractable as an enclosed lens, the seam-tiler cannot separate it; needs the annulus routing extended to this shape. Relabeling would mask, not fix (the polygon genuinely spans) |
+| Seam grid-snap robustness (`seamAnchor.ts`, `b5b31a5d2`) | A seam endpoint on a SLOPING bracket dangled after the 1 mm snap (exact-integer collinearity failed ~0.3 mm off) → the interval traced full-width (the real root of the VEEN class, NOT auto-matching). Seam endpoints are now the collinear lattice point on the snapped bracket (grid-exact T-junction). WARNING: do NOT relax the arrangement core (`intersect.ts`) to register snapped proper-crossings unconditionally — measured 613 holes |
+
 Anything discovered in v1 during the build that is NOT in this table gets
 ADDED to this table with a disposition — nothing is dropped silently.
 
