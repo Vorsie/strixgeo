@@ -77,6 +77,12 @@ export function labelFaces(
     // the matrix column edge, the pure-case shape) leaves BOTH faces hole-free
     // (adjacent-simple, not nested). See design §4 increment-12 row.
     let nonLensBoundary = false
+    // A gap-crossing ANCHOR on the boundary — a real tie/bridge/substrate/flood/onlap curve
+    // (nTie) OR a surface/band contour curve. STRICT 2/1/0 (ruling 8): the ``spansGap → band``
+    // promotion (below) fires ONLY when such an anchor is present. A face that spans the gap
+    // merely by touching two UNTIED column verticals (the retired geometric same-formation
+    // auto-match) is NOT promoted — it falls to ``classifyFace`` and terminates (LENS).
+    let hasAnchorSpan = false
     let lensLabel: LensLabel | undefined
     let substrateLabel: LensLabel | undefined
     let floodLabel: LensLabel | undefined
@@ -95,6 +101,7 @@ export function labelFaces(
         const l = lensLabels?.get(id)
         if (l) floodLabel = l
         nonLensBoundary = true
+        hasAnchorSpan = true
         nTie++
       } else if (id.startsWith('btfloor') || id.startsWith('btcurtain')) {
         // A deep-to-deep flat-floor SUBSTRATE curve (emitBottomTieSubstrate): its
@@ -104,6 +111,7 @@ export function labelFaces(
         const l = lensLabels?.get(id)
         if (l) substrateLabel = l
         nonLensBoundary = true
+        hasAnchorSpan = true
         nTie++
       } else if (id.startsWith('onlap')) {
         // A SURFACE-ANCHORED ONLAP pinch's BASE edge (emitLonePinch, increment 18): the
@@ -113,13 +121,26 @@ export function labelFaces(
         // does not touch the base tie/band directly, so without this marker its face — a
         // clean triangle bounded by a column vertical + closings — would misread as a LENS.
         nonLensBoundary = true
+        hasAnchorSpan = true
         nTie++
       } else if (id.startsWith('tie') || id.startsWith('bridge')) {
         // A ``bridge`` is a deep-to-deep substrate jump tie (emitSubstrate) — it
         // anchors the face the same way an ordinary tie does, so it counts toward
         // BAND classification.
         nonLensBoundary = true
+        hasAnchorSpan = true
         nTie++
+      } else if (id.startsWith('surface') || id.startsWith('bandc')) {
+        // The top-band (``surface``) line and a matched-pair band's own top/base contour
+        // (``bandc``) are gap-crossing ANCHOR curves — they authorise a spanning face to
+        // read BAND (ruling 8). They are NEITHER a tie (no nTie) NOR a closing (no nClose):
+        // a band face bounded by a tie + these still reads BAND via ``classifyFace``, and an
+        // adjacent fill merely abutting a contour is not mis-promoted to onlap. But when a
+        // spanning face's ONLY gap-crossing evidence is a surface/bandc line (a seam-split
+        // same-formation quad bracketed by the surface band), that anchor is what keeps it a
+        // band rather than being retired to a lens.
+        nonLensBoundary = true
+        hasAnchorSpan = true
       } else if (id.startsWith('close')) {
         nonLensBoundary = true
         nClose++
@@ -184,13 +205,16 @@ export function labelFaces(
     }
     const { formationId, bodyId } = resolveLabel(units, columns, faceMinElev, faceMaxElev)
     // A face bounded by column verticals on TWO OR MORE distinct columns SPANS the gap
-    // — design §2's "exits the section as a column vertical on both sides -> BAND". This
-    // catches a geometric same-formation band (a continuous matrix laterally enclosing an
-    // untied lens, e.g. clay between two sands) that carries no explicit tie, which the
-    // tie-count classifier alone reads as LENS (v1 ``emitInterval`` connects a single
-    // same-formation unit per side as a band quad). A lens/onlap face touches only its
-    // OWN column vertical, so it is unaffected. (``spansGap`` is computed above.)
-    const klass = spansGap ? 'band' : classifyFace(nTie, nClose)
+    // — design §2's "exits the section as a column vertical on both sides -> BAND". STRICT
+    // 2/1/0 (owner ruling 8, design §8): the promotion fires ONLY when a gap-crossing ANCHOR
+    // (a tie/bridge/substrate/flood/onlap curve OR a surface/bandc contour) is on the boundary.
+    // A face that spans the gap merely by touching two UNTIED column verticals is the RETIRED
+    // geometric same-formation auto-match (v1's ``emitInterval`` connectivity inference) — it
+    // is NOT promoted; it falls to ``classifyFace`` and terminates as a LENS. A legitimately
+    // tied/substrate/surface-bracketed band still carries an anchor, so it stays BAND. A
+    // lens/onlap face touches only its OWN column vertical, so it never enters this branch.
+    const spanBand = spansGap && hasAnchorSpan
+    const klass = spanBand ? 'band' : classifyFace(nTie, nClose)
     out.push({ face, formationId, bodyId, klass, units })
   }
   return out

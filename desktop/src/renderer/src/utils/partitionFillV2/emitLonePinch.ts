@@ -152,6 +152,7 @@ export function emitLonePinch(
   out: InputCurve[],
   forceKind?: 'onlap',
   apexElevOverride?: number,
+  forceLens?: boolean,
 ): void {
   if (loneUnits.length === 0) return
 
@@ -172,11 +173,17 @@ export function emitLonePinch(
   // ``forceKind='onlap'`` (increment 17 residual (ii)) overrides the same-matrix lens
   // heuristic: a tie-decided boundary onlap (v1 ``kindFor``) laps its bracket regardless
   // of whether the facing matrix happens to be uniform above and below.
+  // ``forceLens`` (STRICT 2/1/0, ruling 8): a MIXED-bracket untied unit (aboveMatrix ≠
+  // belowMatrix) is still a 0-tied LENS — apex at 0.45, own mid-elevation — even though the two
+  // bracket lithologies differ. Without it, ``isLens`` is false for a mixed bracket and the apex
+  // lands on the base interface (a dipping-bracket collapse) at the 0.5 onlap fraction. The
+  // mixed flood wedges below still fire (both matrices present) so coverage stays complete.
   const isLens =
-    forceKind !== 'onlap' &&
-    aboveMatrix !== null &&
-    belowMatrix !== null &&
-    aboveMatrix.formationId === belowMatrix.formationId
+    forceLens ||
+    (forceKind !== 'onlap' &&
+      aboveMatrix !== null &&
+      belowMatrix !== null &&
+      aboveMatrix.formationId === belowMatrix.formationId)
   const apexFrac = isLens ? LENS_PINCH_FRACTION : INTERIOR_PINCH_FRACTION
   const apexX = loneX + apexFrac * (facingX - loneX)
   let apexElev: number
@@ -451,10 +458,44 @@ export function routeLoneSidePinch(
     return true
   }
 
-  if (
-    aboveMatrix.formationId !== belowMatrix.formationId ||
-    !facingCoversSpan(facing, aboveMatrix.formationId, sampleTopElev, intervalBaseElev)
-  ) {
+  // STRICT 2/1/0 (owner ruling 8, design §8): a MIXED-bracket untied unit (the facing carries
+  // a DIFFERENT lithology above vs below it — the Tie-6/9/11 VEEN class: KLEI above, SILT below)
+  // must still TERMINATE. v2 previously bailed here (mixed bracket ≠ single continuous matrix)
+  // and the interval tiler ran the unit FULL-WIDTH (the retired sideways continuation). It now
+  // pinches to a 0.45 OWN-ELEVATION lens; the above matrix floods the top wedge, the below matrix
+  // the base wedge (``emitLonePinch`` mixed-bracket branch — two disjoint wedges sharing the
+  // conv→apex edge, hole-free by construction). The apex is pinned to the unit's OWN mid-elevation
+  // (``apexElevOverride``) so a DIPPING bracket never collapses the pinch full-width (the B6
+  // symptom). A CONVERGING facing bracket (zero facing thickness — a genuine data void) is NOT
+  // routed here: its flood wedge is degenerate (conv coincides with the apex → self-touching
+  // ring), so it stays the full-width sideways continuation (owner §8 Q3 — nothing anchors it).
+  if (aboveMatrix.formationId !== belowMatrix.formationId) {
+    if (facingConverges) return false // converging = data void; keep the full-width fallback
+    if (onlap) return false // a base/top-tied mixed-bracket boundary unit → onlap route below
+    // ``forceLens`` pins the apex to the unit's own mid-elevation at 0.45 (a true 0-tied lens)
+    // and keeps the base edge a plain ``close`` (no onlap-id) so ``labelFaces`` reads LENS. The
+    // mixed above/below flood wedges fire (both matrices non-null) and tile the vacated width.
+    emitLonePinch(
+      loneMatrixEff,
+      loneSide,
+      loneX,
+      facingX,
+      top,
+      base,
+      aboveMatrix,
+      belowMatrix,
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+      undefined,
+      undefined,
+      true,
+    )
+    for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+    return true
+  }
+  if (!facingCoversSpan(facing, aboveMatrix.formationId, sampleTopElev, intervalBaseElev)) {
     return false
   }
   // ONLAP on the CLEAN lateral context (increment 17 residual (ii)): reaching here the
@@ -483,17 +524,16 @@ export function routeLoneSidePinch(
     for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
     return true
   }
-  // Continuous-band flood (v1 ``emitInterval`` connectivity inference): when the lone
-  // matrix formation EQUALS the facing matrix formation, the matrix is ONE body banding
-  // across the gap — it floods FULL-WIDTH (not a 0.45 pinch). The facing column is EMPTY
-  // across this interval (a lone side), so its column-vertical curve is absent there and
-  // the full-width band face would be UNBOUNDED on the facing edge (an untraced HOLE —
-  // the CS1 gap0 multi-lens class before increment 9). Synthesize the facing column-
-  // vertical segment as a flood-labelled closing curve so the band face closes; then emit
-  // the (already facing-aware extracted) enclosed lenses' 0.45 closings — the minorities
-  // pinch, the clay matrix bands across. This is the same synthesized-edge trick
-  // ``emitBottomTieSubstrate`` uses for the sub-TD wedge.
-  if (u0.unit.formationId === aboveMatrix.formationId) {
+  // ENCLOSING-MATRIX full-flood (ruling-8 legit) vs BARE auto-match (retired). When the lone
+  // matrix formation EQUALS the facing matrix AND it ENCLOSES own-column lenses (``baseLenses``
+  // non-empty), the matrix is a true §2 closed loop through its OWN column (matrix above AND
+  // below the minorities) — it floods FULL-WIDTH, minorities pinch 0.45 inside. Synthesize the
+  // absent facing column-vertical as a flood-labelled closing so the band face closes (the
+  // ``emitBottomTieSubstrate`` sub-TD trick). STRICT 2/1/0 (owner ruling 8, design §8): a BARE
+  // same-formation lone unit (``baseLenses`` EMPTY) is the RETIRED geometric auto-match — it must
+  // TERMINATE. It falls through to ``emitLonePinch`` (``aboveMatrix === belowMatrix`` → ``isLens``
+  // 0.45 own-elevation pinch, the same-formation matrix floods both wedges past the apex).
+  if (u0.unit.formationId === aboveMatrix.formationId && baseLenses.length > 0) {
     const floodId = nextFloodId()
     lensLabels.set(floodId, aboveMatrix)
     out.push({
