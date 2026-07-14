@@ -10,10 +10,10 @@
  *      regions in a gap (the diff-litho scan mirrored without the inequality).
  *   3. SUBSTRATE-ABOVE-TIE — for every base-side tie, does any region of the tied
  *      (below-tie) formation paint ABOVE the tie line under either column?
- *   4. SUMMARY per section + grand totals, dumped to scripts/diag_shape_audit.json.
- * Pure reporter — never fails.
- * Run (from desktop/): $env:SHAPE_AUDIT='1'; npx vitest run \
- *   src/renderer/src/utils/partitionFillV2.shapeaudit.diag.test.ts --disableConsoleIntercept
+ *   3b. 0-CORR-FULL-WIDTH — v2 full-width bands with NO drawn tie (ruling-8 violations,
+ *       ``partitionFillV2.shapeaudit.zerocorr.ts``); target 0.
+ *   4. SUMMARY + grand totals, dumped to scripts/diag_shape_audit.json. Never fails.
+ * Run (desktop/): $env:SHAPE_AUDIT='1'; npx vitest run src/renderer/src/utils/partitionFillV2.shapeaudit.diag.test.ts --disableConsoleIntercept
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -30,6 +30,7 @@ import {
   type SectionRegion,
 } from './partitionFill'
 import { computeSectionFillV2 } from './partitionFillV2'
+import { zeroCorrFullWidth, type ZeroCorrRow } from './partitionFillV2.shapeaudit.zerocorr'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
@@ -210,6 +211,7 @@ describe('v2 model-wide shape audit', () => {
     const diffRows: DiffRow[] = [] // v1-short-v2-full AND v2-short-v1-full
     const overlapRows: OverlapRow[] = []
     const tieRows: TieRow[] = []
+    const zeroCorrRows: ZeroCorrRow[] = [] // ruling-8 0-corr-full-width violations (v2)
     const perSection: Record<string, unknown>[] = []
 
     let totV1ShortV2Full = 0
@@ -218,6 +220,7 @@ describe('v2 model-wide shape audit', () => {
     let totOverlapV2 = 0
     let totTieV1 = 0
     let totTieV2 = 0
+    let totZeroCorrFullWidth = 0
 
     for (const sec of raw.sections) {
       const prep = prepare(sec, nameOf)
@@ -274,6 +277,15 @@ describe('v2 model-wide shape audit', () => {
         }
       }
 
+      // ---- 1b. 0-CORR-FULL-WIDTH violations (ruling 8 acceptance counter) ----
+      // A v2 region reaching FULL WIDTH whose formation has NO drawn tie across this gap is
+      // an auto-matched band — exactly what ruling 8 retires. This counter at 0 is the
+      // acceptance target ("every band maps to a drawn tie"). v2 only (v1 is the frozen
+      // fallback, expected to violate).
+      const v2FullNoTie = zeroCorrFullWidth(gaps2, columns, edges, colNames, sec.name, fname)
+      zeroCorrRows.push(...v2FullNoTie)
+      totZeroCorrFullWidth += v2FullNoTie.length
+
       // ---- 2. SAME-FORMATION OVERLAP (both engines) ----
       const ov1 = sameFormationOverlaps(gaps1, sec.name, 'v1', fname)
       const ov2 = sameFormationOverlaps(gaps2, sec.name, 'v2', fname)
@@ -316,15 +328,13 @@ describe('v2 model-wide shape audit', () => {
             `v1apex=${d.v1Apex} v2apex=${d.v2Apex}`,
         )
       }
-      for (const o of [...ov1, ...ov2].slice(0, 8))
+      // Per-item SAMEFORM-OVLP / SUB-ABOVE-TIE detail lives in the JSON dump; the summary
+      // line above carries the counts. Only the ruling-8 violations print inline (the goal
+      // is 0 — each one is actionable).
+      for (const z of v2FullNoTie)
         console.log(
-          `   SAMEFORM-OVLP(${o.engine}) gap${o.gap} ${o.formation} ${o.kindA}×${o.kindB} ` +
-            `${(o.maxVertOverlapM * 100).toFixed(1)}cm @f=${o.atFraction}`,
-        )
-      for (const t of [...t1, ...t2].slice(0, 8))
-        console.log(
-          `   SUB-ABOVE-TIE(${t.engine}) gap${t.gap} ${t.formation} @${t.column} ` +
-            `tie=${t.tieElev} paintTop=${t.paintTopElev} above=${(t.aboveByM * 100).toFixed(1)}cm`,
+          `   0CORR-FULLWIDTH(v2) gap${z.gap} ${z.colLeft}↔${z.colRight} ${z.formation} ` +
+            `${z.kind} el[${z.baseElev}..${z.topElev}] — full-width band with NO drawn tie`,
         )
     }
 
@@ -336,28 +346,25 @@ describe('v2 model-wide shape audit', () => {
       sameFormOverlapPairsV2: totOverlapV2,
       substrateAboveTieV1: totTieV1,
       substrateAboveTieV2: totTieV2,
+      zeroCorrFullWidthV2: totZeroCorrFullWidth, // ruling-8 acceptance counter (target 0)
     }
-    writeFileSync(
-      DUMP,
-      JSON.stringify(
-        {
-          generatedFor: '14 real sections, both engines, model-wide shape audit',
-          grandTotals: grand,
-          perSection,
-          terminationDiffs: diffRows,
-          sameFormationOverlaps: overlapRows,
-          substrateAboveTie: tieRows,
-        },
-        null,
-        1,
-      ),
-    )
+    const dump = {
+      generatedFor: '14 real sections, both engines, model-wide shape audit',
+      grandTotals: grand,
+      perSection,
+      terminationDiffs: diffRows,
+      sameFormationOverlaps: overlapRows,
+      substrateAboveTie: tieRows,
+      zeroCorrFullWidth: zeroCorrRows,
+    }
+    writeFileSync(DUMP, JSON.stringify(dump, null, 1))
 
     console.log('\n########## GRAND TOTALS ##########')
     console.log(`  v1-short-v2-full (owner complaint class): ${totV1ShortV2Full}`)
     console.log(`  v2-short-v1-full (regressions the other way): ${totV2ShortV1Full}`)
     console.log(`  same-formation overlap pairs: v1=${totOverlapV1} v2=${totOverlapV2}`)
     console.log(`  substrate-above-tie instances: v1=${totTieV1} v2=${totTieV2}`)
+    console.log(`  0-CORR-FULLWIDTH (ruling-8 violations, v2): ${totZeroCorrFullWidth}  <-- target 0`)
     console.log(`  dumped -> ${DUMP}`)
     console.log('##################################')
     expect(true).toBe(true)
@@ -367,7 +374,6 @@ describe('v2 model-wide shape audit', () => {
 // ---------------------------------------------------------------------------
 // Scan helpers (kept in-file — this is a diag).
 // ---------------------------------------------------------------------------
-
 const round = (x: number): number => Math.round(x * 1000) / 1000
 
 function groupByGap(regions: SectionRegion[]): Map<number, SectionRegion[]> {
@@ -381,11 +387,9 @@ function groupByGap(regions: SectionRegion[]): Map<number, SectionRegion[]> {
 
 /**
  * Pairwise vertical overlap between SAME-formation regions in a gap (mirror of the
- * diff-litho scan, dropping the formation inequality). Any pair overlapping >1 mm
- * vertically at any sampled fraction is reported (the owner sees double-painted silt
- * quads at S5/S5a/S5b). Lens regions deliberately overlay their matrix, so a
- * lens×same-formation pair is expected; we keep it but tag the kinds so those are
- * distinguishable from quad×quad double-paint.
+ * diff-litho scan, dropping the formation inequality). Any pair overlapping >1 mm at any
+ * sampled fraction is reported; kinds are tagged so lens×matrix (expected) is separable
+ * from quad×quad double-paint.
  */
 function sameFormationOverlaps(
   gaps: Map<number, SectionRegion[]>,
@@ -432,13 +436,9 @@ function sameFormationOverlaps(
 }
 
 /**
- * For every base-side tie in a gap, check whether any region of the tied
- * (below-tie) formation paints space ABOVE the tie line under either bracketing
- * column. The tie line elevation under a column is the base elevation of the tied
- * layer on that column. The tied unit itself occupies [tieElev .. tiedTop]; genuine
- * spill is a same-formation interval that reaches DOWN to the tie (bottom ≤ tie) yet
- * rises ABOVE the tied unit's own top — basal clay painting past the band (owner:
- * 23/126-B2). Excludes the tied unit and shallow bands that never touch the tie.
+ * For every base-side tie in a gap, report a region of the tied (below-tie) formation that
+ * reaches DOWN to the tie (bottom ≤ tie) yet rises ABOVE the tied unit's own top — basal
+ * clay painting past the band (owner: 23/126-B2). Excludes the tied unit + shallow bands.
  */
 function substrateAboveTie(
   gaps: Map<number, SectionRegion[]>,
