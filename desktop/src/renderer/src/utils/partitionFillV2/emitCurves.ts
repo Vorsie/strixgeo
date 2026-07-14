@@ -165,11 +165,20 @@ function emitColumnVerticals(columns: readonly ColumnGeom[], out: InputCurve[]):
     const col = columns[ci]
     for (let ui = 0; ui < col.units.length; ui++) {
       const u = col.units[ui]
+      // Ruling 5 (surface band): the FIRST unit's fill reaches the ground surface —
+      // the layer IS at the surface, the measurement just starts lower. Emit the top
+      // unit's column vertical from the SURFACE elevation (not its drilled top
+      // contact) down to its base, so the strip between surface and the first contact
+      // is CLAIMED by the first unit (its face is bounded by this extended vertical +
+      // the surface band curve on top). ``topElev`` itself is left untouched, so ties
+      // and matched-pair bands still anchor at the drilled contact — only the fill
+      // envelope extends. Kills the "silt interpolated across the no-data top" read.
+      const top = ui === 0 ? Math.max(col.surfaceElevM, u.topElev) : u.topElev
       out.push({
         id: `col${ci}:u${ui}`,
         kind: 'column-vertical',
         points: [
-          { x: col.x, y: u.topElev },
+          { x: col.x, y: top },
           { x: col.x, y: u.baseElev },
         ],
       })
