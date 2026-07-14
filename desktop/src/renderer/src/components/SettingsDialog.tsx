@@ -453,10 +453,20 @@ function LithoSection({
             <CheckboxRow
               id="settings-partition-engine-v2"
               label="Partition engine v2 (experimental)"
-              hint="Closed-loop face-tracing engine. Renders 2D fill, 3D build and fences. Off = stable v1. Stored on this device (does not travel with the project); applied immediately."
+              hint="Closed-loop face-tracing engine. Renders 2D fill, 3D build and fences. Off = stable v1. Stored on this device (does not travel with the project)."
               checked={partitionEngineV2}
               onChange={setPartitionEngineV2}
             />
+            {/* Live status line — this row applies INSTANTLY and never enables
+                the section's Save button (dogfeed 2026-07-14: owner flipped the
+                box, found Save greyed, assumed the change had not taken). */}
+            <p
+              className="mt-1 text-xs text-emerald-600 dark:text-emerald-400"
+              data-testid="partition-engine-status"
+            >
+              Active engine: {partitionEngineV2 ? 'v2 (closed-loop)' : 'v1 (stable)'} — applied
+              immediately; the Save button below is not needed for this row.
+            </p>
           </div>
         </div>
       )}
