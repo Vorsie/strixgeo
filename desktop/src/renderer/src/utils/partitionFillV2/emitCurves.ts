@@ -37,7 +37,7 @@ import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
-import { type ColumnGeom, type SectionInput } from './sectionGeom'
+import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
 /**
@@ -165,20 +165,17 @@ function emitColumnVerticals(columns: readonly ColumnGeom[], out: InputCurve[]):
     const col = columns[ci]
     for (let ui = 0; ui < col.units.length; ui++) {
       const u = col.units[ui]
-      // Ruling 5 (surface band): the FIRST unit's fill reaches the ground surface —
-      // the layer IS at the surface, the measurement just starts lower. Emit the top
-      // unit's column vertical from the SURFACE elevation (not its drilled top
-      // contact) down to its base, so the strip between surface and the first contact
-      // is CLAIMED by the first unit (its face is bounded by this extended vertical +
-      // the surface band curve on top). ``topElev`` itself is left untouched, so ties
-      // and matched-pair bands still anchor at the drilled contact — only the fill
-      // envelope extends. Kills the "silt interpolated across the no-data top" read.
-      const top = ui === 0 ? Math.max(col.surfaceElevM, u.topElev) : u.topElev
+      // Ruling 5-REVISED (2026-07-14 evening): the FIRST unit's column vertical returns to
+      // its own DRILLED top (``u.topElev``), NOT the ground surface. The owner rejected the
+      // surface extension on round-2 dogfeed ("that quad is made up") — the strip between the
+      // top-band line and the ground stays EMPTY, no invented lithology above the first data
+      // point. The top-band polyline (``emitSurfaceCurves`` → ``firstLithoTopElev``) rides this
+      // first-litho boundary; ties/bands anchor at the drilled contact unchanged.
       out.push({
         id: `col${ci}:u${ui}`,
         kind: 'column-vertical',
         points: [
-          { x: col.x, y: top },
+          { x: col.x, y: u.topElev },
           { x: col.x, y: u.baseElev },
         ],
       })
@@ -187,12 +184,14 @@ function emitColumnVerticals(columns: readonly ColumnGeom[], out: InputCurve[]):
 }
 
 /**
- * Emit the SURFACE curve spanning each gap — from the left column's surface
- * elevation to the right column's. This encloses the top of every gap so a unit
- * that pinches out at/near the surface leaves a CLOSED vacancy face (the rising
- * matrix) instead of an open, untraced region above the shallowest tie. The
- * FLOOR is deliberately NOT emitted: the sub-TD void below a shallow column stays
- * open (unfilled) until increment 3's deep-to-deep substrate bridges.
+ * Emit the TOP-BAND curve spanning each gap — from the left column's first-litho-top
+ * elevation to the right column's (ruling 5-revised; ``firstLithoTopElev``). This is the
+ * band-authority top polyline: it rides each column's FIRST LITHO BOUNDARY, not the ground
+ * surface, so the strip between it and the ground stays EMPTY. It still encloses the top of
+ * every gap so a unit that pinches out at/near the top-band leaves a CLOSED vacancy face
+ * (the rising matrix) instead of an open, untraced region above the shallowest tie. The
+ * FLOOR is deliberately NOT emitted: the sub-TD void below a shallow column stays open
+ * (unfilled) until the deep-to-deep substrate bridges.
  */
 function emitSurfaceCurves(columns: readonly ColumnGeom[], out: InputCurve[]): void {
   for (let gi = 0; gi + 1 < columns.length; gi++) {
@@ -202,8 +201,8 @@ function emitSurfaceCurves(columns: readonly ColumnGeom[], out: InputCurve[]): v
       id: `surface:${gi}`,
       kind: 'closing',
       points: [
-        { x: left.x, y: left.surfaceElevM },
-        { x: right.x, y: right.surfaceElevM },
+        { x: left.x, y: firstLithoTopElev(left) },
+        { x: right.x, y: firstLithoTopElev(right) },
       ],
     })
   }

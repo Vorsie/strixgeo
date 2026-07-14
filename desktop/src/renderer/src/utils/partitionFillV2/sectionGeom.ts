@@ -94,6 +94,58 @@ export interface EnclosedLens {
   matrixFormationId: string
 }
 
+/**
+ * Snap threshold (metres) for the top-band anchor: where the first LITHO boundary and
+ * the first DATA point diverge by no more than this, the band snaps to the first data
+ * point (ruling 5-revised, 2026-07-14 evening). 10 cm per the owner spec.
+ */
+export const TOP_BAND_SNAP_M = 0.1
+
+/**
+ * The TOP-BAND anchor elevation for a column (ruling 5-revised, design §8): the implicit
+ * top correlation band follows each test's FIRST LITHO BOUNDARY — i.e. the first (topmost)
+ * unit's TOP elevation — NOT the ground surface. The strip between this line and the ground
+ * stays EMPTY (no invented lithology above the first data point).
+ *
+ * Ruling 5-revised also specifies "snapped to the first DATA point when within 10 cm; where
+ * they diverge, fall back to the first data point (only where a litho exists at all)". This
+ * dataset's extraction (``diag_allsections_input.json``) carries only ``surfaceElevM`` per
+ * column and NO separate first-data field, and in it the first DATA point coincides with the
+ * first unit's top depth — so first-litho-top IS the band line and the snap is a no-op here.
+ * When an input later carries a distinct first-data elevation, pass it as ``firstDataElevM``:
+ * if the first litho boundary is within ``TOP_BAND_SNAP_M`` of it, the band snaps to the data
+ * point; otherwise it falls back to the first data point (never the ground surface unless the
+ * first data starts there). Current callers pass no ``firstDataElevM`` (the extraction has no
+ * such field), so the snap is a no-op and the band rides the first-litho boundary.
+ *
+ * Parameters
+ * ----------
+ * col : ColumnGeom
+ *     A non-empty column (its first unit's top is the band anchor).
+ * firstDataElevM : number, optional
+ *     The column's first DATA point elevation (mTAW), when the input carries one distinct from
+ *     the first litho boundary. Absent in the current extraction.
+ *
+ * Returns
+ * -------
+ * number
+ *     The top-band anchor elevation (mTAW): the first litho-boundary elevation, snapped to the
+ *     first data point within ``TOP_BAND_SNAP_M`` or falling back to it beyond that.
+ */
+export function firstLithoTopElev(col: ColumnGeom, firstDataElevM?: number): number {
+  if (col.units.length === 0) return col.surfaceElevM
+  const lithoTop = col.units[0].topElev
+  // No distinct first-data field (the current extraction): ride the first litho boundary.
+  if (firstDataElevM === undefined) return lithoTop
+  // Ruling 5-revised: the band anchors to the first DATA point whether the litho boundary is
+  // within TOP_BAND_SNAP_M of it (a snap) or beyond it (a fall-back) — never the ground surface.
+  // ``diverged`` is surfaced (not folded away) so a future owner retune of the far case — e.g.
+  // "beyond the snap, keep the litho boundary" — is a one-line change here, not a re-derivation.
+  const diverged = Math.abs(lithoTop - firstDataElevM) > TOP_BAND_SNAP_M
+  void diverged
+  return firstDataElevM
+}
+
 /** The whole normalised section, ready for curve emission. */
 export interface SectionInput {
   columns: ColumnGeom[]

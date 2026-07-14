@@ -1,13 +1,15 @@
 /**
- * partitionFillV2/emitSurfaceOnlap.ts — the SURFACE-ANCHORED ONLAP
- * (design partition-engine-v2.md §4 increment-18 row).
+ * partitionFillV2/emitSurfaceOnlap.ts — the TOP-BAND-ANCHORED ONLAP
+ * (design partition-engine-v2.md §4 increment-18 row; ruling 5-REVISED 2026-07-14 evening).
  *
- * A lone TOP boundary minority that is the column's FIRST unit reaches the ground
- * surface via ruling 5 (``emitColumnVerticals`` extends its fill envelope up to the
- * surface band). When its BASE contact is tied to a band and its top rides the surface,
- * v1 renders it as an ONLAP: a pinch whose tip sits at ``INTERIOR_PINCH_FRACTION`` (0.5)
- * of the gap and whose top edge rides the surface band, the facing/matrix fill claiming
- * the remainder while the ruling-5 surface strip stays FULLY covered.
+ * A lone TOP boundary minority that is the column's FIRST unit has its top on the TOP-BAND
+ * line — the first-litho boundary (``firstLithoTopElev``), NOT the ground surface (ruling
+ * 5-revised: the strip between the top-band and the ground stays EMPTY). When its BASE
+ * contact is tied to a band and its top rides the top-band, v1 renders it as an ONLAP: a
+ * pinch whose tip sits at ``INTERIOR_PINCH_FRACTION`` (0.5) of the gap and whose top edge
+ * rides the top-band, the facing/matrix fill claiming the remainder. Because the first
+ * unit's drilled top IS the top-band line, its top re-anchors to its own DRILLED top (the
+ * ruling-5-revised requirement) — no fill above the first data point.
  *
  * The subtlety this module handles (why it can't just reuse the increment-17
  * ``emitLonePinch`` onlap default): the increment-17 onlap places the apex on the BASE
@@ -48,32 +50,33 @@ function facingTopElevOf(top: LonePinchBracket, loneSide: 'left' | 'right'): num
 }
 
 /**
- * Whether the lone unit is a ruling-5 SURFACE-EXTENDED first unit, plus the
- * surface-effective unit whose top rides the surface band.
+ * Whether the lone unit is a TOP-BAND-ANCHORED first unit that onlaps (ruling 5-revised),
+ * plus the effective unit whose top rides the top-band line.
  *
- * The interval's TOP bracket is the SURFACE band when it is not a tie/floor anchor
- * (``!top.anchor``) and its elevation equals the lone column's surface. When the lone unit
- * is that column's FIRST unit and its DRILLED top sits below the surface, ruling 5
- * (``emitColumnVerticals``) extends its fill envelope UP to the surface — the layer IS at
- * the surface, the measurement just starts lower. ``u0eff`` then carries the surface as its
- * top so the fill-check + pinch/flood geometry read it consistently (increment 18).
+ * The interval's TOP bracket is the TOP-BAND line (``firstLithoTopElev``) when it is not a
+ * tie/floor anchor (``!top.anchor``) and its elevation equals the lone column's first-litho
+ * top. When the lone unit is that column's FIRST unit, its DRILLED top IS the top-band line
+ * (ruling 5-revised: the top-band follows the first litho boundary, and the strip above it
+ * stays empty), so no fill envelope extends above the drilled top. ``u0eff`` therefore
+ * carries the interval top (== drilled top) unchanged — the onlap's TOP re-anchors to the
+ * unit's own drilled top.
  *
  * Parameters
  * ----------
  * u0 : IntervalUnit
  *     The single lone-side matrix unit.
  * loneCol : ColumnGeom
- *     The pinch column (its surface + first-unit identity decide the extension).
+ *     The pinch column (its first-unit identity decides the onlap route).
  * top : LonePinchBracket
  *     The interval's top bracket.
  * intervalTopElev : number
- *     The interval top elevation on the lone column.
+ *     The interval top elevation on the lone column (the top-band line).
  *
  * Returns
  * -------
  * { surfaceExtended: boolean; u0eff: IntervalUnit }
- *     ``surfaceExtended`` fires the surface-onlap route; ``u0eff`` is the effective unit
- *     (top = surface when extended, else ``u0`` unchanged).
+ *     ``surfaceExtended`` fires the top-band-onlap route (kept name for call-site
+ *     continuity); ``u0eff`` is the effective unit with its top on the top-band line.
  */
 export function surfaceExtendedUnit(
   u0: IntervalUnit,
@@ -82,9 +85,12 @@ export function surfaceExtendedUnit(
   intervalTopElev: number,
 ): { surfaceExtended: boolean; u0eff: IntervalUnit } {
   const firstUnit = loneCol.units.length > 0 && u0.unit.layerId === loneCol.units[0].layerId
-  const topIsSurface = !top.anchor && Math.abs(intervalTopElev - loneCol.surfaceElevM) < ELEV_EPS
-  const surfaceExtended =
-    firstUnit && topIsSurface && u0.unit.topElev < loneCol.surfaceElevM - ELEV_EPS
+  const firstLithoTop = loneCol.units.length > 0 ? loneCol.units[0].topElev : loneCol.surfaceElevM
+  // The interval top is the top-band line (first-litho boundary) when it is not a tie/floor
+  // anchor and equals this column's first-litho top. For the FIRST unit that is its own
+  // drilled top, so the onlap's top re-anchors there (ruling 5-revised — no fill above it).
+  const topIsBand = !top.anchor && Math.abs(intervalTopElev - firstLithoTop) < ELEV_EPS
+  const surfaceExtended = firstUnit && topIsBand
   const u0eff: IntervalUnit = surfaceExtended ? { ...u0, topElev: intervalTopElev } : u0
   return { surfaceExtended, u0eff }
 }

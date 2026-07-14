@@ -36,7 +36,7 @@ import { type ResolvedTie } from './emitCurves'
 import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { routeLoneSidePinch } from './emitLonePinch'
-import { type ColumnGeom, type SectionInput } from './sectionGeom'
+import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -222,7 +222,11 @@ function emitGapIntervals(
   // shallow-TD floor. Each bracket is an interface (leftElev, rightElev) — a
   // straight line across the gap. Brackets are ordered top (shallow) -> bottom.
   const brackets: Bracket[] = []
-  brackets.push({ leftElev: left.surfaceElevM, rightElev: right.surfaceElevM, anchor: false })
+  // TOP bracket = the band-authority top-band line (ruling 5-revised): each column's FIRST
+  // LITHO BOUNDARY (``firstLithoTopElev``), NOT the ground surface. The interval tiling starts
+  // at this line, so the strip between it and the ground stays EMPTY — no invented lithology
+  // above the first data point.
+  brackets.push({ leftElev: firstLithoTopElev(left), rightElev: firstLithoTopElev(right), anchor: false })
   const anchorLines = collectAnchorLines(gapIndex, left, right, activeTies, bridgeAnchored)
   for (const a of anchorLines) brackets.push(a)
   // Band-first brackets (design §4 increment-7): each matched-pair band's OWN top

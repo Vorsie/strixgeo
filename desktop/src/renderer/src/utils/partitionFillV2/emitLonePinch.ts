@@ -46,7 +46,7 @@ import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
 import { emitSurfaceOnlap, surfaceExtendedUnit } from './emitSurfaceOnlap'
 import { facingCoversSpan, facingMatrixLabel } from './facingMatrix'
-import { type ColumnGeom } from './sectionGeom'
+import { firstLithoTopElev, type ColumnGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -398,19 +398,22 @@ export function routeLoneSidePinch(
   ) {
     return false // unit does not fill the interval — a strip would be left uncovered.
   }
-  // The surface-effective matrix passed to ``emitLonePinch`` — the pinch triangle's TOP
-  // corner then rides the surface band (``u0eff.topElev`` = surface) instead of the
-  // drilled top, so the ruling-5 surface strip stays fully covered (increment 18).
+  // The top-band-effective matrix passed to ``emitLonePinch`` — the pinch triangle's TOP
+  // corner rides the top-band line (``u0eff.topElev`` = first-litho top = the unit's own
+  // drilled top for a first unit), so the onlap top re-anchors to the drilled top
+  // (ruling 5-revised — no fill above the first data point).
   const loneMatrixEff: IntervalUnit[] = [u0eff]
   // The facing-column enclosing-matrix lookup must sample the FACING column at elevations
-  // the facing actually PRESENTS. For a surface-topped interval the lone column's surface
-  // (13.37 at B4|S13) sits ABOVE the facing column's own surface (13.13) — the surface
-  // band converges there. Sampling / covering the facing at the LONE column's surface
-  // would ask the facing to carry matrix above its own ground (it does not — ``facingCovers
-  // Span`` then falsely bails, the increment-18 defect). Clamp the sampled top DOWN to the
-  // facing column's surface so the lateral-enclosure test runs over the span the facing
-  // genuinely holds (increment 18; v1 ``kindFor`` samples the OPPOSITE column's real stack).
-  const sampleTopElev = surfaceExtended ? Math.min(intervalTopElev, facing.surfaceElevM) : intervalTopElev
+  // the facing actually PRESENTS. For a top-band-topped interval the lone column's first-litho
+  // top may sit ABOVE the facing column's own first-litho top — the top-band converges there.
+  // Sampling / covering the facing above its own first-litho top would ask the facing to carry
+  // matrix above its first data point (it does not — ``facingCoversSpan`` then falsely bails).
+  // Clamp the sampled top DOWN to the facing column's first-litho top so the lateral-enclosure
+  // test runs over the span the facing genuinely holds (v1 ``kindFor`` samples the OPPOSITE
+  // column's real stack).
+  const sampleTopElev = surfaceExtended
+    ? Math.min(intervalTopElev, firstLithoTopElev(facing))
+    : intervalTopElev
   const aboveMatrix = facingMatrixLabel(facing, sampleTopElev)
   const belowMatrix = facingMatrixLabel(facing, intervalBaseElev)
   if (aboveMatrix === null || belowMatrix === null) return false
