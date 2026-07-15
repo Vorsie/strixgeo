@@ -327,10 +327,18 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         picks = await self._litho_repo.load_body_picks(litho_model_id)
         self.info(f"SubdivideAllBodies: {len(picks)} pick(s) across whole model")
         if not picks:
+            # Model-wide idempotent reset MUST run on the empty path too: a
+            # rebuild after the litho picks were cleared (e.g. the litho model
+            # was emptied) has no new geotech content to materialise, but any
+            # geotech layers/bodies/FC mirrors/edges from a PRIOR run are now
+            # stale and must be deleted — otherwise they survive the rebuild and
+            # the geotech model no longer reflects the (empty) litho input
+            # . Delete, commit the wipe, return zeroed.
+            await self._delete_all_geotech_data(geotech_model.id)
             await self._session.commit()
             self.warning(
                 "SubdivideAllBodies: no picks in the model — geotech model "
-                "created/reused but no bodies materialised"
+                "created/reused, prior geotech data cleared, no bodies materialised"
             )
             return SubdivideAllBodiesResult(
                 geotech_model_id=geotech_model.id,
