@@ -18,6 +18,26 @@
 
 import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
 
+/**
+ * Sub-shape class of a ruling-8 residual (design partition-engine-v2.md §4 "Strict-2/1/0
+ * residual" row, 2026-07-15 session):
+ *
+ *  - ``same-form-enclosure`` (a) — an untied minority enclosed by the SAME formation on its
+ *    own column (or facing the same formation untied on both sides), which SHOULD pinch to a
+ *    lens but paints full-width. The clean lone-stack case (Tie-6) is fixed; the RESIDUAL (a)
+ *    cases are blocked on either the interbedded-facing annulus-routing wall (design §4) or a
+ *    Track-2 body-model mismatch (the enclosing same-formation units carry DIFFERENT bodyIds,
+ *    so the v2 column-level enclosed-lens extraction — which requires one body — cannot pull
+ *    the minority; v1 does). Engine-only fixes cannot close these without the flagged wall.
+ *  - ``mixed-bracket-awaiting-ruling`` (b) — a minority sitting between two DIFFERENT tied
+ *    bands (one lithology bracketing above, another below). What floods the vacated width is
+ *    an OWNER RULING pending (design §4); NOT a defect to fix this session.
+ *  - ``surface-void`` (c) — a surface-boundary first unit (its top is the section surface) or a
+ *    unit facing a shallow-TD void, which should terminate as a 0.45 lens (§8 Q3) but paints
+ *    full-width. Terminating it risks leaving an above-TD coverage hole; judged per instance.
+ */
+export type ZeroCorrClass = 'same-form-enclosure' | 'mixed-bracket-awaiting-ruling' | 'surface-void'
+
 /** A detected 0-corr full-width band (ruling-8 violation) for the audit dump. */
 export interface ZeroCorrRow {
   section: string
@@ -29,6 +49,8 @@ export interface ZeroCorrRow {
   /** Elevation extent of the offending region (for locating it on the section). */
   topElev: number
   baseElev: number
+  /** Sub-shape classification (separates ruled-pending (b) from defect (a)/(c)). */
+  klass: ZeroCorrClass
 }
 
 const FULL_EPS = 0.02
@@ -93,6 +115,57 @@ function shallowTDForGap(gi: number, columns: readonly PartitionColumn[]): numbe
   return Math.max(tdOf(gi), tdOf(gi + 1))
 }
 
+/** One column's units as elevation spans + formation names (top→down). */
+function columnElev(
+  c: PartitionColumn,
+  fname: (id: string) => string,
+): { fid: string; top: number; base: number }[] {
+  const s = c.surfaceElevM as number
+  return c.units.map((u) => ({ fid: fname(u.formationId), top: s - u.topDepthM, base: s - u.baseDepthM }))
+}
+
+/**
+ * Classify a residual full-width violation into its sub-shape (a)/(b)/(c). Reads the two
+ * columns' stacks: whether the violating formation sits on both sides untied, is enclosed by
+ * ONE lithology on its own column (a), sits between TWO DIFFERENT lithologies (mixed bracket,
+ * b), or is a surface-boundary / shallow-facing-void unit (c). The classification separates
+ * the OWNER-RULING-PENDING (b) rows from the (a)/(c) defect rows in the audit dump.
+ */
+function classifyViolation(
+  fid: string,
+  gi: number,
+  lo: number,
+  hi: number,
+  columns: readonly PartitionColumn[],
+  fname: (id: string) => string,
+): ZeroCorrClass {
+  const elL = columnElev(columns[gi], fname)
+  const elR = columnElev(columns[gi + 1], fname)
+  const band = (u: { top: number; base: number }): boolean => u.top > lo + 0.01 && hi > u.base + 0.01
+  const idxL = elL.findIndex((u) => u.fid === fid && band(u))
+  const idxR = elR.findIndex((u) => u.fid === fid && band(u))
+  const onL = idxL >= 0
+  const onR = idxR >= 0
+  // The side the unit lives on (prefer the deeper stack when both).
+  const own = onL ? elL : elR
+  const idx = onL ? idxL : idxR
+  const above = idx > 0 ? own[idx - 1].fid : 'SURF'
+  const below = idx >= 0 && idx + 1 < own.length ? own[idx + 1].fid : 'TD'
+  // (c) SURFACE-VOID: the unit's own TOP is the section surface (first unit), OR the facing side
+  // bottoms out (shallow TD) above the unit's band — a genuine facing void (§8 Q3).
+  const tdOther = onL
+    ? Math.min(...elR.map((u) => u.base))
+    : Math.min(...elL.map((u) => u.base))
+  const facingShallowVoid = (onL !== onR) && tdOther > lo + 0.01
+  if (above === 'SURF' || facingShallowVoid) return 'surface-void'
+  // (a) SAME-FORMATION ENCLOSURE: enclosed by ONE lithology above AND below on its own column,
+  // or present untied on BOTH sides (the retired geometric auto-match).
+  const enclosedSame = above === below && above !== 'SURF' && below !== 'TD'
+  if (enclosedSame || (onL && onR)) return 'same-form-enclosure'
+  // (b) MIXED BRACKET: bracketed by two DIFFERENT lithologies, facing deep — owner ruling pending.
+  return 'mixed-bracket-awaiting-ruling'
+}
+
 /**
  * Scan every gap of a section for v2 full-width regions whose formation has no drawn tie
  * across that gap (ruling-8 violations). Substrate quads wholly below the shallow TD are
@@ -125,6 +198,7 @@ export function zeroCorrFullWidth(
         kind: r.kind,
         topElev: Math.round(hi * 100) / 100,
         baseElev: Math.round(lo * 100) / 100,
+        klass: classifyViolation(fname(r.formationId), gi, lo, hi, columns, fname),
       })
     }
   }

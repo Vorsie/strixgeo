@@ -334,7 +334,7 @@ describe('v2 model-wide shape audit', () => {
       for (const z of v2FullNoTie)
         console.log(
           `   0CORR-FULLWIDTH(v2) gap${z.gap} ${z.colLeft}↔${z.colRight} ${z.formation} ` +
-            `${z.kind} el[${z.baseElev}..${z.topElev}] — full-width band with NO drawn tie`,
+            `${z.kind} el[${z.baseElev}..${z.topElev}] [${z.klass}] — full-width band with NO drawn tie`,
         )
     }
 
@@ -359,12 +359,23 @@ describe('v2 model-wide shape audit', () => {
     }
     writeFileSync(DUMP, JSON.stringify(dump, null, 1))
 
+    // Break the ruling-8 counter out by sub-shape: (b) mixed-bracket is OWNER-RULING-PENDING
+    // (not a defect); (a)/(c) are the fix targets. The audit target is (a)+(c)=0, leaving only
+    // the ruled-pending (b) remainder (design §4 strict-2/1/0 residual row).
+    const byClass = { 'same-form-enclosure': 0, 'mixed-bracket-awaiting-ruling': 0, 'surface-void': 0 }
+    for (const z of zeroCorrRows) byClass[z.klass]++
+    const defectAC = byClass['same-form-enclosure'] + byClass['surface-void']
+
     console.log('\n########## GRAND TOTALS ##########')
     console.log(`  v1-short-v2-full (owner complaint class): ${totV1ShortV2Full}`)
     console.log(`  v2-short-v1-full (regressions the other way): ${totV2ShortV1Full}`)
     console.log(`  same-formation overlap pairs: v1=${totOverlapV1} v2=${totOverlapV2}`)
     console.log(`  substrate-above-tie instances: v1=${totTieV1} v2=${totTieV2}`)
-    console.log(`  0-CORR-FULLWIDTH (ruling-8 violations, v2): ${totZeroCorrFullWidth}  <-- target 0`)
+    console.log(`  0-CORR-FULLWIDTH (ruling-8 violations, v2): ${totZeroCorrFullWidth}`)
+    console.log(`     (a) same-form-enclosure          : ${byClass['same-form-enclosure']}  <-- fix target 0`)
+    console.log(`     (c) surface-void                 : ${byClass['surface-void']}  <-- fix target 0`)
+    console.log(`     (b) mixed-bracket-awaiting-ruling: ${byClass['mixed-bracket-awaiting-ruling']}  (owner ruling pending — NOT a defect)`)
+    console.log(`     -> (a)+(c) defect total: ${defectAC}  <-- target 0`)
     console.log(`  dumped -> ${DUMP}`)
     console.log('##################################')
     expect(true).toBe(true)
