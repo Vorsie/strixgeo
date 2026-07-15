@@ -311,6 +311,19 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (onlap riding the tied shared contact, unified across the four
    emission paths); the 15th is a genuine §8-Q3 surface-void (correct
    as-is, retag in the audit).
+8d. **Deep-facing surface case = mismatched band, midpoint quads (owner,
+   2026-07-15, on the S8|S10 phone visual — supersedes the A/B tip
+   question, which was a false dichotomy).** The top band (ruling
+   5-revised) is an IMPLICIT TIE: a surface-topped unit whose base rides
+   a real tie is therefore 2-corr → BAND between the top band and the
+   base tie. When the facing formation differs (sand left, clay right),
+   the existing no-auto-facies rule applies: TWO RECTANGULAR QUADS
+   meeting at a straight vertical midpoint seam. No onlap tip, no
+   invented sliver. General principle: the top band counts as a tie in
+   the 2/1/0 arithmetic for first units — the conformance gate's
+   tie-counting must include it (several "1corr" surface rows become
+   2-corr mismatched bands). CS1 g8×2 + g19 KLEI resolve this way;
+   g7 KLEI stays the genuine Q3 void (no facing to band to).
 8c. **Terminations-first emission (owner's ordering principle, adopted
    2026-07-15 after the conformance baseline proved him right).** Every
    failure class chased since increment 8 is a MISSING TERMINATION CURVE
