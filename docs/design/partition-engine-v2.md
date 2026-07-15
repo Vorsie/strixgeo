@@ -281,6 +281,19 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
 7. **Process standard (owner):** no partial fixes and no gaps — a
    termination-shape class is either at v1 parity (or better, per these
    rulings) or the increment is not done.
+8a. **Shared-contact onlap closes by composition — NO mixed-bracket rule
+   exists (owner, 2026-07-15, on the real S5A|S5 render).** A minority
+   whose base (or top) rides a TIED shared contact is 1-corr → ONLAP
+   riding that tie, tip at 0.5. The space beyond the tip is NOT a
+   vacancy needing a fill rule: the adjacent unit's face closes around
+   the onlap by boundary composition (owner's own trace: sand tie from
+   the right test → up the clay onlap → silt top → back — a closed silt
+   face with the onlap as a notch). The "mixed-bracket-awaiting-ruling"
+   class is DISSOLVED — those instances take the same onlap emission as
+   the one-band class. 14 of the 15 zerocorr violations = ONE mechanism
+   (onlap riding the tied shared contact, unified across the four
+   emission paths); the 15th is a genuine §8-Q3 surface-void (correct
+   as-is, retag in the audit).
 8. **STRICT 2/1/0 (owner, 2026-07-14 evening, after the model-wide shape
    audit).** Uncorrelated units TERMINATE — always. Facing same-formation
    units with no drawn tie render as opposing lenses/pinches (apex
