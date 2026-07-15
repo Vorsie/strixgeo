@@ -205,9 +205,12 @@ closure→pinch, LENS→lens). Consumers that must not change:
     ruling-8d first-unit case (naive both-contacts-tied miscounts mixed-bracket
     minorities).
     CUTOVER CRITERION: all three counters 0 (advisories triaged).
-    WARNING for the frozen snapshot: a rare cross-process determinism gap
-    exists in `computeSectionFillV2` (V8 hash-seed-sensitive Map/Set
-    iteration on one borderline region) — fix before freezing.
+    Determinism for the frozen snapshot: VERIFIED 2026-07-15 evening —
+    `computeSectionFillV2` output is byte-identical (SHA-256 of the raw
+    SectionRegion geometry, all 14 sections) across 5 separate node
+    processes; the Map/Set-iteration audit found every output-feeding
+    spread already sort-anchored (the earlier flap predates the anchors).
+    No engine change needed. The snapshot may be frozen.
   - Verification note (2026-07-14): overlap claims are settled by BOTH the
     interval-scan diag AND an independent dense point-in-polygon
     double-coverage sample — increment 3 asserted the CS1 gap18 triple
