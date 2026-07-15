@@ -325,6 +325,20 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (onlap riding the tied shared contact, unified across the four
    emission paths); the 15th is a genuine §8-Q3 surface-void (correct
    as-is, retag in the audit).
+8e. **Same-formation enclosure CONFORMS — one body by construction (owner,
+   2026-07-15 afternoon, ruled on the real TS4 visual with his own traced
+   loop).** A unit whose flagged extent is enclosed by its own formation's
+   legitimately-tied face is NOT a violation: "it should be one sand" —
+   following the lines (zand-top tie → down the right column around the
+   silt lens → across the basal clay tie → up the left column → back)
+   closes ONE sand face. The 117 same-formation-enclosure audit flags are
+   gate FALSE POSITIVES (per-unit scoping of an invisible distinction) —
+   fixed at the GATE, no engine change, pixels already correct. THE
+   CONDITION (owner: "don't forget the silt lens ;)"): enclosed
+   DIFFERENT-formation minorities must render as their ruling-8b lenses —
+   never absorbed/absent — or the line network is incomplete and the
+   body-by-construction reading breaks. The 'absent' violation class
+   therefore stays REAL and is the remaining engine work.
 8d. **Deep-facing surface case = mismatched band, midpoint quads (owner,
    2026-07-15, on the S8|S10 phone visual — supersedes the A/B tip
    question, which was a false dichotomy).** The top band (ruling
