@@ -13,10 +13,14 @@ The derivation is a pure-ish DB writer: given a litho edge (a correlated
 litho-unit pair traced across two tests), it collects the geotech sub-band
 stack inside that litho unit on each test, aligns the two NAD-class sequences
 with ``aligned_same_class_pairs`` (LCS), and emits one geotech edge per aligned
-pair.  The caller controls the dedup scope by passing a shared
-``seen_layer_pairs`` set — SAB uses a fresh set per section (CPT↔CPT edges);
-DivideBoreholes preloads it with the existing geotech edges so it only ADDS the
-borehole-involving pairs SAB missed.
+pair.  The caller controls the dedup scope by passing a ``seen_layer_pairs``
+set — and that set MUST be per-section, because geotech edges are
+section-scoped (the same layer pair can legitimately exist on two sections).
+SAB uses a fresh set per section (CPT↔CPT edges); DivideBoreholes preloads each
+section's set with that section's existing geotech edges (via
+``load_existing_geotech_edge_pairs_by_section``) so it only ADDS the
+borehole-involving pairs SAB missed, without suppressing a legitimate same-pair
+edge on another section.
 
 Extracting this here (rather than copying SAB's method) keeps the LCS-match +
 containment + canonical-ordering logic single-source, per the project's
@@ -171,10 +175,17 @@ async def load_approved_litho_edges(
     return {(min(a, b), max(a, b)) for a, b in rows}
 
 
-async def load_existing_geotech_edge_pairs(
+async def load_existing_geotech_edge_pairs_by_section(
     session: AsyncSession, geotech_model_id: UUID
-) -> set[tuple[UUID, UUID]]:
-    """Load already-persisted geotech edge layer-pairs (for dedup preload).
+) -> dict[UUID, set[tuple[UUID, UUID]]]:
+    """Load already-persisted geotech edge layer-pairs, keyed by section.
+
+    Geotech edges are section-scoped (``LithoContactCorrelationEdgeOrm`` has a
+    per-section uniqueness on the layer pair), so dedup must be section-scoped
+    too: the SAME layer pair ``(A, B)`` may legitimately exist as one edge on
+    section 1 and a distinct edge on section 2.  A model-global dedup set would
+    let an ``(A, B)`` edge emitted on section 1 silently suppress the
+    legitimate ``(A, B)`` edge on section 2 → a missing band render there.
 
     Parameters
     ----------
@@ -185,20 +196,25 @@ async def load_existing_geotech_edge_pairs(
 
     Returns
     -------
-    set[tuple[UUID, UUID]]
-        Canonical ``(min, max)`` geotech-layer pairs of existing edges — used to
-        preload a derivation's ``seen_layer_pairs`` so a second pass never
-        duplicates an edge the first pass already emitted.
+    dict[UUID, set[tuple[UUID, UUID]]]
+        ``section_id → {canonical (min, max) geotech-layer pair, ...}`` for
+        every existing edge — used to preload a derivation's per-section
+        ``seen_layer_pairs`` so a second pass never duplicates an edge the first
+        pass already emitted ON THE SAME SECTION.
     """
     rows = (
         await session.execute(
             select(
+                LithoContactCorrelationEdgeOrm.section_id,
                 LithoContactCorrelationEdgeOrm.layer_a_id,
                 LithoContactCorrelationEdgeOrm.layer_b_id,
             ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
         )
     ).all()
-    return {(min(a, b), max(a, b)) for a, b in rows}
+    by_section: dict[UUID, set[tuple[UUID, UUID]]] = {}
+    for section_id, a, b in rows:
+        by_section.setdefault(section_id, set()).add((min(a, b), max(a, b)))
+    return by_section
 
 
 async def derive_geotech_edges_from_litho(
