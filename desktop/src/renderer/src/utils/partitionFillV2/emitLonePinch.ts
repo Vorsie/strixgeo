@@ -339,14 +339,33 @@ export function routeLoneSidePinch(
   const loneMatrix = loneSide === 'left' ? leftMatrix : rightMatrix
   const facing = loneSide === 'left' ? right : left
   const facingTDElev = facing.units[facing.units.length - 1].baseElev
-  // Data-void lone unit (facing too shallow to reach it) → keep the full-width fill.
-  if (!loneSidePinches(loneMatrix, facingTDElev)) return false
-
   const loneX = loneSide === 'left' ? left.x : right.x
   const facingX = loneSide === 'left' ? right.x : left.x
   // The interval span on the lone column (the bracket elevations the flood wedge fills).
   const intervalTopElev = loneSide === 'left' ? top.leftElev : top.rightElev
   const intervalBaseElev = loneSide === 'left' ? base.leftElev : base.rightElev
+
+  // Data-void lone unit (facing too shallow to reach it) → keep the full-width fill. The
+  // reach criterion differs by gesture (v1 ``runIntervalExtraction`` full-observation guards,
+  // emitLonePinch doc): a LENS needs the facing to reach the unit's BASE, an ONLAP needs it
+  // to reach the TOP. A SURFACE-TOPPED base-tied ONLAP (shape (i): a first unit riding the
+  // top-band whose base is a tied shared contact) laps that TIE — the facing carries the
+  // enclosing matrix at the tie/top-band level even when it bottoms out ABOVE the unit's own
+  // drilled base (CS1 g16 B2 KLEI: facing S7A TD 10.42 > the KLEI base 10.05). For that case
+  // the base-reach guard is the WRONG criterion — it treats the shallow facing as a void and
+  // bails to full width. Defer the guard: a single-unit surface-extended base-tied onlap
+  // proceeds to the surface-onlap route below (which re-checks the facing carries the
+  // enclosing matrix); every other lone case keeps the strict base-reach guard.
+  const singleSurfaceOnlapCandidate = ((): boolean => {
+    if (loneMatrix.length !== 1) return false
+    const u = loneMatrix[0]
+    const col = loneSide === 'left' ? left : right
+    const { surfaceExtended: se } = surfaceExtendedUnit(u, col, top, intervalTopElev)
+    return se
+  })()
+  if (!singleSurfaceOnlapCandidate && !loneSidePinches(loneMatrix, facingTDElev)) {
+    return false
+  }
   // CLEAN LATERAL-LENS guard (finding A, conservative scope): fire ONLY when
   //   (a) the lone side is a SINGLE unit that fills the WHOLE interval (its clamped span
   //       == the interval brackets) — so the pinch triangle + flood wedges tile the

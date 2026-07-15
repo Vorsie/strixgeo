@@ -151,7 +151,17 @@ export function emitSurfaceOnlap(
   if (descendMatrix === null) return
   // v1 rising apex: midpoint of the unit's OWN DRILLED top and conv — a clean interior tip
   // ABOVE the (possibly dipping) base band, so the pinch triangle is strictly simple.
-  const apexElev = (u0.unit.topElev + convElev) / 2
+  const risingApex = (u0.unit.topElev + convElev) / 2
+  // CLAMP below the TOP-BAND line (shape (i), 2026-07-15): when the facing bracket CONVERGES
+  // NEAR the top-band (``conv`` at or above the top-band level — CS2 g10 SILT: conv 11.34 vs the
+  // SILT drilled top 11.30), the rising apex ``(top + conv)/2`` lands ON the top-band line at the
+  // apex fraction, so the pinch's top edge runs collinear with the top-band bracket and the face
+  // collapses to a full-width band. The apex must sit strictly BELOW the top-band interpolated at
+  // the onlap fraction (0.5) — a hair under it keeps the pinch strictly simple. The rising apex is
+  // otherwise kept (B4|S13 / B6: conv sits well below the top-band, no clamp fires).
+  const topBandAtApex = (top.leftElev + top.rightElev) / 2
+  const APEX_TOP_MARGIN = 0.02
+  const apexElev = Math.min(risingApex, topBandAtApex - APEX_TOP_MARGIN)
   emitLonePinch(
     [u0eff],
     loneSide,
