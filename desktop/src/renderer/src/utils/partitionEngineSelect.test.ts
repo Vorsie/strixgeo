@@ -5,17 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const V1_SENTINEL = [{ engine: 'v1' }] as unknown
 const V2_SENTINEL = [{ engine: 'v2' }] as unknown
 
+// The v2 conflict sentinel: a distinct payload the diagnostics variant returns so
+// we can prove the selector threads conflicts through on the v2 path.
+const V2_CONFLICTS = [{ gapIndex: 0, tieIds: ['a', 'b'], edgeKeys: ['ka', 'kb'] }] as unknown
+
 vi.mock('./partitionFill', () => ({
   computeSectionFill: vi.fn(() => V1_SENTINEL),
 }))
 vi.mock('./partitionFillV2', () => ({
   computeSectionFillV2: vi.fn(() => V2_SENTINEL),
+  computeSectionFillV2WithConflicts: vi.fn(() => ({
+    regions: V2_SENTINEL,
+    conflicts: V2_CONFLICTS,
+  })),
 }))
 
 import { computeSectionFill } from './partitionFill'
-import { computeSectionFillV2 } from './partitionFillV2'
+import { computeSectionFillV2, computeSectionFillV2WithConflicts } from './partitionFillV2'
 import {
   computeSectionFillActive,
+  computeSectionFillActiveWithDiagnostics,
   isPartitionEngineV2Active,
   setPartitionEngineV2,
 } from './partitionEngineSelect'
@@ -91,6 +100,23 @@ describe('computeSectionFillActive — engine selection', () => {
     const along = [0, 10]
     computeSectionFillActive(COLUMNS, edges, overrides, along)
     expect(computeSectionFill).toHaveBeenCalledWith(COLUMNS, edges, overrides, along)
+  })
+
+  it('diagnostics variant returns v2 conflicts when v2 is active (§8 Q4 warning surface)', () => {
+    process.env.STRIX_PARTITION_V2 = '1'
+    const { regions, conflicts } = computeSectionFillActiveWithDiagnostics(COLUMNS)
+    expect(computeSectionFillV2WithConflicts).toHaveBeenCalledTimes(1)
+    expect(regions).toBe(V2_SENTINEL)
+    expect(conflicts).toBe(V2_CONFLICTS)
+  })
+
+  it('diagnostics variant returns EMPTY conflicts on the v1 engine (no crossing model)', () => {
+    // env + pref unset → v1.
+    const { regions, conflicts } = computeSectionFillActiveWithDiagnostics(COLUMNS)
+    expect(computeSectionFill).toHaveBeenCalledTimes(1)
+    expect(computeSectionFillV2WithConflicts).not.toHaveBeenCalled()
+    expect(regions).toBe(V1_SENTINEL)
+    expect(conflicts).toEqual([])
   })
 })
 
