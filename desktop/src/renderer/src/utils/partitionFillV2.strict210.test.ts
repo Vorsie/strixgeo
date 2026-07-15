@@ -229,6 +229,38 @@ describe('STRICT 2/1/0 — an uncorrelated unit ALWAYS terminates (ruling 8)', (
     expect(coverAt(regions, 0, 0.9, 6)).toBe(SAND)
   })
 
+  it('a surface-topped first unit whose base rides a tied band ONLAPS it, even when the facing column is too shallow to reach the unit base (CS1 g16 B2 KLEI class)', () => {
+    // Owner shape (i): a column's FIRST unit (its top on the top-band line) has its BASE on a
+    // TIED shared contact. The facing column is a single SHALLOW band tied to the unit below —
+    // it bottoms out ABOVE the first unit's own drilled base. The unit must still ONLAP that tie
+    // (rising-apex taper from its own top to a tip at ~0.5 ON the tie), NOT reach full width by
+    // treating the shallow facing as a data void. The facing band's litho closes around the tip.
+    // LEFT (own): KLEI[10..7] SILT[7..5] SAND[5..1] — KLEI is the first (surface-topped) unit;
+    //   its base (elev 7) = the SILT top. RIGHT (facing): a single SILT[8..6] band, TD elev 6 —
+    //   too shallow to reach the KLEI's own base region, but tied to the LEFT SILT (top-top).
+    const lKlei = layer()
+    const lSilt = layer()
+    const lSand = layer()
+    const rSilt = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lKlei, body: 'bK' },
+      { top: 3, base: 5, f: SILT, layerId: lSilt, body: 'bSl' },
+      { top: 5, base: 9, f: SAND, layerId: lSand, body: 'bZ' },
+    ])
+    // Facing SILT bottoms out at elev 7.5 — ABOVE the KLEI's own base (elev 7), so the naive
+    // reach guard (facing must reach the unit's base) treats it as a data void and bails to
+    // full width. The onlap laps the SILT-top tie, not the KLEI base, so it must NOT bail.
+    const right = col('R', 10, [{ top: 2, base: 2.5, f: SILT, layerId: rSilt, body: 'bSr' }])
+    // The SILT band is tied top-top (a full-width band); its top IS the KLEI's base contact,
+    // so the KLEI carries a DERIVED base-tie and must onlap.
+    const edges: CorrelationEdge[] = [{ a: lSilt, b: rSilt, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+    // The KLEI ONLAPS: anchored on its own (left) column, pinching SHORT of the far column.
+    expect(minFractionOf(regions, 0, CLAY)).toBeLessThan(0.02) // on its own left column
+    expect(maxFractionOf(regions, 0, CLAY)).toBeLessThan(0.85) // pinches short (NOT full-width)
+    expect(maxFractionOf(regions, 0, CLAY)).toBeGreaterThan(0.3) // an onlap tip (~0.5)
+  })
+
   it('two facing same-formation units WITH a drawn tie DO band full-width (the tie authorises it)', () => {
     // Same shape as above but WITH a top-top + base-base tie on the SAND pair. The tie
     // authorises the band — SAND must reach full width (a quad spanning [0..1]).

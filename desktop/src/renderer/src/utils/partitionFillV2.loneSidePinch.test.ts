@@ -576,4 +576,50 @@ describe('finding A — an untied lens pinches out short of the far column; the 
     expect(coverAt(regions, 0, 0.9, 7)).toBe(SILT)
     expect(maxFractionOf(regions, 0, CLAY, 'pinch')).toBeLessThan(0.75)
   })
+
+  it('a surface-topped first unit facing a DEEP column with a different-litho counterpart tiles as opposing pinches, never one full-width band', () => {
+    // Shape (i)-adjacent (the TWO-SIDED variant): the LEFT column's FIRST unit (SAND, its top on
+    // the top-band) has its BASE on a TIED band (SILT), and the FACING (RIGHT) column is a DEEP
+    // column carrying a DIFFERENT lithology (CLAY) ABOVE the tie and the SILT band below. The
+    // SAND must pinch SHORT of the far column and the facing CLAY claims the vacated width —
+    // NEITHER reaches full width, and NOTHING is invented above the top-band (ruling 5-revised).
+    // (The genuine LONE-side non-converging surface onlap — CS1 g8 / g19 KLEI — is a harder
+    // route left OPEN this session; see docs/design/partition-engine-v2.md §4 shape (i).)
+    // LEFT (own): SAND[10..8] SILT[8..7.7] — SAND is the surface-topped first unit; its base
+    //   (elev 8) = the SILT top. RIGHT (facing): CLAY[10..8.3] SILT[8.3..7] CLAY[7..2] — deep;
+    //   the facing CLAY base (8.3) sits ABOVE the SAND base (8), so the facing matrix at the
+    //   SAND base is the SILT band (a MIXED facing bracket: CLAY above the SAND base, SILT at it)
+    //   — the exact CS1 g8 shape that force-lensed the SAND with a full-width CLAY flood.
+    const lSand = layer()
+    const lSilt = layer()
+    const rClayTop = layer()
+    const rSilt = layer()
+    const rClayBot = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 2, f: SAND, layerId: lSand, body: 'bZ' },
+      { top: 2, base: 3, f: SILT, layerId: lSilt, body: 'bSl' },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 1.7, f: CLAY, layerId: rClayTop, body: 'bKr' },
+      { top: 1.7, base: 3, f: SILT, layerId: rSilt, body: 'bSr' },
+      { top: 3, base: 8, f: CLAY, layerId: rClayBot, body: 'bKb' },
+    ])
+    // SILT band tied top-top (a full-width band); its top IS the SAND's base contact, so the
+    // SAND carries a DERIVED base-tie and onlaps. The facing carries CLAY above the tie.
+    const edges: CorrelationEdge[] = [{ a: lSilt, b: rSilt, aSide: 'top', bSide: 'top' }]
+    const regions = computeSectionFillV2([left, right], edges)
+    // The SAND ONLAPS as a NON-LENS pinch: anchored on its own (left) column, pinching short.
+    expect(matrixAt(regions, 0, 0.1, 9)).toBe(SAND)
+    const sandKinds = regions.filter((r) => r.gapIndex === 0 && r.formationId === SAND).map((r) => r.kind)
+    expect(sandKinds).toContain('pinch')
+    expect(sandKinds).not.toContain('lens')
+    // The SAND pinches SHORT of the far column (NOT full-width) — its tip is an onlap (~0.5).
+    expect(maxFractionOf(regions, 0, SAND, 'pinch')).toBeLessThan(0.85)
+    expect(maxFractionOf(regions, 0, SAND, 'pinch')).toBeGreaterThan(0.3)
+    // The facing CLAY closes around the onlap notch: near the far column at the SAND's own
+    // elevation the cover is CLAY (the facing lithology above the tie), never SAND, never empty.
+    expect(coverAt(regions, 0, 0.9, 9)).toBe(CLAY)
+    // Below the SILT tie the SILT band claims the full width (its own band, never empty).
+    expect(coverAt(regions, 0, 0.9, 7.5)).toBe(SILT)
+  })
 })

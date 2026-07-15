@@ -46,11 +46,19 @@
 //         the bbox-centre "sand label on clay" placement bug.
 
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { BodyBoundaryResponse, BodyListItem, LithoLayerResponse } from '../../api/client'
+import type {
+  BodyBoundaryResponse,
+  BodyListItem,
+  LithoContactCorrelationEdge,
+  LithoLayerResponse,
+} from '../../api/client'
 import * as partitionFillModule from '../../utils/partitionFill'
+import type { PartitionRegion } from '../../utils/partitionFill'
+import { setPartitionEngineV2 } from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
+import { isApexShapeable } from './partitionFillOverlayHelpers'
 import type { Props } from './PartitionFillOverlay'
 import type { PlacedColumn } from './utils'
 
@@ -915,5 +923,149 @@ describe('PartitionFillOverlay', () => {
       expect(el.getAttribute('stroke-linejoin')).toBe('round')
       expect(el.getAttribute('stroke-opacity')).toBe(el.getAttribute('fill-opacity'))
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// V2P — the apex/alt-click freedraw gesture on partition ENGINE v2 output.
+//
+// Owner dogfeed (Cross-section 1, engine v2 active): "the alt click gesture is
+// gone". Root cause: v2 emits a lone interior ONLAP tip as ``kind:'pinch'``
+// where v1 emitted it as ``kind:'lens'`` (slice.ts: BAND->'quad', ONLAP->'pinch',
+// LENS->'lens'). The overlay gated the apex handles / add-strips on
+// ``kind==='lens'`` — so every v2 pinch tip lost its shaping gesture. These
+// tests paraphrase the fix in the owner's terms: a shapeable termination (a
+// lens OR a lone pinch that tapers to a mid-gap tip) must expose the apex
+// freedraw gesture on EITHER engine.
+// ---------------------------------------------------------------------------
+describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
+  // Force the v2 engine for this block only; restore v1 afterward so the rest of
+  // the suite (which pins on v1 shapes) is unaffected.
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  function onlapEdge(aLayerId: string, bLayerId: string): LithoContactCorrelationEdge {
+    // A single TOP-side tie: L-silt top <-> R-sand top. v2 classifies the
+    // one-contact-tied silt as an ONLAP that laps up the tie and pinches before
+    // the right column — emitted as kind:'pinch' anchored at fraction 0.
+    return {
+      id: `e-${aLayerId}-${bLayerId}`,
+      layer_a_id: aLayerId,
+      layer_b_id: bLayerId,
+      layer_a_side: 'top',
+      layer_b_side: 'top',
+      model_id: 'm1',
+      section_id: 's1',
+      source: 'manual',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+  }
+
+  // L: clay / silt / sand ; R: clay / sand. Silt is present on L only and its TOP
+  // is tied to R's sand top -> v2 onlap pinch tip (kind:'pinch', frac 0..<1).
+  const onlapLayers = [
+    layer('l-clay', 'L', 'clay', 'fClay', 0, 3),
+    layer('l-silt', 'L', 'silt', 'fSilt', 3, 4),
+    layer('l-sand', 'L', 'sand', 'fSand', 4, 8),
+    layer('r-clay', 'R', 'clay', 'fClay', 0, 3),
+    layer('r-sand', 'R', 'sand', 'fSand', 3, 8),
+  ]
+
+  it('V2P1 — a lone v2 pinch tip (onlap) exposes the apex freedraw add-strips', () => {
+    const { getByTestId } = renderOverlay({
+      lithoLayers: onlapLayers,
+      contactEdges: [onlapEdge('l-silt', 'r-sand')],
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    // The silt onlap tip must offer BOTH edge add-strips so the engineer can add
+    // an apex node — the gesture that was "gone" under v2.
+    expect(getByTestId('partition-lens-addstrip-silt-upper')).toBeTruthy()
+    expect(getByTestId('partition-lens-addstrip-silt-lower')).toBeTruthy()
+  })
+
+  it('V2P2 — a stored node on the v2 pinch tip renders a draggable apex handle', () => {
+    const { getByTestId } = renderOverlay({
+      lithoLayers: onlapLayers,
+      contactEdges: [onlapEdge('l-silt', 'r-sand')],
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        [
+          'silt',
+          {
+            // Node in the gap (along 50 ∈ [20,80]) at the silt's elevation band.
+            upper_nodes: [{ along_m: 50, elevation_m: 6 }],
+            lower_nodes: [],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    expect(getByTestId('partition-lens-handle-silt-upper-0')).toBeTruthy()
+  })
+
+  it('V2P3 — dragging the v2 pinch-tip handle persists via onSaveBoundary', () => {
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      lithoLayers: onlapLayers,
+      contactEdges: [onlapEdge('l-silt', 'r-sand')],
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map([
+        [
+          'silt',
+          {
+            upper_nodes: [{ along_m: 50, elevation_m: 6 }],
+            lower_nodes: [],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    fireEvent.mouseDown(getByTestId('partition-lens-hit-silt-upper-0'))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
+  })
+
+})
+
+// Direct predicate contract: the shape signal that decides whether a region
+// exposes the apex freedraw gesture, independent of either engine.
+describe('isApexShapeable — the engine-agnostic tip predicate', () => {
+  const region = (
+    kind: 'quad' | 'pinch' | 'lens',
+    fracs: number[],
+  ): PartitionRegion => ({
+    formationId: 'f',
+    bodyId: 'b',
+    kind,
+    // Minimal ring: give each vertex a distinct elevation so it is non-degenerate.
+    polygon: fracs.map((fraction, i) => ({ fraction, elevation: 10 - i })),
+  })
+
+  it('a lens is ALWAYS shapeable', () => {
+    expect(isApexShapeable(region('lens', [0, 0.45, 0]))).toBe(true)
+  })
+
+  it('a lone pinch tip (anchored at 0, tapering to a mid-gap apex) is shapeable', () => {
+    // v2 onlap tip, e.g. verts 0.00>0.00>0.50 or 0.50>1.00>1.00.
+    expect(isApexShapeable(region('pinch', [0, 0, 0.5]))).toBe(true)
+    expect(isApexShapeable(region('pinch', [0.5, 1, 1]))).toBe(true)
+  })
+
+  it('a full-width pinch (reaches BOTH columns) is NOT shapeable', () => {
+    // v2 mixed-tie rising triangle spans f[0..1] — no free tip.
+    expect(isApexShapeable(region('pinch', [1, 0, 1, 1, 0.55]))).toBe(false)
+  })
+
+  it('a full-width quad band is NOT shapeable', () => {
+    expect(isApexShapeable(region('quad', [0, 1, 1, 0]))).toBe(false)
   })
 })
