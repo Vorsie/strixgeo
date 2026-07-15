@@ -170,6 +170,21 @@ closure→pinch, LENS→lens). Consumers that must not change:
     sections), `cs1lensdisjoint`, `cs1sandbody`, `cs1bandauthority`,
     `cs1void`, tie-straddle diag. The FROZEN gate pins v1 only; v2 gets its
     own frozen snapshot after owner dogfeed sign-off.
+  - **Full 2/1/0 conformance gate** (`partitionFillV2.conformance.diag.test.ts`,
+    `SHAPE_AUDIT=1`, 2026-07-15): per unit per gap, the engine's own tie
+    state vs the rendered shape — `0corr-not-lens` / `1corr-not-onlap` /
+    `2corr-not-band` + advisory `0corr-reach-exceeds-cap` (ruling 8b) and
+    `q3-legit`. Baseline on the 14 real sections: **0corr-not-lens 22,
+    1corr-not-onlap 110 (96 band full-width instead of onlapping their
+    derived/shared tie at 0.5 — the previously-unchecked two-thirds of the
+    rule), 2corr-not-band 0** (byCorr 41/186/715; 32 sub-TD substrate
+    excluded per Q3; CS1-g7 KLEI correctly q3-legit). Band authority for
+    the "2" classification = the engine's matched-pair `collectGapBands`
+    (naive both-contacts-tied miscounts 17 mixed-bracket minorities).
+    CUTOVER CRITERION: all three counters 0 (advisories triaged).
+    WARNING for the frozen snapshot: a rare cross-process determinism gap
+    exists in `computeSectionFillV2` (V8 hash-seed-sensitive Map/Set
+    iteration on one borderline region) — fix before freezing.
   - Verification note (2026-07-14): overlap claims are settled by BOTH the
     interval-scan diag AND an independent dense point-in-polygon
     double-coverage sample — increment 3 asserted the CS1 gap18 triple
