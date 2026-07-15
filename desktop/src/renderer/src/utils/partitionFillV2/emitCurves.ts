@@ -33,11 +33,13 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
+import { type CorrelationEdge } from '../partitionFill'
 import { type InputCurve, type Point } from './types'
 
 /**
@@ -64,12 +66,14 @@ export interface ResolvedTie {
   id: string
 }
 
-/** A detected crossing-tie conflict: the two ties that geometrically cross. */
-export interface TieConflict {
-  gapIndex: number
-  /** The two conflicting tie curve ids. */
-  tieIds: [string, string]
-}
+/**
+ * A detected crossing-tie conflict: the two approved edges (adjacent ties AND/OR
+ * jump-tie bridges) that geometrically cross in a gap (owner §8 Q4). Re-exported
+ * from ``crossingConflicts`` — the canonical shape now carries the suspended
+ * edges' order-invariant keys (``edgeKeys``) in addition to the historical
+ * ``gapIndex`` + ``tieIds`` (backward compatible).
+ */
+export type TieConflict = CrossingConflict
 
 /** Result of curve emission: the arrangement curves plus detected conflicts. */
 export interface EmittedCurves {
@@ -84,9 +88,6 @@ export interface EmittedCurves {
    */
   lensLabels: Map<string, LensLabel>
 }
-
-/** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
-const ELEV_EPS = 1e-6
 
 /**
  * Emit all four curve families for a whole section.
@@ -107,9 +108,28 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   emitColumnVerticals(section.columns, curves)
   emitSurfaceCurves(section.columns, curves)
 
-  const ties = resolveTies(section)
-  const { active, conflicts } = pruneCrossingTies(ties, section.columns)
-  for (const t of active) {
+  // ONE crossing-conflict pass over EVERY approved edge — adjacent ties AND
+  // jump-tie bridges canonicalised into gap-local segments (owner §8 Q4, design
+  // §4 "Band authority" row). Any edge in any crossing is SUSPENDED: dropped from
+  // BOTH emission paths (ties + bridges) so its units fall back to 0/1-corr
+  // termination. This replaces the old adjacent-only ``pruneCrossingTies``, which
+  // let a bridge crossing another bridge / an adjacent tie enter unchecked.
+  const { suspended, conflicts } = detectCrossingConflicts(section)
+  // The surviving-edge section fed to both emission paths — a suspended edge is
+  // absent everywhere (never a tie curve, never a bridge, never a bottom-tie
+  // reach). Built once; ``section`` itself is not mutated (pure).
+  const survivingSection: SectionInput =
+    suspended.size === 0
+      ? section
+      : {
+          ...section,
+          edges: (section.edges as readonly CorrelationEdge[]).filter(
+            (e) => !suspended.has(edgeKey(e)),
+          ),
+        }
+
+  const ties = resolveTies(survivingSection)
+  for (const t of ties) {
     curves.push({
       id: t.id,
       kind: 'tie',
@@ -121,9 +141,10 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // become bridge curves through the intervening columns so the sub-shallow-TD
   // region traces as ordinary faces (design §4; owner §8 Q3). Emitted BEFORE the
   // closings so the closing pass can skip a deep anchor unit whose contacts a
-  // bridge already carries (else it pinches to a lens apex into the gap).
+  // bridge already carries (else it pinches to a lens apex into the gap). Consumes
+  // only surviving edges (a suspended bridge is dropped here too — Q4).
   const bridgeAnchored = new Set<string>()
-  emitSubstrateBridges(section, curves, bridgeAnchored)
+  emitSubstrateBridges(survivingSection, curves, bridgeAnchored)
 
   // The shared ``lensLabels`` map: created BEFORE the interval closures so a lone-side
   // pinch's flood-wedge curves (emitLonePinch) can register their bracket-matrix label
@@ -137,9 +158,9 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // LONE-side untied unit (no facing counterpart) that v1 would pinch now emits a
   // pinch apex short of the far column + a flood wedge claiming the rest (finding A),
   // registering the flood label in ``lensLabels``.
-  emitIntervalCurves(section, active, bridgeAnchored, lensLabels, curves)
+  emitIntervalCurves(survivingSection, ties, bridgeAnchored, lensLabels, curves)
 
-  emitEnclosedLensCurves(section, curves, lensLabels)
+  emitEnclosedLensCurves(survivingSection, curves, lensLabels)
 
   // Deep-to-deep FLAT-FLOOR substrate (design §4 increment-6): where a bottom-tie
   // bracket reaches below a shallow column's TD, flatten the deepest band's base to
@@ -148,9 +169,9 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // with no bracket stays empty (owner §8 Q3 — ``tieElev`` null). Substrate curves
   // carry an explicit bottom-tie label in ``lensLabels`` so the sub-TD wedge is
   // stamped with the tie formation, not the shallow column's deepest unit.
-  emitBottomTieSubstrate(section, curves, lensLabels)
+  emitBottomTieSubstrate(survivingSection, curves, lensLabels)
 
-  return { curves, conflicts, activeTies: active, lensLabels }
+  return { curves, conflicts, activeTies: ties, lensLabels }
 }
 
 /**
@@ -253,44 +274,4 @@ function resolveTies(section: SectionInput): ResolvedTie[] {
     })
   }
   return out
-}
-
-/**
- * Detect geometrically crossing ties within a gap (owner §8 Q4 — HARD CONFLICT).
- * Two ties in the same gap CROSS iff their left endpoints and right endpoints are
- * in opposite vertical order (one starts above the other on the left but ends
- * below on the right). Every tie involved in ANY crossing is suspended; the
- * survivors are returned. Conflicts are reported for the UI warning surface.
- */
-function pruneCrossingTies(
-  ties: readonly ResolvedTie[],
-  columns: readonly ColumnGeom[],
-): { active: ResolvedTie[]; conflicts: TieConflict[] } {
-  void columns
-  const byGap = new Map<number, ResolvedTie[]>()
-  for (const t of ties) {
-    if (!byGap.has(t.gapIndex)) byGap.set(t.gapIndex, [])
-    byGap.get(t.gapIndex)!.push(t)
-  }
-  const suspended = new Set<string>()
-  const conflicts: TieConflict[] = []
-  for (const group of byGap.values()) {
-    for (let i = 0; i < group.length; i++) {
-      for (let j = i + 1; j < group.length; j++) {
-        const a = group[i]
-        const b = group[j]
-        const dLeft = a.left.y - b.left.y
-        const dRight = a.right.y - b.right.y
-        // Opposite sign on the two ends ⇒ the segments cross. Shared endpoints
-        // (dLeft or dRight == 0) do not count as a crossing.
-        if (Math.abs(dLeft) > ELEV_EPS && Math.abs(dRight) > ELEV_EPS && dLeft * dRight < 0) {
-          suspended.add(a.id)
-          suspended.add(b.id)
-          conflicts.push({ gapIndex: a.gapIndex, tieIds: [a.id, b.id] })
-        }
-      }
-    }
-  }
-  const active = ties.filter((t) => !suspended.has(t.id))
-  return { active, conflicts }
 }
