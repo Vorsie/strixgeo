@@ -271,7 +271,19 @@ function extractEnclosedLenses(units: UnitGeom[], edgedLayerIds: ReadonlySet<str
       if (
         above.formationId === below.formationId &&
         above.formationId !== lens.formationId &&
-        above.bodyId === below.bodyId &&
+        // NO same-body guard (relaxed 2026-07-15, ruling-8e Milestone-2). The enclosing
+        // same-formation units above/below a minority routinely carry DIFFERENT bodyIds
+        // (a body split at the minority's own level — CS1 g15 ZAND u3 body 019ea3e1 above,
+        // u5 body 019ea42e below); requiring one body kept 14 of the 19 ABSENT minorities
+        // out of this proper enclosed-lens-as-HOLE path, dropping them to the interval-level
+        // flood where the notch merges into the enclosing same-formation face (design §4
+        // "Ruling-8e Milestone 2" — the flood-absorbs-the-lens wall). Geometrically the two
+        // same-formation units ARE one continuous band around the minority; the merge keeps
+        // the SHALLOWER (``above``) unit's identity for the merged band (the below unit's
+        // body is subsumed — an accepted approximation, the alternative being the lens
+        // ABSENT). Body resolution is the resolver's job (§7); the geometry of the hole is
+        // the engine's, and it must not depend on a body split invisible to the section.
+        // A DRAWN apex/freedraw override is still keyed by the lens's own body, unaffected.
         // A correlated (edged) unit bands via its tie — it is NOT a lens. The LENS
         // must be uncorrelated. The merge keeps ``above``'s identity and splices
         // ``below`` out, so ``below`` must also be un-edged (else its own tie would
