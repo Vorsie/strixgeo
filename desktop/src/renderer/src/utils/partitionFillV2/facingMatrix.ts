@@ -53,6 +53,67 @@ export function facingMatrixLabel(facing: ColumnGeom, e: number): LensLabel | nu
 }
 
 /**
+ * The ENCLOSING matrix of a lone-stack interval, taken from the LONE column's OWN bracket
+ * adjacency (v1's ``belowLith ?? aboveLith``) rather than a facing-column sample.
+ *
+ * ``routeLoneStack`` used ``facingMatrixLabel(facing, convElev)`` to name the enclosing
+ * matrix, but ``convElev`` is the facing convergence elevation — at a ZERO-THICKNESS facing
+ * bracket (the interval sits on a CONTACT of the facing column, both bracket lines meeting
+ * at one point) that sample lands on the contact and returns whichever facing unit the loop
+ * hits FIRST (the unit above the contact), NOT the lithology that actually encloses the lone
+ * stack. Tie-6 gap0 is the canonical case: the lone left stack ``[KLEI, SILT]`` sits below a
+ * ZAND top-tie and above a KLEI base-band, and the facing right column has ZAND base = KLEI
+ * top at −3.88 (zero-thickness); ``facingMatrixLabel(−3.88)`` returns ZAND, so the stack
+ * cannot reduce (ZAND is not in it) → bail → SILT floods full-width (a ruling-8 violation).
+ *
+ * The enclosing lithology is instead read from the lone column itself: the unit immediately
+ * BELOW the interval (its top ≈ the interval base) gives ``belowLith``; the unit immediately
+ * ABOVE (its base ≈ the interval top) gives ``aboveLith``; prefer ``belowLith`` (v1). To be a
+ * usable matrix the picked formation must ALSO appear in the stack (so ``extractLoneStackLenses``
+ * can reduce the stack around it) — a below-lith the stack does not contain (Tie-6: below =
+ * KLEI, which the stack DOES contain) is preferred, then above-lith; the first that is present
+ * in ``stackFids`` wins. When neither adjacency formation is in the stack, returns ``null`` and
+ * the caller keeps its fallback (the interval is not an enclosed lone stack).
+ *
+ * Parameters
+ * ----------
+ * loneCol : ColumnGeom
+ *     The lone column carrying the stack.
+ * stackFids : ReadonlySet<string>
+ *     The formations present in the lone stack (the reduction target must be one of them).
+ * top, base : number
+ *     The interval's top / base elevations on the lone column (mTAW).
+ *
+ * Returns
+ * -------
+ * LensLabel | null
+ *     The enclosing matrix (formation + body) from the lone column's bracket adjacency, or
+ *     ``null`` when neither adjacent lithology is a stack formation.
+ */
+export function enclosingMatrixOfInterval(
+  loneCol: ColumnGeom,
+  stackFids: ReadonlySet<string>,
+  top: number,
+  base: number,
+): LensLabel | null {
+  // Unit immediately BELOW the interval: its TOP contact is at (or just above) the interval
+  // base. Unit immediately ABOVE: its BASE contact is at (or just below) the interval top.
+  let belowU: ColumnGeom['units'][number] | null = null
+  let aboveU: ColumnGeom['units'][number] | null = null
+  for (const u of loneCol.units) {
+    if (Math.abs(u.topElev - base) <= ELEV_EPS + 1e-3) belowU = u
+    if (Math.abs(u.baseElev - top) <= ELEV_EPS + 1e-3) aboveU = u
+  }
+  // Prefer belowLith when it is a stack formation (v1 ``belowLith ?? aboveLith``), then
+  // aboveLith. A pick outside the stack cannot enclose it (the reduction would strip
+  // everything), so it is skipped.
+  for (const u of [belowU, aboveU]) {
+    if (u && stackFids.has(u.formationId)) return { formationId: u.formationId, bodyId: u.bodyId }
+  }
+  return null
+}
+
+/**
  * Whether the facing column carries formation ``fid`` CONTINUOUSLY across the elevation
  * span [``base``..``top``] — i.e. every point of that span on the facing column is that
  * one formation (a single continuous matrix laterally enclosing the lone unit). This is

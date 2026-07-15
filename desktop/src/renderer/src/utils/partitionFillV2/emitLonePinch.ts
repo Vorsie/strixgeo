@@ -373,9 +373,11 @@ export function routeLoneSidePinch(
   // ``routeLoneStack`` (returns false to fall through to the single-unit / full-width
   // paths when no single facing-carried enclosing matrix exists).
   if (loneMatrix.length !== 1) {
+    const loneColumn = loneSide === 'left' ? left : right
     return routeLoneStack(
       loneMatrix,
       facing,
+      loneColumn,
       loneSide,
       loneX,
       facingX,
