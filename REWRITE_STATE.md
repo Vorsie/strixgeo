@@ -552,3 +552,130 @@ The section's 4 violations are NOT one mechanism. Captured via the tileGap-entry
    line; holes 0/0/0, CS1 7/7, 61/61 gates, v1, tsc) AND the per-section probe. Do NOT touch
    `intersect.ts`/`seamAnchor.ts` (613-hole trap). `MULTIUNIT_SUBSTRIP_ENABLED` stays OFF until the
    single-coherent-seam-with-notches construction replaces the blanket sub-strip flood.
+
+---
+
+## 8. Session-5 plan & progress — BOTH ranked sub-targets ATTEMPTED, BOTH measured NEGATIVE (precise roots)
+
+Session 5 built forward on both §7 sub-targets. NO net conformance change landed (flag-ON stays
+**19**, flag-OFF byte-identical) — but each target was implemented, WIRED, MEASURED with a
+one-run flag-ON harness, and gated OFF after a measured regression, with the exact defect root and
+the session-6 construction recorded. Tie-10 g0's TRUE defect set was also refined (one of its four
+gate flags is a false positive). `intersect.ts`/`seamAnchor.ts` UNTOUCHED; `emitLoneStack.ts`
+byte-restored (a `preferMatrix` experiment reverted clean).
+
+### Scoreboard (end of session 5)
+
+- **flag OFF (default): BYTE-IDENTICAL to session-2/3/4 baseline** — conformance **5/14/0=19**, 8e 50,
+  reach-cap 2 · holes **0/0/0** · CS1 **7/7** · shape+arrangement gates (strict210/loneSidePinch/
+  simplerings/twoSidedTermination/bandAuthority/derivedTieOnlap/edgedLayers/arrangement/vacancyClosure/
+  computeSectionFillV2/sliceAnnulus) **61/61** · v1 **163 pass / 18 skip** · tsc clean.
+- **flag ON: grand conformance UNCHANGED (5/14/0=19), holes 0/0/0, overlaps 0** — the two new paths
+  are gated OFF after their negative measurement; the `tileGapTwoSided`-before-`routeLoneSidePinch`
+  reorder (flag-ON only) is behavior-neutral (verified: no changed sections).
+
+### Tie-10 g0 refined — 3 of its 4 gate flags are REAL, one is a GATE FALSE POSITIVE
+
+Rendered regions (flag OFF == flag ON, both engines identical on this section): SILT lens[f0-0.45,
+el3.57-4.05], SILT onlap[f0.5-1, el3.549-12.39], VEEN lens, KLEI pinch[f0-1], KLEI quads, and the
+leak **ZAND quad[f0-1, el-2.69..4.05]** (one full-width face spanning both columns).
+- **SILT[L,3.57,4.05] `1corr-not-onlap` = GATE FALSE POSITIVE.** The engine renders it correctly as
+  a lens (the SILT lens region above). The gate reads `band` only because a DIFFERENT SILT region —
+  the facing SILT onlap[f0.5-1] — overlaps the same elevation band, so `renderedShape` unions both
+  SILT pieces to fLo0..fHi1. Same-formation-onlap-at-same-elevation gate scoping, like ruling 8e.
+  (Not fixed this session — flagged for a possible gate rescope; NOT engine work.)
+- **ZAND[L,-2.69,3.57] + ZAND[R,-2.29,3.549] `1corr-not-onlap` (2 flags, ONE region)** = the REAL
+  ZAND full-width leak. `routeLoneStack` fires on interval B (lone-left {SILT top-tied, ZAND
+  base-tied}), picks ZAND as the flood matrix (`facingMatrixLabel(conv)` = the facing ZAND band),
+  floods it full-width + SILT as a lens; the flood ZAND then merges with the facing ZAND both-tied
+  band at the arrangement level. (Note: session-4 said routeLoneStack *bails* interval B — WRONG;
+  it FIRES and floods. Trust this session.)
+- **ZAND[R,5.73,6.44] `0corr-not-lens` absent** = interval A's mixed-bracket minority (SILT above /
+  KLEI below), swallowed by the seam.
+
+### Target 2 (§7 step-1) — MULTI-UNIT MINORITY CARVE: measured NEGATIVE (+43 overlaps)
+
+`carveMultiUnitMinority` (`tileMultiUnit.ts`, flag `MULTIUNIT_MINORITY_CARVE_ENABLED`) emits each
+enclosed mixed-bracket 0-corr minority (same-side neighbours both present + both differing) as a
+0.45 `emitLonePinch` `forceLens`, additively to `out`, then returns false so the seam tiles the
+rest. Measured flag-ON: Tie-10 0corr **1→0** (ZAND[R1] fixed) BUT **+43 different-litho overlaps**
++ a new Tie-8 1corr regression → conformance 4/15/0 (=19 still). ROOT: the seam's enclosing cells
+(SILT above / KLEI below) already fill the minority's el-slot — that is WHY it renders absent — so
+the added ZAND notch OVERLAPS them; the mixed-bracket notch rides the column edge (holes=0) so the
+arrangement never separates it (the `splitAnnulus`-bypass wall). An additive carve cannot work; the
+minority must be REMOVED from the seam's matrix so the seam leaves a real hole. GATED OFF.
+
+### Target 1 (§7 step-2) — LONE-SIDE TERMINATION: measured NEGATIVE (+457 holes / +666 overlaps)
+
+`tileGapLone` (NEW `tileLone.ts`, flag `LONE_TERMINATION_ENABLED`, wired into `tileGapTwoSided`'s
+lone branch, which now runs BEFORE `routeLoneSidePinch` under the flag) terminates each lone-side
+unit against the excluded tied-band context by its own corr (1 → `emitSharedContactOnlap` with the
+DIFFERING own-column neighbour flooding via `chooseOnlapEnclosing`; 0 → `emitLonePinch` forceLens),
+scoped to fully-bracketed lone stacks whose formation matches a facing band. Measured flag-ON:
+conformance **19→17** (right DIRECTION: Tie-6/CS1/CS2 dropped a 1corr each) BUT **holes 0→457,
+overlaps 0→666**. ROOT: N independent per-unit `emitLonePinch` wedges do NOT compose into a
+partition — they overlap/gap at their shared conv/apex edges. A lone STACK needs a SINGLE coherent
+flood boundary (the enclosing matrix descending as ONE face bounded by every unit's pinch), which is
+exactly what `routeLoneStack`'s slab-seam decomposition already does hole-free — its ONLY bug is
+picking a same-formation flood matrix. GATED OFF. (Tie-10 g0 interval B did NOT even fire the scope
+guard — but the 457 holes on other sections are disqualifying regardless.)
+
+### The KEY session-6 lead (from the `preferMatrix` probe, reverted): interval B is TWO STACKED
+### PINCHES MEETING, NOT one-matrix-floods
+
+Tried making `routeLoneStack` flood the NON-facing-band stack formation (SILT) instead of ZAND
+(added + reverted a `preferMatrix` param — `emitLoneStack.ts` byte-restored). It CAN'T flood SILT
+full-width because `facingMatrixRunSpan(facing, SILT)` bails — the facing is ZAND, not SILT, so SILT
+has no facing run to band to. That is the tell: **interval B is not a "one matrix floods full-width"
+shape at all.** The correct render (owner §7: "ZAND[L] pinches, a differing flood separates it from
+ZAND[R]'s band") is TWO STACKED PINCHES — SILT onlaps DOWN from the top tie, ZAND onlaps UP from the
+base tie, meeting at a mid seam, with the facing ZAND band kept separate. This is a genuine
+sub-elevation two-sided partition (the seam tiler's meet, but with per-unit pinches, NOT a flood).
+The session-4 sub-strip + these two negatives all point to the SAME missing primitive: a
+**single-coherent-flood / seam-with-notches** builder that closes a lone (or multi-unit) stack of
+mixed terminations into one hole-free face set. That primitive is the session-6 deliverable; the two
+gated-OFF skeletons (`tileLone.ts`, `tileMultiUnit.ts` carve) are its starting points.
+
+### Session-5 files (worktree, NOT committed)
+
+- `partitionFillV2/tileLone.ts` (NEW) — lone-side terminations-first tiler, GATED OFF
+  (`LONE_TERMINATION_ENABLED=false`); documents the measured negative + the session-6
+  single-coherent-flood construction. Imports type-only from `tileGap.ts` (ESM cycle resolves —
+  value import is `tileGapLone` into `tileGap.ts`, function-body only).
+- `partitionFillV2/tileMultiUnit.ts` (EDITED) — added `carveMultiUnitMinority` + flag
+  `MULTIUNIT_MINORITY_CARVE_ENABLED=false` (measured negative documented in the flag's doc-block);
+  `emitLonePinch` import added.
+- `partitionFillV2/tileGap.ts` (EDITED) — lone branch calls `tileGapLone` behind
+  `LONE_TERMINATION_ENABLED` (`lone-fired` diag); multi-unit branch calls `carveMultiUnitMinority`
+  behind `MULTIUNIT_MINORITY_CARVE_ENABLED`. Both flags OFF → flag-ON output unchanged.
+- `partitionFillV2/emitIntervals.ts` (EDITED) — flag-ON only: `tileGapTwoSided` now runs BEFORE
+  `routeLoneSidePinch` (so the lone path can own the interval). Flag-OFF path byte-identical (the
+  whole block is skipped). 548 lines (over the 500 warn — the reorder; real logic in tileGap/tileLone).
+- `partitionFillV2/emitLoneStack.ts` — BYTE-RESTORED (the `preferMatrix` experiment reverted clean).
+- STUBS to delete (orchestrator; bash rm denied): `partitionFillV2.throwaway_lonecapture.diag.test.ts`
+  (the session-5 flag-ON measurement harness — now a `describe.skip` no-op) + `scripts/diag_lone_capture.json`.
+  Session-4 stub `partitionFillV2.throwaway_tilegap_probe.diag.test.ts` + `scripts/diag_tilegap_probe.json`
+  were already removed by the orchestrator; the `TILEGAP_DIAG`/`TILEGAP_CAPTURE` blocks in tileGap.ts
+  are STILL THROWAWAY (strip at cut-over).
+
+### Next steps (session 6 — build the single-coherent-flood primitive; it unlocks BOTH classes)
+
+1. **Build the single-coherent-flood / seam-with-notches primitive.** For a lone (or multi-unit)
+   stack of mixed terminations, the enclosing matrix must descend as ONE continuous flood face
+   bounded by EVERY unit's pinch — NOT N independent `emitLonePinch` wedges (proven +666 overlaps).
+   The template is `routeLoneStack.emitLoneStackBand` (slab-seam decomposition — it IS hole-free):
+   generalise it to (a) a mixed enclosing that CHANGES lithology down the stack (SILT above, KLEI
+   below), and (b) a non-flooding pinch that MEETS a facing tied band at a seam rather than banding
+   to the facing column. Prove on Tie-10 g0 interval B (SILT onlaps down / ZAND onlaps up / meet at
+   mid seam / facing ZAND stays a separate band), holes 0/0/0, then the other 23 lone bails.
+2. **Then the multi-unit minority (interval A):** the same primitive removes ZAND[R1] from the seam
+   matrix (leaves a real hole) instead of the additive carve — so no overlap. Fold it in after (1).
+3. **Fix the SILT[L] gate false positive at the GATE** (same-formation-onlap-at-same-elevation
+   scoping, ruling-8e class) — a `sameFormationEnclosedByTiedBand`-style guard for onlap overlap.
+   This drops the honest Tie-10 count from 4 to 3 without engine work.
+4. **Regression-guard EVERY change** with the frozen battery (flag-OFF byte-identical safety line;
+   holes 0/0/0, CS1 7/7, 61/61 gates, v1, tsc) AND the one-run flag-ON harness (regenerate the
+   throwaway if the orchestrator removed it — measure OFF vs ON holes/overlaps/conformance in one
+   pass). Do NOT touch `intersect.ts`/`seamAnchor.ts` (613-hole trap). Both session-5 flags
+   (`LONE_TERMINATION_ENABLED`, `MULTIUNIT_MINORITY_CARVE_ENABLED`) + `MULTIUNIT_SUBSTRIP_ENABLED`
+   stay OFF until the coherent-flood primitive replaces the independent-wedge / additive-carve forms.

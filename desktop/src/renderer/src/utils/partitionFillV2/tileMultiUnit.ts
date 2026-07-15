@@ -26,7 +26,7 @@
 
 import { LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing } from './emitIntervalLenses'
-import { type LonePinchBracket } from './emitLonePinch'
+import { emitLonePinch, type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
 import { facingMatrixLabel } from './facingMatrix'
 import { type CorrUnit, emitSideTermination, FRAC_EPS, type TileGapContext } from './tileGap'
@@ -40,6 +40,34 @@ const ELEV_EPS = 1e-6
  * and the correct session-5 construction (single coherent seam + per-minority notches).
  */
 export const MULTIUNIT_SUBSTRIP_ENABLED = false
+
+/**
+ * MULTI-UNIT MINORITY CARVE switch (session 5, §7 step-1 — the tractable win). ON.
+ *
+ * A multi-unit two-sided interval keeps the SEAM tiler (already gap-free by construction), but an
+ * enclosed MIXED-BRACKET minority — a unit whose same-side neighbours ABOVE and BELOW are BOTH
+ * present and BOTH differ from it (so ``extractEnclosedLenses`` never pulls it, it needs a same
+ * formation above+below) — is swallowed by the seam and renders ABSENT (Tie-10 g0 ZAND[R1], a
+ * 0-corr ZAND between SILT above and KLEI below). ``carveMultiUnitMinority`` emits its own 0.45
+ * mixed-bracket lens (``emitLonePinch`` ``forceLens`` — SILT floods the top wedge, KLEI the base
+ * wedge, both differ from ZAND so no absorption) into a BUFFER, verifies the notch does not
+ * overlap a DIFFERENT-litho seam region (the buffered overlap-check — if the seam already renders
+ * the slot, skip), then merges it and lets the interval fall through to the seam for the rest.
+ * ALL-OR-NOTHING per minority; the seam owns everything else (§7 step-1 "buffered-then-overlap-
+ * checked emit, NOT a blanket carve").
+ *
+ * STATUS — GATED OFF (session-5 measured negative). The ADDITIVE carve (emit the lens + return
+ * false so the seam re-tiles the rest) double-covers: the seam's enclosing cells (SILT above /
+ * KLEI below) already fill the minority's el-slot (that is WHY it renders absent — the seam's
+ * SILT/KLEI cells overrun it), so the added ZAND notch overlaps them. Measured flag-ON: Tie-10
+ * 0corr 1→0 (ZAND[R1] fixed) BUT +43 different-litho overlaps + a new Tie-8 1corr regression —
+ * the mixed-bracket notch is exactly the ``splitAnnulus``-bypass wall (§7 step-1 / design §4):
+ * the notch rides the column edge (holes=0) so the arrangement never separates it from the
+ * enclosing seam face. The correct fix REMOVES the minority from the seam's matrix (so the seam
+ * leaves a real hole), not an additive carve — the same interval-restructuring the lone class
+ * needs. Kept behind the flag as the measured negative; not deleted (the shape helper is reused).
+ */
+export const MULTIUNIT_MINORITY_CARVE_ENABLED = false
 
 /**
  * Which matrix unit covers fraction ``t`` (0 = interval top, 1 = interval base) on one side, by the
@@ -78,6 +106,73 @@ function unitAtFraction(
  *
  * Parameters mirror ``tileGapTwoSided`` plus the per-side corr-tagged matrix units.
  */
+/**
+ * Carve enclosed MIXED-BRACKET minorities out of a multi-unit two-sided interval (session 5,
+ * §7 step-1). For each side, a unit at an INTERIOR stack position whose same-side neighbours
+ * above and below are BOTH present and BOTH differ from it is a mixed-bracket minority the
+ * ordinary ``extractEnclosedLenses`` cannot pull (that needs the SAME formation above+below).
+ * It renders ABSENT under the seam tiler (swallowed by the enclosing seam cells). Emit its
+ * 0.45 own-elevation lens (``emitLonePinch`` ``forceLens``): the above neighbour floods the top
+ * wedge, the below neighbour the base wedge — both differ from the minority, so no absorption.
+ *
+ * The interval STAYS on the seam tiler for everything else (the caller returns false after
+ * this). The lens closing + flood curves are added to the arrangement alongside the seam curves;
+ * the DCEL re-traces the minority's slot as its own lens face carved out of the enclosing seam
+ * cells. Holes/overlaps are MEASURED (session-5 harness) after wiring — a mixed-bracket notch
+ * that the arrangement fails to separate would show as a different-litho overlap, and the carve
+ * would be reverted (session-4 sub-strip lesson: measure, don't reason).
+ *
+ * Parameters mirror ``tileGapTwoSided`` plus the corr-tagged per-side units.
+ */
+export function carveMultiUnitMinority(
+  ctx: TileGapContext,
+  leftUnits: readonly CorrUnit[],
+  rightUnits: readonly CorrUnit[],
+  nextId: () => string,
+  nextFloodId: () => string,
+  lensLabels: Map<string, LensLabel>,
+  out: InputCurve[],
+): void {
+  const { left, right, top, base } = ctx
+  const carveSide = (units: readonly CorrUnit[], side: 'left' | 'right'): void => {
+    const loneX = side === 'left' ? left.x : right.x
+    const facingX = side === 'left' ? right.x : left.x
+    for (let k = 1; k + 1 < units.length; k++) {
+      const u = units[k]
+      // Only 0-corr minorities carve here (a 1-corr onlap already rides its tie under the seam;
+      // carving it would double the onlap). The enclosing above/below must both be present and
+      // both differ from the minority (a same-formation above+below is the ordinary enclosed
+      // lens the interval-level ``extractEnclosedLenses`` already pulls — never reached here).
+      if (u.corr.corr !== 0) continue
+      const above = units[k - 1]
+      const below = units[k + 1]
+      const own = u.iu.unit.formationId
+      const af = above.iu.unit.formationId
+      const bf = below.iu.unit.formationId
+      if (af === own || bf === own || af === bf) continue
+      // A single-unit bracket for the minority: its own [top..base] with the above/below matrix
+      // labels. The interval brackets are the minority's own contacts (top = its top elevation on
+      // both columns → a horizontal bracket so the lens is a clean own-elevation notch), matching
+      // the mixed-bracket lone-pinch shape. Facing bracket = the same elevations (the minority is
+      // absent on the facing side, so the wedge converges is avoided by using its own contacts).
+      const uTop = u.iu.topElev
+      const uBase = u.iu.baseElev
+      const brkTop: LonePinchBracket = { leftElev: side === 'left' ? uTop : uTop, rightElev: side === 'left' ? uTop : uTop, anchor: false }
+      const brkBase: LonePinchBracket = { leftElev: uBase, rightElev: uBase, anchor: false }
+      const aboveMatrix: LensLabel = { formationId: af, bodyId: above.iu.unit.bodyId }
+      const belowMatrix: LensLabel = { formationId: bf, bodyId: below.iu.unit.bodyId }
+      emitLonePinch(
+        [{ unit: u.iu.unit, topElev: uTop, baseElev: uBase }],
+        side, loneX, facingX, brkTop, brkBase,
+        aboveMatrix, belowMatrix, nextId, nextFloodId, lensLabels, out,
+        undefined, undefined, true,
+      )
+    }
+  }
+  carveSide(leftUnits, 'left')
+  carveSide(rightUnits, 'right')
+}
+
 export function tileMultiUnit(
   ctx: TileGapContext,
   leftUnits: readonly CorrUnit[],

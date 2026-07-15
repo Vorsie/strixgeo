@@ -39,8 +39,21 @@ import { emitSharedContactOnlap } from './emitSharedContactOnlap'
 import { chooseOnlapEnclosing } from './emitTerminations'
 import { facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
-import { MULTIUNIT_SUBSTRIP_ENABLED, tileMultiUnit } from './tileMultiUnit'
+import { tileGapLone } from './tileLone'
+import { carveMultiUnitMinority, MULTIUNIT_MINORITY_CARVE_ENABLED, MULTIUNIT_SUBSTRIP_ENABLED, tileMultiUnit } from './tileMultiUnit'
 import { type InputCurve, type Point } from './types'
+
+/** LONE-side terminations switch (session 5, §7 step-2). GATED OFF — measured negative.
+ *  The per-unit lone-stack termination (each unit onlaps/lenses against the tied-band context)
+ *  drops conformance 19→17 in the right DIRECTION but tiles NON-hole-free: flag-ON measured
+ *  holes 0→457, overlaps 0→666 (Tie-6/CS1/CS2 regressed). The vacated wedges of stacked lone
+ *  units do NOT compose into a partition by independent per-unit emission — the same class of
+ *  defect as the session-4 multi-unit sub-strip: a lone stack needs a SINGLE coherent flood
+ *  boundary (the enclosing matrix descending as ONE face bounded by every unit's pinch), not N
+ *  independent ``emitLonePinch`` wedges that overlap/gap at their shared conv/apex edges. Kept
+ *  behind the flag as the session-5 measured negative; ``tileLone.ts`` skeleton reused by
+ *  session 6 (the single-coherent-flood construction). See REWRITE_STATE.md §8. */
+const LONE_TERMINATION_ENABLED = false
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
@@ -198,8 +211,22 @@ export function tileGapTwoSided(
     llens: leftLenses.map((u) => u.unit.formationId),
     rlens: rightLenses.map((u) => u.unit.formationId),
   })
-  // Two-sided only — a lone side is already handled by ``routeLoneSidePinch`` upstream.
+  // LONE side (one matrix empty because the facing units are all TIED / BANDED). Ruling 8f: the
+  // excluded facing tied units are BRACKET CONTEXT — terminate each lone unit against them so a
+  // same-formation flood never merges with the facing band full-width (the §7 ZAND-full-width
+  // ROOT). ``tileGapLone`` owns the interval on success; on ``false`` it falls to
+  // ``routeLoneSidePinch`` / the seam (the caller, since we return false here).
   if (leftMatrix.length === 0 || rightMatrix.length === 0) {
+    if (LONE_TERMINATION_ENABLED) {
+      const loneSide: 'left' | 'right' = leftMatrix.length > 0 ? 'left' : 'right'
+      const loneUnits = loneSide === 'left' ? leftUnitsAll : rightUnitsAll
+      const loneLenses = loneSide === 'left' ? leftLenses : rightLenses
+      const handled = tileGapLone(ctx, loneSide, loneUnits, loneLenses, nextId, nextFloodId, lensLabels, out)
+      if (handled) {
+        diagBump('lone-fired')
+        return true
+      }
+    }
     diagBump('lone')
     return false
   }
@@ -247,6 +274,14 @@ export function tileGapTwoSided(
       diagBump('multiunit-fired')
       return true
     }
+  }
+  // §7 step-1: carve the enclosed MIXED-BRACKET minorities as own-elevation lenses (the seam
+  // swallows them → ABSENT), then let the interval fall through to the seam tiler for the rest.
+  // Additive to ``out`` + return false (the seam re-tiles the non-minority units). Measured
+  // hole/overlap-free (session-5 harness); a mixed-bracket notch the arrangement fails to
+  // separate would surface as a different-litho overlap and revert the flag.
+  if (MULTIUNIT_MINORITY_CARVE_ENABLED) {
+    carveMultiUnitMinority(ctx, leftUnits, rightUnits, nextId, nextFloodId, lensLabels, out)
   }
   diagBump(`multiunit-L${leftUnits.length}-R${rightUnits.length}`)
   return false

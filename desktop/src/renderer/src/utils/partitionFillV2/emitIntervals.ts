@@ -434,6 +434,27 @@ function tileInterval(
   const rightMatrix = extractEnclosedLenses(rightUnits, rightLenses, rightFacing)
   if (leftMatrix.length === 0 && rightMatrix.length === 0) return
 
+  // TERMINATIONS-FIRST two-sided tiler (ruling 8c, the cut-over — design §4 "Terminate-by-
+  // default"). When the cut-over flag is on, route the interval through the per-unit termination
+  // emitter (``tileGapTwoSided``) BEFORE ``routeLoneSidePinch`` AND the geometric same-formation
+  // merge: each matrix unit emits its own termination (1 → onlap tip 0.5, 0 → lens) so a
+  // same-formation band never claims a terminating unit's slot (the ``1corr-not-onlap`` /
+  // ``0corr-not-lens`` leaks). ``tileGapTwoSided`` OWNS the interval fully when it returns true —
+  // it handles the lone case too (a lone stack facing TIED/BANDED facing units — the §7 lone-class
+  // ROOT the seam-based ``routeLoneStack`` floods full-width). It returns false for shapes this
+  // increment does not yet cover, keeping them on ``routeLoneSidePinch`` / the seam model below.
+  // (Flag OFF: this whole block is skipped and the order below is byte-identical to the baseline.)
+  if (twoSidedTerminationsEnabled()) {
+    const handled = tileGapTwoSided(
+      { gapIndex, left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr, bandFormations },
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+    )
+    if (handled) return
+  }
+
   // LONE-SIDE pinch (finding A): one side has matrix units, the other is empty. v1
   // makes such a lone untied unit PINCH short of the far column (apex at 0.45 lens /
   // 0.5 onlap) and the FACING matrix claim the vacated width — NOT run full-width
@@ -451,25 +472,6 @@ function tileInterval(
     )
   ) {
     return
-  }
-
-  // TERMINATIONS-FIRST two-sided tiler (ruling 8c, the cut-over — design §4 "Terminate-by-
-  // default"). When the cut-over flag is on, route the two-sided interval through the per-unit
-  // termination emitter (``tileGapTwoSided``) BEFORE the geometric same-formation merge: each
-  // matrix unit emits its own termination (1 → onlap tip 0.5, 0 → lens) so a same-formation band
-  // never claims a terminating unit's slot (the ``1corr-not-onlap`` / ``0corr-not-lens`` leaks).
-  // ``tileGapTwoSided`` returns false for a same-formation single-single that is enclosed by its
-  // OWN tied band (ruling 8e — one body, KEEP the geometric merge below) and for shapes this
-  // increment does not yet cover, keeping them on the geometric-merge / seam model below.
-  if (twoSidedTerminationsEnabled()) {
-    const handled = tileGapTwoSided(
-      { gapIndex, left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr, bandFormations },
-      nextId,
-      nextFloodId,
-      lensLabels,
-      out,
-    )
-    if (handled) return
   }
 
   // Geometric same-formation band (v1 ``emitInterval`` connectivity inference, emit.ts
