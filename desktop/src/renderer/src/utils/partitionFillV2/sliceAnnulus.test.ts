@@ -153,4 +153,52 @@ describe('increment-12 — enclosed-lens annulus slices into simple v1-carve pie
     expect(regions.length).toBe(1)
     expect(fArea(regions[0].polygon)).toBeCloseTo(8, 4)
   })
+
+  // ---------------------------------------------------------------------------
+  // TRIANGULAR (lens) hole — the SLOPED-edge case (ruling-8e Milestone-2, 2026-07-15).
+  // A real enclosed lens is a TRIANGLE pinching to a mid-gap apex, NOT a rectangle. The
+  // box split dropped the matrix WEDGES beside the sloped edges (the CS1 g15 SILT 44 cm
+  // coverage hole); the sloped-envelope clip must cover them, and the pieces must not
+  // overlap the lens (the ZAND×ZAND / SILT×ZAND slivers from the crossChain endpoint-on-
+  // chain bug). This is the behavioural gate for both fixes.
+  // ---------------------------------------------------------------------------
+  describe('triangular lens hole — sloped matrix follows the lens edge exactly', () => {
+    // The lens triangle: base on the RIGHT column (x=100, elev 5..7), apex mid-gap at
+    // (60, 6). Its area = ½ × base(2) × height(40) = 40 (metres²) → 0.4 in fraction·metre.
+    const lensHole: Point[] = [
+      { x: 100, y: 7 },
+      { x: 60, y: 6 },
+      { x: 100, y: 5 },
+    ]
+
+    it('the pieces + lens tile the band exactly: matrix = band − lens (no dropped wedge)', () => {
+      const regions = sliceFaces([annulusFace(outer, lensHole)], COLUMNS)
+      // Band 1 × 8 = 8; lens 0.4·(fraction 0.4 width × … ) — compute in fraction space: the
+      // lens hole maps to fraction 0.6..1.0 with apex at 0.6; area = ½ × 0.4 × 2 = 0.4.
+      const sum = regions.reduce((s, r) => s + fArea(r.polygon), 0)
+      expect(sum).toBeCloseTo(8 - 0.4, 3)
+    })
+
+    it('every matrix piece is a SIMPLE ring', () => {
+      const regions = sliceFaces([annulusFace(outer, lensHole)], COLUMNS)
+      for (const r of regions) {
+        const { crossings, repeats } = ringDefects(r.polygon)
+        expect(crossings, r.polygon.map((p) => `(${p.fraction},${p.elevation})`).join(' ')).toBe(0)
+        expect(repeats).toBe(0)
+      }
+    })
+
+    it('no matrix piece OVERLAPS the lens triangle (the crossChain endpoint-on-chain sliver)', () => {
+      const regions = sliceFaces([annulusFace(outer, lensHole)], COLUMNS)
+      // A point strictly inside the lens (fraction 0.9, elev 6 — near the base) is painted
+      // by NO matrix piece; a point in the wedge beside the lens (fraction 0.8, elev 6.9 —
+      // above the sloped top edge) IS covered by exactly one matrix piece.
+      let lensCovers = 0
+      for (const r of regions) if (inRing(0.9, 6, r.polygon)) lensCovers++
+      expect(lensCovers, 'lens interior must be unpainted').toBe(0)
+      let wedgeCovers = 0
+      for (const r of regions) if (inRing(0.8, 6.9, r.polygon)) wedgeCovers++
+      expect(wedgeCovers, 'wedge beside the sloped lens edge must be covered exactly once').toBe(1)
+    })
+  })
 })
