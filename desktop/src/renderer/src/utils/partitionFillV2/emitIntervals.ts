@@ -217,9 +217,16 @@ function emitGapIntervals(
   // interval brackets confine any facing fill to the residue outside the band.
   const leftBanded = new Set<number>()
   const rightBanded = new Set<number>()
+  // Formations carrying a matched-pair band in THIS gap (ruling 8e "one body" test): a
+  // same-formation full-width render enclosed by its own tied band is one body, so its
+  // single-single merge must NOT be terminated (kept as the geometric band). A same-formation
+  // pair with NO band of that formation is the retired auto-match — the terminations-first path
+  // splits it into opposing onlaps. Threaded to ``tileGapTwoSided`` for the same-formation gate.
+  const bandFormations = new Set<string>()
   for (const b of bands) {
     leftBanded.add(b.leftUnitIndex)
     rightBanded.add(b.rightUnitIndex)
+    bandFormations.add(b.formationId)
   }
 
   // Build the bracket lines: surface (top), each tie/bridge anchor line, then the
@@ -308,7 +315,7 @@ function emitGapIntervals(
     // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
     // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
     const bracketed = top.anchor && base.anchor
-    tileInterval(gapIndex, left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, leftCorr, rightCorr, nextId, nextFloodId, lensLabels, out)
+    tileInterval(gapIndex, left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, leftCorr, rightCorr, bandFormations, nextId, nextFloodId, lensLabels, out)
     // A tiled interval whose BASE is the shallow-TD floor needs an explicit floor
     // curve to CLOSE it from below — the surface / tie-line brackets are already
     // arrangement curves, but the shallow-TD floor is not (sub-TD stays empty,
@@ -396,6 +403,7 @@ function tileInterval(
   rightTied: TiedContacts,
   leftCorr: readonly EffectiveCorr[],
   rightCorr: readonly EffectiveCorr[],
+  bandFormations: ReadonlySet<string>,
   nextId: () => string,
   nextFloodId: () => string,
   lensLabels: Map<string, LensLabel>,
@@ -445,6 +453,25 @@ function tileInterval(
     return
   }
 
+  // TERMINATIONS-FIRST two-sided tiler (ruling 8c, the cut-over — design §4 "Terminate-by-
+  // default"). When the cut-over flag is on, route the two-sided interval through the per-unit
+  // termination emitter (``tileGapTwoSided``) BEFORE the geometric same-formation merge: each
+  // matrix unit emits its own termination (1 → onlap tip 0.5, 0 → lens) so a same-formation band
+  // never claims a terminating unit's slot (the ``1corr-not-onlap`` / ``0corr-not-lens`` leaks).
+  // ``tileGapTwoSided`` returns false for a same-formation single-single that is enclosed by its
+  // OWN tied band (ruling 8e — one body, KEEP the geometric merge below) and for shapes this
+  // increment does not yet cover, keeping them on the geometric-merge / seam model below.
+  if (twoSidedTerminationsEnabled()) {
+    const handled = tileGapTwoSided(
+      { gapIndex, left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr, bandFormations },
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+    )
+    if (handled) return
+  }
+
   // Geometric same-formation band (v1 ``emitInterval`` connectivity inference, emit.ts
   // lines 61-74): a single left unit + single right unit of the SAME formation are one
   // matrix body bridging the gap even without an explicit tie. Emit NO seam — the band
@@ -459,24 +486,6 @@ function tileInterval(
     for (const u of leftLenses) emitLensClosing(u, leftX, rightX, LENS_PINCH_FRACTION, nextId, out)
     for (const u of rightLenses) emitLensClosing(u, rightX, leftX, LENS_PINCH_FRACTION, nextId, out)
     return
-  }
-
-  // TERMINATIONS-FIRST two-sided tiler (ruling 8c, the cut-over — design §4 "Terminate-by-
-  // default"). When the cut-over flag is on, route the two-sided interval through the per-unit
-  // termination emitter (``tileGapTwoSided``): each matrix unit emits its own termination
-  // (1 → onlap tip 0.5, 0 → lens) BEFORE the enclosing matrix floods the residue, so a
-  // same-formation band never claims a terminating unit's slot (the ``1corr-not-onlap`` /
-  // ``0corr-not-lens`` leaks). Falls back (returns false) for shapes this increment does not
-  // yet cover (multi-unit interbedded two-sided stacks), keeping them on the seam model below.
-  if (twoSidedTerminationsEnabled()) {
-    const handled = tileGapTwoSided(
-      { gapIndex, left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr },
-      nextId,
-      nextFloodId,
-      lensLabels,
-      out,
-    )
-    if (handled) return
   }
 
   // The seam must sit strictly OUTSIDE each lens-bearing side's apex — a small margin

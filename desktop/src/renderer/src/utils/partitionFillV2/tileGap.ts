@@ -39,6 +39,7 @@ import { emitSharedContactOnlap } from './emitSharedContactOnlap'
 import { chooseOnlapEnclosing } from './emitTerminations'
 import { facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
+import { MULTIUNIT_SUBSTRIP_ENABLED, tileMultiUnit } from './tileMultiUnit'
 import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -57,10 +58,17 @@ function diagBump(reason: string): void {
 }
 export function tileGapDiagReset(): void {
   for (const k of Object.keys(TILEGAP_DIAG)) delete TILEGAP_DIAG[k]
+  TILEGAP_CAPTURE.length = 0
+}
+/** THROWAWAY multi-unit interval structure capture (session-4 probe only). */
+export const TILEGAP_CAPTURE: Record<string, unknown>[] = []
+/** THROWAWAY rounding for the capture. */
+function round3(x: number): number {
+  return Math.round(x * 1000) / 1000
 }
 
 /** One matrix unit paired with its per-gap effective corr (2/1/0) on its own side. */
-interface CorrUnit {
+export interface CorrUnit {
   iu: IntervalUnit
   corr: EffectiveCorr
   /** Unit index on the owning column (to key the effective-corr lookup). */
@@ -86,6 +94,8 @@ export interface TileGapContext {
   leftCorr: readonly EffectiveCorr[]
   /** Per-unit effective corr for the RIGHT column into this gap. */
   rightCorr: readonly EffectiveCorr[]
+  /** Formations carrying a matched-pair band in this gap (ruling 8e "one body" test). */
+  bandFormations: ReadonlySet<string>
 }
 
 /**
@@ -177,14 +187,25 @@ export function tileGapTwoSided(
   out: InputCurve[],
 ): boolean {
   const { left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr } = ctx
+  const leftUnitsAll = withCorr(leftMatrix, left, leftCorr)
+  const rightUnitsAll = withCorr(rightMatrix, right, rightCorr)
+  TILEGAP_CAPTURE.push({
+    gap: ctx.gapIndex,
+    top: { l: round3(top.leftElev), r: round3(top.rightElev), anchor: top.anchor },
+    base: { l: round3(base.leftElev), r: round3(base.rightElev), anchor: base.anchor },
+    left: leftUnitsAll.map((u) => ({ f: u.iu.unit.formationId, corr: u.corr.corr, t: u.corr.topTied, b: u.corr.baseTied, top: round3(u.iu.topElev), base: round3(u.iu.baseElev) })),
+    right: rightUnitsAll.map((u) => ({ f: u.iu.unit.formationId, corr: u.corr.corr, t: u.corr.topTied, b: u.corr.baseTied, top: round3(u.iu.topElev), base: round3(u.iu.baseElev) })),
+    llens: leftLenses.map((u) => u.unit.formationId),
+    rlens: rightLenses.map((u) => u.unit.formationId),
+  })
   // Two-sided only — a lone side is already handled by ``routeLoneSidePinch`` upstream.
   if (leftMatrix.length === 0 || rightMatrix.length === 0) {
     diagBump('lone')
     return false
   }
 
-  const leftUnits = withCorr(leftMatrix, left, leftCorr)
-  const rightUnits = withCorr(rightMatrix, right, rightCorr)
+  const leftUnits = leftUnitsAll
+  const rightUnits = rightUnitsAll
 
   // SINGLE-SINGLE different-formation (the smallest two-sided shape): each side one unit, of
   // different formations, terminating by its own corr with the facing formation flooding. On
@@ -194,18 +215,39 @@ export function tileGapTwoSided(
     const lf = singleFormation(leftUnits)
     const rf = singleFormation(rightUnits)
     if (lf !== null && rf !== null && lf === rf) {
-      diagBump('sameFormation')
-      return false // same-formation single-single: the geometric-band path owns it.
+      // SAME-FORMATION single-single. Ruling 8e: enclosed by its OWN formation's matched-pair
+      // band → ONE body, keep the geometric merge (return false). Ruling 8 (retired auto-match):
+      // NO band of that formation in the gap → two untied/onlapping same-formation units are
+      // OPPOSING TERMINATIONS, not one band — split them (the Tie-10 g0 ZAND full-width leak).
+      if (ctx.bandFormations.has(lf)) {
+        diagBump('sameFormation-8e')
+        return false // one body — the geometric-band path owns it.
+      }
+      const handled = tileSameFormationTwoSided(ctx, leftUnits[0], rightUnits[0], nextId, nextFloodId, lensLabels, out)
+      if (handled) {
+        diagBump('sameFormation-fired')
+        return true
+      }
+      diagBump('sameFormation-bail')
+      return false
     }
     return tileSingleSingle(ctx, leftUnits[0], rightUnits[0], nextId, nextFloodId, lensLabels, out)
   }
 
-  // MULTI-UNIT two-sided interval (the Tie-10 g0 class — the core ruling-8c residual). NOT YET
-  // IMPLEMENTED hole-free: the per-unit termination emission for a stack facing a stack needs
-  // the vacated-space re-closure that increments 8-18 solved for lone-side ONLY (design §4
-  // "Terminate-by-default"). Bail to the seam tiler until session 4 lands it. The bail keeps
-  // the interval on the old (full-width-leaking) render — an intentional intermediate RED on
-  // this branch, NOT a partial hole-generating emit (ruling 7).
+  // MULTI-UNIT two-sided interval (the Tie-10 g0 class — the core ruling-8c residual): a stack
+  // facing a stack. SUB-STRIP DECOMPOSITION (design §4 "Terminate-by-default", session-4 §6
+  // step 1a): split [top,base] in FRACTION space at the union of BOTH sides' internal contact
+  // fractions; each sub-strip presents exactly ONE left + ONE right formation → a single-single
+  // cell routed through the proven ``tileSingleSingle`` termination machinery. All-or-nothing
+  // buffering (ruling 7): only merge into ``out``/``lensLabels`` when EVERY sub-strip terminates
+  // hole-free, else bail the whole interval to the seam tiler (no partial emit).
+  if (MULTIUNIT_SUBSTRIP_ENABLED) {
+    const handled = tileMultiUnit(ctx, leftUnits, rightUnits, nextId, nextFloodId, lensLabels, out)
+    if (handled) {
+      diagBump('multiunit-fired')
+      return true
+    }
+  }
   diagBump(`multiunit-L${leftUnits.length}-R${rightUnits.length}`)
   return false
 }
@@ -251,12 +293,108 @@ function tileSingleSingle(
 }
 
 /**
+ * Emit a SAME-FORMATION single-single two-sided termination (ruling 8, retired auto-match): two
+ * same-formation units facing each other with NO matched-pair band of that formation are OPPOSING
+ * terminations, not one band. Each terminates by its own corr; because the FACING unit is the same
+ * formation (so flooding it re-merges — the wall), the enclosing that floods each unit's vacated
+ * wedge is the unit's OWN-COLUMN bracket neighbour (the differing lithology above / below the
+ * interval on its own column), never the facing same-formation unit.
+ *
+ * Returns ``false`` when either side cannot terminate hole-free (no differing own-column enclosing,
+ * or the unit does not fill its interval side) — the caller then keeps the geometric merge.
+ */
+function tileSameFormationTwoSided(
+  ctx: TileGapContext,
+  lu: CorrUnit,
+  ru: CorrUnit,
+  nextId: () => string,
+  nextFloodId: () => string,
+  lensLabels: Map<string, LensLabel>,
+  out: InputCurve[],
+): boolean {
+  const { left, right, top, base, leftLenses, rightLenses } = ctx
+  // The enclosing on each side is the OWN column's lithology just ABOVE the interval top and
+  // just BELOW the interval base (the bracket neighbours). ``chooseOnlapEnclosing`` then picks
+  // whichever differs from the unit's own formation to flood the notch (never the same formation).
+  const ownEnclosing = (col: ColumnGeom, iTop: number, iBase: number): { above: LensLabel | null; below: LensLabel | null } => ({
+    above: facingMatrixLabel(col, iTop + 0.02),
+    below: facingMatrixLabel(col, iBase - 0.02),
+  })
+  const lEnc = ownEnclosing(left, top.leftElev, base.leftElev)
+  const rEnc = ownEnclosing(right, top.rightElev, base.rightElev)
+  const buf: InputCurve[] = []
+  const labelPatch = new Map<string, LensLabel>()
+  const okL = emitSameFormSide(lu, 'left', left.x, right.x, top, base, lEnc.above, lEnc.below, nextId, nextFloodId, labelPatch, buf)
+  const okR = emitSameFormSide(ru, 'right', right.x, left.x, top, base, rEnc.above, rEnc.below, nextId, nextFloodId, labelPatch, buf)
+  if (!okL || !okR) return false
+  for (const u of leftLenses) emitLensClosing(u, left.x, right.x, LENS_PINCH_FRACTION, nextId, buf)
+  for (const u of rightLenses) emitLensClosing(u, right.x, left.x, LENS_PINCH_FRACTION, nextId, buf)
+  for (const [k, v] of labelPatch) lensLabels.set(k, v)
+  out.push(...buf)
+  return true
+}
+
+/**
+ * One side of a same-formation two-sided termination. Onlap (1-corr) rides its tie with the
+ * DIFFERING own-column bracket neighbour flooding the vacated wedge (``chooseOnlapEnclosing``);
+ * lens (0-corr) pinches to 0.45 with the differing neighbour flooding. Returns ``false`` when the
+ * unit does not fill its interval side or no differing own-column enclosing exists.
+ */
+function emitSameFormSide(
+  cu: CorrUnit,
+  side: 'left' | 'right',
+  loneX: number,
+  facingX: number,
+  top: LonePinchBracket,
+  base: LonePinchBracket,
+  aboveEnc: LensLabel | null,
+  belowEnc: LensLabel | null,
+  nextId: () => string,
+  nextFloodId: () => string,
+  lensLabels: Map<string, LensLabel>,
+  out: InputCurve[],
+): boolean {
+  const { iu, corr } = cu
+  const iTop = side === 'left' ? top.leftElev : top.rightElev
+  const iBase = side === 'left' ? base.leftElev : base.rightElev
+  if (Math.abs(iu.topElev - iTop) > 0.02 || Math.abs(iu.baseElev - iBase) > 0.02) return false
+  // A differing enclosing must exist on at least the flooding side (else the notch re-merges).
+  const own = iu.unit.formationId
+  const aboveDiff = aboveEnc !== null && aboveEnc.formationId !== own
+  const belowDiff = belowEnc !== null && belowEnc.formationId !== own
+  if (corr.corr === 1) {
+    const baseTied = corr.baseTied && !corr.topTied
+    // Base-tied onlap laps the band below → the ABOVE neighbour floods; top-tied → the BELOW.
+    const flood = baseTied ? aboveEnc : belowEnc
+    if (flood === null || flood.formationId === own) return false
+    // ``chooseOnlapEnclosing`` picks the differing neighbour (here already the differing one).
+    const enclosing = chooseOnlapEnclosing(own, baseTied, aboveEnc ?? flood, belowEnc ?? flood)
+    if (enclosing.formationId === own) return false
+    emitSharedContactOnlap(iu, side, loneX, facingX, top, base, baseTied, enclosing, nextId, nextFloodId, lensLabels, out)
+    return true
+  }
+  if (corr.corr === 0) {
+    if (!aboveDiff && !belowDiff) return false
+    // 0-corr lens with a mixed / differing own-column enclosing flooding both wedges. Reuse the
+    // interior lens closing + a flood band vertical labelled with the differing neighbour.
+    emitLensClosing(iu, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+    const floodId = nextFloodId()
+    lensLabels.set(floodId, (aboveDiff ? aboveEnc : belowEnc) as LensLabel)
+    const facingTopElev = side === 'left' ? top.rightElev : top.leftElev
+    const facingBaseElev = side === 'left' ? base.rightElev : base.leftElev
+    out.push({ id: floodId, kind: 'closing', points: [{ x: facingX, y: facingTopElev }, { x: facingX, y: facingBaseElev }] as Point[] })
+    return true
+  }
+  return false
+}
+
+/**
  * Emit one side's single-unit termination into the two-sided interval (onlap for 1-corr,
  * lens for 0-corr), the facing formation flooding the vacated wedge. Returns ``false`` for a
  * shape it cannot terminate hole-free (the caller then bails the whole interval to the seam
  * tiler — no partial emit, ruling 7).
  */
-function emitSideTermination(
+export function emitSideTermination(
   cu: CorrUnit,
   side: 'left' | 'right',
   loneX: number,

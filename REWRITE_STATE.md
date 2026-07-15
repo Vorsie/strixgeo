@@ -426,3 +426,129 @@ MULTI-UNIT two-sided path.
 6. **At cut-over-ready:** flip `tileFlags` default→ON, strip the `TILEGAP_DIAG` throwaway block,
    delete the old seam model in `tileInterval` (`meetFraction`/`emitSideSubSeams` seam path),
    re-run the full battery, then the v2 frozen snapshot + owner dogfeed.
+
+---
+
+## 7. Session-4 plan & progress — MULTI-UNIT terminator: sub-strip NEGATIVE result + same-formation infra
+
+Session 4 built forward on the two-sided terminator. NO net conformance drop landed (flag-ON stays
+**19**, flag-OFF byte-identical) — but the multi-unit approach was PROVEN OUT (sub-strip = measured
+negative), the same-formation single-single termination shipped as correct-but-inert infrastructure,
+and **Tie-section 10 g0 is now diagnosed to the exact defect + owning interval**, which overturns the
+"L2/R3 same-formation ZAND merging" framing the session-3 hand-off carried.
+
+### Per-section flag-ON scoreboard (the oracle: `scripts/diag_tilegap_probe.json`, SHAPE_AUDIT=1)
+
+Flag-ON grand == flag-OFF grand == **5 `0corr-not-lens` / 14 `1corr-not-onlap` / 0 = 19**; holes
+**0/0/0**; overlaps **0**; 8e-enclosure 50; reach-cap 2. Per-section 1corr/0corr violation counts:
+Tie-4..9,11,13,14 = 0/0; **Tie-10 = 3/1**; Tie-12 = 1/0; CS3 = 0/0; **CS1 = 7/4**; CS2 = 3/0.
+Bail taxonomy (flag ON): `sameFormation-8e`=4 (correctly kept as one body), `sameFormation-bail`=2
+(CS1 g19 ZAND, corr=2 BOTH sides = legit first-unit-topband bands, correctly kept), `lone`=24,
+`termbail`=8, multiunit fans (L4-R2 ×2, L2-R3 ×2, L1-R2 ×4, L4-R1 ×2). `multiunit-fired`/
+`sameFormation-fired` = **0** (fire on zero real intervals — see below).
+
+### Tie-section 10 g0 — DIAGNOSED to the interval (the session-4 load-bearing finding)
+
+The section's 4 violations are NOT one mechanism. Captured via the tileGap-entry probe
+(`tie10capture` / `t10regions` in the dump):
+- **Interval A** `[topBand 12.94/11.84 .. anchor 4.05/3.549]`: L{ZAND[12.59,12.94], KLEI[4.05,12.59]},
+  R{SILT[6.44,11.84], **ZAND[R1][5.73,6.44]**, KLEI[3.549,5.73]} → reaches `tileGapTwoSided` as
+  multi-unit L2/R3. The ONLY violation here is **ZAND[R1] 0-corr ABSENT** — a thin minority enclosed
+  by SILT above / KLEI below (DIFFERENT formations, so `extractEnclosedLenses` never pulls it), tiled
+  by the seam and swallowed. Needs a mixed-bracket lens carved for it.
+- **Interval B** `[anchor 4.05/3.549 .. anchor -2.69/-2.29]`: L{SILT[3.57,4.05], ZAND[-2.69,3.57]},
+  **R matrix EMPTY** (the right ZAND[R3] is BOTH-tied → excluded as "fully banded"; KLEI[R2]/KLEI[R4]
+  banded) → `lone` bail. `routeLoneStack` returns null because the enclosing matrix (KLEI, from the
+  own-column bracket) is NOT in the stack {SILT,ZAND}, AND the facing right column carries KLEI/ZAND/
+  KLEI (not one continuous KLEI) → no clean full-width flood. This is a STACK-OF-MINORITIES lone
+  interval facing REAL tied material (the excluded facing units make it a FALSE lone).
+- **Rendered `ZAND quad [0..1] el[-2.69..4.05]` (region 6)** = ZAND[L3] (interval B, rendered
+  full-width because the lone bail) merged with ZAND[R3]'s both-tied band at the ARRANGEMENT level
+  (`labelFaces` promotes a 2-column-spanning same-formation face to BAND). So the ZAND full-width leak
+  is ROOTED IN INTERVAL B (the lone class) + the arrangement's same-formation promotion — **NOT** a
+  same-formation single-single merge and **NOT** a multi-unit `tileGapTwoSided` merge (the session-3
+  "retired auto-match in the multi-unit path" framing was imprecise; trust this data).
+
+### What LANDED (correct, non-regressing, mostly inert on real data)
+
+1. **`tileInterval` reorder (`emitIntervals.ts`, flag-ON only):** the `tileGapTwoSided` call now runs
+   BEFORE the geometric same-formation early-return (so a same-formation single-single can be
+   terminated instead of always merged). Flag-OFF path unchanged (the two-sided block is skipped, the
+   geometric early-return runs exactly as before) → **byte-identical baseline**. `bandFormations`
+   (the gap's `collectGapBands` formation set) threaded through `tileInterval` → `TileGapContext`.
+2. **Same-formation single-single termination (`tileGap.ts` `tileSameFormationTwoSided` +
+   `emitSameFormSide`):** ruling-8 opposing terminations for two facing same-formation units with NO
+   matched-pair band of that formation; the enclosing floods from the OWN-column bracket neighbour
+   (never the same-formation facing — that re-merges, the wall) via `chooseOnlapEnclosing`. Ruling-8e
+   gated (`ctx.bandFormations.has(lf)` → keep the geometric merge). **Fires on ZERO real intervals**:
+   every real same-formation single-single is either 8e-banded (4) or a 2-corr first-unit-topband band
+   (2, CS1 g19). Correct infrastructure, no counter movement — the same-formation full-widths in the
+   real data are all legitimately one body.
+3. **Multi-unit sub-strip decomposition (`tileMultiUnit.ts`, NEW, GATED OFF):** split the interval in
+   fraction space at the union of both sides' internal contacts; route each single-left/single-right
+   sub-strip through `emitSideTermination`. **MEASURED NEGATIVE (the session-4 record):** flag-ON
+   holes 0→**164 above-TD**, overlaps 0→**8**, conformance 19→**21** (Tie-8 + CS3, both previously
+   clean, regressed). ROOT of the regression: a sub-strip where BOTH sides are "main" units must MEET
+   AT A SEAM (each fills to ~0.5), NOT double-lens — two adjacent single-single cells each flood the
+   facing column full-height of THEIR strip with no coherent shared seam → a hole/overlap at every
+   internal contact. Extracted to its own module (tileGap.ts back to 454 lines) and gated
+   `MULTIUNIT_SUBSTRIP_ENABLED=false`; the skeleton is reused by session 5, not deleted.
+
+### Verification snapshot (end of session 4)
+
+- **flag OFF (default): BYTE-IDENTICAL to session-2/3 baseline** — conformance **5/14/0=19**, 8e 50,
+  reach-cap 2 · CS1 **7/7** · shape+arrangement gates (strict210/loneSidePinch/simplerings/
+  twoSidedTermination/bandAuthority/derivedTieOnlap/edgedLayers/arrangement/vacancyClosure/
+  computeSectionFillV2/sliceAnnulus) **61/61** · v1 **102 pass/7 skip** · tsc clean.
+- **flag ON: grand conformance UNCHANGED (5/14/0=19), holes 0/0/0, overlaps 0** — the
+  same-formation + multi-unit paths fire on zero real intervals (sub-strip gated off after the
+  negative measurement); nothing regressed.
+
+### Session-4 files (worktree, NOT committed)
+
+- `partitionFillV2/tileMultiUnit.ts` (NEW) — sub-strip decomposition, GATED OFF, documents the
+  measured negative + the correct session-5 construction. Circular type/value import with tileGap.ts
+  (`CorrUnit`/`emitSideTermination`/`FRAC_EPS`/`TileGapContext` now exported from tileGap.ts; the value
+  imports are function-body only, so the ESM cycle resolves).
+- `partitionFillV2/tileGap.ts` (EDITED) — same-formation two-sided termination + 8e gate;
+  `bandFormations` on `TileGapContext`; exports for the extracted module; a THROWAWAY `TILEGAP_CAPTURE`
+  interval-structure probe (only bumped when the flag is on = never in default output; strip at
+  cut-over with `TILEGAP_DIAG`).
+- `partitionFillV2/emitIntervals.ts` (EDITED) — `tileGapTwoSided` moved before the geometric
+  same-formation early-return (flag-ON only); `bandFormations` computed + threaded. 546 lines (9 over
+  the 500 warn — the threading; the real logic is in tileGap.ts).
+- STUBS to delete (orchestrator; bash rm denied here):
+  `partitionFillV2.throwaway_tilegap_probe.diag.test.ts` (the per-section oracle — SHAPE_AUDIT=1 gates
+  it; session 5 regenerates), `scripts/diag_tilegap_probe.json`. Session-1/2/3 stubs still pending rm
+  (`emitPerGapMinorities.ts` [if still present], the throwaway lensedged/probe/tie10 tests + jsons).
+
+### Next steps (session 5 — the interval restructuring is the real work; two concrete sub-targets)
+
+1. **Multi-unit MINORITY carve (Tie-10 g0 interval A — the tractable win).** The multi-unit fan does
+   NOT need blanket sub-strip termination (proven to regress). It needs ONLY the enclosed 0-corr /
+   1-corr MINORITY (a thin unit whose same-side neighbours differ from it) carved as a lens/onlap; the
+   REST of the interval must stay on the SEAM tiler (which is already gap-free). The double-cover wall:
+   the seam re-derives the matrix and tiles the minority's slot. Since that slot currently renders
+   ABSENT (Tie-10 ZAND[R1], swallowed), FILLING it may be overlap-free — but this must be MEASURED per
+   interval (buffer the minority lens, verify no different-litho overlap with the seam output before
+   committing; if the seam does render the slot, bail). The mixed-bracket lens is `emitLonePinch`'s
+   `forceLens` (SILT top-flood + KLEI base-flood, both differ from ZAND → no absorption). This is the
+   notch-splitter-at-holes=0 wall the design §4 flags — the safe form is the buffered-then-overlap-
+   checked emit, NOT a blanket carve.
+2. **The `lone` class (Tie-10 g0 interval B + Tie-12 + CS1×N + CS2×N — 24 bails, the ZAND-full-width
+   ROOT).** These reach the two-sided tiler with one matrix side EMPTY because the facing units are
+   all TIED/BANDED (excluded from the matrix) — a FALSE lone facing real material. Interval B is the
+   canonical case: a stack-of-MINORITIES {SILT,ZAND} enclosed by KLEI (NOT in the stack), facing a
+   KLEI/ZAND/KLEI right column. `routeLoneStack` (emitLoneStack.ts) bails because (a) the enclosing
+   matrix is not in the stack and (b) the facing carries no CONTINUOUS matrix run. The fix is NOT a
+   full-width flood (the facing is mixed) — it is the two-sided handling that treats the excluded TIED
+   facing units as BRACKET CONTEXT (the interval is really two-sided: SILT/ZAND left vs KLEI/ZAND/KLEI
+   right, with the right units tied). This is the interval restructuring the design doc flags as the
+   multi-day increment. Region 6 (the ZAND full-width) resolves only when interval B's ZAND[L3]
+   pinches (a differing flood then separates it from ZAND[R3]'s tied band at the arrangement level).
+3. **The same-formation infrastructure is READY** (`tileSameFormationTwoSided`) for any real
+   ruling-8 opposing-lens single-single that appears after (1)/(2) reshape intervals — keep it.
+4. **Regression-guard EVERY change** with the frozen battery (flag-OFF byte-identical = the safety
+   line; holes 0/0/0, CS1 7/7, 61/61 gates, v1, tsc) AND the per-section probe. Do NOT touch
+   `intersect.ts`/`seamAnchor.ts` (613-hole trap). `MULTIUNIT_SUBSTRIP_ENABLED` stays OFF until the
+   single-coherent-seam-with-notches construction replaces the blanket sub-strip flood.
