@@ -1,16 +1,24 @@
 /**
- * partitionFillV2.twoSidedTermination.test.ts — the TWO-SIDED INTERVAL TERMINATION
- * gate (ruling 8c, design partition-engine-v2.md §4 "terminate-by-default"). Each unit
- * in an ordinary gap terminates by its OWN effective corr: 2 → band, 1 → onlap riding
- * its tie (tip ~0.5), 0 → lens hugging the unit. A face that merges a genuine matched-
- * pair BAND downward through un-terminated 1-corr / 0-corr units and traces full-width
- * is the leak this increment closes.
+ * partitionFillV2.twoSidedTermination.test.ts — OWNER RULING 8e (design
+ * partition-engine-v2.md §8): SAME-FORMATION ENCLOSURE CONFORMS, with the mandatory
+ * condition that enclosed DIFFERENT-formation minorities render as their ruling-8b
+ * lenses (never absorbed/absent — "don't forget the silt lens ;)").
  *
- * Cases are the real-data offenders reduced to 2-column inputs (the exact litho stack +
- * ties from ``scripts/diag_allsections_input.json``), plus synthetic minimal shapes.
- * The battery pins the SHAPE: a 1-corr unit must NOT render full-width, and the vacated
- * space closes hole-free by composition (an adjacent unit's own contact-seam, never an
- * invented third matrix).
+ * HISTORY: this file previously held a describe.skip RED gate asserting the Tie-4 g0
+ * full-width ZAND was a ``1corr-not-onlap`` LEAK to close by restructuring the
+ * two-sided tiler. Owner ruling 8e (2026-07-15, on the real TS4 visual with his own
+ * traced loop) RE-JUDGED that shape: the ZAND boundary unit merging into the ZAND
+ * matched-pair band above is ONE sand face by construction ("it should be one sand" —
+ * zand-top tie → down the right column around the silt lens → across the basal clay
+ * tie → up the left column → back closes ONE loop). It is NOT a violation; the full-
+ * width render is CORRECT. The RED gate is therefore rewritten as a GREEN 8e case in
+ * the owner's traced-loop vocabulary:
+ *   1. the ZAND face at the boundary unit's own elevation DOES reach full width (one
+ *      sand — the 8e conforming render, the exact opposite of the old RED assertion);
+ *   2. the enclosed DIFFERENT-formation minority (the SILT lens between the two ZAND
+ *      runs) is PRESENT — a real SILT region at its own elevation, not absorbed into
+ *      the sand (ruling 8e's condition — the line network must carry it);
+ *   3. hole-free: the boundary unit's own elevation is covered.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -72,34 +80,16 @@ function maxFractionOf(regions: SectionRegion[], gap: number, fid: string): numb
   }
   return m
 }
-/** Min fraction any vertex of a region of formation ``fid`` reaches in a gap. */
-function minFractionOf(regions: SectionRegion[], gap: number, fid: string): number {
-  let m = Infinity
-  for (const r of regions) {
-    if (r.gapIndex !== gap || r.formationId !== fid) continue
-    for (const p of r.polygon) if (p.fraction < m) m = p.fraction
-  }
-  return m
-}
 
-// SKIPPED — the OPEN two-sided-termination target (ruling 8c). This RED gate encodes the
-// Tie-4 g0 offender (a base-tied ZAND boundary unit whose enclosing matrix ABOVE is a ZAND
-// matched-pair band — same-formation enclosure — so any termination flood re-merges into a
-// full-width ZAND face). Making it GREEN requires restructuring ``routeLoneStack`` /
-// ``tileInterval`` to emit per-unit terminations (onlap riding its tie, with the DIFFERENT-
-// formation neighbour band flooding the vacated wedge) — a fundamental restructuring that
-// cannot land while keeping holes 0/0/0 after every milestone (design §4 terminate-by-default
-// row + §8 ruling 7). Left describe.skip as the ready RED gate for that increment; the safe
-// same-formation-enclosure ``chooseOnlapEnclosing`` refinement (emitTerminations.ts) is the
-// first piece landed (it covers the SINGLE-UNIT interior onlap; the multi-unit stack fan is
-// the remaining work). See the final report.
-describe.skip('ruling 8c — two-sided interval termination (each unit terminates by its own corr)', () => {
-  it('Tie-4 g0: a base-tied ZAND boundary unit onlaps its tie, does NOT merge with the ZAND band above (full-width)', () => {
-    // Real Tie-section 4 columns (GEO-23/125-S21 | GEO-05/040-S2), the section's ONLY
-    // conformance violation: the RIGHT column's u7 ZAND (el −4.02..0.56) is base-tied
-    // (derived from the KLEI base-band top tie) → 1-corr → must ONLAP. Today it floods
-    // full-width and merges with the u5 ZAND matched-pair band (el 0.91..5.45) into ONE
-    // ZAND face reaching fraction 0..1 across the whole gap.
+describe('ruling 8e — same-formation enclosure conforms; the enclosed silt lens is present', () => {
+  it('Tie-4 g0: the ZAND boundary unit merges into the ZAND band above (ONE sand), and the SILT lens between them survives', () => {
+    // Real Tie-section 4 columns (GEO-23/125-S21 | GEO-05/040-S2). The RIGHT column stacks
+    // ZAND u5 (el 0.91..5.45, a matched-pair band via the top-top SAND tie) — SILT u6
+    // (el 0.56..0.91) — ZAND u7 (el −4.02..0.56, base-tied through the deep CLAY band). The
+    // owner's traced loop closes ONE sand face around the silt lens: zand-top tie → down the
+    // right column around the SILT lens → across the basal CLAY tie → up the left column →
+    // back. So the full-width ZAND at u7's own elevation is the CORRECT 8e render, and the
+    // SILT lens between the two ZAND runs must still be drawn (ruling 8e's condition).
     const lids: string[] = Array.from({ length: 5 }, () => layer())
     const rids: string[] = Array.from({ length: 9 }, () => layer())
     const left = col('L', 12.96, [
@@ -116,15 +106,15 @@ describe.skip('ruling 8c — two-sided interval termination (each unit terminate
       { top: 3.81, base: 4.25, f: CLAY, layerId: rids[3] },
       { top: 4.25, base: 7.5, f: SILT, layerId: rids[4] },
       { top: 7.5, base: 12.04, f: SAND, layerId: rids[5] },
-      { top: 12.04, base: 12.39, f: SILT, layerId: rids[6] },
-      { top: 12.39, base: 16.97, f: SAND, layerId: rids[7] },
+      { top: 12.04, base: 12.39, f: SILT, layerId: rids[6] }, // the SILT lens (el 0.56..0.91)
+      { top: 12.39, base: 16.97, f: SAND, layerId: rids[7] }, // the base-tied ZAND boundary unit
       { top: 16.97, base: 29.42, f: CLAY, layerId: rids[8] },
     ])
     // Ties (from the extractor): every L↔R top tie + the deepest CLAY base tie.
     const edges: CorrelationEdge[] = [
       { a: lids[1], b: rids[2], aSide: 'top', bSide: 'top' }, // VEEN
       { a: lids[2], b: rids[3], aSide: 'top', bSide: 'top' }, // CLAY
-      { a: lids[3], b: rids[5], aSide: 'top', bSide: 'top' }, // SAND (ZAND band)
+      { a: lids[3], b: rids[5], aSide: 'top', bSide: 'top' }, // SAND (ZAND matched-pair band)
       { a: lids[0], b: rids[0], aSide: 'top', bSide: 'top' }, // CLAY top
       { a: lids[4], b: rids[8], aSide: 'top', bSide: 'top' }, // deep CLAY top
       { a: lids[4], b: rids[8], aSide: 'base', bSide: 'base' }, // deep CLAY base
@@ -132,15 +122,22 @@ describe.skip('ruling 8c — two-sided interval termination (each unit terminate
     const alongM = [0, 35.83]
     const regions = computeSectionFillV2([left, right], edges, undefined, alongM)
 
-    // The offending u7 ZAND (el −4.02..0.56) must NOT reach the LEFT edge — it onlaps its
-    // base tie on the RIGHT, pinching short. Sample INSIDE u7's own band, near its base.
-    // A full-width ZAND face there reaches fraction 0 (the leak); an onlap does not.
-    const zandAtU7 = coverAt(regions, 0, 0.05, -2)
-    expect(zandAtU7).not.toBe(SAND)
-    // The u5 ZAND matched-pair band (el 0.91..5.45) DOES band full-width (it is 2-corr).
+    // (1) 8e CONFORMS: the ZAND face at u7's own elevation (el ≈ −2) reaches full width —
+    // ONE sand, enclosed by its own formation's tied face (the exact OPPOSITE of the old RED
+    // assertion, per ruling 8e). Sample both edges at u7's own band.
+    expect(coverAt(regions, 0, 0.05, -2)).toBe(SAND)
+    expect(coverAt(regions, 0, 0.95, -2)).toBe(SAND)
+    // The u5 ZAND matched-pair band (el 0.91..5.45) also bands full-width (it is 2-corr).
     expect(coverAt(regions, 0, 0.05, 3)).toBe(SAND)
     expect(coverAt(regions, 0, 0.95, 3)).toBe(SAND)
-    // No hole at u7's own elevation near the right column — u7 ZAND covers there.
-    expect(coverAt(regions, 0, 0.95, -2)).toBe(SAND)
+
+    // (2) DON'T FORGET THE SILT LENS: the enclosed different-formation minority between the
+    // two ZAND runs (el 0.56..0.91, on the RIGHT column) is PRESENT — a SILT region at its
+    // own elevation, near the right edge. Ruling 8e's mandatory condition: the line network
+    // must carry it (never absorbed into the sand).
+    const siltMax = maxFractionOf(regions, 0, SILT)
+    expect(siltMax).toBeGreaterThan(0.5) // a SILT region exists in the gap and reaches toward the right
+    // The SILT lens covers its own mid-elevation next to the right column (not swallowed by sand).
+    expect(coverAt(regions, 0, 0.97, 0.73)).toBe(SILT)
   })
 })
