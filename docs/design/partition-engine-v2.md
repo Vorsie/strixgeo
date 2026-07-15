@@ -310,6 +310,21 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (onlap riding the tied shared contact, unified across the four
    emission paths); the 15th is a genuine §8-Q3 surface-void (correct
    as-is, retag in the audit).
+8c. **Terminations-first emission (owner's ordering principle, adopted
+   2026-07-15 after the conformance baseline proved him right).** Every
+   failure class chased since increment 8 is a MISSING TERMINATION CURVE
+   (no lens/onlap line in the arrangement → nothing bounds the band →
+   full-width leak; the 22 + 110 conformance violations are all this).
+   The strategy for the remaining engine work is therefore NOT per-path
+   bail fixes but emission completeness: for EVERY unit, per gap per
+   side, emit its termination curve FIRST — 0-corr → the ruling-8b lens
+   closing; 1-corr → the onlap curve riding its (derived) tie — and only
+   then tile bands/floods between the lines. With the line network
+   complete, faces close by composition (the owner: "you have all lines —
+   correlation bands, onlap bands and lens bands — and you can just
+   follow the lines to see what is one body and what is not"). The
+   authority ladder (drawn ties > synthesized closings) still governs
+   CONFLICTS; this principle governs COMPLETENESS.
 8b. **0-corr lens reach — capped by unit size (owner, 2026-07-15).** A
    0-corr unit renders as a SMALL LENS AROUND THE UNIT (the unit never
    "terminates" away): auto lens reach = min(`LENS_PINCH_FRACTION` 0.45 ×
