@@ -178,6 +178,57 @@ describe('STRICT 2/1/0 — an uncorrelated unit ALWAYS terminates (ruling 8)', (
     expect(coverAt(regions, 0, 0.5, 6.5)).toBe(CLAY)
   })
 
+  it('a minority whose base rides a tied band, sitting between two DIFFERENT tied bands that converge on the facing, ONLAPS (ruling 8a — S5A|S5 KLEI)', () => {
+    // Owner's S5A|S5 trace (ruling 8a, 2026-07-15): a KLEI minority on the LEFT is enclosed
+    // above by a SILT band and below by a ZAND band. Both bands are TIED, and on the facing
+    // (RIGHT) column they CONVERGE to one contact (SILT base = ZAND top = elev 8). The KLEI's
+    // BASE contact IS the tied ZAND band's top → a DERIVED tie: the KLEI must ONLAP that tie
+    // (pinch tip riding it at ~0.5), NOT reach full width (the retired auto-match) and NOT
+    // stay a full-width band by "converging = data void" (the pre-8a bail). The owner's own
+    // closed-loop trace: the SILT face above closes AROUND the KLEI onlap notch by boundary
+    // composition — one SILT region covering the loop, no hole, no overlap.
+    const lSiltTop = layer()
+    const lKlei = layer()
+    const lZand = layer()
+    const lSiltBot = layer()
+    const rSiltTop = layer()
+    const rZand = layer()
+    const rSiltBot = layer()
+    // LEFT surface 10: SILT[10..8] KLEI[8..7] ZAND[7..5] SILT[5..2].
+    const left = col('S5A', 10, [
+      { top: 0, base: 2, f: SILT, layerId: lSiltTop, body: 'lst' },
+      { top: 2, base: 3, f: CLAY, layerId: lKlei, body: 'lk' },
+      { top: 3, base: 5, f: SAND, layerId: lZand, body: 'lz' },
+      { top: 5, base: 8, f: SILT, layerId: lSiltBot, body: 'lsb' },
+    ])
+    // RIGHT surface 10: SILT[10..8] ZAND[8..5] SILT[5..2] — no KLEI, the two bands share elev 8.
+    const right = col('S5', 10, [
+      { top: 0, base: 2, f: SILT, layerId: rSiltTop, body: 'rst' },
+      { top: 2, base: 5, f: SAND, layerId: rZand, body: 'rz' },
+      { top: 5, base: 8, f: SILT, layerId: rSiltBot, body: 'rsb' },
+    ])
+    // Ties: the SILT-top band (top-top + base-base) and the ZAND band (top-top + base-base).
+    const edges: CorrelationEdge[] = [
+      { a: lSiltTop, b: rSiltTop, aSide: 'top', bSide: 'top' },
+      { a: lSiltTop, b: rSiltTop, aSide: 'base', bSide: 'base' },
+      { a: lZand, b: rZand, aSide: 'top', bSide: 'top' },
+      { a: lZand, b: rZand, aSide: 'base', bSide: 'base' },
+    ]
+    const regions = computeSectionFillV2([left, right], edges)
+    // The KLEI ONLAPS: anchored on its own (left) column, pinching short of the far column —
+    // its far reach is an onlap tip near ~0.5, strictly NOT full width.
+    expect(minFractionOf(regions, 0, CLAY)).toBeLessThan(0.02) // on its own left column
+    expect(maxFractionOf(regions, 0, CLAY)).toBeLessThan(0.85) // pinches short (NOT full-width)
+    expect(maxFractionOf(regions, 0, CLAY)).toBeGreaterThan(0.3) // an onlap tip (~0.5)
+    // The SILT face above the ZAND-top tie closes AROUND the KLEI onlap notch (owner's trace:
+    // sand tie -> up the clay onlap -> silt top -> back, a closed SILT face). Above the rising
+    // ZAND-top tie line and below the SILT-base band, near the far column, the space is SILT.
+    expect(coverAt(regions, 0, 0.7, 7.9)).toBe(SILT)
+    expect(coverAt(regions, 0, 0.3, 7.7)).toBe(SILT)
+    // Below the ZAND-top tie the ZAND band claims the width (full-width band, never empty).
+    expect(coverAt(regions, 0, 0.9, 6)).toBe(SAND)
+  })
+
   it('two facing same-formation units WITH a drawn tie DO band full-width (the tie authorises it)', () => {
     // Same shape as above but WITH a top-top + base-base tie on the SAND pair. The tie
     // authorises the band — SAND must reach full width (a quad spanning [0..1]).
