@@ -45,6 +45,7 @@ import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
 import { emitSharedContactOnlap } from './emitSharedContactOnlap'
+import { chooseOnlapEnclosing } from './emitTerminations'
 import { emitSurfaceOnlap, surfaceExtendedUnit } from './emitSurfaceOnlap'
 import { facingCoversSpan, facingMatrixLabel } from './facingMatrix'
 import { firstLithoTopElev, type ColumnGeom } from './sectionGeom'
@@ -510,7 +511,10 @@ export function routeLoneSidePinch(
     // facing carries a different lithology (the CS1 g8 KLEI-to-surface symptom). Surface-topped
     // onlaps are the ``emitSurfaceOnlap`` route (ruling 5-revised, no invented top matrix).
     if (onlap && top.anchor && base.anchor) {
-      const enclosing = baseTied ? aboveMatrix : belowMatrix
+      // ENCLOSING-MATRIX CHOICE — the onlap notch is closed by whichever bracket enclosing
+      // DIFFERS from the unit's own formation (ruling 8a generalised to same-formation
+      // enclosure, ruling 8c). Extracted to ``emitTerminations`` to keep this file's budget.
+      const enclosing = chooseOnlapEnclosing(loneMatrixEff[0].unit.formationId, baseTied, aboveMatrix, belowMatrix)
       emitSharedContactOnlap(
         loneMatrixEff[0],
         loneSide,
