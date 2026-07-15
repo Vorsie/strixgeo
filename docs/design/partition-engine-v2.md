@@ -295,6 +295,16 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (onlap riding the tied shared contact, unified across the four
    emission paths); the 15th is a genuine §8-Q3 surface-void (correct
    as-is, retag in the audit).
+8b. **0-corr lens reach — capped by unit size (owner, 2026-07-15).** A
+   0-corr unit renders as a SMALL LENS AROUND THE UNIT (the unit never
+   "terminates" away): auto lens reach = min(`LENS_PINCH_FRACTION` 0.45 ×
+   gap, ~2× the unit's own thickness), so thin units get a hugging halo
+   and wide gaps stop producing long tongues. HARD CONSTRAINT (owner:
+   "make sure it doesn't cross correlation bands"): the lens curve is
+   clipped by band-authority curves — already by construction in the
+   arrangement, restated here so no emission path bypasses it. Drawn
+   apex overrides keep their behaviour. Conformance-gate vocabulary:
+   0 → a small lens around the unit; 1 → onlaps its tie; 2 → bands.
 8. **STRICT 2/1/0 (owner, 2026-07-14 evening, after the model-wide shape
    audit).** Uncorrelated units TERMINATE — always. Facing same-formation
    units with no drawn tie render as opposing lenses/pinches (apex
