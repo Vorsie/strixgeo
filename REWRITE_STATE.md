@@ -204,3 +204,93 @@ lens-edged class (b). Prove on Tie-4 + CS1 g3.
   24/24 · sliceAnnulus + arrangement + computeSectionFillV2 + vacancyClosure 32/32 ·
   edgedLayers 5/5 · v1 90/90 · crossgap overlap = 21 rows (pre-existing, reporter). NO engine
   code changed this session — only a new pure helper + tests + a skipped RED gate.
+
+---
+
+## 5. Session-2 plan & progress
+
+**Priority 1 (per-gap extraction for the lens-edged class):** ATTEMPTED, REVERTED — a bolt-on
+regresses the must-stay holes/overlaps gate (0/0/0). Root wall confirmed architecturally (below).
+**Priority 2 (un-skip lensEdged → green):** NOT ACHIEVED — restored to `describe.skip` (still RED
+against the engine; the fix needs the interval restructuring). VERIFIED it goes RED when un-skipped.
+**Priority 3 (regression-guard):** GREEN SUB-STATE — full baseline restored, nothing regressed.
+**Priority 4 (two-sided `tileInterval` restructuring):** NOT STARTED — deliberately not begun; a
+partial `tileInterval` change violates ruling 7 (no gaps) and the per-milestone holes-0/0/0 bar
+(design §4 "Terminate-by-default" row says it "cannot land as one increment" with that bar). It is
+the real fix for ALL of residual (a)/(b)/(c)/(d) + the 8b cap; it is a multi-day dedicated increment.
+
+### Session-2 progress log
+- 2026-07-15 session 2. Re-established the exact baseline (conformance 5/14/0=19, 8e=50, holes
+  0/0/0, CS1 7/7, all shape gates 36/36, v1 90/90, crossgap shared-column 17, tsc clean). Read the
+  full design doc + sectionGeom/emitLenses/emitIntervals/emitIntervalLenses/emitLonePinch/
+  emitLoneStack/labelFaces/slice/sliceAnnulus/facingMatrix.
+- **VERIFIED the RED gate.** Un-skipped `partitionFillV2.lensEdged.test.ts`: both cases RED
+  (CS1 g22 SILT → band, CS2 g21 SILT → absent). Restored to `describe.skip` at session end.
+- **Real-data structure probe (throwaway, now neutralised).** Dumped the exact enclosing stacks +
+  per-gap edged state + rendered regions for the two targets. Findings crystallised the wall (below).
+- **BUILT + WIRED + MEASURED + REVERTED** a per-gap enclosed-minority emitter
+  (`emitPerGapMinorities.ts`, now an inert documented stub): per gap+side it found the lens-edged
+  minorities via `buildEdgedLayers.inGap`, synthesized an enclosing-matrix FLOOD band across the
+  minority + a 0.45 lens notch, keeping the column un-merged. RESULT: **regressed holes/overlaps**
+  (Tie-6 holesAboveTD 0→29; CS1 g22 SILT-lens×ZAND-quad 6.6 cm overlap; Tie-7 0.7 cm). Reverted
+  clean — baseline byte-restored (holes 0/0/0, conformance 5/14/0, CS1 7/7, all gates green).
+
+### THE WALL (mechanism, confirmed on real data — the load-bearing session-2 finding)
+The lens-edged class (CS1 g22 SILT u1; CS2 g21 SILT u6) is a minority enclosed by ONE same
+formation M above+below on its own column, edged ONLY in the ADJACENT gap. TWO facts make it
+un-fixable by a bolt-on:
+
+1. **Column merge is UNSAFE.** `sectionGeom.extractEnclosedLenses` makes the enclosing band an
+   ANNULUS (so the minority is an interior HOLE → `slice.splitAnnulus` handles it) by SPLICING the
+   minority + its enclosing BELOW unit out of the column. But the column is SHARED across both
+   adjacent gaps. In BOTH targets the enclosing BELOW matrix unit is edged in the adjacent gap
+   (CS1 g22 u2 ZAND edged g21; CS2 g21 u7 ZAND edged g20), so splicing it out to merge the band
+   DESTROYS that gap's tie. No column-global merge can serve this class. (The section-wide
+   `edgedLayerIds` guard is coarse, but making it per-gap does NOT unblock the merge — the merge
+   itself is the unsafe operation, not the guard.)
+2. **Without the merge, the notch RIDES the column edge (holes=0).** The un-merged matrix-above
+   and matrix-below verticals are collinear on the same column x, so the minority's lens notch is a
+   NOTCH biting the column edge, not an INTERIOR hole. `slice.splitAnnulus` fires only on
+   `face.holes.length>0`, so it never separates the notch; the enclosing SAME-FORMATION band face
+   (already emitted by the interval tiler as a matched-pair band) geometrically absorbs it. A
+   bolt-on flood band to force separation just DUPLICATES that band face → measured overlap. And
+   the notch apex curves do not cross a flood curve, so `intersect.ts` won't register a separated
+   sub-loop (the 613-hole trap forbids relaxing that).
+
+CONCLUSION: this is the SAME `splitAnnulus`-bypass / flood-absorbs-the-lens wall the design doc §4
+documents for the 8-absent class. The ONLY hole-free fixes are (i) the two-sided terminations-first
+`tileInterval` restructuring (emit each unit's termination BEFORE the band/flood so the band never
+claims the minority's slot), or (ii) a notch-splitter that separates an edge-riding notch at
+holes=0 (a new arrangement/slice mechanism, `intersect.ts`-adjacent → high risk). Both are the
+dedicated §4 increment, not a session-2 bolt-on. Recorded as RED-by-design; NOT reverted-away —
+the green baseline is preserved and the RED gate + foundation stay for the restructuring session.
+
+### Session-2 verification snapshot (green sub-state)
+- tsc clean · conformance **5/14/0=19** (UNCHANGED) · 8e-enclosure 50 · reach-cap adv 2 ·
+  holes **0/0/0** · CS1 gates **7/7** · shape gates (strict210/loneSidePinch/simplerings/
+  twoSidedTermination/bandAuthority/derivedTieOnlap) + edgedLayers + sliceAnnulus **36/36** ·
+  v1 **90/90** · crossgap shared-column **17** (≤21 baseline). Engine output byte-identical to
+  session-1 end (all engine edits reverted).
+
+### Files this session (worktree, NOT committed)
+- `emitPerGapMinorities.ts` — INERT STUB (documents the failed bolt-on + the wall). Orchestrator
+  should `rm` it (bash rm denied here). It is unwired; `emitCurves.ts` is byte-restored.
+- `partitionFillV2.throwaway_lensedged.diag.test.ts` — INERT no-op stub. Orchestrator should `rm`.
+- `partitionFillV2.lensEdged.test.ts` — UNCHANGED from session 1 (describe.skip, still the RED
+  target). Verified genuinely RED when un-skipped.
+- `REWRITE_STATE.md` — this update.
+
+### Next steps (for session 3 — the interval restructuring is now unavoidable)
+1. **Do NOT retry a bolt-on emitter** (proven to regress holes — see THE WALL). The class needs the
+   two-sided terminations-first `tileInterval` replacement (design §4 "Terminate-by-default" +
+   §8c). Drive `tileInterval`/the lone-side router from `effectiveCorrForSide` PER GAP PER SIDE:
+   for each unit emit its own termination curve FIRST (0→8b-capped lens; 1→onlap tip 0.5 riding its
+   tie; 2→band) so the enclosing same-formation band NEVER claims the minority's slot, THEN tile the
+   residue. The `effectiveCorr.ts` shared helper + `edgedLayers.ts` (session 1) are the ready
+   foundation.
+2. Section-by-section, Tie-sections first (fewest cols). Re-run holes 0/0/0 + CS1 7/7 + all shape
+   gates + conformance after EVERY section — the `routeLoneStack` change touches 32 currently-OK
+   cases (guard each). Do NOT touch `intersect.ts` / `seamAnchor.ts` (613-hole trap).
+3. Un-skip `partitionFillV2.lensEdged.test.ts` only when the two targets terminate hole-free.
+4. This is genuinely a multi-day dedicated increment matching the design's Wk-2 closing-curve
+   work — budget it as such; do not expect a one-session close.
