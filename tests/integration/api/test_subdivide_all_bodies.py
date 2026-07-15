@@ -62,7 +62,7 @@ from uuid import UUID
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -2195,6 +2195,244 @@ async def test_sab_no_clobber_two_sections(
 
 
 # ---------------------------------------------------------------------------
+# DB-EDGE-SEC — DivideBoreholes edge dedup must be PER SECTION
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def borehole_two_section_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """One CPT + one borehole correlated on TWO sections, for the per-section
+    edge-dedup test.
+
+    CPT-A (two-band loose/dense qc profile) and BH-S (ZAND log, no qc) both sit
+    within the ±200 m buffer of two parallel sections S1 (y=200_000) and S2
+    (y=200_100).  BH-S is correlated to CPT-A on BOTH sections, so the SAME
+    borehole-mediated litho edge (CPT-A layer ↔ BH-S layer) is approved on each
+    section.
+
+    After ``DivideBoreholes`` materialises BH-S's geotech bands and derives the
+    borehole-mediated geotech edges, the SAME geotech layer pair (BH-S band ↔
+    CPT-A band) must be emitted on EACH section — a per-section dedup contract.
+    A model-global dedup set would emit it only on the first section processed.
+
+    Returns
+    -------
+    dict
+        Keys: ``project``, ``litho_model_id``, ``section_s1_id``,
+        ``section_s2_id``, ``cpt_a_id``, ``bh_s_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="BH two-section edge scene", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "BTS-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    geo_model_id = geo_resp.json()["id"]
+
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "BTS-Litho", "kind": "lithostratigraphic", "parent_model_id": geo_model_id},
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec1_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "BTS-S1",
+            "start_x": 148_700.0,
+            "start_y": 200_000.0,
+            "end_x": 149_600.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 200.0,
+        },
+    )
+    assert sec1_resp.status_code == 201, sec1_resp.text
+    section_s1_id = sec1_resp.json()["id"]
+
+    sec2_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "BTS-S2",
+            "start_x": 148_700.0,
+            "start_y": 200_100.0,
+            "end_x": 149_600.0,
+            "end_y": 200_100.0,
+            "epsg": 31370,
+            "projection_buffer_m": 200.0,
+        },
+    )
+    assert sec2_resp.status_code == 201, sec2_resp.text
+    section_s2_id = sec2_resp.json()["id"]
+
+    # CPT-A at y=200_050 — within both ±200 m section buffers.  Two-band profile
+    # (loose 0–4 m, dense 4–8 m) so DivideBoreholes TIN-splits BH-S into matching
+    # bands, giving a same-class pair to correlate.
+    depths_a, qc_a = _two_layer_qc(n_top=200, n_bot=200, qc_top=8.0, qc_bot=18.0)
+    cpt_a = CptOrm(
+        id=uuid7(),
+        name="BTS-CPT-A",
+        cpt_type="CPTU",
+        project_id="BTS",
+        test_id="BTS/CPT-A",
+        app_project_id=proj.id,
+        location_x=149_000.0,
+        location_y=200_050.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_a.series = CptSeriesOrm(
+        depths_m=depths_a,
+        qc_mpa=qc_a,
+        fs_mpa=[0.05] * len(depths_a),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    bh_s = BoreholeOrm(
+        id=uuid7(),
+        name="BTS-BH-S",
+        app_project_id=proj.id,
+        project_id="BTS",
+        test_id="BTS/BH-S",
+        location_x=149_300.0,
+        location_y=200_050.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        total_depth_m=8.0,
+    )
+    db_session.add_all([cpt_a, bh_s])
+    await db_session.commit()
+
+    cpt_a_contact = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_a.id), top=0.0, base=8.0, soil="ZAND"
+    )
+    bh_s_contact = await _accept_borehole_litho(
+        async_client, pid, litho_model_id, borehole_id=str(bh_s.id), top=0.0, base=8.0, soil="ZAND"
+    )
+
+    # Correlate CPT-A ↔ BH-S on BOTH sections — same litho layer pair, twice.
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=cpt_a_contact,
+        contact_b=bh_s_contact,
+        section_id=section_s1_id,
+    )
+    await _correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=cpt_a_contact,
+        contact_b=bh_s_contact,
+        section_id=section_s2_id,
+    )
+
+    return {
+        "project": proj,
+        "litho_model_id": litho_model_id,
+        "section_s1_id": section_s1_id,
+        "section_s2_id": section_s2_id,
+        "cpt_a_id": cpt_a.id,
+        "bh_s_id": bh_s.id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_divide_boreholes_edge_dedup_is_per_section(
+    borehole_two_section_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A borehole-mediated geotech layer pair on two sections must yield an edge
+    on EACH section.
+
+    Geotech edges are section-scoped (per-section uniqueness on the layer pair),
+    so the SAME pair ``(BH-S band, CPT-A band)`` correlated on S1 and S2 must
+    produce one edge per section.  DivideBoreholes derived the borehole edges
+    with a single MODEL-GLOBAL dedup set, so the pair emitted on the first
+    section suppressed the legitimate edge on the second → a missing band render
+    there (external review finding).  The fix keys the dedup per section.
+
+    DBS-1  ≥1 borehole-mediated geotech edge on section S1.
+    DBS-2  ≥1 borehole-mediated geotech edge on section S2 (the bug dropped this).
+    """
+    project = borehole_two_section_scene["project"]
+    litho_model_id = UUID(borehole_two_section_scene["litho_model_id"])
+    section_s1_id = UUID(borehole_two_section_scene["section_s1_id"])
+    section_s2_id = UUID(borehole_two_section_scene["section_s2_id"])
+    bh_s_id = borehole_two_section_scene["bh_s_id"]
+
+    sab_result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = sab_result.geotech_model_id
+
+    # Materialise BH-S bands + derive the borehole-mediated edges (per section).
+    await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    # BH-S's geotech layer ids (the borehole endpoint of each edge).
+    bh_layer_ids = set(
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.id).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id == bh_s_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert bh_layer_ids, "precondition: DivideBoreholes must materialise BH-S geotech bands"
+
+    # All geotech edges that reference a BH-S band, grouped by section.
+    bh_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.layer_a_id.in_(bh_layer_ids)
+                    | LithoContactCorrelationEdgeOrm.layer_b_id.in_(bh_layer_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    edges_s1 = [e for e in bh_edges if e.section_id == section_s1_id]
+    edges_s2 = [e for e in bh_edges if e.section_id == section_s2_id]
+
+    # DBS-1: S1 gets its borehole-mediated edge.
+    assert len(edges_s1) >= 1, (
+        f"DBS-1: no borehole-mediated geotech edge on section S1 (BH-S bands={len(bh_layer_ids)})"
+    )
+    # DBS-2: S2 gets its OWN edge for the same pair — this is what the
+    # model-global dedup set suppressed.
+    assert len(edges_s2) >= 1, (
+        "DBS-2: no borehole-mediated geotech edge on section S2 — the same "
+        "layer pair emitted on S1 suppressed it (model-global dedup bug). "
+        "Edges must be deduped per section."
+    )
+
+
+# ---------------------------------------------------------------------------
 # BH-E1 — BOREHOLE EXTRAPOLATION: borehole gets NAD class from nearest CPT
 # ---------------------------------------------------------------------------
 
@@ -3270,4 +3508,83 @@ async def test_sab_lcs_connectivity(
         f"dense bands should resolve into the same body after the LCS "
         f"edge connects them.  CPT-G bodies={g_body_ids}, "
         f"CPT-H bodies={h_body_ids}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# SAB-EMPTY — a rebuild with no litho picks clears prior geotech data
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sab_empty_rebuild_clears_stale_geotech(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A SAB rebuild after the litho model is emptied must wipe prior geotech data.
+
+    The no-picks early-return path used to skip ``_delete_all_geotech_data``:
+    it fired BEFORE the Phase-4 model-wide cleanup, so a rebuild after the litho
+    picks were cleared left the previous run's geotech layers, bodies,
+    formation-contact mirrors, and edges orphaned in the DB — the geotech model
+    no longer reflected the (empty) litho input (external review finding).
+
+    Steps:
+        1. Run SAB on the populated scene → geotech layers/bodies/FCs/edges exist.
+        2. Delete all litho layers + edges (empty the litho model).
+        3. Re-run SAB → the result is zeroed AND the DB carries zero geotech
+           layers, bodies, formation contacts, and edges for the geotech model.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    # -- Step 1: build geotech from the populated litho model -----------------
+    first = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = first.geotech_model_id
+
+    async def _count(model_cls, extra=None):  # noqa: ANN001, ANN202 — local helper
+        """Count ``model_cls`` rows for the geotech model (optional extra filter)."""
+        stmt = select(model_cls).where(model_cls.model_id == geotech_model_id)
+        if extra is not None:
+            stmt = stmt.where(extra)
+        rows = (await db_session.execute(stmt)).scalars().all()
+        return len(rows)
+
+    layers_before = await _count(LithoLayerOrm, LithoLayerOrm.status == "accepted")
+    bodies_before = await _count(BodyOrm)
+    edges_before = await _count(LithoContactCorrelationEdgeOrm)
+    assert layers_before >= 1, "precondition: SAB must materialise geotech layers"
+    assert bodies_before >= 1, "precondition: SAB must materialise geotech bodies"
+    assert edges_before >= 1, "precondition: SAB must derive geotech edges"
+
+    # -- Step 2: empty the litho model (drop all its layers + edges) ----------
+    await db_session.execute(
+        delete(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == litho_model_id
+        )
+    )
+    await db_session.execute(delete(LithoLayerOrm).where(LithoLayerOrm.model_id == litho_model_id))
+    await db_session.commit()
+
+    # -- Step 3: re-run SAB on the now-empty litho model ----------------------
+    second = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    assert second.layer_count == 0, "empty rebuild must report zero geotech layers"
+    assert second.body_count == 0, "empty rebuild must report zero geotech bodies"
+
+    # The stale geotech content from run 1 must be gone.
+    assert await _count(LithoLayerOrm, LithoLayerOrm.status == "accepted") == 0, (
+        "stale geotech litho_layer rows survived an empty rebuild"
+    )
+    assert await _count(BodyOrm) == 0, "stale geotech BodyOrm rows survived an empty rebuild"
+    assert await _count(FormationContactOrm) == 0, (
+        "stale geotech formation_contact rows survived an empty rebuild"
+    )
+    assert await _count(LithoContactCorrelationEdgeOrm) == 0, (
+        "stale geotech correlation-edge rows survived an empty rebuild"
     )
