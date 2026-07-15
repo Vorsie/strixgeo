@@ -172,6 +172,23 @@ export function isBandMember(bands: readonly GapBand[], side: 'left' | 'right', 
 }
 
 /**
+ * Ruling 8d (design §8, 2026-07-15): the TOP BAND is an IMPLICIT TIE for FIRST units. The
+ * top-band polyline (``emitSurfaceCurves`` → ``firstLithoTopElev``) spans every gap, riding
+ * each column's first-litho boundary — so the FIRST unit's TOP contact is tied by
+ * construction, exactly like a real correlation edge. A first unit whose BASE also rides a
+ * real/derived tie is therefore 2-corr → BAND (between the top band and the base tie). When
+ * the two facing first units carry DIFFERENT formations, that band is the no-auto-facies
+ * pair of midpoint quads (ruling 8d); when they match it is an ordinary same-formation band.
+ *
+ * This function reports whether the unit's TOP is implicitly tied by the top band: true iff
+ * ``ui === 0`` (the surface-topped first unit). The base still needs its own real/derived tie
+ * for the unit to reach 2-corr — that AND is applied by the caller.
+ */
+export function topBandTies(ui: number): boolean {
+  return ui === 0
+}
+
+/**
  * Shallow TD of a gap (mTAW): the HIGHER of the two facing columns' deepest base elevations.
  * Below this elevation only ONE column has data, so a full-width fill there is the deep-to-deep
  * substrate (owner §8 Q3), NOT a same-formation termination band — the 2/1/0 rule does not apply

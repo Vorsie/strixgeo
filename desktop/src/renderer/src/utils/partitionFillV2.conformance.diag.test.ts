@@ -50,6 +50,7 @@ import {
   renderedShape,
   shallowTDForGap,
   tiedFlags,
+  topBandTies,
   unitHasDirectTie,
   type RenderShape,
 } from './partitionFillV2.conformance.classify'
@@ -204,25 +205,38 @@ describe('v2 full 2/1/0 conformance gate', () => {
             }
             const direct = flags[ui]
             const derived = derivedBandTies(gi, side, ui, col, facing, activeTies)
+            // Ruling 8d (§8): the TOP BAND is an implicit tie for the FIRST unit — BUT only as
+            // the UPPER anchor of a band paired with a real/derived BASE tie. It does NOT on its
+            // own make a first unit 1-corr: a first unit tied ONLY by the top band (no base tie,
+            // nothing to band to) is the genuine §8-Q3 surface void and stays 0-corr. So the
+            // top band folds into the 2-corr test (``firstUnitTopBandBand`` below) but NOT into
+            // ``topTied`` / ``hasAnchor``.
+            const topBandTied = topBandTies(ui)
             const topTied = direct.top || derived.topShared
             const baseTied = direct.base || derived.baseShared
-            // Effective OUTCOME per the owner's 2/1/0 vocabulary (ruling 8/8a/8b), mirroring the
-            // engine's own band signal — NOT a naive tied-contact count:
+            // Effective OUTCOME per the owner's 2/1/0 vocabulary (ruling 8/8a/8b/8d), mirroring
+            // the engine's own band signal — NOT a naive tied-contact count:
             //   2 → BAND: the unit is a MATCHED-PAIR BAND member (``collectGapBands`` — a
             //       same-side, SAME-FORMATION tie between the two facing units; that pair spans
-            //       the gap full-width by construction, §4 increment-7). This is the ONLY band
-            //       authority. A unit sandwiched between two DIFFERENT-formation tied bands is a
-            //       MINORITY (mixed-bracket, ruling-pending §4 residual (b)), NOT a band — so a
-            //       naive "both contacts tied → 2" would wrongly count it. Band membership is the
-            //       correct same-formation-continuation test.
+            //       the gap full-width by construction, §4 increment-7), OR a FIRST unit whose
+            //       base rides a real/derived tie — ruling 8d makes the top band an implicit
+            //       tie, so such a first unit is banded between the top band and its base tie
+            //       (a same-formation band, or a no-auto-facies pair of midpoint quads when the
+            //       facing formation differs). A unit sandwiched between two DIFFERENT-formation
+            //       tied bands is a MINORITY (mixed-bracket, §4 residual (b)), NOT a band — so a
+            //       naive "both contacts tied → 2" would wrongly count it. Band membership +
+            //       the ruling-8d first-unit case are the correct band tests.
             //   1 → ONLAP: the unit is not a band member but a tie touches it — either a DIRECT
             //       correlation edge on its own contact, or a ruling-8a shared contact with a
             //       directly-adjacent same-side tied band (a DERIVED onlap). Tip ~0.5, riding
             //       the tie.
             //   0 → LENS: no tie touches the unit and no adjacent band shares a contact.
             const bandMember = isBandMember(bands, side, ui)
+            // Ruling 8d: a first unit whose base is tied (direct/derived) bands between the top
+            // band and the base tie — 2-corr even when it is not a same-formation matched pair.
+            const firstUnitTopBandBand = topBandTied && baseTied
             const hasAnchor = unitHasDirectTie(gi, side, ui, activeTies) || topTied || baseTied
-            const corr: 0 | 1 | 2 = bandMember ? 2 : hasAnchor ? 1 : 0
+            const corr: 0 | 1 | 2 = bandMember || firstUnitTopBandBand ? 2 : hasAnchor ? 1 : 0
 
             const rs = renderedShape(regs, u.formationId, bandLo, bandHi)
             grand.units++
@@ -284,7 +298,20 @@ describe('v2 full 2/1/0 conformance gate', () => {
               }
             } else {
               // corr === 2. Rule: BANDS (spans the gap following both ties).
-              if (rs.shape !== 'band') {
+              // Ruling 8d subtlety: a FIRST unit banded between the top band and its base tie
+              // whose FACING first unit carries a DIFFERENT formation is the no-auto-facies pair
+              // of MIDPOINT QUADS — per side each quad reaches only its OWN column edge and meets
+              // the facing formation's quad at the vertical midpoint seam. That renders as an
+              // ``onlap`` shape (reaches one edge) on this side, which is the CORRECT band render;
+              // it must NOT be flagged 2corr-not-band. A same-formation first-unit band, and a
+              // matched-pair band, still render full-width and are held to ``band``.
+              const facingFirstDiffers =
+                firstUnitTopBandBand &&
+                facing.units.length > 0 &&
+                facing.units[0].formationId !== u.formationId
+              const midpointQuadOk =
+                facingFirstDiffers && (rs.reachesLeft !== rs.reachesRight) && rs.shape !== 'absent'
+              if (rs.shape !== 'band' && !midpointQuadOk) {
                 if (rs.shape === 'absent') {
                   violation = '2corr-not-band'
                   note = '2-corr unit absent (no band drawn)'
