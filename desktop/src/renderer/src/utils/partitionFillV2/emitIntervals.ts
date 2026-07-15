@@ -33,6 +33,7 @@
 import { LENS_PINCH_FRACTION } from '../partitionFill'
 import { collectGapBands, emitBandContourCurve, emitSideSubSeams, meetFraction, untiedUnitsInInterval, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
+import { tiedFlags } from './effectiveCorr'
 import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { routeLoneSidePinch } from './emitLonePinch'
@@ -131,6 +132,12 @@ export function emitIntervalCurves(
  * this gap. A top-tie on unit ``k`` also ties the BASE of unit ``k-1`` (a contact
  * is the shared boundary between the two units — v1 ``classifyTermination`` case
  * (a)); a bridge-anchored contact counts as tied too.
+ *
+ * The direct/derived-tie pass is the SHARED ``tiedFlags`` (``effectiveCorr.ts`` — the
+ * single source of truth the conformance gate consumes too, ruling 8c). This function
+ * layers the engine-only BRIDGE-anchor extension on top: a deep-to-deep bridge that
+ * carries a unit's top/base contact ties it exactly as a correlation edge would (the
+ * same setTop/setBase asymmetry, so a bridged top also derives the unit-above's base).
  */
 function tiedContacts(
   gapIndex: number,
@@ -140,14 +147,7 @@ function tiedContacts(
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
 ): { top: boolean; base: boolean }[] {
-  const flags = Array.from({ length: nUnits }, () => ({ top: false, base: false }))
-  // v1 ``classifyTermination`` asymmetry (matcher.ts): a unit's TOP contact counts
-  // as tied only via its OWN top edge; its BASE contact counts via the unit-BELOW's
-  // top edge OR its own base edge. So a TOP tie on unit k anchors k.top AND (the
-  // shared contact) k-1.base; a BASE tie on unit k anchors ONLY k.base — it does
-  // NOT make the unit below's top read as tied (that unit needs its own edge). This
-  // is what keeps a unit sandwiched between two BAND edges (top-silt base + bot-silt
-  // top) an ONLAP, not a spurious band.
+  const flags = tiedFlags(gapIndex, side, nUnits, activeTies)
   const setTop = (ui: number): void => {
     if (ui < 0 || ui >= nUnits) return
     flags[ui].top = true
@@ -156,13 +156,6 @@ function tiedContacts(
   const setBase = (ui: number): void => {
     if (ui < 0 || ui >= nUnits) return
     flags[ui].base = true
-  }
-  for (const t of activeTies) {
-    if (t.gapIndex !== gapIndex) continue
-    const ui = side === 'left' ? t.leftUnitIndex : t.rightUnitIndex
-    const s = side === 'left' ? t.leftSide : t.rightSide
-    if (s === 'top') setTop(ui)
-    else setBase(ui)
   }
   for (let ui = 0; ui < nUnits; ui++) {
     if (bridgeAnchored.has(`${colIndex}|${ui}|top`)) setTop(ui)

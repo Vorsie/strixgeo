@@ -15,8 +15,21 @@
  */
 
 import { type PartitionPoint, type SectionRegion } from './partitionFill'
-import { type ResolvedTie } from './partitionFillV2/emitCurves'
-import { type GapBand } from './partitionFillV2/emitBands'
+
+// Corr-arithmetic (tiedFlags / derivedBandTies / isBandMember / topBandTies /
+// unitHasDirectTie / effectiveCorrForUnit) now lives in the ENGINE package as the SINGLE
+// source of truth (``partitionFillV2/effectiveCorr.ts``, ruling 8c). Re-export it here so
+// the gate keeps its import surface AND cannot drift from the engine — the engine emits the
+// termination the arithmetic names; the gate checks the render against the SAME arithmetic.
+export {
+  derivedBandTies,
+  effectiveCorrForUnit,
+  isBandMember,
+  tiedFlags,
+  topBandTies,
+  unitHasDirectTie,
+  type EffectiveCorr,
+} from './partitionFillV2/effectiveCorr'
 
 /** Within this fraction of a column edge counts as "reaches" it. */
 export const FULL_EPS = 0.02
@@ -98,97 +111,6 @@ export function renderedShape(
 }
 
 /**
- * Direct + derived tied-contact flags per unit index on a column (the engine's
- * ``tiedContacts`` rule, §4 increment-2): a TOP tie on unit k sets k.top AND k-1.base
- * (derived base-tie); a BASE tie sets only k.base. Returns {top,base} per unit index.
- */
-export function tiedFlags(
-  gapIndex: number,
-  side: 'left' | 'right',
-  nUnits: number,
-  activeTies: readonly ResolvedTie[],
-): { top: boolean; base: boolean }[] {
-  const flags = Array.from({ length: nUnits }, () => ({ top: false, base: false }))
-  const setTop = (ui: number): void => {
-    if (ui < 0 || ui >= nUnits) return
-    flags[ui].top = true
-    if (ui > 0) flags[ui - 1].base = true // derived base-tie (§4 increment-2)
-  }
-  const setBase = (ui: number): void => {
-    if (ui < 0 || ui >= nUnits) return
-    flags[ui].base = true
-  }
-  for (const t of activeTies) {
-    if (t.gapIndex !== gapIndex) continue
-    const ui = side === 'left' ? t.leftUnitIndex : t.rightUnitIndex
-    const s = side === 'left' ? t.leftSide : t.rightSide
-    if (s === 'top') setTop(ui)
-    else setBase(ui)
-  }
-  return flags
-}
-
-/**
- * Whether the unit's contact is tied DERIVED through a shared contact with a directly
- * adjacent SAME-SIDE tied band (top-top / base-base, same formation on both facing columns):
- * an adjacent-ABOVE tied band shares this unit's TOP contact; an adjacent-BELOW tied band
- * shares its BASE contact. Owner's ruling-8a derived-tie condition.
- */
-export function derivedBandTies(
-  gapIndex: number,
-  side: 'left' | 'right',
-  ui: number,
-  col: { units: { formationId: string }[] },
-  facing: { units: { formationId: string }[] },
-  activeTies: readonly ResolvedTie[],
-): { topShared: boolean; baseShared: boolean } {
-  let topShared = false
-  let baseShared = false
-  for (const t of activeTies) {
-    if (t.gapIndex !== gapIndex) continue
-    if (t.leftSide !== t.rightSide) continue // symmetric band only
-    const uIdx = side === 'left' ? t.leftUnitIndex : t.rightUnitIndex
-    const fIdx = side === 'left' ? t.rightUnitIndex : t.leftUnitIndex
-    const lu = col.units[uIdx]
-    const fu = facing.units[fIdx]
-    if (!lu || !fu || lu.formationId !== fu.formationId) continue
-    if (uIdx === ui - 1) topShared = true // above band shares my top
-    if (uIdx === ui + 1) baseShared = true // below band shares my base
-  }
-  return { topShared, baseShared }
-}
-
-/**
- * Is this unit a member of a MATCHED-PAIR BAND across the gap (the engine's own signal,
- * ``collectGapBands``: a same-side [top-top or base-base] tie between two same-formation
- * facing units)? Such a unit bands FULL-WIDTH by construction — the band quad runs from the
- * tied interface down to each column's own base (design §4 increment-7 band-first tiling).
- * This is the owner's "2 → bands" outcome regardless of whether the unit's OTHER contact
- * carries its own explicit tie: a matched-pair band spans the gap.
- */
-export function isBandMember(bands: readonly GapBand[], side: 'left' | 'right', ui: number): boolean {
-  for (const b of bands) if ((side === 'left' ? b.leftUnitIndex : b.rightUnitIndex) === ui) return true
-  return false
-}
-
-/**
- * Ruling 8d (design §8, 2026-07-15): the TOP BAND is an IMPLICIT TIE for FIRST units. The
- * top-band polyline (``emitSurfaceCurves`` → ``firstLithoTopElev``) spans every gap, riding
- * each column's first-litho boundary — so the FIRST unit's TOP contact is tied by
- * construction, exactly like a real correlation edge. A first unit whose BASE also rides a
- * real/derived tie is therefore 2-corr → BAND (between the top band and the base tie). When
- * the two facing first units carry DIFFERENT formations, that band is the no-auto-facies
- * pair of midpoint quads (ruling 8d); when they match it is an ordinary same-formation band.
- *
- * This function reports whether the unit's TOP is implicitly tied by the top band: true iff
- * ``ui === 0`` (the surface-topped first unit). The base still needs its own real/derived tie
- * for the unit to reach 2-corr — that AND is applied by the caller.
- */
-export function topBandTies(ui: number): boolean {
-  return ui === 0
-}
-
-/**
  * Shallow TD of a gap (mTAW): the HIGHER of the two facing columns' deepest base elevations.
  * Below this elevation only ONE column has data, so a full-width fill there is the deep-to-deep
  * substrate (owner §8 Q3), NOT a same-formation termination band — the 2/1/0 rule does not apply
@@ -201,18 +123,4 @@ export function shallowTDForGap(
   const tdOf = (c: { units: { baseElev: number }[] }): number =>
     Math.min(...c.units.map((u) => u.baseElev))
   return Math.max(tdOf(left), tdOf(right))
-}
-
-/** Does any active tie in the gap touch this unit's own contact (top or base), direct? */
-export function unitHasDirectTie(
-  gapIndex: number,
-  side: 'left' | 'right',
-  ui: number,
-  activeTies: readonly ResolvedTie[],
-): boolean {
-  for (const t of activeTies) {
-    if (t.gapIndex !== gapIndex) continue
-    if ((side === 'left' ? t.leftUnitIndex : t.rightUnitIndex) === ui) return true
-  }
-  return false
 }
