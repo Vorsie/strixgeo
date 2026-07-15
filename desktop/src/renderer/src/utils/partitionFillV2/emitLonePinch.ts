@@ -44,6 +44,7 @@ import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
+import { emitSharedContactOnlap } from './emitSharedContactOnlap'
 import { emitSurfaceOnlap, surfaceExtendedUnit } from './emitSurfaceOnlap'
 import { facingCoversSpan, facingMatrixLabel } from './facingMatrix'
 import { firstLithoTopElev, type ColumnGeom } from './sectionGeom'
@@ -472,8 +473,46 @@ export function routeLoneSidePinch(
   // routed here: its flood wedge is degenerate (conv coincides with the apex → self-touching
   // ring), so it stays the full-width sideways continuation (owner §8 Q3 — nothing anchors it).
   if (aboveMatrix.formationId !== belowMatrix.formationId) {
-    if (facingConverges) return false // converging = data void; keep the full-width fallback
-    if (onlap) return false // a base/top-tied mixed-bracket boundary unit → onlap route below
+    // SHARED-CONTACT ONLAP (ruling 8a, owner 2026-07-15, S5A|S5 KLEI): a mixed-bracket unit
+    // whose top OR base contact is a TIED shared contact (``onlap``) — including a CONVERGING
+    // facing bracket where the two adjacent tied bands meet at a point — is 1-corr and must
+    // ONLAP that tie, tip at ``INTERIOR_PINCH_FRACTION`` (0.5). The space beyond the tip closes
+    // by boundary composition: the ENCLOSING matrix on the UNTIED side floods around the onlap
+    // notch (owner's own trace: the SILT face above closes around the KLEI onlap). This DISSOLVES
+    // the pre-8a "converging = data void" bail (which left the unit full-width) — a shared tied
+    // contact IS an anchor, never a void. The tied band below keeps its own full-width band; it
+    // must NOT rise into the interval (routing the below matrix into the base wedge was the ZAND-
+    // above-tie symptom), so ``emitSharedContactOnlap`` floods BOTH wedges with the untied-side
+    // enclosing matrix (aboveMatrix for a base-tied onlap; belowMatrix for a top-tied one).
+    // ``emitSharedContactOnlap`` fires only for an INTERIOR minority — one sitting between two
+    // REAL tied bands (``top.anchor && base.anchor``). Its enclosing-matrix flood spans from the
+    // unit's own column to the facing convergence; against the SURFACE (a non-anchor top bracket)
+    // that flood would invent a full-width band of the above matrix UP to the surface where the
+    // facing carries a different lithology (the CS1 g8 KLEI-to-surface symptom). Surface-topped
+    // onlaps are the ``emitSurfaceOnlap`` route (ruling 5-revised, no invented top matrix).
+    if (onlap && top.anchor && base.anchor) {
+      const enclosing = baseTied ? aboveMatrix : belowMatrix
+      emitSharedContactOnlap(
+        loneMatrixEff[0],
+        loneSide,
+        loneX,
+        facingX,
+        top,
+        base,
+        baseTied,
+        enclosing,
+        nextId,
+        nextFloodId,
+        lensLabels,
+        out,
+      )
+      for (const u of baseLenses) emitLensClosing(u, loneX, facingX, LENS_PINCH_FRACTION, nextId, out)
+      return true
+    }
+    // A 0-TIED mixed-bracket unit (no shared tied contact) still TERMINATES as a LENS — but only
+    // when the facing bracket has real thickness. A CONVERGING facing with NO tied contact is a
+    // genuine data void (owner §8 Q3 — nothing anchors it): keep the full-width sideways fill.
+    if (facingConverges) return false
     // ``forceLens`` pins the apex to the unit's own mid-elevation at 0.45 (a true 0-tied lens)
     // and keeps the base edge a plain ``close`` (no onlap-id) so ``labelFaces`` reads LENS. The
     // mixed above/below flood wedges fire (both matrices non-null) and tile the vacated width.
