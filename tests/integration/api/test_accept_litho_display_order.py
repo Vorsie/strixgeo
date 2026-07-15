@@ -15,6 +15,9 @@ L2  Re-accept with unchanged suggestions is a display_order no-op.
 L3  ``build_section_snapshot`` returns formations in stratigraphic (depth)
     order (lower display_order first), not alphabetical order.
 L4  Geological parent formations are NOT mutated by accept.
+L5  A NEW shallower contact for an EXISTING formation (no new formation row)
+    still recomputes display_order — single-accept path.
+L6  Same, via the batch-accept path.
 """
 
 from __future__ import annotations
@@ -400,4 +403,185 @@ async def test_l4_geological_parent_display_order_unchanged(
         f"{geo_display_order_before} to {geo_row.display_order} — "
         "accept-litho-suggestions must only touch litho formations "
         "with contacts in the litho model"
+    )
+
+
+# ---------------------------------------------------------------------------
+# L5 — a new shallower contact for an EXISTING formation re-ranks (single accept)
+# ---------------------------------------------------------------------------
+
+
+async def _second_borehole(db_session: AsyncSession, project: ProjectOrm) -> BoreholeOrm:
+    """Create + commit a second borehole for the re-rank scenario."""
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="BH-display-order-2",
+        app_project_id=project.id,
+        project_id="TEST",
+        test_id="DO-002",
+        location_x=150100.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=30.0,
+    )
+    db_session.add(bh)
+    await db_session.commit()
+    return bh
+
+
+async def _ranks_by_name(db_session: AsyncSession, project: ProjectOrm) -> dict[str, int]:
+    """Return ``{formation_name: display_order}`` for the project's litho formations."""
+    rows = list(
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm.name, GeologicalFormationOrm.display_order)
+                .where(GeologicalFormationOrm.app_project_id == project.id)
+                .where(GeologicalFormationOrm.litho_main_soil_code.isnot(None))
+            )
+        ).all()
+    )
+    return {r.name: r.display_order for r in rows}
+
+
+async def test_l5_new_shallower_contact_for_existing_formation_reranks_single(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A new SHALLOWER contact for an EXISTING formation must recompute ranks,
+    even though no new formation row is created.
+
+    Rule (the finding): ``_recompute_litho_display_orders`` ranks each
+    formation by its shallowest (min-depth) contact — deeper = lower
+    display_order.  A later, shallower contact for a formation that already
+    exists lowers that formation's min-depth, which can flip its rank against
+    its neighbours.  The accept gate must therefore fire the recompute whenever
+    a new CONTACT was created, not only when a new FORMATION row was created.
+
+    Scenario (single-accept path):
+        BH1: ZAND 10–20 m  (creates formation ZAND, min-depth 10)
+        BH1: KLEI  5–8 m   (creates formation KLEI, min-depth 5)
+          → ranks: ZAND deeper → 0, KLEI shallower → 1
+        BH2: ZAND  2–4 m   (EXISTING formation ZAND, NO new formation;
+                             ZAND min-depth drops 10 → 2, now shallower than KLEI)
+          → ranks MUST become: KLEI (min 5, now deeper) → 0, ZAND (min 2) → 1
+    """
+    bh1_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+    bh2 = await _second_borehole(db_session, project)
+    bh2_id = str(bh2.id)
+
+    # Both create a new formation → recompute fires; baseline ranks correct.
+    await _accept(
+        async_client,
+        project.id,
+        litho_mid,
+        top=10.0,
+        base=20.0,
+        lithology="ZAND",
+        borehole_id=bh1_id,
+    )
+    await _accept(
+        async_client, project.id, litho_mid, top=5.0, base=8.0, lithology="KLEI", borehole_id=bh1_id
+    )
+    baseline = await _ranks_by_name(db_session, project)
+    assert baseline["ZAND"] < baseline["KLEI"], f"baseline expected ZAND<KLEI, got {baseline}"
+
+    # New SHALLOWER contact for EXISTING formation ZAND — no new formation row.
+    await _accept(
+        async_client, project.id, litho_mid, top=2.0, base=4.0, lithology="ZAND", borehole_id=bh2_id
+    )
+
+    ranks = await _ranks_by_name(db_session, project)
+    # ZAND is now the shallowest formation (min-depth 2 < KLEI's 5), so KLEI is
+    # the deeper/older unit → KLEI must now rank below ZAND.
+    assert ranks["KLEI"] < ranks["ZAND"], (
+        f"display_order stale: a shallower contact for existing formation ZAND "
+        f"dropped its min-depth to 2 m (< KLEI's 5 m), so KLEI is now the deeper "
+        f"unit and must have the lower display_order. Got {ranks}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# L6 — same re-rank, via the batch-accept path
+# ---------------------------------------------------------------------------
+
+
+async def test_l6_new_shallower_contact_for_existing_formation_reranks_batch(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Batch-accept path of the L5 re-rank rule.
+
+    The batch loop defers the per-anchor display-order recompute and runs it
+    ONCE after the batch, gated on whether any anchor produced new state.  That
+    gate must include "a new contact for an existing formation", not only "a new
+    formation row" — otherwise a batch that only adds shallower contacts to
+    existing formations leaves stale ranks.
+
+    Scenario:
+        First batch (creates ZAND + KLEI on BH1) — ranks ZAND<KLEI.
+        Second batch (one anchor: ZAND 2–4 m on BH2, EXISTING formation) —
+        no new formation row, but ZAND's min-depth drops → KLEI must re-rank
+        below ZAND.
+    """
+    bh1_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+    bh2 = await _second_borehole(db_session, project)
+    bh2_id = str(bh2.id)
+
+    def _anchor(borehole_id: str, lithology: str, top: float, base: float) -> dict:
+        return {
+            "borehole_id": borehole_id,
+            "suggestions": [
+                {
+                    "depth_top_m": top,
+                    "depth_base_m": base,
+                    "suggested_lithology": lithology,
+                    "confidence": "high",
+                    "source": "borehole_observation",
+                    "suggested_admixtures": [],
+                }
+            ],
+        }
+
+    # First batch — both anchors create formations → recompute fires.
+    resp1 = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho_mid}/layers/batch-accept-litho-suggestions",
+        json={
+            "anchors": [
+                _anchor(bh1_id, "ZAND", 10.0, 20.0),
+                _anchor(bh1_id, "KLEI", 5.0, 8.0),
+            ],
+            "section_id": None,
+            "run_inference": False,
+        },
+    )
+    assert resp1.status_code == 200, resp1.text
+    baseline = await _ranks_by_name(db_session, project)
+    assert baseline["ZAND"] < baseline["KLEI"], f"baseline expected ZAND<KLEI, got {baseline}"
+
+    # Second batch — one anchor, a SHALLOWER contact for EXISTING formation ZAND.
+    resp2 = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho_mid}/layers/batch-accept-litho-suggestions",
+        json={
+            "anchors": [_anchor(bh2_id, "ZAND", 2.0, 4.0)],
+            "section_id": None,
+            "run_inference": False,
+        },
+    )
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["total_created_formations"] == 0, (
+        "guard: the second batch must create NO new formation (ZAND already "
+        "exists) — that is the exact gap this test pins"
+    )
+
+    ranks = await _ranks_by_name(db_session, project)
+    assert ranks["KLEI"] < ranks["ZAND"], (
+        f"display_order stale after batch: a shallower contact for existing "
+        f"formation ZAND dropped its min-depth to 2 m (< KLEI's 5 m); KLEI is "
+        f"now deeper and must rank below ZAND. Got {ranks}"
     )
