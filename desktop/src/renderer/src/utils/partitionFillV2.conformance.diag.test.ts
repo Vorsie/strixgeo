@@ -26,6 +26,21 @@
  *   - `q3-legit`        — a genuine surface / facing-shallow-TD void (§8 Q3) — a 0-corr
  *                          unit whose terminating shape is a legitimate void, tagged not
  *                          flagged.
+ *   - `8e-enclosure`    — OWNER RULING 8e (design §8): a full-width same-formation render
+ *                          enclosed by its OWN formation's legitimately-tied face is ONE
+ *                          body by construction ("it should be one sand"). A gate FALSE
+ *                          POSITIVE (per-unit scoping of an invisible distinction inside one
+ *                          face) — tagged, not flagged, no engine change. EXEMPTION CRITERION
+ *                          (``sameFormationEnclosedByTiedBand``): the unit renders full-width
+ *                          / band in its OWN formation AND that formation carries a
+ *                          matched-pair band (drawn/derived tie, ``collectGapBands``) across
+ *                          this gap. The negative guard (ruling 8) STAYS flagged: a
+ *                          same-formation full-width with NO tie of that formation in the gap
+ *                          is the retired geometric auto-match (opposing lenses), never
+ *                          exempted. The ABSENT class is NEVER exempted — an absent minority
+ *                          is missing from the line network (ruling 8e's condition: enclosed
+ *                          different-formation minorities MUST render as their 8b lenses), so
+ *                          it stays REAL engine work.
  *
  * Gate: SHAPE_AUDIT=1 (reuses the allowed audit env var). Pure reporter — never fails.
  * Deterministic (no Date.now / Math.random; fixed iteration order). Dump:
@@ -48,6 +63,7 @@ import {
   derivedBandTies,
   isBandMember,
   renderedShape,
+  sameFormationEnclosedByTiedBand,
   shallowTDForGap,
   tiedFlags,
   topBandTies,
@@ -114,7 +130,7 @@ function groupByGap(regions: SectionRegion[]): Map<number, SectionRegion[]> {
 // Dump rows.
 // ---------------------------------------------------------------------------
 type ViolClass = '0corr-not-lens' | '1corr-not-onlap' | '2corr-not-band'
-type AdvClass = '0corr-reach-exceeds-cap' | 'q3-legit'
+type AdvClass = '0corr-reach-exceeds-cap' | 'q3-legit' | '8e-enclosure'
 
 interface ConfRow {
   section: string; gap: number; colLeft: string; colRight: string
@@ -162,6 +178,7 @@ describe('v2 full 2/1/0 conformance gate', () => {
       '2corr-not-band': 0,
       '0corr-reach-exceeds-cap': 0,
       'q3-legit': 0,
+      '8e-enclosure': 0, // ruling-8e same-formation-enclosure exemptions (tagged, not flagged)
     }
 
     for (const sec of raw.sections) {
@@ -176,7 +193,7 @@ describe('v2 full 2/1/0 conformance gate', () => {
       const { activeTies } = emitCurves(section)
       const geom = section.columns // ColumnGeom[] with topElev/baseElev per unit
 
-      const sec0 = { '0corr-not-lens': 0, '1corr-not-onlap': 0, '2corr-not-band': 0, 'q3-legit': 0, 'cap': 0 }
+      const sec0 = { '0corr-not-lens': 0, '1corr-not-onlap': 0, '2corr-not-band': 0, 'q3-legit': 0, '8e-enclosure': 0, 'cap': 0 }
 
       // Every unit belongs to two gaps (its left face = gap ci-1, its right face = gap ci).
       // We evaluate a unit's termination shape SEPARATELY into each adjacent gap — that is
@@ -251,12 +268,22 @@ describe('v2 full 2/1/0 conformance gate', () => {
             const isSurfaceFirst = ui === 0
             const facingTD = Math.min(...facing.units.map((fu) => fu.baseElev))
             const facesShallowVoid = facingTD > bandLo + 0.01 && bandHi > facingTD // unit's band drops below facing TD
+            // Ruling 8e (§8): the full-width render is enclosed by the unit's OWN formation's
+            // legitimately-tied face (a matched-pair band of that formation exists in the gap)
+            // → ONE body by construction, a gate false positive. Only checked on a full-width /
+            // band render — an ABSENT minority is never 8e-exempt (the missing lens IS the
+            // engine work ruling 8e's condition mandates).
+            const enclosedByOwnTiedBand = sameFormationEnclosedByTiedBand(bands, u.formationId)
 
             if (corr === 0) {
               // Rule: SMALL LENS around the unit — never full-width, never band.
               if (rs.shape === 'band' || (rs.reachesLeft && rs.reachesRight)) {
-                // Full-width: a violation UNLESS it is a genuine §8 Q3 void case (tag, not flag).
-                if (isSurfaceFirst || facesShallowVoid) {
+                // Full-width: a violation UNLESS it is a genuine §8 Q3 void case (tag, not flag)
+                // OR a ruling-8e same-formation enclosure by an own-formation tied band.
+                if (enclosedByOwnTiedBand) {
+                  advisory = '8e-enclosure'
+                  note = '0-corr full-width but §8-e same-formation enclosure by own tied band (one body)'
+                } else if (isSurfaceFirst || facesShallowVoid) {
                   advisory = 'q3-legit'
                   note = `0-corr full-width but §8-Q3 void (surfaceFirst=${isSurfaceFirst} facesShallowVoid=${facesShallowVoid})`
                 } else {
@@ -281,8 +308,18 @@ describe('v2 full 2/1/0 conformance gate', () => {
             } else if (corr === 1) {
               // Rule: ONLAPS its tie (tip ~0.5, riding the tie line).
               if (rs.shape === 'band' || (rs.reachesLeft && rs.reachesRight)) {
-                violation = '1corr-not-onlap'
-                note = '1-corr unit renders full-width instead of onlapping its tie'
+                // Ruling 8e: a full-width same-formation render enclosed by its OWN formation's
+                // tied band is one body by construction (the Tie-4 ZAND boundary unit merging
+                // into the ZAND matched band above — "it should be one sand"). Gate false
+                // positive, tagged not flagged. NO tie of that formation in the gap → stays a
+                // violation (ruling 8 opposing-lens case).
+                if (enclosedByOwnTiedBand) {
+                  advisory = '8e-enclosure'
+                  note = '1-corr full-width but §8-e same-formation enclosure by own tied band (one body)'
+                } else {
+                  violation = '1corr-not-onlap'
+                  note = '1-corr unit renders full-width instead of onlapping its tie'
+                }
               } else if (rs.shape === 'absent') {
                 violation = '1corr-not-onlap'
                 note = '1-corr unit absent (no onlap drawn)'
@@ -329,6 +366,9 @@ describe('v2 full 2/1/0 conformance gate', () => {
             if (advisory === 'q3-legit') {
               grand['q3-legit']++
               sec0['q3-legit']++
+            } else if (advisory === '8e-enclosure') {
+              grand['8e-enclosure']++
+              sec0['8e-enclosure']++
             } else if (advisory === '0corr-reach-exceeds-cap') {
               grand['0corr-reach-exceeds-cap']++
               sec0['cap']++
@@ -358,6 +398,7 @@ describe('v2 full 2/1/0 conformance gate', () => {
         '1corr-not-onlap': sec0['1corr-not-onlap'],
         '2corr-not-band': sec0['2corr-not-band'],
         'q3-legit': sec0['q3-legit'],
+        '8e-enclosure': sec0['8e-enclosure'],
         'reach-cap-advisory': sec0['cap'],
       })
 
@@ -365,7 +406,7 @@ describe('v2 full 2/1/0 conformance gate', () => {
         `\n=== ${sec.name}: cols=${columns.length} v2reg=${r2.length} | ` +
           `0corr-not-lens=${sec0['0corr-not-lens']} 1corr-not-onlap=${sec0['1corr-not-onlap']} ` +
           `2corr-not-band=${sec0['2corr-not-band']} | q3-legit=${sec0['q3-legit']} ` +
-          `reach-cap(adv)=${sec0['cap']}`,
+          `8e-encl=${sec0['8e-enclosure']} reach-cap(adv)=${sec0['cap']}`,
       )
       for (const r of rows.filter((x) => x.section === sec.name && x.violation)) {
         console.log(
@@ -395,6 +436,7 @@ describe('v2 full 2/1/0 conformance gate', () => {
     console.log(`  -> TOTAL VIOLATIONS: ${totalViolations}`)
     console.log(`  advisory 0corr-reach-exceeds-cap (ruling 8b): ${grand['0corr-reach-exceeds-cap']}  (advisory, not a violation)`)
     console.log(`  advisory q3-legit (§8 Q3 genuine void)      : ${grand['q3-legit']}  (tagged, not a violation)`)
+    console.log(`  advisory 8e-enclosure (ruling 8e one-body)  : ${grand['8e-enclosure']}  (gate false positive, tagged not flagged)`)
     console.log(`  dumped -> ${DUMP}`)
     console.log('##############################################')
     expect(true).toBe(true)

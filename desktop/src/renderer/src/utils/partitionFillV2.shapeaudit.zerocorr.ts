@@ -13,6 +13,17 @@
  * width BELOW the shallow TD are the deep-to-deep substrate (owner §8 Q3) and are excluded —
  * they are bounded by the shallow TD floor, not a same-formation termination band.
  *
+ * OWNER RULING 8e (design partition-engine-v2.md §8) — SAME-FORMATION ENCLOSURE CONFORMS. A
+ * full-width same-formation face enclosed by its OWN formation's legitimately-tied face is ONE
+ * body by construction ("it should be one sand") — a gate FALSE POSITIVE, not a ruling-8
+ * violation. This counter ALREADY implements that exemption: ``formationHasTieAcrossGap``
+ * excludes any full-width whose formation carries a same-formation tie across the gap (line
+ * ~191). What REMAINS flagged is exactly ruling 8's negative guard — a same-formation
+ * full-width with NO tie of that formation in the gap (the retired geometric auto-match: two
+ * untied same-formation units are OPPOSING LENSES, not one band). So the 8e rescope leaves this
+ * counter numerically unchanged (the tied-face full-widths were never flagged); the remaining
+ * ``same-form-enclosure`` rows are the UNTIED ruling-8 residual, correctly still flagged.
+ *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 

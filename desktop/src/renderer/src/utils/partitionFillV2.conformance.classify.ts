@@ -15,6 +15,7 @@
  */
 
 import { type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type GapBand } from './partitionFillV2/emitBands'
 
 // Corr-arithmetic (tiedFlags / derivedBandTies / isBandMember / topBandTies /
 // unitHasDirectTie / effectiveCorrForUnit) now lives in the ENGINE package as the SINGLE
@@ -108,6 +109,53 @@ export function renderedShape(
   // apex = how far the shape reaches from whichever edge it is anchored to (its widest run).
   const apex = reachesLeft ? hi : reachesRight ? 1 - lo : hi - lo
   return { shape, fracLo: lo, fracHi: hi, apex, reachesLeft, reachesRight }
+}
+
+/**
+ * OWNER RULING 8e (design partition-engine-v2.md §8) — SAME-FORMATION ENCLOSURE CONFORMS.
+ *
+ * A flagged unit whose full-width same-formation extent MERGES INTO its own formation's
+ * legitimately-tied face is NOT a violation ("it should be one sand" — the owner's traced
+ * loop closes ONE face). Operationalised as: the unit's formation carries a MATCHED-PAIR
+ * BAND (a drawn/derived same-side same-formation tie — ``collectGapBands``) across THIS gap.
+ *
+ * Why "same formation has a matched-pair band in the gap" is exactly "enclosed by its own
+ * formation's TIED face":
+ *   - The unit already renders FULL WIDTH of that formation (the gate flagged it precisely
+ *     because the engine traced it as one same-formation face reaching both edges).
+ *   - A matched-pair band of that formation in the same gap is tie-anchored at its outer
+ *     boundary (``collectGapBands`` requires a same-side, same-formation tie between the two
+ *     facing units). v2 traces the unit's extent and that band as ONE contiguous
+ *     same-formation face (that merge is *why* the unit reads full-width). Following the lines
+ *     — band top-tie down one column around any different-formation minority, across the
+ *     tie-anchored basal contact, back up — closes one body. Per-unit scoping drew an
+ *     invisible distinction inside that one body: the gate false positive ruling 8e retires.
+ *
+ * NEGATIVE GUARD (stays flagged — ruling 8): a same-formation full-width render with NO tie
+ * of that formation ANYWHERE in the gap is the retired geometric auto-match — two untied
+ * same-formation units are OPPOSING LENSES, not one band. ``collectGapBands`` returns no
+ * band of that formation → this returns ``false`` → the unit stays flagged. So this blesses
+ * ONLY enclosure by a genuinely TIED face, never a blanket same-formation exemption.
+ *
+ * Parameters
+ * ----------
+ * bands : readonly GapBand[]
+ *     The gap's matched-pair bands (``collectGapBands`` — tie-justified same-formation pairs).
+ * formationId : string
+ *     The flagged unit's formation.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when the unit's formation has a tie-anchored matched-pair band in this gap
+ *     (the merged face is one body by construction — ruling 8e exempts it).
+ */
+export function sameFormationEnclosedByTiedBand(
+  bands: readonly GapBand[],
+  formationId: string,
+): boolean {
+  for (const b of bands) if (b.formationId === formationId) return true
+  return false
 }
 
 /**
