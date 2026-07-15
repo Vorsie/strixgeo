@@ -165,7 +165,12 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
             project_id=project_id, litho_model_id=litho_model_id
         )
 
-        any_created_formation = False
+        # Tracks whether ANY anchor produced new state that can change the
+        # display-order ranking — a new formation row OR a new contact.  A new
+        # shallower contact for an existing formation lowers that formation's
+        # min-depth (the recompute ranks by shallowest contact), so it can flip
+        # ranks without creating a formation row.
+        any_created = False
         # Aggregate geological formation ids snapped across all anchors (#162
         # Task 4): the router uses this set to rebuild geo surfaces ONCE after
         # the full batch rather than once per anchor.
@@ -188,7 +193,9 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
                     batch_ctx=batch_ctx,
                     couple_tolerance_m=couple_tolerance_m,
                 )
-                any_created_formation = any_created_formation or bool(result.created_formation_ids)
+                any_created = any_created or bool(
+                    result.created_formation_ids or result.created_contact_ids
+                )
                 all_touched_geo_formation_ids.update(result.touched_geo_formation_ids)
                 outcomes.append(
                     BatchAnchorOutcome(
@@ -219,8 +226,10 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
 
         # Display-order recompute runs ONCE for the whole batch (each accept
         # deferred it via batch_ctx) — the per-anchor recompute scans the
-        # growing contact set, so N runs would be O(N²).
-        if any_created_formation:
+        # growing contact set, so N runs would be O(N²).  Gated on any new
+        # formation OR contact: a shallower contact for an existing formation
+        # re-ranks it without creating a formation row.
+        if any_created:
             await accept_uc._recompute_litho_display_orders(litho_model_id=litho_model_id)
 
         # One commit for every accepted anchor (and the deferred contact INSERTs).
