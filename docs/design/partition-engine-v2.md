@@ -336,6 +336,22 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (onlap riding the tied shared contact, unified across the four
    emission paths); the 15th is a genuine §8-Q3 surface-void (correct
    as-is, retag in the audit).
+8f. **The owner's algorithm statement (2026-07-15 late, while reading
+   `effectiveCorr.ts` — the canonical formulation of 8c, verbatim):**
+   "First find lenses per column by looking if a contact has a
+   correlation on one side: if it has no correlation on the left side,
+   emit lens left; if it has 1 correlation on left side, emit onlap left
+   (same for the right). That way you'll have all lenses and onlaps
+   FIRST; if the model is correlated correctly you can just fill in the
+   void with the dominant lithology between correlations." Notes: the
+   'has a correlation' predicate = `effectiveCorr` (direct + shared-
+   contact derived + band membership + top band — each owner-ruled);
+   'dominant lithology fill' = boundary composition (the void's claimant
+   is the unit whose contacts bound it), with the validated midpoint
+   seam as the mismatched tiebreak. This is the target shape of
+   `tileGap.ts` in the rewrite: simple loop, rich predicate, no routing
+   fall-throughs — a unit cannot be missed if its termination is emitted
+   before any filling happens.
 8e. **Same-formation enclosure CONFORMS — one body by construction (owner,
    2026-07-15 afternoon, ruled on the real TS4 visual with his own traced
    loop).** A unit whose flagged extent is enclosed by its own formation's
