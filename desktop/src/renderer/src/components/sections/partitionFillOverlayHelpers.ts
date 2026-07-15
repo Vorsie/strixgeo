@@ -254,6 +254,93 @@ export interface ScreenLens {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Fraction slack (of the gap width) for treating a vertex as sitting ON a column
+ *  face. A shapeable termination is any vertex strictly INSIDE the gap by more than
+ *  this — i.e. a tip that does not touch either column edge. */
+const TIP_FRACTION_EPS = 0.02
+
+/**
+ * True when a partition region carries an OWNER-SHAPEABLE termination — a lens
+ * or a lone pinch that tapers to a tip somewhere INSIDE the gap (not a
+ * full-gap-width band).  These are the regions whose apex the freedraw / alt-drag
+ * gesture can reshape.
+ *
+ * WHY read the polygon, not just ``kind``: the two partition engines classify the
+ * same shape differently. v1 emits a lone interior pinch-out as ``kind:'lens'``
+ * (overlayTier 'onlap'/'lens'); v2's closed-loop engine emits an ONLAP tip as
+ * ``kind:'pinch'`` (``slice.ts``: BAND→'quad', ONLAP→'pinch', LENS→'lens'). Gating
+ * the apex handles on ``kind==='lens'`` alone silently dropped every v2 pinch tip's
+ * handle — the "alt-click gesture is gone" dogfeed report. The engine-agnostic
+ * signal is the SHAPE: a ``lens`` is always shapeable; a ``pinch`` is shapeable iff
+ * it terminates at a mid-gap tip (some vertex is strictly inside the gap AND the
+ * region does not already span the full [0,1] fraction width). A full-width pinch
+ * (a mixed-tie rising triangle or a facing-column fill that reaches both columns)
+ * has no tip to grab and stays excluded.
+ *
+ * @param region A partition region (its ``polygon`` is in fraction×elevation space,
+ *               fraction 0 = left column, 1 = right).
+ * @returns      True when the region's termination can be reshaped by the apex drag.
+ */
+export function isApexShapeable(region: PartitionRegion): boolean {
+  if (region.kind === 'lens') return true
+  if (region.kind !== 'pinch') return false
+  // A pinch is shapeable only when it has an interior tip. Two facts must hold:
+  //   (1) at least one vertex sits strictly inside the gap (a mid-gap apex), and
+  //   (2) the region does NOT already span the whole gap width (a full-width pinch
+  //       touches BOTH columns and has no free tip).
+  let fMin = Infinity
+  let fMax = -Infinity
+  let hasInteriorVertex = false
+  for (const p of region.polygon) {
+    if (p.fraction < fMin) fMin = p.fraction
+    if (p.fraction > fMax) fMax = p.fraction
+    if (p.fraction > TIP_FRACTION_EPS && p.fraction < 1 - TIP_FRACTION_EPS) {
+      hasInteriorVertex = true
+    }
+  }
+  const spansFullWidth = fMin <= TIP_FRACTION_EPS && fMax >= 1 - TIP_FRACTION_EPS
+  return hasInteriorVertex && !spansFullWidth
+}
+
+/**
+ * Resolve the SOURCE column corners (top + base of the full-height edge) and the
+ * anchored ``side`` of a shapeable region's polygon, robust to BOTH engines'
+ * vertex orderings.
+ *
+ * A lens/pinch tip has one full-height edge on a column face (fraction 0 or 1) and
+ * tapers to a mid-gap apex on the opposite side. v1 lens polygons start at the
+ * source corner (``polygon[0].fraction`` is 0 or 1); v2 pinch polygons may start at
+ * the tip instead (observed ``verts=0.50>1.00>1.00``). So the source corners are
+ * derived from the polygon EXTENT: the anchored side is whichever column face
+ * (fraction 0 or 1) the region reaches, and the source-top / source-base are the
+ * highest / lowest-elevation vertices ON that face.
+ *
+ * @param poly  The region polygon in fraction×elevation space.
+ * @returns     ``side`` (which column the region is anchored to) + the source
+ *              top/base points in fraction×elevation space, or ``null`` when the
+ *              polygon reaches neither face (should not happen for a shapeable region).
+ */
+export function resolveSourceCorners(poly: readonly { fraction: number; elevation: number }[]): {
+  side: 'left' | 'right'
+  sourceTop: { fraction: number; elevation: number }
+  sourceBase: { fraction: number; elevation: number }
+} | null {
+  // Prefer the LEFT face (fraction 0); fall back to the RIGHT face (fraction 1).
+  const onLeft = poly.filter((p) => p.fraction <= TIP_FRACTION_EPS)
+  const onRight = poly.filter((p) => p.fraction >= 1 - TIP_FRACTION_EPS)
+  const side: 'left' | 'right' = onLeft.length >= 2 ? 'left' : onRight.length >= 2 ? 'right' : onLeft.length ? 'left' : 'right'
+  const face = side === 'left' ? onLeft : onRight
+  if (face.length === 0) return null
+  // Highest elevation = top corner, lowest = base corner.
+  let top = face[0]
+  let base = face[0]
+  for (const p of face) {
+    if (p.elevation > top.elevation) top = p
+    if (p.elevation < base.elevation) base = p
+  }
+  return { side, sourceTop: top, sourceBase: base }
+}
+
 /**
  * Reconstruct a lens polygon from the source corner points + multi-node
  * upper/lower edge polylines.

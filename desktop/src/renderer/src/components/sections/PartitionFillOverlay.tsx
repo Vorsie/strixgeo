@@ -82,7 +82,9 @@ import {
 import type { PlacedColumn } from './utils'
 import {
   buildLensPolygon,
+  isApexShapeable,
   labelAnchor,
+  resolveSourceCorners,
   type AddNodePreview,
   type BoundaryDrag,
   type ColumnScreen,
@@ -844,7 +846,10 @@ export default function PartitionFillOverlay({
       for (let k = out.length - 1; k >= 0; k--) {
         if (out[k].leftX !== leftX || out[k].rightX !== rightX) break
         const sr = out[k]
-        if (sr.region.kind !== 'lens') continue
+        // Rebuild the fill polygon for ANY shapeable tip (v2 lens + pinch/onlap tip)
+        // that the user has shaped with stored nodes — mirrors the ``screenLenses``
+        // handle gate so the coloured fill follows the same freedraw the handles show.
+        if (!isApexShapeable(sr.region)) continue
         const bodyId = sr.region.bodyId
         if (!bodyId || !onSaveBoundary) continue // only when saving is wired
         // The domain now owns the freedraw shape (built + clipped + notched) when
@@ -867,13 +872,16 @@ export default function PartitionFillOverlay({
           continue
         }
 
-        // Determine lens side from the polygon's first corner fraction.
-        const side: 'left' | 'right' = sr.region.polygon[0].fraction === 0 ? 'left' : 'right'
+        // Source side + corners from the polygon EXTENT (v2 pinch polygons may not
+        // start at the column-face vertex — see ``resolveSourceCorners``).
+        const corners = resolveSourceCorners(sr.region.polygon)
+        if (!corners) continue
+        const side = corners.side
 
         // Source corners in screen coords: fraction=0 or fraction=1 → column edge.
         const gapW = rightX - leftX
-        const srcTop = sr.region.polygon[0]
-        const srcBase = sr.region.polygon[sr.region.polygon.length - 1]
+        const srcTop = corners.sourceTop
+        const srcBase = corners.sourceBase
         const sourceTopPt = {
           x: leftX + srcTop.fraction * gapW,
           y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(srcTop.elevation))),
@@ -1336,19 +1344,28 @@ export default function PartitionFillOverlay({
     const out: ScreenLens[] = []
     for (let ri = 0; ri < screenRegions.length; ri += 1) {
       const sr = screenRegions[ri]
-      if (sr.region.kind !== 'lens') continue
+      // Shapeable termination = v2 lens AND lone pinch/onlap tip (engine-agnostic
+      // read of the SectionRegion contract). The v1 ``kind==='lens'`` gate silently
+      // dropped every v2 pinch tip's apex handle — the "alt-click gesture is gone"
+      // dogfeed. ``isApexShapeable`` keeps full-width bands/pinches (no tip) excluded.
+      if (!isApexShapeable(sr.region)) continue
       const bodyId = sr.region.bodyId
       if (!bodyId) continue
 
-      const side: 'left' | 'right' = sr.region.polygon[0].fraction === 0 ? 'left' : 'right'
+      // Derive the anchored side + source corners from the polygon EXTENT, not from
+      // ``polygon[0]``: v2 pinch polygons may START at the mid-gap tip (observed
+      // ``verts=0.50>1.00>1.00``), so index-0 is not reliably the column-face corner.
+      const corners = resolveSourceCorners(sr.region.polygon)
+      if (!corners) continue
+      const side = corners.side
       const b = boundariesByBodyId?.get(bodyId)
       const upperStored = b?.upper_nodes ?? []
       const lowerStored = b?.lower_nodes ?? []
 
       // Source corners (fraction 0 or 1 = column face) in screen coords.
       const gapW = sr.rightX - sr.leftX
-      const srcTop = sr.region.polygon[0]
-      const srcBase = sr.region.polygon[sr.region.polygon.length - 1]
+      const srcTop = corners.sourceTop
+      const srcBase = corners.sourceBase
       const sourceTopPt = {
         x: sr.leftX + srcTop.fraction * gapW,
         y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(srcTop.elevation))),
