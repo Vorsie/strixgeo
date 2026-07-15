@@ -294,3 +294,135 @@ the green baseline is preserved and the RED gate + foundation stay for the restr
 3. Un-skip `partitionFillV2.lensEdged.test.ts` only when the two targets terminate hole-free.
 4. This is genuinely a multi-day dedicated increment matching the design's Wk-2 closing-curve
    work — budget it as such; do not expect a one-session close.
+
+---
+
+## 6. Session-3 plan & progress — THE REWRITE IS BEGUN (scaffold + single-single + wiring)
+
+Session 3 STARTED the `tileInterval` restructuring per the protocol clarification (a
+half-rewritten, flag-gated, partially-red `tileGap` path is the EXPECTED end state). No
+re-diagnosing, no reverting — built forward. The flag-OFF default is BYTE-IDENTICAL to the
+session-2 baseline (full battery green); the new path is behind a runtime flag and validated
+per-section by a throwaway oracle.
+
+### Architecture built (all in the worktree, NOT committed — orchestrator commits)
+
+1. **`partitionFillV2/tileFlags.ts`** (NEW) — the cut-over flag. `twoSidedTerminationsEnabled()`
+   / `setTwoSidedTerminations(value): prevValue`. Runtime-mutable (mirrors `ENABLE_ENCLOSED_LENS`
+   but toggleable so a test/oracle flips it without a rebuild). Default **OFF**. Because the v2
+   engine has NO section identity threaded through `computeSectionFillV2` (columns/edges/alongM
+   only), the cut-over is a MODULE-LEVEL flag, not a per-section switch — the per-section
+   validation happens in the oracle (flip flag, read THAT section's rows). Flipping default→ON +
+   deleting the old seam path is the cut-over.
+
+2. **`partitionFillV2/tileGap.ts`** (NEW) — the terminations-first two-sided tiler
+   `tileGapTwoSided(ctx, nextId, nextFloodId, lensLabels, out): boolean`. Driven by
+   `effectiveCorrForSide` (session-1 foundation). Structure:
+   - `withCorr(matrix, col, corr)` maps each interval matrix unit back to its column unit index
+     → carries its per-gap 2/1/0.
+   - **SINGLE-SINGLE different-formation** (`tileSingleSingle`): IMPLEMENTED + correct. Each side
+     one unit of different formations → each terminates by its own corr (1 → `emitSharedContactOnlap`
+     onlap tip 0.5; 0 → `emitLensClosing` 0.45 lens + a facing-column flood band). The facing
+     formation floods the vacated wedge (differs from the terminating unit by construction, so
+     `chooseOnlapEnclosing` always picks a real neighbour band — never a same-formation re-merge).
+     ALL-OR-NOTHING: buffers into a local `buf`/`labelPatch`, merges into `out`/`lensLabels` only
+     on full success (a partial emit + the caller's seam-fallback would double-cover — ruling 7).
+   - **MULTI-UNIT two-sided**: bails (returns false → seam tiler) with a diag reason. This is the
+     core residual, NOT yet implemented (see §6 next-steps).
+   - THROWAWAY diag counters `TILEGAP_DIAG` / `tileGapDiagReset()` (marked THROWAWAY; only bumped
+     when the flag is on = never in default output) record the per-interval bail taxonomy. The
+     orchestrator should strip this block at cut-over. `intersect.ts`/`seamAnchor.ts` UNTOUCHED.
+
+3. **`emitIntervals.ts`** (WIRED) — `emitIntervalCurves` now computes `leftCorr`/`rightCorr` per
+   gap via `effectiveCorrForSide` (shared with the conformance gate's arithmetic) and threads them
+   through `emitGapIntervals` → `tileInterval`. Inside `tileInterval`, AFTER the enclosed-lens
+   extraction + lone-side + same-formation-band early returns and BEFORE the seam model, when
+   `twoSidedTerminationsEnabled()` it calls `tileGapTwoSided`; on `true` it returns (skips the
+   seam), on `false` it falls through to the unchanged seam model. `LonePinchBracket` and the
+   local `Bracket` are structurally identical (leftElev/rightElev/anchor) — passed directly.
+   (File is now 537 lines — over the 500 warn; the real logic is in `tileGap.ts`, the growth here
+   is only the import + the ~15-line routing block. Acceptable per the extraction rule.)
+
+### Per-section cut-over status (the oracle: `scripts/diag_tilegap_probe.json`)
+
+Flag-ON grand conformance == flag-OFF grand == **5/14/0** (single-single fires on ZERO real
+intervals — every real offender is multi-unit/lone/termbail, exactly as the design predicted).
+NOTHING regressed; the new path is inert-on-real-data BY SCOPE, not by accident.
+
+**Bail taxonomy for the 14 sections (why `tileGapTwoSided` did/didn't fire):**
+- `fired` = 0 across ALL sections (single-single matches no real offender).
+- `multiunit-L*-R*` — the CORE case: Tie-8 (L4/R2), Tie-10 g0 (L2/R3), CS3 (L1/R2), CS1 (L1/R2 +
+  L4/R1). A stack facing a stack; per-unit terminations need the vacated-space re-closure.
+- `lone` — Tie-12, CS1×7, CS2×4: reached the two-sided tiler with one matrix side EMPTY (the
+  lone-side router `routeLoneSidePinch` already returned false for these = data-void/bail); they
+  are the boundary/mixed absent class.
+- `termbail` — Tie-11, CS3×2, CS2: single-single reached but the unit does NOT fill its interval
+  side (the ±0.02 fill-check fails — a strip would be uncovered); needs the sub-strip split.
+
+**Tie-10 g0 (the smallest violation section) traced concretely** (`scripts/diag_tie10.json`):
+the offending render is a full-width ZAND `quad` el[-2.69..4.05] — L u5 ZAND [-2.69..3.57] and
+R u3 ZAND [-2.29..3.55] (both 1-corr, tied to OTHER contacts, NO matched-pair ZAND band in the
+gap so NOT 8e-exempt) are the SAME formation at overlapping elevation, so the seam tiler /
+geometric-band merges them into ONE full-width ZAND face. Flag-ON == flag-OFF here (bails
+multiunit-L2-R3). The correct render = each onlaps its own tie; the ZAND slot between is NOT one
+band. This is the retired geometric same-formation auto-match (ruling 8) surfacing in the
+MULTI-UNIT two-sided path.
+
+### Verification snapshot (end of session 3)
+
+- **flag OFF (default engine output): BYTE-IDENTICAL to session-2 baseline** — conformance
+  **5/14/0=19**, 8e 50, reach-cap 2, q3 5 · holes **0/0/0** · CS1 **7/7** · shape gates
+  (strict210/loneSidePinch/simplerings/twoSidedTermination/bandAuthority/derivedTieOnlap/
+  edgedLayers/sliceAnnulus) + computeSectionFillV2 + arrangement + vacancyClosure **61/61** ·
+  v1 **90/90** · tsc clean.
+- **flag ON: grand conformance UNCHANGED (5/14/0)** — the single-single path fires on zero real
+  intervals; no section regressed. Multi-unit/lone/termbail all bail to the seam tiler (the
+  intentional intermediate RED — the seam tiler keeps its full-width leak on those intervals).
+
+### Session-3 files (worktree, NOT committed)
+
+- `partitionFillV2/tileFlags.ts` (NEW, committed-quality) — the cut-over flag.
+- `partitionFillV2/tileGap.ts` (NEW) — terminations-first tiler; single-single done, multi-unit
+  bails. Carries a THROWAWAY `TILEGAP_DIAG` block (strip at cut-over).
+- `partitionFillV2/emitIntervals.ts` (EDITED) — corr arrays threaded + `tileGapTwoSided` routing
+  behind the flag. Flag-off byte-identical.
+- STUBS to delete (bash rm denied here): `partitionFillV2.throwaway_tilegap_probe.diag.test.ts`,
+  `partitionFillV2.throwaway_tie10probe.diag.test.ts`, `scripts/diag_tilegap_probe.json`,
+  `scripts/diag_tie10.json`. The probe is the per-section oracle — session 4 can regenerate it
+  (SHAPE_AUDIT=1 gates it; it flips the flag + classifies + writes the JSON).
+- Session-1/2 stubs still pending orchestrator rm (emitPerGapMinorities.ts, the two throwaway
+  lensedged/probe tests).
+
+### Next steps (session 4 — the MULTI-UNIT two-sided terminator is the load-bearing work)
+
+1. **Implement the MULTI-UNIT two-sided case in `tileGap.ts`.** The mechanism (design §4
+   "Terminate-by-default", ruling 8c): for a stack-facing-stack interval, emit EACH unit's own
+   termination (2 → already a band member, excluded upstream; 1 → onlap tip 0.5 riding its tie;
+   0 → 8b-capped 0.45 lens) FIRST, then re-close the vacated space between the two sides'
+   terminations. The re-closure is exactly what increments 8-18 solved for the LONE side only —
+   generalise it to two-sided. Two candidate constructions (evaluate both against holes 0/0/0):
+   (a) **sub-strip decomposition** — split `[top,base]` at the union of both sides' internal
+   contact elevations; each sub-strip presents ONE left + ONE right formation → a single-single
+   cell; guard against a unit double-emitting its termination across its multiple strips (emit
+   the pinch once, tile the unit's other strips with a plain flood).
+   (b) **per-unit pinch + midpoint-seam residue** — each unit onlaps/lenses toward the gap; the
+   residue between the two sides' notch chains closes at a seam (the seam tiler's meet fraction,
+   but AFTER the terminations carve their notches so no same-formation merge). Higher hole risk
+   at the notch/seam junctions.
+   Start with Tie-10 g0 (L2/R3, the smallest) — its offender (same-formation ZAND at overlapping
+   elevation, each 1-corr) is the canonical multi-unit same-formation-auto-match leak. Validate
+   with the probe (flip the flag, read Tie-10's rows), then holes 0/0/0 on Tie-10, then widen.
+2. **Then the `lone` class** (Tie-12, CS1, CS2): these reach the two-sided tiler with one side
+   empty because `routeLoneSidePinch` bailed (data-void). Decide whether they belong in `tileGap`
+   (a two-sided-with-empty-side termination) or need the lone-side router relaxed. The state-file
+   class (b)/(c) (lens-edged, boundary/mixed) live here.
+3. **`termbail`** (Tie-11, CS3, CS2): single-single reached but the unit doesn't fill its interval
+   side — the sub-strip split (1a) subsumes this.
+4. **Regression-guard EVERY change** with the frozen battery (holes 0/0/0, CS1 7/7, all shape
+   gates, v1 90/90, tsc) AND the per-section probe — the design warns the routeLoneStack/two-sided
+   change touches 32 currently-OK cases. Do NOT touch `intersect.ts`/`seamAnchor.ts` (613-hole trap).
+5. **Un-skip `partitionFillV2.lensEdged.test.ts`** only when the two lens-edged targets terminate
+   hole-free.
+6. **At cut-over-ready:** flip `tileFlags` default→ON, strip the `TILEGAP_DIAG` throwaway block,
+   delete the old seam model in `tileInterval` (`meetFraction`/`emitSideSubSeams` seam path),
+   re-run the full battery, then the v2 frozen snapshot + owner dogfeed.

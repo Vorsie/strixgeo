@@ -33,12 +33,14 @@
 import { LENS_PINCH_FRACTION } from '../partitionFill'
 import { collectGapBands, emitBandContourCurve, emitSideSubSeams, meetFraction, untiedUnitsInInterval, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
-import { tiedFlags } from './effectiveCorr'
+import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
 import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { routeLoneSidePinch } from './emitLonePinch'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { seamAnchorOnBracket } from './seamAnchor'
+import { tileGapTwoSided } from './tileGap'
+import { twoSidedTerminationsEnabled } from './tileFlags'
 import { type InputCurve } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -123,7 +125,13 @@ export function emitIntervalCurves(
     // unit tiles only the residue OUTSIDE the band — its lone-side fill stops at the
     // band boundary instead of overrunning the band interior (cs1bandauthority).
     const bands = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
-    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, nextId, nextBandId, nextFloodId, lensLabels, out)
+    // Per-gap effective corr (2/1/0) for both columns — the terminations-first ``tileGap``
+    // driver (ruling 8c). Computed once per gap here (shared with the conformance gate's
+    // ``effectiveCorr`` arithmetic) and threaded into ``tileInterval`` so it can route a
+    // two-sided interval through ``tileGapTwoSided`` when the cut-over flag is on.
+    const leftCorr = effectiveCorrForSide(gi, 'left', columns[gi], columns[gi + 1], columns[gi], columns[gi + 1], activeTies)
+    const rightCorr = effectiveCorrForSide(gi, 'right', columns[gi + 1], columns[gi], columns[gi], columns[gi + 1], activeTies)
+    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, leftCorr, rightCorr, nextId, nextBandId, nextFloodId, lensLabels, out)
   }
 }
 
@@ -179,6 +187,8 @@ function emitGapIntervals(
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
   bands: readonly GapBand[],
+  leftCorr: readonly EffectiveCorr[],
+  rightCorr: readonly EffectiveCorr[],
   nextId: () => string,
   nextBandId: () => string,
   nextFloodId: () => string,
@@ -298,7 +308,7 @@ function emitGapIntervals(
     // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
     // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
     const bracketed = top.anchor && base.anchor
-    tileInterval(left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, nextId, nextFloodId, lensLabels, out)
+    tileInterval(gapIndex, left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, leftCorr, rightCorr, nextId, nextFloodId, lensLabels, out)
     // A tiled interval whose BASE is the shallow-TD floor needs an explicit floor
     // curve to CLOSE it from below — the surface / tie-line brackets are already
     // arrangement curves, but the shallow-TD floor is not (sub-TD stays empty,
@@ -374,6 +384,7 @@ function collectAnchorLines(
  * midpoint no-auto-facies rule only fires between two bands (v1's gate).
  */
 function tileInterval(
+  gapIndex: number,
   left: ColumnGeom,
   right: ColumnGeom,
   top: Bracket,
@@ -383,6 +394,8 @@ function tileInterval(
   bracketed: boolean,
   leftTied: TiedContacts,
   rightTied: TiedContacts,
+  leftCorr: readonly EffectiveCorr[],
+  rightCorr: readonly EffectiveCorr[],
   nextId: () => string,
   nextFloodId: () => string,
   lensLabels: Map<string, LensLabel>,
@@ -446,6 +459,24 @@ function tileInterval(
     for (const u of leftLenses) emitLensClosing(u, leftX, rightX, LENS_PINCH_FRACTION, nextId, out)
     for (const u of rightLenses) emitLensClosing(u, rightX, leftX, LENS_PINCH_FRACTION, nextId, out)
     return
+  }
+
+  // TERMINATIONS-FIRST two-sided tiler (ruling 8c, the cut-over — design §4 "Terminate-by-
+  // default"). When the cut-over flag is on, route the two-sided interval through the per-unit
+  // termination emitter (``tileGapTwoSided``): each matrix unit emits its own termination
+  // (1 → onlap tip 0.5, 0 → lens) BEFORE the enclosing matrix floods the residue, so a
+  // same-formation band never claims a terminating unit's slot (the ``1corr-not-onlap`` /
+  // ``0corr-not-lens`` leaks). Falls back (returns false) for shapes this increment does not
+  // yet cover (multi-unit interbedded two-sided stacks), keeping them on the seam model below.
+  if (twoSidedTerminationsEnabled()) {
+    const handled = tileGapTwoSided(
+      { gapIndex, left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr },
+      nextId,
+      nextFloodId,
+      lensLabels,
+      out,
+    )
+    if (handled) return
   }
 
   // The seam must sit strictly OUTSIDE each lens-bearing side's apex — a small margin
