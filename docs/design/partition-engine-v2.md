@@ -375,6 +375,34 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    This ruling is the SPEC for the session-7 flip (terminations-first
    becomes the only path; the seam-based interval tiler and its bail
    taxonomy are deleted).
+8h. **The six-phase bidirectional sweep (owner, 2026-07-16, after reading
+   the CS1 flip walkthrough — verbatim):** "Phase 1: 0 correlations on
+   left side, emit lens on left. Phase 2: 0 correlations on right side,
+   emit lens to the right. Phase 3 and 4: the same but with 1
+   correlations — phase 3 left, phase 4 right (I'm thinking per column
+   but should work per gap too, except on the edges). Phase 5: outer left
+   test of the section — make a connection between top of a litho body
+   and bottom. Phase 6: outer right test of the section — do the same.
+   Now you should have all closed bodies and you can start filling from
+   little to big with the lithology inside the enclosed body — of course
+   never overwrite a little fill with that of a body that encompasses
+   it." Consequences, owner-ruled:
+   (a) **Emission is PER SIDE and UNCONDITIONAL** — every 0-corr
+   unit-side always gets its lens, every 1-corr unit-side always its
+   onlap. This RETIRES the bail concept (converging-facing etc.): there
+   is no interval-level routing decision left; closure is guaranteed by
+   the phase order, not by shape classification.
+   (b) **Section-edge closure (phases 5-6)**: the outermost columns'
+   verticals close every body's loop at the section frame — where the
+   arrangement already provides this by construction, phases 5-6 are a
+   stated invariant to VERIFY, not new curves.
+   (c) **Containment-ordered fill**: paint from little to big — a face
+   belongs to the SMALLEST enclosing loop; an encompassing body's fill
+   must never overwrite an enclosed body's face. Emit all small closures
+   before any large fill so the small faces exist when the flood arrives.
+   Supersedes the interval-level construction of the session-7 flip where
+   they conflict; ruling 8b (lens reach cap) and 8g(b) (base-tied
+   same-formation = band) unchanged.
 8e. **Same-formation enclosure CONFORMS — one body by construction (owner,
    2026-07-15 afternoon, ruled on the real TS4 visual with his own traced
    loop).** A unit whose flagged extent is enclosed by its own formation's
