@@ -106,8 +106,17 @@ export function derivedBandTies(
     const lu = col.units[uIdx]
     const fu = facing.units[fIdx]
     if (!lu || !fu || lu.formationId !== fu.formationId) continue
-    if (uIdx === ui - 1) topShared = true // above band shares my top
-    if (uIdx === ui + 1) baseShared = true // below band shares my base
+    // Ruling 8a derives ONLY through the shared physical contact: the neighbour's tie
+    // must sit ON the surface we share, not merely anywhere on a neighbouring band
+    // member. An above-neighbour shares MY TOP via ITS BASE (so its tie must be
+    // base-side); a below-neighbour shares MY BASE via ITS TOP (tie must be top-side).
+    // Without the side check, a top-top band above leaked a derived tie onto this
+    // unit's top through a contact metres away from the actual tie — producing the
+    // contradiction that the band unit's own base read untied while the unit below's
+    // top (the SAME surface) read tied (owner-caught, CS1 col3 SILT, 2026-07-16).
+    const tieSide = t.leftSide
+    if (uIdx === ui - 1 && tieSide === 'base') topShared = true // above unit's BASE = my top
+    if (uIdx === ui + 1 && tieSide === 'top') baseShared = true // below unit's TOP = my base
   }
   return { topShared, baseShared }
 }
