@@ -18,12 +18,14 @@
  * Gated behind ``twoSidedTerminationsEnabled`` (flag ON — the flip path) for (a)/(b); (c) is a
  * pure-geometry snap-grid gate that holds in BOTH flag states. Deterministic.
  *
- * NOTE (session 10): the multi-unit-converging coherent construction (``tileConvergingStack``) is
- * currently GATED OFF (``MULTI_UNIT_CONVERGING_ENABLED = false`` — measured negative on real data,
- * see REWRITE_STATE §13). On THESE simple synthetic shapes (a)/(b) pass via the existing fallback
- * paths (single-unit converging / meet-at-seam), so they stand as behavioural gates for the DESIRED
- * outcome (each interbed terminates, hole-free) regardless of which path produces it — and they will
- * gate the coherent construction once it is un-gated with the sloping-bracket / minority-span fix.
+ * NOTE (session 11): the multi-unit-converging construction (``tileConvergingStack``) is now
+ * REACH-HALVING (owner ruling 8b conflict-resolution — the seams never move, the LENS shrinks) and
+ * gated ON (``MULTI_UNIT_CONVERGING_ENABLED = true``). Session-11 gates (d)/(e) exercise the halving
+ * loop directly: a minority between steeply sloping brackets emits a lens at a HALVED reach entirely
+ * inside the wedge (d), and a thick minority in a very steep wedge halves multiple times and still
+ * emits (e) — both hole-free. (a)/(b) remain behavioural gates for the desired outcome (each interbed
+ * terminates, hole-free) regardless of which path produces it; (c)/(f) gate TARGET 2 (sub-snap clean
+ * degeneration) in both flag states.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -183,6 +185,71 @@ describe('session-10 TARGET 1 — multi-unit 0-corr stack facing a converging si
       expect(veenRs.shape === 'lens' || veenRs.shape === 'onlap', 'VEEN lenses right (gap1)').toBe(true)
       // On the LEFT gap the interbed BANDS (matched pair).
       expect(renderedShape(inGap(regions, 0), SILT, 5, 6, 'left').shape).toBe('band')
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+})
+
+describe('session-11 REACH-HALVING — a minority lens shrinks to fit inside the sloping wedge', () => {
+  it('(d) a minority between steeply sloping brackets emits a lens at a HALVED reach, entirely inside the wedge, hole-free', () => {
+    const prev = setTwoSidedTerminations(true)
+    try {
+      // Left: ZAND band (el 12..7) / SILT minority (el 7..6) / ZAND band (el 6..-4). The enclosing is
+      // ZAND above AND below (SAME formation) — the SILT interbed is a 0-corr minority. Right: the
+      // enclosing ZAND ties CONVERGE (the right column is continuous ZAND), so over the interbed span
+      // the top bracket (el7 → conv) and base bracket (el6 → conv) STEEPLY slope to one point. At the
+      // full 0.45 reach the SILT apex (own mid el 6.5) would poke ABOVE the descending top bracket
+      // near the apex x — so the reach must HALVE until the lens fits inside the wedge. The partition
+      // must stay hole-free (the enclosing ZAND floods around the shrunk lens).
+      const lZt = layer(), lS = layer(), lZb = layer(), rZ = layer()
+      const left = col('L', 12, [
+        { top: 0, base: 5, f: ZAND, layerId: lZt, body: 'bZt' },
+        { top: 5, base: 6, f: SILT, layerId: lS, body: 'bSl' },
+        { top: 6, base: 16, f: ZAND, layerId: lZb, body: 'bZb' },
+      ])
+      // Right: continuous ZAND — the enclosing converges over the interbed (el 7..6 on the left).
+      const right = col('R', 12, [{ top: 0, base: 16, f: ZAND, layerId: rZ, body: 'bZr' }])
+      // Tie the ZAND bands so the interbed is enclosed by a matched-pair band that converges right.
+      const edges: CorrelationEdge[] = [
+        { a: lZt, b: rZ, aSide: 'base', bSide: 'base' },
+        { a: lZb, b: rZ, aSide: 'top', bSide: 'top' },
+      ]
+      const regions = computeSectionFillV2([left, right], edges)
+      // The interbed interval (el 6..7) is a hole-free partition.
+      assertPartition(regions, 0, 6.05, 6.95)
+      // The SILT interbed terminates (lens/onlap) — not absent, not full-width.
+      const siltRs = renderedShape(inGap(regions, 0), SILT, 6, 7, 'left')
+      expect(siltRs.shape === 'lens' || siltRs.shape === 'onlap', 'SILT interbed terminates').toBe(true)
+      // Its reach stays SHORT of the far edge (a halved lens hugs its own column).
+      expect(siltRs.apex, 'halved SILT lens reach hugs its own column').toBeLessThan(0.45 + 1e-6)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+
+  it('(e) a minority in a VERY steep wedge halves multiple times and still emits (never absent)', () => {
+    const prev = setTwoSidedTerminations(true)
+    try {
+      // A THICK minority (el 7..4, 3 m) enclosed by ZAND above/below, facing a converging ZAND. The
+      // interbed is thick relative to the tiny facing convergence, so its mid-elevation apex conflicts
+      // with the wedge at the 8b reach AND at each halving until a small reach fits — it must still
+      // emit a (short) lens, not vanish. Hole-free.
+      const lZt = layer(), lM = layer(), lZb = layer(), rZ = layer()
+      const left = col('L', 12, [
+        { top: 0, base: 5, f: ZAND, layerId: lZt, body: 'bZt' },
+        { top: 5, base: 8, f: KLEI, layerId: lM, body: 'bKl' },
+        { top: 8, base: 16, f: ZAND, layerId: lZb, body: 'bZb' },
+      ])
+      const right = col('R', 12, [{ top: 0, base: 16, f: ZAND, layerId: rZ, body: 'bZr' }])
+      const edges: CorrelationEdge[] = [
+        { a: lZt, b: rZ, aSide: 'base', bSide: 'base' },
+        { a: lZb, b: rZ, aSide: 'top', bSide: 'top' },
+      ]
+      const regions = computeSectionFillV2([left, right], edges)
+      assertPartition(regions, 0, 4.05, 6.95)
+      const kleiRs = renderedShape(inGap(regions, 0), KLEI, 4, 7, 'left')
+      expect(kleiRs.shape === 'lens' || kleiRs.shape === 'onlap', 'thick KLEI interbed still terminates after multiple halvings').toBe(true)
     } finally {
       setTwoSidedTerminations(prev)
     }

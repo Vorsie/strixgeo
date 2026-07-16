@@ -1375,3 +1375,135 @@ g22 SILT band / ZAND absent — TARGET C, session-9 measured-negative). Nothing 
    (session-9 measured-negative; owner may accept absent).
 3. **Owner ties** dissolve the class-(d) untied same-formation full-widths.
 4. Cutover-ready unchanged (owner dogfeed → default-ON flip → seam deletion → frozen snapshot).
+
+---
+
+## 14. Session-11 plan & progress — the REACH-HALVING loop (owner ruling 8b conflict-resolution)
+
+⚡ OWNER DIRECTIVE: BUILD-FIRST (write the whole change with zero executions, then ONE battery
+pass, iterate). Ruling 8d-rev fenced OFF. `intersect.ts`/`seamAnchor.ts` UNTOUCHED; v1 READ-ONLY.
+No git ops.
+
+### The owner's rule (verbatim, ruling 8b conflict-resolution, design §8 lines 495-502)
+
+"you can just shorten the lenses by half if there is conflict with a tie — this had been said
+many times." The session-10 negative CHASED sloping brackets with flat seams (which slivered);
+the ruled mechanism is the OPPOSITE — the SEAMS never move, the LENS SHRINKS. When a per-unit
+lens closing would cross a tie / bracket / band-authority curve, HALVE its reach and retry until
+the whole lens polygon (topCorner → apex → baseCorner) fits inside the wedge between its sloping
+brackets. Floor: the 1 mm snap grid; a lens that cannot fit even at minimal reach degenerates
+cleanly (the session-10 `segmentDegenerate` guard — documented no-op, enclosing fill covers slot).
+
+### The design (the halving loop replaces the seam-follows-bracket attempt)
+
+Session-10's `emitConvergingStack` FLAT construction failed because: (1) flat horizontal seams
+`(ownX,e)→(apexX,e)` slivered against the SLOPING top/base brackets (the region between apexX and
+the bracket at that x was mis-covered), and (2) all-matrix / interleaved fires had no single
+flood. The 4 real fires were ALL `min=1` (single minority in a matrix stack, steep brackets).
+
+THE HALVING PRIMITIVE (`fitLensReach`, new pure helper in `lensReach.ts`): given the minority's
+own [uTop..uBase] on its column, the interval's SLOPING top bracket line `(ownX,iTop)→(facingX,
+facingTop)` and base bracket line `(ownX,iBase)→(facingX,facingBase)`, and the 8b start reach
+`lensReachFraction`, HALVE the reach (f → f/2) until the lens polygon fits: apex point
+`(ownX+f·Δx, midElev)` sits strictly BETWEEN the two bracket lines at that x AND both flanks
+(topCorner→apex, apex→baseCorner) stay inside the wedge. Floor at the snap-grid fraction
+(`MIN_REACH_FRACTION`); if even the floor conflicts the caller drops the lens via the
+`segmentDegenerate` guard (clean no-op).
+
+WHY halving (not the 0.02-step decrement of `clampedLensFraction`): the owner ruled halving
+verbatim ("shorten by half"); it converges in O(log) and lands the lens well inside the wedge (a
+conservative fit that never rides the sloping bracket → no sliver at the bracket).
+
+### Scoreboard (end of session 11)
+
+| metric | flag OFF (committed) | flag ON (the flip) |
+|---|---|---|
+| holes above / sub TD | 0 / 0 | 0 / 0 |
+| different-litho overlaps | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **6 / 6 / 0 = 12** | **4 / 6 / 0 = 10** |
+
+* **flag OFF byte-identical to the session-9/10 baseline** (12; holes 0/0/0; CS1 7/7; v1 102/5skip;
+  all package + shape + synthetic gates green; tsc clean). My changes only touch the flag-ON
+  `emitConvergingStack` path + the pure `fitLensReach` helper.
+* **flag ON: holes 0/0, overlaps 0, conformance 10** — the reach-halving construction is HOLE-FREE
+  on all 14 real sections (fires on 2 CS1 intervals, both `min=1`). This CONVERTS session-10's
+  **+22 holes / +81 overlaps** regression into **0 / 0** — the owner's ruled mechanism works. Net
+  conformance unchanged (10 == session-9/10 flag-ON baseline).
+
+### TARGET verification — the named instances did NOT move (data-vs-doc divergence, verified region-by-region)
+
+Per the "trust the data over the doc" rule, dumped the actual CS1 geometry + rendered regions in
+BOTH flag states. The three named targets are IDENTICAL flag-OFF == flag-ON — my `emitConvergingStack`
+changes never own these intervals:
+
+* **569.60 col=GEO-23/125-S8 gap14 u4 SILT [-6.32..-4.45] → ABSENT (both states, region kind
+  UNCHANGED).** DIAGNOSIS: the SILT sits ENTIRELY BELOW the facing col15's TD (col15 deepest =
+  −3.24; the SILT is at −6.32..−4.45). It is a SUB-TD / facing-too-shallow enclosed minority, NOT a
+  converging-facing minority. `emitConvergingStack` bails `bail-no-bracket`; the enclosing ZAND bands
+  full-width (`ZAND quad frac[0..1] el[-7.64..-1.17]`) and swallows the slot. The mission framing
+  ("banded LEFT, 0-corr RIGHT → lens right") does not match the sub-TD geometry — this is the
+  sub-TD-enclosed-minority class (a DIFFERENT residual), not the reach-halving target.
+* **646.74 col=GEO-23/125-S7 gap18 u4 SILT [5.46..6.03] + u5 VEEN [5.05..5.46] → LENS but FULL-WIDTH
+  (frac[0..1]), both states UNCHANGED.** DIAGNOSIS: the facing col19 carries CONTINUOUS ZAND (real
+  thickness, TD −9.96) across the minority span → NOT a converging facing. These are COLUMN-LEVEL
+  enclosed lenses (`emitEnclosedLensCurves`, session-9 TARGET A) already emitted as `kind=lens` but
+  reaching full-width — an enclosed-lens TRACE/reach issue in `emitLenses`/the arrangement, NOT the
+  `emitConvergingStack` path the owner's rule targets. The `lensReachFraction` 8b cap is already
+  applied there; the full-width render is a labelFaces/trace merge, not a reach overshoot, so
+  halving cannot fix it.
+
+CONV_STACK_DIAG (CS1, flag ON): `entered:5, fired:2` (both `min=1`, hole-free), `bail-no-bracket:2`,
+`bail-facing-same-formation-enclosure:1`. The 2 fires are at iTop5.5/iBase1.8 and iTop12.0/iBase4.0
+— OTHER intervals, hole-free, no conformance change.
+
+### Per-instance triage of the flag-ON residual (10, unchanged from session 9/10)
+
+All ruling-8 untied same-formation full-widths (Tie-10 g0, Tie-12 g0, CS1 g18/g19, CS2 g13 ×2 —
+owner-tie residual) + the sub-TD / edged-enclosing / lens-edged enclosed-minority class (TARGET C,
+session-9 measured-negative; the 569.6 sub-TD SILT + the 646.74 full-width enclosed lenses are this
+family). Nothing NEW, nothing regressed.
+
+### Flag disposition — `MULTI_UNIT_CONVERGING_ENABLED` stays ON (green)
+
+The battery is green (holes 0/0, overlaps 0, conformance 10 unchanged, CS1 7/7, v1 102/5, all shape
++ package + synthetic gates, tsc clean). Per the mission ("END default-ON if green"), the flag stays
+ON: the reach-halving construction is proven SAFE (hole-free) where it fires and ready for intervals
+that need it. The outer `twoSidedTerminationsEnabled` cut-over flag stays OFF (gated on owner
+dogfeed — unchanged). The session-10 flat-construction negative is superseded.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+- `lensReach.ts` (EDITED — `fitLensReach` halving helper; the single source of the conflict-fit).
+- `tileConvergingStack.ts` (EDITED — `MULTI_UNIT_CONVERGING_ENABLED` back ON; the flat seams/flat
+  flood corners replaced by the halved-lens + SLOPING-wedge-riding construction; `lensReachFraction`
+  import replaced by `fitLensReach`).
+- `partitionFillV2.convergingStack.test.ts` (EDITED — added session-11 (d) halved-reach-in-a-steep-
+  wedge + (e) multi-halve gates; header updated; all 16 gates GREEN).
+- STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s11harness.diag.test.ts` (the
+  one-run OFF/ON measurement of record + named-instance dump + CONV_STACK_DIAG probe — regenerate
+  with SHAPE_AUDIT=1). Any session-1..10 stubs still pending rm. The `MULTI_UNIT_CONVERGING_ENABLED`
+  flag + `CONV_STACK_DIAG` block stay (the flag is now ON; strip the diag at cut-over).
+
+### Next steps (session 12)
+
+1. **The named targets need DIFFERENT mechanisms than reach-halving** (verified this session): the
+   569.6 gap14 SILT is a SUB-TD enclosed minority (below the facing TD → the substrate/deep-to-deep
+   path, or a sub-TD extraction), and the 646.74 gap18 SILT/VEEN are COLUMN-LEVEL enclosed lenses
+   rendering FULL-WIDTH (a `emitLenses`/labelFaces trace merge — the lens is emitted at the 8b cap
+   but the arrangement traces it full-width). Neither routes through `emitConvergingStack`. Report to
+   the owner: the reach-halving primitive is SHIPPED + hole-free, but "exactly these" cases live in
+   the enclosed-lens / sub-TD paths, not the converging-facing path his rule addressed.
+2. **`fitLensReach` is the ready halving primitive** for any converging-facing minority that DOES
+   need conflict-fitting — apply it wherever a per-unit lens would cross a tie/bracket.
+3. **Owner ties** dissolve the class-(d) untied same-formation full-widths.
+4. Cutover-ready unchanged (owner dogfeed → default-ON flip of `twoSidedTerminations` → seam
+   deletion → frozen snapshot). `intersect.ts`/`seamAnchor.ts` UNTOUCHED all session; v1 held.
+
+### (running build log)
+- Read REWRITE_STATE.md fully (§13 predecessor), design §8 (8b conflict-resolution + 8g/8h),
+  tileConvergingStack/tileCoherentStack/lensReach/emitIntervalLenses/snap/emitLonePinch/
+  emitLoneStack/facingMatrix. Built `fitLensReach` + the halved-lens sloping-wedge construction.
+  ONE battery pass: tsc clean; synthetic gates 16/16 (incl. new (d)/(e)); holes 0/0/0 flag OFF;
+  OFF/ON harness holes 0/0 both, conformance 12/10; CS1 7/7; v1 102/5; all package + shape gates.
+  No iteration needed — hole-free on the FIRST real-data measurement (vs session-10's +22/+81).
+

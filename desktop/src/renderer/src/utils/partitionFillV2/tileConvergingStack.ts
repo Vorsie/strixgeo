@@ -18,11 +18,10 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { LENS_PINCH_FRACTION } from '../partitionFill'
 import { emitLensClosing } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { facingMatrixLabel } from './facingMatrix'
-import { lensReachFraction } from './lensReach'
+import { fitLensReach } from './lensReach'
 import { type ColumnGeom } from './sectionGeom'
 import { segmentDegenerate } from './snap'
 import { type CorrUnit } from './tileGap'
@@ -36,22 +35,20 @@ const ELEV_EPS = 1e-6
 const BRACKET_EPS = 1e-3
 
 /**
- * SESSION-10 MEASURED-NEGATIVE GATE. The multi-unit-converging coherent slab construction below is
- * gated OFF by default: on the 14 real sections (flag-ON) it fired on 4 intervals and measured
- * **+22 above-TD holes / +81 different-litho overlaps** with NO net conformance gain (10 → 10; the
- * CS1 col14/col18 SILT/VEEN targets resolved but a gap18 VEEN band regression appeared). ROOT: the
- * 4 real fires are all SINGLE-minority-in-a-MATRIX-stack intervals with STEEPLY SLOPING brackets
- * (slope 7.1 m / −3.6 m) — a stack of [matrix unit(s) + one minority], NOT the pure multi-minority
- * interbed stack the synthetic gates exercise. A matrix unit sharing the stack breaks the single
- * flood-to-conv (the enclosing above/below no longer matches the matrix unit's own formation → its
- * slot floods the wrong litho → overlap), and the FLAT horizontal seams + flat flood corners do not
- * follow the sloping brackets → slivers. This is the SAME multi-unit-converging wall sessions 4/5/6
- * measured (+457 holes / +666 overlaps for N wedges). The correct construction must (a) restrict to
- * the MINORITY elevation span (leave matrix units to the seam) and (b) follow the sloping brackets —
- * a dedicated increment. Gated OFF; the synthetic gates + this record survive. TARGET 2 (the
- * degenerate-flank guard) is unaffected and SHIPPED.
+ * SESSION-11 REACH-HALVING GATE (owner ruling 8b conflict-resolution, design §8, 2026-07-16 late).
+ *
+ * Session 10 gated this OFF after a FLAT construction measured +22 holes / +81 overlaps: it chased
+ * the sloping brackets with flat horizontal seams + flat flood corners `(apexX, iTop)` that sit
+ * ABOVE the descending top bracket → slivers. The owner's ruled mechanism is the OPPOSITE — the
+ * SEAMS never move, the LENS SHRINKS: "you can just shorten the lenses by half if there is conflict
+ * with a tie." This module now emits each 0-corr minority as a HALVED lens (``fitLensReach``: start
+ * at the 8b reach, halve until the lens polygon fits strictly inside the sloping wedge), and the
+ * flood corners sit ON the sloping bracket at the apex x (never flat) so no sliver survives. A
+ * minority that cannot fit even at the snap-grid floor degenerates cleanly (the ``segmentDegenerate``
+ * guard — session-10 TARGET 2). Flipped ON when the halving loop passes the battery; if the real
+ * data still regresses, gate OFF, record, stop-and-report (session-4/5/10 pattern).
  */
-const MULTI_UNIT_CONVERGING_ENABLED = false
+const MULTI_UNIT_CONVERGING_ENABLED = true
 
 /** THROWAWAY diag (session 10) — converging-stack fire / bail counters. Orchestrator strips. */
 export const CONV_STACK_DIAG: Record<string, number> = {}
@@ -221,15 +218,13 @@ export function emitConvergingStack(
   }
   cbump('fired')
 
-  // ONE shared apex fraction (the stack-min 8b cap over the MINORITIES) so every notch apex lands
-  // on ONE vertical apex line — the slab seams then align with every notch apex (the
-  // ``emitLoneStackBand`` alignment that keeps each notch a simple face). The 8b cap keeps the apex
-  // hugging the present column, so the notches never cross into the facing's lithology.
-  const apexFrac = minorities.reduce(
-    (m, cu) => Math.min(m, lensReachFraction(cu.iu.topElev - cu.iu.baseElev, facingX - ownX)),
-    LENS_PINCH_FRACTION,
-  )
-  const apexX = ownX + apexFrac * (facingX - ownX)
+  // The SLOPING bracket elevation at a fraction of the gap (fraction 0 = own column, fraction 1 =
+  // facing convergence). The interval top bracket runs iTop → conv.y; the base bracket iBase →
+  // conv.y. These are the wedge edges the halved lens must fit INSIDE (owner ruling 8b
+  // conflict-resolution) and the seams/flood corners must ride (never flat — the session-10 sliver).
+  const topAt = (f: number): number => iTop + f * (conv.y - iTop)
+  const baseAt = (f: number): number => iBase + f * (conv.y - iBase)
+  const xAt = (f: number): number => ownX + f * (facingX - ownX)
 
   const pushClose = (points: Point[]): void => {
     if (segmentDegenerate(points[0], points[points.length - 1])) return
@@ -242,48 +237,81 @@ export function emitConvergingStack(
     buf.push({ id, kind: 'closing', points })
   }
 
-  // (1) Per-MINORITY 8b-capped lens notches (own-litho triangles biting the present column edge).
-  //     The shared apex fraction keeps every apex on the apex line. ``emitLensClosing`` is already
-  //     degenerate-guarded (TARGET 2), so a sub-snap-thin unit drops cleanly. A matrix-matching unit
-  //     gets NO notch — it is part of the flood.
-  for (const cu of minorities) emitLensClosing(cu.iu, ownX, facingX, apexFrac, nextId, buf)
-
-  // (2) Horizontal boundary seams at every MINORITY top/base (own column → apex line), labelled with
-  //     the enclosing matrix (above the interval mid → aboveMatrix, else belowMatrix) so each
-  //     minority notch is ISOLATED in the flood and the residual matrix pentagons read matrix (the
-  //     ``emitLoneStackBand`` slab-seam trick). In the MIXED-bracket case add a seam at the interval
-  //     mid too so no residual straddles the above/below flood split (the no-auto-facies midpoint).
-  const seamElevs = new Set<number>()
+  // (1) Per-MINORITY HALVED lens at its OWN mid-elevation. ``fitLensReach`` starts at the 8b reach
+  //     and HALVES it until the lens polygon fits strictly inside the SLOPING wedge (the owner's
+  //     ruled mechanism — the seams never move, the LENS shrinks). Each minority gets its OWN reach
+  //     (no shared apex line), so a thin minority near a steeply pinching bracket hugs its column
+  //     while a fat one keeps more reach. A minority that cannot fit even at the snap-grid floor
+  //     returns reach 0 → ``emitLensClosing``'s degenerate guard drops it (clean no-op, the
+  //     enclosing flood covers the slot — session-10 TARGET 2). Record each fired minority's own
+  //     apex fraction so the boundary seams stop AT that minority's apex (not a shared line).
+  const fired: { top: number; base: number; f: number }[] = []
   for (const cu of minorities) {
-    seamElevs.add(cu.iu.topElev)
-    seamElevs.add(cu.iu.baseElev)
+    const uTop = cu.iu.topElev
+    const uBase = cu.iu.baseElev
+    const mid2 = (uTop + uBase) / 2
+    const f = fitLensReach(uTop - uBase, facingX - ownX, mid2, iTop, iBase, conv.y, conv.y)
+    if (f <= 0) continue // no reach fits — the lens degenerates (enclosing flood covers the slot).
+    emitLensClosing(cu.iu, ownX, facingX, f, nextId, buf)
+    fired.push({ top: uTop, base: uBase, f })
+  }
+  // If NO minority could fit a lens (every one degenerated), the whole interval is pure enclosing
+  // flood — leave it to the caller's seam (nothing carved). Bail so no half-flood is committed.
+  if (fired.length === 0) {
+    cbump('bail-all-degenerate')
+    return false
+  }
+
+  // The apex fraction that reaches DEEPEST into the gap (the widest lens). The enclosing matrix
+  // floods from that apex line out to ``conv``; the boundary seams between minorities close each
+  // minority's own-litho slab. Using the max keeps every minority notch fully inside the flood
+  // region [ownX .. apexMaxX] so no notch pokes past the flood boundary.
+  const apexMaxFrac = fired.reduce((m, p) => Math.max(m, p.f), 0)
+  const apexMaxX = xAt(apexMaxFrac)
+
+  // (2) Horizontal boundary seams at every MINORITY top/base (own column → the apex line at
+  //     ``apexMaxX``), labelled with the enclosing matrix (above the interval mid → aboveMatrix,
+  //     else belowMatrix) so each minority notch is ISOLATED and the residual matrix pentagons read
+  //     matrix (the ``emitLoneStackBand`` slab-seam trick). These seams sit at the MINORITY's OWN
+  //     contact elevations — strictly inside the wedge (the minority is enclosed), never on the
+  //     stack bracket — so they never sliver (the session-10 sliver was the STACK-bracket flood
+  //     corner, fixed in step 3/4 by riding the sloping bracket). In the MIXED-bracket case add a
+  //     seam at the interval mid so no residual straddles the above/below flood split.
+  const seamElevs = new Set<number>()
+  for (const p of fired) {
+    seamElevs.add(p.top)
+    seamElevs.add(p.base)
   }
   if (!sameEnclosing) seamElevs.add(mid)
   for (const e of [...seamElevs].sort((a, b) => b - a)) {
     if (e > iTop - ELEV_EPS || e < iBase + ELEV_EPS) continue
-    pushFlood(e >= mid ? aboveMatrix : belowMatrix, [{ x: ownX, y: e }, { x: apexX, y: e }])
+    pushFlood(e >= mid ? aboveMatrix : belowMatrix, [{ x: ownX, y: e }, { x: apexMaxX, y: e }])
   }
 
-  // (3) The apex-line vertical separates the slab region [ownX..apexX] from the flood-to-conv
-  //     region [apexX..conv]. Plain close (both sides are covered — slab residuals + flood read
-  //     matrix; the notches read own litho).
-  pushClose([{ x: apexX, y: iTop }, { x: apexX, y: iBase }])
+  // (3) The apex-line vertical separates the slab region [ownX..apexMaxX] from the flood-to-conv
+  //     region [apexMaxX..conv]. Its TOP/BASE endpoints ride the SLOPING brackets at ``apexMaxX``
+  //     (``topAt``/``baseAt``), NOT the flat iTop/iBase — this is the session-10 sliver fix: a flat
+  //     ``(apexMaxX, iTop)`` sits ABOVE the descending top bracket, leaving an uncovered sliver
+  //     between it and the bracket.
+  const apexTop: Point = { x: apexMaxX, y: topAt(apexMaxFrac) }
+  const apexBase: Point = { x: apexMaxX, y: baseAt(apexMaxFrac) }
+  pushClose([apexTop, apexBase])
 
   // (4) The enclosing matrix floods the residue past the apex line to ``conv``. The two hypotenuse
-  //     curves (apex-line top / base corner → conv) + the apex-line vertical (step 3) close the
-  //     flood triangle; the bracket lines (already arrangement curves) bound its top/base.
-  //     - SAME enclosing (above === below): ONE continuous matrix flood — just the two hypotenuses.
-  //     - MIXED (above ≠ below): split at the interval mid — the ABOVE matrix over the top wedge
-  //       ((apexX,iTop)→conv→(apexX,mid)), the BELOW over the base wedge ((apexX,iBase)→conv→
-  //       (apexX,mid)); the shared conv→apexMid edge is the no-auto-facies midpoint seam (step-2
-  //       already emitted a mid slab-seam so no own-litho slab straddles the split).
-  pushFlood(aboveMatrix, [{ x: apexX, y: iTop }, conv])
+  //     curves (apex-line top/base corner → conv) close the flood triangle together with the apex
+  //     vertical (step 3); the sloping bracket lines (already arrangement curves) bound its
+  //     top/base from ``apexMaxX`` to ``conv``.
+  //     - SAME enclosing: ONE continuous matrix flood.
+  //     - MIXED: split at the interval mid — the ABOVE matrix over the top wedge, the BELOW over the
+  //       base wedge; the shared conv→apexMid edge is the no-auto-facies midpoint seam (step-2 added
+  //       a mid slab-seam so no own-litho slab straddles the split). ``apexMid`` rides the wedge mid.
+  pushFlood(aboveMatrix, [apexTop, conv])
   if (sameEnclosing) {
-    pushFlood(aboveMatrix, [conv, { x: apexX, y: iBase }])
+    pushFlood(aboveMatrix, [conv, apexBase])
   } else {
-    const apexMid: Point = { x: apexX, y: mid }
+    const apexMid: Point = { x: apexMaxX, y: (apexTop.y + apexBase.y) / 2 }
     pushFlood(aboveMatrix, [conv, apexMid])
-    pushFlood(belowMatrix, [{ x: apexX, y: iBase }, conv])
+    pushFlood(belowMatrix, [apexBase, conv])
     pushFlood(belowMatrix, [conv, apexMid])
   }
   return true
