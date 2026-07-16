@@ -421,6 +421,16 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    arrangement, restated here so no emission path bypasses it. Drawn
    apex overrides keep their behaviour. Conformance-gate vocabulary:
    0 → a small lens around the unit; 1 → onlaps its tie; 2 → bands.
+   **SHIPPED (`4d09864ed`, 2026-07-16):** `lensReach.ts` is the single
+   source of the cap; all five 0-corr emission paths route through it
+   (the `emitIntervalLenses` closing chokepoint, the lone-pinch shared
+   apex, the lone-stack plan fraction after its band-clip bail, the
+   override-aware enclosed-lens default). Overrides pass un-capped.
+   Effect on the 14 real sections: violations 19 → 17 (1corr-not-onlap
+   14 → 12, 8e-enclosure 50 → 48), holes 0/0/0, CS1 7/7. The two
+   `0corr-reach-exceeds-cap` advisory rows render at 0.5 via a NON-lens
+   routing path — out of 8b scope, owned by the two-sided restructuring
+   (FINAL SHAPES row). Owner dogfeed pending (thin lenses now hug).
 8. **STRICT 2/1/0 (owner, 2026-07-14 evening, after the model-wide shape
    audit).** Uncorrelated units TERMINATE — always. Facing same-formation
    units with no drawn tie render as opposing lenses/pinches (apex
