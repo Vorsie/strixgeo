@@ -30,10 +30,10 @@
  */
 
 import { collectGapBands, emitBandContourCurve } from './emitBands'
+import { mergesSameFormationBand } from './drawTermination'
 import { effectiveCorrForSide, isBandMember } from './effectiveCorr'
 import { type ResolvedTie } from './emitCurves'
 import { type LensLabel } from './emitLenses'
-import { sameFormationBaseTiedPair, sameFormationEnclosedByTiedBand } from './terminationRules'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
 
@@ -101,22 +101,24 @@ function emitSideRuledBands(
   for (let ui = 0; ui < col.units.length; ui++) {
     const u = col.units[ui] as UnitGeom
     const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const }
-    // Only units the sweep suppressed as a BAND are candidates: a corr-2 band member / first
-    // unit, OR a corr-1 unit that the ruled 8e / 8g(b) merge exempts. A corr-0 unit is a genuine
-    // termination (never suppressed) — skip. A unit that is ITSELF a matched-pair band member (by
-    // index) is already closed by ``emitBands`` contours — skip. (The formation appearing in some
-    // OTHER band in the gap is NOT a reason to skip — that coarse fid test wrongly skipped the
-    // Tie-7 KLEI first unit because KLEI also carries a band 11 m below.)
+    // Only units the SWEEP suppressed as a BAND are candidates — closing their same-formation band
+    // face so a neighbouring flood does not absorb their slot (ABSENT). A unit that is ITSELF a
+    // matched-pair band member (by index) is already closed by ``emitBands`` contours — skip.
     if (isBandMember(bands, side, ui)) continue
+    // RULING 8i alignment: the sweep suppresses (merges) a corr-1 unit iff ``mergesSameFormationBand``
+    // — the SAME decision the sweep uses (band-existence base + the tie-follow same-litho check). This
+    // pass closes a band for EXACTLY those merged units, so a merged unit is never absent AND an
+    // onlapped unit (mismatched facing) is never given a spurious band. A corr-2 unit (band member /
+    // first-unit top-band band) is always suppressed → a band candidate. A corr-0 unit is a genuine
+    // termination — never suppressed, never a band here.
     const isRuledBand =
       eff.corr === 2 ||
       (eff.corr === 1 &&
-        (sameFormationEnclosedByTiedBand(bands, u.formationId) ||
-          sameFormationBaseTiedPair(eff.baseTied, eff.topTied, u.formationId, u.baseElev, u.topElev, facing)))
+        mergesSameFormationBand(u, eff.topTied, eff.baseTied, gapIndex, side, facing, bands, activeTies))
     if (!isRuledBand) continue
     // The facing same-formation run overlapping this unit's band. When the facing carries a
     // DIFFERENT formation over the whole window there is no same-formation band to close here
-    // (that is a mismatched onlap/midpoint-quad case, handled elsewhere) — skip.
+    // (that is a mismatched onlap/midpoint-quad case — a genuine remaining residual, §19). Skip.
     const run = facingSameFormationRun(facing, u.formationId, u.topElev, u.baseElev)
     if (run === null) continue
     // PEER GUARD: the facing run must be a genuine BAND PEER — most of its own extent must lie

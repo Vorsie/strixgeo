@@ -2048,3 +2048,108 @@ output is backed by an explicit termination curve (sweep `term`/`onlapterm` or t
    contour (the bracket line), replacing the single conv point.
 3. Then re-measure; the cut-over bar stays §17's (ON ≤4 at 0/0/0 both states) before any flag
    default flip. `intersect.ts`/`seamAnchor.ts` UNTOUCHED; v1 READ-ONLY throughout.
+
+---
+
+## 19. Session-16 plan & progress — RULING 8i (the three-function spec) + the sloping wedge
+
+⚡ Owner ruling 8i (design §8, verbatim): three functions. `leftSide(unit)` / `rightSide(unit)`
+classify by counting correlation bands on that side (0 lens / 1 onlap / 2 band). `drawTermination`
+draws: 0 → lens lines ALWAYS (no exemption beyond physical); 1 → FOLLOW the tie — same litho on the
+MATCHED side of the facing (below-for-top-tie / above-for-bottom-tie) → do nothing (merge);
+DIFFERENT litho → onlap the tie; never absent. 2 → nothing (band line art).
+
+### FRONT 1 — ruling 8i literal restructure (emitTerminationSweep.ts split)
+
+The classify half IS `effectiveCorrForSide` (`effectiveCorr.ts`) — the single source; §8i names it
+`leftSide`/`rightSide` but the doc-comment cites it as the classify half (kept single-source, not
+re-implemented). The DRAW half replaces the run-existence `ruledMergeExempt` heuristic:
+- `drawTermination.ts` (NEW) — the separately-testable draw half. For a 1-corr unit it calls
+  `followTieMatchedFacing` (NEW): reads the tie's facing endpoint (the shared `tieFacingElevAt`
+  device), samples the facing unit on the MATCHED side (below the endpoint for a top-tie, above for
+  a base-tie), and compares formation. SAME → suppress (merge — `emitRuledBands` closes its face);
+  DIFFERENT → emit the onlap riding that tie. This DISSOLVES the 8e/8g(b) band-existence exemption
+  and with it the 11-row mismatched-facing ABSENT class (a mismatched facing now ONLAPS instead of
+  silently merging-then-absorbed).
+- 0-corr keeps ONLY the physical suppressions (`fitLensReach` floor / `segmentDegenerate` /
+  sub-snap-gap guard) + the minority gate (owner 8f/8h: the dominant matrix floods, the minority
+  lenses) — but the minority gate now defers to per-side classify, not the run heuristic.
+
+### FRONT 2 — the CS2 g17 sloping flood wedge
+
+`emitFloodWedge` rides the sloping band-base bracket contour with a MULTI-SEGMENT outer leg
+(sample the band-base polyline between corner and apex) instead of a single conv point, so the
+wedge is bounded by the actual sloping line art (the 20 CS2 g17 holes → 0). Also the geometry
+behind the 2 red synthetic gates (coherentStack(a) / convergingStack(a) — the notch wall).
+
+### Status: FRONT 1 SHIPPED (conf ON 17→11); FRONT 2 = the documented CS2-g17 wall (gated-off scaffold).
+
+### The three-function structure (ruling 8i, file/export names)
+
+* CLASSIFY (8i ``leftSide``/``rightSide``) = ``effectiveCorr.ts`` ``effectiveCorrForSide`` — the
+  SINGLE 2/1/0 source, unchanged, shared engine+gate. The sweep calls it; it does not
+  re-implement it (cited in the sweep + drawTermination doc comments).
+* DRAW (8i ``drawTermination``) = NEW ``partitionFillV2/drawTermination.ts`` — separately-testable
+  exports: ``drawTermination`` (0→lens always / 1→follow-tie merge-or-onlap / 2→nothing),
+  ``matchedFacingUnit`` + ``followTieMatchedFacing`` (the tie-follow: below-for-top-tie /
+  above-for-bottom-tie), ``mergesSameFormationBand`` (the shared merge decision), ``tiedContactSide``,
+  ``tieFacingElevAt``. Wedge extracted to NEW ``partitionFillV2/emitFloodWedge.ts``.
+* ``emitTerminationSweep.ts`` restructured to the CLASSIFY+ITERATE half (543→~215 lines): iterates
+  gap/side/unit, applies the ruled/physical suppressions (bridge / sub-TD / sub-snap / minority
+  gate), and delegates the draw to ``drawTermination``. The old ``ruledMergeExempt`` /
+  ``emitLens`` / ``emitOnlap`` / ``emitFloodWedge`` are moved out.
+* ``emitRuledBands.ts`` re-aligned: closes a band for EXACTLY the units the sweep merged
+  (``mergesSameFormationBand``) — the two cannot drift.
+
+### The 11-row dissolution (ruling 8i)
+
+``mergesSameFormationBand`` = the merge decision. A corr-1 unit MERGES (no termination,
+``emitRuledBands`` closes its band) iff: (a) BOTH-tied AND its own formation carries a matched-pair
+band → 8e spanning band, merge unconditionally (the tie-follow must NOT apply — a both-tied
+enclosing matrix samples a facing MINORITY and would wrongly read mismatched → the coherentStack(b)
+/ coherentLoneStack KLEI-enclosing regression, caught + fixed); (b) ONE-tied with a same-formation
+band-existence (8e or 8g(b)) AND FOLLOWING ITS TIE lands on the SAME litho on the matched facing
+side. A mismatched facing → ONLAP (never absent). This dissolved the corr-1 subset of the 11-row
+class: conf ON 1corr 9→3. Remaining 5 (2corr-not-band absent: Tie-11 g0 ZAND, CS3 g6 KLEI / g7 ZAND,
+CS1 g8 KLEI, CS2 g21 ZAND) are the corr-2 MISMATCHED-FIRST-UNIT class (ruling 8d midpoint quads) —
+a DERIVED base tie gives ``emitEnclosingFlood`` no bracket, so the facing floods the first-unit slot
+full-width → absent. A midpoint-quad emit was built + measured NEGATIVE (+197 holes) and reverted;
+it needs the ``emitEnclosingFlood`` interval closure to bracket the derived-base first unit
+(its own red→green increment).
+
+### Front 2 — the CS2 g17 sloping wedge (documented wall)
+
+The 20 holes are ALL CS2 g17 (confirmed): a SILT lens/band under a ZAND enclosing band whose base
+SLOPES (−4.19→−5.25); the straight bracket carrier + midpoint seam in ``emitEnclosingFlood`` leave a
+triangular gap to the SILT below. The multi-segment sloping-ride wedge (``emitFloodWedge.ridePolyline``)
+was built + MEASURED NEGATIVE: inserting a contour mid-vertex into the ``corner→conv→apex`` flank makes
+the wedge non-simple and self-cross → 509 above-TD holes. GATED OFF (``SLOPING_RIDE_ENABLED=false``,
+kill-switch + rationale in-file). The real fix is the ``emitEnclosingFlood`` INTERVAL-bracket geometry
+(ride the sloping ZAND base), not the flood wedge — high regression risk (two point attempts +489 /
++197 holes), left for its own increment per ruling 7. The 2 red synthetic gates (coherentStack(a) /
+convergingStack(a)) are the SAME notch/enclosed-lens-in-band wall (splitAnnulus-bypass, sectionGeom) —
+still red for that reason, NOT Front-2-related; unchanged from session 15.
+
+### Verification snapshot (end of session 16)
+
+* flag OFF: BYTE-IDENTICAL — conf 5/5/0=10, holes 0/0/0, overlaps 0, CS1 7/7.
+* flag ON: conf **3/3/5 = 11** (was 17), holesAbove **20** (CS2 g17 only), holesSub 0, overlaps 0.
+* Synthetic + shape + package + v1: **163/163** green on the must-stay files; the ONLY reds are the
+  2 documented (coherentStack(a) + convergingStack(a)); coherentStack(b) + coherentLoneStack RESTORED
+  green (the 8e both-tied fix). tsc clean.
+* Explicitness proxy: deficit 1 (CS2 g15 conformant full-width mismatched-band rendered kind='pinch'
+  — a proxy false positive; the region is NOT a conformance violation, and the §18 curve-backed
+  property holds).
+* Tie-11 g0 ZAND 8i OUTCOME: renders **absent** (region kind: none in gap 0 — the facing SILT quad
+  el[7.51..13.13] floods the ZAND first-unit slot el[10.89..11.83]). It is corr-2 (top-band + derived
+  base tie) mismatched-first-unit → the ruling-8d midpoint-quad residual above, NOT the corr-1 class
+  Front 1 fixed. Its 8i-correct outcome is a ZAND midpoint quad; the derived-base-bracket gap in
+  ``emitEnclosingFlood`` leaves it absent (the remaining engine work).
+
+### Stubs to delete (orchestrator rm)
+
+* ``partitionFillV2/emitTerminationSweepHEAD.ts`` (temp diagnostic stub, unwired).
+* ``partitionFillV2.throwaway_s16harness.diag.test.ts`` + ``scripts/diag_s16harness.json`` (the OFF/ON
+  battery of record).
+* ``partitionFillV2.throwaway_s16explicit.diag.test.ts`` (the explicitness proxy).
+
