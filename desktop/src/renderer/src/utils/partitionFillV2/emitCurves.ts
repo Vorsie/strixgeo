@@ -36,11 +36,13 @@
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosingFlood } from './emitEnclosingFlood'
+import { emitRuledBands } from './emitRuledBands'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
 import { emitSubTdLenses } from './emitSubTdLenses'
 import { emitTerminationSweep } from './emitTerminationSweep'
+import { twoSidedTerminationsEnabled } from './tileFlags'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type CorrelationEdge } from '../partitionFill'
 import { type InputCurve, type Point } from './types'
@@ -155,22 +157,35 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // substrate curves append to the same map below.
   const lensLabels = new Map<string, LensLabel>()
 
-  // THE HOIST (session 14) — GATED OFF (measured: the fill-only replacement is not hole-free in
-  // one pass; see REWRITE_STATE §17). The unconditional termination sweep
-  // (``emitTerminationSweep``) + the fill-only enclosing flood (``emitEnclosingFlood``) are the
-  // hoist scaffold; they are NOT wired into the pipeline (the flag-ON path stays the session-13
-  // coherent tiler via ``emitIntervalCurves`` → ``tileGapTwoSided``). Referenced here so the
-  // imports resolve; the next session wires + hardens the flood-carrier fill (§17 NEXT STEPS).
-  void emitTerminationSweep
-  void emitEnclosingFlood
-  // Vacancy closure (design §4 increment 4): the untied units of each interval
-  // between tie-anchored bands TILE it fully (opposing pinches meeting at a seam),
-  // so the vacated space past a pinch/lens apex is CLAIMED — no above-TD holes. A
-  // LONE-side untied unit (no facing counterpart) that v1 would pinch now emits a
-  // pinch apex short of the far column + a flood wedge claiming the rest (finding A),
-  // registering the flood label in ``lensLabels``. When the flag is ON, ``tileInterval``
-  // internally routes two-sided intervals through ``tileGapTwoSided`` (the coherent tiler).
-  emitIntervalCurves(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+  // THE HOIST (session 15) — WIRED when the cut-over flag is ON (``twoSidedTerminationsEnabled``).
+  // In the owner's paint-bucket order (given line art → GENERATED ties → fill): the UNCONDITIONAL
+  // termination sweep (``emitTerminationSweep``, 0→lens / 1→onlap per gap/side/unit) draws every
+  // lens/onlap FIRST, then the fill-only enclosing flood (``emitEnclosingFlood``, owner 8f "fill
+  // the void with the dominant lithology") closes the enclosing faces behind them so the sweep's
+  // terminations carve holes/detours BY CONSTRUCTION. This DELETES the tilers' termination
+  // emission (``emitIntervalCurves`` / ``tileGapTwoSided`` and its lone / coherent / converging
+  // routers are BYPASSED when the flag is on). ``emitSubTdLenses`` + ``emitEnclosedLensCurves``
+  // (the proven column-merge carriers) STILL run below — the sweep DEFERS to them for the sub-TD
+  // and enclosed-minority cases (it never double-emits: the sub-TD deferral skips sub-TD units,
+  // and ``emitEnclosedLensCurves`` handles the same-formation-enclosed minorities the sweep's
+  // ``isMinority`` gate also targets — but those units were already MERGED out of the column by
+  // ``sectionGeom.extractEnclosedLenses``, so the sweep's ``isMinority`` never sees them).
+  // Flag OFF: the seam-based ``emitIntervalCurves`` runs, byte-identical to the session-13 baseline.
+  if (twoSidedTerminationsEnabled()) {
+    emitTerminationSweep(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+    // RULED-EXEMPT band closures (round-3 Target 1): the sweep suppresses a termination for
+    // every unit the owner ruled a BAND (8e / 8g(b) / corr-2 band member), but the flood does
+    // not fill their OWN formation — a neighbouring flood face absorbs their space and they read
+    // ABSENT. This pass emits each such unit's missing same-formation band contour so its face
+    // closes and its column vertical labels it (the asymmetric ``emitBands`` device).
+    emitRuledBands(survivingSection, ties, lensLabels, curves)
+  } else {
+    // Vacancy closure (design §4 increment 4): the untied units of each interval
+    // between tie-anchored bands TILE it fully (opposing pinches meeting at a seam),
+    // so the vacated space past a pinch/lens apex is CLAIMED — no above-TD holes.
+    emitIntervalCurves(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+  }
 
   emitEnclosedLensCurves(survivingSection, curves, lensLabels)
 

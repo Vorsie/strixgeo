@@ -1910,3 +1910,141 @@ a per-tiler exclusion.
    ON, re-measure; MODE A's 10→4 conformance is the target the fill rebuild must reach at 0/0/0.
 4. `intersect.ts` / `seamAnchor.ts` UNTOUCHED (613-hole trap); v1 READ-ONLY. The scaffold + the
    measured OFF/ON table are the ready foundation — no re-diagnosis needed.
+
+---
+
+## 18. Session-15 plan & progress — THE HOIST IS WIRED (fill rebuilt in 3 measured rounds; two named walls remain)
+
+Session 15 LANDED the hoist on the flag-ON path per §17's scoping: the sweep + a rebuilt fill
+replace the seam tiler when `twoSidedTerminationsEnabled()`; the tiler terminations are DELETED
+from the flag-ON route (bypassed — the files stay, the flag-OFF path uses them). Flag OFF (the
+DEFAULT engine everywhere) is BYTE-IDENTICAL to the session-13/14 baseline — verified after every
+round (conformance 5/5/0=10, holes 0/0/0, overlaps 0, CS1 7/7). Orchestrated build: three
+background Opus rounds, each measured against the one-run OFF/ON battery; every round improved
+holes+overlaps monotonically.
+
+### The wiring (emitCurves.ts, flag-ON)
+
+Order (the owner's paint-bucket model): given line art (verticals / surface / ties / bridges) →
+`emitTerminationSweep` (the GENERATED ties: unconditional 0→lens / 1→onlap + the round-1 flood
+wedges) → `emitEnclosingFlood` (fill-only: bandc contours + mismatched midpoint seam + TD floor)
+→ `emitRuledBands` (round 3, NEW: asymmetric same-formation band contours for sweep-SUPPRESSED
+ruled-band units) → `emitEnclosedLensCurves` + `emitBottomTieSubstrate` + `emitSubTdLenses`
+(the proven column-merge carriers, kept — the sweep defers to them). `emitIntervalCurves` (the
+seam tiler + routeLoneSidePinch/routeLoneStack/tileGapTwoSided/tileCoherentStack/
+tileConvergingStack) does NOT run flag-ON.
+
+### The fill construction (what the 3 rounds built)
+
+1. **Round 1 — per-termination flood wedges (`emitFloodWedge` in emitTerminationSweep.ts,
+   `floodsw` ids):** each sweep termination emits the vacated-wedge closure behind its own apex
+   (the `emitLonePinch` corner→conv→apex device); conv at the GAP MIDPOINT so two-sided wedges
+   abut at 0.5 instead of double-covering; flood label = `facingMatrixLabel` at the unit's
+   mid-elevation (owner 8f dominant-lithology fill). This closed the MODE-B "no carrier" holes
+   (Tie-4 74→0; total 294→40) and most double-emission overlaps (144→88).
+2. **Round 2 — onlap apex ON the tie (`tieFacingElevAt`):** the onlap apex now rides the ACTUAL
+   tie's interpolated line at 0.5 (was the unit's horizontal contact), the TIED-side wedge is
+   skipped (the tie closes that side), and the surviving wedge's conv sits at the APEX elevation
+   (no mid-elevation dogleg). Overlaps 88→0 with no hole increase. Plus `isMinorityWide` (8h
+   phase-1 widening: mixed-bracket interior minorities lens too) — 0corr violations 8→3.
+3. **Round 3 — `emitRuledBands.ts` (NEW) + the sub-snap guard:** a sweep-suppressed ruled-band
+   unit (8e / 8g(b) / corr-2) got NO fill after the deletion (a neighbouring face absorbed its
+   slot → ABSENT). The pass emits its missing asymmetric same-formation band contour (`rband`
+   ids) to the facing same-formation run so its face closes and its column vertical labels it.
+   Two in-code guards: index-based band-member skip; the PEER GUARD (facing run must overlap
+   ≥ 0.5× its own thickness — else a thin unit "banding" to an 8 m enclosing matrix slices the
+   flood, measured +55 overlaps). Fixed 4 ABSENT rows. **`SUB_SNAP_GAP_M = 0.3`** (named
+   rule-derived guard, emitTerminationSweep): a gap narrower than 0.3 m collapses all pinches
+   under the 1 mm snap (the session-10 physical rule generalised) — the sweep emits nothing,
+   the flood fills full-width. CS1 gap21 (0.17 m gap) 20 holes → 0.
+
+### The OFF/ON battery arc (the measurement of record — `partitionFillV2.throwaway_s15harness.diag.test.ts`, SHAPE_AUDIT=1, dumps scripts/diag_s15harness.json with per-violation rows)
+
+| state | conf 0/1/2 = total | holesAbove | holesSub | overlaps |
+|---|---|---|---|---|
+| flag OFF (default, ALL rounds) | 5/5/0 = **10** | 0 | 0 | 0 |
+| ON at wiring (sweep + naive flood) | 8/11/5 = 24 | 294 | 0 | 144 |
+| ON round 1 (flood wedges) | 8/12/5 = 25 | 40 | 0 | 88 |
+| ON round 2 (apex-on-tie + 8h widening) | 3/13/5 = 21 | 40 | 0 | 0 |
+| **ON round 3 (ruled bands + sub-snap guard)** | 3/9/5 = **17** | **20** | 0 | **0** |
+
+**Explicitness assertion (owner property) — deficit 0 on all 14 sections**
+(`partitionFillV2.throwaway_s15explicit.diag.test.ts`): every lens/pinch region in the flag-ON
+output is backed by an explicit termination curve (sweep `term`/`onlapterm` or the folded-in
+`lens`/`subtdlens` carriers).
+
+### Final ON triage (17 rows, from the harness rows dump)
+
+- **6 PRE-EXISTING** (identical rows flag-OFF — not hoist regressions): Tie-10 ZAND both-tied
+  band, CS1 g7 SILT absent (Q3-entangled), CS1 g18 ZAND / g19 KLEI / g22 SILT full-width
+  (ruling-8 untied residual), CS1 g20 ZAND absent.
+- **4 of OFF's 10 rows FIXED by the hoist**: Tie-10 ZAND 0corr lens (el 5.73-6.44, the §3(c)
+  minority), Tie-12 SILT band, CS1 g22 ZAND absent, CS2 g13 SILT band.
+- **11 NEW ABSENT — ONE class: the MISMATCHED-FACING suppressed/banded unit.** A ruled-exempt
+  or corr-2 unit whose facing carries a DIFFERENT formation (no same-formation run to band to):
+  `emitRuledBands`' same-formation contour cannot close it (peer-guard-blocked or no run), so a
+  neighbouring flood face absorbs its slot. Rows: Tie-7 ZAND, Tie-11 ZAND (corr-2 vs SILT
+  facing — the smallest repro), CS3 g6 KLEI + g7 ZAND, CS1 g0 ZAND / g8 KLEI / g12 ZAND,
+  CS2 g6 ZAND / g11 SILT / g15 SILT / g21 ZAND. The fix shape is the mismatched analogue
+  (midpoint-quad pair / onlap-to-facing-different-formation) — a flood-seam attempt for Tie-11
+  leaked past the sloping band top and regressed Tie-10; reverted, recorded.
+
+### Named walls + guards (mission's stop-and-report clause)
+
+1. **CS2 gap17 sloping-enclosure (the 20 remaining holes):** a 0-corr SILT lens under a ZAND
+   enclosing band base that SLOPES (−4.19→−5.25); the single-conv-point flood wedge cannot ride
+   the dipping bracket — a triangular hole stays between the horizontal wedge and the sloping
+   base. Needs a multi-segment wedge following the bracket contour (`convToFacingX` variant
+   measured no change; peer-guard removal trades these holes for 55 overlaps). WALL, recorded.
+2. **`SUB_SNAP_GAP_M = 0.3`** (emitTerminationSweep) — rule-derived, tuned to isolate CS1 g21
+   (0.5 m caught a CS3 narrow gap and added a violation).
+3. **PEER GUARD** (emitRuledBands) — facing-run overlap ≥ 0.5× run thickness.
+4. **coherentStack (a)** red — the enclosed-lens-in-band notch (the documented
+   `splitAnnulus`-bypass wall, sectionGeom.ts). **convergingStack (a)** red — 3-unit 0-corr
+   interbed vs converging bracket. Both flag-ON synthetic gates; 8 of the 10 tests in those
+   two files pass; these 2 are the only reds in the whole suite.
+
+### Verification snapshot (end of session 15 — every number re-verified by the orchestrator)
+
+- **flag OFF: BYTE-IDENTICAL** — conformance 5/5/0=10 (same rows) · holes 0/0/0 · overlaps 0 ·
+  CS1 gates **7/7** · v1 goldens/oneGesture + package tests **66/66** · tsc clean.
+- flag ON: conformance **3/9/5=17** · holesAbove **20** (CS2 g17 only) · overlaps **0** ·
+  explicitness deficit **0**.
+- Shape+synthetic gates: strict210/loneSidePinch/twoSidedTermination/bandAuthority/
+  derivedTieOnlap/simplerings/bidirSweep/subTdLens/enclosedLensDetour/coherentLoneStack
+  **39/39** · known reds: coherentStack (a) + convergingStack (a) = **2** (documented above).
+- Named sessions-9..13 cases: none reappear in the ON rows (col3 interbed, col12 KLEI, col14
+  sub-TD, col18 both sides all clean; 8e merges exempted by terminationRules as before).
+- The §17 hard target (ON ≤4 at 0/0/0) NOT reached — 17 at 20/0; the gap is the 11-row
+  mismatched-facing class + the CS2 g17 wall, both precisely characterised above.
+
+### Files this session (worktree, NOT committed — orchestrator commits + rm)
+
+- `partitionFillV2/emitCurves.ts` (EDITED) — the hoist wiring (flag-ON: sweep + flood + ruled
+  bands INSTEAD of emitIntervalCurves; flag-OFF unchanged).
+- `partitionFillV2/emitTerminationSweep.ts` (EDITED, 543 lines — over the 500 advisory;
+  extraction candidate) — flood wedges, apex-on-tie, isMinorityWide, SUB_SNAP_GAP_M.
+- `partitionFillV2/emitEnclosingFlood.ts` (REBUILT) — fill-only: bandc + mismatched midpoint
+  seam + TD floor (the naive full-width carriers measured worse and were removed).
+- `partitionFillV2/emitRuledBands.ts` (NEW, 177 lines) — asymmetric ruled-band contours.
+- THROWAWAYS to `rm` at cut-over (all SHAPE_AUDIT-gated, skip by default):
+  `partitionFillV2.throwaway_s15harness.diag.test.ts` (the OFF/ON battery — the oracle of
+  record), `partitionFillV2.throwaway_s15probe.diag.test.ts`,
+  `partitionFillV2.throwaway_s15dump.diag.test.ts`,
+  `partitionFillV2.throwaway_s15explicit.diag.test.ts`, plus
+  `scripts/diag_s15harness.json` / `diag_s15probe.json` / `diag_s15dump.json` /
+  `diag_s15explicit.json`. (§14's throwaway_s14harness was already removed.)
+
+### Next steps (session 16 — the two remaining fronts, both precisely scoped)
+
+1. **The mismatched-facing ABSENT class (11 rows, ONE mechanism):** a suppressed/banded unit
+   facing a DIFFERENT formation needs the mismatched band render — the ruling-8d midpoint-quad
+   pair (its band contour to the midpoint seam, the facing formation's quad beyond) or an
+   onlap-to-bracket construction. Tie-11 g0 ZAND (corr-2, base-tied, SILT facing) is the
+   smallest repro; the failed flood-seam attempt (leaked past the sloping band top, regressed
+   Tie-10) is recorded in round-3's report — anchor the seam to the band contour endpoints, not
+   the interval brackets.
+2. **CS2 g17 sloping-enclosure wedge:** multi-segment wedge riding the enclosing band's base
+   contour (the bracket line), replacing the single conv point.
+3. Then re-measure; the cut-over bar stays §17's (ON ≤4 at 0/0/0 both states) before any flag
+   default flip. `intersect.ts`/`seamAnchor.ts` UNTOUCHED; v1 READ-ONLY throughout.
