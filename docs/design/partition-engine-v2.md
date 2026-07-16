@@ -419,7 +419,10 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    bodies connected through a tie-section's fill (CS1↔TS↔CS2) become one
    body in the DB; (3) in 3D: the voxel build repeats the connect in the
    volume — a CS1 body meeting a CS2 body through the voxels is one body.
-   Same connected-components operation at three scales, never pre-emptive.
+   Same connected-components operation at three scales, never pre-emptive
+   — owner's ordering principle: "we're going from small to large, first
+   in 2D then in 3D" (the same little-to-big direction as the 8h
+   containment fill).
    NOTE: stages 2-3 imply the body resolver moves from edge-union to
    geometry-connectivity — a recorded direction for the backend resolver
    increment (interacts with the body-identity review finding), NOT part
