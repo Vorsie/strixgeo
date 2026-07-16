@@ -385,6 +385,19 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8j. **MERGE AFTER FILL (owner, 2026-07-17 — "you merge after everything
+   is fucking filled!").** Supersedes 8i's pre-emptive "same litho → do
+   nothing": NO termination is ever suppressed by a predicted merge. A
+   corr-1 side onlaps its tie regardless of the facing litho; a corr-0
+   side lenses; THEN the fill runs; THEN same-litho regions that TOUCH
+   merge into one body as a POST-FILL labelling step (the Track-2
+   same-formation body-merge analogue, now in the 2D engine). This
+   deletes the `mergesSameFormationBand` pre-emption from the sweep — a
+   sub-piece of a carved unit (e.g. the clay sliver a lens interbed
+   splits off) simply lenses within the carve's shadow and reconnects to
+   its encompassing body around the lens tips, automatically. The 8e/8g(b)
+   rulings survive as the post-fill merge criteria (same litho + touching
+   / base-tied), no longer as emission guards.
 8i. **The three-function spec (owner, 2026-07-17 night, dogfeeding the
    hoisted render — verbatim, supersedes every heuristic guard in the
    termination sweep):** "Write a function that checks if there are
