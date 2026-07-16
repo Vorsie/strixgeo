@@ -679,3 +679,22 @@ gated-OFF skeletons (`tileLone.ts`, `tileMultiUnit.ts` carve) are its starting p
    pass). Do NOT touch `intersect.ts`/`seamAnchor.ts` (613-hole trap). Both session-5 flags
    (`LONE_TERMINATION_ENABLED`, `MULTIUNIT_MINORITY_CARVE_ENABLED`) + `MULTIUNIT_SUBSTRIP_ENABLED`
    stay OFF until the coherent-flood primitive replaces the independent-wedge / additive-carve forms.
+
+### ⚠ BASELINE MOVED on develop (2026-07-16 overnight, post-session-5 — MERGE develop before session 6)
+
+Four review-driven changes landed on develop AFTER the session-5 checkpoint; the worktree is behind:
+
+1. **Ruling 8b SHIPPED** (`4d09864ed`): `partitionFillV2/lensReach.ts` caps every 0-corr lens at
+   min(0.45 × gap, 2 × thickness); all five emission paths route through it; overrides un-capped.
+   Conformance moved 19 → 17 (1corr 14 → 12, 8e-enclosure 50 → 48).
+2. **Q4 covers bridges** (`c89d347d3`): `partitionFillV2/crossingConflicts.ts` — ONE canonicalised
+   pass over adjacent ties AND jump bridges before any emission; suspended edges drop from all
+   paths; `emitCurves.pruneCrossingTies` is GONE. Session-6 code touching emitCurves must respect
+   the `survivingSection` filter.
+3. **Conflict warning wired** (`6fc6fd769`-1 / the feat chip commit): selector has a
+   `computeSectionFillActiveWithDiagnostics` variant; PartitionFillOverlay renders
+   `CrossingTieWarningChip` on conflicts.
+4. **Gate is connected-component aware** (`6fc6fd769`): step 3 above ("fix SILT[L] at the GATE") is
+   ALREADY DONE — the classifier now reports the component incident to the audited unit's own
+   column edge. Tie-10 honest count is 3. **NEW BASELINE: 16 violations = 5 / 11 / 0** (was
+   5/14/0=19 at session-5 end). The one-run flag-ON harness must be re-baselined against this.
