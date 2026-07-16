@@ -57,6 +57,32 @@ import { closeColumnGaps } from '../partitionFill/columnReduce'
  */
 const ENABLE_ENCLOSED_LENS = true
 
+/**
+ * TARGET C (session 9) — the EDGED-ENCLOSING enclosed-minority experiment, GATED OFF after a
+ * measured negative.
+ *
+ * A same-formation-enclosed 0-corr minority whose enclosing BELOW unit is TIED (edged) cannot
+ * go through the ordinary ``extractEnclosedLenses`` merge (the merge splices the below unit out
+ * of the column, dropping its tie's layerId → its band vanishes). The CS1 g20/g21/g22 ZAND
+ * minorities (enclosed by SILT above + SILT below, both tied) are this class.
+ *
+ * ATTEMPT (this flag ON): record such a minority as an enclosed lens WITHOUT merging (keeping
+ * both enclosing units + their ties intact), then emit its lens closing curves. The enclosing
+ * SILT already FLOODS the minority's slot full-width (measured: at el 9.05 the whole gap is
+ * SILT), so the emitted ZAND lens rides its own column edge as a NOTCH into that SILT flood —
+ * a hole=0 shape ``slice.splitAnnulus`` (fires only on holes>0) cannot separate, so the SILT
+ * flood face geometrically absorbs it (the documented ``splitAnnulus``-bypass wall, sessions
+ * 5/8). MEASURED (session 9, flag ON): holesAbove 0 → 53 (the notch breaks the SILT flood face
+ * into an uncovered sliver at every emitted lens). DISQUALIFYING. It CANNOT land hole-free
+ * without the merge (blocked by the edged below) or a notch-splitter at holes=0
+ * (``intersect.ts``-adjacent, forbidden — the 613-hole trap).
+ *
+ * DEFAULT OFF: the CS1 g20/g21/g22 ZAND minorities stay ABSENT (the pre-existing residual) —
+ * NOT a new defect. Recorded per the prompt's "prove it and record" allowance for a target
+ * that genuinely needs different treatment.
+ */
+const ENABLE_ENCLOSED_LENS_EDGED = false
+
 /** One unit with precomputed elevations (mTAW) plus its litho identity. */
 export interface UnitGeom {
   layerId: string
@@ -215,6 +241,12 @@ export function buildSectionInput(
     const enclosedLenses = ENABLE_ENCLOSED_LENS
       ? extractEnclosedLenses(stack, edgedLayerIds)
       : []
+    // TARGET C (session 9, gated OFF): non-destructively record a same-formation-enclosed
+    // minority whose merge was blocked by an edged enclosing unit (CS1 g20/g21/g22 ZAND). See
+    // ``ENABLE_ENCLOSED_LENS_EDGED`` — measured negative (re-opens holes/overlaps), kept OFF.
+    if (ENABLE_ENCLOSED_LENS_EDGED) {
+      extractEdgedEnclosedLenses(stack, edgedLayerIds, enclosedLenses)
+    }
     geom.push({
       investigationId: c.investigationId,
       // Real x filled in below once we know the surviving index.
@@ -302,4 +334,46 @@ function extractEnclosedLenses(units: UnitGeom[], edgedLayerIds: ReadonlySet<str
     }
   }
   return lenses
+}
+
+/**
+ * TARGET C (session 9, gated OFF) — record a same-formation-enclosed minority whose ordinary
+ * merge was BLOCKED because an enclosing unit is edged, WITHOUT modifying the column stack.
+ *
+ * ``extractEnclosedLenses`` (above) only merges when neither the lens nor the below unit is
+ * edged (the merge splices the below unit out, which would drop its tie). A minority enclosed
+ * by an EDGED same-formation band above+below (CS1 g20/g21/g22 ZAND in SILT) is therefore left
+ * in the column and rendered ABSENT (swallowed by the enclosing SILT flood). This pass records
+ * it as an enclosed lens WITHOUT the merge so ``emitEnclosedLensCurves`` can emit its notch.
+ *
+ * MEASURED NEGATIVE (kept OFF): without the merge the enclosing SILT is NOT a continuous
+ * annulus, so the emitted ZAND notch rides the column edge (holes=0) and the SILT flood face
+ * absorbs it (or a double-cover/sliver appears). See ``ENABLE_ENCLOSED_LENS_EDGED``.
+ *
+ * Parameters
+ * ----------
+ * units : UnitGeom[]
+ *     The column stack AFTER the ordinary extraction (read-only here — NOT mutated).
+ * edgedLayerIds : ReadonlySet<string>
+ *     Section-wide edged layer ids.
+ * lenses : EnclosedLens[]
+ *     Accumulator the recorded (un-merged) lenses are pushed to.
+ */
+function extractEdgedEnclosedLenses(
+  units: readonly UnitGeom[],
+  edgedLayerIds: ReadonlySet<string>,
+  lenses: EnclosedLens[],
+): void {
+  for (let k = 1; k + 1 < units.length; k++) {
+    const above = units[k - 1]
+    const below = units[k + 1]
+    const lens = units[k]
+    if (above.formationId !== below.formationId) continue
+    if (above.formationId === lens.formationId) continue
+    if (edgedLayerIds.has(lens.layerId)) continue // a tied minority bands via its tie, not a lens
+    // Only the case the ordinary pass could NOT handle: the below (or lens) is edged, so the
+    // merge would drop a tie. Record it non-destructively.
+    if (!edgedLayerIds.has(below.layerId)) continue
+    lenses.push({ lens: { ...lens }, matrixFormationId: above.formationId })
+  }
 }

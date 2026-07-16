@@ -1145,3 +1145,118 @@ None are new; all are the design §4/§8 enclosed-minority / lens-edged / owner-
    residual work above → flip `twoSidedTerminationsEnabled` default→ON → delete the seam `tileInterval`
    body + strip `TILEGAP_DIAG`/`COHERENT_STACK_DIAG` → v2 frozen snapshot. `intersect.ts`/
    `seamAnchor.ts` UNTOUCHED (613-hole trap); v1 90/90 byte-identical safety line held all session.
+
+---
+
+## 12. Session-9 plan & progress — TARGET A SHIPPED (enclosed-lens detour); TARGET B already correct; TARGET C measured-negative (recorded)
+
+⚡ OWNER DIRECTIVE: BUILD-FIRST. Owner ruling (2026-07-16 afternoon, on the CS1 walkthrough): "a
+0-corr unit-side ALWAYS gets its generated lens, no matter how tied its surroundings are"
+(ruling 8h phases 1-2 UNCONDITIONAL). Three internal shortcuts to remove: (A) the section-wide
+edged-matrix exclusion, (B) the band-bracketed interval skip, (C) the g20/g22 base-edged residuals.
+
+### The DIAGNOSIS overturned the prompt's framing (per the "trust the data over the doc" rule)
+
+The `effectiveCorr.derivedBandTies` side-condition fix (2026-07-16 14:28, after session 8) shifted
+the baseline: **flag-OFF 6/7/0=13, flag-ON 4/6/0=10** at session start (not 5/9/0=14 / 3/8/0=11).
+Real-data probes on CS1 col3 (x=101.56, filtered idx 3) found:
+
+* **TARGET A (col3 u3 SILT interbed [4.06..4.70], enclosed by ZAND above+below).** The prompt's
+  "section-wide edged-matrix exclusion blocks extraction" is NO LONGER the mechanism —
+  `extractEnclosedLenses` DID pull it (`col3.enclosedLenses=[SILT el[4.06..4.70] matrix=ZAND]`, the
+  ZAND host merged to one band). The REAL blocker: `emitEnclosedLensCurves`'s `facingCarriesMatrix`
+  gate DROPPED the lens because the facing columns carry KLEI (not ZAND) at the interbed's elevation
+  → the merged ZAND band swept the slot → interbed ABSENT (both gaps, both flag states). It was NOT
+  gate-flagged (extracted out of `col.units`, invisible to the conformance gate) — a real defect the
+  counter can't see.
+* **TARGET B (col3 u5 SILT [0.23..0.66]).** ALREADY CORRECT: renders `band` in gap2 (banded left of
+  col3) + `lens` in gap3 (pinching right of col3), exactly the owner's acceptance. No fix needed.
+* **TARGET C (CS1 g20/g21 col21 u3 ZAND, g22 col22 u2 ZAND — enclosed by SILT above+below, BOTH
+  tied).** `extractEnclosedLenses` correctly refuses to merge (the merge splices the enclosing BELOW
+  unit out of the column, dropping its tie's layerId → its SILT band vanishes). Per-gap `edgedLayers`
+  does NOT unblock it (the below SILT is genuinely edged in the TARGET gap). At el 9.05 the ZAND slot
+  is already FLOODED full-width by the enclosing SILT (measured) — the minority is absorbed, not a
+  hole. So the lens needs CARVING out of a claimed flood, the `splitAnnulus`-bypass wall sessions 5/8
+  measured.
+
+### TARGET A — SHIPPED (`emitLenses.shouldEmitLens`, ruling 8h phases 1-2)
+
+Replaced the `facingCarriesMatrix` gate with `shouldEmitLens` → UNCONDITIONAL emission. Every entry
+in `col.enclosedLenses` is enclosed by ONE continuous own-column matrix (extraction guarantees it),
+so the 8b-capped lens hugs its own column and the arrangement carves it out of that own-column matrix
+band (which the merge made full-width in the gap) — the enclosing band DETOURS around it (ruling 8g).
+The 8b cap keeps the lens hugging its own column so it never crosses into the facing's different
+lithology. `facingCarriesMatrix` DELETED (superseded).
+
+**ACCEPTANCE MET:** CS1 col3 SILT interbed now renders `SILT lens frac[0.550..1.000]` (gap2, hugs
+col3's right edge) + `SILT lens frac[0.000..0.014]` (gap3, hugs col3's left edge), the surrounding
+ZAND band fills around it, **holes/overlaps 0/0/0**. The absent-minority enumeration dropped the col3
+interbed (both gaps). Side effect (flag-OFF): the CS1 g5 ZAND absent knock-on also resolved →
+1corr-not-onlap 7 → 6. tsc clean, v1 90/90, CS1 7/7, all shape+package gates green.
+
+### TARGET C — ATTEMPTED, MEASURED NEGATIVE (+53 holesAbove), GATED OFF, RECORDED
+
+Built `sectionGeom.extractEdgedEnclosedLenses` (flag `ENABLE_ENCLOSED_LENS_EDGED`, DEFAULT OFF): a
+non-destructive pass that records a same-formation-enclosed minority whose enclosing below is edged,
+WITHOUT merging (keeping both enclosing units + their ties). Measured with the flag ON:
+**holesAbove 0 → 53** — DISQUALIFYING. ROOT (confirmed): without the merge the enclosing SILT is not
+a continuous annulus, so the emitted ZAND notch rides the column edge (holes=0) and breaks the SILT
+flood face into an uncovered sliver at every emitted lens (`slice.splitAnnulus` fires only on
+holes>0, cannot separate a notch — the documented wall). CANNOT land hole-free without the blocked
+merge or a notch-splitter at holes=0 (`intersect.ts`-adjacent, forbidden — 613-hole trap). Gated
+OFF; the CS1 g20/g21/g22 ZAND minorities stay ABSENT (the pre-existing residual, NOT a new defect).
+`partitionFillV2.lensEdged.test.ts` remains the `describe.skip` RED spec for this class.
+
+### The OFF/ON table (session 9 end; harness `partitionFillV2.throwaway_s9harness.diag.test.ts`)
+
+| metric | flag OFF (committed) | flag ON (the 8h sweep) |
+|---|---|---|
+| holes above / sub TD | 0 / 0 | 0 / 0 |
+| different-litho overlaps | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **6 / 6 / 0 = 12** | **4 / 6 / 0 = 10** |
+| 8e-enclosure (advisory) | 50 | 44 |
+| q3-legit (advisory) | 6 | 4 |
+| reach-cap (advisory) | 2 | 7 |
+
+* **Baselines beaten:** flag-OFF 13 → **12** (1corr 7→6, the CS1 g5 knock-on); flag-ON was already
+  10 (the 8a derivedBandTies fix shifted it pre-session). TARGET A's win is INVISIBLE to the counter
+  (the col3 interbed was extraction-hidden) but the RENDER is fixed — verified region-by-region.
+* **Flag-OFF is NO LONGER byte-identical** for the extraction/lens path (owner-ruled OK): the only
+  OFF diff vs session 8 is the 3 enclosed-lens interbeds (CS1 col3 SILT + 2 knock-ons) now rendering,
+  an intended ruling-8h fix. Everything else OFF byte-identical (v1 90/90 held).
+
+### Per-instance triage of every flag-ON residual (10)
+
+1-5, 9-10 (Tie-10 g0 ZAND, Tie-12 g0 SILT, CS1 g18 VEEN+ZAND, CS1 g19 KLEI, CS2 g13 ×2, CS1 g22 SILT
+full-width): **class (d) ruling-8 untied same-formation full-widths** — opposing lenses until the
+OWNER TIES them (embraced side effect, gate flags them CORRECTLY, NOT engine defects). 6/8 (CS1 g20
+ZAND absent) + 8 (CS1 g22 ZAND absent): **TARGET C** (edged-enclosing / lens-edged) — measured
+negative, gated off, recorded. Nothing NEW, nothing regressed.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* `partitionFillV2/emitLenses.ts` (EDITED — `facingCarriesMatrix` → `shouldEmitLens` unconditional;
+  TARGET A ships).
+* `partitionFillV2/sectionGeom.ts` (EDITED — `ENABLE_ENCLOSED_LENS_EDGED=false` + the
+  `extractEdgedEnclosedLenses` measured-negative stub; TARGET C recorded, gated off).
+* `partitionFillV2.enclosedLensDetour.test.ts` (NEW — 7 synthetic gates, GREEN: TARGET-A interbed
+  lenses both sides + host detours + hole-free; TARGET-B banded-left/lens-right + hole-free).
+* STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_{s9harness,cs1col3,extract,c,g20,
+  absent,synth}.diag.test.ts` (SHAPE_AUDIT-gated / skipped probes + harness — regenerate if needed)
+  + `scripts/diag_{s9_harness,cs1col3,extract,c,g20,absent}.json`. Consider removing
+  `ENABLE_ENCLOSED_LENS_EDGED` + `extractEdgedEnclosedLenses` (inert measured-negative) if the doc
+  record here suffices. Any session-1..8 stubs still pending rm.
+
+### Next steps (session 10)
+
+1. **TARGET C is the last enclosed-minority class** and genuinely needs different treatment (the
+   merge is blocked by an edged enclosing tie; additive/non-merge both re-open holes). Two hole-free
+   paths, both are their own increment: (i) split the enclosing tied band so the minority can be a
+   proper annulus WITHOUT losing the below tie (a band-split that keeps the layerId), or (ii) a
+   notch-splitter that separates an edge-riding notch at holes=0 (`intersect.ts`-adjacent — high risk,
+   the 613-hole trap forbids the naive relax). Owner call may prefer accepting these as absent.
+2. **Owner ties** dissolve the class-(d) untied same-formation full-widths (ruling 8 embraced).
+3. **Cutover-ready** unchanged: OWNER DOGFEED (litho + geotech axes — the col3 interbed now renders,
+   worth a look) → flip `twoSidedTerminationsEnabled` default→ON → delete the seam `tileInterval`
+   body + strip the throwaway diag blocks → v2 frozen snapshot. `intersect.ts`/`seamAnchor.ts`
+   UNTOUCHED all session; v1 90/90 held.

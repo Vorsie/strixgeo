@@ -58,34 +58,53 @@ export function emitEnclosedLensCurves(
     if (ci + 1 < columns.length) {
       const gw = columns[ci + 1].x - col.x
       for (const el of col.enclosedLenses)
-        if (facingCarriesMatrix(columns[ci + 1], el))
+        if (shouldEmitLens(col, columns[ci + 1], el))
           emitOne(el.lens, col, ci, 'left', gw, section, nextId, out, labels)
     }
     // Into the gap to the LEFT (this column is the gap's RIGHT column).
     if (ci - 1 >= 0) {
       const gw = col.x - columns[ci - 1].x
       for (const el of col.enclosedLenses)
-        if (facingCarriesMatrix(columns[ci - 1], el))
+        if (shouldEmitLens(col, columns[ci - 1], el))
           emitOne(el.lens, col, ci - 1, 'right', gw, section, nextId, out, labels)
     }
   }
 }
 
 /**
- * Whether the facing column carries the lens's enclosing MATRIX formation at the
- * lens's elevation range. Only then is the lens a real hole in a continuous matrix
- * band across the gap; otherwise drawing it would overlap a genuinely different
- * neighbour (the lens×pinch overlap class). Requires the facing matrix unit to
- * vertically overlap the lens's [base..top].
+ * Whether to emit an enclosed lens into the gap facing ``facing`` (ruling 8h phases 1-2 —
+ * every 0-corr enclosed minority ALWAYS gets its lens; ruling 8g — a lens is a DETOUR in the
+ * enclosing band's contour, never a wall, so the enclosing band flows around it).
+ *
+ * An enclosed lens in ``col.enclosedLenses`` is enclosed by ONE continuous MATRIX formation on
+ * its OWN column (``extractEnclosedLenses`` merged the above+below matrix into a single band
+ * spanning the lens's elevation). So the lens is a real HOLE in that own-column matrix band
+ * regardless of what the facing column carries: the 8b-capped lens hugs its own column, and the
+ * arrangement carves it out of the own-column matrix band (which the merge made continuous
+ * across the lens).
+ *
+ * TWO emission cases, both hole-safe:
+ *   (1) the FACING column carries the matrix at the lens elevation (``facingCarriesMatrix``) —
+ *       the matrix bands FULL-WIDTH across the gap and the lens is an interior hole (the
+ *       original, un-edged case: CS1 col0 ZAND-in-SILT).
+ *   (2) the facing carries a DIFFERENT lithology (CS1 col3 SILT-in-ZAND facing KLEI) — the
+ *       own-column matrix still renders full-width in the gap (a same-formation band from the
+ *       merge), so an 8b-capped lens hugging the own column is a hole in THAT band, on the own
+ *       side, where the facing's different lithology has tapered away. Ruling 8h makes this
+ *       emission UNCONDITIONAL: the interbed must not vanish just because the facing differs.
+ *
+ * The 8b reach cap (``lensReach``) keeps the lens hugging its own column (apex ≤ 2×thickness),
+ * so it never crosses into the facing's different-lithology territory — overlap-free by the
+ * cap, not by suppressing the lens.
  */
-function facingCarriesMatrix(facing: ColumnGeom, el: EnclosedLens): boolean {
-  const { lens, matrixFormationId } = el
-  for (const u of facing.units) {
-    if (u.formationId !== matrixFormationId) continue
-    // Vertical overlap between the facing matrix unit and the lens span.
-    if (u.topElev > lens.baseElev && lens.topElev > u.baseElev) return true
-  }
-  return false
+function shouldEmitLens(col: ColumnGeom, facing: ColumnGeom, el: EnclosedLens): boolean {
+  void col
+  void facing
+  // Ruling 8h phases 1-2: emit unconditionally. The 8b cap + own-column matrix continuity make
+  // it hole-safe; the prior ``facingCarriesMatrix`` gate wrongly dropped an interbed whose
+  // facing carries a different lithology (CS1 col3 SILT-in-ZAND), leaving it ABSENT.
+  void el
+  return true
 }
 
 /** Emit one enclosed lens's closing curves into one gap, recording its label. */
