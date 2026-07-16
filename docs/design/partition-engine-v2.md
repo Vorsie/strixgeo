@@ -446,7 +446,13 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (reach-halving, sub-snap degeneration) — a 0-corr side ALWAYS draws
    its lens lines; (c) the classify and draw functions are LITERAL,
    separately-testable code (leftSide / rightSide / drawTermination) and
-   the sweep may call nothing else.
+   the sweep may call nothing else. (d) **An onlap is ONE extra line
+   (owner, 2026-07-17: "an onlap on the left just needs one extra line —
+   the correlation band is already there — same for the right side"):**
+   the tie is existing line art; the engine draws ONLY the closing flank
+   from the unit's free contact to the apex point on the tie. A second
+   flank riding the tie duplicates given line art (the recorded source of
+   the onlap-rendered-as-lens confusion) and is forbidden.
    the CS1 flip walkthrough — verbatim):** "Phase 1: 0 correlations on
    left side, emit lens on left. Phase 2: 0 correlations on right side,
    emit lens to the right. Phase 3 and 4: the same but with 1
