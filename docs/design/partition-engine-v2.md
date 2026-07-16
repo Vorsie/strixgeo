@@ -411,6 +411,19 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    its encompassing body around the lens tips, automatically. The 8e/8g(b)
    rulings survive as the post-fill merge criteria (same litho + touching
    / base-tied), no longer as emission guards.
+   **The staged body model (owner, 2026-07-17, clarifying):** a litho
+   unit STARTS as its own body; bodies form by GEOMETRIC CONNECT at three
+   scales, each after that scale's geometry exists — (1) per section:
+   after the fill, all units connected through the fill bands become one
+   unit/body in the DB; (2) across sections: after the tie sections, all
+   bodies connected through a tie-section's fill (CS1↔TS↔CS2) become one
+   body in the DB; (3) in 3D: the voxel build repeats the connect in the
+   volume — a CS1 body meeting a CS2 body through the voxels is one body.
+   Same connected-components operation at three scales, never pre-emptive.
+   NOTE: stages 2-3 imply the body resolver moves from edge-union to
+   geometry-connectivity — a recorded direction for the backend resolver
+   increment (interacts with the body-identity review finding), NOT part
+   of the 2D sweep work.
 8i. **The three-function spec (owner, 2026-07-17 night, dogfeeding the
    hoisted render — verbatim, supersedes every heuristic guard in the
    termination sweep):** "Write a function that checks if there are
