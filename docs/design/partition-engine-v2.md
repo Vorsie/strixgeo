@@ -385,7 +385,26 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
-8h. **The six-phase bidirectional sweep (owner, 2026-07-16, after reading
+8i. **The three-function spec (owner, 2026-07-17 night, dogfeeding the
+   hoisted render — verbatim, supersedes every heuristic guard in the
+   termination sweep):** "Write a function that checks if there are
+   correlation bands left and if there are correlation bands on the
+   right: call a function called leftside that checks the left side — if
+   that has 0 bands classify as lens, if it has 1 classify as onlap, 2
+   classify as band. Same one for right side. Then write a function that
+   actually draws: 0 correlation bands — easy, draw the lens lines on the
+   left or/and right side. If it has 1 correlation band, FOLLOW that
+   band: if it is the same litho (below for a top tie, above for a bottom
+   tie) do nothing; if it is a different litho make it onlap the tie."
+   Consequences: (a) the 8e/8g(b) merge exemption is NOT a run-existence
+   heuristic — it fires ONLY by following the unit's tie and finding the
+   SAME litho on the matched side of the facing unit (below-for-top-tie /
+   above-for-bottom-tie); different litho → the unit onlaps that tie,
+   never absent; (b) 0-corr has NO exemptions beyond physical
+   (reach-halving, sub-snap degeneration) — a 0-corr side ALWAYS draws
+   its lens lines; (c) the classify and draw functions are LITERAL,
+   separately-testable code (leftSide / rightSide / drawTermination) and
+   the sweep may call nothing else.
    the CS1 flip walkthrough — verbatim):** "Phase 1: 0 correlations on
    left side, emit lens on left. Phase 2: 0 correlations on right side,
    emit lens to the right. Phase 3 and 4: the same but with 1
