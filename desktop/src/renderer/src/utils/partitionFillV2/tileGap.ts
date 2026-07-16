@@ -39,21 +39,19 @@ import { emitSharedContactOnlap } from './emitSharedContactOnlap'
 import { chooseOnlapEnclosing } from './emitTerminations'
 import { facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
-import { tileGapLone } from './tileLone'
+import { tileCoherentLoneStack } from './tileCoherent'
 import { carveMultiUnitMinority, MULTIUNIT_MINORITY_CARVE_ENABLED, MULTIUNIT_SUBSTRIP_ENABLED, tileMultiUnit } from './tileMultiUnit'
 import { type InputCurve, type Point } from './types'
 
-/** LONE-side terminations switch (session 5, §7 step-2). GATED OFF — measured negative.
- *  The per-unit lone-stack termination (each unit onlaps/lenses against the tied-band context)
- *  drops conformance 19→17 in the right DIRECTION but tiles NON-hole-free: flag-ON measured
- *  holes 0→457, overlaps 0→666 (Tie-6/CS1/CS2 regressed). The vacated wedges of stacked lone
- *  units do NOT compose into a partition by independent per-unit emission — the same class of
- *  defect as the session-4 multi-unit sub-strip: a lone stack needs a SINGLE coherent flood
- *  boundary (the enclosing matrix descending as ONE face bounded by every unit's pinch), not N
- *  independent ``emitLonePinch`` wedges that overlap/gap at their shared conv/apex edges. Kept
- *  behind the flag as the session-5 measured negative; ``tileLone.ts`` skeleton reused by
- *  session 6 (the single-coherent-flood construction). See REWRITE_STATE.md §8. */
-const LONE_TERMINATION_ENABLED = false
+/** SESSION-6 single-coherent-flood / seam-with-notches lone-stack switch (REWRITE_STATE §9).
+ *  A lone stack that SPANS its interval against a facing enclosing matrix M (a DIFFERENT
+ *  formation, REAL facing thickness) tiles hole-free via ``tileCoherentLoneStack`` (per-unit
+ *  meet-at-seam trapezoid + ONE M flood past the seam). This REPLACES the session-5 ``tileLone``
+ *  N-independent-wedge negative (measured +457 holes / +666 overlaps — that skeleton is deleted).
+ *  Active only within the two-sided path (which is itself gated behind ``twoSidedTerminationsEnabled``
+ *  = flag OFF by default, the byte-identical safety line). Measured flag-ON: conformance 16→15
+ *  (one 0corr-not-lens dropped on CS1), holes 0/0/0, overlaps 0 — a net win, no regression. */
+const COHERENT_LONE_STACK_ENABLED = true
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
@@ -212,18 +210,29 @@ export function tileGapTwoSided(
     rlens: rightLenses.map((u) => u.unit.formationId),
   })
   // LONE side (one matrix empty because the facing units are all TIED / BANDED). Ruling 8f: the
-  // excluded facing tied units are BRACKET CONTEXT — terminate each lone unit against them so a
-  // same-formation flood never merges with the facing band full-width (the §7 ZAND-full-width
-  // ROOT). ``tileGapLone`` owns the interval on success; on ``false`` it falls to
-  // ``routeLoneSidePinch`` / the seam (the caller, since we return false here).
+  // excluded facing tied units are BRACKET CONTEXT — the SESSION-6 coherent-flood primitive
+  // terminates each lone unit at a shared meet-seam against the facing enclosing matrix M, so a
+  // same-formation lone unit is SEPARATED from the facing band by the M seam strip (the §7
+  // ZAND-full-width ROOT) rather than merging full-width.
   if (leftMatrix.length === 0 || rightMatrix.length === 0) {
-    if (LONE_TERMINATION_ENABLED) {
-      const loneSide: 'left' | 'right' = leftMatrix.length > 0 ? 'left' : 'right'
-      const loneUnits = loneSide === 'left' ? leftUnitsAll : rightUnitsAll
-      const loneLenses = loneSide === 'left' ? leftLenses : rightLenses
-      const handled = tileGapLone(ctx, loneSide, loneUnits, loneLenses, nextId, nextFloodId, lensLabels, out)
+    const loneSide: 'left' | 'right' = leftMatrix.length > 0 ? 'left' : 'right'
+    const loneUnits = loneSide === 'left' ? leftUnitsAll : rightUnitsAll
+    const loneLenses = loneSide === 'left' ? leftLenses : rightLenses
+    const facing = loneSide === 'left' ? right : left
+    const loneX = loneSide === 'left' ? left.x : right.x
+    const facingX = loneSide === 'left' ? right.x : left.x
+    // SESSION-6 coherent-flood primitive: a lone stack that SPANS its interval against a facing
+    // enclosing matrix M (a DIFFERENT formation, REAL facing thickness) tiles hole-free via the
+    // per-unit meet-at-seam trapezoid + ONE M flood. Owns the interval on success (returns true);
+    // on false (no differing facing matrix / converging facing) it falls to the caller's seam.
+    // See ``tileCoherent.ts``. ``tileLone.ts`` is the DELETED session-5 negative (orchestrator rm).
+    if (COHERENT_LONE_STACK_ENABLED) {
+      const handled = tileCoherentLoneStack(
+        loneUnits, loneLenses, facing, loneSide, loneX, facingX, top, base,
+        nextId, nextFloodId, lensLabels, out,
+      )
       if (handled) {
-        diagBump('lone-fired')
+        diagBump('coherent-lone-fired')
         return true
       }
     }

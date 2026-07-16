@@ -698,3 +698,145 @@ Four review-driven changes landed on develop AFTER the session-5 checkpoint; the
    ALREADY DONE — the classifier now reports the component incident to the audited unit's own
    column edge. Tie-10 honest count is 3. **NEW BASELINE: 16 violations = 5 / 11 / 0** (was
    5/14/0=19 at session-5 end). The one-run flag-ON harness must be re-baselined against this.
+
+---
+
+## 9. Session-6 plan & progress — the COHERENT-FLOOD MEET-AT-SEAM primitive SHIPPED (measured net win); interval B is a CONFIRMED geometric obstruction
+
+Session 6 built the single-coherent-flood / seam-with-notches primitive
+(`partitionFillV2/tileCoherent.ts`), proved it hole-free on a synthetic fixture (TDD red→green),
+wired it into the lone branch of `tileGapTwoSided`, and MEASURED it on all 14 real sections in one
+run. It REPLACES the session-5 `tileLone.ts` N-wedge negative (that skeleton is now orphaned →
+orchestrator `rm`). NET WIN: flag-ON conformance 16→15 (one `0corr-not-lens` dropped on CS1),
+holes 0/0/0, overlaps 0, flag-OFF byte-identical. The named proof target — Tie-10 g0 interval B —
+was diagnosed to a REAL geometric obstruction the primitive correctly cannot (and must not) fire on.
+
+### Scoreboard (end of session 6)
+
+- **flag OFF (default engine output): BYTE-IDENTICAL to the merged baseline** — conformance
+  **5/11/0=16**, 8e-enclosure 48, reach-cap 2, q3 5 · holes **0/0/0** · overlaps **0** · CS1
+  gates **7/7** · shape+arrangement gates (strict210/loneSidePinch/simplerings/twoSidedTermination/
+  bandAuthority/derivedTieOnlap/edgedLayers + partitionFillV2/ package [arrangement/vacancyClosure/
+  computeSectionFillV2/sliceAnnulus/lensReach]) + the NEW `coherentLoneStack` gate = **73 pass** ·
+  v1 pure-geometry untouched · tsc clean.
+- **flag ON (the future engine): conformance 16→15 (0corr 5→4), holes 0/0/0, overlaps 0** — the
+  coherent primitive fires on exactly **1 real interval (Cross-section 1)**, drops its 0corr-not-lens
+  violation, regresses nothing. (Flag ON is gated behind `twoSidedTerminationsEnabled()` = OFF by
+  default; NOT yet the committed engine — the WIP intermediate.)
+
+### The primitive (`tileCoherent.ts` `tileCoherentLoneStack`) — how it generalises `emitLoneStackBand`
+
+`emitLoneStackBand` is hole-free ONLY when the enclosing matrix is a unit INSIDE the stack (it
+floods full-width from the lone column and minorities notch into it). A lone stack whose units SPAN
+the whole interval (matrix only ABOVE/BELOW, or only on the FACING) has no internal matrix band — the
+session-6 first attempts (per-unit `emitLonePinch` wedges [session 5: +666 ovl], then own-mid-elevation
+notches + apexX slab seams) both left a HOLE: a mid-elevation notch DIPS away from its own contact,
+and the sliver between the contact and the dipping notch edge is NOT covered (no matrix floods from
+the lone side to fill it). Proven three times (synthetic + CS1 gap18 49 holes + CS2 gap11 24 holes).
+
+THE SHIPPED CONSTRUCTION — **meet-at-seam trapezoids, not dipping notches:**
+- The lone units meet the facing enclosing matrix M at ONE shared vertical SEAM at
+  `SEAM_FRACTION` (=`INTERIOR_PINCH_FRACTION` 0.5). Each unit fills its OWN [uTop..uBase] slab from
+  the lone column to the seam as a right-TRAPEZOID (following the sloping brackets), with a per-unit
+  horizontal boundary `close` curve (loneX→seamX) separating adjacent lone-unit slabs. M fills the
+  seam→facing band (the facing column vertical as an M-labelled `flood` closing).
+- A rectangle/trapezoid partition (one seam + horizontal boundary seams) is hole-free BY
+  CONSTRUCTION — there is no dipping mid-apex sliver. Conformance: each lone unit reaches only the
+  lone edge + the seam ⇒ `onlap` (never full-width); M reaching the facing edge is a SEPARATE
+  connected component ⇒ the gate's raster union-find reads a same-formation lone unit as onlap, NOT
+  merged with a facing band — the §7 ZAND-full-width ROOT dissolved (WHERE M genuinely differs).
+- The MID-SEAM MEET (design KEY lead: "SILT onlaps down, ZAND onlaps up, meet at a mid seam") is the
+  shared seam line: adjacent units abut it at their shared contact, M sits past it.
+
+SCOPE / BAIL (ruling 7, all-or-nothing) — fires ONLY when: ≥2 lone units that SPAN the interval
+contiguously; the FACING carries ONE continuous enclosing matrix M across the span
+(`facingEnclosingMatrix` = same formation at top/mid/base + `facingCoversSpan`) that DIFFERS from
+EVERY lone unit (no re-merge); and the facing bracket has REAL thickness (a CONVERGING facing =
+§8-Q3 void → bail, was the CS2 gap11 hole). Every miss returns false → the caller's seam.
+
+### Tie-10 g0 interval B — CONFIRMED geometric obstruction (the honest finding)
+
+Interval B `[anchor 4.05/3.549 .. anchor -2.69/-2.29]`: lone-L {SILT[3.57,4.05] top-tied, ZAND
+[-2.69,3.57] base-tied}, R matrix empty (the facing ZAND both-tied band excluded). The design's target
+render ("ZAND[L] pinches, a differing flood separates it from ZAND[R]'s band") REQUIRES a differing
+formation physically between lone-ZAND and facing-ZAND for the connected-component gate to split them.
+**The data does not contain one** — the facing right column carries ZAND (same as lone ZAND) across
+the interval's whole elevation span (el -2.29..3.55); the enclosing KLEI is only ABOVE (>4.05) and
+BELOW (<-2.29), never between. `facingEnclosingMatrix` therefore correctly returns null (the facing
+matrix IS a lone unit's formation → any flood would re-merge, the wall). The coherent primitive
+CANNOT and MUST NOT fire here. This is the same wall session 5 hit via the `preferMatrix` probe
+("SILT has no facing run to band to"). The synthetic `coherentLoneStack` gate proves the primitive
+on the SAME SHAPE with a genuine differing facing matrix (KLEI the facing carries) — it is hole-free
+and separates. So the mechanism is correct; interval B lacks the geometric precondition. Options for
+interval B are OWNER calls, not engine fixes: (a) accept ZAND[L]+ZAND[R] as one band (a `collectGapBands`
+matched-pair / 8e gate exemption — they ARE base-tied same-formation); or (b) invent a KLEI sliver
+(a made-up region, rejected by ruling 5/8). RECOMMEND (a): the base-to-base ZAND tie makes them
+arguably one body; the gate flags them only because no matched-pair band is registered.
+
+### Interval A (multi-unit minority) — NOT attempted this session (recorded, not forced)
+
+Tie-10 g0 interval A: ZAND[R][5.73,6.44] 0-corr, enclosed by SILT above / KLEI below (both DIFFER —
+a mixed-bracket minority `extractEnclosedLenses` never pulls), renders ABSENT (swallowed by the seam).
+The mission's step 2 ("remove the minority's slot from the seam matrix, a real hole the notch fills")
+requires pulling a unit from the MIDDLE of a contiguous stack, which breaks the stack contiguity the
+seam tiler assumes and re-opens the exact hole/overlap the session-4 sub-strip (+164 holes) and
+session-5 additive carve (+43 overlaps) both measured. This is the interval-restructuring §4/§8 flag
+as its OWN red→green increment (touches the 32 OK `routeLoneStack`/seam cases). NOT begun — a bounded
+attempt in the remaining session-6 budget would risk a large regression against the coherent win. The
+repro is exact (above); it is the next session's first target once the coherent flag is default-ON.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+
+- `partitionFillV2/tileCoherent.ts` (NEW, ~243 lines) — the meet-at-seam coherent-flood primitive
+  `tileCoherentLoneStack` + `facingEnclosingMatrix`; a THROWAWAY `COHERENT_DIAG` bail-counter block
+  (strip at cut-over with `TILEGAP_DIAG`). Routes lens closings through `emitLensClosing` (lensReach
+  8b-capped); the meet-seam is an onlap tip at 0.5 (out of 8b lens-cap scope, ruling 8a/8b).
+- `partitionFillV2/tileGap.ts` (EDITED, 498 lines — back under the 500 warn) — the lone branch now
+  calls `tileCoherentLoneStack` behind `COHERENT_LONE_STACK_ENABLED=true` (active only inside the
+  flag-gated two-sided path); the dead `tileGapLone`/`LONE_TERMINATION_ENABLED` wiring + import
+  DELETED (superseded).
+- `partitionFillV2.coherentLoneStack.test.ts` (NEW) — the TDD gate: a synthetic lone {SILT onlap,
+  ZAND onlap} enclosed by a facing KLEI, asserts hole-free + each unit terminates + KLEI floods
+  between. GREEN (was RED against the pre-primitive engine).
+- STUBS to delete (orchestrator; bash rm denied here): `partitionFillV2/tileLone.ts` (session-5
+  negative, now orphaned — no importers), the throwaway diags
+  `partitionFillV2.throwaway_s6harness.diag.test.ts` (the one-run OFF/ON harness — regenerate if
+  needed; `SHAPE_AUDIT=1`), `partitionFillV2.throwaway_t10regions.diag.test.ts`,
+  `partitionFillV2.throwaway_cs2probe.diag.test.ts`, `partitionFillV2.throwaway_findfired.diag.test.ts`
+  + their `scripts/diag_s6_harness.json` / `diag_t10regions.json` / `diag_cs2probe.json` /
+  `diag_findfired.json` / `diag_coherent_*.json` dumps + the `scripts/read_s6*.cjs` / `read_conf.cjs`
+  / `read_col.cjs` / `read_t10r.cjs` readers. The `COHERENT_DIAG` + `TILEGAP_DIAG`/`TILEGAP_CAPTURE`
+  blocks in tileCoherent.ts/tileGap.ts are STILL THROWAWAY (strip at cut-over).
+- `tileMultiUnit.ts` unchanged (its `MULTIUNIT_*` flags stay OFF — the interval-A minority carve).
+
+### The one-run flag OFF/ON harness (regenerated) — the measurement of record
+
+`partitionFillV2.throwaway_s6harness.diag.test.ts` (`SHAPE_AUDIT=1`) measures holes / overlaps /
+FULL 2/1/0 conformance for BOTH flag states in ONE run (conformance mirrors the gate's classifier
+exactly). Result:
+
+| metric | flag OFF (default/committed) | flag ON (future engine) |
+|---|---|---|
+| holes above-TD / sub-TD | 0 / 0 | 0 / 0 |
+| different-litho overlap pairs | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **5 / 11 / 0 = 16** | **4 / 11 / 0 = 15** |
+| coherent-lone fired | (path inactive) | **1 interval (Cross-section 1)** |
+
+### Next steps (session 7)
+
+1. **OWNER CALL on Tie-10 interval B** (recorded above): accept ZAND[L]+ZAND[R] as one base-tied
+   band (a `collectGapBands`/8e gate exemption — the honest resolution, no invented KLEI), OR leave
+   flagged. The coherent primitive is complete; interval B is not an engine defect it can reach.
+2. **The multi-unit minority carve (interval A + the other absent mixed-bracket minorities)** — the
+   remaining engine work. Requires the interval-restructuring: pull a mixed-bracket minority from
+   the middle of a contiguous stack, emit its 8b lens, and RE-CLOSE the seam residual so the slot is
+   a real hole (NOT the additive carve — session-5 +43 ovl). Its own red→green increment; guard the
+   32 OK `routeLoneStack`/seam cases + holes 0/0/0 every step.
+3. **Widen the coherent primitive's reach** — it fires on only 1 real interval (most lone stacks are
+   single-unit [`bail-lt2` 25 on CS1] or face a same-formation / converging facing). Single-unit
+   lone stacks with a differing facing matrix are handled by `routeLoneSidePinch`; audit whether any
+   of the 24 lone bails are coherent-eligible after the multi-unit carve reshapes intervals.
+4. **Cutover readiness** stays: flip `twoSidedTerminationsEnabled` default→ON only when ALL
+   conformance counters reach 0 (advisories triaged) — still gated on the multi-unit restructuring +
+   the interval-B owner call. Keep `COHERENT_LONE_STACK_ENABLED` ON inside the two-sided path.
+   Do NOT touch `intersect.ts` / `seamAnchor.ts` (613-hole trap).
