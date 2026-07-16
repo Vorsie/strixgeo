@@ -375,6 +375,16 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    This ruling is the SPEC for the session-7 flip (terminations-first
    becomes the only path; the seam-based interval tiler and its bail
    taxonomy are deleted).
+8d-rev. **The top band counts as ONE correlation (owner, 2026-07-16
+   evening, dogfeeding the CS1 walkthrough — "top band counts as one
+   correlation, this keeps it consistent").** Supersedes 8d's "top band
+   only = 0-corr/Q3 void": a FIRST unit whose only tie is the top band is
+   1-corr and ONLAPS riding the surface (the `emitSurfaceOnlap` geometry —
+   top rides the top band, base closes to it at the apex fraction). Top
+   band + real/derived base tie stays 2-corr band (unchanged). In
+   `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
+   only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
+   untied first unit flips lens → surface-riding onlap.
 8h. **The six-phase bidirectional sweep (owner, 2026-07-16, after reading
    the CS1 flip walkthrough — verbatim):** "Phase 1: 0 correlations on
    left side, emit lens on left. Phase 2: 0 correlations on right side,
