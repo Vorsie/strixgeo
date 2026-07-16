@@ -37,7 +37,11 @@ import type {
   PartitionColumn,
   SectionRegion,
 } from './partitionFill'
-import { computeSectionFillV2 } from './partitionFillV2'
+import {
+  computeSectionFillV2,
+  computeSectionFillV2WithConflicts,
+  type TieConflict,
+} from './partitionFillV2'
 import { log } from './log'
 
 /** localStorage key for the device-local engine choice. Namespaced like the
@@ -207,4 +211,52 @@ export function computeSectionFillActive(
   return useV2
     ? computeSectionFillV2(columns, edges, lensApexOverrides, alongM)
     : computeSectionFill(columns, edges, lensApexOverrides, alongM)
+}
+
+/**
+ * Diagnostics-carrying variant of {@link computeSectionFillActive}: returns the
+ * partition regions AND the v2 crossing-tie conflicts (owner §8 Q4). The plain
+ * ``computeSectionFillActive`` stays the regions-only drop-in for the 3D voxel
+ * build request builder + the fence builder (they don't render a warning). The 2D
+ * section overlay uses THIS so it can surface a persistent, non-blocking warning
+ * when approved correlation ties cross (bands suppressed until resolved).
+ *
+ * The v1 engine has no crossing-conflict model, so its ``conflicts`` is always
+ * ``[]`` — the warning surface is a v2-only concern.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly PartitionColumn[]
+ *     Per-investigation column stacks (litho units), left-to-right.
+ * edges : readonly CorrelationEdge[], optional
+ *     Approved correlation edges. Default ``[]``.
+ * lensApexOverrides : ReadonlyMap<string, LensApexOverride>, optional
+ *     Per-lens apex drag overrides.
+ * alongM : readonly number[], optional
+ *     True along-section metres per column (1:1 with ``columns``).
+ *
+ * Returns
+ * -------
+ * { regions: SectionRegion[]; conflicts: TieConflict[] }
+ *     The partition regions (identical to ``computeSectionFillActive``) plus the
+ *     detected crossing-tie conflicts (``[]`` on the v1 engine).
+ */
+export function computeSectionFillActiveWithDiagnostics(
+  columns: readonly PartitionColumn[],
+  edges: readonly CorrelationEdge[] = [],
+  lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+  alongM?: readonly number[],
+): { regions: SectionRegion[]; conflicts: TieConflict[] } {
+  const useV2 = isPartitionEngineV2Active()
+  if (useV2 !== lastLoggedV2) {
+    lastLoggedV2 = useV2
+    log.info('partition', `active engine = ${useV2 ? 'v2 (experimental)' : 'v1 (stable)'}`)
+  }
+  if (useV2) {
+    return computeSectionFillV2WithConflicts(columns, edges, lensApexOverrides, alongM)
+  }
+  return {
+    regions: computeSectionFill(columns, edges, lensApexOverrides, alongM),
+    conflicts: [],
+  }
 }

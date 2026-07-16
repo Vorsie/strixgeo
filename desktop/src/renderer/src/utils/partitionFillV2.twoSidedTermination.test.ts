@@ -137,7 +137,13 @@ describe('ruling 8e — same-formation enclosure conforms; the enclosed silt len
     // must carry it (never absorbed into the sand).
     const siltMax = maxFractionOf(regions, 0, SILT)
     expect(siltMax).toBeGreaterThan(0.5) // a SILT region exists in the gap and reaches toward the right
-    // The SILT lens covers its own mid-elevation next to the right column (not swallowed by sand).
-    expect(coverAt(regions, 0, 0.97, 0.73)).toBe(SILT)
+    // Ruling 8b (design partition-engine-v2.md §8) intended diff: the SILT lens is a THIN
+    // unit (0.35 m thick) in a wide gap (35.83 m), so its 0-corr auto reach caps at
+    // min(0.45, 2×0.35/35.83) ≈ 0.02 of the gap — a HUGGING HALO against the right column,
+    // not the old flat-0.45 tongue. Previously this sampled (0.97, 0.73) and expected SILT;
+    // under 8b the halo apex sits at fraction ≈ 0.98, so a sample 2% in from the right column
+    // (fraction 0.99) is inside the halo, while 0.97 now falls in the enclosing sand. The
+    // lens is NOT absorbed (siltMax above ≈ 1.0, the 8e condition holds) — only shortened.
+    expect(coverAt(regions, 0, 0.99, 0.73)).toBe(SILT)
   })
 })

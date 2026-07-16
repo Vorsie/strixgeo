@@ -13,6 +13,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { lensReachFraction } from './lensReach'
 import { type UnitGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -222,6 +223,15 @@ export function extractLoneStackLenses(
  *     Curve-id allocator.
  * out : InputCurve[]
  *     Curve accumulator.
+ *
+ * Notes
+ * -----
+ * Ruling 8b (design partition-engine-v2.md §8): the auto reach is additionally capped to
+ * ``~2× the unit's own thickness`` in real metres — a thin minority gets a hugging halo
+ * instead of a long tongue. ``lensReachFraction`` yields ``min(0.45, 2t/gap)``; the cap
+ * only ever SHRINKS the lens (apex nearer its own column), so the apex stays strictly
+ * inside the widened matrix cell (hole-safe) and can never newly cross a band contour.
+ * The caller's ``apexFrac`` is the ceiling (a thick unit keeps 0.45); the cap tightens it.
  */
 export function emitLensClosing(
   u: IntervalUnit,
@@ -231,7 +241,8 @@ export function emitLensClosing(
   nextId: () => string,
   out: InputCurve[],
 ): void {
-  const apexX = colX + apexFrac * (facingX - colX)
+  const cappedFrac = Math.min(apexFrac, lensReachFraction(u.topElev - u.baseElev, facingX - colX))
+  const apexX = colX + cappedFrac * (facingX - colX)
   const apexElev = (u.topElev + u.baseElev) / 2
   const topPt: Point = { x: colX, y: u.topElev }
   const basePt: Point = { x: colX, y: u.baseElev }

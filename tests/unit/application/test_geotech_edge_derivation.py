@@ -210,3 +210,58 @@ async def test_preloaded_seen_pair_is_not_re_emitted() -> None:
     )
     assert counts.edges_emitted == 0
     session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_same_pair_on_two_sections_needs_per_section_seen_sets() -> None:
+    """The SAME layer pair on two sections must yield an edge on EACH section.
+
+    Geotech edges are section-scoped in the DB (per-section uniqueness on the
+    layer pair), so a pair ``(A, B)`` emitted on section 1 must NOT suppress the
+    legitimate ``(A, B)`` edge on section 2.  This pins the invariant the caller
+    (DivideBoreholes Phase 8.5) relies on: pass a per-section ``seen_layer_pairs``
+    set, never one shared across sections.
+
+    A single shared set would let section 1's emit poison section 2 → the
+    external review's "missing band in section 2" bug; the per-section version
+    emits on both.
+    """
+    la, lb = uuid4(), uuid4()
+    ga, gb = uuid4(), uuid4()
+    geotech_model_id = uuid4()
+    section_1, section_2 = uuid4(), uuid4()
+    edges = {(min(la, lb), max(la, lb))}
+    depths = {la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)}
+    bands = {
+        "inv-A": [(0.0, 10.0, ga, uuid4(), 5)],
+        "inv-B": [(0.0, 10.0, gb, uuid4(), 5)],
+    }
+
+    async def _run(section_id: UUID, seen: set[tuple[UUID, UUID]]) -> tuple[int, MagicMock]:
+        session = _mock_session()
+        counts = await derive_geotech_edges_from_litho(
+            session,
+            _logger(),
+            geotech_model_id=geotech_model_id,
+            section_id=section_id,
+            litho_approved_edges=edges,
+            litho_layer_depths=depths,
+            geotech_layer_by_inv_depth=bands,
+            seen_layer_pairs=seen,
+        )
+        return counts.edges_emitted, session.add
+
+    # BUG shape (a single shared set): section 2 is suppressed.
+    shared: set[tuple[UUID, UUID]] = set()
+    emitted_1, _ = await _run(section_1, shared)
+    emitted_2_shared, _ = await _run(section_2, shared)
+    assert emitted_1 == 1
+    assert emitted_2_shared == 0, "shared set suppresses the second section (the bug)"
+
+    # FIX shape (per-section sets): both sections emit their own edge.
+    emitted_1b, add_1 = await _run(section_1, set())
+    emitted_2b, add_2 = await _run(section_2, set())
+    assert emitted_1b == 1
+    assert emitted_2b == 1, "per-section set must emit the same pair on section 2"
+    add_1.assert_called_once()
+    add_2.assert_called_once()

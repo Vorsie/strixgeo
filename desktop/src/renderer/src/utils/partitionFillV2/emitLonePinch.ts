@@ -41,6 +41,7 @@
  */
 
 import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
+import { lensReachFraction } from './lensReach'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { routeLoneStack } from './emitLoneStack'
 import { type LensLabel } from './emitLenses'
@@ -186,7 +187,16 @@ export function emitLonePinch(
       aboveMatrix !== null &&
       belowMatrix !== null &&
       aboveMatrix.formationId === belowMatrix.formationId)
-  const apexFrac = isLens ? LENS_PINCH_FRACTION : INTERIOR_PINCH_FRACTION
+  // Ruling 8b (design partition-engine-v2.md §8): a 0-corr LENS reach caps at ~2× the unit's
+  // own thickness in real metres. A lone stack shares ONE apex fraction (so the notch comb
+  // traces simple); use the THINNEST unit's cap so no unit's halo is exceeded (the shared
+  // apex can only shrink, never grow — hole-safe, and it can never newly cross a band). The
+  // ONLAP interior fraction (``!isLens``) is NOT a lens and is left uncapped (it rides a tie).
+  const lensCapFrac = loneUnits.reduce(
+    (m, u) => Math.min(m, lensReachFraction(u.topElev - u.baseElev, facingX - loneX)),
+    LENS_PINCH_FRACTION,
+  )
+  const apexFrac = isLens ? lensCapFrac : INTERIOR_PINCH_FRACTION
   const apexX = loneX + apexFrac * (facingX - loneX)
   let apexElev: number
   if (apexElevOverride !== undefined) {

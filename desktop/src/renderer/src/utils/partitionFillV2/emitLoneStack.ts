@@ -34,6 +34,7 @@
  */
 
 import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { lensReachFraction } from './lensReach'
 import { emitLensClosing, extractLoneStackLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
@@ -241,8 +242,18 @@ export function routeLoneStack(
   // ``out`` yet, so returning false is clean.
   const plan: { u: IntervalUnit; f: number }[] = []
   for (const u of [...stackLenses, ...preLenses]) {
-    const f = clampedLensFraction(u, iTop, iBase, facingTopEdge, facingBaseEdge)
-    if (f < MIN_CLAMPED_FRACTION) return false
+    // Band-clip fraction FIRST (v1's boundary-adjacent shortening): keeps the apex on the
+    // matrix side of both band edges. The MIN_CLAMPED_FRACTION bail is a band-clip guard
+    // (a boundary minority in a narrow band bows out to full-width); the ruling-8b reach
+    // cap is NOT that guard and must not trip it — so the bail is tested on the band-clip
+    // value BEFORE the 8b cap is applied.
+    const clipF = clampedLensFraction(u, iTop, iBase, facingTopEdge, facingBaseEdge)
+    if (clipF < MIN_CLAMPED_FRACTION) return false
+    // Ruling 8b (design partition-engine-v2.md §8): tighten the apex to ~2× the unit's own
+    // thickness (a thin minority hugs its column). Applied to the plan so BOTH the flood
+    // slab-seams (emitLoneStackBand) and the lens closings use the SAME fraction — a
+    // mismatch would leave the slab-seam past the shortened lens apex.
+    const f = Math.min(clipF, lensReachFraction(u.topElev - u.baseElev, facingX - loneX))
     plan.push({ u, f })
   }
   // Slab-seam decomposition of the matrix band (mechanism (b) — no converging wedge, so no

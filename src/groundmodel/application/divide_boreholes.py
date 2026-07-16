@@ -68,7 +68,7 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     derive_geotech_edges_from_litho,
     load_approved_litho_edges,
-    load_existing_geotech_edge_pairs,
+    load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
 )
@@ -497,7 +497,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # deleted the prior borehole layers (edge→layer FK is ON DELETE CASCADE),
         # so the surviving edges are the CPT↔CPT set from SubdivideAllBodies —
         # preload the dedup set with them so this pass ADDS only new pairs.
-        seen_pairs = await load_existing_geotech_edge_pairs(self._session, geotech_model.id)
+        # Dedup is PER SECTION: geotech edges are section-scoped, so the same
+        # layer pair can legitimately exist on two sections. Preload each
+        # section's seen-set with only that section's existing edges — a single
+        # model-global set would suppress a legitimate same-pair edge on a
+        # second section.
+        seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
+            self._session, geotech_model.id
+        )
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
         edge_totals = EdgeDerivationCounts()
@@ -514,7 +521,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     litho_approved_edges=approved,
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
-                    seen_layer_pairs=seen_pairs,
+                    seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
                 )
             )
         self.info(

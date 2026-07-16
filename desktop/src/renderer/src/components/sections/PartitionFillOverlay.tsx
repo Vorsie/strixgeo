@@ -63,9 +63,10 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import {
-  computeSectionFillActive,
+  computeSectionFillActiveWithDiagnostics,
   usePartitionEngineV2,
 } from '../../utils/partitionEngineSelect'
+import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
   assembleSectionPartitionInput,
@@ -80,6 +81,7 @@ import {
   type NadFormationMeta,
 } from '../../utils/refineLithoPartition'
 import type { PlacedColumn } from './utils'
+import CrossingTieWarningChip from './CrossingTieWarningChip'
 import {
   buildLensPolygon,
   isApexShapeable,
@@ -553,15 +555,17 @@ export default function PartitionFillOverlay({
     gapXs: Array<{ leftX: number; rightX: number }>
     // Keyed lens apex overrides so the screen memo can skip the legacy path.
     apexOverrides: Map<string, LensApexOverride>
+    // v2 crossing-tie conflicts (owner §8 Q4) — drives the amber warning chip.
+    conflicts: TieConflict[]
   } => {
     if (!showBands)
-      return { sectionRegions: [], orderedColumns: [], gapXs: [], apexOverrides: new Map() }
+      return { sectionRegions: [], orderedColumns: [], gapXs: [], apexOverrides: new Map(), conflicts: [] }
 
     // Valid columns in along-section order (have both unit data + screen edges).
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     const orderedColumns = valid.map((id) => colByInv.get(id) as PartitionColumn)
     if (orderedColumns.length < 2)
-      return { sectionRegions: [], orderedColumns, gapXs: [], apexOverrides: new Map() }
+      return { sectionRegions: [], orderedColumns, gapXs: [], apexOverrides: new Map(), conflicts: [] }
 
     // Pre-compute gap x-extents from screenByInv so both memos share the same
     // values without re-reading the map independently.
@@ -663,13 +667,19 @@ export default function PartitionFillOverlay({
     // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
     // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
     // ``sectionRegions`` here stay the litho partition.
-    const sectionRegions = computeSectionFillActive(orderedColumns, edges, apexOverrides, alongM)
+    const { regions: sectionRegions, conflicts } = computeSectionFillActiveWithDiagnostics(
+      orderedColumns,
+      edges,
+      apexOverrides,
+      alongM,
+    )
     log.debug(
       'partition',
-      `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions`,
+      `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions` +
+        (conflicts.length ? `, ${conflicts.length} crossing-tie conflicts` : ''),
     )
 
-    return { sectionRegions, orderedColumns, gapXs, apexOverrides }
+    return { sectionRegions, orderedColumns, gapXs, apexOverrides, conflicts }
   }, [
     orderedInvs,
     colByInv,
@@ -683,6 +693,25 @@ export default function PartitionFillOverlay({
     // Recompute the partition when the active engine flips (Settings toggle).
     partitionEngineV2,
   ])
+
+  // Crossing-tie conflicts (owner §8 Q4): approved correlation ties that
+  // geometrically cross suspend BOTH ties (neither bands) until the user deletes
+  // one. Surfaced as a small persistent, non-blocking amber warning chip below
+  // (never a dialog / focus steal). v1 always reports none.
+  const conflicts = sectionFillData.conflicts
+
+  // Log the conflict list ONCE per change so a dogfeed DevTools console shows the
+  // suspended ties without a dialog. console.info (not .debug) so it survives the
+  // default DevTools level filter (memory ``feedback_no_guessing_instrument_first``).
+  useEffect(() => {
+    if (conflicts.length === 0) return
+    log.info(
+      'partition',
+      `${conflicts.length} crossing correlation tie${conflicts.length === 1 ? '' : 's'} — ` +
+        `bands suspended until resolved: ` +
+        conflicts.map((c) => `gap${c.gapIndex}[${c.tieIds.join(' × ')}]`).join(', '),
+    )
+  }, [conflicts])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
   //
@@ -1536,6 +1565,15 @@ export default function PartitionFillOverlay({
 
   return (
     <g ref={rootRef} data-testid="partition-fill-overlay" style={{ pointerEvents: 'none' }}>
+      {/* Crossing-tie HARD-CONFLICT warning (owner §8 Q4): when approved
+          correlation ties cross, both are suspended (neither bands) until the
+          user deletes one. A small persistent, non-blocking amber chip — never a
+          dialog / focus steal. */}
+      <CrossingTieWarningChip
+        conflictCount={conflicts.length}
+        plotLeft={plotLeft ?? 0}
+        plotTop={plotTop}
+      />
       {/* GEOTECH REFINEMENT (view-only): the litho partition refined by NAD
           packing class. Substrate BENEATH the region fills; litho envelopes as
           dark outlines on top. Replaces the interactive litho fill + handles. */}

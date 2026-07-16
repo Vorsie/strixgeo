@@ -476,25 +476,24 @@ class AcceptLithoSuggestions(GroundModelLogger):
             await self._litho_repo.mark_litho_solids_stale(litho_model_id)
 
         # Recompute display_order for litho formations whenever new formation
-        # rows were created.  The sort encodes the superposition rule:
-        # lower display_order = older = deeper (matches the geological
+        # rows OR new contacts were created.  The sort encodes the superposition
+        # rule: lower display_order = older = deeper (matches the geological
         # model convention and the section/3D paint order in ContactsLayer +
-        # Geology3DViewer).  Re-accepts that produce no new formation rows
-        # skip this step — existing ranks are already correct for the
-        # PHASE-1 one-investigation-per-call model.
+        # Geology3DViewer).
         #
-        # Phase-2 caveat (review S2): with multi-investigation batch
-        # accepts, a NEW contact for an EXISTING formation could shift
-        # that formation's min-depth into a different relative position
-        # while creating no new formation row — this guard would then be
-        # too conservative and leave a stale rank. When batch-accept
-        # lands, widen to `if created_formation_ids or created_contact_ids:`
-        # (any new contact may change the min-depth ranking).
+        # The gate includes new CONTACTS, not just new FORMATION rows: a new
+        # shallower contact for an EXISTING formation lowers that formation's
+        # min-depth (the recompute ranks by shallowest contact, deeper = lower
+        # rank), which can flip its rank against its neighbours WITHOUT creating
+        # a formation row.  Gating on formations alone left that rank stale
+        # . Re-accepts that create neither a formation
+        # nor a contact (found_* only) skip the recompute — existing ranks are
+        # already correct.
         #
         # In batch mode the display-order recompute is deferred to a single
         # pass after every anchor commits (the per-anchor recompute scans the
         # whole — growing — contact set, so running it N times is O(N²)).
-        if created_formation_ids and batch_ctx is None:
+        if (created_formation_ids or created_contact_ids) and batch_ctx is None:
             await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
 
         # Trigger inference engine for every formation that received a new

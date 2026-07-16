@@ -255,7 +255,7 @@ describe('v2 full 2/1/0 conformance gate', () => {
             const hasAnchor = unitHasDirectTie(gi, side, ui, activeTies) || topTied || baseTied
             const corr: 0 | 1 | 2 = bandMember || firstUnitTopBandBand ? 2 : hasAnchor ? 1 : 0
 
-            const rs = renderedShape(regs, u.formationId, bandLo, bandHi)
+            const rs = renderedShape(regs, u.formationId, bandLo, bandHi, side)
             grand.units++
             grand.byCorr[corr]++
 
