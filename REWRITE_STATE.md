@@ -840,3 +840,160 @@ exactly). Result:
    conformance counters reach 0 (advisories triaged) — still gated on the multi-unit restructuring +
    the interval-B owner call. Keep `COHERENT_LONE_STACK_ENABLED` ON inside the two-sided path.
    Do NOT touch `intersect.ts` / `seamAnchor.ts` (613-hole trap).
+
+---
+
+## 10. Session-7 plan & progress — THE FLIP (build-first; ruling 8g the spec)
+
+⚡ OWNER DIRECTIVE this session: BUILD-FIRST. Design + write the ENTIRE flip end-to-end (engine +
+gate + synthetic gates) WITHOUT running anything; then run the verification battery ONCE and iterate
+on failures. Ruling 8g (design §8, 2026-07-16, verbatim) is the SPEC.
+
+### The generalised construction (ruling 8g → the coherent STACK tiler)
+
+Session 6 proved the meet-at-seam trapezoid primitive (`tileCoherentLoneStack`) is hole-free BY
+CONSTRUCTION. Sessions 4/5 proved the failure modes to AVOID: N independent `emitLonePinch` wedges
+(+666 overlaps), additive carve over claimed space (+43 overlaps), per-sub-strip independent floods
+(+164 holes). The FLIP generalises the ONE primitive to arbitrary two-sided intervals.
+
+Ruling 8g translated to curve emission, for one interval (top/base bracket across the gap, left units
+L0..Lm + right units R0..Rn, each carrying its per-gap 2/1/0 from `effectiveCorrForSide`):
+
+* **ONE shared vertical SEAM at fraction 0.5** (`INTERIOR_PINCH_FRACTION`). Every terminating unit
+  fills its own [uTop..uBase] slab from ITS column to the seam as a right-trapezoid (following the
+  sloping brackets); the two sides MEET at the seam. This is exactly `tileCoherentLoneStack`'s
+  construction, but BOTH sides now carry units (the lone case = one side empty, the enclosing floods
+  its whole half — a special case of the same code).
+* **Emission order is normative (8g(c)): 0-corr lenses FIRST, onlaps SECOND, fill LAST.** In the
+  slab decomposition this is automatic: a 0-corr unit's slab boundary is its own lens apex (8b-capped,
+  own mid-elevation); a 1-corr unit's is its onlap tip (0.5 on its tie); a same-formation base-tied
+  pair spanning the seam is ONE band (8g(b), no seam between them).
+* **Per-unit horizontal boundary seams** (loneX→seamX, at each internal contact) separate adjacent
+  slabs so each unit reads its own lithology. **The enclosing formation is a DETOUR, not a wall**
+  (8g(a)): where a lens/onlap slab pinches short of the seam, the ADJACENT unit's slab (same side)
+  OR the facing enclosing floods the residue — the boundary composition closes the face.
+* **8g(b) — base-tied same-formation pairs are ONE BAND.** A left unit and right unit of the SAME
+  formation whose (derived) tie is base-to-base (or the pair is a `collectGapBands` matched pair)
+  band FULL-WIDTH across the seam — no seam curve between them, one face. This is the SAME rule
+  `emitBands`/`bandFormations` already encodes; the coherent tiler must NOT split such a pair.
+
+DECOMPOSITION (arbitrary stack → slabs/seams/notches/detours):
+1. Collect the union of both sides' internal contact elevations (interpolated across the gap as
+   straight lines) → SLAB boundaries. Each slab presents ONE left formation + ONE right formation.
+2. For each slab: if leftF===rightF AND that formation is base-tied/band across the gap → ONE band
+   (facing verticals + brackets, no seam). Else → the left unit fills its slab to the seam by its
+   corr (0→lens apex ≤0.5, 1→onlap tip 0.5, 2→to the seam as a band-half), the right unit likewise;
+   they meet at the 0.5 seam. A 0-corr lens's apex sits SHORT of 0.5 (8b cap) → the residue between
+   the lens apex and the seam is flooded by the SLAB'S OTHER side if same-formation-continuous, else
+   by the facing enclosing (the detour). This is where holes threaten — the flood must be a single
+   coherent face per side (the `emitLoneStackBand` slab-seam trick: horizontal seams labelled the
+   enclosing, so a residual pentagon carrying no own-column vertical stamps enclosing).
+
+WHAT IS DELETED (the flip): inside the two-sided path, `tileGapTwoSided` no longer returns false to
+fall to `routeLoneSidePinch`/the seam tiler. The bail taxonomy (`lone`/`sameFormation-8e`/
+`multiunit-L*-R*`/`termbail` + `tileSingleSingle`/`tileSameFormationTwoSided`/`tileMultiUnit`/
+`carveMultiUnitMinority`/`tileLone`) collapses into ONE `tileCoherentStack` call. `tileCoherentLoneStack`
+generalises into it (the lone case = a stack where one side is empty). The old seam `tileInterval`
+body (meetFraction / emitSideSubSeams / seamAnchor path) stays ONLY as the flag-OFF default until
+the owner dogfeds ON, then is deleted at cut-over.
+
+### Gate update (8g(b))
+
+`effectiveCorr.effectiveCorrForUnit` already maps a base-tied same-formation matched pair to corr=2
+(via `isBandMember`/`collectGapBands`). Ruling 8g(b) EXTENDS this: a 1-corr unit whose SINGLE (derived)
+tie faces a SAME-FORMATION unit across the gap now expects BAND, not onlap. Change lands in
+`partitionFillV2.conformance.classify.ts` (a `sameFormationBaseTiedPair` predicate) + the diag's
+corr==1 branch (a same-formation-across-the-gap render of band is ACCEPTED, not `1corr-not-onlap`).
+
+### STATUS — THE FLIP LANDED (net win, no regression). Build-first, then ONE battery + iterate.
+
+**Scoreboard (end of session 7):**
+
+| metric | flag OFF (committed engine) | flag ON (the flip) |
+|---|---|---|
+| holes above-TD / sub-TD | **0 / 0** | **0 / 0** |
+| different-litho overlaps | **0** | **0** |
+| conformance 0corr / 1corr / 2corr | **5 / 9 / 0 = 14** | **3 / 8 / 0 = 11** |
+| 8e-enclosure (advisory) | 50 | 47 |
+| q3-legit (advisory) | 5 | 3 |
+
+* **Flag OFF is engine-BYTE-IDENTICAL to the committed baseline** — the ONLY change to the OFF
+  number (16 → 14) is the GATE reclassification (ruling 8g(b), documented below); the seam engine
+  output is untouched. v1 90/90, CS1 7/7, holes 0/0/0, all shape+package gates green, tsc clean.
+* **Flag ON = the flip: conformance 14 → 11 (0corr 5→3, 1corr 9→8), holes 0/0/0, overlaps 0.** The
+  terminations-first coherent tiler fixes 3 MORE offenders than the seam baseline with ZERO
+  hole/overlap regression. NET WIN.
+
+**The build (all in the worktree, NOT committed):**
+1. **`partitionFillV2/tileCoherentStack.ts` (NEW)** — the generalised meet-at-seam coherent tiler
+   (ruling 8g). Every own-side unit fills its [uTop..uBase] slab from its column to ONE shared 0.5
+   seam as a right-trapezoid; per-unit horizontal boundary seams separate adjacent slabs; the two
+   sides MEET at the seam. A LONE (empty) side floods its half from its OWN column's continuous
+   matrix. Onlap edges (1-corr, base-tied) carry an `onlap` id so the slab reads ONLAP. Bails
+   (`return false`) on a CONVERGING facing (one side ~0 thickness — the pinch-to-conv shape, kept on
+   `routeLoneSidePinch`/`emitSharedContactOnlap`) and a non-contiguous stack. Hole-free BY
+   CONSTRUCTION (a rectangle/trapezoid partition — no dipping mid-apex sliver).
+2. **`partitionFillV2/tileGap.ts` (REWRITTEN)** — `tileGapTwoSided` is now a thin adapter: map each
+   side's matrix units to their per-gap corr (`withCorr`), hand the whole interval to
+   `tileCoherentStack`. The ENTIRE bail taxonomy is DELETED (`tileSingleSingle`,
+   `tileSameFormationTwoSided`, `emitSameFormSide`, `emitSideTermination`, `singleFormation`,
+   `TILEGAP_CAPTURE`). `emitIntervals.tileInterval` unchanged (flag-OFF byte-identical): when the
+   flag is ON it calls `tileGapTwoSided`, and on `false` falls through to `routeLoneSidePinch`/the
+   seam during bring-up.
+3. **`partitionFillV2/tileMultiUnit.ts` (NEUTRALISED to an inert stub)** — the session-4/5 sub-strip
+   + minority-carve negatives are superseded by `tileCoherentStack`. Orchestrator `rm`.
+4. **Gate update (ruling 8g(b))** — `partitionFillV2.conformance.classify.ts` gains
+   `sameFormationBaseTiedPair(baseTied, topTied, formationId, bandLo, bandHi, facing)`: a purely
+   base-tied 1-corr unit whose facing carries the SAME formation overlapping its band is ONE band
+   (the Tie-10 g0 ZANDs). Wired into `partitionFillV2.conformance.diag.test.ts`'s corr==1 branch
+   (tagged `8e-enclosure`, not flagged). This moved the baseline 16 → 14.
+5. **Synthetic gates: `partitionFillV2.coherentStack.test.ts` (NEW)** — 4 cases, all GREEN under
+   flag ON: (a) sand/silt-lens/sand (the sand bands 8g(b), the silt is a detour, hole-free); (b)
+   lone [SILT,ZAND,VEEN] mid-stack minority meets a continuous KLEI enclosing (the mid ZAND
+   terminates, KLEI floods, hole-free); (c) base-tied same-formation pair → one band (8g(b)); (d)
+   both-sides-terminating stacks meet at the shared seam.
+
+**GATE-RECLASSIFICATION TRIAGE (8g(b), flag-OFF baseline 16 → 14):** the `sameFormationBaseTiedPair`
+predicate tags 15 purely-base-tied 1-corr same-formation-facing rows as `8e-enclosure` (one band by
+the base-tie closure walk — Tie-7/8/10/14 KLEI, CS1 g0/1/3/19/22 SILT/ZAND, CS2 g14/15/17/21 ZAND).
+13 of those were ALREADY exempted by the existing `enclosedByOwnTiedBand` (same "one body" reading);
+8g(b) NEWLY exempts 2, hence 16 → 14. All 15 are legitimate one-band renders (a same-formation run
+base-tied across the gap), never opposing lenses — the owner's Tie-10 ruling ("the sands connect")
+generalised.
+
+**FLAG-ON residual (11) — triage:** every remaining violation is an interval `tileCoherentStack`
+BAILED on (converging facing or same-formation enclosure the seam keeps), so it renders on the seam
+fallback:
+* Tie-10 g0 ZAND / Tie-12 g0 SILT / CS1 g18 VEEN+ZAND / g19 SILT / CS2 g13 ×2 — ruling-8 untied
+  same-formation full-widths (opposing lenses until the owner ties them; the gate flags them
+  CORRECTLY, not engine defects) + a converging-facing bail.
+* CS1 g20/g21 ZAND `absent` (both-tied) — the no-emit pair (`routeLoneStack` skips a lens whose
+  enclosing SILT-below is edged); the enclosed-lens class the flip does not yet reach.
+* CS1 g22 ZAND `absent`/`band` — the lens-edged class (edged in the adjacent gap).
+These are the SAME residual classes the design §4/§8 flags as the enclosed-minority / converging /
+lens-edged work — NOT new. The flip closed 3 of the seam's leaks (14→11) with zero regression; the
+remaining 11 need either the owner tie (ruling-8 untied) or the enclosed-lens per-gap extraction
+(a separate increment), plus widening `tileCoherentStack` past the converging-facing bail.
+
+**REMAINING to cutover-ready (unchanged from §6 list):** OWNER DOGFEED (flip the Settings toggle,
+litho + geotech axes) → widen `tileCoherentStack` past the converging-facing bail (the mixed-bracket
+minority / lens-edged residual) → flip `twoSidedTerminationsEnabled` default→ON → delete the seam
+`tileInterval` body + the `TILEGAP_DIAG`/`COHERENT_STACK_DIAG` throwaway blocks → v2 frozen snapshot.
+Do NOT touch `intersect.ts` / `seamAnchor.ts` (613-hole trap).
+
+**Files this session (worktree, NOT committed — orchestrator commits + does rm):**
+* `partitionFillV2/tileCoherentStack.ts` (NEW, committed-quality).
+* `partitionFillV2/tileGap.ts` (REWRITTEN — bail taxonomy deleted).
+* `partitionFillV2/tileMultiUnit.ts` (NEUTRALISED to an inert stub — orchestrator `rm`).
+* `partitionFillV2.conformance.classify.ts` + `.conformance.diag.test.ts` (EDITED — 8g(b) gate).
+* `partitionFillV2.coherentStack.test.ts` (NEW — 4 synthetic gates).
+* STUBS to delete (orchestrator `rm`): `partitionFillV2/tileCoherent.ts` (session-6
+  `tileCoherentLoneStack`, now superseded by `tileCoherentStack` — orphaned, no importer),
+  `partitionFillV2/tileMultiUnit.ts` (inert stub), the session-6 `partitionFillV2.coherentLoneStack.test.ts`
+  (still GREEN — it exercises `tileCoherentStack`'s lone path, so it can STAY as a regression gate OR
+  be folded into `coherentStack.test.ts`; keep for now), the throwaways
+  `partitionFillV2.throwaway_s7probe.diag.test.ts` + `partitionFillV2.throwaway_s7harness.diag.test.ts`
+  (the OFF/ON measurement of record — regenerate if needed) + `scripts/s7probe.json` /
+  `scripts/diag_s7_harness.json`. Any session-1..6 stubs still pending rm.
+
+### (running build log)

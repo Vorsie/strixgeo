@@ -327,6 +327,65 @@ export function sameFormationEnclosedByTiedBand(
 }
 
 /**
+ * OWNER RULING 8g(b) (design partition-engine-v2.md §8, 2026-07-16) — BASE-TIED
+ * SAME-FORMATION PAIRS ARE ONE BAND.
+ *
+ * The owner ruled on the Tie-10 g0 S22↔S12 visual: "with or without the extra sand-top
+ * tie the sands connect — the visual indicates that it doesn't matter". A 1-corr unit
+ * whose single (derived/direct) tie is on its BASE and whose facing side carries the
+ * SAME formation across the gap at overlapping elevation is therefore expected to render
+ * as a BAND (the two same-formation runs connect through the shared base tie), NOT an
+ * onlap. The conformance gate's expected shape for such a unit is band.
+ *
+ * This is NOT the ``collectGapBands`` matched pair (a symmetric top-top / base-base tie
+ * between two same-formation units — that is already corr=2). It is the ASYMMETRIC case:
+ * each same-formation unit rides a DIFFERENT tie (the Tie-10 ZANDs both base-tie to the
+ * deep CLAY band below, deriving each ZAND's base tie), so neither is a band member, yet
+ * they connect into one sand by the base-tie same-litho closure walk (ruling 8g).
+ *
+ * The predicate: the audited unit is base-tied (its base contact effectively tied) AND
+ * the facing column carries a unit of the SAME formation vertically overlapping the
+ * audited unit's own elevation band. When true, a full-width / band render of that
+ * formation is CORRECT (one body by the base-tie closure), not a ``1corr-not-onlap``.
+ *
+ * Parameters
+ * ----------
+ * baseTied : boolean
+ *     Whether the audited unit's base contact is effectively tied (direct/derived).
+ * topTied : boolean
+ *     Whether its top is tied (a unit tied on BOTH would be 2-corr, not reaching here).
+ * formationId : string
+ *     The audited unit's formation.
+ * bandLo, bandHi : number
+ *     The audited unit's own elevation band (mTAW).
+ * facing : { units : { formationId; topElev; baseElev }[] }
+ *     The facing column (its units in elevation space).
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when the unit base-ties a same-formation facing run (one band by 8g(b)).
+ */
+export function sameFormationBaseTiedPair(
+  baseTied: boolean,
+  topTied: boolean,
+  formationId: string,
+  bandLo: number,
+  bandHi: number,
+  facing: { units: { formationId: string; topElev: number; baseElev: number }[] },
+): boolean {
+  // Only a purely base-tied 1-corr unit (top untied) is the 8g(b) asymmetric-pair case; a
+  // top-tied unit onlaps a band above (a different closure), and a both-tied unit is 2-corr.
+  if (!baseTied || topTied) return false
+  for (const fu of facing.units) {
+    if (fu.formationId !== formationId) continue
+    // Vertical overlap between the facing same-formation unit and the audited band.
+    if (Math.min(fu.topElev, bandHi) - Math.max(fu.baseElev, bandLo) > 1e-6) return true
+  }
+  return false
+}
+
+/**
  * Shallow TD of a gap (mTAW): the HIGHER of the two facing columns' deepest base elevations.
  * Below this elevation only ONE column has data, so a full-width fill there is the deep-to-deep
  * substrate (owner §8 Q3), NOT a same-formation termination band — the 2/1/0 rule does not apply

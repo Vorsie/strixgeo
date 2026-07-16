@@ -63,6 +63,7 @@ import {
   derivedBandTies,
   isBandMember,
   renderedShape,
+  sameFormationBaseTiedPair,
   sameFormationEnclosedByTiedBand,
   shallowTDForGap,
   tiedFlags,
@@ -306,14 +307,25 @@ describe('v2 full 2/1/0 conformance gate', () => {
                 }
               }
             } else if (corr === 1) {
-              // Rule: ONLAPS its tie (tip ~0.5, riding the tie line).
+              // Ruling 8g(b) (design §8, 2026-07-16): a purely BASE-TIED 1-corr unit whose
+              // facing side carries the SAME formation across the gap connects into ONE band
+              // through the shared base tie ("with or without the extra sand-top tie the sands
+              // connect" — the Tie-10 g0 ZANDs). Its EXPECTED shape is BAND, not onlap. Computed
+              // here so the corr==1 full-width branch below accepts a band render for it.
+              const baseTiedPair = sameFormationBaseTiedPair(baseTied, topTied, u.formationId, bandLo, bandHi, facing)
+              // Rule: ONLAPS its tie (tip ~0.5, riding the tie line) — UNLESS 8g(b) bands it.
               if (rs.shape === 'band' || (rs.reachesLeft && rs.reachesRight)) {
-                // Ruling 8e: a full-width same-formation render enclosed by its OWN formation's
-                // tied band is one body by construction (the Tie-4 ZAND boundary unit merging
-                // into the ZAND matched band above — "it should be one sand"). Gate false
-                // positive, tagged not flagged. NO tie of that formation in the gap → stays a
-                // violation (ruling 8 opposing-lens case).
-                if (enclosedByOwnTiedBand) {
+                // Ruling 8g(b): a base-tied same-formation pair is ONE band — the full-width
+                // render is CORRECT (not a violation), tagged like the 8e one-body case.
+                if (baseTiedPair) {
+                  advisory = '8e-enclosure'
+                  note = '1-corr full-width but §8-g(b) base-tied same-formation pair (one band)'
+                } else if (enclosedByOwnTiedBand) {
+                  // Ruling 8e: a full-width same-formation render enclosed by its OWN formation's
+                  // tied band is one body by construction (the Tie-4 ZAND boundary unit merging
+                  // into the ZAND matched band above — "it should be one sand"). Gate false
+                  // positive, tagged not flagged. NO tie of that formation in the gap → stays a
+                  // violation (ruling 8 opposing-lens case).
                   advisory = '8e-enclosure'
                   note = '1-corr full-width but §8-e same-formation enclosure by own tied band (one body)'
                 } else {
