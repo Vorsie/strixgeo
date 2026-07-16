@@ -38,6 +38,7 @@ import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
+import { emitSubTdLenses } from './emitSubTdLenses'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type CorrelationEdge } from '../partitionFill'
 import { type InputCurve, type Point } from './types'
@@ -170,6 +171,16 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // carry an explicit bottom-tie label in ``lensLabels`` so the sub-TD wedge is
   // stamped with the tie formation, not the shallow column's deepest unit.
   emitBottomTieSubstrate(survivingSection, curves, lensLabels)
+
+  // SUB-TD per-side hugging lenses (owner ruling 2026-07-16 night: "0 correlations, left
+  // or right = lens to the same side, INCLUDING sub-TD"). A 0-corr unit entirely below the
+  // FACING column's TD is swept by the deep-to-deep substrate above; it must still hug its
+  // column with a lens. Emitted AFTER the substrate so the lens closing carves a HOLE in the
+  // continuous substrate band by construction (the col3 interbed-lens proof) — the substrate
+  // floor/curtain/bridge curves are untouched (owner §8 Q3 / ruling 6 preserved). Guarded so
+  // a lens only fires where the flooding substrate DIFFERS from the unit (no same-formation
+  // annulus — the session-9/12 sub-TD wall).
+  emitSubTdLenses(survivingSection, ties, bridgeAnchored, lensLabels, curves)
 
   return { curves, conflicts, activeTies: ties, lensLabels }
 }

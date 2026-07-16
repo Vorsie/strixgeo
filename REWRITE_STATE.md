@@ -1631,3 +1631,118 @@ cs1void/sandbody frozen gates pin). Recorded per the mission's stop-and-report a
    default-ON flip → seam deletion → frozen snapshot). `intersect.ts`/`seamAnchor.ts` UNTOUCHED all
    session; v1 211 held.
 
+---
+
+## 16. Session-13 plan & progress — TARGET B (sub-TD per-side lens) SHIPPED; TARGET A already correct
+
+⚡ OWNER RULING driving this session (verbatim): "this is a very simple rule — 0 correlations,
+left or right = lens to the same side. Per-side, unconditional, INCLUDING sub-TD." Ruling 8d-rev
+(top band = one correlation) stays FENCED OFF. Build-first: wrote everything with zero executions,
+then ONE battery pass. `intersect.ts`/`seamAnchor.ts` UNTOUCHED; v1 READ-ONLY.
+
+### THE DIAGNOSIS overturned the prompt's framing for TARGET A (trust the data over the doc)
+
+Real-data probes (throwaway `s13probe`/`s13extract`/`s13sub`/`s13curves`, SHAPE_AUDIT=1) on CS1:
+
+* **TARGET A (col12 x=502.88 u1 KLEI [11.98..8.48], gap12) ALREADY RENDERS ITS LENS.** The prompt's
+  claim "gets NO lens" is STALE (the session-9 `shouldEmitLens`-unconditional fix + the interval
+  tiler already cover it): gap12 renders `KLEI lens frac[0..0.201] el[8.48..11.98]` (hugs col12's
+  right edge, 8b-capped) + `ZAND lens frac[0..0.115]` (u3). col12 has NO column-level enclosedLenses
+  (the KLEI is EDGED to col11 in gap11, so `sectionGeom.extractEnclosedLenses` skips it) — the lens
+  is emitted by the interval tiler. The counter never flagged gap12 (conformance CS1 flags gap7/18/
+  19/20/22, NOT gap12). **The SILT member disposition (per 8g(b), answered from the rules):** the
+  facing col13 carries CONTINUOUS SILT [11.73..4.84] overlapping u2 SILT's band → the two SILTs are
+  a same-formation run that legitimately MERGES into ONE body (ruling 8g(b) "base-tied same-formation
+  pairs are one band"; ruling 8e "one body by construction"). So the SILT renders `pinch frac[0..1]
+  el[3.98..11.98]` full-width AS DESIGNED — it is held back from lensing by that legitimate merge,
+  not by a defect. The gate reads it as `8e-enclosure` (one of CS1's 15), never a violation. **No
+  engine change for TARGET A** (adding one would risk a regression on a correct render).
+
+* **TARGET B is the genuine unshipped work.** Two named instances, both counter-INVISIBLE (the
+  conformance gate excludes sub-TD units per §8 Q3; the zerocorr audit doesn't flag them) — the owner
+  wants a RENDER fix, not a counter move:
+  - **CS1 col14 (x=569.60) gap14 u4 SILT [-6.32..-4.45]:** banded LEFT (gap13, edged), 0-corr RIGHT
+    (gap14), entirely below facing col15's TD (-3.24) → the deep-to-deep ZAND substrate swept its
+    slot (ABSENT). Now renders `SILT frac[0..0.45] el[-6.32..-4.45]` hugging col14's right edge.
+  - **CS1 col18 (x=646.74) gap17 u2 SILT [5.46..6.03] + u3 VEEN [5.05..5.46]:** below facing col17's
+    TD (10.42) → swept by the KLEI substrate (ABSENT). Now render `SILT/VEEN frac[0.55..1]` hugging
+    col18's left edge (toward col17).
+
+### TARGET B — SHIPPED (`partitionFillV2/emitSubTdLenses.ts`, wired into `emitCurves`)
+
+New pass emitted AFTER `emitBottomTieSubstrate` (curves-first — the col3 interbed-lens proof,
+session 9): for each gap+side, a 0-corr unit entirely below the FACING TD gets ONLY its
+8b/`emitLensClosing`-capped closing pair into the CURVE SET; the arrangement carves the HOLE out of
+the continuous substrate band BY CONSTRUCTION. The substrate's own curves (floor/curtain/bridge) are
+UNTOUCHED — owner §8 Q3 / ruling 6 preserved.
+
+**THE HOLE-FREE GUARD (the session-9/12 sub-TD wall, +53-hole class).** A lens fires ONLY for a
+MINORITY RUN cleanly enclosed by ONE formation M:
+- M = the formation immediately ABOVE the topmost sub-TD 0-corr minority;
+- the run extends down while units are sub-TD 0-corr AND ≠ M;
+- the unit immediately BELOW the run must be M too (a uniform-M annulus — the substrate that floods
+  the slot is uniformly M);
+- NO run member may be BRIDGE-ANCHORED. This is the load-bearing guard: the FIRST battery pass
+  measured a GAP-8 interior void (cs1void RED — 12628 cells) because col9 u3 SILT / u4 ZAND (facing
+  the shallow col8 TD 9.29) were lensed, but col9 u4 ZAND is a jump-tied deep-to-deep SUBSTRATE band
+  (`fi9:u4 == fi7:u3`) — carving into a substrate band voids the face. Excluding any bridge-anchored
+  run member fixes it: SECOND pass cs1void 7/7 green.
+
+A unit whose own formation IS the flooding M (col14 u5 ZAND, u6 KLEI) is never in the ≠M run — it
+merges (ruling 8e one body), hole-free. Both named instances verified region-by-region.
+
+### The OFF/ON table (harness `partitionFillV2.throwaway_s13harness.diag.test.ts`, SHAPE_AUDIT=1)
+
+| metric | flag OFF (committed) | flag ON (the flip) |
+|---|---|---|
+| authoritative holes above / sub TD (HOLES_DIAG) | 0 / 0 | 0 / 0 |
+| different-litho overlaps | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **5 / 5 / 0 = 10** (unchanged) | **3 / 5 / 0 = 8** (unchanged) |
+| zerocorr full-width audit (a/c/b) | 1/6/2=9 (unchanged) | — |
+| CS1 regions | 244 → **247** (the 3 new sub-TD lenses) | 769 total (both engines) |
+
+* Conformance UNCHANGED (the sub-TD lenses are conformance-excluded units — the counter never saw
+  them). CS1 regions 244→247 = col14 SILT + col18 SILT + col18 VEEN. holes 0/0/0 (authoritative
+  HOLES_DIAG gate); diffOverlaps 0 both flag states.
+* Per-instance triage of the flag-OFF residual 10 (unchanged): Tie-10 g0 (1/1) + Tie-12 g0 (0/1) +
+  CS1 g18/g19 + CS2 g13 = ruling-8 untied same-formation full-widths (owner-tie residual) + the
+  edged-enclosing/lens-edged class (CS1 g20/g22 — session-9 measured-negative). Nothing NEW regressed.
+* Substrate-above-tie reporter UNCHANGED (CS1 v2 = 11); v1-short-v2-full = 0 (owner-complaint class
+  clean); sameFormOvl v2 = 0.
+
+### Verification snapshot (end of session 13)
+
+- tsc clean · conformance **5/5/0=10** flag OFF (unchanged) · holes **0/0/0** (authoritative, flag
+  OFF) · diffOverlaps 0 BOTH flag states · CS1 gates **7/7** (cs1void green after the bridge-anchor
+  fix) · v1 pure-geometry **215 pass** · full utils suite **772 pass / 24 skip / 0 fail** · all 7
+  shape gates + the 6 synthetic package gates (bidirSweep/coherentStack/convergingStack/
+  coherentLoneStack/enclosedLensDetour + new subTdLens) green.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+- `partitionFillV2/emitSubTdLenses.ts` (NEW, committed-quality — the sub-TD minority-run lens pass
+  with the M-in-M annulus enclosure test + the bridge-anchor guard).
+- `partitionFillV2/emitCurves.ts` (EDITED — imports + calls `emitSubTdLenses(survivingSection, ties,
+  bridgeAnchored, lensLabels, curves)` after `emitBottomTieSubstrate`).
+- `partitionFillV2.subTdLens.test.ts` (NEW — 3 TDD gates, DEFAULT engine: (a) mixed sub-TD run
+  [SILT,VEEN] each member lenses; (b) sub-facing-TD SILT bands-left/lenses-right, hole-free; (c) a
+  ZAND minority in a ZAND substrate gets no lens [same-formation-annulus wall]. All GREEN).
+- STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s13probe.diag.test.ts`,
+  `partitionFillV2.throwaway_s13extract.diag.test.ts`, `partitionFillV2.throwaway_s13sub.diag.test.ts`,
+  `partitionFillV2.throwaway_s13curves.diag.test.ts`, `partitionFillV2.throwaway_s13synth.diag.test.ts`,
+  `partitionFillV2.throwaway_s13harness.diag.test.ts` (the OFF/ON measurement of record — regenerate
+  with SHAPE_AUDIT=1), `scripts/s13_probe.cjs`. Any session-1..12 stubs still pending rm.
+  `MULTI_UNIT_CONVERGING_ENABLED` stays ON (unchanged).
+
+### Next steps (session 14)
+
+1. **TARGET A needs NO engine work** — the KLEI already lenses, the SILT member is a legitimate
+   8g(b)/8e one-body merge. Report to owner; if he wants the SILT to ALSO lens (splitting the
+   same-formation merge), that is a different ruling (8d-rev-adjacent), currently FENCED OFF.
+2. **The edged-enclosing / lens-edged residual** (CS1 g20/g22) is the LAST enclosed-minority class —
+   session-9 measured-negative (+53 holes), owner may accept absent. NOT the sub-TD path (the
+   sub-TD pass here only fires below the facing TD; g20/g22 are above-TD edged minorities).
+3. **Owner ties** dissolve the class-(d) untied same-formation full-widths.
+4. Cutover-ready unchanged (owner dogfeed — the col14 SILT + col18 SILT/VEEN sub-TD lenses now
+   render → default-ON flip → seam deletion → frozen snapshot). `intersect.ts`/`seamAnchor.ts`
+   UNTOUCHED all session; v1 215 held.
