@@ -19,6 +19,7 @@
 
 import { lensReachFraction } from './lensReach'
 import { type ColumnGeom, type EnclosedLens, type SectionInput, type UnitGeom } from './sectionGeom'
+import { segmentDegenerate } from './snap'
 import { type InputCurve, type Point } from './types'
 
 /**
@@ -151,6 +152,12 @@ function emitOne(
   const apexFrac = ov?.fraction ?? defaultFrac
   const apexElev = ov?.elevation ?? (lens.topElev + lens.baseElev) / 2
   const apex: Point = { x: colX + dir * gapLocalToDist(apexFrac, side, gapWidth), y: apexElev }
+  // TARGET-2 degenerate-flank guard (session 10): in a sub-snap-width gap (CS1 col21/col22 gap21,
+  // 0.17 m) the apex snaps onto the column, collapsing a flank to zero extent in BOTH axes (the
+  // ``close72`` elev-8.92-to-8.92 class). Emit NEITHER flank so the loop is never left half-open
+  // and no output curve is degenerate — the enclosed lens degenerates to nothing in a sub-snap
+  // gap (acceptable no-op; the enclosing matrix band simply covers the slot, holes/overlaps 0).
+  if (segmentDegenerate(topPt, apex) || segmentDegenerate(apex, basePt)) return
   push([topPt, apex])
   push([apex, basePt])
 }

@@ -1260,3 +1260,118 @@ negative, gated off, recorded. Nothing NEW, nothing regressed.
    worth a look) → flip `twoSidedTerminationsEnabled` default→ON → delete the seam `tileInterval`
    body + strip the throwaway diag blocks → v2 frozen snapshot. `intersect.ts`/`seamAnchor.ts`
    UNTOUCHED all session; v1 90/90 held.
+
+---
+
+## 13. Session-10 plan & progress — TARGET 2 (degenerate-flank guard) SHIPPED; TARGET 1 (multi-unit converging lens) MEASURED-NEGATIVE, gated OFF (precise root)
+
+⚡ OWNER DIRECTIVE: BUILD-FIRST (write the whole change with zero executions, then ONE battery pass,
+iterate). Two targets, "lens fixes first"; ruling 8d-rev fenced OFF. `intersect.ts`/`seamAnchor.ts`
+UNTOUCHED; v1 READ-ONLY. No git ops.
+
+### Scoreboard (end of session 10)
+
+| metric | flag OFF (committed) | flag ON (the flip) |
+|---|---|---|
+| holes above / sub TD | 0 / 0 | 0 / 0 |
+| different-litho overlaps | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **6 / 6 / 0 = 12** | **4 / 6 / 0 = 10** |
+
+* **Flag OFF and flag ON are BOTH byte-equivalent to the session-9 baseline** (12 / 10, holes 0/0,
+  overlaps 0). TARGET 2's degenerate guard is a defensive no-op on the 14 real sections (it only
+  SKIPS a would-be malformed curve; flag-OFF conformance/holes unchanged). TARGET 1 is gated OFF, so
+  flag-ON is byte-identical to session 9. tsc clean; v1 102 pass / 7 skip; the full committed
+  partitionFill(V2) suite **202 pass / 20 skip / 0 fail**; CS1 gates 7/7; all package + shape gates
+  green.
+
+### TARGET 2 — SHIPPED (`snap.segmentDegenerate` + guards in `emitIntervalLenses` + `emitLenses`)
+
+The CS1 col21/col22 gap21 (0.17 m wide) `close72`-class defect: the 1 mm snap collapsed a lens flank
+to ZERO extent in BOTH axes (a curve from elev 8.92 to 8.92). Added `segmentDegenerate(a, b)` to
+`snap.ts` (both endpoints snap to the same grid cell) and guarded every lens-closing emission path
+(`emitIntervalLenses.emitLensClosing`, `emitLenses.emitOne`): a lens whose EITHER flank is degenerate
+after snap is skipped WITH its partner (both flanks) so the loop is never left half-open and no
+output curve carries zero extent in both axes. In a sub-snap gap the lens degenerates to nothing (an
+acceptable, documented no-op — the enclosing fill covers the slot, holes/overlaps stay 0). Synthetic
+gate `partitionFillV2.convergingStack.test.ts` (c) proves it: a thin enclosed lens in a 0.17 m
+along-metres gap emits no zero-extent edge and leaves a hole-free partition. The construction in
+`tileConvergingStack` also routes every closing through the guard (`pushClose`/`pushFlood`).
+
+### TARGET 1 — BUILT, MEASURED NEGATIVE (+22 holes / +81 overlaps on 4 real fires), GATED OFF
+
+Built `partitionFillV2/tileConvergingStack.ts` (`emitConvergingStack`, extracted from
+`tileCoherentStack` to hold the 500-line budget; `tileCoherentStackTypes.ts` carries the shared
+`ConvergingSide` type, breaking the value-import cycle) — the session-6 SLAB-SEAM construction
+(`emitLoneStackBand` trick) generalised to a CONVERGING facing: per-minority 8b-capped lens notches
+biting the present column, horizontal boundary seams (own column → apex line) separating adjacent
+minorities, the enclosing flooding the residue to the convergence point `conv` (above/below split at
+the interval mid). Wired into `emitConvergingSide`'s `sorted.length > 1` bail (which session 8
+retired-then-kept for the multi-unit case). Minorities are separated from the MATRIX (the
+`routeLoneStack` reduction) using the PRESENT column's own bracket adjacency for the enclosing (a
+converging facing has ~0 interval thickness — a facing sample mis-labels the present matrix as a
+minority), with guards: bail on all-matrix, on a facing that carries a would-be minority (a matched
+matrix, not an interbed), on a facing same-formation enclosure (the CS1 g20/g21 `splitAnnulus`-bypass
+wall class), and on an interleaved matrix unit.
+
+**The ONE battery pass then iteration:** first pass regressed the EXISTING synthetic gates
+(coherentStack (a), bidirSweep (a)/(c)) with a `silt×zand` overlap — the construction lensed the
+MATRIX ZAND (enclosing mis-sampled from the facing). Iterated: switched enclosing to the own-column
+bracket + added the four bail guards → synthetic gates GREEN again (19/19), tsc clean. But the
+**one-run OFF/ON harness on the 14 REAL sections measured flag-ON holesAbove 0 → 22, overlaps 0 →
+81**, with NO net conformance gain (10 → 10; the CS1 col14/col18 SILT/VEEN resolved but a gap18 VEEN
+`band` regression appeared). ROOT (from the harness's `CONV_STACK_DIAG`): the 4 real fires are ALL
+`min=1` — a SINGLE minority inside a MATRIX stack with STEEPLY SLOPING brackets (slope 7.1 m /
+−3.6 m), NOT the pure multi-minority interbed stack the synthetic gates exercise. A matrix unit
+sharing the stack breaks the single flood-to-conv (the own-column enclosing no longer matches the
+matrix unit's own formation → its slot floods the wrong litho → overlap), and the FLAT horizontal
+seams + flat flood corners do not follow the sloping brackets → slivers. This is the SAME
+multi-unit-converging wall sessions 4/5/6 measured (+457 holes / +666 overlaps for N wedges) — the
+coherent slab form hits it too on real matrix+minority+sloping geometry.
+
+**Decision (stop-and-report over forcing a guess):** `MULTI_UNIT_CONVERGING_ENABLED = false` in
+`tileConvergingStack.ts`. `emitConvergingStack` bails immediately (byte-restores the session-9 flag-ON
+baseline: holes 0/0, overlaps 0, conformance 10). The construction + its guards + the measured-
+negative record + the synthetic gates SURVIVE as the next session's starting point (matching the
+session-4/5 gated-OFF-skeleton pattern). The correct construction must (a) restrict to the MINORITY
+elevation span (leave matrix units to the seam — but that breaks all-or-nothing interval ownership,
+so it needs the interval-restructuring) and (b) follow the sloping brackets, NOT flat seams.
+
+### Per-instance triage (flag-ON residual 10, unchanged from session 9)
+
+All ruling-8 untied same-formation full-widths (Tie-10 ZAND, Tie-12 SILT, CS1 g18 VEEN+ZAND, g19
+KLEI, CS2 g13 ×2 — owner-tie residual) + the edged-enclosing / lens-edged class (CS1 g20 ZAND absent,
+g22 SILT band / ZAND absent — TARGET C, session-9 measured-negative). Nothing NEW, nothing regressed
+(flag ON byte-restored to session-9's 10).
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* `partitionFillV2/snap.ts` (EDITED — `segmentDegenerate` helper; TARGET 2 SHIPPED).
+* `partitionFillV2/emitIntervalLenses.ts` (EDITED — `emitLensClosing` degenerate guard; TARGET 2).
+* `partitionFillV2/emitLenses.ts` (EDITED — `emitOne` degenerate guard; TARGET 2).
+* `partitionFillV2/tileConvergingStack.ts` (NEW — the gated-OFF measured-negative multi-unit
+  converging construction; TARGET 1 starting point). Carries a THROWAWAY `CONV_STACK_DIAG` block
+  (strip at cut-over with `COHERENT_STACK_DIAG`).
+* `partitionFillV2/tileCoherentStackTypes.ts` (NEW — the shared `ConvergingSide` type).
+* `partitionFillV2/tileCoherentStack.ts` (EDITED — `SideGeom extends ConvergingSide`; the
+  `sorted.length > 1` bail now calls the gated `emitConvergingStack`).
+* `partitionFillV2.convergingStack.test.ts` (NEW — 3 TDD gates: (a) 3-unit converging stack, (b)
+  banded-left/lens-right mid-stack, (c) sub-snap-gap no-degenerate. All GREEN — (a)/(b) pass via the
+  existing fallback paths on the simple synthetic shapes; (c) proves TARGET 2).
+* STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s10harness.diag.test.ts` (the OFF/ON
+  measurement of record + `CONV_STACK_DIAG` dump — regenerate with SHAPE_AUDIT=1),
+  `partitionFillV2.throwaway_s10probe.diag.test.ts` (single-interval converging probe, SHAPE_AUDIT
+  gated). Any session-1..9 stubs still pending rm. The `MULTI_UNIT_CONVERGING_ENABLED` flag +
+  `CONV_STACK_DIAG` block stay until the next session picks TARGET 1 up.
+
+### Next steps (session 11)
+
+1. **TARGET 1 needs the sloping-bracket + minority-span construction** (the measured-negative root):
+   the coherent slab must (a) cover only the MINORITY elevation span and leave matrix units to the
+   seam — which requires the interval-restructuring (partial interval ownership), NOT the current
+   all-or-nothing `tileGapTwoSided` contract — and (b) follow the sloping top/base brackets (flat
+   seams/flood corners slivered on the steep real fires). Prove hole-free on the 4 real fires
+   (`CONV_STACK_DIAG fire-encl` logging) BEFORE widening; the harness re-measures OFF/ON in one run.
+2. **TARGET C** (edged-enclosing / lens-edged) remains the other enclosed-minority residual
+   (session-9 measured-negative; owner may accept absent).
+3. **Owner ties** dissolve the class-(d) untied same-formation full-widths.
+4. Cutover-ready unchanged (owner dogfeed → default-ON flip → seam deletion → frozen snapshot).

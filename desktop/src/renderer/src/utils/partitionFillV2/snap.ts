@@ -90,3 +90,30 @@ export function gridKey(g: GridPoint): string {
 export function gridEqual(a: GridPoint, b: GridPoint): boolean {
   return a.ix === b.ix && a.iy === b.iy
 }
+
+/**
+ * Whether a segment [a, b] COLLAPSES to a single point once snapped to the 1 mm grid — its two
+ * endpoints land in the SAME grid cell, so the segment has zero extent in BOTH axes.
+ *
+ * The arrangement drops a zero-area face at trace time, but a zero-extent CURVE fed into the
+ * snap/DCEL is a malformed input: a degenerate closing flank (e.g. a lens flank whose apex snaps
+ * onto its own top/base corner in a sub-mm-wide gap — the CS1 col21/col22 gap21 ``close72`` class,
+ * a curve from elev 8.92 to 8.92) leaves the lens loop half-open. An emission path MUST test this
+ * before pushing a closing so no output curve carries zero extent in both axes (design §3 —
+ * exact-integer arrangement; a coincident-endpoint segment has no direction and cannot bound a
+ * face). Skipping such a lens WITH its partner flank keeps holes/overlaps at 0 (the lens
+ * degenerates to nothing in a sub-snap gap — an acceptable, documented no-op).
+ *
+ * Parameters
+ * ----------
+ * a, b : Point
+ *     The segment endpoints in metres×elevation space (pre-snap).
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when both endpoints snap to the same 1 mm grid cell (zero extent both axes).
+ */
+export function segmentDegenerate(a: Point, b: Point): boolean {
+  return gridEqual(snapPoint(a), snapPoint(b))
+}

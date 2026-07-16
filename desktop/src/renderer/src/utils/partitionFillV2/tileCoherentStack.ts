@@ -56,6 +56,8 @@ import { emitSharedContactOnlap } from './emitSharedContactOnlap'
 import { chooseOnlapEnclosing } from './emitTerminations'
 import { facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
+import { emitConvergingStack } from './tileConvergingStack'
+import { type ConvergingSide } from './tileCoherentStackTypes'
 import { type CorrUnit } from './tileGap'
 import { type InputCurve, type Point } from './types'
 
@@ -77,23 +79,13 @@ export function coherentStackDiagReset(): void {
   for (const k of Object.keys(COHERENT_STACK_DIAG)) delete COHERENT_STACK_DIAG[k]
 }
 
-/** One side's resolved geometry for the phase sweep. */
-interface SideGeom {
+/** One side's resolved geometry for the phase sweep. Extends the narrow ``ConvergingSide``
+ *  (ownX/facing/facingX/facingTop/facingBase) the extracted converging-stack tiler consumes. */
+interface SideGeom extends ConvergingSide {
   side: 'left' | 'right'
-  /** This side's own column (carries the enclosing matrix when the side is lone/empty). */
-  col: ColumnGeom
-  /** The FACING column (the enclosing matrix source for the converging / lone case). */
-  facing: ColumnGeom
-  /** This side's own column x (metres). */
-  ownX: number
-  /** The FACING column x (metres). */
-  facingX: number
   /** The interval's top / base elevation on THIS column. */
   iTop: number
   iBase: number
-  /** The interval's top / base elevation on the FACING column. */
-  facingTop: number
-  facingBase: number
   /** Whether the FACING bracket converges to a point (zero thickness). */
   facingConverges: boolean
   /** This side's interval matrix units (top→down), each with its per-gap corr. */
@@ -323,14 +315,20 @@ function emitConvergingSide(
     // No present-side units either — a fully-degenerate interval (both converge). Nothing to emit.
     return true
   }
-  // CONSTRUCTION-SAFETY (ruling 7 hole-freeness): a SINGLE present-side unit against a converging
-  // facing is the proven hole-free primitive (``emitSharedContactOnlap`` / ``emitLonePinch``
-  // pinch-to-conv — the exact ``routeLoneSidePinch`` converging construction). A MULTI-UNIT present
-  // side against a converging facing would need N independent pinch wedges sharing conv (sessions
-  // 4/5 measured +457 holes / +666 overlaps for independent wedges) — that is NOT yet a single
-  // coherent construction, so it bails to the caller's seam. The 29 target bails are dominantly the
-  // single-unit mixed-bracket minority; this closes those without the multi-unit hole risk.
-  if (sorted.length > 1) return false
+  // MULTI-UNIT present side against a converging facing (TARGET 1, session 10 — ruling 8h phases
+  // 1-2 UNCONDITIONAL per-unit lens emission). Session 8 BAILED here because N independent
+  // ``emitLonePinch`` pinch wedges sharing ``conv`` overlap/gap at their shared edges (sessions 4/5
+  // measured +457 holes / +666 overlaps). The fix is the SESSION-6 SLAB CONSTRUCTION generalised to
+  // a converging facing (``emitConvergingStack``): each unit gets its OWN 8b-capped lens notch
+  // biting its column edge, adjacent notches SEPARATED by horizontal boundary seams (loneX→apex
+  // line), and the enclosing matrix floods the residue past the apex line to ``conv`` — one
+  // coherent hole-free face set, NOT independent wedges (owner's CS1 walkthrough: the 0-corr
+  // unit-sides in a stack facing a converging side each get their generated lens). Bails (keeps the
+  // seam) only when the enclosing matrix cannot be determined — never suppressing the terminations
+  // for a shape it CAN close.
+  if (sorted.length > 1) {
+    return emitConvergingStack(s, sorted, nextId, nextFloodId, labelPatch, buf)
+  }
   for (const cu of sorted) {
     // The enclosing lithology above / below THIS unit, sampled from the FACING column at the
     // unit's own top / base elevation (the facing carries the enclosing matrix across the

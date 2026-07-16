@@ -15,6 +15,7 @@
 
 import { lensReachFraction } from './lensReach'
 import { type UnitGeom } from './sectionGeom'
+import { segmentDegenerate } from './snap'
 import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -247,6 +248,13 @@ export function emitLensClosing(
   const topPt: Point = { x: colX, y: u.topElev }
   const basePt: Point = { x: colX, y: u.baseElev }
   const apex: Point = { x: apexX, y: apexElev }
+  // TARGET-2 degenerate-flank guard (session 10): in a SUB-SNAP-WIDTH gap (or a snapped-away
+  // thin unit) either flank can collapse to a single grid cell — a curve with zero extent in
+  // BOTH axes (the CS1 col21/col22 gap21 0.17 m gap: a flank from elev 8.92 to 8.92). Such a
+  // half-collapsed lens cannot bound a face; emit NEITHER flank so no output curve is degenerate
+  // and the loop is never left half-open (the lens degenerates to nothing in a sub-snap gap — an
+  // acceptable no-op that keeps holes/overlaps at 0, the enclosing fill simply covers the slot).
+  if (segmentDegenerate(topPt, apex) || segmentDegenerate(apex, basePt)) return
   out.push({ id: nextId(), kind: 'closing', points: [topPt, apex] })
   out.push({ id: nextId(), kind: 'closing', points: [apex, basePt] })
 }
