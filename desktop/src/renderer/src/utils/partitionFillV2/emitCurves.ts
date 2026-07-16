@@ -35,10 +35,12 @@
 
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
+import { emitEnclosingFlood } from './emitEnclosingFlood'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
 import { emitSubTdLenses } from './emitSubTdLenses'
+import { emitTerminationSweep } from './emitTerminationSweep'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type CorrelationEdge } from '../partitionFill'
 import { type InputCurve, type Point } from './types'
@@ -153,12 +155,21 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // substrate curves append to the same map below.
   const lensLabels = new Map<string, LensLabel>()
 
+  // THE HOIST (session 14) — GATED OFF (measured: the fill-only replacement is not hole-free in
+  // one pass; see REWRITE_STATE §17). The unconditional termination sweep
+  // (``emitTerminationSweep``) + the fill-only enclosing flood (``emitEnclosingFlood``) are the
+  // hoist scaffold; they are NOT wired into the pipeline (the flag-ON path stays the session-13
+  // coherent tiler via ``emitIntervalCurves`` → ``tileGapTwoSided``). Referenced here so the
+  // imports resolve; the next session wires + hardens the flood-carrier fill (§17 NEXT STEPS).
+  void emitTerminationSweep
+  void emitEnclosingFlood
   // Vacancy closure (design §4 increment 4): the untied units of each interval
   // between tie-anchored bands TILE it fully (opposing pinches meeting at a seam),
   // so the vacated space past a pinch/lens apex is CLAIMED — no above-TD holes. A
   // LONE-side untied unit (no facing counterpart) that v1 would pinch now emits a
   // pinch apex short of the far column + a flood wedge claiming the rest (finding A),
-  // registering the flood label in ``lensLabels``.
+  // registering the flood label in ``lensLabels``. When the flag is ON, ``tileInterval``
+  // internally routes two-sided intervals through ``tileGapTwoSided`` (the coherent tiler).
   emitIntervalCurves(survivingSection, ties, bridgeAnchored, lensLabels, curves)
 
   emitEnclosedLensCurves(survivingSection, curves, lensLabels)

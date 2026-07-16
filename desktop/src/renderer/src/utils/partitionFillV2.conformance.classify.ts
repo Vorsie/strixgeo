@@ -16,7 +16,12 @@
 
 import { type PartitionPoint, type SectionRegion } from './partitionFill'
 import { inPolygon } from './partitionFillV2.parityCoverage'
-import { type GapBand } from './partitionFillV2/emitBands'
+
+// The 8e / 8g(b) merge predicates now live in the ENGINE package as the SINGLE source of
+// truth (``partitionFillV2/terminationRules.ts``, THE HOIST): the termination sweep SUPPRESSES
+// exactly the terminations these name, and the gate ACCEPTS exactly a band render for them, so
+// the engine and the gate cannot drift. Re-export so the gate keeps its import surface.
+export { sameFormationBaseTiedPair, sameFormationEnclosedByTiedBand } from './partitionFillV2/terminationRules'
 
 // Corr-arithmetic (tiedFlags / derivedBandTies / isBandMember / topBandTies /
 // unitHasDirectTie / effectiveCorrForUnit) now lives in the ENGINE package as the SINGLE
@@ -277,112 +282,6 @@ export function renderedShape(
     reachesRight: chosen.reachesRight,
     incident,
   }
-}
-
-/**
- * OWNER RULING 8e (design partition-engine-v2.md §8) — SAME-FORMATION ENCLOSURE CONFORMS.
- *
- * A flagged unit whose full-width same-formation extent MERGES INTO its own formation's
- * legitimately-tied face is NOT a violation ("it should be one sand" — the owner's traced
- * loop closes ONE face). Operationalised as: the unit's formation carries a MATCHED-PAIR
- * BAND (a drawn/derived same-side same-formation tie — ``collectGapBands``) across THIS gap.
- *
- * Why "same formation has a matched-pair band in the gap" is exactly "enclosed by its own
- * formation's TIED face":
- *   - The unit already renders FULL WIDTH of that formation (the gate flagged it precisely
- *     because the engine traced it as one same-formation face reaching both edges).
- *   - A matched-pair band of that formation in the same gap is tie-anchored at its outer
- *     boundary (``collectGapBands`` requires a same-side, same-formation tie between the two
- *     facing units). v2 traces the unit's extent and that band as ONE contiguous
- *     same-formation face (that merge is *why* the unit reads full-width). Following the lines
- *     — band top-tie down one column around any different-formation minority, across the
- *     tie-anchored basal contact, back up — closes one body. Per-unit scoping drew an
- *     invisible distinction inside that one body: the gate false positive ruling 8e retires.
- *
- * NEGATIVE GUARD (stays flagged — ruling 8): a same-formation full-width render with NO tie
- * of that formation ANYWHERE in the gap is the retired geometric auto-match — two untied
- * same-formation units are OPPOSING LENSES, not one band. ``collectGapBands`` returns no
- * band of that formation → this returns ``false`` → the unit stays flagged. So this blesses
- * ONLY enclosure by a genuinely TIED face, never a blanket same-formation exemption.
- *
- * Parameters
- * ----------
- * bands : readonly GapBand[]
- *     The gap's matched-pair bands (``collectGapBands`` — tie-justified same-formation pairs).
- * formationId : string
- *     The flagged unit's formation.
- *
- * Returns
- * -------
- * boolean
- *     ``true`` when the unit's formation has a tie-anchored matched-pair band in this gap
- *     (the merged face is one body by construction — ruling 8e exempts it).
- */
-export function sameFormationEnclosedByTiedBand(
-  bands: readonly GapBand[],
-  formationId: string,
-): boolean {
-  for (const b of bands) if (b.formationId === formationId) return true
-  return false
-}
-
-/**
- * OWNER RULING 8g(b) (design partition-engine-v2.md §8, 2026-07-16) — BASE-TIED
- * SAME-FORMATION PAIRS ARE ONE BAND.
- *
- * The owner ruled on the Tie-10 g0 S22↔S12 visual: "with or without the extra sand-top
- * tie the sands connect — the visual indicates that it doesn't matter". A 1-corr unit
- * whose single (derived/direct) tie is on its BASE and whose facing side carries the
- * SAME formation across the gap at overlapping elevation is therefore expected to render
- * as a BAND (the two same-formation runs connect through the shared base tie), NOT an
- * onlap. The conformance gate's expected shape for such a unit is band.
- *
- * This is NOT the ``collectGapBands`` matched pair (a symmetric top-top / base-base tie
- * between two same-formation units — that is already corr=2). It is the ASYMMETRIC case:
- * each same-formation unit rides a DIFFERENT tie (the Tie-10 ZANDs both base-tie to the
- * deep CLAY band below, deriving each ZAND's base tie), so neither is a band member, yet
- * they connect into one sand by the base-tie same-litho closure walk (ruling 8g).
- *
- * The predicate: the audited unit is base-tied (its base contact effectively tied) AND
- * the facing column carries a unit of the SAME formation vertically overlapping the
- * audited unit's own elevation band. When true, a full-width / band render of that
- * formation is CORRECT (one body by the base-tie closure), not a ``1corr-not-onlap``.
- *
- * Parameters
- * ----------
- * baseTied : boolean
- *     Whether the audited unit's base contact is effectively tied (direct/derived).
- * topTied : boolean
- *     Whether its top is tied (a unit tied on BOTH would be 2-corr, not reaching here).
- * formationId : string
- *     The audited unit's formation.
- * bandLo, bandHi : number
- *     The audited unit's own elevation band (mTAW).
- * facing : { units : { formationId; topElev; baseElev }[] }
- *     The facing column (its units in elevation space).
- *
- * Returns
- * -------
- * boolean
- *     ``true`` when the unit base-ties a same-formation facing run (one band by 8g(b)).
- */
-export function sameFormationBaseTiedPair(
-  baseTied: boolean,
-  topTied: boolean,
-  formationId: string,
-  bandLo: number,
-  bandHi: number,
-  facing: { units: { formationId: string; topElev: number; baseElev: number }[] },
-): boolean {
-  // Only a purely base-tied 1-corr unit (top untied) is the 8g(b) asymmetric-pair case; a
-  // top-tied unit onlaps a band above (a different closure), and a both-tied unit is 2-corr.
-  if (!baseTied || topTied) return false
-  for (const fu of facing.units) {
-    if (fu.formationId !== formationId) continue
-    // Vertical overlap between the facing same-formation unit and the audited band.
-    if (Math.min(fu.topElev, bandHi) - Math.max(fu.baseElev, bandLo) > 1e-6) return true
-  }
-  return false
 }
 
 /**

@@ -1746,3 +1746,167 @@ merges (ruling 8e one body), hole-free. Both named instances verified region-by-
 4. Cutover-ready unchanged (owner dogfeed — the col14 SILT + col18 SILT/VEEN sub-TD lenses now
    render → default-ON flip → seam deletion → frozen snapshot). `intersect.ts`/`seamAnchor.ts`
    UNTOUCHED all session; v1 215 held.
+
+---
+
+## 17. Session-14 plan & progress — THE HOIST (unconditional termination sweep)
+
+⚡ OWNER DIAGNOSIS (verbatim 2026-07-16 night): "there is something fundamentally wrong. If my
+2/1/0 rule is hardcoded these wouldn't have happened." Root confirmed: classification
+(`effectiveCorr`) is single-source + correct; EMISSION is not — lenses/onlaps are emitted by
+whichever interval tiler owns the space, and every tiler has guards that can suppress a
+termination (the sessions-9..13 bug parade: facingCarriesMatrix / band-bracketed skip /
+converging bails / whole-run bail / substrate sweep). THE HOIST makes emission UNCONDITIONAL
+and deletes that entire failure class. Build-first; ruling 8d-rev FENCED OFF.
+
+### The design (as built)
+
+**Emission architecture — one unconditional pass, then fill-only tilers:**
+
+* **`partitionFillV2/emitTerminationSweep.ts` (NEW)** — the hoisted pass. `emitTerminationSweep`
+  runs in `emitCurves` AFTER surface/ties/bridges, BEFORE any fill/tiler, and iterates
+  `for every gap, for every side, for every column unit`:
+  - `corr = effectiveCorrForSide(...)` (the SINGLE source, unchanged).
+  - `corr === 0` → `emitLensClosing` (8b `lensReachFraction` cap + `segmentDegenerate` /
+    `fitLensReach` floor); own-litho label.
+  - `corr === 1` → an onlap closing pair (top→apex→base) whose TIED-side edge carries an
+    `onlap` id so `labelFaces` reads ONLAP; apex 0.5 riding the tie side; own-litho label.
+  - `corr === 2` → nothing (the band contour is given line art — `bandc` from `emitBands`).
+  Its output enters the curve set as GIVEN LINE ART; the arrangement carves each termination
+  as a HOLE in the enclosing full-width flood (the `emitSubTdLenses`/`emitLenses` proof —
+  emit the closing, arrangement carves).
+* **RULED exceptions (derived from the RULES, not tiler heuristics), the only suppressions:**
+  - 8e / 8g(b) merge — `sameFormationEnclosedByTiedBand` (own formation carries a matched-pair
+    band across the gap) OR `sameFormationBaseTiedPair` (purely base-tied unit whose facing
+    carries the same formation): the unit IS its band, no termination (`collectGapBands` /
+    the shared gate predicates, re-implemented from the RULES in the sweep).
+  - bridge-anchor — a unit whose contact a deep-to-deep bridge carries is 2-corr-like by
+    bridge (consumes the same `bridgeAnchored` set `emitIntervals` feeds to `effectiveCorr`).
+  - PHYSICAL — `fitLensReach` halving-to-floor + `segmentDegenerate` (sub-snap collapse).
+* **`partitionFillV2/emitEnclosingFlood.ts` (NEW)** — the fill-only replacement for the seam
+  tiler under the flag. Per gap it floods each above-TD interval FULL-WIDTH with its enclosing
+  (dominant) formation as a `flood`-labelled band; the sweep's terminations + `bandc` contours
+  + substrate carve the holes. This is owner ruling 8f verbatim ("fill in the void with the
+  dominant lithology between correlations") and the `labelFaces` flood-label trick.
+
+**Where it runs / the flag.** The sweep + flood are the FLAG-ON engine (`twoSidedTerminationsEnabled`);
+flag OFF stays the proven v1 seam baseline (the safety line the whole campaign used, so a
+measured negative reverts to a known-green state). The DELETION applies to the flag-ON path:
+`tileGapTwoSided` / `tileCoherentStack` / `tileConvergingStack` / the `routeLoneSidePinch` /
+`routeLoneStack` / `emitLonePinch` / `emitSharedContactOnlap` / `emitSurfaceOnlap` termination
+branches are bypassed when the flag is ON (the tilers emit no terminations, only `bandc` + the
+enclosing flood). `emitSubTdLenses` + `emitEnclosedLensCurves` FOLD INTO the sweep (they become
+the sub-TD and enclosed-lens cases of the ONE pass).
+
+### STATUS — SCAFFOLD BUILT + MEASURED; hoist HYPOTHESIS PROVEN, fill-only replacement NOT hole-free in one pass → GATED OFF (stop-and-report, mission-authorised)
+
+Build-first: wrote the ENTIRE hoist (sweep + rules + fill-only flood + wiring) with zero
+executions, then ONE battery pass (the one-run OFF/ON harness) + iterate. The measurement is
+DEFINITIVE on the hypothesis and on the wall.
+
+**The OFF/ON harness (`partitionFillV2.throwaway_s14harness.diag.test.ts`, one run, no env gate):**
+
+| mode | holes above / sub | diff-litho overlaps | conformance 0/1/2 = total |
+|---|---|---|---|
+| flag OFF (committed baseline) | 0 / 0 | 0 | **5 / 5 / 0 = 10** |
+| **MODE A** — sweep + KEEP the proven seam fill | 436 / 0 | 194 | **2 / 2 / 0 = 4** |
+| **MODE B** — sweep + fill-only `emitEnclosingFlood` | 560 / 1 | 0 | 8 / 15 / 36 = 59 |
+| flag OFF/ON RESTORED (committed) | 0 / 0 | 0 | OFF 10 / ON 8 (session-13 baseline) |
+
+**WHAT THE MEASUREMENT PROVES:**
+1. **The hoist HYPOTHESIS is correct.** MODE A (unconditional sweep over the proven fill) drops
+   conformance **10 → 4** (0corr 5→2, 1corr 5→2) — the sweep genuinely fills 6 tiler-SUPPRESSED
+   terminations, exactly the owner's diagnosis ("if my 2/1/0 rule is hardcoded these wouldn't
+   have happened"). Classification→emission is now unconditional; no tiler can hide a lens.
+2. **The FILL is the wall (the site that resists deletion — mission's stop-and-report case).**
+   - MODE A's +194 overlaps = the DOUBLE-EMIT: the seam fill ALSO emits the same termination the
+     sweep now owns. Its +436 holes = the seam's flood is SHAPED BY its own (now-duplicate)
+     termination, so a differently-shaped sweep termination leaves an uncovered wedge (Tie-4 gap0
+     f≥0.52, the seam-meet region — a linear-growing wedge hole). ⇒ the seam CANNOT keep its fill
+     unchanged; its terminations must be deleted AND its fill made termination-agnostic.
+   - MODE B removed the double-emit (0 overlaps) but the naive fill-only flood
+     (`emitEnclosingFlood`, "no flood carrier for a shared enclosing") leaves **560 holes** and
+     blows conformance to 59 (2corr 36): without an EXPLICIT `flood`-labelled full-width carrier
+     (`units.length===0`, the `emitSubTdLenses`/`emitLonePinch` trick) the enclosing faces do not
+     TRACE at all, so band members + enclosing floods render ABSENT. The fill MUST emit explicit
+     flood carriers + the annulus machinery — the exact multi-day fill rebuild the design doc §4
+     repeatedly flags ("cannot land as one increment with the holes-0/0/0-per-milestone bar").
+
+**DECISION (stop-and-report over forcing a guess — mission-authorised, session-4/5/10/13 pattern):**
+the sweep + rules + fill-only flood are SHIPPED AS GATED-OFF SCAFFOLD (`void`-referenced in
+`emitCurves`, never wired into the pipeline). The flag-OFF AND flag-ON paths are BYTE-RESTORED to
+the session-13 baseline (OFF 10 / ON 8, holes 0/0/0, overlaps 0, all synthetic + shape + package
+gates green, v1 96 pass, tsc clean). The hoist is a genuine multi-day increment whose remaining
+work is now EXACTLY SCOPED (the fill rebuild below), not a guess.
+
+### The DELETION LIST (every termination-emission site the hoist replaces — enumerated, not yet cut)
+
+The sweep subsumes ALL of these (they become fill-only or fold into the sweep at cut-over):
+* `emitLenses.emitEnclosedLensCurves` — enclosed-lens closings (ALREADY unconditional, session 9;
+  folds in as the sweep's enclosed-minority case).
+* `emitSubTdLenses.emitSubTdLenses` — sub-TD 0-corr lenses (ALREADY a standalone unconditional
+  pass, session 13, the PROTOTYPE; folds in as the sweep's sub-TD case — the sweep already DEFERS
+  to it to avoid double-emit).
+* `emitIntervals.tileInterval` → the seam terminations: `routeLoneSidePinch` / `routeLoneStack` /
+  `emitLonePinch` / `emitSharedContactOnlap` / `emitSurfaceOnlap` / the `emitLensClosing` calls +
+  the geometric same-formation early-return. KEEP ONLY: `bandc` contours, seams/sub-seams (become
+  the flood dividers), the shallow-TD floor curve.
+* `tileGap.tileGapTwoSided` → `tileCoherentStack` / `tileConvergingStack` / `emitConvergingStack`
+  (the flag-ON coherent path) — the terminations there fold into the sweep; the meet-at-seam slab
+  FILL folds into `emitEnclosingFlood`.
+
+### The RULED-EXCEPTION implementation (a RULE, not a heuristic)
+
+`partitionFillV2/terminationRules.ts` (NEW) — `sameFormationEnclosedByTiedBand` (8e) +
+`sameFormationBaseTiedPair` (8g(b)), moved OUT of the gate's classify file into the ENGINE package
+so both the engine (sweep suppression) and the gate (band-render acceptance) consume ONE source —
+the same discipline `effectiveCorr` uses. `partitionFillV2.conformance.classify.ts` RE-EXPORTS
+them (verified: conformance flag-OFF unchanged at 5/5/0=10). The bridge-anchor exception is
+consumed from the SAME `bridgeAnchored` set the engine feeds `effectiveCorr` (the sweep reads
+`bridgeAnchorKey`), so a bridge-carried unit reads 2-corr-like and never terminates — a rule, not
+a per-tiler exclusion.
+
+### Verification snapshot (end of session 14)
+
+* tsc clean · flag OFF conformance **5/5/0=10** (byte-identical to session 13) · flag ON **3/5/0=8**
+  (byte-identical) · holes **0/0/0** both flag states · diff-litho overlaps **0** both · all shape
+  gates (strict210 / loneSidePinch / twoSidedTermination / bandAuthority / derivedTieOnlap /
+  simplerings) + package (arrangement / vacancyClosure / computeSectionFillV2 / sliceAnnulus /
+  lensReach / edgedLayers / crossingConflicts) + synthetic (coherentStack / coherentLoneStack /
+  bidirSweep / convergingStack / subTdLens / enclosedLensDetour) GREEN · v1 pure-geometry **96 pass**
+  · conformance.classify test GREEN (the 8e/8g(b) re-export). No committed-path geometry changed.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* `partitionFillV2/emitTerminationSweep.ts` (NEW) — THE HOIST sweep: unconditional per-gap/side/unit
+  0→lens / 1→onlap emission; the minority gate (owner 8f: dominant floods, minority lenses),
+  bridge-anchor + sub-TD deferral + 8e/8g(b) merge exemption. Gated OFF (`void`-referenced).
+* `partitionFillV2/terminationRules.ts` (NEW) — the shared 8e/8g(b) merge predicates (engine-package
+  single source; the gate re-exports them). ACTIVE (the gate uses it — conformance unchanged).
+* `partitionFillV2/emitEnclosingFlood.ts` (NEW) — the fill-only enclosing flood (owner 8f). MEASURED
+  NEGATIVE in one pass (no explicit flood carrier → 560 holes). Gated OFF; the next session's
+  starting point (needs the explicit `flood`-carrier + annulus machinery).
+* `partitionFillV2/emitCurves.ts` (EDITED) — imports the hoist modules, `void`-references them
+  (scaffold, unwired); the flag-OFF AND flag-ON pipeline is byte-restored to session 13.
+* `partitionFillV2.conformance.classify.ts` (EDITED) — the 8e/8g(b) predicates now RE-EXPORTED from
+  the engine package (`terminationRules.ts`); behaviour byte-identical (conformance 10 unchanged).
+* STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s14harness.diag.test.ts` (the
+  one-run OFF/ON measurement of record — regenerate if needed; no env gate).
+
+### Next steps (session 15 — the FILL REBUILD is the remaining hoist work; exactly scoped)
+
+1. **The fill-only enclosing flood needs the EXPLICIT `flood`-carrier + annulus machinery.** MODE B
+   proved "no carrier for a shared enclosing" leaves the enclosing faces untraced (560 holes,
+   2corr 36). Per interval flood the dominant lithology as a `flood`-labelled FULL-WIDTH band
+   (`units.length===0` so `labelFaces` stamps it — the `emitSubTdLenses`/`emitLonePinch` trick),
+   and let the sweep's terminations carve holes into it via `slice.splitAnnulus`. This is the
+   multi-day fill rebuild §4 flags; build it on the SYNTHETIC gates first (the coherentStack /
+   bidirSweep shapes), holes 0/0 per shape, THEN the 14 real sections.
+2. **Widen the sweep's MINORITY gate** — MODE A used the conservative enclosed-minority gate
+   (different formation above AND below); the owner's full model (8f/8h containment: dominant
+   floods, ALL else lenses) needs the boundary-minority + opposing-same-formation classes too,
+   which only land once the flood-carrier fill (1) can hole them cleanly.
+3. **Then the DELETION** (enumerated above) — cut the tiler terminations, wire the sweep + flood
+   ON, re-measure; MODE A's 10→4 conformance is the target the fill rebuild must reach at 0/0/0.
+4. `intersect.ts` / `seamAnchor.ts` UNTOUCHED (613-hole trap); v1 READ-ONLY. The scaffold + the
+   measured OFF/ON table are the ready foundation — no re-diagnosis needed.
