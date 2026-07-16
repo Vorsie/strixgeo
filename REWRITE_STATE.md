@@ -1507,3 +1507,127 @@ dogfeed — unchanged). The session-10 flat-construction negative is superseded.
   OFF/ON harness holes 0/0 both, conformance 12/10; CS1 7/7; v1 102/5; all package + shape gates.
   No iteration needed — hole-free on the FIRST real-data measurement (vs session-10's +22/+81).
 
+---
+
+## 15. Session-12 plan & progress — TARGET A SHIPPED (converging all-minorities stack → hugging lenses); TARGET B is a CONFIRMED sub-TD wall (recorded)
+
+⚡ OWNER DIRECTIVE: BUILD-FIRST (write the whole change, then ONE battery pass, iterate). Ruling
+8d-rev fenced OFF. `intersect.ts`/`seamAnchor.ts` UNTOUCHED; v1 READ-ONLY. No git ops.
+
+### THE DIAGNOSIS overturned the prompt's + session-11's framing (trust the data over the doc)
+
+Real-data probes (throwaway `s12probe`/`s12regions`/`s12curves`/`s12diag`, SHAPE_AUDIT=1) found the two
+named targets are NOT what the prompt/§14 framed:
+
+* **TARGET A (CS1 col18 x=646.74) is NOT a "column-level enclosed lens rendering full-width"**
+  (§14's claim). The real geometry: u3 KLEI[6.03..6.65] / u4 SILT[5.46..6.03] / u5 VEEN[5.05..5.46] /
+  u6 KLEI[4.23..5.05]. SILT+VEEN are a run of TWO MIXED-BRACKET minorities enclosed by KLEI above
+  (u3) + KLEI below (u6). `sectionGeom.extractEnclosedLenses` never pulls them (adjacent minorities,
+  not a single same-formation sandwich). On gap18 they route through `routeLoneSidePinch` →
+  `routeLoneStack`, which BAILED: the facing col19 CONVERGES (the KLEI u6 base tie + the KLEI band
+  base both land at el 7.03 on col19 → zero interval thickness) and carries no KLEI run
+  (`facingMatrixRunSpan` null), so the enclosing matrix (KLEI, from the OWN column brackets) had no
+  facing to band to. The seam then tiled SILT/VEEN FULL-WIDTH (curves `close50`/`close51` reaching
+  col19 at el 7.03). This is a CONVERGING-FACING all-minorities lone stack — EXACTLY the shape
+  `emitConvergingStack` (session 10/11) closes hole-free, but it was wired ONLY into the flag-ON
+  `tileCoherentStack` path, never reached by `routeLoneStack`'s flag-OFF bail.
+* **TARGET B (CS1 col14 x=569.60) u4 SILT[-6.32..-4.45] is EDGED (tied to col13's SILT)** — so on
+  gap13 it correctly BANDS (matched-pair). On gap14 it sits ENTIRELY BELOW the facing col15's TD
+  (-3.24) — a SUB-TD minority the deep-to-deep substrate ZAND sweeps (absent). This is the ruling-6
+  sub-TD-follows-tie / edged-enclosing class (session-9 TARGET C measured negative +53 holes) —
+  a DIFFERENT, substrate-path mechanism, NOT the converging-facing path. `routeLoneStack` never
+  reaches it (`loneSidePinches` false — facing too shallow). Also Target A's LEFT side (gap17,
+  facing the shallow col17 TD 10.42) is the SAME sub-TD class — absent, untouched.
+
+### TARGET A — SHIPPED (`emitLoneStack.routeLoneStack` → `emitConvergingStack` fallback)
+
+Wired `emitConvergingStack` (the session-10/11 converging-facing multi-unit-minority tiler with the
+ruling-8b `fitLensReach` halving) as a FALLBACK inside `routeLoneStack`: when the facing bracket is
+zero-thickness (converging) AND the ordinary reduce+band path BAILS (`bracketMatrix` null / reduced
+null / `facingMatrixRunSpan` null), delegate to `emitConvergingStack`. Two supporting refinements:
+1. **Stack trimming for the delegation.** `emitConvergingStack` reads its enclosing from
+   `ownColumnBracket(iTop/iBase)` where iTop/iBase = the passed stack's first/last unit contacts. A
+   stack whose BASE unit IS the enclosing matrix (CS1 col18: [SILT, VEEN, KLEI(u6)]) sets iBase to
+   the KLEI base at the TD → `ownColumnBracket` null → `bail-no-bracket`. The fallback now TRIMS
+   leading/trailing units that are an own-column enclosing formation, passing the pure minority run
+   [SILT, VEEN] (iBase → VEEN base 5.05, whose below-unit KLEI u6 top=5.05 resolves the bracket).
+2. **`tileConvergingStack.bail-facing-same-formation-enclosure` narrowed** (session 10 guard): it
+   bailed whenever the FACING carried ONE formation across the minority. Now it bails ONLY when that
+   facing formation ALSO matches an OWN-column enclosing formation (the true SILT-in-SILT annulus
+   wall, CS1 g20/g21). Target A's facing is ZAND but the own enclosing is KLEI (differ) — the
+   minority is a genuine hole in the OWN KLEI, not the facing ZAND → safe to lens. The g20/g21 wall
+   (own==facing==SILT) still bails.
+
+**ACCEPTANCE (gap18, RIGHT side) MET, region-by-region (flag OFF == flag ON, the DEFAULT engine):**
+SILT `band` frac[0..1] el[5.46..7.03] → **SILT `lens` frac[0..0.015] el[5.46..6.03]** (hugs col18,
+8b-capped); VEEN `band` frac[0..1] el[5.05..7.03] → **VEEN `lens` frac[0..0.011] el[5.05..5.46]**.
+The enclosing KLEI now DETOURS around them (KLEI quads frac[0..0.015] at the notch elevations); ZAND
+fills the rest. **holes/overlaps 0/0/0** (authoritative `partitionFill.holes_overlaps.diag`).
+The LEFT side (gap17) stays ABSENT — sub-TD (TARGET B class), NOT this fix's scope.
+
+### TARGET B — CONFIRMED WALL (recorded, NOT attempted — stop-and-report)
+
+Target B (gap14 sub-TD SILT) + Target A's gap17 left side are the SUB-TD enclosed-minority class:
+the facing is too shallow (no tie to converge on), so `routeLoneStack`/`emitConvergingStack` never
+fire. The substrate (deep-to-deep ZAND) sweeps the slot. Carving a sub-TD lens here is the ruling-6
+sub-TD-follows-tie mechanism — a substrate-path change that session-9 TARGET C measured NEGATIVE
+(+53 holes: without a continuous same-formation annulus the notch rides the column edge, holes=0, the
+`splitAnnulus`-bypass wall). Target B's SILT is additionally EDGED (a tied unit on gap13), so any
+merge would drop its band tie (the session-9 blocker). NOT attempted this session — it needs the
+sub-TD substrate-detour increment (its own red→green, touches the CS1 gap0/21/22 substrate the
+cs1void/sandbody frozen gates pin). Recorded per the mission's stop-and-report allowance.
+
+### The OFF/ON table (harness `partitionFillV2.throwaway_s12harness.diag.test.ts`, SHAPE_AUDIT=1)
+
+| metric | flag OFF (committed) | flag ON (the flip) |
+|---|---|---|
+| holes above / sub TD | 0 / 0 | 0 / 0 |
+| different-litho overlaps (precise gate) | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **5 / 5 / 0 = 10** (was 6/6/0=12) | **3 / 5 / 0 = 8** (was 4/6/0=10) |
+
+* **Flag OFF is NO LONGER byte-identical** (owner-ruled OK — a ruling-8h fix): the ONLY diff vs
+  §11 is CS1 col18 SILT+VEEN now rendering per-unit hugging lenses (gap18) instead of full-width
+  bands — both counts dropped by 2 (one 0corr, one 1corr). Everything else byte-identical: holes
+  0/0/0, CS1 7/7, v1 211 pass, all shape + package + synthetic gates green, tsc clean.
+* Flag ON improved the SAME 2 (the fix is in `routeLoneStack`, live in both states).
+* Per-instance triage of the flag-OFF residual 10: Tie-10 g0 (1/1) + Tie-12 g0 (0/1) + CS1 g18/g19
+  + CS2 residual = ruling-8 untied same-formation full-widths (owner-tie residual) + the SUB-TD /
+  edged-enclosing / lens-edged class (TARGET B + Target A's gap17 left + CS1 g20/g22 — all the
+  sub-TD/edged residual, session-9 measured-negative). Nothing NEW regressed.
+* Cross-gap shared-column reporter: 15 rows (was ~17); +2 NEW at col18 (KLEI g17 × VEEN/SILT g18) —
+  the EXPECTED Target-A asymmetry (gap17 sub-TD → KLEI fills; gap18 → the new lenses). A reporter,
+  not a within-gap partition violation (precise gate 0/0/0 confirms).
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+- `partitionFillV2/emitLoneStack.ts` (EDITED — the converging-facing all-minorities-stack fallback:
+  `tryConvergingStack` delegates to `emitConvergingStack` on the reduce/band bail paths, with the
+  minority-run trim; imports `emitConvergingStack` + `ConvergingSide`/`CorrUnit`/`EffectiveCorr` types.
+  No value-import cycle — `tileConvergingStack` does not import `emitLoneStack`/`emitLonePinch`).
+- `partitionFillV2/tileConvergingStack.ts` (EDITED — `bail-facing-same-formation-enclosure` narrowed
+  to the own==facing enclosure only, so a mixed own/facing enclosure [TARGET A] lenses).
+- `partitionFillV2.convergingStack.test.ts` (EDITED — added session-12 gate (g): an all-minorities
+  KLEI/[SILT,VEEN]/KLEI lone stack facing a converging tie lenses per unit in the DEFAULT engine
+  [flag OFF]. GREEN. 7 gates total).
+- STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s12probe.diag.test.ts`,
+  `partitionFillV2.throwaway_s12regions.diag.test.ts`, `partitionFillV2.throwaway_s12curves.diag.test.ts`,
+  `partitionFillV2.throwaway_s12diag.diag.test.ts` (neutralised no-op stub),
+  `partitionFillV2.throwaway_s12harness.diag.test.ts` (the OFF/ON measurement of record — regenerate
+  with SHAPE_AUDIT=1) + `scripts/diag_s12{probe,regions,curves,_harness}.json` + `scripts/s12_edges_probe.mjs`.
+  Any session-1..11 stubs still pending rm. The `CONV_STACK_DIAG` block in tileConvergingStack.ts stays
+  THROWAWAY (strip at cut-over). `MULTI_UNIT_CONVERGING_ENABLED` stays ON (unchanged from §11).
+
+### Next steps (session 13)
+
+1. **TARGET B (sub-TD enclosed minority) is the remaining named residual** — needs the ruling-6
+   sub-TD-follows-tie / substrate-detour mechanism (carve a lens out of the deep-to-deep substrate at
+   the minority's own elevation), NOT the converging-facing path. Its own red→green increment; guard
+   holes 0/0 + the CS1 gap0/21/22 cs1void/sandbody frozen gates. Target B's SILT is EDGED (tied gap13)
+   — the sub-TD lens must not drop that band tie. Owner may accept absent (session-9 recorded negative).
+2. **Target A's gap17 LEFT side** is the SAME sub-TD class (facing col17 TD 10.42 ≫ the SILT/VEEN el
+   ~5.5) — folds into (1).
+3. **Owner ties** dissolve the class-(d) untied same-formation full-widths.
+4. Cutover-ready unchanged (owner dogfeed — the col18 SILT/VEEN lenses now render, worth a look →
+   default-ON flip → seam deletion → frozen snapshot). `intersect.ts`/`seamAnchor.ts` UNTOUCHED all
+   session; v1 211 held.
+

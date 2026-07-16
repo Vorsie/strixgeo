@@ -194,13 +194,25 @@ export function emitConvergingStack(
       cbump('bail-facing-carries-minority')
       return false
     }
-    // A minority the facing encloses in ONE same formation (facing above == below at the minority) is
-    // a SAME-FORMATION enclosure — the column-level enclosed-lens extraction's job (or the seam's),
-    // NOT the converging sweep's (the CS1 g20/g21 splitAnnulus-bypass wall, session 8). Bail so it
-    // stays on its existing path; the converging sweep owns only genuine MIXED-bracket minorities.
+    // A minority the facing encloses in ONE same formation that ALSO matches the OWN-column
+    // enclosing (facing above == below == own bracket matrix) is a TRUE same-formation ANNULUS
+    // (SILT-in-SILT on both columns — the CS1 g20/g21 splitAnnulus-bypass wall, session 8): the
+    // minority is a hole in a formation continuous on BOTH sides, which the converging flood
+    // cannot separate hole-free. Bail so it stays on its existing path.
+    //
+    // But when the facing's same-formation enclosure DIFFERS from the own-column enclosing
+    // (session 12, TARGET A — CS1 col18 SILT/VEEN: own enclosing KLEI, facing carries ZAND across
+    // the minority elevations), the minority is a genuine hole in the OWN-column KLEI, NOT in the
+    // facing ZAND: the KLEI flood hugs the own column and the facing ZAND fills its own side past
+    // the tie — no same-formation annulus to break. Only the own==facing case is the wall.
     const fAbove = facingMatrixLabel(s.facing, cu.iu.topElev + ELEV_EPS)
     const fBelow = facingMatrixLabel(s.facing, cu.iu.baseElev - ELEV_EPS)
-    if (fAbove !== null && fBelow !== null && fAbove.formationId === fBelow.formationId) {
+    if (
+      fAbove !== null &&
+      fBelow !== null &&
+      fAbove.formationId === fBelow.formationId &&
+      enclosingFids.has(fAbove.formationId)
+    ) {
       cbump('bail-facing-same-formation-enclosure')
       return false
     }

@@ -40,6 +40,10 @@ import { type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
 import { enclosingMatrixOfInterval, facingMatrixLabel } from './facingMatrix'
 import { type ColumnGeom } from './sectionGeom'
+import { emitConvergingStack } from './tileConvergingStack'
+import { type ConvergingSide } from './tileCoherentStackTypes'
+import { type CorrUnit } from './tileGap'
+import { type EffectiveCorr } from './effectiveCorr'
 import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -212,19 +216,67 @@ export function routeLoneStack(
   const stackFids = new Set(loneMatrix.map((u) => u.unit.formationId))
   const facingSample = facingMatrixLabel(facing, convElev)
   const bracketZeroThick = Math.abs(facingTopElev - facingBaseElev) < ELEV_EPS
+
+  // CONVERGING-FACING MINORITY-STACK FALLBACK (session 12, TARGET A — CS1 col18 gap18 SILT+VEEN).
+  // When the facing bracket CONVERGES to a point (a tied band that pinches, not a lateral matrix
+  // run), the ordinary reduce path below bails at ``facingMatrixRunSpan`` — the enclosing matrix
+  // (KLEI here) has NO facing run to band full-width to (col19 carries ZAND, not KLEI, across the
+  // minority span) — so the seam tiled the SILT/VEEN minorities FULL-WIDTH (close50/close51). The
+  // correct shape (ruling 8h phases 1-2): each 0-corr minority gets its OWN 8b lens hugging its
+  // column, the own-column bracket enclosing floods around them to ``conv``. ``emitConvergingStack``
+  // (session 10/11) closes exactly this hole-free (own-bracket enclosing + ``fitLensReach`` halving).
+  // It is tried ONLY on the CONVERGING case AND ONLY AS A FALLBACK after the ordinary reduce+band
+  // path bails, so every case that reduce currently handles stays byte-identical (the ~32 OK cases);
+  // ``emitConvergingStack`` has its own guards (no-bracket / all-matrix / interleaved / facing-
+  // carries-minority / true same-formation-annulus) and bails cleanly when it cannot close a shape.
+  const tryConvergingStack = (): boolean => {
+    if (!bracketZeroThick) return false
+    // ``emitConvergingStack`` reads its enclosing from ``ownColumnBracket(iTop/iBase)`` where iTop = ``ownColumnBracket(iTop/iBase)`` where iTop =
+    // the passed stack's first unit top, iBase = its last unit base. A stack whose TOP or BASE unit
+    // is itself the ENCLOSING matrix (CS1 col18: SILT, VEEN, then KLEI[u6] as the below-enclosing at
+    // the TD) sets iBase to the matrix's base — which sits at the TD with no unit below it →
+    // ``ownColumnBracket`` returns null → ``bail-no-bracket``. TRIM leading/trailing units that ARE an
+    // own-column enclosing formation so the passed run is the pure MINORITY run: then iTop/iBase land
+    // on the minority run's own contacts, whose adjacent units ARE the enclosing (KLEI u3 above at
+    // 6.03, KLEI u6 below at 5.05), and ``ownColumnBracket`` resolves. The trimmed matrix units are
+    // covered by ``emitConvergingStack``'s own-column flood (their column vertical reads matrix).
+    const enclAdj = new Set<string>()
+    for (const u of loneCol.units) {
+      if (Math.abs(u.baseElev - iTop) <= ELEV_EPS + 1e-3) enclAdj.add(u.formationId) // unit above the interval
+      if (Math.abs(u.topElev - iBase) <= ELEV_EPS + 1e-3) enclAdj.add(u.formationId) // unit below the interval
+    }
+    // Also treat a stack END unit that duplicates an adjacent enclosing formation as matrix (KLEI u6).
+    let lo = 0
+    let hi = loneMatrix.length - 1
+    while (lo <= hi && enclAdj.has(loneMatrix[lo].unit.formationId)) lo++
+    while (hi >= lo && enclAdj.has(loneMatrix[hi].unit.formationId)) hi--
+    const run = loneMatrix.slice(lo, hi + 1)
+    if (run.length === 0) return false // the whole stack is enclosing matrix — nothing to lens
+    const conv: ConvergingSide = { col: loneCol, ownX: loneX, facing, facingX, facingTop: facingTopElev, facingBase: facingBaseElev }
+    // ``emitConvergingStack`` consumes only ``cu.iu`` (never ``cu.corr``) — a placeholder corr is safe.
+    const dummyCorr: EffectiveCorr = { topTied: false, baseTied: false, corr: 0 }
+    const sorted: CorrUnit[] = run.map((iu, i) => ({ iu, corr: dummyCorr, colUnitIndex: i }))
+    return emitConvergingStack(conv, sorted, nextId, nextFloodId, lensLabels, out)
+  }
+
   const misSample = facingSample !== null && !stackFids.has(facingSample.formationId)
   const correctedMatrix = bracketZeroThick && misSample ? enclosingMatrixOfInterval(loneCol, stackFids, iTop, iBase) : null
   const bracketMatrix = correctedMatrix ?? facingSample
-  if (bracketMatrix === null) return false
+  if (bracketMatrix === null) return tryConvergingStack()
   const stackLenses: IntervalUnit[] = []
   const reduced = extractLoneStackLenses([...loneMatrix], bracketMatrix.formationId, stackLenses)
-  if (reduced === null) return false
+  if (reduced === null) return tryConvergingStack()
 
   // The facing matrix must span the lone stack CONTINUOUSLY to band full-width — if the
   // facing carries no matrix run overlapping the interval, this is a genuine data void,
   // not a lateral band: fall back to the caller's full-width tiling.
   const facingSpan = facingMatrixRunSpan(facing, bracketMatrix.formationId, iTop, iBase)
-  if (facingSpan === null) return false
+  // The enclosing matrix has NO facing run to band full-width to. Ordinarily a data void
+  // (keep the full-width tiling). BUT a CONVERGING facing (a tied band pinching to a point over
+  // the minority span — CS1 col18 SILT/VEEN) is NOT a void: the minorities lens toward the
+  // convergence with the own-column enclosing flooding around them (``emitConvergingStack``,
+  // session 12 TARGET A). Try it as the fallback; a non-converging genuine void still returns false.
+  if (facingSpan === null) return tryConvergingStack()
   // Lens-apex clamp band edges. The DEFAULT (all pre-existing cases) rides the facing-matrix RUN edge
   // (``clamp``). ONLY the enclosing-matrix-corrected case uses the true INTERVAL bracket elevations
   // (the sloping tie lines iTop/iBase → facingTopElev/facingBaseElev): there the run edge is flat at

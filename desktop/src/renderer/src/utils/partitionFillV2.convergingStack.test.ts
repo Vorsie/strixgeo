@@ -256,6 +256,54 @@ describe('session-11 REACH-HALVING — a minority lens shrinks to fit inside the
   })
 })
 
+describe('session-12 TARGET A — an ALL-MINORITIES lone stack (own-column enclosed) facing a converging tie lenses per unit in the DEFAULT engine', () => {
+  it('(g) KLEI/[SILT,VEEN]/KLEI on one column, facing a converging tied band: SILT+VEEN each hug their column (NOT full-width), hole-free — flag OFF', () => {
+    // The CS1 col18 gap18 shape reduced: the LEFT column carries a run of TWO minorities SILT+VEEN
+    // enclosed by KLEI ABOVE and KLEI BELOW (the enclosing lives ONLY in the own-column brackets —
+    // neither SILT nor VEEN is KLEI, so ``extractLoneStackLenses`` cannot reduce the stack and the
+    // old code bailed → the seam tiled them FULL-WIDTH). The RIGHT column carries a ZAND that is
+    // TIED to the KLEI brackets so the facing bracket CONVERGES (zero interval thickness over the
+    // minority span). By ruling 8h phases 1-2 each of SILT/VEEN must get its OWN 8b lens hugging the
+    // left column; the enclosing KLEI floods around them. This runs in the DEFAULT engine (flag OFF)
+    // — the fix lands in ``routeLoneStack`` (not behind the two-sided flag).
+    const lKt = layer(), lSi = layer(), lVe = layer(), lKb = layer()
+    const rK = layer(), rZ = layer()
+    // Left: KLEI (el 12..6.5) / SILT (6.5..5.5) / VEEN (5.5..4.5) / KLEI (4.5..-4). Depths from surf 12.
+    const left = col('L', 12, [
+      { top: 0, base: 5.5, f: KLEI, layerId: lKt, body: 'bKt' },
+      { top: 5.5, base: 6.5, f: SILT, layerId: lSi, body: 'bSi' },
+      { top: 6.5, base: 7.5, f: VEEN, layerId: lVe, body: 'bVe' },
+      { top: 7.5, base: 16, f: KLEI, layerId: lKb, body: 'bKb' },
+    ])
+    // Right: KLEI (el 12..7) then ZAND (7..-4). The left KLEI-top base tie (left el6.5 → right el7)
+    // and the left KLEI-bottom top tie (left el4.5 → right el7) CONVERGE at el7 — the facing bracket
+    // over the SILT/VEEN span (el 4.5..6.5) pinches to a point at el7. ZAND carries the facing side.
+    const right = col('R', 12, [
+      { top: 0, base: 5, f: KLEI, layerId: rK, body: 'bKr' },
+      { top: 5, base: 16, f: ZAND, layerId: rZ, body: 'bZr' },
+    ])
+    // Tie the enclosing KLEI so the bracket over the minority run converges on the right.
+    const edges: CorrelationEdge[] = [
+      { a: lKt, b: rK, aSide: 'base', bSide: 'base' },
+      { a: lKb, b: rK, aSide: 'top', bSide: 'base' },
+    ]
+    const prev = setTwoSidedTerminations(false) // DEFAULT engine
+    try {
+      const regions = computeSectionFillV2([left, right], edges)
+      // Both minorities terminate as a hugging lens/onlap — NOT full-width band, NOT absent.
+      const siltRs = renderedShape(inGap(regions, 0), SILT, 5.5, 6.5, 'left')
+      const veenRs = renderedShape(inGap(regions, 0), VEEN, 4.5, 5.5, 'left')
+      expect(siltRs.shape === 'lens' || siltRs.shape === 'onlap', `SILT terminates (was ${siltRs.shape})`).toBe(true)
+      expect(veenRs.shape === 'lens' || veenRs.shape === 'onlap', `VEEN terminates (was ${veenRs.shape})`).toBe(true)
+      // Each hugs the left column — reach short of the far edge (8b cap).
+      expect(siltRs.apex, 'SILT lens hugs its column').toBeLessThan(0.9)
+      expect(veenRs.apex, 'VEEN lens hugs its column').toBeLessThan(0.9)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+})
+
 describe('session-10 TARGET 2 — a sub-snap-width gap emits no degenerate curve and no hole', () => {
   it('(c) an enclosed lens in a < 1 mm along-metres gap degenerates cleanly (no half-open loop, no hole)', () => {
     // Two columns 0.17 m apart in along-metres (the CS1 col21/col22 gap21 width). At the 1 mm snap
