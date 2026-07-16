@@ -385,6 +385,19 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8k. **COLUMNS ARE GROUND TRUTH — iterate columns, not gaps (owner,
+   2026-07-17: "you're looking at gaps not at columns; on the columns the
+   user's picked lithos are ground truth").** The termination sweep's
+   primary loop is COLUMN-first: for each column, for each unit of the
+   user's picked stack (including the pieces an enclosed lens visibly
+   splits), ask leftSide/rightSide and draw. The gap is only the
+   direction a unit looks — never the owner of the iteration, never a
+   context that may reinterpret the stack (no gap-frame "runs",
+   "intervals", or unit merges/splits the user didn't pick). Gap-frame
+   iteration is the recorded ROOT of the double-emit (one unit visited
+   via two gap contexts), the run-bails, and the mis-narrated sub-pieces.
+   This restates 8h's parenthetical ("I'm thinking per column") as the
+   binding architecture.
 8j. **MERGE AFTER FILL (owner, 2026-07-17 — "you merge after everything
    is fucking filled!").** Supersedes 8i's pre-emptive "same litho → do
    nothing": NO termination is ever suppressed by a predicted merge. A
