@@ -997,3 +997,151 @@ Do NOT touch `intersect.ts` / `seamAnchor.ts` (613-hole trap).
   `scripts/diag_s7_harness.json`. Any session-1..6 stubs still pending rm.
 
 ### (running build log)
+
+---
+
+## 11. Session-8 plan & progress — RULING-8h SIX-PHASE BIDIRECTIONAL SWEEP (build-first; parity 11, holes 0/0)
+
+⚡ OWNER DIRECTIVE this session: BUILD-FIRST. Ruling 8h (design §8, 2026-07-16 — the owner's
+six-phase bidirectional sweep) is the SPEC; it SUPERSEDES the session-7 interval-level
+meet-at-seam where they conflict. Wrote the ENTIRE restructure (engine + synthetic gates) with
+zero executions, then ran the verification battery ONCE and iterated on the one failure.
+
+### The sweep design (how phases 1-4 map to code)
+
+`tileCoherentStack` was REWRITTEN from the session-7 "meet-at-seam-or-bail" interval construction
+into the ruling-8h PER-SIDE PHASE SWEEP. The interval-level shape-classification bail is RETIRED
+(ruling 8h(a)): emission is per side and unconditional. The sweep DISPATCHES by facing geometry to
+the already-proven hole-free primitives, with the SAME phase order in every branch (0-corr lenses
+first, 1-corr onlaps second, fill last — automatic in the DCEL trace):
+
+* **Phases 1-4 (per side, 0-corr lens then 1-corr onlap):**
+  - **BOTH sides real thickness** → the MEET-AT-SEAM slab construction (session-6/7 `emitSideSlabs`,
+    unchanged): each unit fills its [uTop..uBase] slab from its column to the shared 0.5 seam; a
+    0-corr slab's boundary is a plain `close` (reads lens by geometry), a 1-corr slab carries an
+    `onlap`-id edge on its tied contact. The two sides MEET at the seam BY CONSTRUCTION (the
+    session-6/7 lesson: shared seam, not independent wedges).
+  - **ONE side empty (lone)** → the facing enclosing floods that half (the `emitSideSlabs` lone
+    branch, `facingMatrixLabel`).
+  - **CONVERGING facing (one side ~0 thickness — the 29-bail target set)** → NO BAIL (ruling 8h(a)).
+    The present (real-thickness) side's unit terminates toward the facing CONVERGENCE POINT `conv`
+    via the PROVEN per-unit primitives — `emitSharedContactOnlap` (1-corr, interior, both brackets
+    anchored) / `emitLonePinch` `forceLens` (0-corr MIXED-bracket), the enclosing flooding the wedge.
+    This is the EXACT hole-free geometry `routeLoneSidePinch` already emits for the converging case —
+    the sweep now OWNS it instead of returning false to the caller's seam.
+
+### How the meet-by-construction works (owner's "you don't seem to be closing bidirectionally?")
+
+Emission is PER SIDE and UNCONDITIONAL — every 0-corr side always gets its lens, every 1-corr side
+always its onlap. Where two sides' emissions meet they meet by construction: in the two-sided-thick
+branch the shared 0.5 seam is the meet line (both slabs abut it); in the converging branch the two
+sides' terminations both close on `conv`. NO routing branch decides the meet — it is a consequence
+of the two per-side trapezoids sharing the seam vertical (kept from session 7's proven hole-free
+slab; sessions 4/5/7 proved N independent freeform wedges = +457 holes, additive carves = +43
+overlaps, so the slab/flood construction is retained, only the interval-level bail is retired).
+
+### What happened to the bail sites (the 29 converging-facing bails)
+
+The session-7 `bail-converging-facing`/`bail-nospan` interval-level shape bails are GONE. Replaced by:
+* **`fired-converging` (27 real intervals):** the present side's SINGLE unit against a converging
+  facing terminates via the proven primitives — CLOSED hole-free. This fixed the BOUNDARY/MIXED
+  TRIO the design §4 flagged (Tie-10 g0 ZAND[R] 0corr el[5.73,6.44], CS1 g5 ZAND[L] 1corr,
+  CS1 g7 SILT[R] 0corr) — all three moved `absent` → terminated.
+* **`bail-converging` (96 kept):** a MULTI-UNIT present side against a converging facing (N
+  independent wedges = the measured +666-overlap risk — NOT a single coherent construction yet) OR
+  a SAME-FORMATION-enclosed 0-corr unit (above===below: its slot is already filled by the enclosing
+  quad; an additive lens double-covers it — the `splitAnnulus`-bypass wall, measured +1.6 cm CS1
+  g20/g21 in the FIRST battery pass, then correctly bailed). These keep the seam (the pre-existing
+  `absent`/full-width residual, NOT a new defect).
+* **Construction-safety `bail-nospan` (two-sided-thick only):** a non-contiguous two-sided interval
+  keeps the seam (a geometry guarantee, distinct from the retired shape classification).
+
+### Phases 5-6 (section-edge closure) — VERIFIED, no new curves
+
+The outermost columns' verticals close every body's loop at the section frame BY CONSTRUCTION
+(`emitColumnVerticals` emits per-unit verticals surface→TD on EVERY column incl. the outermost).
+The sweep emits no new curves for phases 5-6; the invariant is VERIFIED by synthetic gate (d)
+(a KLEI/ZAND/KLEI banded section: every band reaches BOTH frame columns at frac ~0 and ~1, no open
+strip). GREEN — the invariant holds, no body fails to close at the frame.
+
+### Containment (8h(c)) — VERIFIED, inherent in the DCEL + labelFaces
+
+`labelFaces` labels each ARRANGEMENT FACE by its immediately-bounding curves. Faces are MINIMAL by
+construction (DCEL half-edge trace), so "a face belongs to the SMALLEST enclosing loop" is inherent:
+an enclosed lens's OWN face wins the lens label by boundary composition (all-synthesized boundary +
+does not span the gap), and the enclosing band is a SEPARATE face that geometrically cannot overwrite
+it. Verified by synthetic gate (c) (a SILT lens inside a ZAND band inside the section: the little
+SILT face survives at its column; the ZAND detours around it; no double-cover). GREEN — little never
+overwritten by big; all small closures exist before any large fill (all curves are in the arrangement
+before the trace).
+
+### THE ONE BATTERY PASS + iteration (build-first)
+
+FIRST pass (all built, zero prior runs): tsc clean; bidirSweep gates (a)/(b) GREEN, (c)/(d) RED =
+TEST-COORDINATE bugs (my elevation=surface−depth inversions), FIXED; holes OFF 0/0/ovl 0, holes ON
+0/0/**ovl 2** (CS1 g20/g21 lens×quad ≤1.6 cm) — the DISQUALIFYING regression. ROOT: the converging
+0-corr branch emitted an additive lens for a SAME-FORMATION-enclosed unit whose slot the enclosing
+quad already fills (the notch rides the column edge, holes=0 → arrangement never separates it). FIX
+(one edit): gate the 0-corr converging lens on `aboveMatrix ≠ belowMatrix` (mixed bracket only);
+same-formation enclosure bails to the seam (that class is the column-level extraction's / per-gap-
+edged residual's job, NOT the converging sweep's). SECOND pass: holes ON **0/0/ovl 0**. DONE.
+
+### The OFF/ON table (per-class movement; harness `partitionFillV2.throwaway_s8harness.diag.test.ts`)
+
+| metric | flag OFF (committed) | flag ON (the 8h sweep) |
+|---|---|---|
+| holes above / sub TD | 0 / 0 | 0 / 0 |
+| different-litho overlaps | 0 | 0 |
+| conformance 0corr / 1corr / 2corr | **5 / 9 / 0 = 14** | **3 / 8 / 0 = 11** |
+| 8e-enclosure (advisory) | 50 | 44 |
+| q3-legit (advisory) | 5 | 3 |
+| reach-cap (advisory) | 2 | 6 |
+
+* **Flag OFF is BYTE-IDENTICAL to the committed baseline** (5/9/0=14; the whole two-sided block is
+  flag-gated). v1 90/90, CS1 7/7, holes 0/0/0, all package+shape gates green, tsc clean.
+* **Flag ON: 14 → 11 (0corr 5→3, 1corr 9→8), holes 0/0, overlaps 0.** Per-class: the sweep FIXED the
+  boundary/mixed trio (Tie-10 g0 ZAND[R], CS1 g5 ZAND[L], CS1 g7 SILT[R] — all 3 `absent`→terminated
+  via the converging primitives). Net conformance == session-7's flip (11) BUT reached via the
+  ruling-8h per-side sweep with the converging bail RETIRED for the mixed-bracket class.
+
+### Remaining reds (the 11 flag-ON residual — diagnosed, all pre-existing classes)
+
+1. **Untied same-formation full-widths (ruling-8, gate flags CORRECTLY, NOT engine defects):**
+   Tie-10 g0 ZAND[R] 1corr band, Tie-12 g0 SILT[R], CS1 g18 VEEN[L]+ZAND[R], CS1 g19 SILT[L], CS2
+   g13 ×2. Opposing 8b-capped lenses until the OWNER TIES them (ruling 8 embraced side effect).
+2. **CS1 g20/g21 ZAND `absent` (both-tied no-emit pair):** `routeLoneStack` skips a lens whose
+   enclosing SILT-below is EDGED; same-formation enclosure → the sweep correctly bails (no additive
+   overlap). Needs per-gap-edged extraction (a separate increment).
+3. **CS1 g22 ZAND `band`/`absent` (lens-edged class):** minority tied in the ADJACENT gap → the
+   section-wide `edgedLayerIds` excludes it from the column-level extraction. Needs per-gap edged.
+None are new; all are the design §4/§8 enclosed-minority / lens-edged / owner-tie residual classes.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* `partitionFillV2/tileCoherentStack.ts` (REWRITTEN — the ruling-8h six-phase sweep; converging bail
+  retired for the single-unit mixed-bracket case via `emitConvergingSide`; `emitSideSlabs`/`spans`
+  kept for the two-sided-thick meet-at-seam; carries the THROWAWAY `COHERENT_STACK_DIAG` block —
+  strip at cut-over).
+* `partitionFillV2.bidirSweep.test.ts` (NEW — 4 synthetic gates: (a) bidirectional closure, (b)
+  converging tiled hole-free, (c) nesting/containment, (d) section-edge closure. All GREEN flag ON).
+* `partitionFillV2/tileGap.ts`, `emitIntervals.ts` — UNCHANGED (thin adapter + flag routing intact).
+* STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s8harness.diag.test.ts` +
+  `scripts/diag_s8_harness.json` (the OFF/ON measurement of record — regenerate if needed,
+  SHAPE_AUDIT=1). Any session-1..7 stubs still pending rm.
+
+### Next steps (session 9)
+
+1. **The 11 residual needs the enclosed-minority per-gap work, NOT the sweep** — CS1 g20/g21 (edged
+   enclosing) + CS1 g22 (lens-edged, adjacent-gap tied). Per-gap `edgedLayerIds` extraction at the
+   INTERVAL level (`edgedLayers.ts` foundation from session 1) so a minority tied in the adjacent gap
+   still terminates in THIS gap. Its own red→green increment; guard holes 0/0 + the 32 OK
+   `routeLoneStack` cases.
+2. **The multi-unit converging class (`bail-converging` 96)** — a multi-unit present side against a
+   converging facing needs a SINGLE coherent construction (not N independent `emitLonePinch` wedges,
+   +666 overlaps). The `emitLoneStackBand` slab-seam trick generalised to a converging facing is the
+   candidate; measure holes 0/0 before widening.
+3. **Owner ties** dissolve the 6 untied same-formation full-widths (ruling 8 embraced).
+4. **Cutover-ready** stays gated on OWNER DOGFEED (flip Settings toggle, litho + geotech) → the
+   residual work above → flip `twoSidedTerminationsEnabled` default→ON → delete the seam `tileInterval`
+   body + strip `TILEGAP_DIAG`/`COHERENT_STACK_DIAG` → v2 frozen snapshot. `intersect.ts`/
+   `seamAnchor.ts` UNTOUCHED (613-hole trap); v1 90/90 byte-identical safety line held all session.
