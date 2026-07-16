@@ -352,6 +352,29 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `tileGap.ts` in the rewrite: simple loop, rich predicate, no routing
    fall-throughs — a unit cannot be missed if its termination is emitted
    before any filling happens.
+8g. **The boundary-walk elaboration of 8f + same-litho closure (owner,
+   2026-07-16 morning, ruled on the Tie-10 g0 S22↔S12 visual — verbatim):**
+   "First draw imaginary correlation bands for 0 correlations (halfway
+   lenses on one or both sides of the test). Then draw the onlaps as
+   imaginary correlation bands. Then fill all closed shapes. If a shape is
+   not closed then look at the open ends on both sides, they have to be
+   the same litho. If you have a sand on the left, a silt lens and then
+   again a sand, you can just follow the correlation band: go down from
+   the sand top correlation, you meet the silt — this is a closed shape so
+   you can just follow it to the right to the lens apex, follow it back;
+   if beneath that silt is another sand, just follow it down to the base
+   correlation tie and then to the right!" Consequences, owner-ruled:
+   (a) an enclosed lens/onlap is a DETOUR in the enclosing band's contour,
+   never a wall — the enclosing formation flows around it and reconnects;
+   (b) **base-tied same-formation pairs are ONE BAND** (the Tie-10 g0
+   ZANDs: with or without the extra sand-top tie the sands connect —
+   "the visual indicates that it doesn't matter"), so the conformance
+   gate's expected shape for a 1-corr unit whose single (derived) tie
+   faces a same-formation unit is band, not onlap; (c) emission order is
+   normative: 0-corr lenses first, onlaps second, closed-shape fill last.
+   This ruling is the SPEC for the session-7 flip (terminations-first
+   becomes the only path; the seam-based interval tiler and its bail
+   taxonomy are deleted).
 8e. **Same-formation enclosure CONFORMS — one body by construction (owner,
    2026-07-15 afternoon, ruled on the real TS4 visual with his own traced
    loop).** A unit whose flagged extent is enclosed by its own formation's
