@@ -155,6 +155,74 @@ describe('computeSectionFillV2 — 2/1/0 gestures emerge from boundary compositi
     expect(maxFrac(sand[0])).toBeCloseTo(0.45, 2)
   })
 
+  it('ruling 8b: a THIN 0-corr lens in a WIDE gap hugs its column (reach ~2× thickness)', () => {
+    // Same enclosed-sand-lens shape, but a REAL 100 m gap and a 1 m-thick lens. Ruling 8b
+    // (design partition-engine-v2.md §8): the auto reach caps at min(0.45× gap, 2× thickness)
+    // = min(45 m, 2 m) = 2 m → apex fraction 2/100 = 0.02, a hugging halo NOT a long tongue.
+    const lClayTop = layer()
+    const lLens = layer()
+    const lClayBot = layer()
+    const rClay = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lClayTop, body: 'bClay' },
+      { top: 3, base: 4, f: SAND, layerId: lLens, body: 'bLens' }, // 1 m thick
+      { top: 4, base: 8, f: CLAY, layerId: lClayBot, body: 'bClay' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 8, f: CLAY, layerId: rClay, body: 'bClay' }])
+    const regions = computeSectionFillV2([left, right], [], undefined, [0, 100])
+    const sand = ofFormation(regions, SAND)
+    expect(sand.length).toBe(1)
+    expect(sand[0].kind).toBe('lens')
+    // Reach shortened from 0.45 to ~0.02 (2 m / 100 m gap) — the hugging halo.
+    expect(maxFrac(sand[0])).toBeCloseTo(0.02, 2)
+    expect(maxFrac(sand[0])).toBeLessThan(0.45)
+  })
+
+  it('ruling 8b: a THICK 0-corr lens keeps the 0.45 reach (parity — geometry unchanged)', () => {
+    // A 30 m-thick lens in a 20 m gap: min(0.45×20, 2×30) = min(9, 60) = 9 m = 0.45× gap.
+    // 2× thickness ≥ 0.45× gap, so the cap is inactive and the reach is the flat 0.45.
+    const lClayTop = layer()
+    const lLens = layer()
+    const lClayBot = layer()
+    const rClay = layer()
+    const left = col('L', 50, [
+      { top: 0, base: 5, f: CLAY, layerId: lClayTop, body: 'bClay' },
+      { top: 5, base: 35, f: SAND, layerId: lLens, body: 'bLens' }, // 30 m thick
+      { top: 35, base: 45, f: CLAY, layerId: lClayBot, body: 'bClay' },
+    ])
+    const right = col('R', 50, [{ top: 0, base: 45, f: CLAY, layerId: rClay, body: 'bClay' }])
+    const regions = computeSectionFillV2([left, right], [], undefined, [0, 20])
+    const sand = ofFormation(regions, SAND)
+    expect(sand.length).toBe(1)
+    expect(sand[0].kind).toBe('lens')
+    // Thick unit → 0.45 reach, unchanged from the pre-8b engine.
+    expect(maxFrac(sand[0])).toBeCloseTo(0.45, 2)
+  })
+
+  it('ruling 8b: a USER apex override DEEPER than the cap SURVIVES (never capped)', () => {
+    // The thin-lens-in-wide-gap case (would auto-cap to ~0.02), but the engineer drew an
+    // apex at fraction 0.6 (alt-click / freedraw override). Ruling 8b: drawn apex overrides
+    // keep their behaviour — the override reach is honoured, NOT clamped to the 2× cap.
+    const lClayTop = layer()
+    const lLens = layer()
+    const lClayBot = layer()
+    const rClay = layer()
+    const left = col('L', 10, [
+      { top: 0, base: 3, f: CLAY, layerId: lClayTop, body: 'bClay' },
+      { top: 3, base: 4, f: SAND, layerId: lLens, body: 'bLens' }, // 1 m thick, would cap to 0.02
+      { top: 4, base: 8, f: CLAY, layerId: lClayBot, body: 'bClay' },
+    ])
+    const right = col('R', 10, [{ top: 0, base: 8, f: CLAY, layerId: rClay, body: 'bClay' }])
+    // Override keyed by (bodyId, gapIndex): apex at fraction 0.6, own mid-elevation.
+    const overrides = new Map([['bLens@0', { fraction: 0.6, elevation: 3.5 }]])
+    const regions = computeSectionFillV2([left, right], [], overrides, [0, 100])
+    const sand = ofFormation(regions, SAND)
+    expect(sand.length).toBe(1)
+    expect(sand[0].kind).toBe('lens')
+    // The drawn apex at 0.6 survives — deeper than both the 0.02 cap AND the flat 0.45.
+    expect(maxFrac(sand[0])).toBeCloseTo(0.6, 2)
+  })
+
   it('an uncorrelated same-lithology enclosed unit still becomes its OWN lens face', () => {
     // Enclosed sand (a distinct body) inside a sand matrix on the left, with no
     // correlation -> a closed lens face of its own (design §2 last bullet).

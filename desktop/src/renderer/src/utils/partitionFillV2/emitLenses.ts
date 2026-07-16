@@ -17,7 +17,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { lensReachFraction } from './lensReach'
 import { type ColumnGeom, type EnclosedLens, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -122,7 +122,14 @@ function emitOne(
     push([topPt, ...upper, ...lower, basePt])
     return
   }
-  const apexFrac = ov?.fraction ?? (side === 'left' ? LENS_PINCH_FRACTION : 1 - LENS_PINCH_FRACTION)
+  // Ruling 8b (design partition-engine-v2.md §8): the DEFAULT 0-corr reach is capped to
+  // ~2× the unit's own thickness in real metres (``lensReachFraction`` = min(0.45, 2t/gap)),
+  // expressed here as a gap-local fraction from the emitting column (left→cap, right→1-cap).
+  // A USER apex override (``ov.fraction``, and the freedraw branch above) is NEVER capped —
+  // the drawn apex takes precedence even when it reaches deeper than the auto cap.
+  const capFrac = lensReachFraction(lens.topElev - lens.baseElev, gapWidth)
+  const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
+  const apexFrac = ov?.fraction ?? defaultFrac
   const apexElev = ov?.elevation ?? (lens.topElev + lens.baseElev) / 2
   const apex: Point = { x: colX + dir * gapLocalToDist(apexFrac, side, gapWidth), y: apexElev }
   push([topPt, apex])
