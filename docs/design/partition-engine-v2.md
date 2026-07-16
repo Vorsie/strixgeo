@@ -492,6 +492,14 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `0corr-reach-exceeds-cap` advisory rows render at 0.5 via a NON-lens
    routing path — out of 8b scope, owned by the two-sided restructuring
    (FINAL SHAPES row). Owner dogfeed pending (thin lenses now hug).
+   **Conflict resolution (owner, 2026-07-16 late — "you can just shorten
+   the lenses by half if there is conflict with a tie? this had been said
+   many times"):** the 8b hard constraint's MECHANISM is reach-halving —
+   when a lens closing would cross a tie/bracket curve, HALVE its reach
+   and retry until it fits inside the wedge (floor: the snap grid; a lens
+   that cannot fit even at minimal reach degenerates per the session-10
+   guard). Seams never chase sloping brackets; the LENS shrinks. This is
+   the owner-ruled answer to the session-10 sloping-bracket negative.
 8. **STRICT 2/1/0 (owner, 2026-07-14 evening, after the model-wide shape
    audit).** Uncorrelated units TERMINATE — always. Facing same-formation
    units with no drawn tie render as opposing lenses/pinches (apex
