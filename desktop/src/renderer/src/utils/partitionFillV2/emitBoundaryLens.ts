@@ -44,6 +44,8 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { emitFloodWedge } from './emitFloodWedge'
 import { facingMatrixLabel } from './facingMatrix'
 import { lensReachFraction } from './lensReach'
 import { type LensLabel } from './emitLenses'
@@ -148,5 +150,78 @@ export function emitBoundaryLens(
   const flankId = nextId()
   lensLabels.set(flankId, { formationId: u.formationId, bodyId: u.bodyId })
   out.push({ id: flankId, kind: 'closing', points: [apex, freeCorner] })
+  return true
+}
+
+/**
+ * Emit the WATERTIGHT SURFACE ONLAP for a FIRST unit tied ONLY by the top band (owner ruling
+ * 8d-rev, 2026-07-16 evening — "the top band counts as one correlation"; design §8 8d-rev). The
+ * same watertight triangle as the surface branch of ``emitBoundaryLens`` (free BASE flank riding
+ * to an apex ON the top-band polyline; the top-band ``surface:gi`` curve is the tied leg —
+ * existing line art, never re-emitted, ruling 8i(d)), but with the ONLAP convention rather than
+ * the LENS convention:
+ *   - APEX AT ``INTERIOR_PINCH_FRACTION`` (0.5), NOT the 8b-halved lens reach (design §8 8a/8b:
+ *     "1 → onlaps its tie, tip at 0.5"; a corr-1 onlap uses the 0.5 tip, the 8b reach cap is a
+ *     0-corr LENS device). The tip rides the top band at fraction 0.5.
+ *   - a PHASE-2 ``oflank``-prefixed id (``labelFaces``-neutral, ``phaseOf`` → phase 2), so the
+ *     surface onlap never mis-renders as a phase-1 lens (the §20 confusion) — matching the
+ *     sweep's ordinary onlap flank vocabulary (``drawTermination`` ``emitOnlap``).
+ *
+ * NO separate flood wedge (identical rationale to ``emitBoundaryLens``): the enclosing flood's
+ * interval closure already fills the width past the tip; the free flank simply carves the onlap
+ * face out of it, hole-free by construction (all three legs — column vertical + free flank +
+ * top-band polyline — lie on existing line art or meet exactly).
+ *
+ * Parameters mirror ``emitBoundaryLens`` (surface case), minus ``boundary``/``shallowTD`` (this is
+ * always the surface top-band case) and ``nextId`` allocates the ``oflank`` id via a passed
+ * closure. Returns ``true`` when the flank was emitted, ``false`` on a physical degenerate no-op
+ * (the apex snaps onto the free corner / the facing carries no lateral matrix — the enclosing
+ * flood covers the slot).
+ */
+export function emitSurfaceOnlapFlank(
+  u: UnitGeom,
+  colX: number,
+  facingX: number,
+  facing: ColumnGeom,
+  lensLabels: Map<string, LensLabel>,
+  nextOflankId: () => string,
+  nextFloodId: () => string,
+  out: InputCurve[],
+): boolean {
+  // The top-band polyline the TIED leg rides: near = u.topElev (the first-litho boundary), facing
+  // = firstLithoTop(facing). The FREE contact (the flank the onlap draws) is the BASE.
+  const nearBandElev = u.topElev
+  const facingBandElev = firstLithoTopElev(facing)
+  const freeElev = u.baseElev
+
+  // Reach guard: the facing must carry a lateral matrix at the free contact (else an apparent
+  // boundary is a data void, not an onlap context — the enclosing flood keeps the slot).
+  if (facingMatrixLabel(facing, freeElev) === null) return false
+
+  // ONLAP tip at 0.5 (design §8 8a) riding the top-band polyline. No 8b reach-halving: an onlap
+  // uses the fixed 0.5 tip. The apex must still clear the free corner (a zero-height flank merges
+  // the onlap into the enclosing fill) — a 0.5-gap onlap on a first unit does so by construction
+  // (the apex elevation is the top band, well above the unit's base); the degenerate guard below
+  // catches the pathological sub-snap case.
+  const f = INTERIOR_PINCH_FRACTION
+  const apexX = colX + f * (facingX - colX)
+  const apexElev = nearBandElev + f * (facingBandElev - nearBandElev)
+  const apex: Point = { x: apexX, y: apexElev }
+  const freeCorner: Point = { x: colX, y: freeElev }
+  if (segmentDegenerate(apex, freeCorner) || Math.abs(apexElev - freeElev) <= APEX_MARGIN) return false
+
+  // The FREE flank — a ``oflank`` PHASE-2 onlap flank from the apex (ON the top-band polyline) to
+  // the FREE BASE corner, carrying the unit's own litho. The onlap face closes as: column vertical
+  // + this free flank + the top-band ``surface:gi`` sub-segment (existing line art, not re-emitted).
+  const flankId = `oflank${nextOflankId()}`
+  lensLabels.set(flankId, { formationId: u.formationId, bodyId: u.bodyId })
+  out.push({ id: flankId, kind: 'closing', points: [apex, freeCorner] })
+  // FLOOD the vacated width past the onlap tip with the facing enclosing formation (identical to
+  // ``drawTermination``'s ``emitOnlap``): the TIED side (TOP, riding the top band) is closed by
+  // that polyline, so its wedge is SKIPPED; the enclosing floods the UNTIED BASE side. At a 0.5
+  // apex the flood wedge is what closes the region between the tip and the free base corner — the
+  // top-band case is NOT the small-reach lens (which the enclosing flood covered on its own,
+  // ``emitBoundaryLens``); a mid-gap tip needs the wedge (else the 2 m sliver hole at CS1 g7 f0.5).
+  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, 'top', nextFloodId, lensLabels, out, facingX)
   return true
 }

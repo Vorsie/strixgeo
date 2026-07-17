@@ -49,7 +49,7 @@
 
 import { collectGapBands } from './emitBands'
 import { drawTermination } from './drawTermination'
-import { emitBoundaryLens } from './emitBoundaryLens'
+import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
 import { type LensLabel } from './emitLenses'
@@ -235,9 +235,24 @@ function emitSideSweep(
       continue
     }
 
+    const df = flags[ui] ?? { top: false, base: false }
+
+    // RULING 8d-rev (owner, 2026-07-16 — "the top band counts as one correlation"; design §8
+    // 8d-rev): a FIRST unit tied ONLY by the top band is now corr 1 and ONLAPS riding the SURFACE.
+    // Route it to the WATERTIGHT surface onlap (``emitSurfaceOnlapFlank``): its tied leg rides the
+    // ``surface:gi`` top-band polyline (existing line art) exactly like session-20's boundary lens,
+    // but with the 0.5 onlap apex + phase-2 ``oflank`` id. This fires ONLY when the sole anchor is
+    // the top band (ui 0, corr 1, no direct/derived-base tie on either own contact, base untied);
+    // a first unit with a REAL top tie flows to ``drawTermination`` (its ``emitOnlap`` rides that
+    // real tie). Distinct from the generic ``emitOnlap``, whose ``tieFacingElevAt`` falls back to
+    // ``facingElevAt`` (NOT the top-band polyline) → a divergent tied leg → a sliver hole.
+    if (ui === 0 && c === 1 && eff.topTied && !eff.baseTied && !df.top && !df.base) {
+      emitSurfaceOnlapFlank(u, colX, facingX, facing, lensLabels, nextId, nextFloodId, out)
+      continue
+    }
+
     // RULING 8i DRAW: 0 → lens always (physical suppressions only); 1 → follow the tie
     // (same litho on the matched facing side → merge; different → onlap); 2 → handled above.
-    const df = flags[ui] ?? { top: false, base: false }
     drawTermination(
       u,
       c,

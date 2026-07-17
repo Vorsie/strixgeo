@@ -216,7 +216,16 @@ export function effectiveCorrForUnit(
   const direct = flags[ui] ?? { top: false, base: false }
   const derived = derivedBandTies(gapIndex, side, ui, col, facing, activeTies)
   const topBandTied = topBandTies(ui)
-  const topTied = direct.top || derived.topShared
+  // RULING 8d-rev (owner, 2026-07-16 evening, dogfeeding the CS1 walkthrough — "top band counts
+  // as one correlation, this keeps it consistent"; design §8 8d-rev). The TOP BAND is an implicit
+  // tie for the FIRST unit, so it feeds ``topTied``/``hasAnchor`` (not only the 2-corr
+  // ``firstUnitTopBandBand`` case): a first unit whose ONLY tie is the top band is 1-corr and
+  // ONLAPS riding the surface (``topTied`` true → the sweep picks the top as the tied leg, apex on
+  // the top-band polyline). A first unit with top band + real/derived base tie stays 2-corr band
+  // (``firstUnitTopBandBand`` below, unchanged). Model-wide effect: every untied first unit flips
+  // lens → surface-riding onlap. The gate + LENS_AUDIT inherit via this shared arithmetic (corr-0
+  // populations shrink — first units leave).
+  const topTied = direct.top || derived.topShared || topBandTied
   const baseTied = direct.base || derived.baseShared
   const bandMember = isBandMember(bands, side, ui)
   const firstUnitTopBandBand = topBandTied && baseTied

@@ -2669,3 +2669,156 @@ Removed. The enclosing flood is the single fill authority (owner's "lens first, 
    ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1
    READ-ONLY; ruling 8d-rev OFF.
 
+## §24 — Session 21: RULING 8d-rev ON (Part A SHIPPED, surface first units → onlaps); Part B host-split STOPPED-AND-ASKED (contradiction with ruling 8g surfaced)
+
+Owner lifted the 8d-rev fence this session ("top band counts as one correlation, this keeps it
+consistent"). PART A (surface first-unit onlaps) is IMPLEMENTED + WIRED + MEASURED CLEAN. PART B
+(host-split for enclosed interbeds) hit a rule CONTRADICTION between the session-21 prompt and
+recorded ruling 8g — STOPPED AND ASKED per the ASK-FIRST directive (never invent a guard).
+``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY; no git ops.
+
+### PART A — 8d-rev ON (SHIPPED, flag-ON)
+
+- ``effectiveCorr.ts`` (``effectiveCorrForUnit``): ``topBandTies(ui===0)`` now folds into
+  ``topTied`` (and thus ``hasAnchor``), not only the 2-corr ``firstUnitTopBandBand`` case. A first
+  unit whose ONLY tie is the top band flips **corr 0 → corr 1** → ONLAPS riding the surface. A
+  first unit with top band + real/derived base tie stays corr 2 (unchanged). SHARED arithmetic, so
+  the LENS_AUDIT (flag-ON) inherits automatically.
+- ``emitBoundaryLens.ts`` NEW ``emitSurfaceOnlapFlank``: the WATERTIGHT surface onlap — the same
+  triangle session-20's ``emitBoundaryLens`` surface case builds (free BASE flank + apex ON the
+  top-band ``surface:gi`` polyline, ``firstLithoTopElev(facing)``), but with the ONLAP convention:
+  **apex at ``INTERIOR_PINCH_FRACTION`` 0.5** (NOT the 8b-halved lens reach — design §8 8a/8b:
+  "1 → onlaps its tie, tip 0.5"; the 8b reach cap is a 0-corr LENS device) and a phase-2
+  ``oflank`` id. UNLIKE ``emitBoundaryLens`` (small-reach lens, no wedge), the 0.5 mid-gap onlap
+  NEEDS the ``emitFloodWedge`` (skip 'top' = tied side; flood the free BASE) — the first measured
+  attempt WITHOUT the wedge left a 2 m sliver hole at CS1 g7 f0.5 (measured, fixed by adding the
+  wedge, identical to ``drawTermination``'s ``emitOnlap``).
+- ``emitTerminationSweep.ts`` (``emitSideSweep``): routes ``ui===0 && corr===1 && eff.topTied &&
+  !eff.baseTied && !df.top && !df.base`` (the sole anchor is the top band) to
+  ``emitSurfaceOnlapFlank`` BEFORE the generic ``drawTermination`` (whose ``emitOnlap`` uses
+  ``facingElevAt``, NOT the top-band polyline → a divergent tied leg → sliver hole). A first unit
+  with a REAL top tie flows to ``drawTermination`` (rides that real tie). The ``c===0``
+  ``boundaryMinorityKind==='surface'`` branch is now DEAD (ui 0 is never corr-0 under 8d-rev);
+  ``'td'`` (last unit) stays live — ``emitBoundaryLens`` unchanged for it.
+
+### PART A — APEX-CONVENTION DECISION (design Q1) + citation
+
+**DECIDED: 0.5 apex (``INTERIOR_PINCH_FRACTION``), riding the top-band polyline — NOT the 8b
+reach.** NOT genuinely ambiguous: the design is consistent that ONLAPS go to 0.5 (§8 8a "ONLAP
+riding that tie, tip at 0.5"; 8b "1 → onlaps its tie" vs "0 → a small lens around the unit"; the
+generic ``emitOnlap`` uses ``INTERIOR_PINCH_FRACTION``). The 8b reach cap governs 0-corr LENSES,
+not onlaps. The ``emitSurfaceOnlap`` "v1 rising apex" precedent is a flag-OFF-seam anti-collapse
+device for a DIPPING base band, irrelevant to the reach question. The top-band POLYLINE ride
+(``firstLithoTopElev(facing)``) is the watertight requirement (session-20 ``emitBoundaryLens``
+precedent) — the tied leg is the existing ``surface:gi`` line art, so no divergent horizontal.
+
+### PART A — count movement (triaged, flag-ON via the shared LENS_AUDIT)
+
+- LENS_AUDIT: corr-0 sides **40 → 34** (6 surface first-unit sides LEFT the corr-0 population →
+  onlaps); **boundaryResidual 5 → 0**, MISSING 0, physical 0, present 34/34. The 5 session-19/20
+  boundaryResiduals: 4 SURFACE first units (Tie-10 g0 ZAND, Tie-12 g0 ZAND, CS1 g7 col8 ZAND, CS2
+  g6 B8 SILT) FLIPPED lens → surface onlap; the 1 TD last unit (CS1 g7 col8 SILT [9.29..9.85])
+  STAYS a lens (not a first unit) — matches the acceptance "every session-20 boundary lens that is
+  NOT a first unit stays a lens". Named instances VERIFIED: CS1 col8 u0 ZAND [9.85..11.27] flips
+  onlap; CS1 col22 u0 ZAND [11.45..11.85] flips onlap.
+- ``boundaryLens.test.ts`` (SHAPE_AUDIT=1) GREEN — the 4 surface instances still read
+  ``lensPresent`` (an onlap covers the near column too) AND the gaps stay hole-free.
+- Conformance gate (FLAG-OFF, its OWN inline pre-8d-rev arithmetic): **UNCHANGED 5/5/0=10**. NOTE:
+  the conformance gate does NOT use ``effectiveCorrForUnit`` — it re-implements the corr arithmetic
+  INLINE (conformance.diag.test.ts:236-261) with the pre-8d-rev semantics (its comment explicitly
+  says the top band does NOT feed hasAnchor). Left UNTOUCHED because it audits the FLAG-OFF render
+  (which 8d-rev does not change — the sweep is flag-ON). Updating its inline copy would create
+  spurious ``1corr-not-onlap`` reds (the flag-OFF engine emits no surface onlap). The prompt's
+  "gate inherits via shared arithmetic" assumed the gate used ``effectiveCorrForUnit``; the actual
+  code has a divergent inline copy — RECORDED. No drift with the ENGINE: the engine's flag-ON
+  arithmetic (``effectiveCorrForSide``) is 8d-rev; the LENS_AUDIT (flag-ON, shared) matches it; the
+  conformance gate (flag-OFF, inline) matches the flag-OFF engine. Three consistent pairs.
+
+### PART A — flag-OFF byte-identical (the safety line)
+
+The ``effectiveCorr`` change is COMPUTED-BUT-UNUSED in flag-OFF: ``emitIntervalCurves`` computes
+``leftCorr``/``rightCorr`` but feeds them only to ``tileGapTwoSided``, which is gated by
+``twoSidedTerminationsEnabled()`` (false). The flag-OFF seam path (``routeLoneSidePinch``, geometric
+same-formation, seam model) never reads ``.corr``/``.topTied``. VERIFIED: flag-OFF holes 0/0/0,
+conformance 5/5/0=10, CS1 gates 7/7 — all byte-identical to the session-20 baseline.
+
+### PART A — the ONE battery (flag-ON, throwaway ``partitionFillV2.throwaway_s21battery.diag.test.ts``, SHAPE_AUDIT=1)
+
+| metric | flag OFF | flag ON (8d-rev) |
+|---|---|---|
+| holes above / sub TD | 0 / 0 | **39 / 1** (CS1 g21 ×19 [Part-C 0.17 m wall] + CS2 g17 ×20 [sloping-band wall] — the TWO pre-existing fill walls, ZERO new; the ±1 vs session-20's 40 is my f-sampling grid, not a new hole) |
+| different-litho overlaps | 0 | **0** |
+| LENS_AUDIT present / MISSING / boundaryResidual | — | **34 / 0 / 0** |
+
+- CS1 gates **7/7**; the 4 INHERITED synthetic reds (coherentStack (a)/(b), convergingStack (a),
+  coherentLoneStack) UNCHANGED — no new synthetic regressions (strict210 / loneSidePinch /
+  simplerings / twoSidedTermination / derivedTieOnlap / bandAuthority / edgedLayers / crossingConflicts
+  / conformance.classify / enclosedLensDetour / mergeAfterFill / subTdLens / lensReach all green).
+  v1 pure-geometry **87/87**. tsc clean.
+
+### PART B — host-split for enclosed interbeds: STOPPED AND ASKED (rule contradiction)
+
+The owner's thrice-asked CS1 col18 (x=646.74) case. VERIFIED the real data (throwaway
+``partitionFillV2.throwaway_s21probe.diag.test.ts``, CS1_GATE=1). The picked stack is
+KLEI(u1)/SILT(u2)/KLEI(u3)/… — the SILT interbed [6.65..7.75] enclosed by KLEI above+below, SAME
+formation → ``sectionGeom.extractEnclosedLenses`` MERGES the two KLEIs into ONE host unit
+``u1 KLEI [6.03..10.11]`` + records the SILT lens. So post-extraction the sweep sees ONE merged
+KLEI; the owner's "MIDDLE-CLAY sliver [6.65..6.03]" is the bottom of that merged host and is
+INVISIBLE to the sweep + the LENS_AUDIT (never a separate corr-0 side).
+
+**THE CONTRADICTION (why I stopped).** The prompt's Part B says split the host and sweep the sliver
+as **corr 0/0 → LENS BOTH WAYS**. BUT the probe shows the merged host ``u1 KLEI`` is a REAL
+matched-pair BAND MEMBER in gap18: ``bands: L1xR2(KLEI)`` from a real user tie ``L1.top×R2.top``
+(a top-top KLEI correlation to col19). The KLEI band spans the FULL host [6.03..10.11] — the sliver
+region [6.03..6.65] is INSIDE that user-drawn band. Recorded ruling **8g** (owner, 2026-07-16,
+verbatim) says the opposite of "lens": "if beneath that silt is another sand [read: KLEI], just
+follow it down to the base correlation tie and then to the right!" — i.e. the KLEI BELOW the
+interbed FOLLOWS the band base to the far column = it BANDS full-width (flows around the interbed
+as a DETOUR, ruling 8g(a)), it does NOT pinch. So:
+  - Prompt Part B → the sliver LENSES both ways (pinches, facing litho shows past the apex).
+  - Ruling 8g + the real L1×R2 KLEI band → the sliver FOLLOWS the band (KLEI flows full-width,
+    the interbed is a detour hole in it), NO pinch.
+These are mutually exclusive, and the "lens" reading would DEMOTE a real user KLEI matched-pair
+band to an onlap/pinch (a correctness regression on a drawn correlation). Per ASK-FIRST ("rule
+ambiguity → stop and report; never invent a guard") I did NOT implement either — no engine change
+for Part B this session.
+
+**THE OWNER QUESTION (Part B):** for an enclosed interbed whose HOST is a real matched-pair band
+member (CS1 col18: the KLEI host has a drawn top-top KLEI tie to col19 → a legit KLEI band across
+gap18): does the sub-interbed sliver-KLEI (1) LENS both ways (prompt Part B — pinch, revealing the
+facing litho, splitting the band's reach below the interbed), or (2) FOLLOW the band (ruling 8g —
+KLEI flows full-width around the interbed as a detour, no pinch)? If (1), the drawn KLEI band is
+intentionally NOT authoritative below the interbed (its authority is only at the tied top) — please
+confirm, because it demotes a user correlation. If (2), the case is ALREADY handled (the sliver is
+part of the KLEI band today; nothing to build) — then the thrice-asked ask must be about a
+DIFFERENT geometry (an interbed whose host is UNtied — is there one on the real model?). NOTE the
+LENS_AUDIT-mapping half of the Part-B prompt ("piece-lenses satisfy their host") only becomes
+relevant under interpretation (1).
+
+### Files this session (worktree, NOT committed — orchestrator commits + rm)
+
+- ``partitionFillV2/effectiveCorr.ts`` (EDITED — 8d-rev: topBand feeds topTied/hasAnchor).
+- ``partitionFillV2/emitBoundaryLens.ts`` (EDITED — NEW ``emitSurfaceOnlapFlank``; import
+  ``INTERIOR_PINCH_FRACTION`` + ``emitFloodWedge``).
+- ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — surface-onlap routing in ``emitSideSweep``;
+  import ``emitSurfaceOnlapFlank``).
+- STUBS to delete (orchestrator ``rm``; bash rm denied here):
+  ``partitionFillV2.throwaway_s21probe.diag.test.ts`` (CS1_GATE probe — col8/18/22 corr + bands),
+  ``partitionFillV2.throwaway_s21battery.diag.test.ts`` (SHAPE_AUDIT flag-ON holes/overlaps
+  battery). Plus any session-19/20 stubs still pending
+  (``throwaway_s19harness``/``throwaway_s20battery`` + their ``scripts/diag_s19_harness.json`` /
+  ``scripts/diag_s20_battery.json`` / ``scripts/throwaway_boundary_cols.mjs`` /
+  ``scripts/throwaway_ovl_where.mjs``).
+
+### Next steps (session 22)
+
+1. **Part B — resolve the owner question above FIRST**, then build (host-split at the sweep's
+   unit-list level via ``sectionGeom``'s ``enclosedLenses`` cut elevations, per-piece corr from
+   per-contact tie inheritance, ``mergeTouchingBodies`` reconnects same-litho pieces post-fill). The
+   band-vs-lens ruling for a tied host is load-bearing — it decides whether the split touches band
+   members at all.
+2. The ``emitEnclosingFlood`` fill rebuild (CS1 g21 + CS2 g17, the ONLY above-TD holes flag-ON).
+3. The 4 inherited synthetic reds (§16/§18 enclosing-face-bounding — owner call).
+4. Cutover-ready: OWNER DOGFEED (8d-rev onlaps on the litho axis) → fill rebuild → flip default ON
+   → strip throwaway diag + ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/
+   ``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
