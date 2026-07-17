@@ -453,6 +453,18 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    from the unit's free contact to the apex point on the tie. A second
    flank riding the tie duplicates given line art (the recorded source of
    the onlap-rendered-as-lens confusion) and is forbidden.
+   (e) **EVERYTHING MUST LENS (owner, 2026-07-17: "everything must lens,
+   no narrow gap guard — make it so that all 0-corr bodies lens in first
+   instance"):** every 0-corr unit-side draws its lens, no exceptions.
+   The SUB_SNAP_GAP_M policy threshold is DELETED; the only permissible
+   collapse is the physical snap floor (``segmentDegenerate`` at the 1 mm
+   grid), each instance individually listed by the audit. The
+   letter-of-the-law audit (every corr-0 unit-side has a phase-1 flank,
+   MISSING = 0 per section) becomes a permanent gate. Jump-tie bridges
+   feed the corr arithmetic (a drawn correlation is a correlation
+   regardless of adjacency): a bridge's ANCHORED contacts are tied
+   (onlap/band per the rules); pass-through columns it crosses without
+   anchoring stay untied (their units lens).
    the CS1 flip walkthrough — verbatim):** "Phase 1: 0 correlations on
    left side, emit lens on left. Phase 2: 0 correlations on right side,
    emit lens to the right. Phase 3 and 4: the same but with 1
