@@ -385,6 +385,21 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8m. **THE 8i SAME-LITHO ONLAP SUPPRESSION IS RESTORED, in its correct
+   follow-the-tie form (owner, 2026-07-17, dogfeeding the x=23.45 5th
+   silt: "restore it — just add a lithology check before drawing").**
+   Before drawing a corr-1 onlap flank: FOLLOW the actual tie to the
+   MATCHED facing contact (below-for-top-tie / above-for-bottom-tie),
+   compare litho — SAME → skip the flank (the tie is the boundary, the
+   fill flows, the 8j merge welds; the flank would be an interior seam of
+   the identical final body); DIFFERENT → draw the onlap. History: 8i
+   dictated this; the original implementation fired on a run-existence
+   heuristic instead of following the tie (the absent-unit bugs), so 8j
+   deleted suppression wholesale (always-draw + merge-after). Both forms
+   produce IDENTICAL final bodies — restoring the literal check trades
+   redundant interior seams and merge work for one rule-derived litho
+   comparison. Scope: corr-1 onlaps ONLY; lenses stay untouchable
+   (8i(e)); different-litho onlaps always draw.
 8l. **CORR IS THE LITERAL COUNT — the matched-pair band promotion is
    DELETED (owner, 2026-07-17, on the 646.74 three-clay column: "the top
    clay has a top tie, the middle clay has no ties and the bottom clay
