@@ -94,9 +94,24 @@ function phaseOf(id: string): { phase: 0 | 1 | 2 | 3; role: string } {
   if (id.startsWith('tie')) return { phase: 0, role: 'drawn tie' }
   if (id.startsWith('bridge')) return { phase: 0, role: 'jump-tie bridge' }
   if (id.startsWith('bandc')) return { phase: 0, role: 'matched-pair band contour' }
-  // Phase 1 — 0-corr lens closings.
+  // Phase 1 — 0-corr lens closings. The session-15/16 HOIST vocabulary: the unconditional
+  // termination sweep emits ``term<n>`` (0-corr lens closings) and defers sub-TD minorities
+  // to ``subtdlens<n>`` — both ARE the owner's generated lens ties (his list of "still not
+  // lensing" 2026-07-17 was 42 of these mis-tagged ③ and hidden; render-vocabulary bug, not
+  // engine). ``onlapterm`` is caught by the ``onlap`` prefix below. ``rband`` (ruled band
+  // contours for 8i-merged units) are given-band line art, phase 0.
+  if (id.startsWith('rband')) return { phase: 0, role: 'ruled band contour (8i merge)' }
+  if (id.startsWith('subtdlens')) return { phase: 1, role: 'sub-TD lens closing (0-corr, sweep)' }
+  if (id.startsWith('term')) return { phase: 1, role: 'termination-sweep lens closing (0-corr)' }
   if (id.startsWith('lens')) return { phase: 1, role: 'enclosed-lens closing (0-corr)' }
-  // Phase 2 — 1-corr onlap contours (both the flip's ``onlapclose`` and lone/shared ``onlap``).
+  // Phase 2 — 1-corr onlap contours. ``oflank`` is the sweep's SINGLE onlap closing flank
+  // (ruling 8i(d), 2026-07-17 — "an onlap is ONE extra line"): the free-contact→apex flank the
+  // sweep now draws instead of the old TIED flank + untied bare-``term`` flank pair. It MUST be
+  // caught here (phase 2) — before the ``term`` branch above — so it never mis-renders as a
+  // phase-1 lens (the §20 defect: the untied ``term`` flank looked like a 0-corr lens). Must
+  // precede the generic ``onlap`` check (``oflank`` does not start with ``onlap``).
+  if (id.startsWith('oflank')) return { phase: 2, role: 'onlap flank (1-corr, ruling 8i(d) one line)' }
+  // Both the flip's ``onlapclose`` and the lone/shared ``onlap`` (gated-off paths) ride the tie.
   if (id.startsWith('onlap')) return { phase: 2, role: 'onlap contour (1-corr, rides tie)' }
   // Phase 3 — closed-shape fill (seams, floods, substrate floor/curtain).
   if (id.startsWith('flood')) return { phase: 3, role: 'flood wedge (enclosing fill)' }

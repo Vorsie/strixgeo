@@ -30,7 +30,6 @@
  */
 
 import { collectGapBands, emitBandContourCurve } from './emitBands'
-import { mergesSameFormationBand } from './drawTermination'
 import { effectiveCorrForSide, isBandMember } from './effectiveCorr'
 import { type ResolvedTie } from './emitCurves'
 import { type LensLabel } from './emitLenses'
@@ -105,16 +104,14 @@ function emitSideRuledBands(
     // face so a neighbouring flood does not absorb their slot (ABSENT). A unit that is ITSELF a
     // matched-pair band member (by index) is already closed by ``emitBands`` contours — skip.
     if (isBandMember(bands, side, ui)) continue
-    // RULING 8i alignment: the sweep suppresses (merges) a corr-1 unit iff ``mergesSameFormationBand``
-    // — the SAME decision the sweep uses (band-existence base + the tie-follow same-litho check). This
-    // pass closes a band for EXACTLY those merged units, so a merged unit is never absent AND an
-    // onlapped unit (mismatched facing) is never given a spurious band. A corr-2 unit (band member /
-    // first-unit top-band band) is always suppressed → a band candidate. A corr-0 unit is a genuine
-    // termination — never suppressed, never a band here.
-    const isRuledBand =
-      eff.corr === 2 ||
-      (eff.corr === 1 &&
-        mergesSameFormationBand(u, eff.topTied, eff.baseTied, gapIndex, side, facing, bands, activeTies))
+    // RULING 8j alignment (MERGE AFTER FILL, 2026-07-17): the sweep no longer PRE-EMPTS a corr-1
+    // same-formation unit into a band — it ONLAPS it, and the POST-FILL body merge reconnects the
+    // same litho. So the ONLY units this pass still closes a band for are corr-2 (a matched-pair
+    // band member, or a ruling-8d first-unit-top-band band): those are the sole terminations the
+    // sweep suppresses (``c === 2 → continue``), and without a same-formation carrier a neighbouring
+    // flood absorbs their slot (ABSENT). A corr-1 unit now always terminates (onlap) → never a band
+    // here; a corr-0 unit is a genuine lens. The 8i-era corr-1 merge branch is DELETED (8j).
+    const isRuledBand = eff.corr === 2
     if (!isRuledBand) continue
     // The facing same-formation run overlapping this unit's band. When the facing carries a
     // DIFFERENT formation over the whole window there is no same-formation band to close here

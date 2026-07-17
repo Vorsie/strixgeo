@@ -1,8 +1,15 @@
 /**
  * partitionFillV2/emitTerminationSweep.ts — THE HOIST: the ONE unconditional termination
- * pass, restructured to owner ruling 8i (design partition-engine-v2.md §8, 8i — "the
- * three-function spec", 2026-07-17 night). This file is the CLASSIFY + ITERATE half; the DRAW
- * half lives in ``drawTermination.ts``.
+ * pass, restructured to owner rulings 8i / 8j / 8k (design partition-engine-v2.md §8). This
+ * file is the CLASSIFY + ITERATE half; the DRAW half lives in ``drawTermination.ts``.
+ *
+ * RULING 8k (COLUMNS ARE GROUND TRUTH, 2026-07-17): the primary loop is COLUMN-first — for each
+ * column, for each picked unit, ask leftSide/rightSide (its two adjacent gaps) and draw. The gap
+ * is only the look-direction, never the owner of the iteration (which was the recorded root of
+ * the gap-frame double-emit / run-bails). RULING 8j (MERGE AFTER FILL): no termination is
+ * suppressed by a predicted merge — a corr-1 side ALWAYS onlaps (``drawTermination`` deletes
+ * ``mergesSameFormationBand``); same-litho touching regions merge post-fill
+ * (``mergeTouchingBodies`` in ``computeSectionFillV2``).
  *
  * THE PROBLEM THE HOIST SOLVES (owner, verbatim): "there is something fundamentally wrong. If
  * my 2/1/0 rule is hardcoded these wouldn't have happened." Classification (``effectiveCorr``)
@@ -94,18 +101,37 @@ export function emitTerminationSweep(
   // A SEPARATE ``flood``-prefixed id space for the vacated-wedge closures.
   let fseq = 0
   const nextFloodId = (): string => `floodsw${fseq++}`
-  for (let gi = 0; gi + 1 < columns.length; gi++) {
-    const left = columns[gi]
-    const right = columns[gi + 1]
-    // SUB-SNAP-WIDTH GAP GUARD (round-3 Target 2). When two columns are closer than
-    // ``SUB_SNAP_GAP_M`` the interbedded pinches collapse under the 1 mm snap; the physical truth
-    // for two boreholes that close is a FULL-WIDTH band per interval — so the sweep emits NOTHING
-    // and ``emitEnclosingFlood`` fills each interval full-width.
-    if (right.x - left.x < SUB_SNAP_GAP_M) continue
-    const bands = collectGapBands(gi, left, right, activeTies)
-    // Each column terminates into its adjacent gap on the correct side.
-    emitSideSweep(gi, 'left', gi, left, right, bands, activeTies, bridgeAnchored, lensLabels, nextId, nextFloodId, out)
-    emitSideSweep(gi, 'right', gi + 1, right, left, bands, activeTies, bridgeAnchored, lensLabels, nextId, nextFloodId, out)
+  // Per-gap matched-pair bands, computed once and reused by BOTH the left-look and the right-look
+  // of the two columns bounding the gap (the gap is only the look-direction — ruling 8k).
+  const bandsOfGap = new Map<number, ReturnType<typeof collectGapBands>>()
+  const subSnap = (gi: number): boolean => columns[gi + 1].x - columns[gi].x < SUB_SNAP_GAP_M
+  const gapBands = (gi: number): ReturnType<typeof collectGapBands> => {
+    let b = bandsOfGap.get(gi)
+    if (!b) {
+      b = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
+      bandsOfGap.set(gi, b)
+    }
+    return b
+  }
+  // RULING 8k — COLUMNS ARE GROUND TRUTH (owner, 2026-07-17: "you're looking at gaps not at
+  // columns; on the columns the user's picked lithos are ground truth"). The primary loop is
+  // COLUMN-first: for each column, for each unit of the user's picked stack, ask leftSide /
+  // rightSide (its two adjacent gaps) and draw. The GAP is only the direction a unit LOOKS —
+  // never the owner of the iteration, never a context that reinterprets the stack. A column looks
+  // RIGHT into gap ``ci`` (it is that gap's LEFT column) and LEFT into gap ``ci-1`` (that gap's
+  // RIGHT column). Per-side math is unchanged (``emitSideSweep``); only the loop nesting flips
+  // from gap-first to column-first — a behaviour-preserving refactor (ids/geometry order-invariant
+  // for labelling + the arrangement). The SUB-SNAP-WIDTH guard stays per look-gap.
+  for (let ci = 0; ci < columns.length; ci++) {
+    const col = columns[ci]
+    // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left').
+    if (ci + 1 < columns.length && !subSnap(ci)) {
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], gapBands(ci), activeTies, bridgeAnchored, lensLabels, nextId, nextFloodId, out)
+    }
+    // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
+    if (ci - 1 >= 0 && !subSnap(ci - 1)) {
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], gapBands(ci - 1), activeTies, bridgeAnchored, lensLabels, nextId, nextFloodId, out)
+    }
   }
 }
 

@@ -23,14 +23,14 @@
  *     minority-vs-dominant fill gate stays in the sweep: a boundary/dominant matrix unit
  *     FLOODS rather than lenses — owner 8f. That gate decides WHO holds the void, not
  *     whether a genuine minority terminates.)
- *   - corr === 1 → FOLLOW THE TIE. ``followTieMatchedFacing`` samples the facing unit on the
- *     MATCHED side of the tie (BELOW the tie's facing endpoint for a TOP tie, ABOVE for a
- *     BASE tie). SAME formation → do nothing (the unit merges into the tied band — the
- *     ``emitRuledBands`` pass closes its same-formation band face). DIFFERENT formation →
- *     emit the ONLAP riding that tie (never absent). This DISSOLVES the old 8e/8g(b)
- *     ``sameFormationEnclosedByTiedBand`` band-existence heuristic (which merged on a run
- *     existing anywhere in the gap, not on the unit's actual tie) and with it the
- *     mismatched-facing ABSENT class.
+ *   - corr === 1 → ONLAP ALWAYS (owner ruling 8j "MERGE AFTER FILL", 2026-07-17, supersedes 8i's
+ *     "follow the tie → same litho → do nothing"). NO termination is suppressed by a predicted
+ *     merge: a corr-1 side ALWAYS onlaps its tie regardless of the facing litho. The onlap is ONE
+ *     extra line (ruling 8i(d)) — the closing flank from the free contact to the apex on the tie;
+ *     the tie itself is existing line art bounding the other side. Same-litho regions that TOUCH
+ *     after the fill merge into one body as a POST-FILL step (``mergeTouchingBodies`` in
+ *     ``computeSectionFillV2``) — the 8e/8g(b) rulings survive as the MERGE criteria, not emission
+ *     guards. This DELETES the ``mergesSameFormationBand`` pre-emption.
  *   - corr === 2 → nothing (the band contour is given line art from ``emitBands``).
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
@@ -43,7 +43,6 @@ import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { lensReachFraction } from './lensReach'
 import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
-import { sameFormationBaseTiedPair, sameFormationEnclosedByTiedBand } from './terminationRules'
 import { type ColumnGeom, type UnitGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -60,43 +59,11 @@ export function tiedContactSide(topTied: boolean, baseTied: boolean): 'top' | 'b
 }
 
 /**
- * OWNER RULING 8i "follow the tie" — the FACING UNIT on the matched side of a 1-corr unit's tie.
- * A TOP tie → the facing unit BELOW the tie's facing endpoint (sample just below); a BASE tie →
- * the facing unit ABOVE it (sample just above). Returns the facing unit, or ``null`` when the
- * facing column carries nothing there. Shared by the sweep's merge decision AND
- * ``emitRuledBands``' band-close decision so the two CANNOT drift (a merged unit's band always
- * closes; an onlapped unit's never does — the 11-row ABSENT class dissolves).
- */
-export function matchedFacingUnit(
-  tieSide: 'top' | 'base',
-  facingTiedElev: number,
-  facing: ColumnGeom,
-): UnitGeom | null {
-  // "below for a top tie, above for a bottom tie" — nudge the sample off the exact contact so the
-  // lookup picks the unit on the MATCHED side, not the one the contact belongs to. The nudge
-  // (1 mm, the snap grid) is well below any real unit thickness.
-  const NUDGE = 1e-3
-  const sampleElev = tieSide === 'top' ? facingTiedElev - NUDGE : facingTiedElev + NUDGE
-  let best: UnitGeom | null = null
-  let bestDist = Infinity
-  for (const u of facing.units) {
-    if (u.topElev >= sampleElev - ELEV_EPS && sampleElev >= u.baseElev - ELEV_EPS) return u
-    const dist = sampleElev > u.topElev ? sampleElev - u.topElev : u.baseElev - sampleElev
-    if (dist < bestDist) {
-      bestDist = dist
-      best = u
-    }
-  }
-  return best
-}
-
-/**
  * The tie's FACING endpoint elevation for the tie that anchors this unit's tied contact — the
- * tie-line geometry the onlap apex rides and the ``matchedFacingUnit`` sample uses. Searches
- * ``activeTies`` for the tie in this gap whose endpoint on ``side`` matches ``tiedElev``. When
- * none matches (a DERIVED tie whose curve lives on a neighbouring unit, or a top-band implicit
- * tie), falls back to the facing unit spanning the elevation. Exported so ``emitRuledBands``
- * consumes the SAME endpoint the sweep does.
+ * tie-line geometry the onlap apex rides. Searches ``activeTies`` for the tie in this gap whose
+ * endpoint on ``side`` matches ``tiedElev``. When none matches (a DERIVED tie whose curve lives
+ * on a neighbouring unit, or a top-band implicit tie), falls back to the facing unit spanning the
+ * elevation.
  */
 export function tieFacingElevAt(
   gapIndex: number,
@@ -116,86 +83,6 @@ export function tieFacingElevAt(
     return farPt.y
   }
   return facingElevAt(facing, tiedElev)
-}
-
-/**
- * OWNER RULING 8i "follow the tie" — whether the matched facing unit is the SAME litho as the
- * 1-corr unit (a MERGE — do nothing) or a different one (an ONLAP). Thin wrapper over
- * ``matchedFacingUnit`` so the boolean and the unit come from ONE lookup.
- */
-export function followTieMatchedFacing(
-  u: UnitGeom,
-  tieSide: 'top' | 'base',
-  facingTiedElev: number,
-  facing: ColumnGeom,
-): boolean {
-  const matched = matchedFacingUnit(tieSide, facingTiedElev, facing)
-  return matched !== null && matched.formationId === u.formationId
-}
-
-/**
- * RULING 8i MERGE DECISION — whether a corr-1 unit MERGES into a same-formation band (no
- * termination) rather than ONLAPPING. ONE source of truth shared by the sweep (which suppresses
- * a merged unit's termination) and ``emitRuledBands`` (which closes the merged unit's band
- * face) — they CANNOT drift, so a merged unit is never absent and an onlapped unit never gets a
- * spurious band.
- *
- * The decision combines the session-15 band-existence base (the ruled 8e / 8g(b) same-formation
- * cases that closed hole-free) with ruling 8i's LITERAL tie-follow: a unit merges ONLY IF a
- * same-formation band of its formation exists in the gap (8e) OR it base-ties a same-formation
- * facing run (8g(b)) — AND FOLLOWING ITS TIE lands on the SAME litho on the matched facing side
- * (below-for-top-tie / above-for-bottom-tie). When the band-existence base holds but the tie
- * lands on a DIFFERENT facing litho (the 11-row mismatched-facing class), the unit ONLAPS that
- * tie instead of silently merging-then-being-absorbed (owner 8i: "different litho → onlap").
- *
- * Parameters
- * ----------
- * u : UnitGeom
- *     The corr-1 unit.
- * topTied, baseTied : boolean
- *     Its effective tie flags.
- * gapIndex : number
- * side : 'left' | 'right'
- * facing : ColumnGeom
- * bands : readonly GapBand[]
- *     The gap's matched-pair bands (``collectGapBands``).
- * activeTies : readonly ResolvedTie[]
- *
- * Returns
- * -------
- * boolean
- *     ``true`` → merge (suppress the termination, close a band); ``false`` → onlap the tie.
- */
-export function mergesSameFormationBand(
-  u: UnitGeom,
-  topTied: boolean,
-  baseTied: boolean,
-  gapIndex: number,
-  side: 'left' | 'right',
-  facing: ColumnGeom,
-  bands: readonly GapBand[],
-  activeTies: readonly ResolvedTie[],
-): boolean {
-  // A BOTH-TIED unit whose own formation carries a matched-pair band is a SPANNING BAND member (8e)
-  // — it bands full-width by construction (top tie above + base tie below both in its own
-  // formation). MERGE unconditionally: the tie-follow must NOT apply, because a both-tied enclosing
-  // matrix samples its facing NEIGHBOUR (a different minority in the enclosed interval) and would
-  // wrongly read "mismatched" → onlap → the enclosing floods over itself (the coherentStack(b) /
-  // coherentLoneStack KLEI-enclosing regression). Only a ONE-tied unit is a genuine onlap candidate.
-  const bothTied = topTied && baseTied
-  if (bothTied && sameFormationEnclosedByTiedBand(bands, u.formationId)) return true
-  // ONE-tied same-formation cases (8e band-existence OR 8g(b) base-tied pair): ruling 8i's
-  // tie-follow decides. MERGE only when following the unit's OWN tie lands on the SAME litho on the
-  // matched facing side (below-for-top-tie / above-for-bottom-tie). A mismatched facing (the 11-row
-  // ABSENT class) → onlap instead of a silent merge-then-absorb.
-  const bandExists =
-    sameFormationEnclosedByTiedBand(bands, u.formationId) ||
-    sameFormationBaseTiedPair(baseTied, topTied, u.formationId, u.baseElev, u.topElev, facing)
-  if (!bandExists) return false
-  const tieSide = tiedContactSide(topTied, baseTied)
-  const tiedElev = tieSide === 'base' ? u.baseElev : u.topElev
-  const facingTiedElev = tieFacingElevAt(gapIndex, side, tiedElev, activeTies, facing)
-  return followTieMatchedFacing(u, tieSide, facingTiedElev, facing)
 }
 
 /**
@@ -255,6 +142,10 @@ export function drawTermination(
   nextFloodId: () => string,
   out: InputCurve[],
 ): boolean {
+  // Ruling 8j: the merge is POST-FILL, so ``bands`` no longer drives a pre-emptive same-formation
+  // merge here (the deleted ``mergesSameFormationBand``). ``topTied``/``baseTied`` (effective flags)
+  // still drive the onlap's TIED-side selection below (ruling 8i(d) one-line onlap).
+  void bands
   if (corr === 2) return false // band member / first-unit band — given line art (bandc)
   const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
   if (corr === 0) {
@@ -262,22 +153,29 @@ export function drawTermination(
     // suppressions are PHYSICAL (degenerate / sub-snap), applied inside ``emitLensClosing``.
     return emitLens(iu, colX, facingX, facing, u, lensLabels, nextId, nextFloodId, out)
   }
-  // corr === 1: RULING 8i "follow the tie". MERGE (do nothing — ``emitRuledBands`` closes the
-  // band) when the unit connects to a same-formation band AND the tie lands on the SAME litho on
-  // the matched facing side; otherwise ONLAP the tie (the 11-row mismatched-facing fix: a
-  // different facing litho onlaps, never absent).
-  if (mergesSameFormationBand(u, topTied, baseTied, gapIndex, side, facing, bands, activeTies)) {
-    return false
-  }
-  // ONLAP SIDE — which contact the onlap tip rides + which side the flood wedge fills. This uses
-  // the DIRECT/derived-base tie flags (``directTop``/``directBase`` from ``tiedFlags``) with the
-  // v1 default (BASE when neither is set), NOT the effective flags: a lone-stack unit whose only
-  // effective tie is a ruling-8a DERIVED BAND (``eff`` top/base set, direct flags clear) must
-  // still flood AWAY from its stack neighbour, and the base default does that (the
-  // coherentLoneStack / coherentStack(b) composition — a top-side flood there sends the wedge into
-  // the adjacent terminating unit and the enclosing flood re-labels the vacated wedge). Ruling 8i's
-  // MERGE decision (above) uses the effective flags; only the geometric SIDE keeps the v1 default.
-  const tieSide = tiedContactSide(directTop, directBase)
+  // corr === 1: RULING 8j "MERGE AFTER FILL" (owner, 2026-07-17 — "you merge after everything is
+  // fucking filled!"). Supersedes 8i's pre-emptive "same litho → do nothing". NO termination is
+  // suppressed by a predicted merge: a corr-1 side ALWAYS ONLAPS its tie regardless of the facing
+  // litho. Same-litho regions that TOUCH after the fill merge into one body as a POST-FILL step
+  // (``mergeTouchingBodies`` in ``computeSectionFillV2``), so a sub-piece of a carved unit lenses
+  // in the carve's shadow and reconnects to its encompassing body around the tips automatically.
+  // The ``mergesSameFormationBand`` pre-emption is DELETED (the +197/+457/+666-hole risk is on the
+  // gated-off N-wedge/carve paths, NOT this sweep+enclosingFlood construction — the onlap is a
+  // detour the flood closes around, exactly like the unconditional 0-corr lens above).
+  //
+  // ONLAP SIDE — which contact is the TIED one (bounded by given line art) vs the FREE one (the
+  // single ``oflank`` closing flank rides the FREE contact to the apex). Under ruling 8i(d) the
+  // one-line onlap is safe ONLY when the tied side is genuinely bounded by a tie/band contour —
+  // so the tied side MUST be the EFFECTIVE tied contact (direct edge OR ruling-8a DERIVED BAND),
+  // not the geometric direct-flag default. A derived-band-tied unit (SILT top-tied by the enclosing
+  // KLEI band's base contour — coherentLoneStack) has its top bounded by that ``bandc`` contour;
+  // picking BASE (the old direct default) would draw the free flank on the top and leave the truly
+  // free BASE unbounded → the onlap floods full-width (the measured coherentLoneStack regression).
+  // When BOTH / NEITHER effective flag is set (an ambiguous derived edge) fall back to the direct
+  // default (BASE), which the flood then floods away from correctly.
+  const eff = { top: topTied, base: baseTied }
+  const tieSide =
+    eff.base && !eff.top ? 'base' : eff.top && !eff.base ? 'top' : tiedContactSide(directTop, directBase)
   const baseIsTied = tieSide === 'base'
   const tiedElev = baseIsTied ? u.baseElev : u.topElev
   const facingTiedElev = tieFacingElevAt(gapIndex, side, tiedElev, activeTies, facing)
@@ -322,12 +220,23 @@ function emitLens(
 }
 
 /**
- * Emit a 1-corr ONLAP: a pinch from the unit's own column span to a tip at
- * ``INTERIOR_PINCH_FRACTION`` (0.5) ON the tied contact's interpolated line. The TIED-side
- * edge carries an ``onlap`` id so ``labelFaces`` counts it as a tie (nTie 1) and the face
- * reads ONLAP; the UNTIED-side edge is a plain ``close``. The unit's own column vertical
- * closes the loop. The enclosing flood fills the vacated width past the tip. Returns ``true``
- * when emitted, ``false`` on a physical degenerate no-op.
+ * Emit a 1-corr ONLAP: **ONE extra line** (owner ruling 8i(d), 2026-07-17 — "an onlap on the
+ * left just needs one extra line — the correlation band is already there"). The pinch tapers
+ * from the unit's own free (UNTIED) contact to a tip at ``INTERIOR_PINCH_FRACTION`` (0.5) on the
+ * tied contact's interpolated line. The engine draws ONLY that one closing flank; the OTHER side
+ * of the region is bounded BY CONSTRUCTION by the existing tie line art — the tie curve runs
+ * col→facing at the tied elevation, and after the arrangement splits it at the apex vertex, its
+ * col→apex sub-segment (a ``tie``-prefixed curve → ``labelFaces`` nTie) bounds the onlap face's
+ * tied side. A SECOND flank riding the tie would DUPLICATE that given line art (the recorded
+ * source of the onlap-rendered-as-lens confusion, §20) and is FORBIDDEN.
+ *
+ * The single closing flank carries an ``oflank``-prefixed id: ``labelFaces`` has NO branch for
+ * it (labelling-neutral — identical to the pre-8i(d) untied ``term`` flank it replaces, which was
+ * also invisible to ``labelFaces``), and the walkthrough diag's ``phaseOf`` maps ``oflank`` to
+ * PHASE 2 (an onlap flank), curing the §20 mislabel where the untied ``term`` flank rendered as a
+ * phase-1 lens. The unit's own column vertical + the tie sub-segment + this one flank close the
+ * loop. The enclosing flood fills the vacated width past the tip. Returns ``true`` when emitted,
+ * ``false`` on a physical degenerate no-op.
  */
 function emitOnlap(
   iu: IntervalUnit,
@@ -350,29 +259,33 @@ function emitOnlap(
   const apex: Point = { x: apexX, y: apexElev }
   const topPt: Point = { x: colX, y: u.topElev }
   const basePt: Point = { x: colX, y: u.baseElev }
+  // The ONE closing flank (ruling 8i(d)): from the unit's FREE contact to the apex on the tie.
+  // ``oflank`` prefix = labelFaces-ignored (labelling-neutral vs the removed untied ``term`` flank,
+  // which was ALSO label-carrying + labelFaces-invisible) + phaseOf → phase 2. Carries the unit's
+  // own litho label (parity with the pre-8i(d) untied flank) so the onlap triangle reads it where
+  // the column vertical is out-weighted; on the arrangement's normal path the column vertical wins.
   const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
-  const pushClose = (points: Point[]): void => {
-    const id = nextId()
+  const pushOflank = (points: Point[]): void => {
+    const id = `oflank${nextId()}`
     lensLabels.set(id, label)
     out.push({ id, kind: 'closing', points })
   }
-  const pushOnlap = (points: Point[]): void => {
-    out.push({ id: `onlap${nextId()}`, kind: 'closing', points })
-  }
-  // Degenerate guard: a sub-snap onlap (apex on the column) drops both flanks (the enclosing
-  // flood covers the slot — the ``emitLensClosing`` no-op parity).
+  // Degenerate guard: a sub-snap onlap (apex on the column) drops the flank (the enclosing flood
+  // covers the slot — the ``emitLensClosing`` no-op parity). Guarding BOTH sub-segments keeps the
+  // no-op condition byte-identical to the pre-8i(d) two-flank guard (no fill/hole perturbation).
   if (segmentDeg(topPt, apex) || segmentDeg(apex, basePt)) return false
   if (baseTied) {
-    pushClose([topPt, apex]) // untied top edge = plain close
-    pushOnlap([apex, basePt]) // base edge rides the tied band → onlap id
+    // Base rides the tied band below (given line art) — draw ONLY the free TOP flank to the apex.
+    pushOflank([topPt, apex])
   } else {
-    pushOnlap([topPt, apex]) // top edge rides the tied band above → onlap id
-    pushClose([apex, basePt]) // untied base edge = plain close
+    // Top rides the tied band above (given line art) — draw ONLY the free BASE flank to the apex.
+    pushOflank([apex, basePt])
   }
   // FLOOD the vacated width past the onlap tip with the facing enclosing formation. The TIED
-  // side is closed by its own tie line (the ``onlap`` edge rides it), so its wedge is SKIPPED —
-  // for a base-tied onlap the UNTIED side is the TOP (skip 'base'); for a top-tied onlap the
-  // untied side is the BASE (skip 'top'). The wedge rides the sloping bracket contour (Front 2).
+  // side is closed by its own tie line, so its wedge is SKIPPED — for a base-tied onlap the
+  // UNTIED side is the TOP (skip 'base'); for a top-tied onlap the untied side is the BASE
+  // (skip 'top'). The wedge anchors on the tie/apex, NOT on the removed flank, so removing the
+  // duplicate tied flank leaves the flood geometry unchanged. Rides the sloping bracket (Front 2).
   const skip: 'top' | 'base' = baseTied ? 'base' : 'top'
   emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, skip, nextFloodId, lensLabels, out, facingX)
   return true

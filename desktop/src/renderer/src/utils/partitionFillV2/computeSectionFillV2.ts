@@ -29,8 +29,10 @@
 import { buildArrangement } from './arrangement'
 import { emitCurves, type TieConflict } from './emitCurves'
 import { labelFaces } from './labelFaces'
+import { mergeTouchingBodies } from './mergeTouchingBodies'
 import { buildSectionInput } from './sectionGeom'
 import { sliceFaces } from './slice'
+import { twoSidedTerminationsEnabled } from './tileFlags'
 import {
   type CorrelationEdge,
   type LensApexOverride,
@@ -84,6 +86,12 @@ export function computeSectionFillV2WithConflicts(
   const { curves, conflicts, lensLabels } = emitCurves(section)
   const arrangement = buildArrangement(curves)
   const labelled = labelFaces(arrangement.faces, section.columns, lensLabels)
-  const regions = sliceFaces(labelled, section.columns)
+  const sliced = sliceFaces(labelled, section.columns)
+  // RULING 8j "MERGE AFTER FILL" (2026-07-17): after the fill, same-litho regions that TOUCH
+  // (within-gap footprint + cross-gap shared-column overlap) merge into one body — the staged
+  // body model, stage 1 (per-section geometric connect, small to large). Body-only relabel:
+  // never moves a vertex, so holes/overlaps/conformance are invariant. Gated on the hoist flag so
+  // flag-OFF stays the frozen v1-seam baseline byte-identical (the campaign safety line).
+  const regions = twoSidedTerminationsEnabled() ? mergeTouchingBodies(sliced, section.columns) : sliced
   return { regions, conflicts }
 }

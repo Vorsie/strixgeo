@@ -2153,3 +2153,282 @@ still red for that reason, NOT Front-2-related; unchanged from session 15.
   battery of record).
 * ``partitionFillV2.throwaway_s16explicit.diag.test.ts`` (the explicitness proxy).
 
+---
+
+## 20. Session-17 plan & progress — STOP-AND-REPORT on TARGET 1 (ambiguity surfaced); TARGET 2/3 not begun
+
+Session 17 read the full context (design §8 incl. the NEW ruling 8j "merge after fill", §19-§20
+session-16 state, drawTermination / emitTerminationSweep / terminationRules / emitRuledBands /
+emitFloodWedge / labelFaces / computeSectionFillV2 / effectiveCorr / emitLenses / emitCurves) and
+DIAGNOSED TARGET 1 to the exact curve. It then STOPPED per the ASK-FIRST PROTOCOL — the fix has a
+labelling-perturbation ambiguity that cannot be resolved by static reading and the build-first
+directive forbids the confirming test run until the whole thing is built. NO engine edits landed.
+
+### TARGET 1 — root cause (read-verified, exact)
+
+The owner-caught "corr-1 side gets BOTH an onlapterm AND a term lens" (CS1 col1 u1 ZAND R:1 →
+term2+onlapterm3; col1 u3 SILT → onlapterm4+term5; col12 u3 ZAND → term26+onlapterm27; col6 u2 SILT
+→ term14+onlapterm15) is NOT a real second lens face. It is ONE onlap's TWO flanks:
+
+* ``drawTermination`` (corr===1) → ``emitOnlap`` (drawTermination.ts:332). ``emitOnlap`` emits the
+  onlap pinch as TWO curves: ``pushOnlap`` (the TIED flank riding the tie) → id
+  ``onlap${nextId()}`` = ``onlapterm<n>``; ``pushClose`` (the UNTIED flank, geometrically REQUIRED
+  to close the pinch triangle) → id ``nextId()`` = bare ``term<n>``. The sweep's ``nextId`` is
+  ``term${seq++}`` (emitTerminationSweep.ts:93), so the untied flank inherits the ``term`` prefix.
+* The bare ``term<n>`` untied flank is then MIS-RENDERED by the CS1-flip walkthrough diag's
+  ``phaseOf`` (cs1flip_walkthrough.diag.test.ts:105 — ``id.startsWith('term') → phase 1
+  "termination-sweep lens closing (0-corr)"``). That is the render the owner saw: a corr-1 side
+  appearing to carry a 0-corr LENS. The retag block (lines 317-344) only re-tags ``close``-prefixed
+  curves, never ``term`` — so the onlap's untied ``term`` flank stays mislabelled "lens" forever.
+* Confirmed there is exactly ONE onlap per corr-1 side: ``emitSideSweep`` only ``continue``s the
+  0-corr minority gate for ``c === 0``; for ``c === 1`` it always calls ``drawTermination`` once →
+  ``emitOnlap`` once → one ``onlapterm`` + one bare ``term``. No second lens is emitted.
+
+### THE BLOCKING AMBIGUITY (why I did not "kill the extra term")
+
+``labelFaces`` classifies faces by curve-id PREFIX (labelFaces.ts:89-161). It has NO ``term``
+branch — a ``term``-prefixed curve is INVISIBLE to labelling (contributes neither nTie nor nClose).
+Critically, the sweep's GENUINE 0-corr lens flanks ALSO use bare ``term`` (``emitLens`` →
+``emitLensClosing`` with the sweep's ``nextId``, drawTermination.ts:313 → emitIntervalLenses.ts:258),
+so they are ALSO invisible to ``labelFaces``. The whole sweep-termination labelling therefore rides
+the FLOOD-wedge composition (``floodsw`` → ``flood`` prefix = nTie anchor) + the ``lensLabels`` map,
+NOT the ``term`` flanks' nClose. (Contrast: the ENCLOSED-lens path uses ``lens<n>`` — labelFaces:147,
+the only recognised lens-closing vocabulary.)
+
+Consequence: the literal ACCEPTANCE ("no corr-1 side has a ``term`` curve") is met by renaming
+``emitOnlap``'s untied flank off the bare ``term`` allocator — but EVERY id prefix change lands on a
+consequential ``labelFaces`` branch:
+* → ``onlapclose<n>`` (``startsWith('onlap')``) = a SECOND nTie anchor on the onlap face → risks
+  promoting it toward BAND (labelFaces:216 ``spanBand = spansGap && hasAnchorSpan``).
+* → ``close<n>`` (``startsWith('close')``) = nClose++ where it was 0 → changes ``classifyFace``.
+* → a NON-matching prefix (e.g. ``oterm<n>``) keeps it invisible (labelling byte-identical) and
+  satisfies the acceptance — BUT the diag ``phaseOf`` must then ALSO learn the new prefix, and I
+  cannot confirm by reading alone that the arrangement/DCEL (which aggregates ids per segment) and
+  the ``lensLabels`` lookups are unaffected. The build-first directive says NO test runs until the
+  whole build is done; measuring this in isolation is exactly what's disallowed mid-build.
+
+### QUESTION FOR THE ORCHESTRATOR/OWNER (ask-first, do not guess)
+
+Is TARGET 1 a **diag-labelling fix** or an **engine-vocabulary fix**?
+1. If the owner's complaint is purely the RENDER (the walkthrough HTML showing a phantom lens on a
+   corr-1 side), the minimal safe fix is DIAG-ONLY: teach ``phaseOf`` (cs1flip_walkthrough) that an
+   onlap's untied flank is an onlap flank, not a lens — but the diag can't tell the onlap's bare
+   ``term`` flank from a real 0-corr lens ``term`` flank by id alone (both are bare ``term`` from the
+   same allocator). So even the diag fix REQUIRES the engine to give the onlap flank a distinct id.
+2. Therefore the real fix is ENGINE: give ``emitOnlap``'s untied flank a DISTINCT id whose prefix
+   (a) ``phaseOf`` classifies as an onlap flank (phase 2), and (b) ``labelFaces`` treats IDENTICALLY
+   to the current invisible bare ``term`` (i.e. a prefix with NO labelFaces branch — e.g.
+   ``onlapc<n>`` would hit ``startsWith('onlap')`` and CHANGE labelling, so it must be a fresh
+   non-colliding prefix like ``oflank<n>`` that labelFaces ignores AND phaseOf maps to phase-2).
+   **This needs one confirming battery run (holes 0/0/0, conformance, CS1 7/7) to prove labelling is
+   byte-identical — which is the end-of-build pass, so it belongs in the SAME increment as TARGET 2,
+   not before it.**
+
+RECOMMENDATION: fold TARGET 1's flank-rename into the TARGET-2 (8j) build so its labelling-neutrality
+is verified by the same end-of-build battery. The rename itself is ~2 lines in ``emitOnlap`` +
+``emitLens`` (give the sweep's own-flank closings a distinct non-``term``, labelFaces-ignored prefix)
++ a ``phaseOf`` case + the diag assertion the prompt wants ("count bare-``term`` curves owned by a
+corr-1 side; assert 0 on all 14 sections"). Doing it standalone is safe ONLY if the confirming run is
+permitted; under strict build-first it must ride the same battery as the rest.
+
+### TARGET 2 (ruling 8j MERGE AFTER FILL) — NOT STARTED (scoped, flagged as a dedicated increment)
+
+8j (design §8, line 388-400) supersedes 8i's ``mergesSameFormationBand`` PRE-EMPTION: a corr-1 side
+ALWAYS onlaps its tie (delete the merge suppression), corr-0 always lenses, THEN a POST-FILL
+labelling step merges same-litho TOUCHING regions into one body (8e/8g(b) become the MERGE criteria,
+not emission guards). Owner's worked example: CS1 col18 (x=646.74) clay sliver between the enclosed
+SILT interbed (7.75..6.65) and the SILT below (6.03) lenses in the carve shadow + reconnects to the
+encompassing KLEI around the lens tips = one merged clay body; bottom KLEI u4 (base-tied) unchanged.
+
+Why NOT begun this session: deleting ``mergesSameFormationBand`` flips EVERY corr-1 same-formation
+unit from merge→onlap model-wide (the same class §18/§19 measured at +197/+457/+666 holes on prior
+onlap-emission attempts). It requires (a) a NEW post-fill region-merge labelling step (where does it
+live — ``labelFaces`` output, or a ``computeSectionFillV2`` post-pass over ``SectionRegion[]``?
+touching-adjacency in fraction×elevation across gap boundaries is the same-litho-body-merge analogue
+Track-2 does in the backend), (b) the conformance gate re-alignment 8j implies (a same-litho corr-1
+unit now EXPECTS onlap pre-merge but the MERGED region reads band — the gate's expected shape must be
+derived from the same ``terminationRules`` source), and (c) re-deriving what ``emitRuledBands`` must
+still do once nothing is suppressed (likely DELETE it — with no merge-suppression the onlaps close
+those faces). This is a multi-round measured increment matching the design's Wk-2 shape, NOT a
+session-tail bolt-on — it must land under the build-first "build everything, then ONE battery pass".
+
+### TARGET 3 — carried, untouched. ``SUB_SNAP_GAP_M = 0.3`` (emitTerminationSweep.ts:61) left as-is
+per the prompt (awaiting owner ruling); noted, not changed.
+
+### Verification snapshot (end of session 17)
+
+NO engine files edited. Flag OFF + flag ON both BYTE-IDENTICAL to the session-16 end state by
+construction (only REWRITE_STATE.md touched). Nothing run (build-first; the confirming battery is the
+end-of-build pass which was not reached because no build landed — the session stopped at the ASK).
+
+### Files this session (worktree, NOT committed)
+
+* ``REWRITE_STATE.md`` — this §20 update. No other file touched.
+
+### Next steps (session 18 — after the owner answers the TARGET-1 question)
+
+1. **Confirm the TARGET-1 disposition** (diag-only vs engine flank-rename per the QUESTION above).
+   If engine: pick a fresh flank prefix that ``labelFaces`` ignores (no branch) + ``phaseOf`` maps to
+   phase 2 + add the "corr-1 side has zero bare-``term`` curves" diag assertion.
+2. **Build TARGET 2 (8j) as its own measured increment**: delete ``mergesSameFormationBand``
+   pre-emption from the sweep; add the post-fill same-litho touching-region merge (decide its home:
+   ``labelFaces`` vs a ``SectionRegion[]`` post-pass); re-align the conformance gate's expected shape
+   to 8j from ``terminationRules``; re-derive/DELETE ``emitRuledBands``. Validate CS1 col18 (646.74)
+   sliver-merge + col1/col6/col12 single-family + the whole end-of-build battery (holes 0/0/0 both
+   flag states, CS1 7/7, conformance, v1 90/90, tsc). Fold TARGET 1's rename in so its
+   labelling-neutrality rides the same battery.
+3. Do NOT touch ``intersect.ts`` / ``seamAnchor.ts`` (613-hole trap); v1 READ-ONLY; ruling 8d-rev OFF.
+
+---
+
+## 21. Session-18 plan & progress — RULINGS 8i(d) ONE-LINE ONLAP + 8j MERGE-AFTER-FILL + 8k COLUMNS-FIRST (build-first; real data CLEAN, 2 lone-stack synthetics REGRESSED → characterised)
+
+⚡ BUILD-FIRST: wrote all of PART 1/2/3 with zero executions, then ONE battery pass + iteration.
+Owner answered the §20 TARGET-1 question by ruling: 8i(d) ("an onlap is ONE extra line") is an
+ENGINE flank-rename folded into the 8j build. All three parts landed; the 14 REAL sections are
+CLEAN; two SYNTHETIC lone-stack gates regressed (characterised, root isolated). NO git ops.
+
+### What SHIPPED (all in the worktree, NOT committed)
+
+**PART 1 — ruling 8i(d), the one-line onlap (`drawTermination.emitOnlap`).** The onlap now emits
+ONLY the closing flank from the unit's FREE contact to the apex on the tie — a single ``oflank``-
+prefixed curve. The TIED flank (the old ``onlapterm`` riding the tie) is DELETED: the tie curve
+itself bounds that side by construction (§20 diagnosis confirmed). ``oflank``: ``labelFaces`` has
+NO branch (labelling-neutral vs the removed untied ``term`` flank — both label-carrying +
+labelFaces-invisible), and the walkthrough ``phaseOf`` maps it to PHASE 2 (curing the §20
+onlap-rendered-as-lens mislabel — the untied ``term`` flank read as a phase-1 lens). The lens
+family stays distinct (bare ``term`` / ``lens`` → phase 1). **ONLAP-SIDE FIX (required, real bug):**
+the tied side is now the EFFECTIVE tied contact (``topTied``/``baseTied`` incl. ruling-8a derived
+band), not the direct-flag default — a derived-band-tied unit (SILT top-tied by an enclosing band's
+contour) has its top bounded by that ``bandc`` contour, so the free flank must be the BASE; the old
+direct-default (base) drew the free flank on the top and left the truly-free base unbounded →
+full-width (measured). Neutral on the 14 real sections; fixes the lone-stack SILT onlap.
+**DIAG ASSERTION (green on all 14):** no corr-1 (unit,gap,side) emits a bare-``term`` phase-1 lens
+(``corr1HasNoPhase1Curve``, gap-directional per side).
+
+**PART 2 — ruling 8j, MERGE AFTER FILL.** (a) DELETED the ``mergesSameFormationBand`` pre-emption
+from ``drawTermination`` — a corr-1 side ALWAYS onlaps regardless of the facing litho. The dead
+helpers ``mergesSameFormationBand``/``matchedFacingUnit``/``followTieMatchedFacing`` +
+their imports removed (``tiedContactSide``/``tieFacingElevAt`` kept — used by the onlap side/apex).
+(b) POST-FILL MERGE: NEW ``partitionFillV2/mergeTouchingBodies.ts`` — a ``computeSectionFillV2``
+post-pass over ``SectionRegion[]`` (gated on the hoist flag; flag-OFF byte-identical). Same-litho
+regions that TOUCH merge into one body via union-find: SAME-GAP footprint adjacency (the
+conformance classifier's raster union-find, whole-gap elevation range) + CROSS-GAP shared-column
+overlap (region reaching the right edge of gap g overlapping a same-formation region reaching the
+left edge of gap g+1). BODY-ONLY relabel — never moves a vertex, so holes/overlaps/conformance are
+INVARIANT (formation/geometry-based) and it CANNOT introduce a hole. Measured: CS1 distinct bodyIds
+43 → 31 (12 same-litho regions reconnected — the 646.74-sliver mechanism). (c) ``emitRuledBands``
+re-derived: closes a band ONLY for corr-2 units now (the sole terminations the sweep suppresses);
+the 8i-era corr-1 merge branch DELETED — KEPT (not deleted) because corr-2 band members whose
+facing carries the same formation still need their contour or a neighbouring flood absorbs them.
+**GATE ALIGNMENT reasoning:** ``renderedShape`` groups by ``formationId`` (never ``bodyId``), so the
+post-fill body-merge is INVISIBLE to the conformance gate — no gate change needed for the merge. A
+same-formation corr-1 unit that renders band is already accepted (8e/8g(b) advisory, the SAME
+``terminationRules`` predicates that are 8j's merge criteria); one that renders onlap is not
+flagged. Not the ambiguous class → no STOP-AND-ASK for the merge alignment.
+
+**PART 3 — ruling 8k, COLUMNS ARE GROUND TRUTH.** ``emitTerminationSweep`` primary loop flipped
+gap-first → COLUMN-first: for each column, look RIGHT into gap ci (side left) + LEFT into gap ci-1
+(side right); the gap is only the look-direction. Per-side math unchanged (``emitSideSweep``).
+Behaviour-preserving (ids/geometry order-invariant for labelling + the arrangement); byte-neutral
+on the battery.
+
+### BATTERY (the ONE pass + iteration) — end state
+
+| metric | flag OFF (committed) | flag ON (8i(d)+8j+8k) |
+|---|---|---|
+| holes above / sub TD | **0 / 0** | **20 / 0** (all CS2-g17, the §19 pre-existing sloping wall — unchanged) |
+| different-litho overlaps | **0** | **0** |
+| conformance 0/1/2 | **5 / 5 / 0 = 10** | **3 / 9 / 0... = 3/9/5 = 17** |
+| PART-1 corr-1-no-phase-1-curve | — | **NONE fail (green, all 14)** |
+| CS1 distinct bodyIds | 43 | **31** (8j merge) |
+
+* **Flag OFF BYTE-IDENTICAL** (5/5/0=10, holes 0/0/0) — the sweep + merge are hoist-flag-gated.
+  CS1 gates 7/7. v1 15 pass / 5 skip (data-gated) untouched. tsc clean. All 14 committed
+  shape/package/gate files (strict210, loneSidePinch, simplerings, twoSidedTermination,
+  bandAuthority, derivedTieOnlap, conformance.classify, crossingConflicts, mergeAfterFill [NEW],
+  computeSectionFillV2, arrangement, vacancyClosure, sliceAnnulus, lensReach) = **80 pass**.
+* **Flag ON: holes 0/0 (bar the 20 pre-existing CS2-g17), overlaps 0** — the 8j onlap-instead-of-
+  merge kept the partition clean on real data (NO +hole return — the +197/+457/+666 history was the
+  gated-off N-wedge/carve paths). Conformance moved 11→17; TRIAGE below.
+
+### CONFORMANCE TRIAGE (flag-ON, every moved 1corr row) — all same-formation, formation ids
+
+Comparing OFF (5 rows) vs ON (9 rows) 1corr violations (all rendered ``band`` full-width or
+``absent`` — same-formation units with no matched-pair tie of that formation):
+* **RESOLVED by 8j (1):** Tie-10 g0 [right] el[-2.29..3.55] both-tied → GONE under ON (the onlap +
+  merge reconnected it — a WIN).
+* **SHARED OFF+ON (4, pre-existing ruling-8 residual, gate-correct):** Tie-12 g0 [right], CS1 g18
+  [right], CS1 g19 [left], CS2 g13 [right] — untied same-formation full-widths (opposing lenses
+  until the OWNER TIES them; §16/§11 "the gate flags them CORRECTLY, NOT engine defects").
+* **NEW under ON (5):** Tie-7 g0 [left] absent, Tie-10 g0 [left] band, Tie-12 g0 [left] band, CS2 g4
+  [left] band, CS2 g13 [left] absent. These are same-formation corr-1 units that, with the 8j merge
+  suppression deleted, now ONLAP (per owner ruling) and render band (same-formation flood re-floods
+  around the onlap → one full-width same-formation component) or absent (base-tied unit merged into
+  its same-formation deep band). NOT holes/overlaps (partition clean). They are the ruling-8 untied
+  residual the owner embraced — the gate flags a same-formation full-width with no matched-pair tie.
+  The 2 ``absent`` (base-tied into a same-formation band) are the 8j-intended merge into the
+  band-below; the gate's "absent = always a violation" does not yet distinguish a merged unit from a
+  lost one — this is the recorded 8j gate-alignment nuance, NOT an engine defect (no hole/overlap).
+
+### ⚠ REGRESSION: 2 SYNTHETIC lone-stack gates (characterised; real data unaffected)
+
+Ruling 8i(d) removing the onlap's tied flank changes the ARRANGEMENT in lone-stack meet-at-seam
+compositions such that ``emitEnclosingFlood``'s enclosing flood face is MISLABELLED as a minority
+formation (a spurious full-width region), which the two lone-stack synthetics catch:
+* ``partitionFillV2.coherentLoneStack.test.ts`` (was green §16) — SILT/ZAND onlaps + KLEI enclosing:
+  a spurious full-width ZAND quad ``[(0,3.5),(0.5,-2.5),(1,4),(0.5,4)]`` (enclosing flood
+  mislabelled ZAND). ``assertPartition`` (no hole/overlap) STILL PASSES; only the ``zandMaxF<0.75``
+  vertex-reach assertion fails.
+* ``partitionFillV2.coherentStack.test.ts`` (b) (was green §16) — lone [SILT,ZAND,VEEN] into KLEI: a
+  spurious full-width ZAND quad el[1..7] → a REAL ``silt×zand`` overlap at f≈0.04.
+(coherentStack (a) + convergingStack (a) were ALREADY RED pre-session per §16 — the documented
+splitAnnulus-bypass notch wall, NOT this session.)
+
+ROOT (isolated): the enclosing flood mislabel is triggered by the missing tied flank + the
+``emitEnclosingFlood`` midpoint-seam no longer bounding a clean right-half face when the minority
+terminations reshape the arrangement. The effective-side onlap fix (required, correct, real-data-
+neutral) fixes the SILT onlap on ``coherentLoneStack`` but does not cure the flood mislabel; the
+direct-default variant trades it for a full-width SILT and fixes ``coherentStack(b)`` but breaks the
+onlap — NEITHER side-selection is clean, confirming the root is the fill (``emitEnclosingFlood``),
+not the side. **On the 14 REAL sections this composition never occurs — holes/overlaps stay 0.**
+This is the "specific defeating geometry → characterise + stop" boundary: the proper fix is
+``emitEnclosingFlood`` bounding its enclosing face on the removed-tied-flank side (its own increment,
+touches the fill labelling), NOT a side-selection tweak. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED.
+
+### OPEN QUESTION for the orchestrator/owner (ASK-FIRST)
+
+The 2 lone-stack synthetics (``coherentLoneStack``, ``coherentStack(b)``) encode a two-flank-era
+enclosing-flood geometry that ruling 8i(d)'s one-line onlap supersedes. Fixing them cleanly needs an
+``emitEnclosingFlood`` change to bound the enclosing face on the side the tied flank used to close.
+Since (a) the 14 real sections are clean and correct, (b) these compositions do not occur in real
+data, and (c) the fix is a dedicated fill increment — should the ``emitEnclosingFlood`` enclosing-
+face-bounding fix be its own next increment (recommended), OR should these synthetics be re-authored
+to the one-line-onlap geometry? Not resolved this session (ASK-FIRST; no guard invented).
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* ``partitionFillV2/drawTermination.ts`` (EDITED — one-line onlap ``oflank``, effective tied-side,
+  8j merge-pre-emption deleted, dead helpers removed).
+* ``partitionFillV2/mergeTouchingBodies.ts`` (NEW — 8j post-fill same-litho body merge).
+* ``partitionFillV2/computeSectionFillV2.ts`` (EDITED — wire ``mergeTouchingBodies``, hoist-flag-gated).
+* ``partitionFillV2/emitRuledBands.ts`` (EDITED — corr-2-only band closures, 8j alignment).
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — 8k column-first loop; header rulings).
+* ``partitionFillV2.cs1flip_walkthrough.diag.test.ts`` (EDITED — ``phaseOf`` maps ``oflank`` → phase 2).
+* ``partitionFillV2.mergeAfterFill.test.ts`` (NEW committed gate — 4 cases: 8i(d) one flank, 8j
+  same-litho merge, different-litho separate, non-touching no-merge; all GREEN).
+* STUB to delete (orchestrator ``rm``): ``partitionFillV2.throwaway_s18harness.diag.test.ts`` +
+  ``scripts/diag_s18_harness.json`` (the OFF/ON measurement of record — regenerate with SHAPE_AUDIT=1).
+
+### Next steps (session 19)
+
+1. **``emitEnclosingFlood`` enclosing-face bounding on the removed-tied-flank side** — the one open
+   engine fix; cures the 2 lone-stack synthetics without a side-selection hack. Guard holes/overlaps
+   0/0 on real data + re-green the 2 synthetics. Owner call on synthetic re-authoring vs engine fix.
+2. **CS2-g17 sloping wall (the 20 holes)** — the §19 ``emitEnclosingFlood`` interval-bracket
+   geometry, still the documented wall (unchanged).
+3. **Owner ties** dissolve the ruling-8 untied same-formation full-widths (the 1corr residual).
+4. **Cutover-ready** stays: OWNER DOGFEED (flip Settings toggle) → the two fixes above → flip the
+   default ON → strip the throwaway diag blocks + the seam ``tileInterval`` body → v2 frozen snapshot.
+   ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED (613-hole trap); v1 READ-ONLY; ruling 8d-rev OFF.
+
