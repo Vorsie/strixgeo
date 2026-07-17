@@ -385,6 +385,27 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8l. **CORR IS THE LITERAL COUNT — the matched-pair band promotion is
+   DELETED (owner, 2026-07-17, on the 646.74 three-clay column: "the top
+   clay has a top tie, the middle clay has no ties and the bottom clay
+   has a bottom tie. That makes the top a 1corr litho, the middle a 0
+   corr litho and the bottom a 1 corr litho again!").** A side's corr =
+   the number of that unit's contacts effectively tied on that side —
+   literally. ONE tie = ONLAP, even between same-formation units (the
+   old ruling-8 matched-pair promotion, `isBandMember` corr-2 from a
+   single same-side same-formation tie, is deleted). TWO tied contacts =
+   band (incl. 8d-rev's top band + base tie). The BAND LOOK is an
+   EMERGENT OUTCOME, not a classification: two facing same-formation
+   onlaps riding the same tie meet at the 0.5 apex, the fill closes
+   around them, and the 8j post-fill merge (same litho + touching) welds
+   them into one body. Bands are what onlaps become after the merge.
+   Consequences: (a) `effectiveCorr` simplifies to the literal count;
+   (b) enclosed interbeds SPLIT their host into visible pieces for the
+   sweep (8k — the three clays ARE three units), each piece counting its
+   own contacts (host-contact pieces inherit that contact's ties;
+   interbed-cut contacts are untied); (c) the conformance gate's
+   band expectation applies only to genuinely 2-tied sides; the
+   one-tie-same-formation "band" rows re-expect onlap-pre-merge.
 8k. **COLUMNS ARE GROUND TRUTH — iterate columns, not gaps (owner,
    2026-07-17: "you're looking at gaps not at columns; on the columns the
    user's picked lithos are ground truth").** The termination sweep's
