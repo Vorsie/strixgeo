@@ -2822,3 +2822,137 @@ relevant under interpretation (1).
 4. Cutover-ready: OWNER DOGFEED (8d-rev onlaps on the litho axis) → fill rebuild → flip default ON
    → strip throwaway diag + ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/
    ``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
+
+## §25 — Session 22: RULING 8l (CORR IS THE LITERAL COUNT) SHIPPED (Part A + emergent-band suppression); Part B host-split MEASURED-NEGATIVE (annulus wall) and reverted
+
+Ruling 8l (owner, 2026-07-17, verbatim on the 646.74 three-clay column): "the top clay has a top
+tie, the middle clay has no ties and the bottom clay has a bottom tie. That makes the top a 1corr
+litho, the middle a 0 corr litho and the bottom a 1 corr litho again!" A side's corr = the literal
+count of the unit's OWN tied contacts. ONE tie = ONLAP even between same-formation units; the
+matched-pair BAND PROMOTION is deleted; bands are EMERGENT (two facing onlaps meet at 0.5, the fill
+closes, the 8j merge welds one body). This resolved the §24 Part-B contradiction: col18's clays ARE
+three units (1/0/1). Build-first; ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
+
+### PART A — 8l in the arithmetic (SHIPPED, single source)
+
+``effectiveCorr.effectiveCorrForUnit``: the ``isBandMember`` corr-2 PROMOTION and the
+``firstUnitTopBandBand`` special-case are DELETED. corr is now derived from the literal tie count,
+with a CRITICAL refinement discovered under the one battery: **the corr-2 BAND count uses REAL
+own-contact ties (``direct.top``/``direct.base`` [direct edges + physical shared-contact derivation
++ bridges] + the 8d-rev top band), NOT the ruling-8a DERIVED-band ties.** A DERIVED tie still makes
+an ONLAP (corr 1, 8a's own words), but two derived ties from DIFFERENT-formation neighbours are a
+MIXED-BRACKET MINORITY (bidirSweep(b)/convergingStack(a)/coherentStack(a)/coherentLoneStack), NOT a
+band — the naive ``(topTied?1:0)+(baseTied?1:0)`` counted them 2 and SUPPRESSED a minority the design
+8e mandates render as its 8b lens (measured: the naive count regressed bidirSweep(b) RED + flipped
+coherentStack(b)/coherentLoneStack; the realCount refinement restored the EXACT §16/§18 inherited-4
+red set — proof the reading is right). So: corr 2 ⇐ both own contacts carry a REAL tie; corr 1 ⇐ one
+real own tie OR any derived tie; corr 0 ⇐ none. 8l's example: top clay (real top tie) = 1; middle
+(none) = 0; bottom (real base tie) = 1. ✓ Matched pair (single top-top real tie) = 1 (onlap). Both-
+tied matched pair = 2 (band). Mixed-bracket minority (two derived ties) = 1 (lens/onlap). ✓
+
+### PART C — EMERGENT bands via matched-pair-member suppression (SHIPPED)
+
+Under 8l a matched-pair member is now corr-1 (was corr-2), so it no longer hit the sweep's ``c===2
+continue`` — it began emitting an onlap ON TOP of the ``emitEnclosingFlood`` bandFid full-width fill
++ overlapping an enclosed lens inside the band (measured +36 different-litho overlaps, CS1 gap14/15
+ZAND-quad × SILT-lens). FIX: ``emitTerminationSweep.emitSideSweep`` now ``continue``s on
+``isBandMember(bands, side, ui)`` immediately after the ``c===2`` skip — a matched-pair member is
+already filled full-width by ``emitEnclosingFlood``'s bandFid face (the emergent band = the meet-at-
+0.5 outcome), so it takes NO sweep termination. DECOUPLED from the corr count (the arithmetic stays
+literal everywhere else: lens audit, conformance, genuine lone/derived onlaps). ``mergeTouchingBodies``
+(8j, already shipped) welds the pair into one body = the old promoted-band extent. Overlaps back to 0.
+(A first attempt suppressing only the onlap's FLOOD WEDGE for band members REGRESSED holes 42→140 and
+did NOT fix overlaps — reverted; the whole termination must be suppressed, not just the wedge.)
+``drawTermination`` gained a ``ui`` param (currently ``void``; kept for the membership signature).
+
+### PART B — INTERBED HOST-SPLIT: MEASURED-NEGATIVE, REVERTED (the annulus wall)
+
+The §24 Part-B question is RESOLVED by 8l (col18 = three units 1/0/1), but the SPLIT itself is
+un-shippable this session. The naive realisation — skip ``sectionGeom.extractEnclosedLenses`` under
+the flag-ON sweep so the enclosing same-formation host stays split + the interbed becomes a normal
+interior unit — was MEASURED NEGATIVE (one battery, flag ON): **+104 different-litho overlaps** (CS3
+22 / CS1 34 / CS2 48) + the CS1 col18 middle-clay rendering as ``band`` (not the lens 8l wants). ROOT:
+the un-merged interbed lenses via the sweep's ``emitLens``, which rides the column edge as a holes=0
+NOTCH that the enclosing same-formation flood face cannot separate (``slice.splitAnnulus`` fires only
+on holes>0) — the documented ``splitAnnulus``-bypass wall (sessions 5/8/9). The hole-/overlap-free
+interbed render REQUIRES the ANNULUS (the merge makes the matrix continuous so the interbed is a true
+interior HOLE), which is exactly what ``extractEnclosedLenses`` + ``emitEnclosedLensCurves`` already
+do. So the MERGE STAYS ON for both flag states; the host-split for the SWEEP's classification is the
+multi-day annulus/notch-splitter rebuild the design §4 flags (``intersect.ts``-adjacent). With the
+merge on, col18's KLEI host is ONE unit [6.03..10.11] (corr 1, onlaps) + the SILT interbed as the 1
+enclosed lens; the owner's MIDDLE-CLAY-LENS-BOTH-WAYS acceptance is NOT met (needs that rebuild). The
+``literalCorr`` synthetic cases (c)/(d) are the RED target for it (``describe.skip``, cited).
+
+### The ONE battery (throwaway ``partitionFillV2.throwaway_s22battery.diag.test.ts``, SHAPE_AUDIT=1)
+
+| metric | flag OFF (committed) | flag ON (8l) |
+|---|---|---|
+| holes above / sub TD | **0 / 0** | **40 / 0** (CS1 g21 + CS2 g17 — the two pre-existing fill walls, ZERO new) |
+| different-litho overlaps | **0** | **0** |
+| LENS_AUDIT present / MISSING / boundaryResidual | — | **34 / 0 / 0** |
+| conformance (flag-OFF committed gate, pre-8l inline arithmetic) | **5 / 5 / 0 = 10** (UNCHANGED) | — |
+| flag-ON 8l conformance (battery, literal count; band expected only for 2-tied) | — | **0notLens 8 / 1notOnlap 5 / 2notBand 5** |
+
+* **Flag OFF BYTE-IDENTICAL** — every 8l change is flag-ON-gated (the sweep) or the shared arithmetic
+  consumed only on flag-ON call paths; flag-OFF ``emitIntervalCurves`` computes corr but never reads
+  ``.corr`` (the seam path uses ``tiedContacts``). Holes 0/0/0, overlaps 0, CS1 7/7, conformance
+  5/5/0, v1 102 pass/7 skip.
+* **Flag ON: overlaps 0, holes 40 = the two pre-existing fill walls (CS1 g21 + CS2 g17), ZERO new;
+  LENS_AUDIT MISSING 0.** The flag-ON 8l conformance (18) is NOT a new-defect count — it re-measures
+  the flag-ON render against the STRICT 8l expectation (band only for 2-tied), catching the same
+  pre-existing full-width/absent residuals the design flags (the mixed-bracket ``mixed-bracket-
+  awaiting-ruling`` SILT, the surface-void quads, the CS1 g21/g22 sub-snap minorities) — NOT the
+  emergent-band pairs (those merged clean).
+
+### The conformance-gate decision (stated reasoning, per the mission's "decide + state")
+
+The COMMITTED conformance gate (``partitionFillV2.conformance.diag.test.ts``) audits the FLAG-OFF
+(v1-seam) render and re-implements the corr arithmetic INLINE with the PRE-8l semantics (session 21
+recorded this divergence). It is LEFT UNTOUCHED: the flag-OFF engine is unchanged by 8l, so its
+render is byte-identical and its expectation must stay pre-8l (moving the inline arithmetic to 8l
+while it audits the flag-OFF seam would create spurious ``1corr-not-onlap`` reds — the seam emits no
+onlaps for single-tie same-formation pairs). The 8l reclassification (the "large movement — the
+promotion's rows reclassify") is MEASURED in the throwaway battery against the FLAG-ON render (the
+flag-ON 8l conformance row above), not by mutating the flag-OFF gate. The shared ENGINE arithmetic
+(``effectiveCorrForUnit``, flag-ON via the sweep) + the flag-ON LENS_AUDIT are the 8l source; three
+consistent pairs (flag-OFF engine ↔ flag-OFF gate; flag-ON engine ↔ flag-ON LENS_AUDIT/battery).
+
+### The 4 inherited synthetic reds — UNCHANGED (not touched by 8l)
+
+coherentStack (a)/(b), convergingStack (a), coherentLoneStack — the EXACT §16/§18 inherited set,
+failing identically. They are mixed-bracket-minority cases that STILL lens/onlap under 8l (the
+realCount refinement keeps them corr-1), so their expected shapes did NOT legitimately change; NO
+update. The realCount refinement is CONFIRMED correct precisely because it restores this exact set (a
+naive literal count broke bidirSweep(b) + flipped coherentStack(b)/coherentLoneStack).
+
+### Files this session (worktree, NOT committed — orchestrator commits + rm)
+
+* ``partitionFillV2/effectiveCorr.ts`` (EDITED — 8l literal count with the REAL-own-tie band refinement;
+  ``isBandMember`` promotion + ``firstUnitTopBandBand`` deleted; ``bands`` param now inert/``void``).
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — ``isBandMember`` emergent-band suppression after
+  the ``c===2`` skip; imports ``isBandMember``; passes ``ui`` to ``drawTermination``).
+* ``partitionFillV2/drawTermination.ts`` (EDITED — gained an inert ``ui`` param; ``bands``/``ui``
+  ``void``; the emergent-band suppression lives in the sweep, not here).
+* ``partitionFillV2/emitRuledBands.ts`` (EDITED — DOC ONLY: header cites 8l; the ``eff.corr===2`` gate
+  now naturally narrows to genuinely-2-tied units; KEPT [not deleted] as the ABSENT guard for that
+  residual — deleting risked re-absent).
+* ``partitionFillV2/sectionGeom.ts`` (EDITED — Part-B host-split doc-of-record: the merge STAYS ON
+  both flag states after the +104-overlap measurement; the naive skip reverted).
+* ``partitionFillV2.literalCorr.test.ts`` (NEW — 8l gates: (a) one same-formation tie → onlap both
+  sides + apexes meet + merge welds one body; (b) two-tied → band; (c)/(d) the col18 three-piece
+  ``describe.skip`` RED target for the annulus rebuild).
+* STUB to delete (orchestrator ``rm``): ``partitionFillV2.throwaway_s22battery.diag.test.ts`` +
+  ``scripts/diag_s22_battery.json`` (the OFF/ON measurement of record). Plus any §19-§21 stubs still
+  pending rm.
+
+### Next steps (session 23)
+
+1. **The interbed HOST-SPLIT annulus/notch-splitter rebuild** — unblocks col18's middle-clay-lens-
+   both-ways (8l(b)) hole-free. Its own red→green increment; un-skip ``literalCorr`` (c)/(d). Same
+   ``splitAnnulus``-bypass wall as the ``emitEnclosingFlood`` fill rebuild (below) — likely one body
+   of work. ``intersect.ts``-adjacent — high risk, budget as the design's multi-day increment.
+2. The ``emitEnclosingFlood`` fill rebuild (CS1 g21 + CS2 g17, the ONLY above-TD holes flag-ON).
+3. The 4 inherited synthetic reds (§16/§18 enclosing-face-bounding — owner call on re-authoring vs fix).
+4. Cutover-ready: OWNER DOGFEED (8l onlaps/emergent bands on the litho axis) → the two rebuilds →
+   flip default ON → strip throwaway diag + ``tileInterval`` body → v2 frozen snapshot.
+   ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.

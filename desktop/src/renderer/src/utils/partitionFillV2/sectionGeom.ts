@@ -238,6 +238,21 @@ export function buildSectionInput(
     // Tie-section 10). Whether that space SHOULD fill (implicit same-formation
     // banding) or STAY empty (owner "correlate-or-gap" model) is a model-semantics
     // decision (Track 2 / owner), not an engine bug this increment resolves.
+    // RULING 8l/8k — INTERBED HOST-SPLIT: the naive "skip the merge under the flag-ON sweep"
+    // realisation was MEASURED NEGATIVE (session 22): leaving the enclosing same-formation host as
+    // separate pieces + the interbed as a normal interior unit routes the interbed through the
+    // sweep's ``emitLens``, which rides the column edge as a holes=0 NOTCH that the enclosing
+    // same-formation flood face cannot separate (``slice.splitAnnulus`` fires only on holes>0) —
+    // the documented ``splitAnnulus``-bypass wall (sessions 5/8/9). The ONE battery measured +104
+    // different-litho overlaps (CS3 22 / CS1 34 / CS2 48) + the CS1 col18 middle-clay rendering as
+    // ``band`` (the enclosing KLEI flood absorbs its un-carved notch), NOT the lens 8l wants. The
+    // hole-/overlap-free interbed render REQUIRES the ANNULUS (the merge makes the matrix a
+    // continuous band so the interbed is a true interior HOLE), which is exactly what
+    // ``extractEnclosedLenses`` + ``emitEnclosedLensCurves`` already do. So the merge STAYS ON for
+    // both flag states; the host-split for the SWEEP's classification is the multi-day annulus/
+    // notch-splitter rebuild the design §4 flags (a 0-corr enclosed minority that lenses via the
+    // sweep needs a notch-splitter at holes=0, ``intersect.ts``-adjacent — out of session-22 scope).
+    // Recorded (REWRITE_STATE §25) as a characterised wall, threshold/merge NOT toggled off.
     const enclosedLenses = ENABLE_ENCLOSED_LENS
       ? extractEnclosedLenses(stack, edgedLayerIds)
       : []

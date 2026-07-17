@@ -95,6 +95,9 @@ export function tieFacingElevAt(
  * ----------
  * u : UnitGeom
  *     The unit terminating into the gap.
+ * ui : number
+ *     The unit's index on its column (for the ``collectGapBands`` matched-pair membership test
+ *     that suppresses an emergent-band member's flood wedge — ruling 8l).
  * corr : 0 | 1 | 2
  *     The effective 2/1/0 band count on this side (from ``effectiveCorrForSide`` — the
  *     classify half, 8i's ``leftSide``/``rightSide``).
@@ -125,6 +128,7 @@ export function tieFacingElevAt(
  */
 export function drawTermination(
   u: UnitGeom,
+  ui: number,
   corr: 0 | 1 | 2,
   topTied: boolean,
   baseTied: boolean,
@@ -142,10 +146,6 @@ export function drawTermination(
   nextFloodId: () => string,
   out: InputCurve[],
 ): boolean {
-  // Ruling 8j: the merge is POST-FILL, so ``bands`` no longer drives a pre-emptive same-formation
-  // merge here (the deleted ``mergesSameFormationBand``). ``topTied``/``baseTied`` (effective flags)
-  // still drive the onlap's TIED-side selection below (ruling 8i(d) one-line onlap).
-  void bands
   if (corr === 2) return false // band member / first-unit band — given line art (bandc)
   const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
   if (corr === 0) {
@@ -173,6 +173,13 @@ export function drawTermination(
   // free BASE unbounded → the onlap floods full-width (the measured coherentLoneStack regression).
   // When BOTH / NEITHER effective flag is set (an ambiguous derived edge) fall back to the direct
   // default (BASE), which the flood then floods away from correctly.
+  // Ruling 8l: ``bands``/``ui`` are no longer read here — the EMERGENT-band suppression (a
+  // matched-pair member is filled full-width by ``emitEnclosingFlood``'s bandFid face, so it takes
+  // no sweep termination) lives in ``emitTerminationSweep`` BEFORE this call (like the corr-2
+  // ``continue``), keeping the arithmetic literal-count everywhere else. A unit that reaches here is
+  // a genuine lone/derived onlap into a DIFFERENT-formation facing → it needs its flank + wedge.
+  void bands
+  void ui
   const eff = { top: topTied, base: baseTied }
   const tieSide =
     eff.base && !eff.top ? 'base' : eff.top && !eff.base ? 'top' : tiedContactSide(directTop, directBase)

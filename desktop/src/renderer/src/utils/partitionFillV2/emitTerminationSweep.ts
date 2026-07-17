@@ -51,7 +51,7 @@ import { collectGapBands } from './emitBands'
 import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
 import { type ResolvedTie } from './emitCurves'
-import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
+import { effectiveCorrForSide, isBandMember, tiedFlags } from './effectiveCorr'
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve } from './types'
@@ -206,6 +206,18 @@ function emitSideSweep(
     const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const }
     const c = eff.corr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
+    // RULING 8l EMERGENT BAND — a ``collectGapBands`` MATCHED-PAIR member (a same-side
+    // same-formation tie to the facing unit) is now corr-1 under the literal count (the promotion is
+    // deleted), but the EMERGENT band it forms is ALREADY filled FULL-WIDTH by
+    // ``emitEnclosingFlood``'s ``bandFids`` face — so it takes NO sweep termination (exactly as the
+    // old corr-2 ``continue`` did). Emitting an onlap here would add a redundant same-formation
+    // onlap ON TOP of that full-width fill and OVERLAP an enclosed lens sitting inside the band
+    // (the measured CS1 gap14/15 ZAND-quad × SILT-lens overlaps). The two facing members are the
+    // two conceptual halves of the emergent band; their shared full-width fill IS the meet-at-0.5
+    // outcome, and the 8j merge welds the pair into one body (final extent = the old promoted band).
+    // This suppression is DECOUPLED from the corr count — the arithmetic stays literal everywhere
+    // else (lens audit, conformance, genuine lone/derived onlaps), only matched-pair MEMBERS skip.
+    if (isBandMember(bands, side, ui)) continue
     // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job (its
     // M-in-M annulus + bridge guards are the safe sub-TD wall; the sweep defers so no double
     // emit). Ruling 8i(e) "everything must lens" is honoured THERE (Part D relaxes its run-trim).
@@ -255,6 +267,7 @@ function emitSideSweep(
     // (same litho on the matched facing side → merge; different → onlap); 2 → handled above.
     drawTermination(
       u,
+      ui,
       c,
       eff.topTied,
       eff.baseTied,

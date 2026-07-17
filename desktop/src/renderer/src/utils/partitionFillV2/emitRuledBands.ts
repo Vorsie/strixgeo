@@ -24,6 +24,16 @@
  * that same formation on BOTH columns, so no cross-litho double-cover. The contour is CLAMPED
  * above the shallow TD (the substrate owns the deep zone) exactly like ``emitBandContourCurve``.
  *
+ * RULING 8l (CORR IS THE LITERAL COUNT, 2026-07-17) NARROWS this pass without touching it: the
+ * matched-pair BAND PROMOTION is deleted from ``effectiveCorr``, so a same-formation pair joined by
+ * a SINGLE same-side tie is now corr-1 (two onlaps meeting at 0.5, welded post-fill), NOT corr-2.
+ * The ``eff.corr === 2`` gate below therefore fires ONLY for GENUINELY two-tied units (a real
+ * top-tie + base-tie, or 8d-rev's top band + base tie) whose same-formation facing run is not a
+ * ``collectGapBands`` matched pair — the sole terminations the sweep still suppresses (``c === 2 →
+ * continue``). Those still need a same-formation carrier or a neighbouring flood absorbs their slot
+ * (ABSENT); the pass stays as the ABSENT guard for that residual set. Emergent single-tie bands are
+ * NOT this pass's concern — they carve from two onlaps + the enclosing flood + the 8j merge.
+ *
  * FLAG-ON ONLY — runs after ``emitEnclosingFlood`` in ``emitCurves`` when the hoist flag is on;
  * flag OFF keeps the v1 seam untouched. ``intersect.ts`` / ``seamAnchor.ts`` UNTOUCHED. Pure
  * module — no React, no Date.now / Math.random, no I/O.

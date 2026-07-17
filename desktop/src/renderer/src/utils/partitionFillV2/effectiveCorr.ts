@@ -8,21 +8,18 @@
  * (``partitionFillV2.conformance.diag.test.ts``). Extracting it here means the engine and
  * the gate CANNOT drift: the gate verifies exactly the outcome the engine emitted against.
  *
- * The 2/1/0 outcome (ruling 8/8a/8b/8d, mirroring the engine's own band signal — NOT a
- * naive tied-contact count):
+ * The 2/1/0 outcome (ruling 8l — CORR IS THE LITERAL COUNT of the unit's effectively-tied
+ * contacts on that side; owner 2026-07-17):
  *
- *   2 → BAND: the unit is a MATCHED-PAIR BAND member (``collectGapBands`` — a same-side,
- *       SAME-FORMATION tie between the two facing units; that pair spans the gap full-width
- *       by construction, §4 increment-7), OR a FIRST unit whose base rides a real/derived
- *       tie (ruling 8d: the top band is an implicit tie, so the first unit bands between the
- *       top band and its base tie). A unit sandwiched between two DIFFERENT-formation tied
- *       bands is a MINORITY (mixed-bracket, §4 residual (b)), NOT a band — so a naive "both
- *       contacts tied → 2" would wrongly count it. Band membership + the ruling-8d first-unit
- *       case are the correct band tests.
- *   1 → ONLAP: the unit is not a band member but a tie touches it — either a DIRECT
- *       correlation edge on its own contact, or a ruling-8a shared contact with a directly-
- *       adjacent same-side tied band (a DERIVED onlap). Tip ~0.5, riding the tie.
- *   0 → LENS: no tie touches the unit and no adjacent band shares a contact.
+ *   2 → BAND: BOTH the unit's contacts are effectively tied on this side (a real top-tie +
+ *       base-tie, or 8d-rev's top band + a real/derived base tie). A face bounded top AND base
+ *       by given line art spans the gap by construction.
+ *   1 → ONLAP: exactly ONE contact is tied — a DIRECT correlation edge on its own contact, a
+ *       ruling-8a shared contact with a directly-adjacent same-side tied band (a DERIVED onlap),
+ *       8d-rev's top band on a first unit, or a bridge anchor. Tip ~0.5, riding that tie — EVEN
+ *       between two facing same-formation units (the old matched-pair promotion is deleted; the
+ *       BAND LOOK emerges when two facing onlaps meet at 0.5 and the 8j merge welds them).
+ *   0 → LENS: neither contact is tied — a small hugging lens around the unit (ruling 8b cap).
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
@@ -213,24 +210,44 @@ export function effectiveCorrForUnit(
   bands: readonly GapBand[],
   activeTies: readonly ResolvedTie[],
 ): EffectiveCorr {
+  // RULING 8l: ``bands`` (the ``collectGapBands`` matched-pair set) no longer drives the corr
+  // outcome — the literal contact-tie count does. The parameter is kept for signature stability
+  // (the conformance gate passes it) but is inert here.
+  void bands
   const direct = flags[ui] ?? { top: false, base: false }
   const derived = derivedBandTies(gapIndex, side, ui, col, facing, activeTies)
   const topBandTied = topBandTies(ui)
-  // RULING 8d-rev (owner, 2026-07-16 evening, dogfeeding the CS1 walkthrough — "top band counts
-  // as one correlation, this keeps it consistent"; design §8 8d-rev). The TOP BAND is an implicit
-  // tie for the FIRST unit, so it feeds ``topTied``/``hasAnchor`` (not only the 2-corr
-  // ``firstUnitTopBandBand`` case): a first unit whose ONLY tie is the top band is 1-corr and
-  // ONLAPS riding the surface (``topTied`` true → the sweep picks the top as the tied leg, apex on
-  // the top-band polyline). A first unit with top band + real/derived base tie stays 2-corr band
-  // (``firstUnitTopBandBand`` below, unchanged). Model-wide effect: every untied first unit flips
-  // lens → surface-riding onlap. The gate + LENS_AUDIT inherit via this shared arithmetic (corr-0
-  // populations shrink — first units leave).
+  // RULING 8d-rev (owner, 2026-07-16 evening; design §8 8d-rev). The TOP BAND is an implicit tie
+  // for the FIRST unit, so it feeds ``topTied`` (a first unit whose only tie is the top band reads
+  // topTied → corr 1 → surface-riding onlap). This survives UNCHANGED under 8l: the top band is
+  // one tied contact, counted like any other.
   const topTied = direct.top || derived.topShared || topBandTied
   const baseTied = direct.base || derived.baseShared
-  const bandMember = isBandMember(bands, side, ui)
-  const firstUnitTopBandBand = topBandTied && baseTied
-  const hasAnchor = unitHasDirectTie(gapIndex, side, ui, activeTies) || topTied || baseTied
-  const corr: 0 | 1 | 2 = bandMember || firstUnitTopBandBand ? 2 : hasAnchor ? 1 : 0
+  // RULING 8l — CORR IS THE LITERAL COUNT (owner, 2026-07-17, on the 646.74 three-clay column:
+  // "the top clay has a top tie, the middle clay has no ties and the bottom clay has a bottom tie.
+  // That makes the top a 1corr litho, the middle a 0 corr litho and the bottom a 1 corr litho
+  // again!"; design §8 8l). A side's corr = the number of that unit's OWN contacts tied — LITERALLY.
+  // The old ruling-8 matched-pair BAND PROMOTION (``isBandMember`` corr-2 from a single same-side
+  // same-formation tie) and the ``firstUnitTopBandBand`` special-case are DELETED: the BAND LOOK is
+  // now an EMERGENT OUTCOME (two facing same-formation onlaps meet at 0.5, the flood closes, the 8j
+  // merge welds one body — bands are what onlaps BECOME).
+  //
+  // THE BAND COUNT USES REAL OWN-CONTACT TIES, NOT ruling-8a DERIVED-band ties. 8l says each piece
+  // "counts its OWN contacts" (design §8 8l(b)) — a real correlation edge on the unit's own top/base
+  // (``direct.*``, which already folds the physical shared-contact derivation + bridges) or the
+  // 8d-rev top band. A ruling-8a DERIVED-band tie (``derived.topShared``/``baseShared``) is the
+  // ADJACENT band's tie sharing this unit's contact — it makes an ONLAP (corr 1, ruling 8a's own
+  // words: "a DERIVED onlap"), but two derived ties from DIFFERENT-formation neighbours are a
+  // MIXED-BRACKET MINORITY (bidirSweep(b) / convergingStack(a) / coherentStack(a)), NOT a band —
+  // counting them as 2 would suppress a minority the design 8e mandates render as its 8b lens. So:
+  //   corr 2  ⇐ BOTH own contacts carry a REAL tie (direct edge/bridge OR 8d-rev top band)
+  //   corr 1  ⇐ exactly one such REAL own tie, OR any DERIVED tie (an 8a onlap) touches the unit
+  //   corr 0  ⇐ no tie of any kind
+  const realTop = direct.top || topBandTied
+  const realBase = direct.base
+  const realCount = (realTop ? 1 : 0) + (realBase ? 1 : 0)
+  const hasAnyTie = topTied || baseTied
+  const corr: 0 | 1 | 2 = realCount === 2 ? 2 : hasAnyTie ? 1 : 0
   return { topTied, baseTied, corr }
 }
 
