@@ -49,6 +49,7 @@
 
 import { collectGapBands } from './emitBands'
 import { drawTermination } from './drawTermination'
+import { emitBoundaryLens } from './emitBoundaryLens'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
 import { type LensLabel } from './emitLenses'
@@ -195,6 +196,11 @@ function emitSideSweep(
   // ``emitSubTdLenses`` — the sweep DEFERS so a lens is never double-emitted.
   let facingTD = Infinity
   for (const fu of facing.units) if (fu.baseElev < facingTD) facingTD = fu.baseElev
+  // The gap's shallow TD (``max(leftTD, rightTD)``) — the TD-floor polyline a ``td`` boundary
+  // lens's base rides. ``col``'s own TD may be shallower or deeper than the facing's.
+  let colTD = Infinity
+  for (const cu of col.units) if (cu.baseElev < colTD) colTD = cu.baseElev
+  const shallowTD = Math.max(colTD, facingTD)
 
   for (let ui = 0; ui < col.units.length; ui++) {
     const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const }
@@ -207,12 +213,25 @@ function emitSideSweep(
     const u = col.units[ui]
 
     if (c === 0 && !isMinorityWide(col, ui)) {
+      // WATERTIGHT BOUNDARY LENS (owner directive session 20, 2026-07-17: "lensing needs to be
+      // watertight by design"). A boundary minority — the FIRST unit (top rides the top band) or
+      // the LAST unit (base rides the shallow-TD floor) with a differing single neighbour — LENS
+      // like any 0-corr side (ruling 8i(e)). Its tied leg RIDES the boundary polyline (existing
+      // line art), so the lens closes as column-vertical + one free flank + the polyline; the
+      // enclosing flood already fills the width past the apex (``emitBoundaryLens`` draws NO
+      // separate wedge — that double-covered the fill with a different-litho band, session 20).
+      // REPLACES the session-19 ``boundaryResidual`` no-op (the interior lens shape left a
+      // linearly-growing +65-hole sliver against the boundary polyline; reverted, characterised).
+      const bk = boundaryMinorityKind(col, ui)
+      if (bk !== null) {
+        emitBoundaryLens(u, bk, colX, facingX, facing, shallowTD, lensLabels, nextId, out)
+        continue
+      }
       // MINORITY-vs-DOMINANT fill gate (owner 8f/8h): a 0-corr unit lenses iff it is a genuine
       // interior minority (both own-column neighbours a DIFFERENT formation, so the enclosing
-      // floods around it). A boundary / dominant matrix unit FLOODS instead — pinching it to 0.5
-      // breaks its band → holes (the measured +59-hole regression of firing the lens for every
-      // 0-corr unit). This is the STRUCTURAL fill rule (who holds the void), NOT a ruling-8i draw
-      // decision — ruling 8i's "0 → lens always" applies once a unit IS the minority.
+      // floods around it). A boundary / dominant matrix unit with a SAME-formation neighbour
+      // FLOODS instead — pinching a same-formation continuation to 0.5 breaks its band → holes.
+      // This is the STRUCTURAL fill rule (who holds the void), NOT a ruling-8i draw decision.
       continue
     }
 
@@ -239,6 +258,33 @@ function emitSideSweep(
       out,
     )
   }
+}
+
+/**
+ * The BOUNDARY-minority test (session 20, watertight boundary lens). A 0-corr unit is a
+ * boundary minority when it is the FIRST unit (``ui 0``, top rides the top band) or the LAST
+ * unit (``ui last``, base rides the shallow-TD floor) AND its single interior neighbour is a
+ * DIFFERENT formation. Such a unit lenses via ``emitBoundaryLens`` (its tied leg rides the
+ * boundary polyline, hole-free) — distinct from an INTERIOR minority (handled by ``emitLens``
+ * via ``isMinorityWide``). A boundary unit whose single neighbour is the SAME formation is NOT
+ * a minority (it merges into that same-formation body — pinching it would break its band); a
+ * degenerate single-unit column (no neighbour) has no lateral minority.
+ *
+ * Returns the boundary kind (``'surface'`` for a first unit, ``'td'`` for a last unit) or
+ * ``null`` when the unit is not a boundary minority (interior, single-unit, or same-formation
+ * neighbour).
+ */
+function boundaryMinorityKind(col: ColumnGeom, ui: number): 'surface' | 'td' | null {
+  const self = col.units[ui]
+  const isFirst = ui === 0
+  const isLast = ui + 1 >= col.units.length
+  // Interior unit (has both neighbours) — not a boundary minority (``isMinorityWide`` owns it).
+  if (!isFirst && !isLast) return null
+  // Degenerate single-unit column — no interior neighbour, no lateral minority.
+  if (isFirst && isLast) return null
+  const neighbour = isFirst ? col.units[1] : col.units[ui - 1]
+  if (neighbour.formationId === self.formationId) return null // same-formation → merges, no lens
+  return isFirst ? 'surface' : 'td'
 }
 
 /**

@@ -2580,3 +2580,92 @@ fill rebuild as the next dedicated red→green increment before the flip default
    the seam ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED;
    v1 READ-ONLY; ruling 8d-rev OFF.
 
+## §23 — Session 20: the WATERTIGHT boundary lens (the 5 boundaryResidual FIXED)
+
+Owner order (verbatim): "fix those 2 lenses first — lensing needs to be watertight by design.
+Then we'll talk about the onlaps, then we'll sort out the fill." SCOPE = the boundaryResidual
+lens class ONLY (5 units model-wide). Onlap geometry UNTOUCHED; the ``emitEnclosingFlood`` fill
+rebuild (gap21 / CS2-g17 walls) DEFERRED per his sequencing. 8d-rev OFF.
+
+### THE 5 INSTANCES — before (boundaryResidual, no lens) → after (present, watertight lens)
+
+| section | gap/side | unit | boundary | before → after |
+|---|---|---|---|---|
+| Tie-10 | g0 left | S22 ZAND [12.59..12.94] | surface (ui 0) | boundaryResidual → present |
+| Tie-12 | g0 right | S6 ZAND [10.65..11.43] | surface (ui 0) | boundaryResidual → present |
+| CS1 | g7 right | S8 ZAND [9.85..11.27] (owner's col8 u0) | surface (ui 0) | boundaryResidual → present |
+| CS1 | g7 right | S8 SILT [9.29..9.85] (owner's col8 u1) | TD (ui last) | boundaryResidual → present |
+| CS2 | g6 right | B8 SILT [12.03..13.03] | surface (ui 0) | boundaryResidual → present |
+
+4 surface-topped first units + 1 TD-based last unit (CS1 col8 has exactly 2 units — both boundary).
+
+### THE WATERTIGHT CONSTRUCTION (how each leg rides existing line art)
+
+Session 19 fired the INTERIOR lens shape (diamond apex at mid-elev + ``floodsw`` wedge converging
+at the GAP MIDPOINT) for these units and measured +65 holes: the wedge's top leg dived to mid-elev
+while the top band rode above it → a linearly-growing untraced sliver against the boundary polyline.
+
+The fix (``emitBoundaryLens.ts``, NEW): a boundary lens is a TRIANGLE against a KNOWN polyline —
+* (a) the unit's own COLUMN VERTICAL between its contacts (already emitted, ``col<ci>:u<ui>``);
+* (b) ONE free-contact ``term`` flank (audit-visible phase-1 lens flank) from the FREE contact
+  corner to the apex — carries the unit's own litho;
+* (c) the TIED leg RIDES the boundary polyline: for a surface first unit the TOP BAND
+  (``surface:gi``, which rides the first-litho boundary = the unit's own top); for a TD last unit
+  the SHALLOW-TD FLOOR line (``emitEnclosingFlood`` emits it across every gap). The apex sits ON
+  that polyline (``apexElev`` = polyline interpolated at the apex x — a sloping ride for the top
+  band, a true horizontal for the TD floor), so the tied leg is EXISTING line art, NOT a
+  synthesized horizontal that diverges from it (the +65-hole root). The tied leg is NOT re-emitted
+  (ruling 8i(d) — a second leg riding the polyline duplicates given line art).
+Reach = 8b (``lensReachFraction``), HALVED until the apex clears the free corner by a 1 mm margin
+(ruling 8b conflict resolution); a physical no-op drops the flank (enclosing flood covers the slot).
+
+KEY FINDING — NO separate flood wedge. The vacated width past the apex is ALREADY filled by the
+enclosing flood's interval closure; the free flank simply CARVES the lens hole (hole-free by
+construction — all three legs lie on existing line art or meet exactly). An extra facing-converging
+flood wedge (the first attempt, EMIT_BOUNDARY_FLOOD) DOUBLE-COVERED that fill with a different-litho
+band → 117 different-litho overlaps (KLEI×SILT / SILT×ZAND quads) at CS2-g6 / Tie-10-g0 / CS1-g22.
+Removed. The enclosing flood is the single fill authority (owner's "lens first, fill after").
+
+### THE ONE BATTERY (throwaway ``partitionFillV2.throwaway_s20battery.diag.test.ts``, SHAPE_AUDIT=1)
+
+| metric | flag OFF (committed) | flag ON (session 20) |
+|---|---|---|
+| holes above / sub TD | **0 / 0** | **40 / 0** (CS1 g21 ×20 + CS2 g17 ×20 — the two pre-existing fill walls, per-section verified; NO new holes in Tie-10/Tie-12/CS1-g7/CS2-g6) |
+| different-litho overlaps | **0** | **0** |
+| LENS_AUDIT present / MISSING / boundaryResidual | — | **40 / 0 / 0** |
+
+* Flag OFF BYTE-IDENTICAL (0/0/0, overlaps 0) — every session-20 change is FLAG-ON-only (the sweep's
+  boundary branch is inside ``twoSidedTerminationsEnabled``; ``emitBoundaryLens`` is called only there).
+* LENS_AUDIT gate (``partitionFillV2.lensAudit.diag.test.ts``): **boundaryResidual 0 on ALL sections,
+  CS1 19/19 present, MISSING 0** — the mission acceptance MET. The owner's col8 pair emits ``term``
+  phase-1 flanks at (456.07, 9.85) and (456.07, 9.85/9.29) — both read PRESENT.
+* CS1 gates 7/7; conformance FLAG-OFF gate 5/5/0=10 UNCHANGED (my change is flag-ON; the absent→lens
+  flip lives in the flag-ON engine, captured by the LENS_AUDIT, not the flag-OFF conformance gate).
+* Synthetic gates: the 4 reds are the §16/§18 INHERITED ones (coherentStack (a)/(b), convergingStack
+  (a), coherentLoneStack) — verified pre-existing by stashing the sweep change (identical 4 fail on
+  unmodified code); NO new synthetic regressions. Full utils suite: 4 failed / 771 passed. tsc clean.
+
+### Files this session (worktree, NOT committed — orchestrator commits + rm)
+
+* ``partitionFillV2/emitBoundaryLens.ts`` (NEW — the watertight boundary lens; free flank riding the
+  boundary polyline, no separate flood).
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — ``boundaryMinorityKind`` helper + the
+  boundary branch in ``emitSideSweep`` routing to ``emitBoundaryLens``; ``isMinorityWide`` unchanged
+  [still false for boundary — the new branch fires BEFORE it]; ``shallowTD`` computed per side).
+* STUBS to delete (orchestrator ``rm``): ``partitionFillV2.throwaway_s20battery.diag.test.ts`` +
+  ``scripts/diag_s20_battery.json`` + ``scripts/throwaway_boundary_cols.mjs`` +
+  ``scripts/throwaway_ovl_where.mjs``. Plus session-19's ``throwaway_s19harness.diag.test.ts`` +
+  ``scripts/diag_s19_harness.json`` if still pending.
+
+### Next steps (session 21)
+
+1. **Onlaps** (owner's stated next topic after lensing) — the 5 ``1corr-not-onlap`` flag-OFF
+   conformance residuals + the flag-ON onlap geometry review.
+2. **The ``emitEnclosingFlood`` fill rebuild** (owner's "sort out the fill") — the Part-C gap21 +
+   CS2-g17 40-hole walls, now the ONLY above-TD holes flag-ON. Its own red→green increment.
+3. The 4 inherited synthetic reds (§16/§18 ``emitEnclosingFlood`` enclosing-face-bounding — owner
+   call on synthetic re-authoring vs engine fix).
+4. Cutover-ready: OWNER DOGFEED → fill rebuild → flip default ON → strip throwaway diag +
+   ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1
+   READ-ONLY; ruling 8d-rev OFF.
+
