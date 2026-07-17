@@ -29,6 +29,7 @@
 
 import { collectGapBands, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
+import { bridgeGapAnchorKey } from './emitSubstrate'
 import { type ColumnGeom } from './sectionGeom'
 
 /** A minimal column view — the units' formation ids in stack order (top→down). */
@@ -61,6 +62,7 @@ export function tiedFlags(
   side: 'left' | 'right',
   nUnits: number,
   activeTies: readonly ResolvedTie[],
+  bridgeGapAnchored?: ReadonlySet<string>,
 ): { top: boolean; base: boolean }[] {
   const flags = Array.from({ length: nUnits }, () => ({ top: false, base: false }))
   const setTop = (ui: number): void => {
@@ -78,6 +80,21 @@ export function tiedFlags(
     const s = side === 'left' ? t.leftSide : t.rightSide
     if (s === 'top') setTop(ui)
     else setBase(ui)
+  }
+  // RULING 8i(e): a jump-tie BRIDGE's anchored contacts feed the 2/1/0 arithmetic — a drawn
+  // correlation is a correlation regardless of adjacency. A bridge's near-column anchor ties
+  // that contact ONLY toward the gap+side the bridge spans (the directional
+  // ``bridgeGapAnchored`` set from ``emitSubstrateBridges``), so a bridge-anchored unit reads
+  // corr 1 → onlap riding the bridge, while pass-through columns the bridge merely CROSSES
+  // (never anchoring) stay untied → their units lens. The derived-base asymmetry is already
+  // encoded in the set (an anchored top of unit k registered base of unit k-1), so a plain
+  // OR here matches ``setTop``/``setBase`` without re-deriving. Direction-blind
+  // ``bridgeAnchorKey`` (the sweep's suppression + the seam bracket lookup) is unchanged.
+  if (bridgeGapAnchored) {
+    for (let ui = 0; ui < nUnits; ui++) {
+      if (bridgeGapAnchored.has(bridgeGapAnchorKey(gapIndex, side, ui, 'top'))) flags[ui].top = true
+      if (bridgeGapAnchored.has(bridgeGapAnchorKey(gapIndex, side, ui, 'base'))) flags[ui].base = true
+    }
   }
   return flags
 }
@@ -223,8 +240,12 @@ export function effectiveCorrForSide(
   left: ColumnGeom,
   right: ColumnGeom,
   activeTies: readonly ResolvedTie[],
+  bridgeGapAnchored?: ReadonlySet<string>,
 ): EffectiveCorr[] {
   const bands = collectGapBands(gapIndex, left, right, activeTies)
-  const flags = tiedFlags(gapIndex, side, col.units.length, activeTies)
+  // ``flags`` folds the bridge-anchored contacts (ruling 8i(e)) so a bridge-near unit reads
+  // topTied/baseTied → ``hasAnchor`` → corr 1. ``effectiveCorrForUnit`` needs no extra bridge
+  // arg: the tie state it consumes is already in ``flags``.
+  const flags = tiedFlags(gapIndex, side, col.units.length, activeTies, bridgeGapAnchored)
   return col.units.map((_, ui) => effectiveCorrForUnit(gapIndex, side, ui, col, facing, flags, bands, activeTies))
 }

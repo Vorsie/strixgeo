@@ -92,6 +92,13 @@ export interface EmittedCurves {
    * label must come from here (the lens's own litho), not the matrix.
    */
   lensLabels: Map<string, LensLabel>
+  /**
+   * Directional bridge-anchor set (``gapIndex|side|ui|contact``) — the jump-tie endpoints
+   * scoped to the gap+side the bridge spans toward (ruling 8i(e)). Exposed so the
+   * conformance gate + the LENS_AUDIT reproduce the engine's bridge-fed 2/1/0 arithmetic
+   * from the SAME source (no drift).
+   */
+  bridgeGapAnchored: Set<string>
 }
 
 /**
@@ -149,7 +156,12 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // bridge already carries (else it pinches to a lens apex into the gap). Consumes
   // only surviving edges (a suspended bridge is dropped here too — Q4).
   const bridgeAnchored = new Set<string>()
-  emitSubstrateBridges(survivingSection, curves, bridgeAnchored)
+  // Directional bridge anchoring (ruling 8i(e)): the same jump-tie endpoints, keyed by the
+  // gap+side the bridge spans TOWARD, so the sweep's corr arithmetic reads a bridge-near
+  // contact tied (→ corr 1 → onlap) only in the span direction. Pass-through columns the
+  // bridge crosses without anchoring stay untied (their units lens).
+  const bridgeGapAnchored = new Set<string>()
+  emitSubstrateBridges(survivingSection, curves, bridgeAnchored, bridgeGapAnchored)
 
   // The shared ``lensLabels`` map: created BEFORE the interval closures so a lone-side
   // pinch's flood-wedge curves (emitLonePinch) can register their bracket-matrix label
@@ -172,7 +184,7 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // ``sectionGeom.extractEnclosedLenses``, so the sweep's ``isMinority`` never sees them).
   // Flag OFF: the seam-based ``emitIntervalCurves`` runs, byte-identical to the session-13 baseline.
   if (twoSidedTerminationsEnabled()) {
-    emitTerminationSweep(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+    emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves)
     emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves)
     // RULED-EXEMPT band closures (round-3 Target 1): the sweep suppresses a termination for
     // every unit the owner ruled a BAND (8e / 8g(b) / corr-2 band member), but the flood does
@@ -206,9 +218,9 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // floor/curtain/bridge curves are untouched (owner §8 Q3 / ruling 6 preserved). Guarded so
   // a lens only fires where the flooding substrate DIFFERS from the unit (no same-formation
   // annulus — the session-9/12 sub-TD wall).
-  emitSubTdLenses(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+  emitSubTdLenses(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves)
 
-  return { curves, conflicts, activeTies: ties, lensLabels }
+  return { curves, conflicts, activeTies: ties, lensLabels, bridgeGapAnchored }
 }
 
 /**

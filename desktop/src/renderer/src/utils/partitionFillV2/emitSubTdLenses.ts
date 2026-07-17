@@ -84,6 +84,7 @@ export function emitSubTdLenses(
   section: SectionInput,
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
+  bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
 ): void {
@@ -95,8 +96,8 @@ export function emitSubTdLenses(
     const left = columns[gi]
     const right = columns[gi + 1]
     // Each side's units lens toward the facing column when they sit below the FACING TD.
-    emitSideSubTd(gi, 'left', gi, left, right, section, activeTies, bridgeAnchored, lensLabels, nextId, out)
-    emitSideSubTd(gi, 'right', gi + 1, right, left, section, activeTies, bridgeAnchored, lensLabels, nextId, out)
+    emitSideSubTd(gi, 'left', gi, left, right, section, activeTies, bridgeAnchored, bridgeGapAnchored, lensLabels, nextId, out)
+    emitSideSubTd(gi, 'right', gi + 1, right, left, section, activeTies, bridgeAnchored, bridgeGapAnchored, lensLabels, nextId, out)
   }
 }
 
@@ -115,6 +116,7 @@ function emitSideSubTd(
   section: SectionInput,
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
+  bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
   out: InputCurve[],
@@ -122,7 +124,9 @@ function emitSideSubTd(
   const facingTD = columnTD(facing)
   const left = side === 'left' ? col : facing
   const right = side === 'left' ? facing : col
-  const corr = effectiveCorrForSide(gapIndex, side, col, facing, left, right, activeTies)
+  // Ruling 8i(e): the SAME bridge-fed corr the sweep uses — a bridge-anchored deep unit reads
+  // corr ≥ 1 (not a 0-corr sub-TD candidate), so it stays with the substrate (no double emit).
+  const corr = effectiveCorrForSide(gapIndex, side, col, facing, left, right, activeTies, bridgeGapAnchored)
   const colX = col.x
   const facingX = facing.x
   const units = col.units

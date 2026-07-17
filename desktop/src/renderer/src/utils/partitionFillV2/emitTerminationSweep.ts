@@ -52,20 +52,19 @@ import { drawTermination } from './drawTermination'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
 import { type LensLabel } from './emitLenses'
-import { bridgeAnchorKey } from './emitSubstrate'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
 
-/**
- * Sub-snap-width gap threshold (metres): two columns closer than this cannot resolve a lateral
- * pinch — the interbedded units collapse under the 1 mm snap, so the sweep emits NO terminations
- * and the flood fills full-width per interval (round-3 Target 2; CS1 col21/22 gap21 = 0.17 m).
- * Well below the next-narrowest real gap (metres), so ordinary gaps are unaffected.
- */
-const SUB_SNAP_GAP_M = 0.3
+// RULING 8i(e) (owner, 2026-07-17 — "everything must lens, no narrow gap guard — make it so
+// that all 0-corr bodies lens in first instance"): the SUB_SNAP_GAP_M policy threshold is
+// DELETED. Every 0-corr side draws its lens regardless of gap width; the ONLY permissible
+// collapse is the PHYSICAL 1 mm snap floor (``segmentDegenerate`` inside ``emitLensClosing`` /
+// the ``oflank`` guard), which drops a single degenerate flank cleanly per instance (the
+// enclosing flood covers that slot, holes/overlaps stay 0). The 0.17 m CS1 gap21 minorities
+// now emit their tiny lenses; the physical floor — not a width policy — decides any collapse.
 
 /**
  * Emit every unit's termination (0 → lens, 1 → onlap-or-merge per ruling 8i) for every gap+side,
@@ -91,11 +90,17 @@ export function emitTerminationSweep(
   section: SectionInput,
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
+  bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
 ): void {
   const { columns } = section
   if (columns.length < 2) return
+  // PART B (ruling 8i(e)): the direction-blind ``bridgeAnchored`` set is no longer read by the
+  // sweep — bridges now feed the corr arithmetic (``bridgeGapAnchored``), so a bridge endpoint
+  // carrier reads corr ≥ 1 (onlap/band, never a suppressed lens) and pass-through columns lens.
+  // ``emitSubTdLenses`` / the flag-OFF seam path still consume ``bridgeAnchored``.
+  void bridgeAnchored
   let seq = 0
   const nextId = (): string => `term${seq++}`
   // A SEPARATE ``flood``-prefixed id space for the vacated-wedge closures.
@@ -104,7 +109,6 @@ export function emitTerminationSweep(
   // Per-gap matched-pair bands, computed once and reused by BOTH the left-look and the right-look
   // of the two columns bounding the gap (the gap is only the look-direction — ruling 8k).
   const bandsOfGap = new Map<number, ReturnType<typeof collectGapBands>>()
-  const subSnap = (gi: number): boolean => columns[gi + 1].x - columns[gi].x < SUB_SNAP_GAP_M
   const gapBands = (gi: number): ReturnType<typeof collectGapBands> => {
     let b = bandsOfGap.get(gi)
     if (!b) {
@@ -124,13 +128,14 @@ export function emitTerminationSweep(
   // for labelling + the arrangement). The SUB-SNAP-WIDTH guard stays per look-gap.
   for (let ci = 0; ci < columns.length; ci++) {
     const col = columns[ci]
-    // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left').
-    if (ci + 1 < columns.length && !subSnap(ci)) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], gapBands(ci), activeTies, bridgeAnchored, lensLabels, nextId, nextFloodId, out)
+    // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
+    // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
+    if (ci + 1 < columns.length) {
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], gapBands(ci), activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
-    if (ci - 1 >= 0 && !subSnap(ci - 1)) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], gapBands(ci - 1), activeTies, bridgeAnchored, lensLabels, nextId, nextFloodId, out)
+    if (ci - 1 >= 0) {
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], gapBands(ci - 1), activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
     }
   }
 }
@@ -152,18 +157,23 @@ function emitSideSweep(
   facing: ColumnGeom,
   bands: ReturnType<typeof collectGapBands>,
   activeTies: readonly ResolvedTie[],
-  bridgeAnchored: ReadonlySet<string>,
+  bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
 ): void {
+  // ``colIndex`` is retained for signature parity / future per-column diagnostics; the
+  // direction-blind bridge suppression that consumed it is deleted (Part B, ruling 8i(e)).
+  void colIndex
   const left = side === 'left' ? col : facing
   const right = side === 'left' ? facing : col
   // RULING 8i CLASSIFY: effectiveCorrForSide is the SINGLE 2/1/0 source (leftSide/rightSide),
-  // shared with the conformance gate. It folds direct + derived + band-member + top-band ties —
-  // but NOT the bridge-anchor extension, so we consult ``bridgeAnchored`` explicitly below.
-  const corr = effectiveCorrForSide(gapIndex, side, col, facing, left, right, activeTies)
+  // shared with the conformance gate. RULING 8i(e): it now FOLDS the bridge-anchor extension
+  // (``bridgeGapAnchored``) too — a jump-tie's anchored contact reads TIED toward the span
+  // (→ corr 1 → onlap riding the bridge), so bridges feed the arithmetic instead of being a
+  // blanket sweep suppression (Part B narrows the old ``isBridged`` guard below).
+  const corr = effectiveCorrForSide(gapIndex, side, col, facing, left, right, activeTies, bridgeGapAnchored)
   // Direct/derived-base tie flags (``tiedFlags``) — used by ``drawTermination`` for the ONLAP SIDE
   // (which contact the tip rides / which way the flood wedge fills), distinct from the effective
   // 2/1/0 corr (which folds ruling-8a derived BAND ties too). A lone-stack unit tied only by a
@@ -172,9 +182,15 @@ function emitSideSweep(
   const colX = col.x
   const facingX = facing.x
 
-  const isBridged = (ui: number): boolean =>
-    bridgeAnchored.has(bridgeAnchorKey(colIndex, ui, 'top')) ||
-    bridgeAnchored.has(bridgeAnchorKey(colIndex, ui, 'base'))
+  // PART B (ruling 8i(e)): the blanket ``isBridged → continue`` suppression is DELETED. With
+  // bridges now feeding the corr arithmetic (Part A), a bridge-anchored contact reads TIED →
+  // corr ≥ 1, so a bridge endpoint carrier NEVER lenses (it onlaps at corr 1 riding the bridge,
+  // or is a corr-2 band member skipped below) — the suppression the guard provided is now
+  // structural in the arithmetic, and blanket-suppressing also killed the ZONE's genuine
+  // pass-through lenses (the col8 SILT+SAND, owner's 456.07 find). A sub-TD bridge-anchored deep
+  // unit is still handled by ``emitSubTdLenses`` (its own bridge guard leaves it to the
+  // substrate); the sub-TD deferral below routes it there. The direction-blind ``bridgeAnchored``
+  // set is now consumed ONLY by ``emitSubTdLenses`` / the flag-OFF seam bracket lookup.
   // The facing column's TD: a unit entirely below it is a SUB-TD minority owned by
   // ``emitSubTdLenses`` — the sweep DEFERS so a lens is never double-emitted.
   let facingTD = Infinity
@@ -184,10 +200,9 @@ function emitSideSweep(
     const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const }
     const c = eff.corr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
-    // BRIDGE-ANCHOR rule: a bridge-carried unit is a substrate band anchor (2-corr-like) — the
-    // bridge already provides its boundary; carving a lens voids the substrate face.
-    if (isBridged(ui)) continue
-    // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job.
+    // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job (its
+    // M-in-M annulus + bridge guards are the safe sub-TD wall; the sweep defers so no double
+    // emit). Ruling 8i(e) "everything must lens" is honoured THERE (Part D relaxes its run-trim).
     if (col.units[ui].topElev <= facingTD - ELEV_EPS) continue
     const u = col.units[ui]
 
@@ -227,17 +242,42 @@ function emitSideSweep(
 }
 
 /**
- * The WIDENED minority test (round-2 Target 2): an INTERIOR unit is a minority whenever BOTH its
- * immediate neighbours are a DIFFERENT formation from it. This is the round-1 same-formation
- * enclosure (above === below ≠ self) PLUS the MIXED-bracket case (above ≠ below, both ≠ self): a
- * mixed-bracket interior minority (KLEI above, SILT below, VEEN self — the Tie-6/9/11 VEEN class)
- * still lenses. Boundary units (ui 0 / last) stay EXCLUDED: they touch surface / TD and are the
- * dominant flooding matrix, never a lens.
+ * The minority test for the 0-corr fill gate — RELAXED to ruling 8i(e) (owner, 2026-07-17:
+ * "everything must lens … all 0-corr bodies lens in first instance").
+ *
+ * INTERIOR unit (both neighbours exist): a minority whenever BOTH its immediate neighbours are a
+ * DIFFERENT formation from it (the round-1 same-formation enclosure ``above === below ≠ self``
+ * PLUS the MIXED-bracket case ``above ≠ below, both ≠ self`` — the Tie-6/9/11 VEEN class).
+ *
+ * BOUNDARY unit (ui 0 = surface-topped, or ui last = TD-based): PREVIOUSLY excluded wholesale (it
+ * was assumed the dominant flooding matrix — the +59-hole guard). Ruling 8i(e) requires it to lens
+ * too WHEN it is a genuine minority: its SINGLE interior neighbour is a DIFFERENT formation. A thin
+ * first unit (Tie-10/12 top ZAND, CS1 S8 top ZAND, CS2 B8 top SILT) or a thin last unit (CS1 S8
+ * base SILT) whose one neighbour differs is a minority the enclosing (that neighbour, laterally the
+ * facing formation) floods around — not a dominant matrix. A boundary unit whose single neighbour
+ * is the SAME formation is still NOT a minority (it merges into that same-formation body → no lens,
+ * hole-safe: pinching a same-formation continuation to 0.5 would break its band). A degenerate
+ * single-unit column (no neighbour) has no lateral minority → excluded.
  */
 function isMinorityWide(col: ColumnGeom, ui: number): boolean {
-  if (ui <= 0 || ui + 1 >= col.units.length) return false
-  const above = col.units[ui - 1]
-  const below = col.units[ui + 1]
   const self = col.units[ui]
-  return above.formationId !== self.formationId && below.formationId !== self.formationId
+  const hasAbove = ui > 0
+  const hasBelow = ui + 1 < col.units.length
+  if (hasAbove && hasBelow) {
+    const above = col.units[ui - 1]
+    const below = col.units[ui + 1]
+    return above.formationId !== self.formationId && below.formationId !== self.formationId
+  }
+  // BOUNDARY unit (ui 0 surface-topped / ui last TD-based): ruling 8i(e) wants it to lens too when
+  // its single interior neighbour differs, BUT the ONE-run OFF/ON battery (session 19) measured that
+  // firing the lens here opens the +59-class fill hole — the enclosing flood behind a first/last-unit
+  // lens does NOT close the vacated wedge (Tie-10 g0 top ZAND: +63 holes; Tie-12 g0 top ZAND: +2). The
+  // lens CURVE is emitted (LENS_AUDIT MISSING drops to 0), but ``emitEnclosingFlood``'s interval closure
+  // cannot bound a surface-/TD-boundary lens hole-free — the documented multi-day fill-rebuild wall
+  // (design §4 "cannot land as one increment with the holes-0/0/0 bar"). Per Part-D "characterise +
+  // stop" this boundary case stays EXCLUDED from the sweep lens until that fill rebuild; the audit
+  // flags these as the boundary-lens residual (5 units, all with a differing single neighbour).
+  void hasAbove
+  void hasBelow
+  return false // boundary / single-unit column — excluded pending the emitEnclosingFlood rebuild
 }

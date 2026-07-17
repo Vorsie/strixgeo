@@ -2432,3 +2432,151 @@ to the one-line-onlap geometry? Not resolved this session (ASK-FIRST; no guard i
    default ON → strip the throwaway diag blocks + the seam ``tileInterval`` body → v2 frozen snapshot.
    ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED (613-hole trap); v1 READ-ONLY; ruling 8d-rev OFF.
 
+---
+
+## 22. Session-19 plan & progress — RULING 8i(e): bridges feed the arithmetic + everything lenses (Parts A/B/C/E SHIPPED; C/D fill-closure = characterised wall)
+
+⚡ RULING 8i(e) (owner verbatim): "everything must lens, no narrow gap guard — make it so that all
+0-corr bodies lens in first instance." Build-first (zero executions, then ONE battery + iterate).
+8d-rev fenced OFF. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY. No git ops.
+
+### PART A — bridges feed the 2/1/0 arithmetic (SHIPPED, single source)
+
+A jump-tie BRIDGE's ANCHORED contacts now feed ``effectiveCorr``. NEW directional set
+``bridgeGapAnchored`` (``gapIndex|side|ui|contact``) from ``emitSubstrateBridges`` (``bridgeGapAnchorKey``):
+the LO anchor ties looking RIGHT into gap ``loCi`` (side left); the HI anchor looking LEFT into gap
+``hiCi-1`` (side right) — the directions the bridge spans TOWARD. ``tiedFlags`` +
+``effectiveCorrForSide`` take an optional ``bridgeGapAnchored`` and OR the anchored contacts into
+topTied/baseTied → a bridge-near unit reads corr 1 → ONLAP (``hasAnchor``); pass-through columns the
+bridge CROSSES without anchoring stay untied → their units LENS (the col8 SILT+SAND, owner's 456.07
+find). **Bands from bridges:** a single bridge within one gap does NOT create a ``collectGapBands``
+matched pair (endpoints are on non-adjacent columns, no facing pair across one gap) → the outcome is
+corr-1 onlap, never a synthesized 2-corr band (a bridge endpoint that ALSO sits in a real adjacent
+matched pair is already corr-2, unchanged). ``emitCurves`` builds + exposes ``bridgeGapAnchored`` on
+``EmittedCurves``; the sweep + ``emitSubTdLenses`` + the CONFORMANCE GATE + the LENS_AUDIT all consume
+the SAME set (no drift). **Gate count movement: flag-OFF conformance UNCHANGED at 5/5/0=10** (the
+bridge-fed units reclassify corr-0→corr-1 consistently in both engine + gate; no new flag-OFF render
+mismatch). zeroCorr full-width UNCHANGED at 9. flag-OFF byte-identical (holes 0/0/0, CS1 7/7).
+
+### PART B — bridge LENS suppression DELETED (redundant after A)
+
+The blanket ``isBridged(ui) → continue`` in the sweep is GONE. With bridges feeding corr (Part A) a
+bridge endpoint carrier reads corr ≥ 1 (onlaps/bands, never a suppressed lens), so the suppression is
+structural in the arithmetic; blanket-suppressing ALSO killed the zone's genuine pass-through lenses.
+A sub-TD bridge-anchored deep unit is still routed to ``emitSubTdLenses`` (its own bridge guard leaves
+it to the substrate) via the sweep's sub-TD deferral. Direction-blind ``bridgeAnchored`` is now
+consumed ONLY by ``emitSubTdLenses`` / the flag-OFF seam bracket lookup.
+
+### PART C — SUB_SNAP_GAP_M DELETED (threshold gone); 0.17 m gap21 = CHARACTERISED FILL WALL
+
+``SUB_SNAP_GAP_M = 0.3`` + the ``subSnap`` guard are DELETED (ruling 8i(e) — no width policy). The
+only permissible collapse is the physical 1 mm floor (``segmentDegenerate`` inside
+``emitLensClosing``), each instance individually listed by the LENS_AUDIT (0 fired on real data).
+**RESULT: CS1 gap21 (0.17 m, interbedded SILT/ZAND ×4-5 per column) now emits its lenses but leaves 20
+above-TD holes** — tiny lens-diamond slivers (5–146 mm) at elev ≈8.92–9.05 (the shallowTD). ROOT
+(measured): the interbedded lens diamonds from the two facing columns do NOT tile with the enclosing
+flood at the sub-snap-fraction scale — a ``emitEnclosingFlood`` interval-closure defect, NOT a
+lens-reach overshoot (``fitLensReach`` would not drop these — they fit their wedge, they fail to
+TILE). Per the mission's "do NOT re-add a threshold — characterise + stop": the 20 gap21 holes are
+the Part-C wall, left flagged, threshold NOT re-added. The proper fix is the multi-day
+``emitEnclosingFlood`` sub-snap-gap closure rebuild (design §4 "cannot land as one increment").
+
+### PART D — deep/terminal + boundary lenses: minority gate RELAXED then BOUNDARY case = +65-hole WALL
+
+The census's deep/terminal exclusions dissolved under Part A: bridge-anchored deep units reclassify
+corr-1 (onlap), so the model-wide corr-0 count DROPPED to 40 (was the census's 36-CS1 + others). The
+LENS_AUDIT (Part E) then isolated the TRUE residual to **5 corr-0 unit-sides, ALL BOUNDARY units**
+(ui 0 surface-topped / ui last TD-based, each with a differing single neighbour): Tie-10 g0 top ZAND,
+Tie-12 g0 top ZAND, CS1 g7 S8 top ZAND + base SILT, CS2 g6 B8 top SILT. ``isMinorityWide`` was
+RELAXED to lens a boundary minority (single differing neighbour) → LENS_AUDIT MISSING 5→0. **But the
+ONE battery MEASURED +86 flag-ON holes** (Tie-10 g0 +63, Tie-12 g0 +2 = the first-unit lens; CS1
+gap21 +20 = the Part-C gap; CS1 gap22 +1): a first-/last-unit lens's ``emitFloodWedge`` /
+``emitEnclosingFlood`` does NOT close the vacated wedge (the +59-class boundary wall the guard
+documented; Tie-10 top ZAND leaves a linearly-growing wedge hole below its base). REVERTED the
+boundary relaxation (interior-minority lensing unchanged, hole-free) → flag-ON back to 40 holes
+(20 gap21 + 20 CS2-g17). **The 5 boundary units stay a CHARACTERISED WALL** (the LENS_AUDIT tags them
+``boundaryResidual``, distinct from genuine MISSING=0): the ``emitEnclosingFlood`` boundary-lens
+closure is the same multi-day fill rebuild as Part C. NOT re-added as a heuristic guard beyond the
+structural boundary exclusion the fill cannot yet bound.
+
+### PART E — THE LENS_AUDIT permanent gate SHIPPED
+
+``partitionFillV2.lensAudit.diag.test.ts`` (gated SHAPE_AUDIT=1 — a distinct LENS_AUDIT var is NOT in
+the harness allowlist, so it reuses the allowed audit var like the conformance gate). Over all 14
+sections, flag-ON: every corr-0 unit-side (bridge-fed arithmetic, shared source) must carry a
+phase-1 lens flank (``term``/``subtdlens``/``lens`` id) at its column x + a contact elevation.
+Classifies MISSING / physical-1 mm-collapse / boundaryResidual. **RESULT (dump
+scripts/diag_lens_audit.json): 40 corr-0 sides, 35 present, MISSING 0, physical 0, boundaryResidual
+5.** CS1 MISSING 20→0 (Part A reclassified most as corr-1; the rest present or boundaryResidual), CS2
+1→0, all others 0 — the mission acceptance MET for genuine misses. The 5 boundaryResidual are the
+Part-D wall, listed. The same lensAudit numbers are wired into the CS1 walkthrough dump
+(``partitionFillV2.cs1flip_walkthrough.diag.test.ts`` — ``lensAudit`` block, bridge-fed corr) so the
+HTML render can flag any miss.
+
+### The OFF/ON battery (harness ``partitionFillV2.throwaway_s19harness.diag.test.ts``, SHAPE_AUDIT=1)
+
+| metric | flag OFF (committed) | flag ON (8i(e)) |
+|---|---|---|
+| holes above / sub TD | **0 / 0** | **40 / 0** (CS1 g21 20 [Part-C wall] + CS2 g17 20 [pre-existing §19]) |
+| different-litho overlaps | **0** | **0** |
+| LENS_AUDIT corr-0 present / MISSING / boundaryResidual | — | **35 / 0 / 5** |
+| conformance 0/1/2 (flag-OFF gate) | **5 / 5 / 0 = 10** (unchanged) | — |
+| zeroCorr full-width (flag-OFF) | **9** (unchanged) | — |
+
+* **Flag OFF BYTE-IDENTICAL** — conformance 5/5/0=10, holes 0/0/0, overlaps 0, CS1 gates 7/7,
+  zeroCorr 9, v1 pure-geometry + all 12 committed shape/package gates green (51 tests), tsc clean.
+  Every 8i(e) change is flag-ON-gated (the sweep) or the shared arithmetic passed the bridge set
+  ONLY on flag-ON call paths + the gate (flag-OFF ``emitIntervalCurves`` calls ``effectiveCorrForSide``
+  WITHOUT the bridge set → unchanged).
+* **Flag ON: LENS_AUDIT genuine MISSING = 0 (mission accept met), overlaps 0.** Holes 40 = the two
+  characterised fill walls (Part-C 0.17 m gap21 + the pre-existing CS2-g17), NOT re-guarded per the
+  mission. Boundary-lens residual 5 = the Part-D fill wall.
+* **Synthetic gates: the 4 reds are the §16/§18 INHERITED ones** (coherentStack (a)/(b),
+  convergingStack (a), coherentLoneStack) — NO NEW synthetic regressions; all other package/shape
+  gates green. Sessions-9..18 named cases: bridge zone (col8) now lenses (Part B); the CS1 col3
+  interbed / col14+col18 sub-TD / col12 KLEI all unchanged (present in the audit).
+
+### Two open walls (ASK-FIRST — the rule-vs-hole-freeness tension, reported not guessed)
+
+Ruling 8i(e) "everything lenses / MISSING 0 / no threshold" CONFLICTS with the partition hole-free
+invariant for two geometries the current fill cannot close:
+1. **CS1 gap21 (0.17 m interbedded gap, 20 holes)** — Part-C. Deleting the threshold emits the lenses;
+   the enclosing flood cannot tile the sub-snap-fraction slivers. Needs the ``emitEnclosingFlood``
+   sub-snap closure rebuild. Threshold NOT re-added (per mission).
+2. **The 5 boundary-lens residual units (+65 holes if fired)** — Part-D. A surface-/TD-boundary lens's
+   flood wedge does not close hole-free. Needs the ``emitEnclosingFlood`` boundary-lens closure.
+Both are the SAME multi-day fill-rebuild the design §4 repeatedly flags. OWNER CALL: ship 8i(e) with
+these two closures deferred (holes flagged, threshold NOT re-added, audit tags them), OR treat the
+fill rebuild as the next dedicated red→green increment before the flip default-ON.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* ``partitionFillV2/emitSubstrate.ts`` (EDITED — ``bridgeGapAnchorKey`` + directional ``gapAnchored`` in
+  ``emitSubstrateBridges``).
+* ``partitionFillV2/effectiveCorr.ts`` (EDITED — ``tiedFlags`` + ``effectiveCorrForSide`` optional
+  bridge set; imports ``bridgeGapAnchorKey``).
+* ``partitionFillV2/emitCurves.ts`` (EDITED — builds + threads + exposes ``bridgeGapAnchored``).
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — bridge-fed corr; SUB_SNAP deleted; blanket
+  ``isBridged`` deleted; ``isMinorityWide`` boundary case characterised-excluded).
+* ``partitionFillV2/emitSubTdLenses.ts`` (EDITED — bridge-fed corr).
+* ``partitionFillV2.conformance.diag.test.ts`` (EDITED — gate consumes ``bridgeGapAnchored``).
+* ``partitionFillV2.lensAudit.diag.test.ts`` (NEW — the permanent 8i(e) letter-of-the-law gate,
+  SHAPE_AUDIT-gated; MISSING/physical/boundaryResidual).
+* ``partitionFillV2.cs1flip_walkthrough.diag.test.ts`` (EDITED — ``lensAudit`` block + bridge-fed corr).
+* STUB to delete (orchestrator ``rm``): ``partitionFillV2.throwaway_s19harness.diag.test.ts`` +
+  ``scripts/diag_s19_harness.json`` (the OFF/ON measurement of record — regenerate with SHAPE_AUDIT=1).
+  Any session-1..18 stubs still pending rm.
+
+### Next steps (session 20)
+
+1. **The ``emitEnclosingFlood`` fill-closure rebuild** — the ONE remaining engine work that unblocks
+   BOTH walls (Part-C 0.17 m gap tiling + Part-D boundary-lens closure) hole-free. Its own red→green
+   increment; guard holes 0/0 + CS1 7/7 + the 32 OK seam cases every step.
+2. **The 4 inherited synthetic reds** (coherentStack (a)/(b), convergingStack (a), coherentLoneStack)
+   — the §18 ``emitEnclosingFlood`` enclosing-face-bounding fix (owner call on synthetic re-authoring
+   vs engine fix).
+3. **Owner ties** dissolve the ruling-8 untied same-formation full-widths.
+4. Cutover-ready: OWNER DOGFEED → the fill rebuild → flip default ON → strip throwaway diag blocks +
+   the seam ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED;
+   v1 READ-ONLY; ruling 8d-rev OFF.
+

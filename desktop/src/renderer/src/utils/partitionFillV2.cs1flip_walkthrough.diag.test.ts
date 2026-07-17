@@ -61,7 +61,16 @@ import { type InputCurve } from './partitionFillV2/types'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
 const INPUT = resolve(REPO_ROOT, 'scripts/diag_allsections_input.json')
-const DUMP = resolve(REPO_ROOT, 'scripts/diag_cs1_flip_walkthrough.json')
+// Section selectable via CS_NAME (owner asked for CS2 too, 2026-07-17); the dump filename
+// carries a slug so per-section dumps coexist. Default stays CS1 (existing tooling).
+const CS_NAME = process.env.CS_NAME ?? 'Cross-section 1'
+const CS_SLUG = CS_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'cs1'
+const DUMP = resolve(
+  REPO_ROOT,
+  CS_SLUG === 'crosssection1'
+    ? 'scripts/diag_cs1_flip_walkthrough.json'
+    : `scripts/diag_${CS_SLUG}_flip_walkthrough.json`,
+)
 
 interface RawUnit {
   layerId: string; topDepthM: number; baseDepthM: number; formationId: string; bodyId: string | null
@@ -170,8 +179,8 @@ describe('CS1 flip walkthrough dump', () => {
     }
     const fname = (id: string): string => raw.formationNames[id] ?? id.slice(0, 8)
 
-    const sec = raw.sections.find((s) => /Cross-section 1/i.test(s.name))
-    if (!sec) throw new Error('Cross-section 1 not found in the input')
+    const sec = raw.sections.find((s) => s.name.toLowerCase().includes(CS_NAME.toLowerCase()))
+    if (!sec) throw new Error(`${CS_NAME} not found in the input`)
     const { columns, alongM, edges, investIds } = prepare(sec)
 
     // ---- FLIP ON for the whole capture (restored in finally). ----
@@ -179,6 +188,7 @@ describe('CS1 flip walkthrough dump', () => {
     let curves: InputCurve[]
     let regions: SectionRegion[]
     let engineActiveTies: import('./partitionFillV2/emitCurves').ResolvedTie[] = []
+    let engineBridgeGapAnchored: Set<string> = new Set()
     const perGapCase: Record<number, { branch: string; tilegap: Record<string, number>; coherent: Record<string, number> }> = {}
     try {
       const section = buildSectionInput(columns, edges, undefined, alongM)
@@ -190,6 +200,7 @@ describe('CS1 flip walkthrough dump', () => {
       const emitted = emitCurves(section)
       curves = emitted.curves
       engineActiveTies = emitted.activeTies
+      engineBridgeGapAnchored = emitted.bridgeGapAnchored
       const totalTilegap = { ...TILEGAP_DIAG }
       const totalCoherent = { ...COHERENT_STACK_DIAG }
 
@@ -389,8 +400,51 @@ describe('CS1 flip walkthrough dump', () => {
       7: 'SILT[R] lens now emitted per-side (8h sweep, this session) — was a converging-facing bail',
     }
 
+    // ---- Lens audit (ruling 8i(e)) — every corr-0 unit-side must carry a phase-1 lens flank.
+    // Uses the SAME bridge-fed arithmetic (``engineBridgeGapAnchored``) + a curve-set flank check
+    // (mirroring partitionFillV2.lensAudit.diag) so the HTML can flag any miss. present/missing/
+    // boundaryResidual match the model-wide gate (this dump is CS1 only).
+    const flankPts: { x: number; y: number }[] = []
+    for (const c of curves) {
+      if (!(c.id.startsWith('term') || c.id.startsWith('subtdlens') || c.id.startsWith('lens'))) continue
+      for (const p of c.points) flankPts.push({ x: p.x, y: p.y })
+    }
+    const at = (px: number, py: number, colX: number, elev: number): boolean =>
+      Math.abs(px - colX) < 0.005 && Math.abs(py - elev) < 0.005
+    const lensAuditRows: { gap: number; side: string; litho: string; el: number[]; state: string }[] = []
+    for (let ci = 0; ci < nsCols.length; ci++) {
+      const col = nsCols[ci]
+      for (const gi of [ci - 1, ci] as const) {
+        if (gi < 0 || gi + 1 >= nsCols.length) continue
+        const side: 'left' | 'right' = ci === gi ? 'left' : 'right'
+        const facing = side === 'left' ? nsCols[gi + 1] : nsCols[gi]
+        const L2 = side === 'left' ? col : facing
+        const R2 = side === 'left' ? facing : col
+        const corr = effectiveCorrForSide(gi, side, col, facing, L2, R2, engineActiveTies.filter((t) => t.gapIndex === gi), engineBridgeGapAnchored)
+        for (let ui = 0; ui < col.units.length; ui++) {
+          if ((corr[ui]?.corr ?? 0) !== 0) continue
+          const u = col.units[ui]
+          const has = flankPts.some((f) => at(f.x, f.y, col.x, u.topElev) || at(f.x, f.y, col.x, u.baseElev))
+          const boundary = ui === 0 || ui + 1 >= col.units.length
+          lensAuditRows.push({
+            gap: gi, side, litho: baseLitho(fname(u.formationId)),
+            el: [round(u.baseElev), round(u.topElev)],
+            state: has ? 'present' : boundary ? 'boundaryResidual' : 'MISSING',
+          })
+        }
+      }
+    }
+    const lensAudit = {
+      corr0Sides: lensAuditRows.length,
+      present: lensAuditRows.filter((r) => r.state === 'present').length,
+      missing: lensAuditRows.filter((r) => r.state === 'MISSING').length,
+      boundaryResidual: lensAuditRows.filter((r) => r.state === 'boundaryResidual').length,
+      rows: lensAuditRows.filter((r) => r.state !== 'present'),
+    }
+
     const dump = {
-      generatedFor: 'Cross-section 1 — partition engine v2 FLIP (session-8 ruling-8h six-phase per-side sweep)',
+      generatedFor: `${sec.name} — partition engine v2 FLIP (hoisted sweep, rulings 8i(d)/8j/8k/8i(e))`,
+      lensAudit,
       flip: 'setTwoSidedTerminations(true)',
       engine: 'tileCoherentStack (ruling 8h — per-side unconditional: ① lens-L ② lens-R ③ onlap-L ④ onlap-R ⑤⑥ edge close ⑦ little-to-big fill)',
       section: sec.name,

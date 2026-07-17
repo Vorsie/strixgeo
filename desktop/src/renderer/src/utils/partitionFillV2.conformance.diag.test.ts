@@ -189,9 +189,11 @@ describe('v2 full 2/1/0 conformance gate', () => {
       const r2 = computeSectionFillV2(columns, edges, undefined, alongM)
       const gaps2 = groupByGap(r2)
 
-      // Engine tie state (its own derivation) for this section.
+      // Engine tie state (its own derivation) for this section. ``bridgeGapAnchored`` (ruling
+      // 8i(e)) folds jump-tie bridge anchoring into the SAME arithmetic the engine emits against
+      // — the gate must consume it so its corr count matches the sweep's (no drift).
       const section = buildSectionInput(columns, edges, undefined, alongM)
-      const { activeTies } = emitCurves(section)
+      const { activeTies, bridgeGapAnchored } = emitCurves(section)
       const geom = section.columns // ColumnGeom[] with topElev/baseElev per unit
 
       const sec0 = { '0corr-not-lens': 0, '1corr-not-onlap': 0, '2corr-not-band': 0, 'q3-legit': 0, '8e-enclosure': 0, 'cap': 0 }
@@ -206,7 +208,9 @@ describe('v2 full 2/1/0 conformance gate', () => {
           const side: 'left' | 'right' = ci === gi ? 'left' : 'right'
           const facing = side === 'left' ? geom[gi + 1] : geom[gi]
           const regs = gaps2.get(gi) ?? []
-          const flags = tiedFlags(gi, side, col.units.length, activeTies)
+          // Ruling 8i(e): fold the bridge-anchor extension so a bridge-near unit reads corr 1
+          // (onlap) — the SAME arithmetic the sweep emits against (topTied/baseTied → hasAnchor).
+          const flags = tiedFlags(gi, side, col.units.length, activeTies, bridgeGapAnchored)
           const bands = collectGapBands(gi, geom[gi], geom[gi + 1], activeTies)
           const shallowTD = shallowTDForGap(geom[gi], geom[gi + 1])
           for (let ui = 0; ui < col.units.length; ui++) {

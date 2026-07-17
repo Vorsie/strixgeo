@@ -43,6 +43,29 @@ export function bridgeAnchorKey(ci: number, ui: number, contact: 'top' | 'base')
 }
 
 /**
+ * Key for a bridge-anchored contact SCOPED to the gap+side the bridge spans TOWARD:
+ * ``gapIndex|side|ui|contact`` (ruling 8i(e), 2026-07-17 — "a bridge's ANCHORED contacts
+ * are tied … per the rules").
+ *
+ * A jump tie ties its two ANCHORED endpoints toward each other: the LO anchor (the left
+ * of the two columns) is tied looking RIGHT into its own gap (``gapIndex = loCi``, side
+ * ``left``); the HI anchor is tied looking LEFT into the gap on its left (``gapIndex =
+ * hiCi - 1``, side ``right``). A pass-through column the bridge crosses WITHOUT anchoring
+ * stays untied on both sides (its units lens). Unlike ``bridgeAnchorKey`` (which is
+ * direction-blind and is the sweep's SUPPRESSION lookup + the seam path's bracket lookup),
+ * this directional key feeds the 2/1/0 arithmetic so a bridge-anchored contact reads TIED
+ * (→ corr 1 → onlap riding the bridge) only on the side the bridge spans toward.
+ */
+export function bridgeGapAnchorKey(
+  gapIndex: number,
+  side: 'left' | 'right',
+  ui: number,
+  contact: 'top' | 'base',
+): string {
+  return `${gapIndex}|${side}|${ui}|${contact}`
+}
+
+/**
  * Emit deep-to-deep substrate bridge curves for every jump tie (a correlation
  * edge whose two endpoints sit on NON-adjacent columns). Appends to ``out``.
  *
@@ -68,13 +91,28 @@ export function emitSubstrateBridges(
   section: SectionInput,
   out: InputCurve[],
   anchored: Set<string>,
+  gapAnchored?: Set<string>,
 ): void {
   const { columns } = section
   // Register a bridge endpoint contact + the derived base of the unit above it
-  // (a top contact IS the base of the unit immediately shallower).
-  const anchor = (ci: number, ui: number, side: 'top' | 'base'): void => {
+  // (a top contact IS the base of the unit immediately shallower). ``gapDir`` is the
+  // (gap, side) the bridge spans TOWARD from this anchor (ruling 8i(e)); when supplied it
+  // ALSO registers the directional key so the 2/1/0 arithmetic reads the contact tied only
+  // toward the span (the near column is corr 1 → onlap; pass-through columns stay untied).
+  const anchor = (
+    ci: number,
+    ui: number,
+    side: 'top' | 'base',
+    gapDir?: { gapIndex: number; side: 'left' | 'right' },
+  ): void => {
     anchored.add(bridgeAnchorKey(ci, ui, side))
     if (side === 'top' && ui > 0) anchored.add(bridgeAnchorKey(ci, ui - 1, 'base'))
+    if (gapAnchored && gapDir) {
+      gapAnchored.add(bridgeGapAnchorKey(gapDir.gapIndex, gapDir.side, ui, side))
+      if (side === 'top' && ui > 0) {
+        gapAnchored.add(bridgeGapAnchorKey(gapDir.gapIndex, gapDir.side, ui - 1, 'base'))
+      }
+    }
   }
   // layerId → {colIndex, unitIndex} so a raw edge resolves to a concrete contact.
   const layerLoc = new Map<string, { ci: number; ui: number }>()
@@ -104,9 +142,12 @@ export function emitSubstrateBridges(
     const hiElev = hiSide === 'top' ? hiU.topElev : hiU.baseElev
     if (Math.abs(hiX - loX) < 1e-9) continue
 
-    // Mark both anchor contacts so emitIntervals does not tile a competing cell.
-    anchor(loLoc.ci, loLoc.ui, loSide)
-    anchor(hiLoc.ci, hiLoc.ui, hiSide)
+    // Mark both anchor contacts so emitIntervals does not tile a competing cell. The LO
+    // anchor is tied looking RIGHT into gap ``loLoc.ci`` (side left); the HI anchor looking
+    // LEFT into gap ``hiLoc.ci - 1`` (side right) — the directions the bridge spans toward
+    // (ruling 8i(e)). Only meaningful when the anchor's gap exists (span ≥ 2 guarantees it).
+    anchor(loLoc.ci, loLoc.ui, loSide, { gapIndex: loLoc.ci, side: 'left' })
+    anchor(hiLoc.ci, hiLoc.ui, hiSide, { gapIndex: hiLoc.ci - 1, side: 'right' })
 
     // Sample the straight bridge line at every column x in [loLoc..hiLoc] so the
     // arrangement gets a vertex at each intervening column footprint — that vertex
