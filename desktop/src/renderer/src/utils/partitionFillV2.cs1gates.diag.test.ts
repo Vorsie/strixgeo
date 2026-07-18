@@ -287,6 +287,102 @@ describe('CS1 invariant gates — V2 engine', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // GATE: cs1subtdanchor — ruling 8n sub-TD band-through-column construction
+  // (owner items 6+7, 2026-07-18): "take the intersect of the correlation band and
+  // the column and extrapolate that point to the left of the column and the right of
+  // the column. that way you have 2 points one on each side through which you can
+  // connect and fill above and below."
+  //
+  // CS1 col8 (GEO-10/170-S8, along≈456.07) is a 2-unit SHALLOW column (TD el 9.29)
+  // bracketed by two DEEP columns col7 (TD −9.85) and col9 (TD −10.25). Jump-bridge
+  // ties span col7↔col9 THROUGH col8: SILT (5.96→6.48), ZAND (1.25→2.51), KLEI-top
+  // (−2.22→−3.88), KLEI-base (−9.85→−10.25). Each bridge CROSSES col8's x at an
+  // interpolated elevation (the "band∩column intersect"). The sub-TD fill MUST anchor
+  // at that crossing at col8 — the SILT band's top at col8 is the bridge value (≈6.31),
+  // NOT col9's flat top (6.48). A full-width smear (the band ignoring col8, flat at the
+  // deep neighbour's elevation) is the defect this gate forbids.
+  //
+  // Assertion: for every sub-TD jump-bridge crossing col8 below its TD, the region
+  // coverage boundaries at col8 (fraction≈0 of gap8 AND fraction≈1 of gap7) must include
+  // the bridge crossing elevation within 5 cm — i.e. the fill tapers to the intersect,
+  // never smears the deep column's contact across col8 (a ≥15 cm miss on this geometry).
+  // ---------------------------------------------------------------------------
+  it('cs1subtdanchor — sub-TD bands anchor at the band∩column intersect at col8 (ruling 8n)', () => {
+    const { cols, byGap, alongM, raw } = runCs1()
+    // Locate col8 by name (the shallow 2-unit intervening column) so the gate is
+    // robust to column reordering; fall back to the index-8 TD signature.
+    const col8Idx = cols.findIndex(
+      (c) => c.units.length === 2 && Math.min(...c.units.map((u) => c.surfaceElevM - u.baseDepthM)) > 5,
+    )
+    expect(col8Idx, 'shallow 2-unit col8 not found').toBeGreaterThanOrEqual(0)
+    const td8 = Math.min(...cols[col8Idx].units.map((u) => cols[col8Idx].surfaceElevM - u.baseDepthM))
+    const along = alongM ?? cols.map((_, i) => i)
+    const x8 = along[col8Idx]
+
+    // Every jump-bridge (non-adjacent same-formation tie) crossing col8 below its TD.
+    // A layerId → {colIdx, contact elevs} map resolves each edge endpoint to a contact.
+    const loc = new Map<string, { ci: number; topE: number; baseE: number }>()
+    cols.forEach((c, ci) =>
+      c.units.forEach((u) =>
+        loc.set(u.layerId, {
+          ci,
+          topE: c.surfaceElevM - u.topDepthM,
+          baseE: c.surfaceElevM - u.baseDepthM,
+        }),
+      ),
+    )
+    const crossings: { crossElev: number; label: string }[] = []
+    for (const e of raw.edges) {
+      const la = loc.get(e.a)
+      const lb = loc.get(e.b)
+      if (!la || !lb) continue
+      if (Math.abs(la.ci - lb.ci) < 2) continue // adjacent — ordinary tie, not a bridge
+      const loLoc = la.ci < lb.ci ? la : lb
+      const hiLoc = la.ci < lb.ci ? lb : la
+      if (loLoc.ci > col8Idx || hiLoc.ci < col8Idx) continue // must span col8
+      const loSide = (la.ci < lb.ci ? e.aSide : e.bSide) ?? 'top'
+      const hiSide = (la.ci < lb.ci ? e.bSide : e.aSide) ?? 'top'
+      const loE = loSide === 'base' ? loLoc.baseE : loLoc.topE
+      const hiE = hiSide === 'base' ? hiLoc.baseE : hiLoc.topE
+      const loX = along[loLoc.ci]
+      const hiX = along[hiLoc.ci]
+      if (Math.abs(hiX - loX) < 1e-9) continue
+      const t = (x8 - loX) / (hiX - loX)
+      const crossElev = loE + t * (hiE - loE)
+      if (crossElev < td8 - 0.01) crossings.push({ crossElev, label: `${loLoc.ci}->${hiLoc.ci}` })
+    }
+    expect(crossings.length, 'no sub-TD bridges cross col8 — geometry changed').toBeGreaterThan(0)
+
+    // All region-boundary elevations present at col8 (gap7 far side f≈1 + gap8 near side f≈0).
+    const boundElevs: number[] = []
+    for (const [gi, side] of [
+      [col8Idx - 1, 0.99] as const,
+      [col8Idx, 0.01] as const,
+    ]) {
+      for (const r of byGap.get(gi) ?? []) {
+        for (const [lo, hi] of coveredIntervals(r.polygon, side)) {
+          boundElevs.push(lo, hi)
+        }
+      }
+    }
+    // Each sub-TD bridge crossing must appear as a fill boundary AT col8 within 5 cm —
+    // proving the fill tapers to the intersect (anchored), never smearing the deep
+    // neighbour's flat contact across the shallow column.
+    const misses: string[] = []
+    for (const c of crossings) {
+      const nearest = boundElevs.reduce((m, e) => Math.min(m, Math.abs(e - c.crossElev)), Infinity)
+      if (nearest > 0.05) {
+        misses.push(`bridge ${c.label} crossElev=${c.crossElev.toFixed(2)} nearest boundary Δ=${nearest.toFixed(2)}m`)
+      }
+    }
+    if (misses.length > 0) {
+      // eslint-disable-next-line no-console
+      console.info('[V2-CS1-SUBTD-ANCHOR] col8 non-anchored bridge crossings:\n  ' + misses.join('\n  '))
+    }
+    expect(misses, `sub-TD bands not anchored at col8 band∩column intersect:\n${misses.join('\n')}`).toEqual([])
+  })
+
+  // ---------------------------------------------------------------------------
   // GATE: cs1lensdisjoint — no lens overlaps a DIFFERENT-formation region by > 1 cm
   // in any gap of any of the 14 sections (ported from
   // partitionFill.cs1lensdisjoint.test.ts — the all-sections sweep).

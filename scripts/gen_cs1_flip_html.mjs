@@ -183,14 +183,34 @@ parts.push(`<g class="gapbands">${hoverG.join('')}</g>`)
 
 // ---- REGION FILL — the ACTUAL partition output (owner ask 2026-07-18: paint the polygons,
 // not just the line art). Drawn UNDER the column glyphs + ties so the line structure stays
-// readable on top. Each region is stroked with its OWN fill colour (the app's anti-hairline
-// fix) so adjacent fills don't show antialiasing seams. Toggle: "fill" (default ON).
+// readable on top.
+//
+// VISUAL LANGUAGE MATCHES THE APP EXACTLY (owner ask 2026-07-18: "draw the lenses exactly as
+// in the app, it's hard to judge because they are not the same"). The single source of truth
+// is PartitionFillOverlay.tsx's region <path>:
+//   - fill      = region.formationId → lithology colour (same LITHO_COLOR table).
+//   - fillOpacity = 0.62 for a normal region (FILL_OPACITY), 0.85 for a LENS
+//     (LENS_OPACITY — "drawn a touch more solid so it reads as a unit CUT OUT of the
+//     continuous matrix it sits on, not a faint wash").
+//   - stroke    = the region's OWN fill colour (self-colour anti-hairline seam), at the
+//     SAME opacity as the fill (strokeOpacity = fillOpacity), strokeWidth 0.75,
+//     stroke-linejoin round (no miter spikes on sharp pinch/lens tips). This is the
+//     app's exact 2026-07-13 seam-stroke convention — NOT a darker outline.
+// The old walkthrough used a flat 0.55/0.8 for every region, so lenses read identically to
+// bands; the owner couldn't tell a lens apart from a band. Now a lens is visibly more solid
+// with the app's round-joined self-colour tip, matching the on-screen render 1:1.
+const APP_FILL_OPACITY = 0.62 // PartitionFillOverlay FILL_OPACITY
+const APP_LENS_OPACITY = 0.85 // PartitionFillOverlay LENS_OPACITY
 const fillG = []
 for (const r of d.regions ?? []) {
   if (!r.poly || r.poly.length < 3) continue
   const dstr = r.poly.map((p, i) => `${i === 0 ? 'M' : 'L'}${fmt(sx(p[0]))},${fmt(sy(p[1]))}`).join(' ') + ' Z'
   const col = lithoColor(r.litho)
-  fillG.push(`<path d="${dstr}" fill="${col}" fill-opacity="0.55" stroke="${col}" stroke-width="0.8"><title>${esc(r.litho)} (${esc(r.kind)}) g${r.gapIndex}</title></path>`)
+  const op = r.kind === 'lens' ? APP_LENS_OPACITY : APP_FILL_OPACITY
+  fillG.push(
+    `<path d="${dstr}" fill="${col}" fill-opacity="${op}" stroke="${col}" stroke-opacity="${op}" ` +
+      `stroke-width="0.75" stroke-linejoin="round"><title>${esc(r.litho)} (${esc(r.kind)}) g${r.gapIndex}</title></path>`,
+  )
 }
 parts.push(`<g class="layer-fill">${fillG.join('')}</g>`)
 
@@ -382,6 +402,8 @@ const legendRows = [
   [`<span style="color:${PHASE_COLOR[2]}">●━②━●</span> Generated tie ②`, 'onlap contour for a 1-corr unit-side, riding its drawn tie (also a generated correlation tie — closes the loop)'],
   [`<span style="color:${PHASE_COLOR[3]}">━▶③</span> Phase 3`, PHASE_NAME[3]],
   ['<span style="color:#f87171">⚠</span> / <span style="color:#34d399">✓</span>', 'known residual violation / newly fixed by the 8h sweep this session'],
+  ['<span style="display:inline-block;width:16px;height:11px;background:#a3e635;opacity:0.62;border:1px solid #a3e635;vertical-align:middle"></span> band fill', 'a normal region (matched band / quad / onlap) — fill-opacity 0.62, same as the app (FILL_OPACITY)'],
+  ['<span style="display:inline-block;width:16px;height:11px;background:#a3e635;opacity:0.85;border:1px solid #a3e635;border-radius:2px;vertical-align:middle"></span> LENS fill', 'an enclosed/pinch lens — fill-opacity 0.85 (more SOLID, cut out of the matrix), round-joined self-colour tip — drawn EXACTLY as PartitionFillOverlay (owner ask 2026-07-18)'],
 ]
 const lithoLegend = Object.entries(LITHO_COLOR)
   .map(([k, v]) => `<span style="display:inline-block;margin-right:12px"><span style="display:inline-block;width:14px;height:14px;background:${v};vertical-align:middle;border:1px solid #0f172a"></span> ${k}</span>`)

@@ -3764,3 +3764,66 @@ cleanup with a fresh byte-neutral re-measure required first.
 - STUBS to delete (orchestrator rm): `partitionFillV2.throwaway_s28_faces.diag.test.ts`,
   `partitionFillV2.throwaway_s28_holesON.diag.test.ts`, `partitionFillV2.throwaway_s28_items.diag.test.ts`,
   `partitionFillV2.throwaway_s28_gapx.diag.test.ts`. Plus ALL prior-session stubs still pending.
+
+## §34 — Session 29: RULING 8n STAGE C (sub-TD, items 6+7) ALREADY-CORRECT + gate ADDED · STAGE E render lens parity SHIPPED
+
+Test execution WORKS via Bash (`npx vitest`, `HOLES_DIAG=1`/`CS1_GATE=1`/`SHAPE_AUDIT=1` env-prefix,
+`npx tsc --noEmit -p tsconfig.web.json`). `node scripts/*.mjs` + reading committed dumps WORKS.
+DENIED: env-var names OUTSIDE the allowlist (`SUBTD_DIAG` bounced — reused `HOLES_DIAG`), some
+multi-clause `node -e` one-liners (rephrased with `.filter`/`.some`). No PowerShell needed.
+
+### STAGE C — THE SUB-TD CONSTRUCTION IS ALREADY IMPLEMENTED (measured, not assumed)
+§33 flagged CS1 gap8's "full-width SILT `el[2.51..6.48] f[0..1]`" as an UNFIXED sub-TD smear — but
+that was a MIS-READ of the fmin/fmax elevation-RANGE summary. The actual polygon
+`(0,6.31)(0,3.31)(1,2.51)(1,6.48)` TAPERS: at col8 (f≈0) it anchors at el[3.31..6.31], at col9 (f≈1)
+at the real contacts el[2.51..6.48]. TAPER-CHECK (coverage at f): col8=[3.3,6.32] vs col9=[2.53,6.48].
+This IS the owner's ruling-8n construction ("intersect band∩column, extrapolate L/R, fill above and
+below") — the existing `emitSubstrateBridges` samples each jump tie at every intervening column x,
+so the band∩col8 intersect (SILT bridge col7 5.96→col9 6.48 crosses col8 at 6.31; ZAND bridge at
+2.11; KLEI-top at 3.31/-3.35; KLEI-base at -10.12) IS the anchor, and the two bracketing gaps connect
+through it. **CS1 col8 (GEO-10/170-S8, along 456.07, TD 9.29, 2 units ZAND/SILT) between deep col7
+(TD -9.85) and col9 (TD -10.25): every sub-TD band anchors correctly. Items 6+7 sub-TD = SATISFIED.**
+Flag-ON holes 20/0/0 (all above-TD CS2-g17), sub-TD holes 0, overlaps 0 — unchanged from §33.
+
+### STAGE C — PERMANENT GATE ADDED (proven RED-first with teeth), NO engine change
+`partitionFillV2.cs1gates.diag.test.ts` (+1 gate, now 8/8): **`cs1subtdanchor`** — locates the shallow
+2-unit col8, computes every jump-bridge crossing it below TD (the band∩column intersect), and asserts
+each crossing appears as a fill-boundary elevation AT col8 (gap7 f≈1 + gap8 f≈0) within 5 cm. GREEN on
+current engine. **RED-PROOF:** temporarily swapping the crossing to the deep neighbour's FLAT elevation
+(the smear value: SILT 6.48 not 6.31) → RED with Δ=0.17m (17 cm ≫ 5 cm tol) on 4 bridges — proving the
+fill anchors at the true intersect, NOT a full-width smear, and the gate distinguishes the two states.
+Reverted to the interpolated crossing after the proof. (No engine edit — this is a regression LOCK on
+the already-correct bridge behaviour; a RED-first *new-behaviour* gate was impossible because the
+behaviour already exists — CLAUDE.md TDD rule: passes-on-first-run = behaviour present, work unneeded.)
+
+### STAGE E — RENDER LENS PARITY SHIPPED (walkthrough tooling only, app untouched)
+`scripts/gen_cs1_flip_html.mjs` region-fill block now mirrors `PartitionFillOverlay.tsx`'s region
+`<path>` EXACTLY (the app's single source of truth): fill = litho colour; **fill-opacity 0.62 for a
+band/quad/onlap (FILL_OPACITY), 0.85 for a LENS (LENS_OPACITY — "more solid, cut out of the matrix")**;
+self-colour stroke at `stroke-opacity = fill-opacity`, `stroke-width 0.75`, `stroke-linejoin round`.
+Was a flat 0.55/0.8 for every region → lenses read identically to bands (owner: "hard to judge because
+they are not the same"). Legend gains a band-swatch vs LENS-swatch row. Verified: `node gen_cs1_flip_html.mjs`
+clean against the committed `diag_cs1_flip_walkthrough.json` → 14 lens paths @0.85 + 248 band paths @0.62
+(14 matches the 14 `(lens)` titles); CS2 variant (`diag_crosssection2_flip_walkthrough.json`) also clean.
+The app component that DEFINES the language = `PartitionFillOverlay.tsx` lines 222/225 (constants) +
+1674/1683-1704 (the region `<path>` render). App READ-ONLY, unchanged.
+
+### ITEM 8 (x=646.74 facing-fill semantics) — NOT TOUCHED (awaiting owner answer, per mission).
+
+### MUST-NOT-REGRESS (all re-verified GREEN this session)
+CS1 gates **8/8** (7 prior + new cs1subtdanchor) · conformance flag-OFF pass · flag-ON holes **20/0/0** ·
+flag-OFF holes **0/0/0** byte-identical · gap0HostSplit/edgedAnnulus/followTieOnlap **7/7** · lensAudit
+MISSING **0** all sections · **tsc clean** · full utils **1 failed (`convergingStack (a)` pre-existing) /
+783 passed / 25 skipped** (25 = 23 baseline + the 2 new throwaway diags skipping cleanly).
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2.cs1gates.diag.test.ts` (EDITED) — `cs1subtdanchor` gate added (8th). NOTE: file now
+  529 lines (>500 hook warning, debt #201 god-component pressure — a test file of ported CS1 gates;
+  extraction deferred, consistent with its siblings).
+- `scripts/gen_cs1_flip_html.mjs` (EDITED, throwaway tooling) — app-matched lens/band fill opacity +
+  self-colour round-joined stroke + legend swatches.
+- STUBS to delete (orchestrator rm): `partitionFillV2.throwaway_s29_subtd.diag.test.ts`,
+  `partitionFillV2.throwaway_s29_holesON.diag.test.ts`. Plus ALL prior-session stubs still pending
+  (s28 four + earlier).
+- Regenerated (orchestrator may re-dump via CS1_FLIP=1 — env DENIED for me): `cs1_flip_walkthrough.html`,
+  `crosssection2_flip_walkthrough.html` written from the EXISTING committed dumps (no model change).
