@@ -3210,3 +3210,163 @@ CS1_FLIP allowed) must regenerate ``partitionFillV2.cs1flip_walkthrough.diag.tes
 4. Cutover-ready: OWNER DOGFEED (the CS1 g21 interbeds now band cleanly) → T2/T4 fill rebuild → flip
    default ON → strip throwaway diag + the seam ``tileInterval`` body → v2 frozen snapshot.
    ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
+
+## §28 — Session 25: T4 SAME-FORMATION MATRIX-RUN SUPPRESSION SHIPPED (2 of 3 synthetics GREEN, zero real-data impact); T2/T3 = annulus wall re-confirmed; convergingStack(a) = lens-in-terminating-matrix wall
+
+Session 25 targeted the remaining walls after §24's checkpoint (flag-ON holes 20 [all CS2 g17],
+overlaps 0, LENS_AUDIT MISSING 0, 3 inherited synthetic reds). ONE clean, flag-ON-only,
+zero-real-data-impact win landed (T4 matrix-run suppression → coherentStack(b) + coherentLoneStack
+GREEN). T2 (CS2 g17) and T3 (col18 host-split) were re-confirmed as the SAME per-gap-annulus wall
+(two more measured-negative constructions added to the ledger). convergingStack(a) was root-caused to
+a DISTINCT lens-in-a-terminating-onlap-host mechanism (a bounded clamp attempt was built, measured
+non-working, and reverted — the correct clamp needs the host's onlap geometry threaded into the
+enclosed-lens carrier = the same multi-day annulus-in-terminating-matrix rebuild as T2/T3). Test
+execution WAS permitted this run. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY; no git ops.
+
+### THE WIN — T4 same-formation matrix-run suppression (``emitTerminationSweep.ts``, flag-ON only)
+
+ROOT (§18/§27 T4, confirmed on the synthetic probes): a corr-1 unit that is part of a SAME-FORMATION
+vertical run (its immediate same-column neighbour above OR below shares its formation — a run split
+only by an EDGED contact, since ``collapseAdjacentSameFormation`` already merged un-edged adjacencies)
+is an enclosing MATRIX continuation, NOT a terminating minority. Drawing its onlap emits a flood WEDGE
+labelled with the FACING minority litho (``facingMatrixLabel`` at the unit's mid-elev), which MISLABELS
+the through-going matrix full-width. Measured concretely: coherentLoneStack ``rKleiMid`` and
+coherentStack(b) ``rKm`` (a KLEI matrix reading full-width ZAND via ``floodsw`` — ``zandMaxF=1``).
+
+THE FIX: a new guard ``if (c === 1 && matrixRunNeighbour(col, ui)) continue`` in ``emitSideSweep``,
+right after the ``isBandMember`` emergent-band skip. ``matrixRunNeighbour`` = the unit's above OR below
+same-column neighbour shares its formation. The enclosing flood already fills such a matrix full-width
+(same formation, continuous across the edged contact) and the 8j ``mergeTouchingBodies`` welds the run
+into one body — so the correct render is NO sweep termination (exactly like the corr-2 band-member
+skip). Corr-0 is unaffected (its own ``isMinorityWide`` same-formation gate already floods a
+same-formation-neighbour unit).
+
+MEASURED (one-run OFF/ON battery, real 14 sections + the synthetics):
+| metric | flag OFF | flag ON (before) | flag ON (after T4) |
+|---|---|---|---|
+| holes above / sub TD | 0 / 0 | 20 / 0 | **20 / 0** (UNCHANGED — CS2 g17 only; fires on ZERO real intervals) |
+| different-litho overlaps | 0 | 0 | **0** |
+| conformance 0/1/2 (flag-OFF gate) | 5/5/0=10 | — | **5/5/0=10** (byte-identical) |
+| LENS_AUDIT present / MISSING / boundaryResidual | — | 29 / 0 / 0 | **29 / 0 / 0** |
+
+* **Flag OFF BYTE-IDENTICAL** — the whole sweep runs only under ``twoSidedTerminationsEnabled`` (the
+  guard is inside it). Flag-OFF holes 0/0/0, conformance 5/5/0=10, CS1 gates 7/7, v1 102 pass/7 skip.
+* **coherentStack(b) + coherentLoneStack synthetic reds → GREEN** (verified). The 3 inherited reds are
+  now **1** (convergingStack(a) remains — a DIFFERENT mechanism, below).
+* **Fires on ZERO real intervals** (measured): no real corr-1 unit has a surviving same-formation
+  adjacency (real same-formation runs either collapse or read corr-2 band member). Flag-ON holes,
+  overlaps, LENS_AUDIT, conformance all UNCHANGED from the §24 checkpoint.
+* Full utils suite: **1 failed / 780 passed / 31 skipped** (was 3 failed / 778 passed). tsc clean.
+
+### T2 — CS2 g17 (20 holes): the SLOPING-ENCLOSURE wall = the per-gap ANNULUS wall (re-confirmed)
+
+Root-caused precisely (throwaway probes ``throwaway_s25probe/regions/edged/tie``): the LEFT col17
+``Lu6 SILT[-5.010..-4.191]`` is a same-formation-enclosed minority (ZAND ``Lu5`` above, ZAND ``Lu7``
+below) BUT it is EDGED — a real SILT-SILT top tie to col16 (gap16, NOT gap17). So in gap17 it is
+genuinely 0-corr and the sweep emits it as a LENS + a flat ``emitFloodWedge`` ZAND wedge; the enclosing
+ZAND band base SLOPES (``bandc190`` (455.94,-4.191)→(458.37,-5.247)), so the flat wedge leaves a
+linearly-growing sliver (779.9 mm at f=0.02 shrinking to 0 near f≈0.42) between the flat wedge and the
+sloping band base. ``emitEnclosingFlood.enclosingFormationAt(left, midElev)`` returns SILT (the live
+``Lu6``) → a mismatched midpoint seam → mis-fill. The hole-free render REQUIRES the SILT to be an
+enclosed-lens HOLE in a CONTINUOUS ZAND annulus (its outer boundary = the sloping band contours = line
+art, slope handled by construction) — but the annulus needs the SILT SPLICED out of the column, which
+DROPS its gap16 SILT-SILT tie (the ``extractEnclosedLenses`` edged-lens guard).
+
+TWO measured-negative constructions this session (added to the ledger):
+1. **``SLOPING_RIDE_ENABLED`` re-flip** (the flood-wedge ``ridePolyline`` riding the sloping band base):
+   flag-ON holes 20 → **180 + 10 overlaps** (the mid-vertex makes the wedge non-simple — the same
+   +509 self-cross the §16/§19 kill-switch documents; re-confirmed on the §24 state). REVERTED.
+2. **``ENABLE_EDGED_LENS_MERGE``** (allow ``extractEnclosedLenses`` to merge the ZAND annulus even when
+   the LENS itself is edged, splicing the SILT): flag-ON holes 20 → **CS1 g5 +4365 mm hole + 10
+   overlaps + CS2 g4 new holes + 16 overlaps** (the predicted gap16-band-collapse + broader blast
+   radius). REVERTED, byte-restored.
+
+T2 is the SAME per-gap-annulus / notch-splitter-at-holes=0 wall as T3 and the sessions-5/8/9/22/24
+edged-enclosed class (``splitAnnulus`` fires only on holes>0; a notch on the column edge is holes=0;
+the merge that would make it interior breaks the tied gap). ``intersect.ts``-adjacent (the forbidden
+613-hole trap). Per the mission's "characterise + stop, do NOT re-add a threshold/heuristic" — T2 stays
+the ONE remaining above-TD hole wall (20, CS2 g17), threshold/merge NOT toggled. It is the multi-day
+``emitEnclosingFlood``/annulus rebuild.
+
+### T3 — col18 host-split (literalCorr (c)/(d) ``describe.skip``): NOT ATTEMPTED (same annulus wall)
+
+Ruling 8l is SETTLED (col18 three clays = 1/0/1, middle lenses both ways) — no rule question. The
+engineering is the SAME per-gap-annulus wall: the middle KLEI must be a hole in the enclosing KLEI
+annulus while the top/bottom clays keep their real ties (the §22 +104-overlap measured negative — the
+naive host-split rides the column edge at holes=0). The session-24 edged-below annulus MERGES (opposite
+direction); it does not expose the split pieces to the sweep. Un-skipping (c)/(d) needs the same
+notch-splitter/annulus rebuild as T2. NOT ATTEMPTED (would need the forbidden ``intersect.ts``-adjacent
+mechanism or a fresh construction beyond this session's measured scope).
+
+### convergingStack(a) — the 3rd synthetic red: LENS-IN-A-TERMINATING-ONLAP-HOST (distinct wall)
+
+Root-caused (throwaway ``throwaway_s25synth3``): the VEEN interbed [el4.7..5.3] is enclosed by KLEI
+above+below → extracted as an enclosed lens (matrix KLEI[el4..6]). BUT the host KLEI[el4..6] is ITSELF
+a corr-1 ONLAP (its base el4 rides the ZAND top tie; SILT above / ZAND below, mixed → it onlaps toward
+the facing, apex (0.5,4.5)). The enclosed-lens carrier assumes the matrix is a CONTINUOUS full-width
+band; here the host TERMINATES, so the VEEN's 8b reach (0.45) pokes PAST the host's descending onlap
+top flank (at el5 the KLEI onlap flank is only x=0.333) → the VEEN pokes out of its host into the
+neighbour and its face is ABSORBED. This does NOT contradict any §8 ruling (8i(e): the VEEN should
+lens) — it is a genuine engine GAP.
+
+ATTEMPT (measured non-working, REVERTED, ledger): ``matrixPinchClampFrac`` in ``emitLenses.emitOne`` —
+detect a terminating-minority host (mixed same-column neighbours + facing carries a different litho)
+and clamp the child reach with ``fitLensReach`` against the host's own [top,base] wedge. Did NOT fire
+correctly: the host's wedge model (converging to the host MID el5 on the facing) is WRONG — the host
+is a base-tied ONLAP converging to its BASE tie (el4), so its top flank descends to the onlap apex
+(el4.5), NOT to the host mid. The correct clamp (I traced it: 0.225 fits) needs the host's ACTUAL onlap
+apex + tie geometry threaded into the enclosed-lens carrier — i.e. reproducing the sweep's onlap
+geometry inside ``emitLenses``. That couples the enclosed-lens carrier to the sweep = the same
+multi-day annulus-in-terminating-matrix rebuild as T2/T3. ``emitLenses.ts`` byte-RESTORED (the clamp +
+its helper + the ``fitLensReach``/``tileFlags`` imports + the ``el``/``facing`` threading all reverted).
+
+### T5 — Tie-10 / Tie-12 absorbed-face labelling: NO NEW RESIDUAL
+
+Flag-ON on both: LENS_AUDIT 0/0 (MISSING 0), holes 0 (per the scan). Their FLAG-OFF conformance rows
+(Tie-10 1corr/0corr, Tie-12 1corr) are the pre-existing ruling-8 untied same-formation full-widths —
+owner-tie residual, gate-correct, NOT engine defects (§18/§27 triage). The T4 matrix-run suppression is
+flag-ON only and fires on zero real intervals, so it introduced no Tie-10/Tie-12 change. UNCHANGED.
+
+### The measured-negative ledger (session-25 additions)
+
++180/+10ovl (``SLOPING_RIDE_ENABLED`` re-flip, T2 wedge ride — re-confirms the §16/§19 self-cross) ·
+CS1 g5 +4365 mm + CS2 g4 new holes + 26 overlaps (``ENABLE_EDGED_LENS_MERGE``, T2 edged-lens splice —
+gap16-band-collapse) · ``matrixPinchClampFrac`` with the wrong (host-mid) wedge model (convergingStack(a)
+— no-op, needs the host's onlap geometry). All reverted, byte-restored.
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — the ONE shipped change: ``matrixRunNeighbour``
+  helper + the ``c === 1 && matrixRunNeighbour`` matrix-run suppression, flag-ON only. Doc-cited to
+  §18/§27 T4). The ONLY engine change this session.
+* ``partitionFillV2/emitFloodWedge.ts`` — BYTE-RESTORED (``SLOPING_RIDE_ENABLED`` re-flip reverted).
+* ``partitionFillV2/sectionGeom.ts`` — BYTE-RESTORED (``ENABLE_EDGED_LENS_MERGE`` experiment reverted).
+* ``partitionFillV2/emitLenses.ts`` — BYTE-RESTORED (the ``matrixPinchClampFrac`` clamp reverted).
+* STUBS to delete (orchestrator ``rm``): ``partitionFillV2.throwaway_s25scan.diag.test.ts`` (the flag-ON
+  monotonic-decrease scan — regenerate with HOLES_DIAG=1), ``partitionFillV2.throwaway_s25probe.diag.test.ts``,
+  ``partitionFillV2.throwaway_s25regions.diag.test.ts``, ``partitionFillV2.throwaway_s25edged.diag.test.ts``,
+  ``partitionFillV2.throwaway_s25tie.diag.test.ts``, ``partitionFillV2.throwaway_s25synth.diag.test.ts``,
+  ``partitionFillV2.throwaway_s25synth2.diag.test.ts``, ``partitionFillV2.throwaway_s25synth3.diag.test.ts``.
+  Any §19-§24 stubs still pending rm.
+
+### Verification snapshot (end of session 25)
+
+* **flag OFF (default): BYTE-IDENTICAL to the §24 checkpoint** — conformance 5/5/0=10, holes 0/0/0,
+  overlaps 0, CS1 gates 7/7, v1 102 pass/7 skip, tsc clean.
+* **flag ON: holes 20/0 (CS2 g17 T2 wall ONLY, UNCHANGED), overlaps 0, LENS_AUDIT 29/0/0** — the T4
+  suppression fires on zero real intervals; nothing regressed.
+* **Synthetic reds: 3 → 1** (coherentStack(b) + coherentLoneStack GREEN; convergingStack(a) remains).
+  Full utils suite: 1 failed / 780 passed / 31 skipped. tsc clean.
+
+### Next steps (session 26 / orchestrator)
+
+1. **The ``emitEnclosingFlood``/annulus rebuild** — the ONE remaining engine work that unblocks ALL
+   three remaining fronts hole-free: T2 (CS2 g17 sloping-enclosed edged minority → annulus hole in the
+   sloping ZAND band), T3 (col18 host-split → middle KLEI as an annulus hole keeping the flank ties),
+   and convergingStack(a) (the child lens clamped inside a terminating-onlap host). All three are the
+   same per-gap-annulus / lens-in-a-terminating-matrix class the design §4 flags as the multi-day
+   increment. ``intersect.ts``-adjacent — high risk, budget as the design's multi-day increment; guard
+   holes 0/0 + overlaps 0 + CS1 7/7 + the T4 win every step.
+2. Cutover-ready: OWNER DOGFEED (the T4 same-formation matrix runs now merge cleanly; the CS1 g21
+   interbeds band) → the annulus rebuild → flip default ON → strip throwaway diag + the seam
+   ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.

@@ -218,6 +218,22 @@ function emitSideSweep(
     // This suppression is DECOUPLED from the corr count — the arithmetic stays literal everywhere
     // else (lens audit, conformance, genuine lone/derived onlaps), only matched-pair MEMBERS skip.
     if (isBandMember(bands, side, ui)) continue
+    // SESSION-25 T4 — SAME-FORMATION MATRIX-RUN SUPPRESSION (ruling 8g(a) flow-around + 8j merge).
+    // A corr-1 unit whose IMMEDIATE same-column neighbour (above OR below) is the SAME formation is
+    // NOT a terminating minority — it is one enclosing MATRIX run split only by an EDGED contact (a
+    // tie landing at that shared contact; ``collapseAdjacentSameFormation`` already merged any
+    // un-edged same-formation adjacency, so a surviving same-formation adjacency means an internal
+    // correlation split it). Drawing its onlap emits a flood WEDGE labelled with the FACING minority
+    // litho (``facingMatrixLabel`` at the unit's mid-elev), which MISLABELS the through-going matrix
+    // full-width (the §18/§27 T4 defect: coherentLoneStack rKleiMid / coherentStack(b) rKm — a KLEI
+    // matrix reading full-width ZAND). The enclosing flood already fills this matrix full-width (same
+    // formation, continuous across the edged contact) and the 8j ``mergeTouchingBodies`` welds the
+    // run into one body, so the correct render is NO sweep termination here — exactly like the
+    // corr-2 band-member skip. Corr-0 is unaffected (its own ``isMinorityWide`` same-formation gate
+    // already floods a same-formation-neighbour unit). This fires on ZERO real intervals (measured):
+    // no real corr-1 unit has a surviving same-formation adjacency (real same-formation runs either
+    // collapse or read corr-2 band member). Gated inside the flag-ON sweep, so flag-OFF is untouched.
+    if (c === 1 && matrixRunNeighbour(col, ui)) continue
     // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job (its
     // M-in-M annulus + bridge guards are the safe sub-TD wall; the sweep defers so no double
     // emit). Ruling 8i(e) "everything must lens" is honoured THERE (Part D relaxes its run-trim).
@@ -296,6 +312,26 @@ function emitSideSweep(
       out,
     )
   }
+}
+
+/**
+ * SESSION-25 T4 — whether a unit is part of a SAME-FORMATION vertical run (its immediate
+ * same-column neighbour above OR below shares its formation). After ``collapseAdjacentSameFormation``
+ * any surviving same-formation adjacency was split by an EDGED contact (an internal correlation
+ * tie), so such a pair is ONE enclosing MATRIX run — the enclosing flood fills it full-width and the
+ * 8j post-fill merge welds it into one body. A corr-1 unit in such a run must take NO sweep
+ * termination (its onlap's flood wedge would mislabel the through-going matrix with the facing
+ * minority litho — the §18/§27 lone-stack full-width defect). Returns ``true`` when a same-formation
+ * neighbour exists on either side.
+ */
+function matrixRunNeighbour(col: ColumnGeom, ui: number): boolean {
+  const self = col.units[ui]
+  const above = ui > 0 ? col.units[ui - 1] : null
+  const below = ui + 1 < col.units.length ? col.units[ui + 1] : null
+  return (
+    (above !== null && above.formationId === self.formationId) ||
+    (below !== null && below.formationId === self.formationId)
+  )
 }
 
 /**
