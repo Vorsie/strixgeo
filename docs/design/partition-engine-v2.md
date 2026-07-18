@@ -385,6 +385,29 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8n. **THE FILL IS THE FACE-FILL OF THE LINE ART — paint the polygons the
+   lines already bound (owner, 2026-07-18, dogfeeding the first painted
+   fill render: "You litterally have every line and point correct now.
+   You just need to take all the points which make up the polygon and
+   fill the area inside that polygon?").** The line structure (columns,
+   contacts, drawn/derived/bridge ties, lens flanks, onlap flanks,
+   surface, TD floor) is CORRECT and COMPLETE; every fill defect in the
+   dogfeed round was the fill NOT following those lines — regions
+   spilling past an onlap flank, wedges absorbed into the neighbour,
+   interval brackets diverging from the drawn geometry. The fill must be
+   the pure paint-bucket of the arrangement faces: every closed polygon
+   bounded by the emitted line art is one region, its label the unit
+   whose line art bounds it (an onlap/lens wedge carries the TERMINATING
+   unit's litho up to its apex, and NOT ONE POINT PAST IT — "the second
+   silt from the top has an onlap which is correct but it fills all the
+   way to the test to the right (if the user wants this then he has to
+   draw a correlation from the top of that silt to the bottom of the
+   clay on the next test)"). Sub-TD fill at a column (the 456.07 case,
+   owner verbatim): "take the intersect of the correlation band and the
+   column and extrapolate that point to the left of the column and the
+   right of the column. that way you have 2 points one on each side
+   through which you can connect and fill above and below." No interval
+   reconstruction may override a face the line art already closes.
 8m. **THE 8i SAME-LITHO ONLAP SUPPRESSION IS RESTORED, in its correct
    follow-the-tie form (owner, 2026-07-17, dogfeeding the x=23.45 5th
    silt: "restore it — just add a lithology check before drawing").**
