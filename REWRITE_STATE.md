@@ -3474,3 +3474,107 @@ why it cannot proceed without the battery.
 3. edgedAnnulus (CS1-g21) MUST stay green throughout — if the construction retires the s24
    edged-below merge, g21's interbeds must stay hole-free by the new mechanism (the coupling to
    sever carefully).
+
+## §31 — Session 26 (third dispatch): STEP 0 done (gap0 gate RED), 8a-tied-interbed diagnosis
+
+Test-execution permission WORKS this run via the Bash tool (PowerShell is denied; Bash `npx tsc`/
+`npx vitest` run clean). Full baseline re-verified: flag-OFF holes 0/0/0, CS1 gates 7/7, edgedAnnulus
+green, literalCorr 2/2skip, lensAudit MISSING 0, full utils suite 1 failed (convergingStack (a)) /
+780 passed / 24 skipped, tsc clean.
+
+### STEP 0 — the permanent gap0 gate SHIPPED + verified RED (mission acceptance case #1)
+
+`partitionFillV2.gap0HostSplit.test.ts` (real-data, flag-ON, real CS1 gap0). Three assertions in
+rule vocabulary: (A) SILT band covers mid-gap silt interior (2.97 @ f=0.5); (C) NO ZAND covers that
+interior (no full-width ZAND flood); (B) a ZAND onlap wedge exists in the upper-left [3.07..3.52]
+with bounded reach (< full width). **ALL 3 RED against the current engine** (verified before any
+fix). SILT ids: 2e06; ZAND ids: d1bc (full: 019e940a-4b4e...2e06 / 019e940a-4b41...d1bc). tsc clean.
+
+### CS1 gap0 exact geometry (flag-ON, current WRONG shape — polygons dumped)
+
+- `f=2e06 lens body=63e517` — col0 SILT enclosed lens, triangle (0,3.07)(0,2.27)(0.022,2.67) hugging col0.
+- `f=d1bc quad body=08354d` — the MERGED d1bc host flood: (0,2.27)(0,1.73)(1,0.71)(1,2.87)(0,3.52)
+  (0,3.07)(0.022,2.67) — full-width d1bc, notched only by the silt lens.
+- `f=2e06 quad body=b86fc0` — col1 SILT [2.87..3.79] onlapping LEFT: triangle (1,3.79)(0,3.52)(1,2.87).
+
+So the col1 SILT already reaches full-width-ish (onlap apex at col0 3.52); the col0 SILT is a separate
+tiny lens; the d1bc floods the interior. Expected: the two SILTs = ONE band; the upper d1bc [3.07..3.52]
+onlaps; d1bc does NOT flood [2.87..3.52].
+
+### The narrower construction being tried (NOT the naive un-merge — that was §25's +104 negative)
+
+ROOT: col0 SILT (lid ...3a0be1, base el2.27) is enclosed by d1bc above+below → `extractEnclosedLenses`
+MERGES it to a lens. BUT its BASE contact (2.27) coincides with the `2.27<->2.87` ZAND-tops tie
+endpoint (col0 u5 d1bc top el2.27, lid ...3499c1) — so under ruling 8a the SILT is effectively
+BASE-TIED (shares the tied contact) → corr 1 → it must BAND (emergent, with col1's real SILT), NOT be
+an enclosed lens. KEY DIFFERENCE from col18 (§25/§30 T3 wall): col18's middle clay is a TRUE 0-corr
+lens-in-continuous-matrix (both contacts interbed-cut, no tie) → needs the annulus, un-merge = notch
+wall. gap0's SILT is 8a-tied → it flood-bands full-width (shared SILT enclosing), NOT a holes=0 notch.
+Hypothesis: guard `extractEnclosedLenses` to SKIP extracting an interbed whose top/base contact
+elevation coincides with a same-column tie endpoint (it stays a real unit → flood bands it via 8a),
+flag-ON only.
+
+### SHIPPED — the 8a-tied-interbed guard (flag-ON only): CORE GREEN, ZERO regressions
+
+`partitionFillV2/tieContacts.ts` (NEW) — `buildTieContactElevs(columns, edges)` (per-orig-col set of
+tie-endpoint contact elevations; EMPTY flag-OFF → byte-identical) + `interbedContactTied(lens, elevs)`.
+`sectionGeom.ts` (EDITED) — `extractEnclosedLenses` gains a `tieContactElevs` param + the guard `&&
+!interbedContactTied(lens, tieContactElevs)`: an interbed whose OWN top/base rides a tie endpoint is
+8a-tied → stays a real un-merged unit (bands emergently), NOT an enclosed lens. Extracted to
+`tieContacts.ts` (sectionGeom hit the 500-line god-component warn).
+
+**MEASURED (flag ON, all 14 sections): overlaps 0 (NOT the §22/§25 +104 wall!), above-TD holes 20 =
+ALL CS2-g17 baseline, ZERO new; CS1 (contains gap0) = 0/0.** gap0: col0 ZAND-SILT-ZAND now un-merged
+(9 units), L SILT corr-1 (base-tied via 8a), R SILT corr-2. Regions: `f=2e06 quad (0,2.27)(1,2.87)
+(1,3.79)(0,3.52)` = the SILT BAND spanning the gap; `f=d1bc quad (1,2.87)(0,2.27)(0,1.73)(1,0.71)` =
+the ZAND band below. **gap0 gate (A) SILT band GREEN, (C) no-ZAND-flood GREEN.**
+
+Why this works where the §22 naive un-merge failed (+104): col18's middle clay is a TRUE 0-corr
+lens-in-continuous-matrix (both contacts interbed-cut) → un-merge = holes=0 notch the flood can't
+separate. gap0's SILT is 8a-TIED → it FLOOD-BANDS full-width (shared SILT enclosing), never a notch.
+The guard is SCOPED to the tied subset only.
+
+### (B) the ZAND onlap wedge — RED, the intersect.ts-adjacent T-junction WALL (documented, not forced)
+
+§29's "label-correctness is only HALF": col0's upper ZAND [3.07..3.52] should ONLAP into the silt band
+(apex 0.5, ZAND-labelled), not be absorbed. Current: the SILT band absorbs it (reaches col0 3.52).
+Root, traced to the exact curves: the sweep DOES emit the ZAND onlap flank (`oflankterm0` (60.2,3.655)
+↔(23.4,3.07), corr-1 top-tied), apex EXACTLY on the `3.52↔3.79` tie. BUT that tie is COINCIDENT with
+the bb43 band's BASE contour (`bandc1`, identical segment); the arrangement does not split the
+coincident tie at the apex T-junction, so the ZAND triangle never closes → labelFaces length-weights
+the composite face to SILT. The flood-seam alternative is ALSO blocked: ZAND (d1bc) is a matched-pair
+BAND formation lower in the gap (L u5/R u4), so `closeInterval` returns early for any ZAND-enclosed
+sub-interval (`bandFids.has`). BOTH hole-free paths blocked → the fix needs the forbidden `intersect.ts`
+T-junction handling (613-hole trap) or the multi-day flood rebuild.
+
+MEASURED-NEGATIVE (reverted clean): `emitEnclosingFlood.refineIntervalBrackets` — split a flood
+interval at every column contact where the enclosing formation changes (interpolated paired
+sub-bracket). Battery-NEUTRAL (20/0/0) but did NOT fix (B) — the sub-interval's ZAND enclosing is a
+`bandFid` so `closeInterval` skips its seam. `emitEnclosingFlood.ts` byte-restored.
+
+DECISION: (B) is `it.skip`-with-reason in the gate (the CORE A+C are permanent GREEN assertions);
+literalCorr (c)/(d) RE-SKIPPED — they pin the col18 TRUE-untied host-split (the +104 wall), which the
+8a-tied guard correctly does NOT address (the middle clay has no tie → stays merged; the general
+untied host-split still needs the notch-splitter). Documented in both test files.
+
+### Final verification snapshot (session 26)
+
+- **flag-OFF BYTE-IDENTICAL** — holes 0/0/0, conformance 5/5/0=10, CS1 gates 7/7, committed shape gates
+  green (`buildTieContactElevs` returns empty flag-OFF → the guard is a pure no-op there).
+- **flag-ON** — overlaps 0, above-TD holes 20 (ALL CS2-g17 baseline, ZERO new), sub-TD 0, lensAudit
+  MISSING 0, edgedAnnulus (CS1-g21) GREEN.
+- gap0 gate: (A) SILT band GREEN + (C) no-ZAND-flood GREEN; (B) onlap wedge skip-with-reason (wall).
+- Full utils suite: **1 failed (`convergingStack (a)` — pre-existing, out of scope) / 782 passed / 26
+  skipped**; tsc clean.
+
+### Files this session (worktree, NOT committed — orchestrator commits + rm)
+
+- `partitionFillV2/tieContacts.ts` (NEW, committed-quality) — the 8a-tied-interbed guard helpers.
+- `partitionFillV2/sectionGeom.ts` (EDITED) — `extractEnclosedLenses` 8a-tied guard + `buildTieContactElevs`
+  call + import.
+- `partitionFillV2.gap0HostSplit.test.ts` (NEW permanent gate) — (A)/(C) GREEN, (B) skip-with-reason.
+- `partitionFillV2.literalCorr.test.ts` (EDITED) — describe.skip header updated (8a subset GREEN via
+  gap0HostSplit; col18 untied case stays the wall).
+- `partitionFillV2/emitEnclosingFlood.ts` — byte-RESTORED (the refineIntervalBrackets negative reverted).
+- STUBS to delete (orchestrator rm): `partitionFillV2.throwaway_s26_gap0.diag.test.ts`,
+  `partitionFillV2.throwaway_s26battery.diag.test.ts`. Plus ALL prior-session stubs still pending.

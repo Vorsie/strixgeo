@@ -169,7 +169,17 @@ describe('ruling 8l — corr is the literal count', () => {
   // session — kept describe.skip so the suite is green and the ruling's intent is on record.
 })
 
-describe.skip('ruling 8l(b)/8k — interbed host-split (RED: needs the annulus/notch-splitter rebuild)', () => {
+// SESSION-26: still ``describe.skip``. The session-26 8a-TIED-interbed guard (sectionGeom /
+// tieContacts) un-merges an interbed whose OWN contact rides a tie (the CS1 gap0 SILT, acceptance
+// case #1 — GREEN via ``partitionFillV2.gap0HostSplit.test.ts``). BUT cases (c)/(d) here are the
+// col18 TRUE 0-corr middle clay: BOTH its contacts are interbed-cut with NO tie, so the 8a guard
+// correctly does NOT un-merge it (``mCol.units.length === 5`` stays RED). Un-merging an UNtied
+// interbed is the general host-split that MEASURED NEGATIVE (+104 different-litho overlaps, §22/§25
+// — the un-merged interbed rides the column edge as a holes=0 notch the enclosing same-formation
+// flood cannot separate; ``slice.splitAnnulus`` fires only on holes>0). That needs the forbidden
+// ``intersect.ts``-adjacent notch-splitter. The 8a-tied case is the tractable, hole-free subset the
+// owner dogfed (gap0); the untied col18 case stays the characterised annulus wall (§30 T3).
+describe.skip('ruling 8l(b)/8k — interbed host-split (RED: needs the annulus/notch-splitter rebuild; the 8a-tied subset is GREEN via gap0HostSplit)', () => {
   it('(c) the col18 three-piece column: CLAY top(1) / middle(0, LENS both ways) / bottom(1)', () => {
     seq = 0
     // Synthetic twin of CS1 col18 (x=646.74). The middle column carries a CLAY host split by a

@@ -25,6 +25,7 @@ import {
   type PartitionUnit,
 } from '../partitionFill'
 import { closeColumnGaps } from '../partitionFill/columnReduce'
+import { buildTieContactElevs, interbedContactTied } from './tieContacts'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 
 /**
@@ -226,6 +227,18 @@ export function buildSectionInput(
     edgedLayerIds.add(e.a)
     edgedLayerIds.add(e.b)
   }
+  // RULING 8a / 8l(b) SESSION-26 (flag-ON only) — TIE-ENDPOINT CONTACT ELEVATIONS per column.
+  // A tie sits on a unit's OWN contact (``layerId`` + ``side``), and that contact is PHYSICALLY
+  // SHARED with the adjacent unit whose contact coincides (an above unit's base = a below unit's
+  // top). Ruling 8a: a tie on the shared contact ties BOTH units sharing that surface — so an
+  // enclosed interbed whose OWN top/base rides such a contact is effectively 8a-TIED (corr 1) and
+  // must stay a real, un-merged unit (it BANDS emergently with the facing same-litho unit; ruling
+  // 8l(b) "enclosed interbeds SPLIT their host into visible pieces for the sweep"), NOT collapse
+  // into an enclosed lens. This map records, per ORIGINAL column index, the set of contact
+  // elevations (mTAW) that carry a tie endpoint, so ``extractEnclosedLenses`` can skip such an
+  // interbed. Only the gap0-class (the col0 SILT whose base rides the ZAND-tops tie) needs this;
+  // it does NOT affect col18's TRUE 0-corr middle clay (both contacts interbed-cut, no tie there).
+  const tieContactElevByOrigCol = buildTieContactElevs(columns, edges)
   const geom: ColumnGeom[] = []
   for (let oi = 0; oi < columns.length; oi++) {
     const c = columns[oi]
@@ -266,8 +279,11 @@ export function buildSectionInput(
     // notch-splitter rebuild the design §4 flags (a 0-corr enclosed minority that lenses via the
     // sweep needs a notch-splitter at holes=0, ``intersect.ts``-adjacent — out of session-22 scope).
     // Recorded (REWRITE_STATE §25) as a characterised wall, threshold/merge NOT toggled off.
+    // Tie-endpoint contact elevations for THIS original column (ruling 8a interbed guard). Only
+    // consulted under the flag (``edgedBelowMergeEnabled``), so flag-OFF extraction is unchanged.
+    const tieElevs = tieContactElevByOrigCol.get(oi) ?? null
     const enclosedLenses = ENABLE_ENCLOSED_LENS
-      ? extractEnclosedLenses(stack, edgedLayerIds)
+      ? extractEnclosedLenses(stack, edgedLayerIds, tieElevs)
       : []
     // TARGET C (session 9, gated OFF): non-destructively record a same-formation-enclosed
     // minority whose merge was blocked by an edged enclosing unit (CS1 g20/g21/g22 ZAND). See
@@ -319,7 +335,11 @@ export function buildSectionInput(
  * EnclosedLens[]
  *     The extracted lenses (original elevations preserved) + matrix formation.
  */
-function extractEnclosedLenses(units: UnitGeom[], edgedLayerIds: ReadonlySet<string>): EnclosedLens[] {
+function extractEnclosedLenses(
+  units: UnitGeom[],
+  edgedLayerIds: ReadonlySet<string>,
+  tieContactElevs: ReadonlySet<number> | null,
+): EnclosedLens[] {
   const lenses: EnclosedLens[] = []
   let changed = true
   while (changed) {
@@ -331,6 +351,14 @@ function extractEnclosedLenses(units: UnitGeom[], edgedLayerIds: ReadonlySet<str
       if (
         above.formationId === below.formationId &&
         above.formationId !== lens.formationId &&
+        // RULING 8a / 8l(b) SESSION-26 (flag-ON only): an interbed whose OWN top or base contact
+        // rides a TIE endpoint (its contact is 8a-tied through the shared surface) is corr 1 → it
+        // must BAND emergently with the facing same-litho unit, NOT collapse into an enclosed lens.
+        // Skip extracting it (it stays a real, un-merged unit the sweep/flood/labelling see; ruling
+        // 8l(b) host-split). ``tieContactElevs`` is null flag-OFF → this never fires flag-OFF (the
+        // ``&& true`` is a no-op), byte-identical. Distinct from col18's TRUE 0-corr middle clay
+        // (both contacts interbed-cut, absent from ``tieContactElevs``) — that still merges/annuli.
+        !interbedContactTied(lens, tieContactElevs) &&
         // NO same-body guard (relaxed 2026-07-15, ruling-8e Milestone-2). The enclosing
         // same-formation units above/below a minority routinely carry DIFFERENT bodyIds
         // (a body split at the minority's own level — CS1 g15 ZAND u3 body 019ea3e1 above,
