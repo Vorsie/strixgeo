@@ -229,7 +229,7 @@ export function drawTermination(
   if (corr === 0) {
     // RULING 8i: 0 correlations → draw the lens lines ALWAYS. No merge exemption; the only
     // suppressions are PHYSICAL (degenerate / sub-snap), applied inside ``emitLensClosing``.
-    return emitLens(iu, ui, colX, facingX, col, facing, u, lensLabels, nextId, nextFloodId, out)
+    return emitLens(iu, ui, colX, facingX, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out)
   }
   // corr === 1: RULING 8m (owner, 2026-07-17 — "restore it, just add a lithology check before
   // drawing"). The same-litho onlap suppression is RESTORED in follow-the-tie form (below),
@@ -287,8 +287,10 @@ function emitLens(
   ui: number,
   colX: number,
   facingX: number,
+  gapIndex: number,
   col: ColumnGeom,
   facing: ColumnGeom,
+  activeTies: readonly ResolvedTie[],
   u: UnitGeom,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
@@ -315,7 +317,15 @@ function emitLens(
   // keeps its s30 facing fallback (non-inventing). The flood still rides the sloping bracket
   // contour (Front 2) when the facing enclosing dips across the wedge.
   const lensMatrix = lensEnclosingMatrix(col, ui)
-  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out, undefined, lensMatrix)
+  // RULING 8n ("stay inside the lines"): the wrap wedge may not descend BELOW / rise ABOVE a
+  // given TIE line in the gap that bounds the enclosing matrix. At CS1 gap18 the KLEI wrap of the
+  // VEEN lens rode past its base corner toward the gap midpoint, crossing BELOW the ZAND-top tie
+  // (col18 KLEI-base 4.23 ↔ col19 ZAND-top 7.027, rising left→right) — the space below that tie is
+  // ZAND, so the KLEI wrap and the ZAND fill double-covered the sliver. The gap's ties (given line
+  // art) clamp each flank so the wrap stops AT the tie (the tie splits the arrangement there and
+  // the ZAND face owns below it). See ``clampFloodFlankToTie`` in emitFloodWedge.
+  const gapTies = activeTies.filter((t) => t.gapIndex === gapIndex)
+  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out, undefined, lensMatrix, gapTies)
   return true
 }
 

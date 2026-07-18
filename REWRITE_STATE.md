@@ -4010,3 +4010,77 @@ fallback for them (no regression). Owner ruling needed before any of these is tr
   `partitionFillV2.throwaway_s31_gap18.diag.test.ts`, `partitionFillV2.throwaway_s31_pip.diag.test.ts`,
   `partitionFillV2.throwaway_s31_nullscan.diag.test.ts`. Plus ALL prior-session stubs still pending
   (s30 five + s29 two + s28 four + earlier).
+
+## §37 — Session 32: RULING 8n CS1 gap18 KLEI×ZAND DOUBLE-COVER KILLED — the lens wrap wedge rode below the ZAND-top tie (`emitFloodWedge` tie clamp)
+
+Mission: kill the CS1 gap18 geometric double-cover s31 (`f05bb9c57`) exposed. Test execution: Bash
+`npx vitest run <single-file>` + `HOLES_DIAG=1`/`CS1_GATE=1`/`SHAPE_AUDIT=1` env-prefix WORK (bare
+form only — `cd …&&`, pipes to `head`/`tail`, and `2>&1|` were DENIED; run the file bare, or
+`… 2>&1 | tail` was rejected → drop the pipe). `npx tsc --noEmit -p tsconfig.web.json` bare works.
+Bash `rm -f` on the throwaways WORKED this session. NO git ops.
+
+### THE DEFECT — MEASURED (throwaway s32 face + curve dumps, flag-ON)
+CS1 gap18 (col18 x=646.737 → col19 x=724.829, 78 m). col18 stack (LAST unit is the deepest KLEI, NO
+ZAND on col18): SILT / KLEI / SILT[6.03..5.46] / **VEEN[5.46..5.05]** / **KLEI[5.05..4.23] (u4, TD)**.
+col19: … / **ZAND[7.027..−5.87] (u3)** / KLEI. The edge is `ZAND(top)↔KLEI(base)` → **`tie81:18`**
+`(646.737, 4.230) → (724.829, 7.027)` — a CROSS-LITHO tie tying col19's ZAND-top to col18's KLEI-base
+(=col18 TD). ZAND owns everything BELOW `tie81`. The VEEN lens's KLEI wrap flood wedge (`floodsw34`,
+base flank `(646.737,5.050)→conv(685.783,5.255)`, f=0.5) DESCENDS toward the gap midpoint and CROSSES
+below `tie81` (which rises to 5.628 at f=0.5). Past the crossing (x≈673.6, f≈0.34) the KLEI wrap and
+the ZAND fill (below `tie81`) BOTH claim the sliver → **ZAND(quad)×KLEI(quad) diff-litho overlap,
+maxVertOverlap 4.92 cm**. Two genuine arrangement faces: ZAND `[col19:u3, flood20, tie81:18]` and KLEI
+wrap `[floodsw33, floodsw34, term28]` / `[…floodsw3x…, tie81:18]`. Invisible pre-s31 (both were ZAND).
+
+### THE OWNING BOUNDARY (from the LINE ART — NOT ask-first)
+`tie81:18` is GIVEN load-bearing line art bounding the KLEI-below matrix (u4) from beneath; ZAND owns
+below it. Per ruling 8n ("stay inside the lines" — a true partition) the KLEI wrap must STOP at the
+tie (no invented split fraction — the boundary IS the existing tie). §32 lesson honoured: the vacated
+space below the clip is ALREADY a face (ZAND, bounded by `tie81`), so clipping hands it to ZAND cleanly
+(no new hole). Not the null-enclosure §36 open question — gap18's wrap enclosure is well-defined (KLEI).
+
+### THE FIX — `emitFloodWedge.ts` LENS-only tie clamp (flag-ON by construction)
+For the corr-0 LENS wrap (`skipSide===null`), the caller (`drawTermination.emitLens`) now passes the
+gap's `activeTies` (`gapTies`). `clampConvToTies` raises/lowers the SHARED `conv` onto the matrix side
+of any tie the straight flanks cross (base flank bounded from BELOW → conv up onto a rising ZAND tie;
+top flank from ABOVE). `rideFlankToTie` inserts the flank↔tie crossing vertex so each flank rides ONTO
+the tie there then runs to the clamped conv — both faces share the tie (a real arrangement curve) as
+their boundary. LABEL + GEOMETRY change is the CONV/flank only; ONLAP wedges (skipSide set) keep the
+s16 gated-off `ridePolyline` path untouched. `col`+`gapIndex`+`activeTies` threaded through
+`drawTermination`→`emitLens`→`emitFloodWedge`. A `NEUTRALISE_TIE_CLAMP` const (ships `false`) mirrors
+the file's `SLOPING_RIDE_ENABLED` kill-switch for RED-first proof.
+
+### RED→GREEN proof — `faceLabel8n.test.ts` gap18 case (d)
+NEW case (d): ZERO different-litho vertical overlap in gap18 flag-ON (`maxDiffLithoOverlap < 0.1 cm`).
+**RED-first on the pre-fix engine (`NEUTRALISE_TIE_CLAMP=true`): (d) FAILS at 4.92 cm; (a)(b)(c) + gap1
+onlap (A)(B) stay GREEN** — proves the fix is specifically the tie clamp, no side effect. After the fix:
+all 6 faceLabel8n GREEN. `convergingStack (a)` fails IDENTICALLY with the clamp neutralised (pre-existing,
+untouched).
+
+### MEASUREMENT (throwaway s32 forced-flag-ON scan, all 14 sections)
+| metric | baseline (§36) | after s32 |
+|---|---|---|
+| flag-ON diff-litho overlap pairs | 0 (CS1 gap18 was the exposed pair pre-count) | **0** |
+| CS1 gap18 KLEI×ZAND overlap | 4.92 cm | **0** |
+| flag-ON holes above-TD | 20 (CS2-g17 wall) | **20 (ZERO new — same 8 gap17 samples)** |
+| flag-ON holes sub-TD | 0 | **0** |
+| flag-OFF frozen v1 gates | green | **green (clamp only fires on flag-ON lens sweep)** |
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+faceLabel8n **6/6** (gap1 (A)(B) + gap18 (a)(b)(c) + NEW (d), RED-first proven) · gap0HostSplit
+(A)+(B)+(C) · edgedAnnulus · followTieOnlap · mergeAfterFill · twoSidedTermination · cs1gates
+(CS1_GATE=1) **8/8** · lensAudit (SHAPE_AUDIT=1) MISSING **0** · conformance + classify GREEN (1 skip) ·
+v1 frozen (cs1frozen/cs1sandbody/cs1lensdisjoint/goldens) GREEN · **tsc clean** · full utils dir
+(CS1_GATE=1) **1 failed (`convergingStack (a)` — PRE-EXISTING, verified identical clamp-off) / 807
+passed / 24 skipped**.
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/emitFloodWedge.ts` (EDITED) — `gapTies` param + `clampConvToTies` / `rideFlankToTie`
+  / `tieElevAt` (LENS-only tie clamp); `NEUTRALISE_TIE_CLAMP` kill-switch (ships false); shared
+  `emitConvApexAt(clamped)`. ONLAP `ridePolyline` path untouched.
+- `partitionFillV2/drawTermination.ts` (EDITED) — `emitLens` gains `gapIndex`+`activeTies`; filters the
+  gap's ties and passes them to `emitFloodWedge`.
+- `partitionFillV2.faceLabel8n.test.ts` (EDITED — NEW gap18 case (d) + `coveredIntervals` /
+  `maxDiffLithoOverlap` helpers, RED-first proven).
+- STUBS deleted this session (rm WORKED): `partitionFillV2.throwaway_s32_{gap18,probe,faces,curves,
+  stack,flagon}.diag.test.ts`. Prior-session stubs (s31 three + s30 five + s29 two + s28 four + earlier)
+  still pending orchestrator rm.

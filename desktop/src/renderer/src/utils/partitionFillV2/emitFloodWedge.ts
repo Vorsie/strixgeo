@@ -25,6 +25,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { type ResolvedTie } from './emitCurves'
 import { facingMatrixLabel } from './facingMatrix'
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom } from './sectionGeom'
@@ -48,6 +49,9 @@ const SLOPE_EPS = 1e-3
  * revive. See REWRITE_STATE.md §19.
  */
 const SLOPING_RIDE_ENABLED = false
+
+/** RED-first neutraliser (s32) — set true to prove the ruling-8n tie clamp goes RED. Ships false. */
+const NEUTRALISE_TIE_CLAMP = false
 
 /**
  * Emit the flood-closure wedge for one termination.
@@ -92,6 +96,7 @@ export function emitFloodWedge(
   out: InputCurve[],
   convToFacingX?: number,
   lensMatrixLabel?: LensLabel | null,
+  gapTies?: readonly ResolvedTie[],
 ): void {
   const midElev = (topElev + baseElev) / 2
   // RULING 8n (owner, 2026-07-18 — "stay inside the lines"): the flood wedge past a termination
@@ -135,25 +140,123 @@ export function emitFloodWedge(
   }
   const deg = (a: Point, b: Point): boolean => segmentDeg(a, b)
   // The shared conv→apex edge closes the wedge between the pinch face and the facing side. It is
-  // emitted once (both flanks lean on it).
+  // emitted once (both flanks lean on it), using the possibly tie-clamped conv (``emitConvApexAt``).
   let convApexEmitted = false
-  const emitConvApex = (): void => {
-    if (convApexEmitted) return
-    if (!deg(conv, apex)) push([conv, apex])
-    convApexEmitted = true
-  }
   // Front-2 sloping ride: the TOP flank rides the enclosing formation's BASE contour (its lower
   // bracket bounds the top wedge from below); the BASE flank rides the enclosing formation's TOP
   // contour. ``ridePolyline`` returns the corner→conv leg as a polyline sampled along that
   // contour; on a flat contour it is exactly [corner, conv] (parity).
-  if (skipSide !== 'top' && !deg(topCorner, conv)) {
-    push(ridePolyline(topCorner, conv, facing, label, 'base', colX, facingX))
-    emitConvApex()
+  // RULING 8n TIE CLAMP (LENS wrap only). A gap TIE is given line art bounding the enclosing
+  // matrix; the wrap flood wedge may not cross it (the space on the far side is owned by the tied
+  // fill). CS1 gap18: the KLEI wrap of the VEEN lens rode its BASE flank + ``conv`` (mid-gap, at
+  // the lens mid-elevation) BELOW the rising ZAND-top tie, double-covering the sub-tie sliver with
+  // the ZAND fill. Clamp the SHARED ``conv`` point (and thereby both flanks + the conv→apex edge)
+  // to stay on the matrix side of every gap tie: a tie beneath pushes ``conv`` UP onto it, a tie
+  // above pushes it DOWN. Each flank then rides onto the binding tie at the crossing and follows it
+  // to the clamped conv, so the wrap face stops AT the tie and the tied fill owns the far side. The
+  // tie is a real arrangement curve, so the ride vertices sit on it and the two faces meet cleanly.
+  // ONLAP wedges (skipSide set) keep the s16 gated-off ``ridePolyline`` path untouched.
+  const doTieClamp = skipSide === null && gapTies !== undefined && gapTies.length > 0 && !NEUTRALISE_TIE_CLAMP
+  const clamped = doTieClamp
+    ? clampConvToTies(conv, topCorner, baseCorner, gapTies!)
+    : conv
+  if (skipSide !== 'top' && !deg(topCorner, clamped)) {
+    const leg = doTieClamp
+      ? rideFlankToTie(topCorner, clamped, gapTies!, 'above')
+      : ridePolyline(topCorner, conv, facing, label, 'base', colX, facingX)
+    push(leg)
+    emitConvApexAt(clamped)
   }
-  if (skipSide !== 'base' && !deg(baseCorner, conv)) {
-    push(ridePolyline(baseCorner, conv, facing, label, 'top', colX, facingX))
-    emitConvApex()
+  if (skipSide !== 'base' && !deg(baseCorner, clamped)) {
+    const leg = doTieClamp
+      ? rideFlankToTie(baseCorner, clamped, gapTies!, 'below')
+      : ridePolyline(baseCorner, conv, facing, label, 'top', colX, facingX)
+    push(leg)
+    emitConvApexAt(clamped)
   }
+
+  // Shared conv→apex edge, using the (possibly tie-clamped) conv. Emitted once.
+  function emitConvApexAt(cv: Point): void {
+    if (convApexEmitted) return
+    if (!deg(cv, apex)) push([cv, apex])
+    convApexEmitted = true
+  }
+}
+
+/** A tie's elevation at along-x ``x`` (its endpoints run left→right column x). */
+function tieElevAt(t: ResolvedTie, x: number): number {
+  const w = t.right.x - t.left.x
+  if (Math.abs(w) < SLOPE_EPS) return t.left.y
+  const f = (x - t.left.x) / w
+  return t.left.y + f * (t.right.y - t.left.y)
+}
+
+/**
+ * Clamp the shared convergence point of a LENS wrap wedge to the enclosing-matrix side of every
+ * gap tie the STRAIGHT flanks cross (ruling 8n). The BASE flank runs ``baseCorner → conv``, the
+ * TOP flank ``topCorner → conv``; a tie that a flank crosses is one that is on the matrix side of
+ * the flank at the CORNER but on the vacated side at ``conv``. The base flank is bounded from
+ * BELOW (raise conv onto a tie that ends up above it), the top flank from ABOVE (lower conv onto a
+ * tie that ends up below it). Returns the clamped conv (same x); the original when no tie binds.
+ */
+function clampConvToTies(
+  conv: Point,
+  topCorner: Point,
+  baseCorner: Point,
+  gapTies: readonly ResolvedTie[],
+): Point {
+  let convY = conv.y
+  for (const t of gapTies) {
+    const tieAtConv = tieElevAt(t, conv.x)
+    // BASE flank: matrix is ABOVE. A tie BELOW the base corner (baseCorner.y) that has risen ABOVE
+    // conv is the ZAND-top tie the wrap must not dip below → raise conv onto it.
+    const tieAtBaseCorner = tieElevAt(t, baseCorner.x)
+    if (tieAtBaseCorner < baseCorner.y - SLOPE_EPS && tieAtConv > convY + SLOPE_EPS) convY = tieAtConv
+    // TOP flank: matrix is BELOW. A tie ABOVE the top corner that has fallen BELOW conv → lower conv.
+    const tieAtTopCorner = tieElevAt(t, topCorner.x)
+    if (tieAtTopCorner > topCorner.y + SLOPE_EPS && tieAtConv < convY - SLOPE_EPS) convY = tieAtConv
+  }
+  return { x: conv.x, y: convY }
+}
+
+/**
+ * A LENS wrap flank riding onto its binding tie. ``corner → conv`` (conv already tie-clamped)
+ * normally; when a gap tie crosses the straight ``corner → conv`` chord on the forbidden side (a
+ * tie beneath for ``bound==='below'``, above for ``'above'``), insert the crossing vertex so the
+ * flank rides ONTO the tie there and then runs straight to ``conv`` (which itself sits on that tie
+ * after the conv-clamp). The ride vertex sits on the tie — a real arrangement curve — so the wrap
+ * face and the tied fill share the boundary exactly. Returns ``[corner, conv]`` when no tie binds.
+ */
+function rideFlankToTie(
+  corner: Point,
+  conv: Point,
+  gapTies: readonly ResolvedTie[],
+  bound: 'above' | 'below',
+): Point[] {
+  const flankAt = (x: number): number => {
+    if (Math.abs(conv.x - corner.x) < SLOPE_EPS) return corner.y
+    const t = (x - corner.x) / (conv.x - corner.x)
+    return corner.y + t * (conv.y - corner.y)
+  }
+  let best: Point | null = null
+  for (const t of gapTies) {
+    const dCorner = tieElevAt(t, corner.x) - flankAt(corner.x)
+    const dConv = tieElevAt(t, conv.x) - flankAt(conv.x)
+    // 'below' (base flank): a tie BELOW the flank at the corner and AT/ABOVE it at conv crosses
+    // upward into the flank. 'above' (top flank): the mirror. (``dConv >= 0`` since conv now rides
+    // the tie after the clamp — the flank meets the tie at conv.)
+    const crossesIn = bound === 'below' ? dCorner < -SLOPE_EPS && dConv > -SLOPE_EPS : dCorner > SLOPE_EPS && dConv < SLOPE_EPS
+    if (!crossesIn) continue
+    const denom = dConv - dCorner
+    if (Math.abs(denom) < SLOPE_EPS) continue
+    const xCross = corner.x + (0 - dCorner) / denom * (conv.x - corner.x)
+    if (xCross <= corner.x + SLOPE_EPS || xCross >= conv.x - SLOPE_EPS) continue
+    const pt: Point = { x: xCross, y: tieElevAt(t, xCross) }
+    if (best === null || xCross < best.x) best = pt
+  }
+  if (best === null) return [corner, conv]
+  if (segmentDeg(best, conv)) return [corner, conv]
+  return [corner, best, conv]
 }
 
 /**

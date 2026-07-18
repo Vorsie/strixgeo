@@ -78,6 +78,45 @@ function polyContains(poly: readonly PartitionPoint[], f: number, e: number): bo
   return inside
 }
 
+/** Elevation intervals a polygon covers along the vertical line at fraction ``f``. */
+function coveredIntervals(poly: readonly PartitionPoint[], f: number): [number, number][] {
+  const ys: number[] = []
+  const n = poly.length
+  for (let i = 0; i < n; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % n]
+    const [x1, x2] = [a.fraction, b.fraction]
+    if ((x1 <= f && x2 > f) || (x2 <= f && x1 > f)) {
+      const t = (f - x1) / (x2 - x1)
+      ys.push(a.elevation + t * (b.elevation - a.elevation))
+    }
+  }
+  ys.sort((p, q) => p - q)
+  const out: [number, number][] = []
+  for (let i = 0; i + 1 < ys.length; i += 2) out.push([ys[i], ys[i + 1]])
+  return out
+}
+
+/** Max vertical overlap (metres) between DIFFERENT-formation regions across a gap's fractions. */
+function maxDiffLithoOverlap(regs: readonly SectionRegion[]): number {
+  let worst = 0
+  for (let f = 0.02; f < 0.985; f += 0.02) {
+    for (let a = 0; a < regs.length; a++) {
+      for (let b = a + 1; b < regs.length; b++) {
+        if (regs[a].formationId === regs[b].formationId) continue
+        const ia = coveredIntervals(regs[a].polygon, f)
+        const ib = coveredIntervals(regs[b].polygon, f)
+        for (const [a1, a2] of ia)
+          for (const [b1, b2] of ib) {
+            const v = Math.min(a2, b2) - Math.max(a1, b1)
+            if (v > worst) worst = v
+          }
+      }
+    }
+  }
+  return worst
+}
+
 interface RawUnit { layerId: string; topDepthM: number; baseDepthM: number; formationId: string; bodyId: string | null }
 interface RawCol { investigationId: string; surfaceElevM: number | null; units: RawUnit[] }
 interface RawSection { sectionId: string; name: string; columns: RawCol[]; alongM: number[]; edges: { a: string; b: string; aSide?: string; bSide?: string }[] }
@@ -207,6 +246,19 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b)) — the owner-pinned x=
       )
       expect(siltInterior, 'the SILT lens interior (near col18) reads SILT').toBe(true)
       expect(veenInterior, 'the VEEN lens interior (near col18) reads VEEN').toBe(true)
+    })
+
+    // RULING 8n ("stay inside the lines" — a true partition): exactly ONE region may cover any
+    // point. The KLEI lens-wrap wedge (correctly relabelled by s31, ruling 8n(b)) descends past
+    // its VEEN-base corner toward the gap midpoint, crossing BELOW the given ZAND-top tie
+    // (``tie81:18``: col18 KLEI-base 4.23 ↔ col19 ZAND-top 7.027, rising left→right). Past the
+    // crossing (x≈673.6, f≈0.34) the KLEI wrap and the ZAND fill BELOW the tie both claim the
+    // sliver between the wrap's base flank and the rising tie — a ZAND(quad)×KLEI(quad) double
+    // cover (orchestrator-measured maxVertOverlap 4.9 cm). The wrap must STOP at the tie (the tie
+    // is given line art bounding the KLEI-below matrix from beneath; ZAND owns below it).
+    it('(d) NO different-litho vertical overlap in gap18 (a true partition, ruling 8n)', () => {
+      const worst = maxDiffLithoOverlap(g18)
+      expect(worst * 100, `max different-litho vertical overlap in gap18 = ${(worst * 100).toFixed(2)} cm`).toBeLessThan(0.1)
     })
   })
 })
