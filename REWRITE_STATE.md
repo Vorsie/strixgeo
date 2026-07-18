@@ -3072,3 +3072,141 @@ gap → characterise that gap, do not force the skip.
 3. If a NEW flag-ON hole appears from an 8m skip: characterise the gap, STOP, re-ask the owner.
 4. Remaining pre-cutover work unchanged from §25: the interbed host-split annulus rebuild + the
    ``emitEnclosingFlood`` fill rebuild (CS1 g21 + CS2 g17) + the 4 inherited synthetic reds.
+
+## §27 — Session 24: EDGED-BELOW ENCLOSED-LENS ANNULUS SHIPPED (flag-ON) — CS1 g21 wall DIED (holes 40→20), coherentStack(a) flipped GREEN, flag-OFF byte-identical
+
+Session 24 was the "final rebuild" run. After exhaustively root-causing all 5 targets to ONE
+architectural wall (the ``emitEnclosingFlood`` flood-closure / annulus-at-holes=0), I made two
+measured construction attempts; ONE landed as a clean, shippable, flag-ON-only win that the whole
+prior campaign could not: the EDGED-BELOW enclosed-lens annulus. ``intersect.ts``/``seamAnchor.ts``
+UNTOUCHED; v1 READ-ONLY; no git ops. Test execution WAS permitted this run (verified up front).
+
+### Stage 1 — SHIPPED (the win): edged-below annulus in ``extractEnclosedLenses`` (flag-ON only)
+
+ROOT (sessions 5/8/9 measured-negative wall): ``sectionGeom.extractEnclosedLenses`` refused to
+merge a same-formation enclosing band around a minority when the ``below`` enclosing unit was
+EDGED (the merge kept ``above`` + spliced ``below``, dropping ``below``'s tie layerId → its band
+vanishes). So the minority dropped to the interval flood, its lens/onlap rode the column edge as a
+holes=0 NOTCH that ``slice.splitAnnulus`` (fires only on holes>0) could not separate → the
+CS1 g21 (0.17 m interbedded SILT/ZAND) 20-hole wall.
+
+THE FIX (``sectionGeom.ts``, gated ``edgedBelowMergeEnabled()`` = ``twoSidedTerminationsEnabled()``):
+when ``below`` is edged, KEEP ``below``'s identity (grow it UP over the lens, ``below.topElev =
+above.topElev``) and splice ``above`` instead — so ``below``'s tie SURVIVES and the enclosing band
+is a CONTINUOUS ANNULUS (the minority becomes a real interior HOLE ``splitAnnulus`` handles). The
+un-edged case keeps the original behaviour (keep ``above``). Session 9's TARGET C recorded the lens
+WITHOUT merging (+53 holes); merging-with-preserved-edged-identity is the different, working form.
+
+MEASURED (one-run OFF/ON battery, real 14 sections):
+| metric | flag OFF | flag ON (before) | flag ON (after Stage 1) |
+|---|---|---|---|
+| holes above / sub TD | 0 / 0 | 40 / 0 | **20 / 0** (T1 CS1 g21 ×20 DIED; T2 CS2 g17 ×20 remains) |
+| different-litho overlaps | 0 | 0 | **0** |
+| conformance 0/1/2 (flag-OFF gate) | 5/5/0=10 | — | **5/5/0=10** (byte-identical) |
+| LENS_AUDIT present / MISSING / boundaryResidual | — | 34 / 0 / 0 | **29 / 0 / 0** (merged interbeds leave the corr-0 census; MISSING stays 0) |
+
+* **Flag OFF BYTE-IDENTICAL** — the merge branch is behind ``edgedBelowMergeEnabled()`` (flag-ON);
+  flag-OFF ``extractEnclosedLenses`` keeps the exact guard. Holes 0/0/0, conformance 5/5/0=10, CS1
+  gates 7/7, v1 90/90 — all unchanged.
+* **coherentStack(a) synthetic red → GREEN** (the enclosed-lens-in-band notch, the documented
+  ``splitAnnulus``-bypass wall). The 4 inherited reds are now **3** (coherentStack(b),
+  coherentLoneStack, convergingStack(a) remain — a DIFFERENT mechanism, see below).
+* CS1 g21 now renders the 0.17 m interbeds as merged annulus bands (full-width, hole-free) — the
+  physically-correct sub-snap outcome (interbeds cannot resolve laterally in 0.17 m).
+* NEW committed gate ``partitionFillV2.edgedAnnulus.test.ts`` — real-data CS1 g21 hole-free,
+  flag-ON. VERIFIED DISCRIMINATING: RED (20 holes) with the fix disabled, GREEN (0) with it on.
+* Determinism (``computeSectionFillV2.test.ts`` 13/13) + all 12 permanent shape/package gates
+  (52/52) + tsc clean. Full utils suite: 3 failed (the inherited reds) / 778 passed / 26 skipped.
+
+### The both-edged extension — measured NEUTRAL, kept minimal
+
+Extended the branch to also fire when BOTH enclosing units are edged (keep ``below``, ``above``'s
+tie subsumed). Measured: NO CHANGE (20/0 flag-ON) — no real interbed is both-edged-same-formation.
+Kept the below-edged single case (the code path both-edged would take is documented, un-exercised).
+
+### Stage 0 — the sloping-sliver-closer experiment: measured NEGATIVE (+209 holes / +12 overlaps), REVERTED
+
+Attempted the T2 (CS2 g17) sloping-enclosure wall via a SEPARATE ``flood`` curve for the sloping
+contour (avoiding the session-16 ``ridePolyline`` mid-vertex self-cross). Flipped
+``SLOPING_RIDE_ENABLED`` on + added ``emitSlopingSliverCloser`` in ``emitFloodWedge.ts``. MEASURED
+flag-ON: aboveTD 40 → **249**, overlaps 0 → **12** — DISQUALIFYING (the extra flood curves break
+existing tiling). REVERTED clean (``emitFloodWedge.ts`` byte-restored, ``SLOPING_RIDE_ENABLED``
+back to false). Added to the measured-negative ledger.
+
+### T5 — Tie-10 / Tie-12 absorbed-face labelling (characterised)
+
+No NEW residual on Tie-10/Tie-12 introduced by Stage 1 (LENS_AUDIT 0/0 on both; conformance
+flag-OFF unchanged). Their conformance rows are the pre-existing ruling-8 untied same-formation
+full-widths (Tie-10 g0 ZAND both-tied band, Tie-12 g0 SILT band) — owner-tie residual, gate-correct,
+NOT engine defects (§18 triage). The Stage-1 merge did not touch them.
+
+### The REMAINING walls (precisely characterised — the next session's targets)
+
+1. **T2 — CS2 g17 (20 holes), the SLOPING-ENCLOSURE wedge.** NOT the edged-annulus class: the LEFT
+   interbedded SILT/ZAND stack faces a RIGHT ZAND (u5) whose BASE SLOPES (tie83/bandc193 run
+   (0,-5.64)→(1,-5.25)). The termination flood wedge converges FLAT at conv (0.5) while the
+   enclosing ZAND base dips — a triangular hole (780 mm at f=0.02, shrinking to 0 at f≈0.5) between
+   the flat wedge and the sloping contour. The separate-sliver-closer (Stage 0) measured +209; the
+   session-16 mid-vertex ride measured +509. This is the ``emitEnclosingFlood`` INTERVAL-bracket
+   geometry that must follow the sloping ZAND base — the documented multi-day fill rebuild.
+2. **T3 — interbed HOST-SPLIT (literalCorr (c)/(d), still ``describe.skip``).** The owner wants the
+   col18 three CLAYs as 1/0/1 (middle lenses both ways). Requires the flag-ON section to KEEP the
+   5-unit host (NO merge) so the sweep sees the pieces — but then the SILT interbeds ride the column
+   edge (holes=0 notch, +104 overlaps, session 22). The edged-below fix MERGES (opposite direction),
+   so it does NOT unblock T3. T3 needs the annulus/notch-splitter at holes=0 (``intersect.ts``-
+   adjacent, the forbidden 613-hole trap) OR the owner ruling on band-vs-lens for a tied host (§24
+   Part-B open question). **NOT ATTEMPTED — ASK-FIRST + forbidden-risk.**
+3. **T4 — 3 inherited synthetic reds** (coherentStack(b), coherentLoneStack, convergingStack(a)).
+   ROOT (§18, re-confirmed by probe): a lone-stack MEET-AT-SEAM of two OPPOSING onlaps (e.g. ZAND
+   base-tied onlapping up + KLEI onlapping from the facing) — the enclosing flood face gets ABSORBED
+   into a termination face that carries a column vertical → mislabelled full-width (``zandMaxF=1``).
+   ``assertPartition`` PASSES (no hole) — it is a LABEL tangle, not a hole. Fix = ``emitEnclosingFlood``
+   must bound the enclosing face on the removed-tied-flank side (§18 OPEN QUESTION, owner call on
+   synthetic re-authoring vs engine fix). These compositions never occur on the 14 real sections
+   (holes/overlaps stay 0). NOT ATTEMPTED — the same fill rebuild as T2.
+
+### ⚠ OPEN OWNER QUESTIONS (ASK-FIRST — reported, not guessed)
+
+1. **T3 host-split band-vs-lens (carried from §24 Part-B, unresolved):** for an enclosed interbed
+   whose HOST is a real matched-pair band member, does the sub-interbed sliver LENS both ways
+   (8l(b), demoting the drawn band below the interbed) or FOLLOW the band (8g, no pinch)? The
+   edged-below fix does NOT resolve this — it merges the host (keeping the band), which is the 8g
+   reading. If the owner wants 8l(b) (three visible CLAYs), that needs the forbidden notch-splitter.
+2. **T4 synthetic re-authoring vs engine fix (carried from §18):** the 3 lone-stack synthetics encode
+   a two-flank-era enclosing-flood geometry the one-line onlap (8i(d)) superseded. Fix cleanly via
+   the ``emitEnclosingFlood`` rebuild (recommended) OR re-author the synthetics? (Do NOT re-author to
+   pass — the mission forbids it; owner call.)
+
+### Files this session (worktree, NOT committed — orchestrator commits + does rm)
+
+* ``partitionFillV2/sectionGeom.ts`` (EDITED — the edged-below annulus: ``edgedBelowMergeEnabled``
+  helper [flag-ON gate] + the keep-``below``-grow-up branch in ``extractEnclosedLenses``; import
+  ``twoSidedTerminationsEnabled``). The ONE engine change this session.
+* ``partitionFillV2/emitFloodWedge.ts`` — BYTE-RESTORED (the Stage-0 sloping-sliver-closer reverted;
+  ``SLOPING_RIDE_ENABLED`` back to false).
+* ``partitionFillV2.edgedAnnulus.test.ts`` (NEW committed gate — CS1 g21 hole-free flag-ON;
+  verified discriminating RED↔GREEN).
+* STUBS to delete (orchestrator ``rm``): ``partitionFillV2.throwaway_s24battery.diag.test.ts``
+  (the OFF/ON battery of record — regenerate with SHAPE_AUDIT=1), ``partitionFillV2.throwaway_s24probe.diag.test.ts``,
+  ``partitionFillV2.throwaway_s24curves.diag.test.ts``, ``partitionFillV2.throwaway_s24synth.diag.test.ts``
+  + ``scripts/diag_s24_battery.json``. Any §19-§23 stubs still pending rm.
+
+### Walkthrough dumps — NOT regenerated (permission-blocked)
+
+The ``CS1_FLIP=1`` walkthrough dump could NOT be run — ``CS1_FLIP`` is not in this run's env-var
+allowlist (only SHAPE_AUDIT / HOLES_DIAG / CS1_GATE were permitted). The orchestrator (or a run with
+CS1_FLIP allowed) must regenerate ``partitionFillV2.cs1flip_walkthrough.diag.test.ts`` for
+'Cross-section 1' and 'Cross-section 2' before the HTML render.
+
+### Next steps (session 25)
+
+1. **T2 CS2 g17 sloping wall** — the ``emitEnclosingFlood`` interval-bracket geometry following the
+   sloping enclosing base (NOT the flood wedge; Stage-0 + session-16 both proved wedge patches
+   negative). The remaining above-TD holes.
+2. **T4 3 synthetics** — the ``emitEnclosingFlood`` enclosing-face-bounding on the removed-tied-flank
+   side (owner call on re-authoring, question 2 above). Same rebuild as T2.
+3. **T3 host-split** — needs owner question 1 answered first, then the annulus/notch-splitter (or the
+   8g merge already covers it if the owner rules band-not-lens).
+4. Cutover-ready: OWNER DOGFEED (the CS1 g21 interbeds now band cleanly) → T2/T4 fill rebuild → flip
+   default ON → strip throwaway diag + the seam ``tileInterval`` body → v2 frozen snapshot.
+   ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.

@@ -25,6 +25,7 @@ import {
   type PartitionUnit,
 } from '../partitionFill'
 import { closeColumnGaps } from '../partitionFill/columnReduce'
+import { twoSidedTerminationsEnabled } from './tileFlags'
 
 /**
  * Whether to extract enclosed lenses (matrix merge + lens-as-HOLE / concave-notch
@@ -82,6 +83,18 @@ const ENABLE_ENCLOSED_LENS = true
  * that genuinely needs different treatment.
  */
 const ENABLE_ENCLOSED_LENS_EDGED = false
+
+/**
+ * SESSION-24 EXPERIMENT (flag-ON only, MEASURED): allow ``extractEnclosedLenses`` to merge a
+ * same-formation enclosing band around a minority even when the BELOW enclosing unit is EDGED,
+ * by KEEPING the edged ``below`` unit's identity (growing it up over the lens) instead of
+ * splicing it out. This preserves ``below``'s tie AND makes the annulus continuous, so the
+ * interbed becomes a real interior HOLE (``splitAnnulus`` handles it) — the T2/T3 target. Flag-ON
+ * only so flag-OFF stays byte-identical. Toggle from the measured result.
+ */
+function edgedBelowMergeEnabled(): boolean {
+  return twoSidedTerminationsEnabled()
+}
 
 /** One unit with precomputed elevations (mTAW) plus its litho identity. */
 export interface UnitGeom {
@@ -337,12 +350,27 @@ function extractEnclosedLenses(units: UnitGeom[], edgedLayerIds: ReadonlySet<str
         // lose its layerId and its band would vanish — the Cross-section 3 regress).
         // ``above`` keeps its layerId, so it may stay correlated.
         !edgedLayerIds.has(lens.layerId) &&
-        !edgedLayerIds.has(below.layerId)
+        (!edgedLayerIds.has(below.layerId) || edgedBelowMergeEnabled())
       ) {
         lenses.push({ lens: { ...lens }, matrixFormationId: above.formationId })
-        // Merge above+below into one continuous matrix unit spanning the lens.
-        above.baseElev = below.baseElev
-        units.splice(k, 2) // remove the lens and the (now-merged) below unit
+        // SESSION-24 EXPERIMENT (flag-ON, MEASURED): when ``below`` is EDGED, the ordinary merge
+        // (keep ``above``, splice ``below``) would drop ``below``'s tie layerId → its band vanishes
+        // (the guard that historically blocked it). Instead KEEP ``below``'s identity and grow it
+        // UP to cover the lens (``below.topElev = above.topElev``), splicing ``above`` — so the
+        // annulus is continuous AND ``below``'s tie survives. When ``below`` is un-edged, the
+        // original behaviour (keep ``above``) is retained.
+        if (edgedLayerIds.has(below.layerId)) {
+          // ``below`` edged → keep ``below``'s identity (grow it UP over the lens) and splice
+          // ``above``, so ``below``'s tie survives AND the annulus is continuous. (A both-edged
+          // case still keeps ``below`` here; ``above``'s tie is subsumed — the fundamental
+          // both-edged limit — but it did not fire on any real interbed, so this stays the
+          // below-edged single case that produced the CS1 g21 / coherentStack(a) win.)
+          below.topElev = above.topElev
+          units.splice(k - 1, 2) // remove ``above`` and the lens; ``below`` (now at k-1) survives
+        } else {
+          above.baseElev = below.baseElev
+          units.splice(k, 2) // remove the lens and the (now-merged) below unit
+        }
         changed = true
         break
       }
