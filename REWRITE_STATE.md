@@ -3398,3 +3398,79 @@ annulus rebuild (same class as col18 under 8l): per-piece literal classification
 watertight fill must yield {SILT band [2.27..3.07]<->[2.87..3.79], ZAND onlap wedge inside its
 upper-left, ZAND band below the 2.27<->2.87 tie}. Reverting s24 is NOT the fix (reopens the
 20 CS1-g21 holes); the rebuild covers both. CAMPAIGN REMAINS PAUSED (owner directive).
+
+## §30 — Session 26: THE HOST-SPLIT REBUILD (T3) — BLOCKED at STEP 0, NO code written (test execution permission-denied)
+
+Session 26 was dispatched to build the per-piece literal classification for same-formation
+enclosures (the annulus/host-split wall). I completed the full required reading (REWRITE_STATE
+§19-§29, design §4/§8 rulings 8a-8m, and every engine file: sectionGeom, slice, sliceAnnulus,
+emitTerminationSweep, emitEnclosingFlood, effectiveCorr, emitCurves, labelFaces, drawTermination,
+emitLenses, computeSectionFillV2, plus the literalCorr + edgedAnnulus gates). I did NOT write any
+engine or test code.
+
+### BLOCKER — the acceptance guard battery is permission-denied this run
+
+Per the mission's standing rule ("If test execution is permission-denied: STOP immediately and
+report"): `npx tsc --noEmit -p tsconfig.web.json` and `npx vitest run ...` are DENIED in BOTH the
+Bash tool and the PowerShell tool (verified: both forms return "Permission to use Bash/PowerShell
+has been denied", with and without `cd`/`Set-Location`). Bare `node -e` / `node script` works for
+SIMPLE reads (I extracted the CS1 gap0 column geometry that way, below), but the matcher also
+blocked node scripts that resemble test logic (loops / `findIndex`). The entire mission discipline
+is stage-gated MEASUREMENT — flag-OFF byte-identical, holes 0/0/0, overlaps 0, conformance 5/5/0,
+CS1 gates 7/7, the NEW gap0 gate RED->GREEN, edgedAnnulus MUST-NOT-REGRESS, LENS_AUDIT MISSING 0 —
+none of which can be run. Writing the multi-day host-split blind would repeat the §26 (session-23)
+BLOCKER the state file explicitly warns against ("DO NOT claim done until green"). STOPPED per rule.
+
+### CS1 gap0 real geometry — EXTRACTED + VERIFIED against §29 (the one productive output)
+
+From `scripts/diag_allsections_input.json`, CS1 kept-col 0 (surf 13.43) and kept-col 1 (surf 13.13).
+Formation last-4 hex: `4b4e` (count 50), `4b41` (43), `4b50` (48), `4b52` (1). §29's "ZAND/SILT"
+labels map onto these ids (owner-traced). The gap0 stack near the two ties (col0 el ~1.7..5.7,
+col1 el ~2.9..5.4):
+* col0: ...u8 f4b50 el[3.52..5.67] / u9 f4b41 el[3.07..3.52] / u10 f4b4e el[2.27..3.07] /
+  u11 f4b41 el[1.73..2.27] / u12 f4b4e el[0.86..1.73]...
+* col1: u2 f4b50 el[3.79..4.41] / u3 f4b4e el[2.87..3.79] / u4 f4b41 el[0.71..2.87]...
+CONFIRMS §29: an f4b41/f4b4e/f4b41 (or the ZAND-SILT-ZAND) same-formation SANDWICH on col0 around
+el 2.27..3.52 that `extractEnclosedLenses` + the s24 edged-below merge collapses into one host, so
+the enclosing flood floods it full-width by formation and the silt band interior reads sand. (I did
+NOT run the engine to dump the rendered regions — that needs vitest.)
+
+### The construction I had scoped (for the orchestrator / a permitted session) — NOT built
+
+Root, precisely: EVERYTHING downstream reads the MERGED `col.units` — the sweep
+(`emitSideSweep` loops `col.units`), `resolveTies` (`layerLoc` from `col.units`), `effectiveCorr`,
+the flood (`enclosingFormationAt` over `col.units`), and `labelFaces` (weights bounding
+`col<ci>:u<ui>` verticals). The merge (needed for the fill annulus so g21 stays hole-free — the
+edgedAnnulus gate) is exactly what erases the per-piece 2/1/0 the owner wants at gap0. The two are
+coupled only because they share ONE `col.units` list.
+
+Target construction = the prompt's option (i), "classification-level split, fill-level annulus":
+thread the ORIGINAL un-merged piece list ALONGSIDE the merged `col.units` (e.g. a new
+`col.classifyUnits` / `EnclosedLens.pieces` carrying the host's pre-merge sub-units + their
+per-piece tie inheritance), feed THAT to the sweep + `effectiveCorr` + a per-piece band/onlap
+label, while `emitEnclosingFlood` + `emitEnclosedLensCurves` keep consuming the MERGED annulus for
+the watertight fill. The §29 acceptance decomposition to reproduce: {SILT band [2.27..3.07]<->
+[2.87..3.79]; ZAND onlap wedge riding the 3.52<->3.79 tie, apex 0.5, ZAND-labelled; ZAND band below
+the 2.27<->2.87 tie}. The §29 A/B additionally warns label-correctness is only HALF: the onlap
+wedge face must carry the TERMINATING unit's litho (pre-s24 absorbed it into the silt quad). Every
+sub-step MUST be measured (flag-OFF byte-identical; edgedAnnulus green; holes<=20 all CS2-g17;
+overlaps 0; LENS_AUDIT MISSING 0; gap0 gate RED->GREEN; literalCorr (c)/(d) RED->GREEN) — which is
+why it cannot proceed without the battery.
+
+### Files this session
+
+* `REWRITE_STATE.md` — this §30 (the ONLY file touched). NO engine/test code written; no git ops.
+* No new stubs created. All prior-session stub-deletion lists still stand for the orchestrator.
+
+### Next steps (orchestrator / a session WITH test-execution permission)
+
+1. RESTORE `npx tsc` + `npx vitest` execution permission (Bash or PowerShell), then re-dispatch the
+   T3 host-split rebuild with the scoped construction above. STEP 0 of that run: the NEW permanent
+   `partitionFillV2.gap0HostSplit.test.ts` gate asserting the §29 expected shape, verified RED on
+   the current engine BEFORE any fix (the mission's acceptance case #1).
+2. Un-skip `partitionFillV2.literalCorr.test.ts` (c)/(d) (acceptance case #2 twin) as the second
+   red target; the `mCol.units.length === 5` expectation there PINS the classification-level split
+   (the merge must not collapse the host for the sweep, while the fill still gets the annulus).
+3. edgedAnnulus (CS1-g21) MUST stay green throughout — if the construction retires the s24
+   edged-below merge, g21's interbeds must stay hole-free by the new mechanism (the coupling to
+   sever carefully).
