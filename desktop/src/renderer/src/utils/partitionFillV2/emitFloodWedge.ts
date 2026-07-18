@@ -93,7 +93,21 @@ export function emitFloodWedge(
   convToFacingX?: number,
 ): void {
   const midElev = (topElev + baseElev) / 2
-  const label = facingMatrixLabel(facing, midElev)
+  // RULING 8n (owner, 2026-07-18 — "stay inside the lines"): the flood wedge past a termination
+  // apex is the facing unit being ONLAPPED INTO (rule 3). For a LENS both sides flood, so the
+  // enclosing matrix is sampled at the unit's OWN mid-elevation (``skipSide === null``). For an
+  // ONLAP the flood fills ONLY the UNTIED side (``skipSide`` names the TIED/closed side), and that
+  // side laps up/down onto the FACING unit above/below the tie — sampling the mid-elevation there
+  // reads the WRONG facing unit (the mid lands in the matrix on the TIED side of the facing tie).
+  // CS1 gap1 x=96.96: the base-tied ZAND onlap (mid 4.9) floods its TOP; mid-4.9 sampled col2 as
+  // KLEI [3.67..5.023] (below the tie) → the wedge past the apex mislabelled KLEI, KLEI crossing
+  // its own band-top/tie line (rule-4 violation). Sampling the FLOODED (untied) contact — the TOP
+  // (5.39) for a base-tied onlap — lands in col2 SILT [5.023..6.278], the unit the ZAND onlaps
+  // into. ``skipSide === 'base'`` → flood TOP → sample topElev; ``'top'`` → flood BASE → sample
+  // baseElev; ``null`` (lens) → mid. LABEL ONLY — the wedge GEOMETRY (``convY``, the corners) is
+  // unchanged. See REWRITE_STATE §35.
+  const labelElev = skipSide === 'base' ? topElev : skipSide === 'top' ? baseElev : midElev
+  const label = facingMatrixLabel(facing, labelElev)
   if (label === null) return
   const convX = (colX + facingX) / 2
   // For a SKIPPED-SIDE ONLAP wedge the conv sits at the apex ELEVATION so the wedge flank closes

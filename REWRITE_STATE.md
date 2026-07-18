@@ -3827,3 +3827,91 @@ MISSING **0** all sections · **tsc clean** · full utils **1 failed (`convergin
   (s28 four + earlier).
 - Regenerated (orchestrator may re-dump via CS1_FLIP=1 — env DENIED for me): `cs1_flip_walkthrough.html`,
   `crosssection2_flip_walkthrough.html` written from the EXISTING committed dumps (no model change).
+
+## §35 — Session 30: RULING 8n FACE-LABELLING FIX SHIPPED — the onlap flood wedge sampled the WRONG facing elevation
+
+Mission: the second half of "stay inside the lines" (ruling 8n). §33 (s28) fixed face TOPOLOGY (near-T
+snap); faces close correctly, but some faces still took the WRONG litho. Owner acceptance case x=96.96
+(CS1 gap1). Test execution WORKS via Bash `npx vitest` + `HOLES_DIAG=1`/`CS1_GATE=1`/`SHAPE_AUDIT=1`
+env-prefix + bare `npx tsc --noEmit -p tsconfig.web.json` (clean). DENIED: env-var names outside the
+allowlist (`S30_DIAG` bounced — reused `HOLES_DIAG`), `echo`-suffixed commands, `cd && rm` / PowerShell
+`Remove-Item` (so the s30 throwaway stubs are LEFT for the orchestrator to rm — they skip cleanly
+without `HOLES_DIAG=1`). No file-writer flip dump needed.
+
+### THE ROOT CAUSE — MEASURED, not theorised (throwaway s30 gap1/faces/curves dumps)
+The bug face at CS1 gap1 x=96.96 is the triangle `(96.95,5.39)(98.55,4.72)(100.14,5.02)` — bounded
+below by the KLEI tie line (`tie22`/`bandc14`, rising 4.41→5.023 = the KLEI band's TOP), above by the
+SILT band base (`bandc19`, 5.39→5.023), PAST the ZAND onlap apex (f=0.5). It has **NO column vertical**
+(`units=[]`) → it is NOT resolved by the length-weighted vote at all; it is stamped from the `floodsw1`
+FLOOD-WEDGE label. `floodsw1` carried KLEI. Traced to `emitFloodWedge` line 96: the flood label was
+`facingMatrixLabel(facing, midElev)` — the facing column sampled at the terminating ZAND's MID-elevation
+(4.9). The base-tied ZAND onlap floods its UNTIED (TOP) side, but mid-4.9 sampled col2 as KLEI
+[3.67..5.023] (BELOW the tie) instead of the flooded-side facing SILT [5.023..6.278] (ABOVE the tie).
+So the wedge past the apex read KLEI — KLEI crossing its OWN band-top/tie line (8n rule-4 violation).
+NOT a length-weighted-vote bug (the orchestrator's edge-length-vote hypothesis was wrong for THIS face);
+the true root is the flood label's elevation sample. The vote (`resolveLabel`) was already correct on all
+column-bounded faces; only the empty-unit flood wedges were mislabelled.
+
+### THE FIX — `emitFloodWedge.ts` label-elevation, ONLAP-only (flag-ON by construction)
+Replaced the single `midElev` label sample with `labelElev`: `skipSide==='base'` (base tied, flood TOP)
+→ sample `topElev`; `skipSide==='top'` (top tied, flood BASE) → `baseElev`; `skipSide===null` (LENS, both
+sides flood) → `midElev` (unchanged). This makes the flood wedge carry the facing unit the onlap ONLAPS
+INTO (8n rule 3 — "a face past an onlap apex = the unit being onlapped into"), NOT the mid-elevation
+matrix on the tied side. LABEL ONLY — the wedge GEOMETRY (`convY`, corners) is untouched. `emitFloodWedge`
+is called ONLY from the flag-ON sweep (`emitTerminationSweep`→`drawTermination`/`emitBoundaryLens`, all
+inside `if (twoSidedTerminationsEnabled())` in `emitCurves`), so flag-OFF is byte-identical with NO gate
+inside the function (verified: flag-OFF holes 0/0/0). `midElev` kept for the lens `convY` geometry.
+
+### GATE — RED→GREEN proof (mandatory RED-first done)
+`partitionFillV2.faceLabel8n.test.ts` (NEW permanent gate, real-data flag-ON, skips if diag absent). At
+CS1 gap1, sample the wedge past the ZAND apex (f=0.85, e=5.0, between the KLEI tie ~4.93 and the SILT base
+~5.08): (A) SILT covers it (rule 3); (B) KLEI does NOT (rule 4). **RED-FIRST PROOF on the pre-fix engine:
+(B) failed `expected true to be false` (KLEI wrongly covered) + (A) failed (SILT absent).** After the fix:
+BOTH GREEN. Post-fix gap1 region 38 flips `19bb43 KLEI el[4.716..5.39]` → `0f2e06 SILT el[4.716..5.39]`
+and merges with the SILT band above.
+
+### MEASUREMENT (my fix in place; s30 throwaway holes runner, ALL 14 sections, BOTH flags)
+| metric | baseline (§33/§34) | after s30 |
+|---|---|---|
+| flag-ON holes above-TD | 20 (all CS2-g17) | **20 (all CS2-g17, ZERO new)** |
+| flag-ON holes sub-TD | 0 | **0** |
+| flag-ON diff-litho overlaps | 0 | **0** |
+| flag-OFF holes | 0/0/0 | **0/0/0 (byte-identical — sweep never runs flag-OFF)** |
+
+### ALSO-VERIFY (owner items 3/4, x=100.14/101.56) — region evidence
+- The floodsw-labelled empty-unit face inventory (throwaway s30 labeldiff): the acceptance face now reads
+  `Cross-section 1 FLOODFACE SILT x[97.0..100.1] y[4.72..5.39]` (was KLEI). No KLEI flood face survives in a
+  SILT zone of gap2 (x=100.14) or gap3 (x=101.56); the gap2/gap3 flood faces are the SILT-onlap-into-ZAND
+  wedges `ZAND x[101.6..146.8] y[0.23..0.67]` (correct). diff-litho overlaps 0 across all gaps → no
+  cross-litho paint spill anywhere. Items 3/4 are the SAME flood-label class as x=96.96 and are corrected by
+  the same fix; the precise owner-expected shapes still want the owner's dogfeed marks to confirm (no unit
+  test can assert "looks right" — but the labeller is now line-art-driven, overlaps 0).
+- OUT OF SCOPE (untouched, per mission): x=646.74 facing-fill semantics (owner answer pending — the four
+  `ZAND x[646.7..685.8]` flood faces past the col18 thin lenses are literal 8n facing-fill, overlaps 0),
+  CS2-g17's 20 holes (the documented `emitEnclosingFlood` interval-bracket wall), literalCorr (c)/(d),
+  convergingStack (a). None regressed.
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+faceLabel8n **2/2 (RED-first proven)** · gap0HostSplit (A)+(B)+(C) · edgedAnnulus · followTieOnlap ·
+mergeAfterFill · boundaryLens · coherentStack · derivedTieOnlap · loneSidePinch · strict210 · literalCorr
+(a)/(b) [(c)/(d) skip, unchanged] · twoSidedTermination · subTdLens · bandAuthority · lensEdged · CS1 gates
+(CS1_GATE=1) **8/8** · lensAudit (SHAPE_AUDIT=1) MISSING **0** · conformance + conformance.classify GREEN ·
+v1 frozen (cs1frozen/cs1sandbody/cs1lensdisjoint/goldens/partitionDisjoint/partitionOverlapCheck) GREEN ·
+**tsc clean** · full utils suite **1 failed (`convergingStack (a)` — pre-existing, unchanged) / 785 passed /
+27 skipped** (baseline 783/25; +2 pass = the new gate's 2 tests, +2 skip = 2 s30 throwaways skipping cleanly).
+
+### NO GENUINE RULE GAP (no ask-first needed)
+The acceptance case had a single unambiguous answer (rule 3 = the facing unit onlapped into = SILT; rule 4
+forbids KLEI crossing its band top). The two rules AGREE here — no face that two rules claim differently.
+Pure-geometry fix, iterated autonomously per the directive.
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/emitFloodWedge.ts` (EDITED, flag-ON by construction) — `labelElev` replaces the
+  `midElev` label sample for ONLAP wedges (untied-contact facing); `midElev` retained for lens `convY`.
+- `partitionFillV2.faceLabel8n.test.ts` (NEW permanent gate) — the x=96.96 ruling-8n acceptance gate,
+  RED-first proven.
+- STUBS to delete (orchestrator rm — Bash `cd && rm` / PowerShell `Remove-Item` were DENIED for me; they
+  skip cleanly without `HOLES_DIAG=1`): `partitionFillV2.throwaway_s30_gap1.diag.test.ts`,
+  `partitionFillV2.throwaway_s30_faces.diag.test.ts`, `partitionFillV2.throwaway_s30_curves.diag.test.ts`,
+  `partitionFillV2.throwaway_s30_holes.diag.test.ts`, `partitionFillV2.throwaway_s30_labeldiff.diag.test.ts`
+  + their `s30_*_dump.txt` outputs. Plus ALL prior-session stubs still pending (s29 two + s28 four + earlier).
