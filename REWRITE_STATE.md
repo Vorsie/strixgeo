@@ -2956,3 +2956,119 @@ naive literal count broke bidirSweep(b) + flipped coherentStack(b)/coherentLoneS
 4. Cutover-ready: OWNER DOGFEED (8l onlaps/emergent bands on the litho axis) → the two rebuilds →
    flip default ON → strip throwaway diag + ``tileInterval`` body → v2 frozen snapshot.
    ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
+
+## §26 — Session 23: RULING 8m (FOLLOW-THE-TIE same-litho onlap suppression) RESTORED — engine + gate landed; battery VERIFICATION BLOCKED (no test-execution permission this run)
+
+Ruling 8m (owner, 2026-07-17, dogfeeding the x=23.45 5th silt — verbatim): "restore it, just add a
+lithology check before drawing." Before drawing a corr-1 onlap flank, FOLLOW the actual tie to the
+MATCHED facing contact (below-for-top-tie / above-for-bottom-tie), compare litho — SAME → SKIP the
+flank (the tie is the boundary, the enclosing flood flows through, the 8j merge welds ONE body — the
+flank would be an interior seam of the identical final body); DIFFERENT → draw the onlap. Corr-1
+onlaps ONLY; lenses stay untouchable (8i(e)). Supersedes 8j's interim blanket "a corr-1 side ALWAYS
+onlaps" — both forms are merge-equivalent (the 8j ``mergeTouchingBodies`` post-fill weld still runs).
+Build-first; ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
+
+### The implementation (INHERITED from the killed prior s23 agent + reconciled this run)
+
+The prior session-23 agent (killed mid-verification) had already written the engine + gate. This run
+READ the diff, judged it against the ruling, kept what was right, and fixed the one defect it left.
+
+* ``partitionFillV2/drawTermination.ts`` (EDITED) — new ``matchedFacingSameLitho(ownFormationId,
+  tieSide, tiedElev, gapIndex, side, activeTies, facing)``: locates the facing tie endpoint via the
+  existing ``tieFacingElevAt``, samples the facing column on OUR side of the tie (``facingTiedElev
+  - MATCH_OFFSET`` for a top tie = BELOW; ``+ MATCH_OFFSET`` for a base tie = ABOVE — the 8m
+  below-for-top / above-for-bottom rule, sign-correct in elevation), and compares formation via the
+  proven ``facingMatrixLabel``. ``drawTermination`` calls it in the corr-1 branch AFTER computing
+  ``tieSide``/``tiedElev`` and BEFORE ``emitOnlap``: same litho → ``return false`` (intentional
+  absence — NOT a missing termination); different → ``emitOnlap`` unchanged.
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED) — the 8d-rev SURFACE onlap (ui 0, corr 1,
+  top-band-only) gets the SAME 8m treatment, reasoned consistently: a surface onlap's "tie" is the
+  top band, whose matched facing contact (below the top band) is the facing FIRST unit
+  (``facing.units[0]``). Same first-unit litho → ``continue`` (skip the surface flank; the two
+  surface onlaps would meet at 0.5 and merge into one body; the enclosing flood fills the top strip
+  bound by the top-band polyline above + the fill below); different → ``emitSurfaceOnlapFlank``
+  unchanged. This matches the brief's "consider whether the 8d-rev surface onlap gets the same
+  treatment" — YES, applied, matched-facing = the facing first unit (the unit on OUR side of the
+  top-band "tie").
+* ``partitionFillV2.followTieOnlap.test.ts`` (NEW — behavioural gate, flag-ON). Three cases in the
+  ruling's own vocabulary (comments cite "matched facing ABOVE the base tie … SAME → skip", NOT
+  impl variable names — TDD-honest): (a) same-litho corr-1 → NO onlap flank + final CLAY body one
+  welded body spanning full width (merge-equivalence, ``clayBodies.size === 1``, fLo<0.02, fHi>0.98);
+  (b) different-litho corr-1 → the onlap flank IS drawn (over-suppression guard); (c) mixed sides →
+  exactly ONE onlap flank on the middle column (different side draws, same side skips).
+
+### KEPT vs FIXED (the reconciliation this run)
+
+* KEPT (correct against 8m): ``matchedFacingSameLitho`` geometry + sign; the corr-1 skip placement
+  before ``emitOnlap``; the surface-onlap 8m branch (matched-facing = ``facing.units[0]``); the
+  ``tieSide: 'top' | 'base'`` type-annotation the check requires; all three ``followTieOnlap`` cases.
+* FIXED (one defect): ``drawTermination.ts`` MODULE-DOCSTRING header bullet (the ``corr === 1``
+  line) still described the SUPERSEDED 8j "ONLAP ALWAYS … a corr-1 side ALWAYS onlaps its tie
+  regardless of the facing litho" — directly contradicting the now-correct 8m code AND the accurate
+  8m docstring block the prior agent had ADDED higher in the same header. Rewrote the bullet to the
+  8m follow-the-tie state (the "test/doc comments are the canary" trap — a stale doc citing the
+  superseded rule would mis-teach the next reader). Also neutralised the prior agent's throwaway
+  probe stub (already a ``describe.skip`` no-op).
+
+### ⚠ VERIFICATION NOT COMPLETED — test execution was denied this run (BLOCKER)
+
+The acceptance battery (SHAPE_AUDIT/HOLES_DIAG/CS1_GATE/LENS_AUDIT vitest suites, tsc, and the real
+``diag_shape_audit.json`` regeneration) COULD NOT BE RUN: this session's tool permissions blocked all
+test/build execution (``npm``/``npx``/``vitest``/``tsc`` invocations and ``cd`` into the worktree were
+denied; only read-only ``git -C`` / ``ls`` / ``cat`` / ``grep`` / ``node --version`` were allowed).
+The on-disk dumps (``diag_shape_audit.json``, ``diag_lens_audit.json``) are STALE — dated 2026-07-17,
+from the §25 (8l) state, BEFORE the 8m edits — so they are NOT valid after-8m evidence (§25 baseline
+they DO confirm: LENS_AUDIT 34/34/0/0; flag-ON holes 40/0; overlaps 0). The following MUST be run by
+the orchestrator (or a session with execution permission) to close acceptance — DO NOT claim 8m done
+until green:
+
+1. tsc: ``tsc --noEmit -p desktop/tsconfig.web.json`` (from desktop/) — the changed renderer files.
+2. Scoped vitest (from desktop/): ``partitionFillV2.followTieOnlap.test.ts`` (the 3 new cases),
+   ``partitionFillV2.cs1gates.diag.test.ts`` (CS1_GATE=1, expect 7/7), the twoSided/strict210/
+   derivedTieOnlap suites, and the v1 read-only suite (expect unchanged).
+3. Battery (from desktop/, ``--disableConsoleIntercept``): regenerate ``scripts/diag_allsections_
+   input.json`` if the model changed, then SHAPE_AUDIT=1 shapeaudit.diag + HOLES_DIAG=1 holes_overlaps
+   .diag — ACCEPTANCE: flag-ON holes ≤ 40 (the two pre-existing CS1 g21 + CS2 g17 fill walls ONLY — a
+   NEW hole from an 8m skip = characterise + STOP), flag-OFF byte-identical 0/0/0, overlaps 0 both
+   states, LENS_AUDIT 34/0/0, the 4 inherited synthetic reds (coherentStack a/b, convergingStack a,
+   coherentLoneStack) UNCHANGED.
+4. Body-equivalence on the CS1 x=23.45 col0 u6 SILT (5th silt, its 1 corr = bottom tie right facing
+   SILT): flank GONE, final body extent IDENTICAL before/after (the merge-equivalence claim).
+5. Model-wide skipped-flank list (each proven same-litho-by-tie) + region/merge count deltas.
+
+### The 8m HOLE-SAFETY hypothesis (the thing the battery must confirm)
+
+The skip removes an onlap's ``oflank`` flank AND its ``emitOnlap`` flood wedge (the early ``return
+false`` fires before both). Hole-safety argument: when the matched facing is SAME litho, the
+enclosing flood behind the sweep (the facing column's OWN formation) is the SAME formation as our
+unit and floods the wedge full-width — so the vacated space is filled by the same litho, no hole and
+no cross-litho overlap, and the 8j post-fill merge welds the touching same-litho regions into one
+body (identical final extent to the always-draw form). This is SOUND BY REASONING but UNMEASURED —
+the brief's "a skip that opens a hole = characterise + stop" gate is exactly the thing #3 above
+tests. If the flag-ON holes exceed 40 or overlaps exceed 0, the skip is NOT hole-safe on some real
+gap → characterise that gap, do not force the skip.
+
+### Stubs for the orchestrator to delete / decide
+
+* ``desktop/src/renderer/src/utils/partitionFillV2.throwaway_s23probe.diag.test.ts`` — the prior
+  agent's neutralised probe (``describe.skip`` no-op). DELETE (``git rm``).
+* ``partitionFillV2.followTieOnlap.test.ts`` — KEEP (the permanent 8m behavioural gate).
+* The §25 stub-list (``throwaway_s22battery.diag.test.ts`` + ``diag_s22_battery.json``) is already
+  gone from the tree (orchestrator cleaned it). No new battery stub was created this run (the battery
+  could not be run).
+
+### Files this session (worktree, NOT committed — orchestrator commits + rm)
+
+* ``partitionFillV2/drawTermination.ts`` (EDITED — 8m ``matchedFacingSameLitho`` + corr-1 skip; the
+  stale 8j header bullet rewritten to 8m this run).
+* ``partitionFillV2/emitTerminationSweep.ts`` (EDITED — 8m surface-onlap skip against ``facing.units[0]``).
+* ``partitionFillV2.followTieOnlap.test.ts`` (NEW — the 8m behavioural gate).
+* ``partitionFillV2.throwaway_s23probe.diag.test.ts`` (NEW throwaway — DELETE).
+
+### Next steps (session 24 / orchestrator)
+
+1. RUN the verification battery (§26 items 1-5 above) — this is the unfinished half of session 23.
+2. If green: OWNER DOGFEED the x=23.45 5th silt (flank gone, body identical) on the litho axis.
+3. If a NEW flag-ON hole appears from an 8m skip: characterise the gap, STOP, re-ask the owner.
+4. Remaining pre-cutover work unchanged from §25: the interbed host-split annulus rebuild + the
+   ``emitEnclosingFlood`` fill rebuild (CS1 g21 + CS2 g17) + the 4 inherited synthetic reds.

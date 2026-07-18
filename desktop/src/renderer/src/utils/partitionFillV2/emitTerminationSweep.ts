@@ -259,6 +259,16 @@ function emitSideSweep(
     // real tie). Distinct from the generic ``emitOnlap``, whose ``tieFacingElevAt`` falls back to
     // ``facingElevAt`` (NOT the top-band polyline) → a divergent tied leg → a sliver hole.
     if (ui === 0 && c === 1 && eff.topTied && !eff.baseTied && !df.top && !df.base) {
+      // RULING 8m (owner, 2026-07-17): a surface onlap's "tie" is the TOP BAND, whose matched facing
+      // contact (below the top band) is the facing FIRST unit. If that facing first unit is the SAME
+      // litho, the two surface onlaps would meet at 0.5 and the 8j merge welds them into ONE body
+      // anyway — so the SAME follow-the-tie skip applies (the flank would be an interior seam of the
+      // identical final body; the enclosing flood fills the top strip, bound by the top-band polyline
+      // above and the fill below). DIFFERENT litho → draw the surface onlap. Consistent with the
+      // generic corr-1 8m check in ``drawTermination``: the matched facing is the unit on OUR side of
+      // the tie (below the top band = ui 0).
+      const facingFirst = facing.units[0]
+      if (facingFirst && facingFirst.formationId === u.formationId) continue
       emitSurfaceOnlapFlank(u, colX, facingX, facing, lensLabels, nextId, nextFloodId, out)
       continue
     }

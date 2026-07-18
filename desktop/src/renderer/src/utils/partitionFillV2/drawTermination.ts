@@ -10,6 +10,17 @@
  * it has 1 correlation band, FOLLOW that band: if it is the same litho (below for a top
  * tie, above for a bottom tie) do nothing; if it is a different litho make it onlap the tie."
  *
+ * RULING 8m (owner, 2026-07-17, design §8 8m — "restore it, just add a lithology check before
+ * drawing"): the 8i same-litho onlap suppression is RESTORED in its correct FOLLOW-THE-TIE form.
+ * Before drawing a corr-1 onlap flank, FOLLOW the actual tie to the MATCHED facing contact
+ * (below-for-top-tie / above-for-bottom-tie), compare litho — SAME → skip the flank (the tie is
+ * the boundary, the enclosing flood flows through, the 8j merge welds one body; the flank would be
+ * an interior seam of the identical final body); DIFFERENT → draw the onlap. Supersedes 8j's blanket
+ * "a corr-1 side ALWAYS onlaps": both forms produce IDENTICAL final bodies (merge-equivalence), so
+ * restoring the literal check trades redundant interior seams + merge work for one rule-derived
+ * litho comparison. Scope: corr-1 onlaps ONLY; lenses stay untouchable (8i(e)); different-litho
+ * onlaps always draw. See ``matchedFacingSameLitho`` below.
+ *
  * THIS MODULE IS THE DRAW HALF. The CLASSIFY half (``leftSide`` / ``rightSide`` in 8i's
  * vocabulary) is ``effectiveCorrForSide`` (``effectiveCorr.ts``) — the SINGLE source of the
  * 2/1/0 per-unit-per-gap-per-side band count, already shared with the conformance gate. The
@@ -23,14 +34,18 @@
  *     minority-vs-dominant fill gate stays in the sweep: a boundary/dominant matrix unit
  *     FLOODS rather than lenses — owner 8f. That gate decides WHO holds the void, not
  *     whether a genuine minority terminates.)
- *   - corr === 1 → ONLAP ALWAYS (owner ruling 8j "MERGE AFTER FILL", 2026-07-17, supersedes 8i's
- *     "follow the tie → same litho → do nothing"). NO termination is suppressed by a predicted
- *     merge: a corr-1 side ALWAYS onlaps its tie regardless of the facing litho. The onlap is ONE
- *     extra line (ruling 8i(d)) — the closing flank from the free contact to the apex on the tie;
- *     the tie itself is existing line art bounding the other side. Same-litho regions that TOUCH
- *     after the fill merge into one body as a POST-FILL step (``mergeTouchingBodies`` in
- *     ``computeSectionFillV2``) — the 8e/8g(b) rulings survive as the MERGE criteria, not emission
- *     guards. This DELETES the ``mergesSameFormationBand`` pre-emption.
+ *   - corr === 1 → FOLLOW THE TIE (owner ruling 8m, 2026-07-17, RESTORING 8i's same-litho
+ *     suppression in its correct follow-the-tie form; supersedes the interim 8j blanket
+ *     "a corr-1 side ALWAYS onlaps"). FOLLOW the unit's tie to the MATCHED facing contact
+ *     (below-for-top-tie / above-for-bottom-tie) and compare litho: SAME → SKIP the flank (the
+ *     tie is the boundary, the enclosing flood flows through, and the 8j POST-FILL merge
+ *     [``mergeTouchingBodies`` in ``computeSectionFillV2``] welds the two same-litho regions into
+ *     ONE body — the flank would only be an interior seam of that identical final body, so both
+ *     forms produce merge-equivalent output); DIFFERENT → ONLAP. The onlap is ONE extra line
+ *     (ruling 8i(d)) — the closing flank from the free contact to the apex on the tie; the tie
+ *     itself is existing line art bounding the other side. The 8e/8g(b) rulings survive both as
+ *     the follow-the-tie SKIP criterion (same litho on the matched facing side) and as the
+ *     post-fill MERGE criteria. See ``matchedFacingSameLitho``.
  *   - corr === 2 → nothing (the band contour is given line art from ``emitBands``).
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
@@ -40,6 +55,7 @@ import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
 import { type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
+import { facingMatrixLabel } from './facingMatrix'
 import { lensReachFraction } from './lensReach'
 import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
@@ -48,6 +64,63 @@ import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
+
+/**
+ * Elevation offset (metres) used to sample the facing unit on the MATCHED side of a tie — just
+ * BELOW the tie for a top tie, just ABOVE for a base tie (ruling 8m: below-for-top / above-for-
+ * bottom). Small enough to land inside a real facing unit, well above the 1 mm snap grid.
+ */
+const MATCH_OFFSET = 1e-3
+
+/**
+ * Ruling 8m (owner, 2026-07-17): before drawing a corr-1 onlap flank, FOLLOW the actual tie to
+ * the MATCHED facing contact (below-for-top-tie / above-for-bottom-tie) and compare litho. SAME
+ * litho → the tie is the boundary, the fill flows through, and the 8j post-fill merge welds the
+ * two same-litho regions into ONE body — the flank would only be an interior seam of that
+ * identical final body, so it is SKIPPED. DIFFERENT litho → the unit genuinely onlaps its tie
+ * (the flank is drawn). Scope: corr-1 onlaps ONLY (lenses stay untouchable, 8i(e)).
+ *
+ * The matched facing unit is the one on the SAME side of the tie line as OUR unit: a TOP-tied unit
+ * sits BELOW its top contact → the matched facing unit is BELOW the facing tie contact; a
+ * BASE-tied unit sits ABOVE its base contact → the matched facing unit is ABOVE it. We sample the
+ * facing column a hair off the tie elevation on that side (``facingMatrixLabel``, the proven facing
+ * sampler with its nearest-unit fallback at a TD/surface boundary) and compare formation ids.
+ *
+ * Returns ``true`` when the matched facing unit is the SAME formation as ``ownFormationId`` (→ skip
+ * the flank, merge-equivalent), ``false`` otherwise (→ draw the onlap).
+ *
+ * Parameters
+ * ----------
+ * ownFormationId : string
+ *     The terminating unit's own formation.
+ * tieSide : 'top' | 'base'
+ *     Which of the unit's own contacts carries the tie being followed.
+ * tiedElev : number
+ *     The unit's tied contact elevation (mTAW) — the near endpoint of the tie.
+ * gapIndex : number
+ *     The gap index (for the tie lookup).
+ * side : 'left' | 'right'
+ *     Which facing column the unit lives on for this gap.
+ * activeTies : readonly ResolvedTie[]
+ *     The gap's active ties (to locate the facing tie endpoint elevation).
+ * facing : ColumnGeom
+ *     The facing column whose matched-side litho is compared.
+ */
+export function matchedFacingSameLitho(
+  ownFormationId: string,
+  tieSide: 'top' | 'base',
+  tiedElev: number,
+  gapIndex: number,
+  side: 'left' | 'right',
+  activeTies: readonly ResolvedTie[],
+  facing: ColumnGeom,
+): boolean {
+  const facingTiedElev = tieFacingElevAt(gapIndex, side, tiedElev, activeTies, facing)
+  // Sample the facing unit on OUR side of the tie: below for a top tie, above for a base tie.
+  const sampleElev = tieSide === 'top' ? facingTiedElev - MATCH_OFFSET : facingTiedElev + MATCH_OFFSET
+  const matched = facingMatrixLabel(facing, sampleElev)
+  return matched != null && matched.formationId === ownFormationId
+}
 
 /**
  * The tied contact side of a corr-1 unit. A corr-1 unit has exactly one effective tie; when both
@@ -153,15 +226,15 @@ export function drawTermination(
     // suppressions are PHYSICAL (degenerate / sub-snap), applied inside ``emitLensClosing``.
     return emitLens(iu, colX, facingX, facing, u, lensLabels, nextId, nextFloodId, out)
   }
-  // corr === 1: RULING 8j "MERGE AFTER FILL" (owner, 2026-07-17 — "you merge after everything is
-  // fucking filled!"). Supersedes 8i's pre-emptive "same litho → do nothing". NO termination is
-  // suppressed by a predicted merge: a corr-1 side ALWAYS ONLAPS its tie regardless of the facing
-  // litho. Same-litho regions that TOUCH after the fill merge into one body as a POST-FILL step
-  // (``mergeTouchingBodies`` in ``computeSectionFillV2``), so a sub-piece of a carved unit lenses
-  // in the carve's shadow and reconnects to its encompassing body around the tips automatically.
-  // The ``mergesSameFormationBand`` pre-emption is DELETED (the +197/+457/+666-hole risk is on the
-  // gated-off N-wedge/carve paths, NOT this sweep+enclosingFlood construction — the onlap is a
-  // detour the flood closes around, exactly like the unconditional 0-corr lens above).
+  // corr === 1: RULING 8m (owner, 2026-07-17 — "restore it, just add a lithology check before
+  // drawing"). The same-litho onlap suppression is RESTORED in follow-the-tie form (below),
+  // superseding 8j's blanket "a corr-1 side ALWAYS onlaps". We FOLLOW the unit's tie to the matched
+  // facing contact and compare litho: SAME → skip (the tie bounds the space, the enclosing flood
+  // flows, the 8j merge welds ONE body — the flank would be an interior seam of that identical
+  // body); DIFFERENT → onlap. A different-litho onlap is a detour the flood closes around, exactly
+  // like the unconditional 0-corr lens above (no +197/+457/+666-hole risk — that was on the
+  // gated-off N-wedge/carve paths, not this sweep+enclosingFlood construction). The 8j POST-FILL
+  // merge (``mergeTouchingBodies``) still runs and is what makes the skip merge-equivalent.
   //
   // ONLAP SIDE — which contact is the TIED one (bounded by given line art) vs the FREE one (the
   // single ``oflank`` closing flank rides the FREE contact to the apex). Under ruling 8i(d) the
@@ -181,12 +254,18 @@ export function drawTermination(
   void bands
   void ui
   const eff = { top: topTied, base: baseTied }
-  const tieSide =
+  const tieSide: 'top' | 'base' =
     eff.base && !eff.top ? 'base' : eff.top && !eff.base ? 'top' : tiedContactSide(directTop, directBase)
   const baseIsTied = tieSide === 'base'
   const tiedElev = baseIsTied ? u.baseElev : u.topElev
+  // RULING 8m (owner, 2026-07-17): FOLLOW the tie to the matched facing contact (below-for-top /
+  // above-for-bottom) and compare litho. SAME litho → SKIP the flank (the tie is the boundary, the
+  // enclosing flood flows through, the 8j merge welds the two same-litho regions into ONE body — the
+  // flank would only be an interior seam of that identical final body). This is an INTENTIONAL
+  // absence, not a missing termination: the space is bound by the tie + fill + merge, not left open.
+  if (matchedFacingSameLitho(u.formationId, tieSide, tiedElev, gapIndex, side, activeTies, facing)) return false
   const facingTiedElev = tieFacingElevAt(gapIndex, side, tiedElev, activeTies, facing)
-  // DIFFERENT litho / no same-formation band → onlap the tie (tip 0.5 riding the tie, never absent).
+  // DIFFERENT litho → onlap the tie (tip 0.5 riding the tie, never absent).
   return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, facing, u, lensLabels, nextId, nextFloodId, out)
 }
 
