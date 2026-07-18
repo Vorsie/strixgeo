@@ -3370,3 +3370,31 @@ gap16-band-collapse) · ``matrixPinchClampFrac`` with the wrong (host-mid) wedge
 2. Cutover-ready: OWNER DOGFEED (the T4 same-formation matrix runs now merge cleanly; the CS1 g21
    interbeds band) → the annulus rebuild → flip default ON → strip throwaway diag + the seam
    ``tileInterval`` body → v2 frozen snapshot. ``intersect.ts``/``seamAnchor.ts`` UNTOUCHED; v1 READ-ONLY.
+
+## §29 — OWNER DOGFEED FINDING (2026-07-18, first FILL render): gap0 silt-band mislabel = the host-split wall on real data
+
+The walkthrough render now paints the actual flag-ON `SectionRegion[]` (commit `3495adcb0`).
+First owner dogfeed of the FILL found a real engine mislabel at CS1 gap0 (leftmost gap), traced
+by the owner in rule vocabulary and CONFIRMED against the dump:
+
+* Ties: `3.52<->3.79` (col0 u3 ZAND top -> col1 u3 SILT top, cross-litho) and `2.27<->2.87`
+  (zand-tops; the litho ABOVE the tie is SILT on BOTH columns).
+* OWNER-EXPECTED (rulings 8l/8m): col0 u4 SILT + col1 u3 SILT MERGE into one SILT band
+  (base-tied, same facing litho -> no onlap flank); col0 u3 ZAND (one cross-litho tie) ONLAPS
+  into that band, apex 0.5.
+* ACTUAL (current engine): col0 u3/u4/u5 ZAND-SILT-ZAND is a same-formation enclosure; the
+  session-24 EDGED-BELOW merge (`f67d6b31b`) now fires (below-host top 2.27 is tied), merging
+  the sands into one host [1.73..3.52] with the silt as interior lens; the merged host is tied
+  top+base -> BANDS full width. Render: SILT lens [2.27..3.07] + SILT quad [2.87..3.79] +
+  ZAND quad [0.71..3.52] flooding the middle — the silt band's interior painted SAND.
+* A/B (pre-s24 `sectionGeom` swapped in, same dump): SILT quad [2.27..3.79] — the owner's
+  expected silt band EXISTS pre-s24 — but col0 u3 ZAND gets NO region (its onlap wedge is
+  ABSORBED into the silt quad: the mislabelled-face class). So BOTH states are wrong:
+  pre-s24 absorbs the sand wedge; post-s24 floods the silt band with sand (worse).
+* No gate sees it: no hole, no overlap, conformance blind here — a pure LABEL defect.
+
+CONSEQUENCE: CS1 gap0 is now the SHARPEST real-data acceptance case for the T3 host-split /
+annulus rebuild (same class as col18 under 8l): per-piece literal classification with a
+watertight fill must yield {SILT band [2.27..3.07]<->[2.87..3.79], ZAND onlap wedge inside its
+upper-left, ZAND band below the 2.27<->2.87 tie}. Reverting s24 is NOT the fix (reopens the
+20 CS1-g21 holes); the rebuild covers both. CAMPAIGN REMAINS PAUSED (owner directive).
