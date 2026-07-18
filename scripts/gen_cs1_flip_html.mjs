@@ -128,6 +128,7 @@ for (const c of cols) {
 }
 for (const s of d.synthesized) for (const p of s.points) allElev.push(p.y)
 for (const g of d.given) for (const p of g.points) allElev.push(p.y)
+for (const r of d.regions ?? []) for (const p of r.poly) allElev.push(p[1])
 const elevMin = Math.floor(Math.min(...allElev)) - 1
 const elevMax = Math.ceil(Math.max(...allElev)) + 1
 
@@ -179,6 +180,19 @@ for (let gi = 0; gi + 1 < cols.length; gi++) {
   hoverG.push(`<rect id="gapband${gi}" class="gapband" x="${fmt(x1)}" y="${MARGIN_T}" width="${fmt(x2 - x1)}" height="${PLOT_H}" fill="#38bdf8" fill-opacity="0"/>`)
 }
 parts.push(`<g class="gapbands">${hoverG.join('')}</g>`)
+
+// ---- REGION FILL — the ACTUAL partition output (owner ask 2026-07-18: paint the polygons,
+// not just the line art). Drawn UNDER the column glyphs + ties so the line structure stays
+// readable on top. Each region is stroked with its OWN fill colour (the app's anti-hairline
+// fix) so adjacent fills don't show antialiasing seams. Toggle: "fill" (default ON).
+const fillG = []
+for (const r of d.regions ?? []) {
+  if (!r.poly || r.poly.length < 3) continue
+  const dstr = r.poly.map((p, i) => `${i === 0 ? 'M' : 'L'}${fmt(sx(p[0]))},${fmt(sy(p[1]))}`).join(' ') + ' Z'
+  const col = lithoColor(r.litho)
+  fillG.push(`<path d="${dstr}" fill="${col}" fill-opacity="0.55" stroke="${col}" stroke-width="0.8"><title>${esc(r.litho)} (${esc(r.kind)}) g${r.gapIndex}</title></path>`)
+}
+parts.push(`<g class="layer-fill">${fillG.join('')}</g>`)
 
 // Litho column glyphs (stacked rects at true elevation) + names above.
 const colG = []
@@ -427,7 +441,8 @@ const html = `<!doctype html>
   /* Highlight a label whose checkbox is checked (checkbox precedes .chk in the sibling order). */
   #t1:checked ~ .chk label[for="t1"], #t2:checked ~ .chk label[for="t2"],
   #t3:checked ~ .chk label[for="t3"], #tt:checked ~ .chk label[for="tt"],
-  #tb:checked ~ .chk label[for="tb"], #td:checked ~ .chk label[for="td"] {
+  #tb:checked ~ .chk label[for="tb"], #td:checked ~ .chk label[for="td"],
+  #tf:checked ~ .chk label[for="tf"] {
     background:#1e3a5f; border-color:#38bdf8; color:#e2e8f0;
   }
   .legend { padding:14px 24px; border-top:1px solid #334155; font-size:12px; line-height:1.9; }
@@ -444,6 +459,7 @@ const html = `<!doctype html>
   #tt:not(:checked) ~ .layout .layer-ties { display:none; }
   #tb:not(:checked) ~ .layout .layer-bridges { display:none; }
   #td:not(:checked) ~ .layout .layer-derived { display:none; }
+  #tf:not(:checked) ~ .layout .layer-fill { display:none; }
   .gapband { transition: fill-opacity .1s; }
 ${gapHoverCss}
 </style>
@@ -463,8 +479,10 @@ ${gapHoverCss}
 <input type="checkbox" id="tt" class="toggle" checked>
 <input type="checkbox" id="tb" class="toggle" checked>
 <input type="checkbox" id="td" class="toggle" checked>
+<input type="checkbox" id="tf" class="toggle" checked>
 <div class="chk">
   Toggle layers:
+  <label for="tf">FILL (region polygons)</label>
   <label for="t1">① lenses</label>
   <label for="t2">② onlaps</label>
   <label for="t3">③ fill</label>

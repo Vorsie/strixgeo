@@ -442,6 +442,20 @@ describe('CS1 flip walkthrough dump', () => {
       rows: lensAuditRows.filter((r) => r.state !== 'present'),
     }
 
+    // ---- Region polygons (the ACTUAL flag-ON fill — what PartitionFillOverlay paints).
+    // fraction -> real alongM x inside each gap so the HTML can paint the true partition
+    // under the line art (owner ask 2026-07-18: show the filled polygons, not just lines).
+    const regionsOut = regions.map((r) => {
+      const Lx = nsCols[r.gapIndex]?.x ?? 0
+      const Rx = nsCols[r.gapIndex + 1]?.x ?? Lx
+      return {
+        gapIndex: r.gapIndex,
+        litho: baseLitho(fname(r.formationId)),
+        kind: r.kind,
+        poly: r.polygon.map((p) => [round(Lx + p.fraction * (Rx - Lx)), round(p.elevation)]),
+      }
+    })
+
     const dump = {
       generatedFor: `${sec.name} — partition engine v2 FLIP (hoisted sweep, rulings 8i(d)/8j/8k/8i(e))`,
       lensAudit,
@@ -456,6 +470,7 @@ describe('CS1 flip walkthrough dump', () => {
       derivedTies: allDerivedTies,
       given: givenOut,
       synthesized: synthOut,
+      regions: regionsOut,
       gaps,
       knownResidualGaps,
       fixedThisSession,
