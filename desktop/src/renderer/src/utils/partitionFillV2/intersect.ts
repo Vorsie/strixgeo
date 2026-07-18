@@ -19,6 +19,7 @@
  */
 
 import { type GridPoint, gridKey } from './snap'
+import { twoSidedTerminationsEnabled } from './tileFlags'
 
 /** A segment between two grid points, tagged with its source input-curve id. */
 export interface GridSegment {
@@ -26,6 +27,24 @@ export interface GridSegment {
   b: GridPoint
   curveId: string
 }
+
+/**
+ * Perpendicular-distance tolerance (in grid units, 1 unit = 1 mm) for the NEAR-collinear
+ * T-junction snap. A synthesized onlap/lens flank apex is COMPUTED to ride a tie / band-contour
+ * line (``drawTermination.emitOnlap``: ``apexElev = tiedElev + f·(facingTiedElev − tiedElev)`` at
+ * ``apexX = colX + f·(facingX − colX)``), so it lies EXACTLY on that sloped line in floating point.
+ * But the endpoint's x and y each snap INDEPENDENTLY to the 1 mm grid, and a sloped line almost
+ * never passes through a lattice point at an arbitrary x — so the snapped apex lands a fraction of a
+ * grid unit OFF the snapped tie's integer supporting line (measured: CS1 gap0 apex integer-cross
+ * = −135 over a 73507-unit tie ⇒ ~0.0018 mm perpendicular). The exact-``cross===0`` collinear test
+ * then MISSES the T-junction, the tie is not split at the apex, and the flank dead-ends as a spur
+ * (stripped in ``faces.walkLoops``) — the onlap triangle never closes and its face is absorbed by
+ * the neighbour (REWRITE_STATE §31/§32, owner items 1/5/7). A 1-grid-unit tolerance snaps such an
+ * endpoint ONTO the crossed segment as a shared split vertex, closing the onlap face. It is well
+ * below the 1 mm feature scale (a real geometric feature is metres, a real gap ≥ cm), so it only
+ * ever catches this snap-rounding drift, never a genuinely-separate endpoint.
+ */
+const T_JUNCTION_PERP_TOL = 1
 
 /**
  * Cross product of vectors (b − a) and (c − a) in integer grid units.
@@ -49,6 +68,33 @@ function inBBox(p: GridPoint, a: GridPoint, b: GridPoint): boolean {
 /** Whether collinear point ``p`` lies on segment a–b (inclusive of endpoints). */
 function onCollinearSegment(p: GridPoint, a: GridPoint, b: GridPoint): boolean {
   return cross(a, b, p) === 0 && inBBox(p, a, b)
+}
+
+/**
+ * Whether grid point ``p`` is a NEAR-collinear T-junction on the INTERIOR of segment a–b: its
+ * perpendicular distance to the a–b line is ≤ ``T_JUNCTION_PERP_TOL`` grid units, its projection
+ * falls strictly BETWEEN a and b (not at either endpoint), and it is not already exactly collinear
+ * (that exact case is ``onCollinearSegment``). Used to recover an onlap/lens flank apex whose 1 mm
+ * snap drifted it a fraction of a grid unit off the tie / band-contour it was computed to ride, so
+ * the flank still splits the crossed segment and its face closes (see ``T_JUNCTION_PERP_TOL``).
+ *
+ * Perpendicular distance in grid units = ``|cross(a,b,p)| / |b−a|`` (the doubled signed area over
+ * the base length). We compare squared to stay in exact integer arithmetic:
+ * ``cross² ≤ TOL² · |b−a|²``.
+ */
+function nearInteriorT(p: GridPoint, a: GridPoint, b: GridPoint): boolean {
+  const c = cross(a, b, p)
+  if (c === 0) return false // exact-collinear is handled by onCollinearSegment; not a NEAR case
+  const abx = b.ix - a.ix
+  const aby = b.iy - a.iy
+  const lenSq = abx * abx + aby * aby
+  if (lenSq === 0) return false // degenerate segment
+  // Perpendicular distance² = cross² / lenSq ; require ≤ TOL².
+  if (c * c > T_JUNCTION_PERP_TOL * T_JUNCTION_PERP_TOL * lenSq) return false
+  // Projection parameter t along a→b must be STRICTLY interior (0 < t < 1) so we never register a
+  // cut at (or past) an endpoint — an endpoint hit is already an ordinary shared vertex.
+  const dot = (p.ix - a.ix) * abx + (p.iy - a.iy) * aby
+  return dot > 0 && dot < lenSq
 }
 
 /**
@@ -135,6 +181,13 @@ export function splitSegments(segments: readonly GridSegment[]): GridSegment[] {
     return m
   })
 
+  // The NEAR-collinear T-junction snap (flag-ON only, ruling 8n face-fill): recover a synthesized
+  // flank apex whose 1 mm snap drifted a fraction of a grid unit off the tie / band-contour it rides
+  // (see ``T_JUNCTION_PERP_TOL`` / ``nearInteriorT``). Gated on the two-sided-terminations cut-over
+  // flag so flag-OFF (the frozen v1-seam fallback) stays byte-identical — no new cuts, identical
+  // output to before this change.
+  const nearT = twoSidedTerminationsEnabled()
+
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const pts = segmentIntersections(segments[i], segments[j])
@@ -145,6 +198,16 @@ export function splitSegments(segments: readonly GridSegment[]): GridSegment[] {
         if (pointOnSegment(p, segments[i])) cutSets[i].set(gridKey(p), p)
         if (pointOnSegment(p, segments[j])) cutSets[j].set(gridKey(p), p)
       }
+      if (!nearT) continue
+      // NEAR-T recovery: if an ENDPOINT of one segment lands within perpendicular tolerance of the
+      // OTHER segment's interior (but is not exactly collinear), register that endpoint's exact grid
+      // cell as a cut on the crossed segment. Splitting at the endpoint's OWN cell (not a projected
+      // point) makes the split vertex EQUAL the endpoint vertex, so the two connect and the flank's
+      // face closes. Symmetric in i/j; endpoints already handled above (exact hits) are idempotent.
+      if (nearInteriorT(segments[i].a, segments[j].a, segments[j].b)) cutSets[j].set(gridKey(segments[i].a), segments[i].a)
+      if (nearInteriorT(segments[i].b, segments[j].a, segments[j].b)) cutSets[j].set(gridKey(segments[i].b), segments[i].b)
+      if (nearInteriorT(segments[j].a, segments[i].a, segments[i].b)) cutSets[i].set(gridKey(segments[j].a), segments[j].a)
+      if (nearInteriorT(segments[j].b, segments[i].a, segments[i].b)) cutSets[i].set(gridKey(segments[j].b), segments[j].b)
     }
   }
 

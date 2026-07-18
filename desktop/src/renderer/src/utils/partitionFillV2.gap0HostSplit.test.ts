@@ -138,18 +138,19 @@ describe('CS1 gap0 host-split (rulings 8a/8l/8m/8j) — the owner-pinned accepta
     })
 
     // (B) THE ZAND ONLAP WEDGE — the §29 "label-correctness is only HALF" refinement. col0's upper
-    // ZAND [3.07..3.52] should onlap into the silt band (apex 0.5, ZAND-labelled) rather than being
-    // absorbed into the SILT band. SESSION-26: RED — the intersect.ts-adjacent T-junction wall.
-    // The sweep DOES emit the ZAND onlap flank (``oflankterm``, corr-1 top-tied, verified), but its
-    // apex lands on the ``3.52<->3.79`` tie where that tie is COINCIDENT with the bb43 band's base
-    // contour (``bandc``); the arrangement does not split the coincident tie at the apex T-junction,
-    // so the ZAND triangle never closes and the SILT band's length-weighted label absorbs col0's
-    // [3.07..3.52]. The flood-seam alternative is ALSO blocked: ZAND (d1bc) is a matched-pair band
-    // formation lower in the gap (L u5/R u4), so ``closeInterval`` skips a seam for any ZAND-enclosed
-    // sub-interval (``bandFids.has``). Both hole-free paths are blocked; the fix needs the forbidden
-    // ``intersect.ts`` T-junction handling (the 613-hole trap) or the multi-day flood rebuild. The
-    // OWNER-PINNED CORE — (A) SILT band + (C) no ZAND flood — is GREEN; this wedge is the residual.
-    it.skip('(B) [WALL] a ZAND onlap wedge exists in the upper-left with bounded reach (intersect.ts T-junction)', () => {
+    // ZAND [3.07..3.52] onlaps into the silt band (apex 0.5, ZAND-labelled) rather than being absorbed
+    // into the SILT band. SESSION-28 (ruling 8n): FIXED by the ``intersect.ts`` NEAR-COLLINEAR
+    // T-JUNCTION snap (``nearInteriorT`` / ``T_JUNCTION_PERP_TOL``, flag-ON only). The sweep DOES emit
+    // the ZAND onlap flank (``oflankterm0``, corr-1 top-tied); its apex is COMPUTED exactly on the
+    // ``3.52<->3.79`` tie (coincident with the bandc base contour) in floating point, but the endpoint's
+    // x and y snap INDEPENDENTLY to the 1 mm grid and a sloped line rarely passes through a lattice
+    // point — the snapped apex landed 1.8 µm off the snapped tie's integer supporting line
+    // (integer-cross = −135), so the exact-``cross===0`` collinear test missed the T-junction and the
+    // flank dead-ended as a stripped spur → the ZAND triangle never closed. The 1-grid-unit
+    // perpendicular tolerance snaps the apex ONTO the tie as a shared split vertex, closing the onlap
+    // face. Measured: flag-ON holes 20/0 (all CS2-g17 baseline, ZERO new), overlaps 0. See
+    // REWRITE_STATE §33.
+    it('(B) a ZAND onlap wedge exists in the upper-left with bounded reach (intersect.ts near-T split)', () => {
       // col0 ZAND [3.07..3.52] onlaps the silt band riding the 3.52<->3.79 tie: a ZAND region
       // present in the onlap elevation zone AND NOT spanning the full gap width (bounded reach).
       const zandOnlaps = g0.filter((r) => {

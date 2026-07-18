@@ -3665,3 +3665,102 @@ contour. Confirms the 8n rebuild is genuine face-topology work gated on the owne
 4. Item 9 (render parity) is the `CS1_FLIP` walkthrough dump + `gen_cs1_flip_html.mjs` (blocked from
    regeneration this run by the env-var permission; the committed `diag_cs1_flip_walkthrough.json`
    already carries the `regions` array with real-alongM polys for owner A/B compare).
+
+## §33 — Session 28: RULING 8n STAGE B SHIPPED — the near-collinear T-junction snap (`intersect.ts`)
+
+Test execution WORKS via Bash (`npx vitest`, `HOLES_DIAG=1`/`CS1_GATE=1`/`SHAPE_AUDIT=1` env-prefix);
+`npx tsc --noEmit -p tsconfig.web.json` also WORKS this run (clean). `GAPX_TARGET`/`CS1_FLIP` env DENIED
+(measured via file-default swaps instead). PowerShell not needed.
+
+### THE ROOT CAUSE — MEASURED, not theorised (throwaway `partitionFillV2.throwaway_s28_faces.diag`)
+§31/§32 said the onlap flank's apex T-junction "does not split the coincident tie." The real mechanism,
+measured at CS1 gap0: the ZAND onlap flank `oflankterm0` runs col0-ZAND-base (23.45,3.07) → apex
+(60.2016,3.6550). Its apex is COMPUTED exactly on the `3.52↔3.79` tie/`bandc1` line in FLOATING POINT
+(apex-vs-bandc1 delta = 0.00 mm). BUT x and y snap INDEPENDENTLY to the 1 mm grid, and a SLOPED line
+almost never passes through a lattice point at an arbitrary x: the snapped apex (60202,3655) landed off
+the snapped tie's integer supporting line (23448,3520)→(96955,3790) by **integer-cross = −135** (≈1.8 µm
+perpendicular). `onCollinearSegment`'s exact `cross===0` test then MISSED the T-junction → the tie was
+NOT split at the apex → the flank dead-ended as a spur (apex was a DCEL vertex touched by ONLY
+`oflankterm0`+twin, 2 half-edges) → `faces.walkLoops` stripped it → the ZAND onlap triangle never closed
+→ its face got absorbed into the length-weighted SILT band (owner items 1/5/7). A pure snap-rounding
+"hot pixel" miss, NOT a missing geometric operation.
+
+### THE FIX — `intersect.ts` NEAR-COLLINEAR T-JUNCTION snap (flag-ON only)
+`intersect.ts` (FLAGGED — the mission's prominent file): added `T_JUNCTION_PERP_TOL = 1` (grid unit) +
+`nearInteriorT(p,a,b)` (perpendicular distance² ≤ TOL²·|ab|² via exact integer `cross²`; projection
+STRICTLY interior 0<dot<lenSq; NOT already exact-collinear). `splitSegments` gains a NEAR-T pass (gated
+on `twoSidedTerminationsEnabled()` → flag-OFF byte-identical, zero new cuts): when a segment ENDPOINT
+lands within 1 grid unit perpendicular of another segment's interior, register that endpoint's OWN grid
+cell as a cut on the crossed segment (splitting at the endpoint's cell makes the split vertex EQUAL the
+endpoint → they connect → the flank face closes). Imports `tileFlags`. 1 grid unit = 1 mm ≪ the metre/cm
+feature scale, so it only ever catches snap drift, never a genuinely-separate endpoint.
+
+### MEASUREMENT (flag-ON, all 14 sections — throwaway `partitionFillV2.throwaway_s28_holesON.diag`)
+| metric | §32 baseline | after Stage B |
+|---|---|---|
+| holes above-TD | 20 (all CS2-g17) | **20 (all CS2-g17, ZERO new)** |
+| holes sub-TD | 0 | **0** |
+| diff-litho overlaps | 0 | **0** |
+gap0 now yields `[ZAND quad] el[3.07..3.66] f[0.00..0.50]` (the onlap wedge, bounded to the apex at 0.5)
+ALONGSIDE the SILT band — the wedge that was absorbed pre-fix. gap4 x=289.86 (item 5 double onlap):
+`[ZAND quad] el[5.47..6.44] f[0.50..1.00]` (LEFT onlap bounded, SILT shows through past the apex). gap9
+x=471.87 (item 7): the col9 SILT onlap flank `oflankterm12` DOES close its onlap face RIGHTward (apex a
+shared vertex, bandc64 split 6 half-edges) — the RIGHT onlap works; the LEFT full-width leak is a
+DIFFERENT (sub-TD) mechanism, see below.
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+- gap0HostSplit: **(A)+(B)+(C) ALL GREEN** — (B) UN-SKIPPED (was the §31 skip-with-reason wall). Comment
+  rewritten to the near-T root cause.
+- edgedAnnulus GREEN · followTieOnlap GREEN · mergeAfterFill GREEN · boundaryLens GREEN · coherentStack
+  GREEN · CS1 gates (CS1_GATE=1) 7/7 · conformance flag-OFF 5/5/0=10 (SHAPE_AUDIT grand totals UNCHANGED).
+- literalCorr (a)/(b) GREEN, (c)/(d) STAY skipped (col18 TRUE-untied middle interbed = the annulus/notch
+  wall, NOT the near-T class — unchanged per mission).
+- Flag-OFF v2 holes 0/0/0. tsc clean.
+- Full utils suite: **1 failed (`convergingStack (a)` — pre-existing, unchanged) / 783 passed / 27
+  skipped** (baseline was 782/26; +1 pass = gap0HostSplit (B) un-skipped, +throwaway diags skip cleanly).
+
+### OWNER ITEMS STATUS (region evidence at the named x)
+- item 1 / gap0-B (x=96.96 CS1 gap0): **FIXED** — ZAND onlap wedge `el[3.07..3.66] f[0..0.50]` renders.
+- item 2 (x=96.96): CS1 gap0 (same gap as item 1) — the second sand's onlap follows its flank, no spill.
+  **FIXED** (shares the gap0 mechanism).
+- item 5 (x=289.86 gap4): **FIXED** — top-sand DOUBLE onlap; LEFT `[ZAND f0.50..1.00]`, SILT past apex.
+- item 7 (x=471.87): RIGHT onlap (gap9, col9→col10) closes correctly. The FULL-WIDTH SILT `el[2.51..6.48]
+  f[0..1]` the owner flagged is in gap8 (col8→col9): col8's TD is 9.29, so col9's SILT/KLEI/ZAND (all
+  below 9.29) have NO facing unit on col8 → a SILT band spanning col7↔col9 floods UNDER col8. This is a
+  **SUB-TD band-under-shallow-column** case (item 6 territory), NOT the near-T onlap mechanism — UNFIXED.
+- items 3/4 (x=100.14/101.56, CS1 gap1/gap2): thin multi-unit interbed gaps; onlaps now render bounded
+  (`[SILT f0..0.50]`, `[ZAND f0..0.50]`). Near-T generally improved onlap closure; precise owner-expected
+  shape needs the owner's marks to confirm — characterised, not gated.
+- item 6 (x=456.07 sub-TD): NOT built (the "intersect band∩column, extrapolate L/R" rule) — see below.
+- item 8 (x=646.74): the `floodsw29/31/32/34` wedges past the col18 thin SILT[5.46..6.03]/VEEN[5.05..5.46]
+  LENSES are labelled ZAND because the facing col19 has ZAND[-5.87..7.03] there — this is literal
+  ruling-8n facing-fill (overlaps 0, no paint spill). The owner called it a bug; whether facing-ZAND-fill
+  past a thin lens apex is correct-8n vs should-be-suppressed is a GENUINE SEMANTIC QUESTION → ASK-FIRST,
+  not invented. NOT fixed.
+- item 9 (render parity): NOT touched this session (env-gated dump; Stage E deferred).
+
+### STAGE A (flood-carrier deletion) — DEFERRED, NOT done (reasoning recorded)
+§32 measured removing the `flood<n>` carriers = byte-neutral (20/0/0). But in the CURRENT engine those
+`flood` ids are the mismatched-enclosing MIDPOINT SEAMS (no-auto-facies split) + the shallow-TD FLOOR
+line in `emitEnclosingFlood` — live, load-bearing-looking curves. Deleting them fixes NO owner-visible
+defect (mission's own note) and the measured-negative ledger is full of flood/band-contour edits that
+exploded holes. Judged NOT worth the regression risk this session; left as an optional orchestrator
+cleanup with a fresh byte-neutral re-measure required first.
+
+### REMAINING WORK (for a follow-up session / the orchestrator)
+1. **Item 6/7 sub-TD (owner-visible, actionable):** implement ruling 8n's sub-TD construction — at a
+   column, take the INTERSECT of the correlation band and the column, extrapolate that point L and R,
+   connect+fill above/below. Territory: `emitBottomTieSubstrate` / the band-under-shallow-column path.
+   Item 7's col8 full-width SILT is the acceptance case. Needs the battery per increment (this class
+   leaks — see the ledger).
+2. **Item 8 (ASK-FIRST):** is the facing-ZAND flood past a thin lens apex correct-8n or a bug? Owner call.
+3. **Stage A + item 9** as above.
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/intersect.ts` (EDITED, **FLAGGED**) — `T_JUNCTION_PERP_TOL`, `nearInteriorT`, the
+  flag-gated NEAR-T pass in `splitSegments`, `tileFlags` import.
+- `partitionFillV2.gap0HostSplit.test.ts` (EDITED) — (B) un-skipped + comment rewritten to the near-T
+  root cause.
+- STUBS to delete (orchestrator rm): `partitionFillV2.throwaway_s28_faces.diag.test.ts`,
+  `partitionFillV2.throwaway_s28_holesON.diag.test.ts`, `partitionFillV2.throwaway_s28_items.diag.test.ts`,
+  `partitionFillV2.throwaway_s28_gapx.diag.test.ts`. Plus ALL prior-session stubs still pending.
