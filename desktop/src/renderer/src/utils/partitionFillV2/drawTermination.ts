@@ -59,6 +59,7 @@ import { facingMatrixLabel } from './facingMatrix'
 import { lensReachFraction } from './lensReach'
 import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
+import { lensEnclosingMatrix } from './lensEnclosure'
 import { type ColumnGeom, type UnitGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
 
@@ -187,8 +188,11 @@ export function tieFacingElevAt(
  *     The unit's column x and the facing column x (metres — REAL alongM).
  * gapIndex : number
  *     The gap index (for the tie lookup).
+ * col : ColumnGeom
+ *     The unit's OWN (terminating) column — its picked stack is ground truth (ruling 8k). Used by
+ *     the corr-0 LENS path to read the enclosing matrix that wraps the pinch (ruling 8n(b)).
  * facing : ColumnGeom
- *     The facing column (its enclosing formation floods the vacated wedge; its matched-side
+ *     The facing column (its enclosing formation floods the vacated ONLAP wedge; its matched-side
  *     litho drives the tie-follow).
  * activeTies : readonly ResolvedTie[]
  *     The gap's active ties (for the tie's facing endpoint).
@@ -211,6 +215,7 @@ export function drawTermination(
   colX: number,
   facingX: number,
   gapIndex: number,
+  col: ColumnGeom,
   facing: ColumnGeom,
   bands: readonly GapBand[],
   activeTies: readonly ResolvedTie[],
@@ -224,7 +229,7 @@ export function drawTermination(
   if (corr === 0) {
     // RULING 8i: 0 correlations → draw the lens lines ALWAYS. No merge exemption; the only
     // suppressions are PHYSICAL (degenerate / sub-snap), applied inside ``emitLensClosing``.
-    return emitLens(iu, colX, facingX, facing, u, lensLabels, nextId, nextFloodId, out)
+    return emitLens(iu, ui, colX, facingX, col, facing, u, lensLabels, nextId, nextFloodId, out)
   }
   // corr === 1: RULING 8m (owner, 2026-07-17 — "restore it, just add a lithology check before
   // drawing"). The same-litho onlap suppression is RESTORED in follow-the-tie form (below),
@@ -279,8 +284,10 @@ export function drawTermination(
  */
 function emitLens(
   iu: IntervalUnit,
+  ui: number,
   colX: number,
   facingX: number,
+  col: ColumnGeom,
   facing: ColumnGeom,
   u: UnitGeom,
   lensLabels: Map<string, LensLabel>,
@@ -299,9 +306,16 @@ function emitLens(
   const emitted = out.length > before // ``emitLensClosing`` may no-op (degenerate) — skip the wedge too
   for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)
   if (!emitted) return false
-  // 0-corr LENS: both sides enclosing → both flood wedges (skipSide null). The flood rides the
-  // sloping bracket contour (Front 2) when the facing enclosing dips across the wedge.
-  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out)
+  // 0-corr LENS: both sides enclosing → both flood wedges (skipSide null). RULING 8n(b) (owner,
+  // 2026-07-18, x=646.74): the wrap past the apex is the ENCLOSING MATRIX read from the lens's OWN
+  // column (``lensEnclosingMatrix`` — the litho that wraps the pinch, walking past sibling
+  // minorities), NOT the far facing column at the lens mid-elevation. At col18 the thin SILT/VEEN
+  // lenses wrap in KLEI; the old facing sample read col19's ZAND 78 m away → a phantom sand lens.
+  // ``null`` = the up/down enclosure walk found no common litho (an ASK-FIRST rule gap) → the flood
+  // keeps its s30 facing fallback (non-inventing). The flood still rides the sloping bracket
+  // contour (Front 2) when the facing enclosing dips across the wedge.
+  const lensMatrix = lensEnclosingMatrix(col, ui)
+  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out, undefined, lensMatrix)
   return true
 }
 

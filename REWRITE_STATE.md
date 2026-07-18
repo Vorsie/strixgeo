@@ -3915,3 +3915,98 @@ Pure-geometry fix, iterated autonomously per the directive.
   `partitionFillV2.throwaway_s30_faces.diag.test.ts`, `partitionFillV2.throwaway_s30_curves.diag.test.ts`,
   `partitionFillV2.throwaway_s30_holes.diag.test.ts`, `partitionFillV2.throwaway_s30_labeldiff.diag.test.ts`
   + their `s30_*_dump.txt` outputs. Plus ALL prior-session stubs still pending (s29 two + s28 four + earlier).
+
+## §36 — Session 31: RULING 8n(b) LENS FLOOD-WEDGE LABEL FIX SHIPPED — the corr-0 lens sampled the FAR facing column instead of its own enclosing matrix
+
+Mission: the corr-0 LENS half of the flood-wedge label (owner ruling 8n(b), x=646.74). §35 (s30) fixed
+the ONLAP flood wedge (samples the FLOODED contact's facing); the LENS case (`skipSide===null`) still
+sampled `facingMatrixLabel(facing, midElev)` — the FAR column at the lens mid-elevation — and the owner
+ruled that WRONG. Test execution WORKS via Bash `npx vitest run …` + `HOLES_DIAG=1`/`CS1_GATE=1`/
+`SHAPE_AUDIT=1` env-prefix (single env only — a `CS1_GATE=1 SHAPE_AUDIT=1` DOUBLE prefix + a multi-file
+glob with a non-existent name were both DENIED; run one env at a time / the whole dir). `npx tsc --noEmit
+-p tsconfig.web.json` clean. `--disable-console-intercept` needed to see diag `console.log`. NO git ops.
+
+### THE OWNER RULING (verbatim, 2026-07-18, on x=646.74)
+Asked whether sand filling past col18's thin SILT/VEEN lens apexes (facing col19's big ZAND spans those
+elevations) was correct facing-fill: **"oh no that is wrong, it should be silt and veen in the lens and
+there is no sand adjacency."** A corr-0 LENS pinches INSIDE its enclosing matrix (ruling 8g — the matrix
+flows around the pinch as a detour, its two open ends the same litho). The lens interior carries its own
+litho to its apex; the wrap PAST the apex is the ENCLOSING MATRIX read from the lens's OWN column; the far
+facing is NEVER sampled for a lens wedge. Recorded design §8 8n(b) (verbatim quote included).
+
+### THE ROOT CAUSE — MEASURED (throwaway s31 gap18 dump, HOLES_DIAG=1)
+CS1 gap18 (col18 x=646.737 → col19 x=724.829, 78 m). col18 stack: KLEI[6.65..6.03] / **SILT[6.03..5.46]**
+/ **VEEN[5.46..5.05]** / KLEI[5.05..4.23]. The SILT (idx4) + VEEN (idx5) are corr-0 interior minorities →
+both LENS. Their flood wedges took `facingMatrixLabel(col19, midElev)`: SILT mid 5.745 / VEEN mid 5.255 →
+col19 ZAND[7.027..0.85] at both → FOUR ZAND wedges `f[0..0.5]` in the lens band [5.05..6.03] (the phantom
+"sand adjacency"). The KLEI enclosure (idx3 above, idx6 below) never claimed the wrap.
+
+### THE FIX — `lensEnclosure.ts` (NEW) + `emitFloodWedge.ts` label (LENS-only, flag-ON by construction)
+`lensEnclosingMatrix(col, ui)` (NEW module): walks the terminating column's OWN stack outward from `ui`,
+collecting the up-walk and down-walk formation sequences, and returns the formation NEAREST (smallest
+up-rank + down-rank) in BOTH — the litho that wraps the pinch, walking PAST sibling minorities (the SILT's
+base-side walk skips VEEN → KLEI idx6; the VEEN's top-side walk skips SILT → KLEI idx3; both wedges of one
+lens carry the single shared enclosure). Returns `null` when up/down share NO formation → the ASK-FIRST gap.
+`emitFloodWedge` gains an optional `lensMatrixLabel`; for `skipSide===null` it uses that override, ELSE
+(and when null) keeps the s30 `facingMatrixLabel` fallback (non-inventing). Threaded `col`+`ui` through
+`emitSideSweep`→`drawTermination`→`emitLens`. ONLAP path UNTOUCHED (s30 `labelElev` intact). LABEL ONLY —
+wedge geometry (`convY`, corners) unchanged. `emitLens` is called ONLY from the flag-ON sweep → flag-OFF
+byte-identical (frozen v1 gates green, no gate inside the new code path).
+
+### RED→GREEN proof (mandatory RED-first done) — `faceLabel8n.test.ts` gap18 cases (a)(b)(c)
+At CS1 gap18, past the SILT/VEEN apexes: (a) NO ZAND covers the lens band (SILT-wrap f=0.1/e=5.85,
+VEEN-wrap f=0.1/e=5.2 — clear of col19's own ZAND triangle, which at f=0.1 tops out ~4.5); (b) the wrap
+reads KLEI; (c) the lens interiors read SILT/VEEN near col18 (f≈0.004). **RED-FIRST on the pre-fix engine
+(fix neutralised via `&& false`): (a) ZAND wrongly covered the VEEN wrap + (b) KLEI absent — both FAIL.**
+After the fix: all 3 GREEN. (c) passes on both engines (interior is `emitLensClosing`'s label, not the
+wedge). The s30 gap1 onlap cases (A)(B) stay GREEN — confirms lens-only, onlap undisturbed. Post-fix gap18:
+the four `ZAND f[0..0.5] el[5.05..6.03]` regions all flip to KLEI; interiors `VEEN f[0..0.011] el[5.05..5.46]`
+/ `SILT f[0..0.015] el[5.46..6.03]` unchanged.
+
+### ASK-FIRST scan (throwaway s31 nullscan) — 8 null-enclosure interior units across all 14 sections
+`lensEnclosingMatrix` returns null on 8 of 436 interior units (e.g. CS1 inv59302c ui1 KLEI: SILT above,
+ZAND-then-KLEI below — up{SILT}∩down{ZAND,KLEI}=∅). These are units between two DIFFERENT matrices (the
+8g "open ends must be same litho" fails). **For those the fix keeps the s30 facing fallback — no NEW
+phantom vs pre-fix (they were facing-sampled before too), no regression.** Most are large tied/dominant
+units that never reach `emitLens` as a corr-0 lens; whether any GENUINELY lenses with a null enclosure is
+an OPEN OWNER QUESTION (see below) — I did NOT invent a preference. gap18 (the mission case) is NOT null.
+
+### MEASUREMENT (committed `partitionFillV2.holes_overlaps.diag.test.ts`, all 14 sections, my fix in)
+| metric | baseline (§35) | after s31 |
+|---|---|---|
+| flag-ON holes above-TD (this reporter) | 0 | **0** |
+| flag-ON holes sub-TD | 0 | **0** |
+| flag-ON diff-litho overlap pairs | 0 | **0** |
+| flag-OFF frozen v1 gates | green | **green (byte-identical — sweep never runs flag-OFF)** |
+(The label-only change cannot move holes — geometry untouched; the only risk was a KLEI-wrap × ZAND
+diff-litho overlap, and the committed reporter measures overlaps=0. NB: the s30 throwaway "20 CS2-g17
+holes" is a DIFFERENT reporter; the committed holes/overlaps gate reports 0 for CS2 and is the arbiter here.)
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+faceLabel8n **5/5** (s30 gap1 (A)(B) + s31 gap18 (a)(b)(c), RED-first proven) · gap0HostSplit (A)+(B)+(C) ·
+edgedAnnulus · followTieOnlap · cs1gates (CS1_GATE=1) **8/8** · lensAudit (SHAPE_AUDIT=1) MISSING **0** ·
+conformance + conformance.classify GREEN (1 skip) · v1 frozen (cs1frozen/cs1sandbody/cs1lensdisjoint/
+goldens/partitionDisjoint/partitionOverlapCheck) GREEN · **tsc clean** · full utils dir (CS1_GATE=1)
+**1 failed (`convergingStack (a)` — PRE-EXISTING, verified identical with the fix neutralised) / 806 passed
+/ 21 skipped**.
+
+### OPEN OWNER QUESTION (ask-first — NOT invented)
+When a corr-0 interior lens's OWN-column up-walk and down-walk share NO formation (the unit sits between two
+DIFFERENT enclosing matrices, e.g. SILT above / ZAND below), what litho fills the wrap past its apex? The 8g
+"both open ends same litho" invariant has no answer for a genuinely mixed enclosure. 8 such interior units
+exist model-wide (most are dominant/tied, not corr-0 lenses); the engine currently keeps the s30 facing
+fallback for them (no regression). Owner ruling needed before any of these is treated as a wrapped lens.
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/lensEnclosure.ts` (NEW, pure) — `lensEnclosingMatrix`: own-column wrap-matrix walk.
+- `partitionFillV2/emitFloodWedge.ts` (EDITED, flag-ON by construction) — optional `lensMatrixLabel`
+  override for `skipSide===null`; ONLAP `labelElev` path unchanged; null → s30 facing fallback.
+- `partitionFillV2/drawTermination.ts` (EDITED) — `col`+`ui` threaded to `emitLens`; calls
+  `lensEnclosingMatrix` and passes the override to `emitFloodWedge`.
+- `partitionFillV2/emitTerminationSweep.ts` (EDITED, 1 line) — passes `col` into `drawTermination`.
+- `partitionFillV2.faceLabel8n.test.ts` (EDITED — NEW gap18 describe block, RED-first proven).
+- Design doc `docs/design/partition-engine-v2.md` §8 8n(b) (owner-verbatim ruling recorded).
+- STUBS to delete (orchestrator rm — Bash `rm` DENIED for me; skip cleanly without `HOLES_DIAG=1`):
+  `partitionFillV2.throwaway_s31_gap18.diag.test.ts`, `partitionFillV2.throwaway_s31_pip.diag.test.ts`,
+  `partitionFillV2.throwaway_s31_nullscan.diag.test.ts`. Plus ALL prior-session stubs still pending
+  (s30 five + s29 two + s28 four + earlier).

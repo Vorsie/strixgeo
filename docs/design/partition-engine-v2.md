@@ -408,6 +408,36 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    right of the column. that way you have 2 points one on each side
    through which you can connect and fill above and below." No interval
    reconstruction may override a face the line art already closes.
+8n(b). **A LENS PINCHES INSIDE ITS ENCLOSING MATRIX — the wrap past the
+   apex is the OWN-column matrix, never the far facing column (owner,
+   2026-07-18, on the col18 thin-lens stack at x=646.74 — verbatim, asked
+   whether the sand filling past col18's SILT/VEEN lens apexes where the
+   facing col19 has its big ZAND was correct facing-fill): "oh no that is
+   wrong, it should be silt and veen in the lens and there is no sand
+   adjacency."** A corr-0 LENS (both sides flood, `skipSide===null`) is a
+   DETOUR in its enclosing formation's contour (ruling 8g — the matrix
+   flows around the pinch and reconnects, its two open ends the SAME
+   litho). The lens interior carries the lens's OWN litho to its apex; the
+   space PAST the apex belongs to that ENCLOSING MATRIX, read from the
+   lens's OWN column — NEVER `facingMatrixLabel(facing, midElev)`, which
+   at col18 sampled col19's ZAND [-5.87..7.027] 78 m away and painted a
+   phantom "sand lens" past the thin SILT [6.03..5.46] / VEEN [5.46..5.05]
+   apexes (they wrap in the KLEI above [6.65..6.03] and below [5.05..4.23]).
+   THE WALK: a minority STACK (SILT over VEEN, both corr-0) pinches as ONE
+   stack — each lens's interior is its own litho, the wrap is the shared
+   enclosing matrix, so the matrix lookup walks PAST adjacent minorities
+   (the sibling lens) to the formation that appears NEAREST on BOTH the
+   up-walk and the down-walk (`lensEnclosingMatrix`). When the up-walk and
+   down-walk share NO formation (no common enclosure — the 8g "same litho
+   on both open ends" invariant fails) that is a GENUINE RULE GAP →
+   ASK-FIRST, do NOT invent a preference (the engine keeps the s30 facing
+   fallback for that instance and the case is surfaced to the owner). This
+   is 8n's "NOT ONE POINT PAST the apex" applied to the LENS wrap: the
+   fill past a lens apex is the enclosing matrix (own column), exactly as
+   the fill past an ONLAP apex is the facing unit onlapped into (s30). The
+   ONLAP path is unchanged. Implemented `emitFloodWedge` (label-only,
+   flag-ON) + `lensEnclosure.ts`; gate `faceLabel8n` gap18 cases (a)(b)(c),
+   RED-first proven. See REWRITE_STATE §36.
 8m. **THE 8i SAME-LITHO ONLAP SUPPRESSION IS RESTORED, in its correct
    follow-the-tie form (owner, 2026-07-17, dogfeeding the x=23.45 5th
    silt: "restore it — just add a lithology check before drawing").**

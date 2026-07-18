@@ -303,6 +303,7 @@ function emitSideSweep(
       colX,
       facingX,
       gapIndex,
+      col,
       facing,
       bands,
       activeTies,

@@ -47,9 +47,13 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
 const INPUT = resolve(REPO_ROOT, 'scripts/diag_allsections_input.json')
 
-// Formation ids from the real CS1 gap1 extraction (diag_allsections_input.json), owner-traced.
+// Formation ids from the real CS1 extraction (diag_allsections_input.json), owner-traced.
 const SILT = '019e940a-4b4e-7806-aa41-5831b60f2e06'
 const KLEI = '019e940a-4b50-7f69-af85-2354e519bb43'
+// gap18 (x=646.74) formations — VEEN is the thin idx5 lens; ZAND is col19's big [-5.87..7.027]
+// unit 78 m away (the phantom "sand adjacency" the s30 facing sample produced).
+const VEEN = '019e940a-4b52-7560-bc4d-93ca84512af4'
+const ZAND = '019e940a-4b41-7e01-a763-ab030a38d1bc'
 
 // The bug wedge sits between the KLEI tie line (rising 4.41→5.023) and the SILT band base
 // (5.39→5.023), PAST the ZAND onlap apex (f≈0.5). Sample a point clearly inside it: near the
@@ -122,6 +126,87 @@ describe('CS1 gap1 face labelling (ruling 8n) — the owner-pinned x=96.96 accep
         (r) => r.formationId === KLEI && polyContains(r.polygon, WEDGE_F, WEDGE_E),
       )
       expect(kleiCovers, 'KLEI must NOT cross its band top (4.41→5.023 tie) into the wedge above').toBe(false)
+    })
+  })
+})
+
+// RULING 8n(b) (owner, 2026-07-18, x=646.74 — "it should be silt and veen in the lens and there is
+// no sand adjacency"). CS1 gap18 (col18 x=646.737 → col19 x=724.83, 78 m away): col18 carries a thin
+// SILT [6.03..5.46] over VEEN [5.46..5.05] minority stack, enclosed by KLEI [6.65..6.03] above and
+// KLEI [5.05..4.23] below. Both minorities LENS (corr 0). The wrap past each apex is the enclosing
+// KLEI (ruling 8g — the matrix flows around the pinch), NOT col19's big ZAND [-5.87..7.027] at those
+// elevations. The s30 facing sample (``facingMatrixLabel(col19, midElev)``) painted that far ZAND
+// past the apexes — the phantom "sand lens" the owner flagged. This gate pins: (a) NO ZAND in the
+// lens elevation band [5.05..6.03] past the apexes, (b) the wrap reads KLEI, (c) the lens interiors
+// read SILT and VEEN. Goes RED on the pre-fix (mid-elevation-facing-sample) engine.
+describe('CS1 gap18 lens enclosing matrix (ruling 8n(b)) — the owner-pinned x=646.74 acceptance case', () => {
+  const has = existsSync(INPUT)
+  ;(has ? describe : describe.skip)('real CS1 gap18', () => {
+    let g18: SectionRegion[] = []
+    {
+      const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
+      const sec = raw.sections.find((s) => s.name === 'Cross-section 1')!
+      const keep = sec.columns
+        .map((c, i) => ({ c, i }))
+        .filter(({ c }) => c.surfaceElevM != null && c.units.length > 0)
+      const columns: PartitionColumn[] = keep.map(({ c }) => ({
+        investigationId: c.investigationId,
+        surfaceElevM: c.surfaceElevM as number,
+        units: c.units,
+      }))
+      const alongM = keep.map(({ i }) => sec.alongM[i])
+      const edges: CorrelationEdge[] = sec.edges.map((e) => ({
+        a: e.a,
+        b: e.b,
+        aSide: (e.aSide ?? 'top') as 'top' | 'base',
+        bSide: (e.bSide ?? 'top') as 'top' | 'base',
+      }))
+      const prev = setTwoSidedTerminations(true)
+      try {
+        g18 = computeSectionFillV2(columns, edges, undefined, alongM).filter((r) => r.gapIndex === 18)
+      } finally {
+        setTwoSidedTerminations(prev)
+      }
+    }
+
+    // The wrap wedges sit past the lens apexes (f≈0..0.5). Sample points cleanly inside the wrap
+    // AND clear of col19's own ZAND triangle (top rises 4.23→7.027, so at f=0.1 it is only ~4.5):
+    // SILT-lens band at f=0.1/e=5.85, VEEN-lens band at f=0.1/e=5.2.
+    const SILT_WRAP_F = 0.1, SILT_WRAP_E = 5.85
+    const VEEN_WRAP_F = 0.1, VEEN_WRAP_E = 5.2
+
+    it('(a) NO ZAND covers the lens elevation band past the apexes (no sand adjacency)', () => {
+      const zandInSiltBand = g18.some(
+        (r) => r.formationId === ZAND && polyContains(r.polygon, SILT_WRAP_F, SILT_WRAP_E),
+      )
+      const zandInVeenBand = g18.some(
+        (r) => r.formationId === ZAND && polyContains(r.polygon, VEEN_WRAP_F, VEEN_WRAP_E),
+      )
+      expect(zandInSiltBand, 'the far col19 ZAND must NOT fill the SILT-lens wrap (5.7 @ f=0.35)').toBe(false)
+      expect(zandInVeenBand, 'the far col19 ZAND must NOT fill the VEEN-lens wrap (5.2 @ f=0.35)').toBe(false)
+    })
+
+    it('(b) the wrap past both apexes reads KLEI (the enclosing matrix, ruling 8g)', () => {
+      const kleiSilt = g18.some(
+        (r) => r.formationId === KLEI && polyContains(r.polygon, SILT_WRAP_F, SILT_WRAP_E),
+      )
+      const kleiVeen = g18.some(
+        (r) => r.formationId === KLEI && polyContains(r.polygon, VEEN_WRAP_F, VEEN_WRAP_E),
+      )
+      expect(kleiSilt, 'KLEI wraps the SILT lens past its apex (5.7 @ f=0.35)').toBe(true)
+      expect(kleiVeen, 'KLEI wraps the VEEN lens past its apex (5.2 @ f=0.35)').toBe(true)
+    })
+
+    it('(c) the lens interiors read SILT and VEEN to their apexes (own litho)', () => {
+      // Near col18 (small fraction), inside the lens interior, the region is the unit's own litho.
+      const siltInterior = g18.some(
+        (r) => r.formationId === SILT && polyContains(r.polygon, 0.004, 5.7),
+      )
+      const veenInterior = g18.some(
+        (r) => r.formationId === VEEN && polyContains(r.polygon, 0.004, 5.2),
+      )
+      expect(siltInterior, 'the SILT lens interior (near col18) reads SILT').toBe(true)
+      expect(veenInterior, 'the VEEN lens interior (near col18) reads VEEN').toBe(true)
     })
   })
 })
