@@ -3578,3 +3578,90 @@ untied host-split still needs the notch-splitter). Documented in both test files
 - `partitionFillV2/emitEnclosingFlood.ts` — byte-RESTORED (the refineIntervalBrackets negative reverted).
 - STUBS to delete (orchestrator rm): `partitionFillV2.throwaway_s26_gap0.diag.test.ts`,
   `partitionFillV2.throwaway_s26battery.diag.test.ts`. Plus ALL prior-session stubs still pending.
+
+## §32 — Session 27: RULING 8n THE FACE-FILL — STEP 0 diagnosis (decisive measurement; NO engine change; ASK-FIRST on the load-bearing rule gap)
+
+Mission: make the fill the pure paint-bucket of the arrangement faces the line art already closes
+(ruling 8n). Test execution: Bash `npx vitest run …` + `HOLES_DIAG=1`/`CS1_GATE=1` env-prefix WORK;
+`npx tsc` DENIED (Bash + PowerShell), `CS1_FLIP=1`/`GAP=…`/PowerShell entirely DENIED (permission
+matcher allowlists specific env-var names + blocks the file-writer flip dump). All measurement below
+is via the two throwaway diags + the permanent gates.
+
+### Baseline re-verified (matches MUST-NOT-REGRESS exactly)
+flag-OFF holes 0/0/0, CS1 gates 7/7, conformance 5/5/0=10. flag-ON above-TD holes 20 (ALL CS2-g17
+sloping wall), sub-TD 0, overlaps 0, lensAudit MISSING 0, edgedAnnulus GREEN, gap0HostSplit A/C GREEN
+(B skip). Full utils: **1 failed (`convergingStack (a)` pre-existing) / 782 passed / 26 skipped**.
+
+### THE DECISIVE MEASUREMENT — the `emitEnclosingFlood` interval carriers are ALREADY DEAD
+`partitionFillV2.throwaway_s27_noflood.diag`: re-ran the flag-ON pipeline on all 14 sections with the
+bare `flood<n>` interval-bracket carriers (from `emitEnclosingFlood.closeInterval`, NOT the sweep's
+per-apex `floodsw` wedges) FILTERED OUT of the curve set before `buildArrangement`.
+**Result: holes 20/0, overlaps 0 — BYTE-UNCHANGED from keeping them.** The MODE-B 560-hole wall
+(§17, session 14) is GONE: the line art evolved (sweep `oflank`/`term` flanks + `floodsw` wedges +
+`bandc` band contours + `rband` + substrate) to be SELF-CLOSING. The full-width `emitEnclosingFlood`
+interval reconstruction is now deletable dead weight — literally ruling 8n's "no interval
+reconstruction may override a face the line art already closes." (Deletion is a clean, zero-impact 8n
+step available to the orchestrator; it does NOT by itself fix any owner-visible defect — see below.)
+
+### WHERE THE OWNER'S DEFECTS ACTUALLY COME FROM — the BAND-CONTOUR overrides the onlap flank
+With `dropFlood=true` the owner's fill defects PERSIST IDENTICALLY (gap9 SILT still `quad f[0..1]`,
+gap0 unchanged). So the spill is NOT the flood carriers — it is the **matched-pair BAND CONTOUR
+(`bandc`) closing a neighbouring ONLAP unit full-width**. Traced precisely on item 7 (CS1 gap9,
+x=471.87):
+* col9 stack: u2 KLEI[6.48..8.84] / u3 SILT[2.51..6.48] / u4 ZAND[−3.88..2.51]. u3 SILT base (2.51) is
+  DERIVED-base-tied by the ZAND `tie11` on u4's top → SILT u3 = corr-1 baseTied → must ONLAP.
+* The sweep DOES emit its onlap flank `oflankterm12` [(471.87,6.48)→(484.93,3.93)] (apex f≈0.5). ✓
+* BUT the KLEI band ABOVE (col9 u2 KLEI ↔ col10 u1 KLEI via `tie27`) emits its full-width BASE contour
+  `bandc67` [(471.87,6.48)→(497.99,5.35)] — which lies EXACTLY on the SILT's free TOP (6.48). That
+  full-width line closes the SILT face full-width, OVERRIDING `oflankterm12`. Region = `SILT quad
+  f[0..1] el[2.51..6.48]` — "onlap correct but fills all the way to the test on the right" (owner
+  verbatim). The band-base contour of the unit ABOVE and the onlap flank of the unit BELOW share the
+  same contact elevation and CONFLICT; today the full-width band contour wins.
+Item 5 (gap5 x=289.86) is the same class (a facing band contour spanning the terminating unit
+full-width). Items 1/2/3/4 (gap0/1/2/3) are the same-formation-enclosure + interbed variant already
+characterised in §29/§31 (gap0-B onlap wedge absorbed at the T-junction, no `intersect.ts` split).
+
+### THE LOAD-BEARING RULE GAP — ASK THE OWNER (per `feedback_ask_domain_questions_dont_bugfix`)
+8n says "an onlap wedge carries the terminating unit's litho up to its apex and NOT ONE POINT PAST
+IT." The engine-level conflict this exposes: a matched-pair BAND's top/base contour is drawn
+FULL-WIDTH (it is legitimate line art bounding the band), but when that contour coincides with the
+FREE contact of an adjacent corr-1 ONLAP unit, the full-width contour and the onlap's pinch-at-0.5
+flank are TWO conflicting boundaries on the same elevation. **Question for the owner:** when a band
+contour rides the free contact of a neighbouring onlap, which line bounds the fill past f=0.5 — the
+band contour (band wins, onlap absorbed = today) or the onlap flank (onlap pinches, the space past
+0.5 is filled by the FACING enclosing formation the flank exposes)? 8n's letter says the onlap flank
+wins (fill stops at the apex), which means the band contour must be CLIPPED at the onlap apex where it
+rides a terminating unit's free contact — a targeted change to `emitBands`/`emitEnclosingFlood`
+contour emission, NOT a flood rebuild. This is the crux of items 5/7 and should be confirmed before
+building (the measured-negative ledger is full of band-contour edits that exploded holes).
+
+### MEASURED-NEGATIVE (this session, reverted — it was pure measurement, no engine edit)
+`partitionFillV2.throwaway_s27_clipband.diag`: tested the naive "clip the band base contour at the
+onlap apex" fix on the curve set (no engine edit). **Holes/overlaps NEUTRAL (20/0/0)** — but the
+RENDER is WRONG in a NEW way: truncating the KLEI band's base contour (`bandc67`) removes the SILT
+onlap's TOP boundary, so the KLEI band above FLOODS DOWN over the SILT (`KLEI quad el[2.51..9.85]`,
+the SILT onlap VANISHES). Proves the band-base contour is LOAD-BEARING (it is simultaneously the
+KLEI base AND the SILT top); you cannot clip it without giving the space past the onlap apex a NEW
+boundary (the facing enclosing must claim it via a wedge/face, exactly the multi-day face-topology
+work — NOT a curve tweak). This is the recorded wall for items 5/7: the fix must ADD the onlap's
+past-apex closure (facing-enclosing wedge bounded by the onlap flank), not merely SUBTRACT the band
+contour. Confirms the 8n rebuild is genuine face-topology work gated on the owner rule above.
+
+### Files this session (worktree — NO engine/gate code changed; orchestrator commits nothing here)
+- NO engine or permanent-gate file touched (pure measurement + diagnosis).
+- STUBS to delete (orchestrator rm): `partitionFillV2.throwaway_s27_facefill.diag.test.ts`,
+  `partitionFillV2.throwaway_s27_gapprobe.diag.test.ts`, `partitionFillV2.throwaway_s27_noflood.diag.test.ts`.
+  Plus ALL prior-session stubs still pending.
+
+### Next step (a session WITH the owner's answer to the rule gap, or the orchestrator relaying it)
+1. Get the band-contour-vs-onlap-flank ruling above. If "onlap flank wins": clip a `bandc` contour at
+   the apex fraction of any corr-1 onlap whose free contact it rides (per gap+side), so the onlap face
+   pinches at 0.5 and the facing enclosing fills past it. Measure flag-ON holes/overlaps + all gates
+   per stage; revert on any negative (this class historically leaks).
+2. gap0-B (T-junction absorb) still needs `intersect.ts` splitting at the onlap apex — now IN SCOPE
+   per the mission; battery hard.
+3. Item 6 (sub-TD, the 456.07 "intersect band∩column, extrapolate L/R") is a NEW self-contained rule
+   in `emitBottomTieSubstrate` territory.
+4. Item 9 (render parity) is the `CS1_FLIP` walkthrough dump + `gen_cs1_flip_html.mjs` (blocked from
+   regeneration this run by the env-var permission; the committed `diag_cs1_flip_walkthrough.json`
+   already carries the `regions` array with real-alongM polys for owner A/B compare).
