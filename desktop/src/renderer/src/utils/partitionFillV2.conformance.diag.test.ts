@@ -56,6 +56,7 @@ import { describe, expect, it } from 'vitest'
 
 import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
 import { computeSectionFillV2 } from './partitionFillV2'
+import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { collectGapBands } from './partitionFillV2/emitBands'
@@ -151,13 +152,20 @@ interface ConfRow {
 // tolerance; the advisory only fires when a 0-corr lens clearly overshoots 0.45.
 const LENS_PINCH_FRACTION = 0.45
 
-describe('v2 full 2/1/0 conformance gate', () => {
-  if (process.env.SHAPE_AUDIT !== '1') {
-    it.skip('dormant (set SHAPE_AUDIT=1)', () => {})
-    return
+/** Run the full 2/1/0 classifier over all 14 real sections at the CURRENT engine flag
+ * state and return the grand totals + the per-violation/advisory rows. Console output
+ * mirrors the historical reporter. Extracted from the single ``it`` (S38) so the SAME
+ * classification runs against BOTH the flag-OFF frozen-seam engine and the flag-ON
+ * literal-8l product path, each hard-gated. */
+function classifyAllSections(): {
+  grand: {
+    units: number; substrate: number; byCorr: Record<number, number>
+    '0corr-not-lens': number; '1corr-not-onlap': number; '2corr-not-band': number
+    '0corr-reach-exceeds-cap': number; 'q3-legit': number; '8e-enclosure': number
   }
-
-  it('classifies every unit in every gap by effective tie count vs rendered shape', () => {
+  rows: ConfRow[]
+} {
+  {
     expect(existsSync(INPUT)).toBe(true)
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as {
       sections: RawSection[]; formationNames: Record<string, string>
@@ -455,6 +463,111 @@ describe('v2 full 2/1/0 conformance gate', () => {
     console.log(`  advisory 8e-enclosure (ruling 8e one-body)  : ${grand['8e-enclosure']}  (gate false positive, tagged not flagged)`)
     console.log(`  dumped -> ${DUMP}`)
     console.log('##############################################')
-    expect(true).toBe(true)
+    return { grand, rows }
+  }
+}
+
+/** A pinned conformance instance identity (order-independent). ``layerId`` is deliberately
+ * OMITTED — its 8-char slice is not unique across units — so the key is
+ * section/gap/formation/side/corr/shape/elevation. */
+interface Pin {
+  section: string; gap: number; formation: string; side: 'left' | 'right'
+  corr: 0 | 1 | 2; shape: RenderShape; violation: ViolClass
+}
+function pinKey(p: { section: string; gap: number; formation: string; side: 'left' | 'right'; corr: 0 | 1 | 2; shape: RenderShape; violation: ViolClass }): string {
+  return `${p.section}|gap${p.gap}|${p.formation}|${p.side}|corr${p.corr}|${p.shape}|${p.violation}`
+}
+
+/** Diff the observed violation rows against a pinned baseline and assert exact equality:
+ * fail on ANY new instance AND on any silent disappearance (a legitimate fix updates the pin
+ * in the same commit — the ratchet). */
+function assertRatchet(label: string, rows: ConfRow[], baseline: Pin[]): void {
+  const observed = rows
+    .filter((r): r is ConfRow & { violation: ViolClass } => r.violation != null)
+    .map((r) => pinKey({ ...r, violation: r.violation as ViolClass }))
+    .sort()
+  const expected = baseline.map((p) => pinKey(p)).sort()
+  const observedSet = new Set(observed)
+  const expectedSet = new Set(expected)
+  const added = [...observedSet].filter((k) => !expectedSet.has(k))
+  const gone = [...expectedSet].filter((k) => !observedSet.has(k))
+  expect(added, `${label}: NEW conformance instance(s) not in the pinned baseline (fix the engine or update the pin): ${added.join('  ||  ') || '(none)'}`).toEqual([])
+  expect(gone, `${label}: pinned instance(s) DISAPPEARED (a real fix — update the pinned list in this commit): ${gone.join('  ||  ') || '(none)'}`).toEqual([])
+  // Exact multiplicity too (guards a case where one instance is replaced by another sharing a key).
+  expect(observed.length, `${label}: total pinned instance count`).toBe(baseline.length)
+}
+
+describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
+  if (process.env.SHAPE_AUDIT !== '1') {
+    it.skip('dormant (set SHAPE_AUDIT=1)', () => {})
+    return
+  }
+
+  // FLAG-OFF baseline — the DOCUMENTED historical seam-engine conformance. This block
+  // AUDITS THE FROZEN FLAG-OFF RENDER with the pre-8l inline arithmetic (intentional, per
+  // REWRITE_STATE §24/§25): the classifier's 2/1/0 derivation reflects the pre-8l engine,
+  // and the flag-OFF render is byte-identical to the pre-campaign engine. Baseline is
+  // 5 × 0corr-not-lens + 5 × 1corr-not-onlap + 0 × 2corr-not-band = TOTAL 10. Pinned EXACTLY:
+  // a rise above 10 (new defect) AND a drop below 10 (silent movement) both fail.
+  const FLAG_OFF_BASELINE: Pin[] = [
+    { section: 'Tie-section 10', gap: 0, formation: 'ZAND', side: 'right', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
+    { section: 'Tie-section 10', gap: 0, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Tie-section 12', gap: 0, formation: 'SILT', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Cross-section 1', gap: 7, formation: 'SILT', side: 'right', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
+    { section: 'Cross-section 1', gap: 18, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Cross-section 1', gap: 19, formation: 'KLEI', side: 'left', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Cross-section 1', gap: 20, formation: 'ZAND', side: 'right', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
+    { section: 'Cross-section 1', gap: 22, formation: 'SILT', side: 'left', corr: 0, shape: 'band', violation: '0corr-not-lens' },
+    { section: 'Cross-section 1', gap: 22, formation: 'ZAND', side: 'left', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
+    { section: 'Cross-section 2', gap: 13, formation: 'SILT', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+  ]
+
+  it('FLAG-OFF: frozen seam-engine conformance == 5/5/0 (TOTAL 10), pinned by identity', () => {
+    console.log('\n===== CONFORMANCE FLAG-OFF (frozen seam engine, pre-8l arithmetic) =====')
+    const { grand, rows } = classifyAllSections()
+    const total = grand['0corr-not-lens'] + grand['1corr-not-onlap'] + grand['2corr-not-band']
+    // Hard totals: any rise (new defect) OR drop (silent movement) fails.
+    expect(grand['0corr-not-lens'], 'flag-OFF 0corr-not-lens must be 5').toBe(5)
+    expect(grand['1corr-not-onlap'], 'flag-OFF 1corr-not-onlap must be 5').toBe(5)
+    expect(grand['2corr-not-band'], 'flag-OFF 2corr-not-band must be 0').toBe(0)
+    expect(total, 'flag-OFF total conformance violations must be exactly 10').toBe(10)
+    assertRatchet('FLAG-OFF', rows, FLAG_OFF_BASELINE)
+  })
+
+  // FLAG-ON conformance — the literal-8l product path. Measured 12 instances on the 14 real
+  // sections; pinned BY IDENTITY as a RATCHET (fail on ANY new instance AND on any silent
+  // disappearance — a legitimate fix updates this list in the same commit). NOT an aspirational
+  // 0. These are the known walls: the shape=absent rows are conformance-classifier artefacts at
+  // legitimate voids on the flag-ON render; the shape=band rows are 8l emergent bands (a corr-1
+  // onlap that merges full-width by the 8j post-fill merge). AUDIT_PROMPT Known Issues:
+  // CS1-g18/g19 (annulus wall), CS2-g21 (sub-TD ZAND), the converging-stack family.
+  const FLAG_ON_BASELINE: Pin[] = [
+    { section: 'Tie-section 7', gap: 0, formation: 'KLEI', side: 'left', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
+    { section: 'Tie-section 7', gap: 0, formation: 'KLEI', side: 'right', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
+    { section: 'Tie-section 10', gap: 0, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Tie-section 11', gap: 0, formation: 'ZAND', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
+    { section: 'Cross-section 3', gap: 6, formation: 'KLEI', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
+    { section: 'Cross-section 3', gap: 7, formation: 'ZAND', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
+    { section: 'Cross-section 1', gap: 12, formation: 'KLEI', side: 'left', corr: 2, shape: 'onlap', violation: '2corr-not-band' },
+    { section: 'Cross-section 1', gap: 18, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Cross-section 1', gap: 19, formation: 'KLEI', side: 'left', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
+    { section: 'Cross-section 1', gap: 22, formation: 'SILT', side: 'left', corr: 0, shape: 'band', violation: '0corr-not-lens' },
+    { section: 'Cross-section 2', gap: 13, formation: 'SILT', side: 'right', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
+    { section: 'Cross-section 2', gap: 21, formation: 'ZAND', side: 'right', corr: 2, shape: 'absent', violation: '2corr-not-band' },
+  ]
+
+  it('FLAG-ON: literal-8l conformance == the pinned 12-instance ratchet', () => {
+    console.log('\n===== CONFORMANCE FLAG-ON (literal-8l product path) =====')
+    const prev = setTwoSidedTerminations(true)
+    let rows: ConfRow[]
+    let grand: ReturnType<typeof classifyAllSections>['grand']
+    try {
+      ({ grand, rows } = classifyAllSections())
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+    const total = grand['0corr-not-lens'] + grand['1corr-not-onlap'] + grand['2corr-not-band']
+    expect(total, 'flag-ON total conformance instances must equal the pinned 12').toBe(12)
+    assertRatchet('FLAG-ON', rows, FLAG_ON_BASELINE)
   })
 })

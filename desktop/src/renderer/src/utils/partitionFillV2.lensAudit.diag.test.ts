@@ -253,6 +253,39 @@ describe('v2 letter-of-the-law LENS audit (ruling 8i(e))', () => {
     console.log(`  physical 1 mm collapse (excluded, listed): ${grand.physical}`)
     console.log(`  dumped -> ${DUMP}`)
     console.log('#############################################')
-    expect(true).toBe(true)
+
+    // ---- HARD GATE (S38 audit item 9) ----
+    // Ruling 8i(e): every corr-0 unit-side MUST carry a phase-1 lens flank. MISSING is the
+    // letter-of-the-law violation count → assert 0. Each missing row names its
+    // section/gap/side/colName/formation/elevations so a future red is diagnosable from the
+    // message alone.
+    const missingMsg = missing
+      .map((r) => `${r.section} gap${r.gap} [${r.side}] ${r.colName} ${r.formation} el[${r.baseElev}..${r.topElev}] layer=${r.unitLayerId.slice(0, 8)}`)
+      .join('; ')
+    expect(missing.length, `ruling-8i(e) MISSING lens flanks (must be 0): ${missingMsg || '(none)'}`).toBe(0)
+    expect(grand.missing, 'grand.missing must equal 0 (letter-of-the-law lens audit)').toBe(0)
+
+    // boundaryResidual is NOT an accepted category on the CURRENT engine (S34 deletion D
+    // un-gated the boundary-lens fill wall — every boundary corr-0 side now lenses). Measured
+    // 0. Pin it exactly so a regression that reintroduces a withheld boundary lens fails here.
+    const boundaryMsg = boundaryResidual
+      .map((r) => `${r.section} gap${r.gap} [${r.side}] ${r.colName} ${r.formation} el[${r.baseElev}..${r.topElev}]`)
+      .join('; ')
+    expect(boundaryResidual.length, `boundary-lens residual (must be 0 on the S34-deletion-D engine): ${boundaryMsg || '(none)'}`).toBe(0)
+    expect(grand.boundary, 'grand.boundary must equal 0').toBe(0)
+
+    // physical 1 mm snap collapse: the ONLY permitted exclusion from MISSING (ruling 8i(e)).
+    // Currently ZERO real corr-0 sides collapse sub-snap → pin 0. If a legitimate snap collapse
+    // ever appears, update this to its exact count and list the instance(s) in the message.
+    const physicalMsg = physicalCollapse
+      .map((r) => `${r.section} gap${r.gap} [${r.side}] ${r.colName} ${r.formation} el[${r.baseElev}..${r.topElev}]`)
+      .join('; ')
+    expect(physicalCollapse.length, `physical 1 mm snap collapse (currently 0; list each if nonzero): ${physicalMsg || '(none)'}`).toBe(0)
+    expect(grand.physical, 'grand.physical must equal 0').toBe(0)
+
+    // Population lock: 32 corr-0 unit-sides on the 14 real sections, ALL present. A silent DROP
+    // in corr0Sides (a guard reappearing that reclassifies a corr-0 side as corr-1) is caught here.
+    expect(grand.corr0Sides, 'corr-0 unit-side population (14 real sections) must be 32').toBe(32)
+    expect(grand.present, 'every corr-0 side must carry a lens flank (present == 32)').toBe(32)
   })
 })

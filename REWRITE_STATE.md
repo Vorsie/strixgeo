@@ -4396,3 +4396,111 @@ signature) / 24 skips; flag-OFF holes 0/0/0 byte-identical; forced-flag-ON 20/0 
 overlaps 0; CS1_FLIP walkthrough dump runs with the stubs. The four synthetic test files
 (coherentStack/coherentLoneStack/convergingStack/bidirSweep) all exercise the flag-ON sweep via
 `computeSectionFillV2` — zero direct tile* imports; untouched.
+
+## §42 — Session 37 (audit item 8): the merge under-merge reversal finding (orchestrator-executed)
+
+Recorded here for the close-out chain (S37 delivered the item-8 merge/`mergeTouchingBodies`
+hardening — the audit's over-merge fear was inverted to an UNDER-merge finding on real data,
+executed by the orchestrator). Details in the S37 session artefacts; the item-8 status is
+"shipped, under-merge reversal finding" as summarised in §43.
+
+## §43 — Session 38 (audit item 9): the reporter diags become HARD GATES + AUDIT EXECUTION CLOSE-OUT
+
+Mission (S38 of 6, LAST): turn the three print-then-`expect(true)` diags into hard gates that
+gate the STATUS QUO by identity, each proven to have teeth. Bash `npx vitest run <file>` +
+SINGLE env-prefix (`SHAPE_AUDIT=1` / `HOLES_DIAG=1` / `CS1_GATE=1`) WORK; bare
+`npx tsc --noEmit -p tsconfig.web.json` works; `rm -f <path>` works. DENIED: bare `node`,
+`grep`/`wc` compounds (used the Grep/Read tools). ENGINE UNTOUCHED — gates only. NO git ops.
+
+### DIAG 1 — `partitionFillV2.lensAudit.diag.test.ts` (SHAPE_AUDIT=1, flag-ON)
+Terminal `expect(true)` → hard asserts on the measured flag-ON baseline: `missing === 0`
+(ruling 8i(e) letter-of-the-law), `boundary === 0` (NOT an accepted category — S34 deletion D
+un-gated the boundary-lens wall, every boundary corr-0 side now lenses), `physical === 0` (the
+only permitted exclusion — currently ZERO sub-snap collapses; each instance would be listed if
+nonzero), plus a population lock `corr0Sides === 32` / `present === 32` (a guard reappearing
+that reclassifies a corr-0 side is caught). Each miss row names section/gap/side/col/formation/
+elev in the assertion message. PERTURBATION PROOF: `missing`→`.toBe(1)` → RED
+("expected +0 to be 1"); restored.
+
+### DIAG 2 — `partitionFillV2.holes_overlaps.diag.test.ts` (HOLES_DIAG=1)
+Was single-block flag-OFF-only (0/0/0). Refactored the scan into `scanAllSections()` returning
+structured tallies (incl. per-hole `{section, gapIndex}` identity) + TWO hard-gated `it` blocks:
+- **FLAG-OFF** (default engine): true partition — above-TD 0, sub-TD 0, diff-litho overlaps 0.
+- **FLAG-ON** (`setTwoSidedTerminations(true)` try/finally): every above-TD hole pinned BY
+  IDENTITY to `Cross-section 2` gap 17 (assert `section==='Cross-section 2' && gapIndex===17`
+  for every above-TD hole — NOT a loose total ≤20; a count DROP at g17 is fine, a new hole at
+  any other (section,gap) fails). Also asserts the CS2-g17 wall is still PRESENT (>0 sampled —
+  a drop to 0 = input/engine moved), sub-TD 0, overlaps 0. Measured: 20 holes all at CS2-g17.
+  PERTURBATION PROOFS: (a) flag-ON baseline filter `gapIndex===16` → RED, message lists all 20
+  off-baseline CS2-g17 holes by elevation; (b) flag-OFF above-TD `.toBe(1)` → RED. Restored.
+
+### DIAG 3 — `partitionFillV2.conformance.diag.test.ts` (SHAPE_AUDIT=1)
+Extracted the single classifier `it` into `classifyAllSections()` (runs at the CURRENT flag
+state; returns `{grand, rows}`) + a `Pin`/`assertRatchet` diff harness (key =
+section/gap/formation/side/corr/shape/violation — `layerId` slice OMITTED, not unique) + TWO
+hard-gated blocks:
+- **FLAG-OFF** (frozen seam engine, pre-8l inline arithmetic — INTENTIONAL per §24/§25, comment
+  preserved): `0corr-not-lens===5`, `1corr-not-onlap===5`, `2corr-not-band===0`, TOTAL `===10`
+  (a RISE=new defect AND a DROP=silent movement both fail) + a by-identity ratchet on the 10.
+- **FLAG-ON** (`setTwoSidedTerminations(true)` try/finally, literal-8l product path): TOTAL
+  `===12` + a by-identity RATCHET on all 12 (fail on ANY new instance AND on any silent
+  disappearance — a legit fix updates the pinned list in the same commit; NOT an aspirational 0).
+  The 12: 1×`0corr-not-lens` (CS1-g22 SILT band), 6×`1corr-not-onlap` (Tie-7 KLEI L/R absent,
+  Tie-10 ZAND band, CS1-g18 ZAND band, CS1-g19 KLEI band, CS2-g13 SILT absent), 5×`2corr-not-band`
+  (Tie-11 ZAND absent, CS3-g6 KLEI absent, CS3-g7 ZAND absent, CS1-g12 KLEI onlap, CS2-g21 ZAND
+  absent) — the known walls (annulus, converging-stack, sub-TD, legit-void classifier artefacts).
+  PERTURBATION PROOFS: (a) flag-OFF total `.toBe(9)` → RED (proves a drop fails); (b) removed the
+  CS1-g22 SILT pin → the flag-ON ratchet reports it as a NEW instance by identity
+  (`Cross-section 1|gap22|SILT|left|corr0|band|0corr-not-lens`) → RED. Restored.
+  (File is 573 lines > 500 — the desktop-hook length warning; it is a pinned-baseline test file,
+  extraction not pursued this session — noted for debt #201.)
+
+### SURVIVING-UNCONDITIONAL-PASS SCAN
+Grep `expect\(true\)\.toBe\(true\)` over `partitionFillV2*.ts`: the three hardened diags no
+longer pass unconditionally. Remaining hits are all THROWAWAY reporters (self-labelled, campaign-
+scoped for deletion, exempt like the cs1flip walkthrough): `cs1flip_walkthrough`,
+`zerocorr.classify` ("THROWAWAY … DELETE after the campaign"), `shapeaudit` ("throwaway diag …
+Never fails"), `parity` ("THROWAWAY DIAG … Pure reporter — never fails"). No permanent gate and
+no non-throwaway file carries an unconditional pass.
+
+### VERIFICATION (battery)
+tsc clean · lensAudit (SHAPE_AUDIT=1) GREEN · holes_overlaps (HOLES_DIAG=1) 2/2 GREEN (flag-OFF
+0/0/0, flag-ON 20 all CS2-g17 + 0/0) · conformance (SHAPE_AUDIT=1) 2/2 GREEN (flag-OFF 5/5/0=10,
+flag-ON 12 pinned) · full utils (no env) **1 failed (`convergingStack (a)` — PRE-EXISTING) / 799
+passed / 23 skipped** (default-suite skip count unchanged; env-gated diags each contribute one
+`it.skip` dormant when their env is unset). All permanent gates GREEN.
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2.lensAudit.diag.test.ts` (EDITED) — terminal `expect(true)` → hard asserts
+  (missing/boundary/physical === 0 + corr0Sides/present === 32; per-instance messages).
+- `partitionFillV2.holes_overlaps.diag.test.ts` (EDITED) — scan extracted to `scanAllSections`;
+  flag-OFF true-partition block + flag-ON CS2-g17-by-identity block; `setTwoSidedTerminations`
+  import + header rewrite.
+- `partitionFillV2.conformance.diag.test.ts` (EDITED) — classifier extracted to
+  `classifyAllSections`; `Pin`/`pinKey`/`assertRatchet` harness; flag-OFF (5/5/0=10 pinned) +
+  flag-ON (12-instance ratchet) blocks; `setTwoSidedTerminations` import.
+- STUBS deleted this session (`rm` worked): `partitionFillV2.throwaway_s38_confon.diag.test.ts`
+  + `partitionFillV2.throwaway_s38_holeson.diag.test.ts` (the flag-ON conformance + holes
+  measurement probes). Prior-session throwaway reporters still pending orchestrator rm:
+  `shapeaudit`/`zerocorr.classify`/`parity`/`cs1flip_walkthrough` (+ the s35/s34/s33/s32/s31/
+  s30/s29/s28 stub trail if any survive).
+
+### ═══ AUDIT EXECUTION CLOSE-OUT (items 1–10) ═══
+| # | item | status |
+|---|---|---|
+| 1 | verification-layer / gate contract | S34/S35 (gates consume the SAME `effectiveCorr`/`terminationRules` the engine emits against — single source, cannot drift) |
+| 2 | hidden band promotion (`isBandMember` skip) DELETED | S34 (deletion A) |
+| 3 | T4 same-formation-matrix-run corr-1 suppression DELETED | S34 (deletion B); root-fixed by S30 flood-wedge label |
+| 4 | sub-TD corr-0 M-in-M eligibility DELETED → ONE shared `emitCorr0Termination` | S35 |
+| 5 | corr-0 eligibility block + boundary-lens facing-void guard DELETED | S34 (deletions C+D) |
+| 6 | TieRef exact-tie provenance (kill `tieFacingElevAt` elevation-guessing) | S33 |
+| 7 | dead-tiler deletion | S36 — PREMISE CORRECTED (~650 lines, not ~2,800: 2 of 4 "dead" files LIVE-imported; the seam-era bulk dies at CUTOVER); orchestrator-executed |
+| 8 | merge / `mergeTouchingBodies` hardening | S37 — over-merge fear INVERTED to an under-merge finding on real data |
+| 9 | reporter diags → hard gates | **S38 (this session)** |
+| 10 | RED-first test scaffolding | S33 |
+
+REMAINING KNOWN WALLS (unchanged — tracked, not S38 scope): CS2-g17 20 above-TD holes (the
+sloping-enclosure wall, the one accepted flag-ON hole baseline); `literalCorr` (c)/(d) (col18
+TRUE-untied interbed host-split, the +104-overlap annulus wall); `convergingStack (a)` (enclosed
+lens pokes past a corr-1 onlap host's flank — the 1 pre-existing red); the 8-of-436 MIXED-
+enclosure interior units (lens wedges fall back to facing-sampling — owner ruling pending).
