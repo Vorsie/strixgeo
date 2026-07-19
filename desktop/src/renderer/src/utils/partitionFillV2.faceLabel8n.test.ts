@@ -170,15 +170,23 @@ describe('CS1 gap1 face labelling (ruling 8n) — the owner-pinned x=96.96 accep
 })
 
 // RULING 8n(b) (owner, 2026-07-18, x=646.74 — "it should be silt and veen in the lens and there is
-// no sand adjacency"). CS1 gap18 (col18 x=646.737 → col19 x=724.83, 78 m away): col18 carries a thin
-// SILT [6.03..5.46] over VEEN [5.46..5.05] minority stack, enclosed by KLEI [6.65..6.03] above and
-// KLEI [5.05..4.23] below. Both minorities LENS (corr 0). The wrap past each apex is the enclosing
-// KLEI (ruling 8g — the matrix flows around the pinch), NOT col19's big ZAND [-5.87..7.027] at those
-// elevations. The s30 facing sample (``facingMatrixLabel(col19, midElev)``) painted that far ZAND
-// past the apexes — the phantom "sand lens" the owner flagged. This gate pins: (a) NO ZAND in the
-// lens elevation band [5.05..6.03] past the apexes, (b) the wrap reads KLEI, (c) the lens interiors
-// read SILT and VEEN. Goes RED on the pre-fix (mid-elevation-facing-sample) engine.
-describe('CS1 gap18 lens enclosing matrix (ruling 8n(b)) — the owner-pinned x=646.74 acceptance case', () => {
+// no sand adjacency"), UPDATED for RULING 8s (owner, 2026-07-19, "0.45 stands, matrix detours").
+// CS1 gap18 (col18 x=646.737 → col19 x=724.83, 78 m away): col18 carries a thin SILT [6.03..5.46]
+// over VEEN [5.46..5.05] minority stack, enclosed by KLEI [6.65..6.03] above and KLEI [5.05..4.23]
+// below. Both minorities LENS (corr 0). The wrap past each apex is the enclosing KLEI (ruling 8g —
+// the matrix flows around the pinch), NOT col19's big ZAND [-5.87..7.027] at those elevations. The
+// phantom "sand lens" (the s30 facing sample painting that far ZAND) is gone.
+//
+// RULING 8s changed the REACH of these two lenses: the facing-sample cap that hugged them near the
+// column is DELETED, so a lens keeps 0.45 unless a gap TIE crosses its diamond. The SILT lens
+// (mid 5.745, term25/26) crosses NO tie → it opens to the FULL 0.45 (its interior now runs f=0..0.45
+// and the KLEI wrap only begins PAST the 0.45 apex). The VEEN lens (mid 5.255, term27/28) IS crossed
+// by tie81:18 (KLEI-base 4.23 → ZAND-top 7.027, passing through the VEEN extent) → it STAYS hugged
+// near the column (reach ~0.011), so its KLEI wrap begins almost immediately past f≈0.01. The gate
+// therefore samples the SILT wrap PAST the 0.45 apex and the VEEN wrap at a small fraction. It pins:
+// (a) NO ZAND in the lens elevation band [5.05..6.03] within the wrap window (no sand adjacency),
+// (b) the wrap reads KLEI, (c) the lens interiors read SILT and VEEN. Goes RED on the pre-fix engine.
+describe('CS1 gap18 lens enclosing matrix (ruling 8n(b) + 8s) — the owner-pinned x=646.74 acceptance case', () => {
   const has = existsSync(INPUT)
   ;(has ? describe : describe.skip)('real CS1 gap18', () => {
     let g18: SectionRegion[] = []
@@ -208,10 +216,13 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b)) — the owner-pinned x=
       }
     }
 
-    // The wrap wedges sit past the lens apexes (f≈0..0.5). Sample points cleanly inside the wrap
-    // AND clear of col19's own ZAND triangle (top rises 4.23→7.027, so at f=0.1 it is only ~4.5):
-    // SILT-lens band at f=0.1/e=5.85, VEEN-lens band at f=0.1/e=5.2.
-    const SILT_WRAP_F = 0.1, SILT_WRAP_E = 5.85
+    // Ruling 8s reach: the SILT lens opens to the full 0.45 (no tie crosses it), so its KLEI wrap
+    // begins PAST f=0.45 — sample it at f=0.5 (past the SILT apex, still BELOW the rising ZAND-top
+    // tie81:18, which reaches e=5.85 only at f≈0.58). The VEEN lens is crossed by tie81:18 and stays
+    // hugged (~0.011), so its KLEI wrap is present from f≈0.1 — sample at f=0.1/e=5.2 (below the tie,
+    // which reaches e=5.2 at f≈0.35). Both points are cleanly inside the KLEI wrap and clear of
+    // col19's ZAND triangle.
+    const SILT_WRAP_F = 0.5, SILT_WRAP_E = 5.85
     const VEEN_WRAP_F = 0.1, VEEN_WRAP_E = 5.2
 
     it('(a) NO ZAND covers the lens elevation band past the apexes (no sand adjacency)', () => {
@@ -221,8 +232,8 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b)) — the owner-pinned x=
       const zandInVeenBand = g18.some(
         (r) => r.formationId === ZAND && polyContains(r.polygon, VEEN_WRAP_F, VEEN_WRAP_E),
       )
-      expect(zandInSiltBand, 'the far col19 ZAND must NOT fill the SILT-lens wrap (5.7 @ f=0.35)').toBe(false)
-      expect(zandInVeenBand, 'the far col19 ZAND must NOT fill the VEEN-lens wrap (5.2 @ f=0.35)').toBe(false)
+      expect(zandInSiltBand, 'the far col19 ZAND must NOT fill the SILT-lens wrap (5.85 @ f=0.5)').toBe(false)
+      expect(zandInVeenBand, 'the far col19 ZAND must NOT fill the VEEN-lens wrap (5.2 @ f=0.1)').toBe(false)
     })
 
     it('(b) the wrap past both apexes reads KLEI (the enclosing matrix, ruling 8g)', () => {
@@ -232,8 +243,8 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b)) — the owner-pinned x=
       const kleiVeen = g18.some(
         (r) => r.formationId === KLEI && polyContains(r.polygon, VEEN_WRAP_F, VEEN_WRAP_E),
       )
-      expect(kleiSilt, 'KLEI wraps the SILT lens past its apex (5.7 @ f=0.35)').toBe(true)
-      expect(kleiVeen, 'KLEI wraps the VEEN lens past its apex (5.2 @ f=0.35)').toBe(true)
+      expect(kleiSilt, 'KLEI wraps the SILT lens past its 0.45 apex (5.85 @ f=0.5)').toBe(true)
+      expect(kleiVeen, 'KLEI wraps the VEEN lens past its hugged apex (5.2 @ f=0.1)').toBe(true)
     })
 
     it('(c) the lens interiors read SILT and VEEN to their apexes (own litho)', () => {
