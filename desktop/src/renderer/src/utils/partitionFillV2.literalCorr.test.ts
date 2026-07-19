@@ -179,7 +179,28 @@ describe('ruling 8l — corr is the literal count', () => {
 // flood cannot separate; ``slice.splitAnnulus`` fires only on holes>0). That needs the forbidden
 // ``intersect.ts``-adjacent notch-splitter. The 8a-tied case is the tractable, hole-free subset the
 // owner dogfed (gap0); the untied col18 case stays the characterised annulus wall (§30 T3).
-describe.skip('ruling 8l(b)/8k — interbed host-split (RED: needs the annulus/notch-splitter rebuild; the 8a-tied subset is GREEN via gap0HostSplit)', () => {
+// STEP 4.1 UN-SKIP ATTEMPT (session 45, measured + STOPPED for the owner). The COLUMN-VERTICAL ID
+// SPLIT (``emitColumnVerticals`` / ``seedClassifier``) made the col18 LITHO + FACES correct WITHOUT
+// the deep host-split: the two SILT interbeds each own a genuine single-seed SILT face (seedGate
+// ``literalCorr (c)/(d)`` = single 8, void 0, ZERO 0, MULTI 0 — all clean), and the middle CLAY
+// paints CLAY as part of the merged CLAY band. holes stay 64/0/0 flag-ON, 0/0/0 flag-OFF.
+//
+// BUT cases (c)/(d) assert a STRUCTURAL shape the id-split does NOT (and by design must not) provide:
+//   • (c) ``mCol.units.length === 5`` + ``enclosedLenses.length === 0`` — i.e. the DEEP HOST-SPLIT
+//     where ``extractEnclosedLenses`` does NOT merge and all five raw units (CLAY/SILT/CLAY/SILT/CLAY)
+//     survive as separate ``col:u`` units, each emitting its own 2/1/0 termination.
+//   • MEASURED this session: with the merge ON (Stage a), ``mCol.units.length === 1`` (one merged CLAY
+//     band + 2 SILT enclosed lenses), so (c) fails ``expected 1 to be 5``; (d)'s ``effectiveCorrForSide``
+//     reads on the merged 1-unit column, not the 5-piece raw column, so its piece-tie inheritance
+//     assertions also do not apply.
+//
+// WHAT THE GATE WANTS vs WHAT THE ANNULUS GIVES: the gate wants the deep host-split (5 surviving units
+// = geometry reshaping); the annulus gives the merge-preserving id-split (litho/faces correct, holes
+// preserved). S44 (§49) MEASURED that fully un-merging the edged interbeds reopens 180 holes — the
+// merge IS the annulus continuity. So the deep host-split is NOT a labelling fix; it is the multi-day
+// notch/annulus-splitter rebuild (``intersect.ts``-adjacent). STOPPED here per the SEED_FILL_MANDATE
+// Stage-c directive: the litho/faces are right, the SHAPE assertion needs geometry work — owner's call.
+describe.skip('ruling 8l(b)/8k — interbed host-split (litho/faces CORRECT via the Step-4.1 id-split; the units.length===5 DEEP host-split shape stays RED — S44 wall, owner call)', () => {
   it('(c) the col18 three-piece column: CLAY top(1) / middle(0, LENS both ways) / bottom(1)', () => {
     seq = 0
     // Synthetic twin of CS1 col18 (x=646.74). The middle column carries a CLAY host split by a
