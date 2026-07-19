@@ -56,8 +56,8 @@ import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { facingMatrixLabel } from './facingMatrix'
-import { lensReachFraction } from './lensReach'
-import { type LensLabel } from './emitLenses'
+import { interiorLensReachToTies } from './lensReach'
+import { enclosingMatrixFid, type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
 import { lensEnclosingMatrix } from './lensEnclosure'
 import { type ColumnGeom, type UnitGeom } from './sectionGeom'
@@ -287,13 +287,47 @@ function emitLens(
   nextFloodId: () => string,
   out: InputCurve[],
 ): boolean {
-  // The 8b-capped apex fraction — the SAME value ``emitLensClosing`` uses internally, so the
-  // flood wedge shares the exact apex point the lens closing emits (no seam gap between them).
-  const apexFrac = Math.min(INTERIOR_PINCH_FRACTION, lensReachFraction(u.topElev - u.baseElev, facingX - colX))
+  // RULING 8b-rev (owner, 2026-07-19): the DEFAULT interior-lens reach is 0.45; the ~2× thickness
+  // cap applies ONLY on COLLISION with a gap tie ("shorten lenses that collide with a sloping
+  // correlation"). ``interiorLensReachToTies`` returns 0.45 when no tie brackets the unit, else
+  // the largest reach whose apex stays strictly inside the nearest bracketing ties (fitLensReach:
+  // 0.45 → 2× thickness → halve). ONE PLANNED APEX: this single value drives BOTH the lens closing
+  // flanks (passed to ``emitLensClosing``, overriding its internal 0.45 default) AND the flood
+  // wedge apex-x below (no line-vs-fill split). The flood wedge's OWN tie clamp (``clampConvToTies``
+  // in ``emitFloodWedge``) still rides the wrap inside the ties past the apex — clamp (stay inside
+  // the lines) is preferred over shorten for the WRAP, shorten for the DIAMOND that would cross.
+  const lensMid = (u.topElev + u.baseElev) / 2
+  // The FACING band-contour bracket (8b-rev "collide with a sloping correlation" — a band edge is
+  // line art too, even where no tie bounds it). A collision is a THIRD competing lithology on the
+  // facing side: when the facing unit at the lens mid-elevation is NEITHER the lens litho NOR the
+  // lens's ENCLOSING MATRIX, its top/base contour is the sloping band edge the diamond must not
+  // cross (CS2 gap13: a KLEI interbed poking above the dipping ZAND wrap). When the facing carries
+  // the enclosing matrix (ruling 8n(b): the SILT/VEEN lens wrapped in KLEI, facing KLEI) the lens
+  // is a full-width-safe hole and keeps 0.45 — the diamond is not bracketed. Same litho → also safe.
+  // The wrap PAST the apex is handled by the flood wedge's own tie clamp — this bounds the diamond.
+  const matrixFid = enclosingMatrixFid(col, u)
+  const facingFid = facingMatrixLabel(facing, lensMid)?.formationId
+  const facingCompetes =
+    facingFid != null &&
+    facingFid !== u.formationId &&
+    (matrixFid === null || facingFid !== matrixFid)
+  const apexFrac = Math.min(
+    INTERIOR_PINCH_FRACTION,
+    interiorLensReachToTies(
+      u.topElev - u.baseElev,
+      colX,
+      facingX,
+      lensMid,
+      u.topElev,
+      u.baseElev,
+      activeTies.filter((t) => t.gapIndex === gapIndex),
+      facingCompetes,
+    ),
+  )
   const apexX = colX + apexFrac * (facingX - colX)
-  const apexElev = (u.topElev + u.baseElev) / 2
+  const apexElev = lensMid
   const before = out.length
-  emitLensClosing(iu, colX, facingX, INTERIOR_PINCH_FRACTION, nextId, out)
+  emitLensClosing(iu, colX, facingX, apexFrac, nextId, out)
   const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
   const emitted = out.length > before // ``emitLensClosing`` may no-op (degenerate) — skip the wedge too
   for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)

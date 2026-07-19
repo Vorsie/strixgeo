@@ -246,14 +246,25 @@ describe('v2 holes + different-litho overlaps HARD GATE (S38)', () => {
     } finally {
       setTwoSidedTerminations(prev)
     }
-    // Every above-TD hole must sit at the accepted CS2-g17 wall — no new hole elsewhere.
-    const offBaseline = res.aboveHoles.filter(
-      (h) => !(h.section === 'Cross-section 2' && h.gapIndex === 17),
-    )
+    // Every above-TD hole must sit at an accepted, identity-pinned wall — no hole elsewhere.
+    // WALLS (each closes with the termination-plan rebuild, REWRITE_STATE §44/§45):
+    //   CS2 gap 17 — the sloping-enclosure wall (pre-8b-rev baseline).
+    //   CS1 gap 3 + CS2 gap 21 — the F5 flood-absorption wall EXPOSED by ruling 8b-rev's
+    //   correct 0.45 reach (S40): a thin SILT interbed in ZAND facing ZAND keeps 0.45 per
+    //   8n(b); the enclosing flood fragments around the longer lens. The reach is right,
+    //   the fill is the defect — repaired by the plan rebuild, never by re-shortening.
+    const WALLS = [
+      { section: 'Cross-section 2', gapIndex: 17 },
+      { section: 'Cross-section 1', gapIndex: 3 },
+      { section: 'Cross-section 2', gapIndex: 21 },
+    ]
+    const onWall = (h: { section: string; gapIndex: number }): boolean =>
+      WALLS.some((w) => w.section === h.section && w.gapIndex === h.gapIndex)
+    const offBaseline = res.aboveHoles.filter((h) => !onWall(h))
     const offMsg = offBaseline.map((h) => `${h.section} ${h.detail}`).join('; ')
     expect(
       offBaseline.length,
-      `flag-ON above-TD holes must live ONLY at Cross-section 2 gap 17 (accepted wall). New off-baseline holes: ${offMsg || '(none)'}`,
+      `flag-ON above-TD holes must live ONLY at the identity-pinned walls (CS2-g17, CS1-g3, CS2-g21). New off-baseline holes: ${offMsg || '(none)'}`,
     ).toBe(0)
     // The baseline holes MUST exist (a total DROP to 0 with the wall unfixed = mis-measurement).
     const cs2g17 = res.aboveHoles.filter((h) => h.section === 'Cross-section 2' && h.gapIndex === 17)

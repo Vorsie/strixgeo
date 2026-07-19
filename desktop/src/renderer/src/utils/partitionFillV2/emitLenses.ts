@@ -17,7 +17,8 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { lensReachFraction } from './lensReach'
+import { facingMatrixLabel } from './facingMatrix'
+import { enclosedLensReach } from './lensReach'
 import { type ColumnGeom, type EnclosedLens, type SectionInput, type UnitGeom } from './sectionGeom'
 import { segmentDegenerate } from './snap'
 import { type InputCurve, type Point } from './types'
@@ -60,14 +61,14 @@ export function emitEnclosedLensCurves(
       const gw = columns[ci + 1].x - col.x
       for (const el of col.enclosedLenses)
         if (shouldEmitLens(col, columns[ci + 1], el))
-          emitOne(el.lens, col, ci, 'left', gw, section, nextId, out, labels)
+          emitOne(el.lens, col, columns[ci + 1], ci, 'left', gw, section, nextId, out, labels)
     }
     // Into the gap to the LEFT (this column is the gap's RIGHT column).
     if (ci - 1 >= 0) {
       const gw = col.x - columns[ci - 1].x
       for (const el of col.enclosedLenses)
         if (shouldEmitLens(col, columns[ci - 1], el))
-          emitOne(el.lens, col, ci - 1, 'right', gw, section, nextId, out, labels)
+          emitOne(el.lens, col, columns[ci - 1], ci - 1, 'right', gw, section, nextId, out, labels)
     }
   }
 }
@@ -112,6 +113,7 @@ function shouldEmitLens(col: ColumnGeom, facing: ColumnGeom, el: EnclosedLens): 
 function emitOne(
   lens: UnitGeom,
   col: ColumnGeom,
+  facing: ColumnGeom,
   gapIndex: number,
   side: 'left' | 'right',
   gapWidth: number,
@@ -142,12 +144,22 @@ function emitOne(
     push([topPt, ...upper, ...lower, basePt])
     return
   }
-  // Ruling 8b (design partition-engine-v2.md §8): the DEFAULT 0-corr reach is capped to
-  // ~2× the unit's own thickness in real metres (``lensReachFraction`` = min(0.45, 2t/gap)),
-  // expressed here as a gap-local fraction from the emitting column (left→cap, right→1-cap).
-  // A USER apex override (``ov.fraction``, and the freedraw branch above) is NEVER capped —
-  // the drawn apex takes precedence even when it reaches deeper than the auto cap.
-  const capFrac = lensReachFraction(lens.topElev - lens.baseElev, gapWidth)
+  // Ruling 8b-rev (design partition-engine-v2.md §8, owner 2026-07-19): the DEFAULT 0-corr reach
+  // is 0.45; the ~2× thickness cap applies ONLY on COLLISION. For an enclosed lens the collision is
+  // with a THIRD competing lithology on the facing side. A 0.45 hole is safe when the facing
+  // carries the lens's OWN litho OR the lens's ENCLOSING MATRIX (either bands full-width and the
+  // lens is an interior hole in it — ruling 8n(b): the SILT/VEEN lens wrapped in KLEI stays 0.45
+  // even though the facing KLEI ≠ the SILT lens, because KLEI is the enclosing matrix, NOT a
+  // competing litho). It reaches INTO foreign territory only when the facing is NEITHER (CS1 gap5
+  // ZAND-lens facing SILT — the paint-level overlap the old cap prevented). The enclosing matrix is
+  // read from the lens's OWN-column neighbours (the merged band above+below the lens). Flag-ON only;
+  // flag-OFF keeps the original cap byte-identical. A USER apex override is NEVER capped.
+  const lensMid = (lens.topElev + lens.baseElev) / 2
+  const matrixFid = enclosingMatrixFid(col, lens)
+  const facingFid = facingMatrixLabel(facing, lensMid)?.formationId
+  const facingDiffers =
+    facingFid !== lens.formationId && (matrixFid === null || facingFid !== matrixFid)
+  const capFrac = enclosedLensReach(lens.topElev - lens.baseElev, gapWidth, facingDiffers)
   const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
   const apexFrac = ov?.fraction ?? defaultFrac
   const apexElev = ov?.elevation ?? (lens.topElev + lens.baseElev) / 2
@@ -160,6 +172,41 @@ function emitOne(
   if (segmentDegenerate(topPt, apex) || segmentDegenerate(apex, basePt)) return
   push([topPt, apex])
   push([apex, basePt])
+}
+
+/**
+ * The enclosing-matrix formation of an enclosed lens, read from the lens's OWN column: the units
+ * immediately ABOVE (base ≈ lens top) and BELOW (top ≈ lens base) the lens. Returns their formation
+ * when BOTH agree (a genuine same-formation wrap — the merged band the lens is a hole in), else
+ * ``null`` (no single enclosing matrix — treat any different facing as a collision). Structural
+ * neighbour read only — NOT the F3 ``lensEnclosure`` walk (which skips sibling minorities); this is
+ * the direct adjacency sufficient for the 8b-rev "is the facing the matrix or a competitor" test.
+ */
+export function enclosingMatrixFid(col: ColumnGeom, lens: UnitGeom): string | null {
+  const EPS = 1e-3
+  // The enclosed-lens extraction MERGES the matrix above+below into one continuous band spanning
+  // the lens's elevation, so the lens's own contacts no longer bound distinct neighbour units. The
+  // enclosing matrix is the band that CONTAINS the lens's top AND base elevations (a hair inside,
+  // to land in the band even when the band contact coincides with the lens contact). When one band
+  // contains both → that is the wrap. Fall back to the exact-contact neighbours for the un-merged
+  // case (a lens the extraction left in place, its top/base ON a neighbour contact).
+  const contains = (elev: number): string | null => {
+    for (const u of col.units) {
+      if (u.topElev >= elev - EPS && elev >= u.baseElev + EPS) return u.formationId
+    }
+    return null
+  }
+  const midAbove = contains(lens.topElev + EPS * 2)
+  const midBelow = contains(lens.baseElev - EPS * 2)
+  if (midAbove !== null && midAbove === midBelow) return midAbove
+  // Un-merged fallback: exact-contact neighbours (a lens sitting ON its neighbours' contacts).
+  let aboveFid: string | null = null
+  let belowFid: string | null = null
+  for (const u of col.units) {
+    if (Math.abs(u.baseElev - lens.topElev) <= EPS) aboveFid = u.formationId
+    if (Math.abs(u.topElev - lens.baseElev) <= EPS) belowFid = u.formationId
+  }
+  return aboveFid !== null && aboveFid === belowFid ? aboveFid : null
 }
 
 /** Gap-local fraction (0=left col, 1=right col) -> distance from the emitting column. */

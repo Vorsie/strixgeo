@@ -1,29 +1,48 @@
 /**
- * lensReach.ts — the ruling-8b 0-corr lens-reach cap (design partition-engine-v2.md §8, 8b).
+ * lensReach.ts — the 0-corr lens reach (ruling 8b → 8b-rev, design partition-engine-v2.md §8).
  *
- * Owner ruling 8b (2026-07-15): a 0-corr unit renders as a SMALL LENS AROUND THE UNIT —
- * the unit never "terminates" away into a long tongue. The auto lens reach is
+ * Owner ruling 8b-rev (2026-07-19, app dogfeed round 1 — "lenses should fill to 0.45 dist …
+ * we only need to shorten lenses that collide with a sloping correlation"): the DEFAULT lens
+ * reach is 0.45 of the gap (``LENS_PINCH_FRACTION``) for EVERY lens. The ~2× thickness cap is
+ * NO LONGER the default — it is only the FIRST STEP of the COLLISION SHORTENER (``fitLensReach``):
+ * a lens whose flank/wedge would cross tie/band line art shortens to the ~2× thickness reach,
+ * then halves further if still colliding. One PLANNED apex per termination — the flank line and
+ * the fill wedge consume the SAME value (a single ``lensReachFraction`` call per emission).
  *
- *     min(LENS_PINCH_FRACTION 0.45 × gap width, ~2 × the unit's own thickness)
+ * The 8b-rev default is the FLAG-ON PRODUCT PATH only (``twoSidedTerminationsEnabled``). The
+ * flag-OFF seam engine (the pre-cutover ``tileInterval`` path) keeps the ORIGINAL ruling-8b
+ * ``min(0.45× gap, 2× thickness)`` cap byte-identical, because its enclosed-lens / lone-pinch /
+ * converging-stack emitters route reach through the SAME ``lensReachFraction`` and the cut-over
+ * is per-section (flag-OFF must not move until every section's shapes are correct). Gating the
+ * default on the flag keeps the flag-OFF render byte-identical BY CONSTRUCTION while the flag-ON
+ * lenses reach the ruled 0.45.
  *
- * computed in REAL alongM metres, so thin units get a hugging halo and wide gaps stop
- * producing long tongues. Thick units (where 2× thickness ≥ 0.45× gap) keep the flat 0.45
- * reach, so their geometry is unchanged (parity with the pre-8b engine).
+ * This module is the SINGLE source of truth for the reach; every 0-corr lens-emission path in
+ * ``partitionFillV2/`` routes its apex fraction through ``lensReachFraction`` so it cannot drift
+ * between call sites. Under 8b-rev the default no longer guarantees band-clipping by shrinking
+ * (a 0.45 lens can now reach a dipping tie) — so the COLLISION SHORTENER (``fitLensReach``) is
+ * the band-clip mechanism, applied at the emit sites that can collide.
  *
- * This module is the SINGLE source of truth for the cap; every 0-corr lens-emission path in
- * ``partitionFillV2/`` routes its apex fraction through ``lensReachFraction`` so the cap
- * cannot drift between call sites. Band-clipping (the ruling-8b HARD CONSTRAINT: "make sure
- * it doesn't cross correlation bands") holds by construction — the cap only ever SHRINKS a
- * lens (moves the apex nearer its own column), so a capped lens can never reach a band
- * contour the un-capped 0.45 lens did not already respect.
- *
- * User-set apex overrides (alt-click / freedraw, ``lensApexOverrides``) take PRECEDENCE and
- * are NOT capped — the caller applies the override before consulting this helper.
+ * User-set apex overrides (alt-click / freedraw, ``lensApexOverrides``) take PRECEDENCE and are
+ * NEVER shortened — the caller applies the override before consulting this helper.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
 import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { twoSidedTerminationsEnabled } from './tileFlags'
+import { type Point } from './types'
+
+/**
+ * Minimal structural view of a gap tie for reach collision — just its two column
+ * endpoints. Kept STRUCTURAL (not importing ``ResolvedTie`` from ``emitCurves``) so this
+ * low-level pure module never creates an import cycle back through the emitters. Any
+ * ``ResolvedTie`` (``{ left, right }``) satisfies it.
+ */
+export interface ReachTie {
+  left: Point
+  right: Point
+}
 
 /**
  * Minimum apex fraction — a tiny floor so a degenerate zero-thickness unit or a
@@ -53,9 +72,12 @@ export function lensReachM(unitThicknessM: number, gapWidthM: number): number {
 }
 
 /**
- * The ruling-8b reach expressed as an apex FRACTION of the gap (the space the emission
- * paths work in). Equals ``min(0.45, 2 × thickness / gapWidth)``, floored at a small
- * epsilon and never exceeding ``LENS_PINCH_FRACTION`` (a thick unit keeps 0.45 exactly).
+ * The DEFAULT lens reach expressed as an apex FRACTION of the gap (the space the emission paths
+ * work in). Flag-ON (ruling 8b-rev, product path): a FLAT ``LENS_PINCH_FRACTION`` (0.45) for every
+ * lens — the collision shortener (``fitLensReach`` / ``interiorLensReachToTies`` / the
+ * ``enclosedLensReach`` competitor cap) is what trims a lens that would cross line art. Flag-OFF
+ * (frozen seam engine): the ORIGINAL ruling-8b ``min(0.45, 2 × thickness / gapWidth)`` cap,
+ * byte-identical, floored at a small epsilon and never exceeding ``LENS_PINCH_FRACTION``.
  *
  * Parameters
  * ----------
@@ -70,6 +92,11 @@ export function lensReachM(unitThicknessM: number, gapWidthM: number): number {
  *     Apex fraction in (0, LENS_PINCH_FRACTION].
  */
 export function lensReachFraction(unitThicknessM: number, gapWidthM: number): number {
+  // Ruling 8b-rev (flag-ON product path): the DEFAULT reach is a FLAT 0.45 for every lens —
+  // the 2× thickness cap is no longer the default (it lives on only inside ``fitLensReach`` as
+  // the first collision-shortener step). Flag-OFF keeps the original min(0.45, 2t/gap) cap so
+  // the seam engine's enclosed-lens / lone-pinch emitters stay byte-identical until cut-over.
+  if (twoSidedTerminationsEnabled()) return LENS_PINCH_FRACTION
   const width = Math.abs(gapWidthM)
   // Degenerate zero-width gap: no metres to convert into a fraction — fall back to the
   // uncapped 0.45 (the arrangement will collapse a truly zero-width gap anyway) but never
@@ -80,17 +107,20 @@ export function lensReachFraction(unitThicknessM: number, gapWidthM: number): nu
 }
 
 /**
- * The REACH-HALVING conflict resolver (owner ruling 8b conflict-resolution, design
- * partition-engine-v2.md §8, 2026-07-16 late — "you can just shorten the lenses by half if
- * there is conflict with a tie").
+ * The COLLISION SHORTENER (owner ruling 8b-rev, design partition-engine-v2.md §8, 2026-07-19 —
+ * "we only need to shorten lenses that collide with a sloping correlation"; the halving mechanic
+ * itself is the 2026-07-16 ruling "shorten the lenses by half if there is conflict with a tie").
  *
- * A per-unit lens between two SLOPING brackets (a minority against a converging facing) can
- * poke PAST a bracket at its 8b reach — its apex point rising above the descending top bracket
- * (or dropping below the rising base bracket) at the apex x. The owner's ruled mechanism is NOT
- * to chase the sloping bracket with a seam (session 10 measured that NEGATIVE — flat/sloped
- * seams slivered) but to SHRINK the lens: start at the 8b reach and HALVE it (f → f/2) until the
+ * A per-unit lens between two SLOPING brackets (a minority against a converging facing) can poke
+ * PAST a bracket at its DEFAULT 8b-rev reach (0.45) — its apex point rising above the descending
+ * top bracket (or dropping below the rising base bracket) at the apex x. The owner's ruled
+ * mechanism is NOT to chase the sloping bracket with a seam (session 10 measured that NEGATIVE —
+ * flat/sloped seams slivered) but to SHORTEN the lens. Under 8b-rev the shortening LADDER is:
+ * start at 0.45; if that collides, drop to the ~2× THICKNESS reach (the thickness rule's real
+ * home — the reach that hugs a thin unit); if THAT still collides, HALVE (f → f/2) until the
  * whole lens polygon (topCorner → apex → baseCorner) fits strictly INSIDE the wedge between the
- * two bracket lines. The seams never move; the lens shrinks toward its own column.
+ * two bracket lines. The seams never move; the lens shrinks toward its own column. When 0.45
+ * already fits (the common wide-gap case, 8b-rev's whole point) NO shortening happens.
  *
  * The wedge at apex-x is bounded above by the TOP bracket line ``iTop → facingTop`` and below by
  * the BASE bracket line ``iBase → facingBase`` (both straight, interpolated in fraction). The
@@ -138,13 +168,221 @@ export function fitLensReach(
   // bracket and merges the lens face into the enclosing flood — the B6-class collapse).
   const MARGIN = 1e-3
   // The sloping bracket elevations at fraction ``f`` (straight-line interpolation, fraction 0 =
-  // own column, fraction 1 = facing convergence).
-  const topAt = (f: number): number => iTop + f * (facingTop - iTop)
-  const baseAt = (f: number): number => iBase + f * (facingBase - iBase)
-  let f = lensReachFraction(unitThicknessM, gapWidthM)
+  // own column, fraction 1 = facing convergence). An INFINITE sentinel on BOTH ends of a side
+  // (``interiorLensReachToTies`` passes ±∞ for an unbounded side) means "no bracket here" — that
+  // side is always clear (±∞); interpolating ``Inf + f·(Inf−Inf)`` would be NaN, so short-circuit.
+  const topAt = (f: number): number => (!Number.isFinite(iTop) && !Number.isFinite(facingTop) ? Infinity : iTop + f * (facingTop - iTop))
+  const baseAt = (f: number): number => (!Number.isFinite(iBase) && !Number.isFinite(facingBase) ? -Infinity : iBase + f * (facingBase - iBase))
+  const fits = (f: number): boolean => midElev < topAt(f) - MARGIN && midElev > baseAt(f) + MARGIN
+  // 8b-rev shortening LADDER, in order: (1) the default 0.45 reach — the flag-ON
+  // ``lensReachFraction`` (a NO-OP shorten when 0.45 already fits, 8b-rev's whole point);
+  // (2) the ~2× thickness reach (the old ruling-8b cap, the thickness rule's real home);
+  // then (3) HALVE from there until it fits or the floor is hit.
+  const defaultReach = lensReachFraction(unitThicknessM, gapWidthM)
+  if (fits(defaultReach)) return defaultReach
+  const width = Math.abs(gapWidthM)
+  const thicknessReach =
+    width < MIN_REACH_FRACTION
+      ? defaultReach
+      : Math.max(MIN_REACH_FRACTION, Math.min(LENS_PINCH_FRACTION, lensReachM(unitThicknessM, width) / width))
+  let f = Math.min(defaultReach, thicknessReach)
   while (f >= MIN_REACH_FRACTION) {
-    if (midElev < topAt(f) - MARGIN && midElev > baseAt(f) + MARGIN) return f
+    if (fits(f)) return f
     f /= 2
   }
   return 0
+}
+
+/** A tie's elevation at along-x ``x`` (its endpoints run left→right column x). Flat outside. */
+function reachTieElevAt(t: ReachTie, x: number): number {
+  const w = t.right.x - t.left.x
+  if (Math.abs(w) < MIN_REACH_FRACTION) return t.left.y
+  const f = (x - t.left.x) / w
+  return t.left.y + f * (t.right.y - t.left.y)
+}
+
+/**
+ * The 8b-rev COLLISION-SHORTENED reach for an INTERIOR lens, bracketed by the GAP TIES (owner
+ * ruling 8b-rev, 2026-07-19 — "we only need to shorten lenses that collide with a sloping
+ * correlation"). A tie is given line art (a "sloping correlation"); a lens whose diamond would
+ * cross it must not (8n "stay inside the lines"). This finds the nearest tie ABOVE and the
+ * nearest tie BELOW the unit's mid-elevation — sampled at BOTH the own column (colX) and the
+ * facing column (facingX) — and uses them as the ``fitLensReach`` wedge, so the returned reach is
+ * the LARGEST value at which the lens apex (at ``midElev``) stays strictly between the two ties.
+ *
+ * When NO tie brackets the unit on a side (no "sloping correlation" to collide with there) that
+ * side is UNBOUNDED (±∞), so ``fitLensReach`` keeps the full 0.45 default — 8b-rev's common case.
+ * The result is the SINGLE planned apex: the caller uses it for BOTH the lens flanks and the
+ * flood-wedge apex-x (one value, no line-vs-fill split).
+ *
+ * Parameters
+ * ----------
+ * unitThicknessM : number
+ *     The unit's own thickness in metres (the ``fitLensReach`` thickness rung).
+ * colX, facingX : number
+ *     The own column x and the facing column x (REAL alongM).
+ * midElev : number
+ *     The unit's mid-elevation (the apex elevation — where the lens closing pins the apex).
+ * topElev, baseElev : number
+ *     The unit's own top / base contact elevations — the diamond's corners. A tie is only a
+ *     collision bracket if it passes THROUGH the unit's own extent somewhere in the gap (a tie
+ *     entirely above ``topElev`` or below ``baseElev`` across the whole gap cannot cross the
+ *     diamond, so it never shortens the lens).
+ * gapTies : readonly ReachTie[]
+ *     The gap's ties (already filtered to this gap by the caller).
+ * facingCompetes : boolean
+ *     ``true`` when the FACING column carries a THIRD competing lithology at ``midElev`` (NEITHER
+ *     the lens litho NOR the lens's enclosing matrix — CS2 gap13's KLEI interbed between ZAND and
+ *     SILT, facing ZAND). A competitor is a collision ("collide with a sloping correlation") with
+ *     no clean wrap, so the reach hugs the ``2× thickness`` cap. ``false`` when the facing carries
+ *     the lens litho or the enclosing matrix (ruling 8n(b): a full-width-safe wrap — keep 0.45).
+ *
+ * Returns
+ * -------
+ * number
+ *     The collision-shortened apex fraction in [0, LENS_PINCH_FRACTION]; 0.45 when nothing collides.
+ */
+export function interiorLensReachToTies(
+  unitThicknessM: number,
+  colX: number,
+  facingX: number,
+  midElev: number,
+  topElev: number,
+  baseElev: number,
+  gapTies: readonly ReachTie[],
+  facingCompetes = false,
+): number {
+  const gapWidthM = facingX - colX
+  const defaultReach = lensReachFraction(unitThicknessM, gapWidthM)
+  // A gapless-tie lens still needs the FACING-COMPETITOR cap (a competing facing litho collides
+  // even where no tie bounds it) — compute that below; only the tie-bracket search is skipped.
+  // Nearest tie above / below the unit's mid-elevation, tracked at BOTH columns so the wedge the
+  // ``fitLensReach`` fit uses is the sloping tie line, not a single-point snapshot. A tie is a
+  // candidate bracket only if it lies within the unit's own [baseElev, topElev] extent at either
+  // column end (a tie far outside the unit cannot cross the diamond, so it must not shorten it).
+  let topColY = Infinity
+  let topFacY = Infinity
+  let baseColY = -Infinity
+  let baseFacY = -Infinity
+  let hasTop = false
+  let hasBase = false
+  // A tie is a collision candidate if it ENTERS the unit's own [base..top] extent ANYWHERE across
+  // the DEFAULT-reach span [0..0.45] — not just at the column endpoints. A steeply-dipping tie can
+  // pass its whole endpoint range OUTSIDE the extent yet cut THROUGH the diamond in between (CS1
+  // gap18: the ZAND-top tie runs KLEI-base 4.23 [below the VEEN base] → ZAND-top 7.027 [above the
+  // VEEN top], crossing the VEEN extent around f≈0.4). Sampling only the endpoints missed it.
+  const within = (y: number): boolean => y >= baseElev - MIN_REACH_FRACTION && y <= topElev + MIN_REACH_FRACTION
+  const SAMPLES = 12
+  const entersExtent = (t: ReachTie): boolean => {
+    for (let s = 0; s <= SAMPLES; s++) {
+      const f = (s / SAMPLES) * defaultReach
+      if (within(reachTieElevAt(t, colX + f * gapWidthM))) return true
+    }
+    return false
+  }
+  for (const t of gapTies) {
+    if (!entersExtent(t)) continue
+    // Classify by the tie's position relative to the mid at the OWN column, and record BOTH the
+    // own-column and facing-column elevations so ``fitLensReach`` fits against the sloping tie
+    // line. Keep the NEAREST tie on each side (the innermost — the one the diamond meets first).
+    const atCol = reachTieElevAt(t, colX)
+    const atFac = reachTieElevAt(t, facingX)
+    if (atCol >= midElev) {
+      if (atCol < topColY) {
+        topColY = atCol
+        topFacY = atFac
+        hasTop = true
+      }
+    } else {
+      if (atCol > baseColY) {
+        baseColY = atCol
+        baseFacY = atFac
+        hasBase = true
+      }
+    }
+  }
+  // (1) Reach that fits inside the TIE brackets (the sloping correlations). ±∞ on an unbounded
+  //     side so ``fitLensReach`` only bounds against the tie(s) that actually cross the diamond.
+  //     ``fitLensReach`` returns 0 when NOTHING fits (a converging bracket pinching below the mid
+  //     everywhere). Ruling 8b-rev SHORTENS, it does not DELETE — the pre-8b-rev flag-ON interior
+  //     lens always emitted at its flat reach — so FLOOR the tie reach at the snap-grid minimum: the
+  //     lens still emits its tiny hug and ``emitLensClosing``'s own degenerate guard drops only a
+  //     truly sub-snap flank. (The old ``fitLensReach``-drops-to-0 contract survives only where its
+  //     flag-OFF ``tileConvergingStack`` caller reads the raw 0 directly.)
+  const rawTieReach =
+    hasTop || hasBase
+      ? fitLensReach(
+          unitThicknessM,
+          gapWidthM,
+          midElev,
+          hasTop ? topColY : Infinity,
+          hasBase ? baseColY : -Infinity,
+          hasTop ? topFacY : Infinity,
+          hasBase ? baseFacY : -Infinity,
+        )
+      : defaultReach
+  const tieReach = rawTieReach > 0 ? rawTieReach : MIN_REACH_FRACTION
+  // (2) FACING THIRD-LITHO competitor (owner 8b-rev: "collide with a sloping correlation"). A
+  //     competing facing litho (NEITHER the lens nor its enclosing matrix) is a collision with no
+  //     clean wrap; the exact enclosing-matrix CONTOUR clip is the F3 ``lensEnclosure`` machinery
+  //     (out of scope this session), so the conservative in-scope hug is the ORIGINAL ruling-8b
+  //     ``2× thickness`` cap — the reach proven overlap-safe against a foreign facing (the same cap
+  //     ``enclosedLensReach`` applies). MIN'd with the tie reach so neither loosens the other.
+  const facingReach =
+    facingCompetes && Math.abs(gapWidthM) >= MIN_REACH_FRACTION
+      ? Math.min(
+          defaultReach,
+          Math.max(MIN_REACH_FRACTION, Math.min(LENS_PINCH_FRACTION, lensReachM(unitThicknessM, Math.abs(gapWidthM)) / Math.abs(gapWidthM))),
+        )
+      : defaultReach
+  return Math.min(tieReach, facingReach)
+}
+
+/**
+ * The 8b-rev reach for an ENCLOSED lens (``emitEnclosedLensCurves``), given whether the FACING
+ * column carries a DIFFERENT lithology at the lens mid-elevation.
+ *
+ * The default 0-corr reach is 0.45 (8b-rev). An enclosed lens is a HOLE in its OWN-column matrix
+ * band; when the facing carries the SAME matrix the band is FULL-WIDTH and a 0.45 hole is safe.
+ * When the facing carries a DIFFERENT lithology, a 0.45 lens reaches ACROSS the gap INTO that
+ * different-litho territory — the paint-level overlap the original ruling-8b ``2× thickness`` cap
+ * prevented ("the 8b reach cap keeps the lens hugging its own column so it never crosses into the
+ * facing's different-lithology territory", emitLenses.ts doc). This is exactly the 8b-rev
+ * COLLISION case (the facing's different-litho contour is the "sloping correlation" the lens must
+ * not cross), so the reach shortens to the ``2× thickness`` rung — the proven overlap-safe hug.
+ *
+ * Flag-OFF ALWAYS returns the original ``lensReachFraction`` cap (byte-identical to the pre-8b-rev
+ * seam engine, which never took a different-litho argument); the collision shortening is flag-ON
+ * only. The caller reads it via ``twoSidedTerminationsEnabled`` before deciding to call this.
+ *
+ * Parameters
+ * ----------
+ * unitThicknessM : number
+ *     The enclosed lens's own thickness in metres.
+ * gapWidthM : number
+ *     The gap width in REAL alongM metres.
+ * facingDiffers : boolean
+ *     ``true`` when the facing column carries a DIFFERENT formation at the lens mid-elevation.
+ *
+ * Returns
+ * -------
+ * number
+ *     Apex fraction in (0, LENS_PINCH_FRACTION]: 0.45 when the facing is the same matrix (safe
+ *     full-width hole), the ``2× thickness`` cap when the facing differs (collision hug).
+ */
+export function enclosedLensReach(
+  unitThicknessM: number,
+  gapWidthM: number,
+  facingDiffers: boolean,
+): number {
+  const defaultReach = lensReachFraction(unitThicknessM, gapWidthM)
+  if (!facingDiffers || !twoSidedTerminationsEnabled()) return defaultReach
+  // COLLISION with the facing's different lithology — shorten to the 2× thickness rung.
+  const width = Math.abs(gapWidthM)
+  if (width < MIN_REACH_FRACTION) return defaultReach
+  const thicknessReach = Math.max(
+    MIN_REACH_FRACTION,
+    Math.min(LENS_PINCH_FRACTION, lensReachM(unitThicknessM, width) / width),
+  )
+  return Math.min(defaultReach, thicknessReach)
 }

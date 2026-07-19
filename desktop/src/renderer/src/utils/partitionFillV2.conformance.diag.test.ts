@@ -554,9 +554,15 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
     { section: 'Cross-section 1', gap: 22, formation: 'SILT', side: 'left', corr: 0, shape: 'band', violation: '0corr-not-lens' },
     { section: 'Cross-section 2', gap: 13, formation: 'SILT', side: 'right', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
     { section: 'Cross-section 2', gap: 21, formation: 'ZAND', side: 'right', corr: 2, shape: 'absent', violation: '2corr-not-band' },
+    // S40 (ruling 8b-rev): the correct 0.45 reach EXPOSED the F5 flood-absorption wall on
+    // these two thin SILT-in-ZAND interbeds (their enclosing flood fragments around the
+    // longer lens and the SILT face is absorbed). Same wall as the holes gate's CS1-g3 /
+    // CS2-g21 pins; closes with the termination-plan rebuild — never by re-shortening.
+    { section: 'Cross-section 1', gap: 3, formation: 'SILT', side: 'left', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
+    { section: 'Cross-section 2', gap: 21, formation: 'SILT', side: 'left', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
   ]
 
-  it('FLAG-ON: literal-8l conformance == the pinned 12-instance ratchet', () => {
+  it('FLAG-ON: literal-8l conformance == the pinned 14-instance ratchet', () => {
     console.log('\n===== CONFORMANCE FLAG-ON (literal-8l product path) =====')
     const prev = setTwoSidedTerminations(true)
     let rows: ConfRow[]
@@ -567,7 +573,7 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
       setTwoSidedTerminations(prev)
     }
     const total = grand['0corr-not-lens'] + grand['1corr-not-onlap'] + grand['2corr-not-band']
-    expect(total, 'flag-ON total conformance instances must equal the pinned 12').toBe(12)
+    expect(total, 'flag-ON total conformance instances must equal the pinned 14').toBe(14)
     assertRatchet('FLAG-ON', rows, FLAG_ON_BASELINE)
   })
 })
