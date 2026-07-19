@@ -385,6 +385,21 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8b-rev. **LENS REACH IS 0.45 — the thickness cap applies ONLY on
+   collision (owner, 2026-07-19, app dogfeed round 1: "lenses should
+   fill to 0.45 dist … we only need to shorten lenses that collide with
+   a sloping correlation no?" and, confirming: "do the 0.45 lens rule
+   (the thickness rule was only in case of collision with a correlation
+   band)").** Supersedes 8b's universal min(0.45×gap, ~2×thickness):
+   the default lens reach is 0.45 of the gap, for every lens. A lens is
+   shortened ONLY when its flank/wedge would collide with tie/band line
+   art: first to the ~2×thickness reach (the thickness rule's real
+   home), then halving further if still colliding (8b's original
+   conflict mechanic). One PLANNED apex per termination — the flank
+   line and the fill wedge consume the same value. Note of record: the
+   old tie-conflict halver (fitLensReach) was only wired into the
+   legacy tiler, so the collision shortener must be (re)built into the
+   live flag-ON path as the sole reach override.
 8n. **THE FILL IS THE FACE-FILL OF THE LINE ART — paint the polygons the
    lines already bound (owner, 2026-07-18, dogfeeding the first painted
    fill render: "You litterally have every line and point correct now.
