@@ -99,11 +99,22 @@ interface AboveHole {
   detail: string
 }
 
+/** One different-litho overlap pair, keyed by (section, gap, litho-pair). Ruling 8s pins the
+ * 3 known cm-slivers by identity on the flag-ON ratchet — a region-construction defect the
+ * enclosing-contour clip will later remove, NOT a reason to re-cap the lens. */
+interface OverlapPair {
+  section: string
+  gapIndex: number
+  key: string
+  maxVcm: number
+}
+
 interface ScanResult {
   totalAboveTD: number
   totalSubTD: number
   totalOverlapPairs: number
   aboveHoles: AboveHole[]
+  overlaps: OverlapPair[]
 }
 
 /** Run the holes/overlaps scan over all 14 real sections at the CURRENT engine flag
@@ -115,6 +126,7 @@ function scanAllSections(raw: { sections: RawSection[]; formationNames: Record<s
   let totalSubTD = 0
   let totalOverlapPairs = 0
   const aboveHoles: AboveHole[] = []
+  const overlaps: OverlapPair[] = []
 
   for (const sec of raw.sections) {
     const keep = sec.columns
@@ -195,6 +207,16 @@ function scanAllSections(raw: { sections: RawSection[]; formationNames: Record<s
     }
 
     const ovl = [...overlapPairs.entries()].sort((p, q) => q[1].maxV - p[1].maxV)
+    for (const [k, v] of ovl) {
+      // The key is ``gap<gi> ...``; recover the gap index for the identity ratchet.
+      const gapMatch = k.match(/^gap(\d+)/)
+      overlaps.push({
+        section: sec.name,
+        gapIndex: gapMatch ? Number(gapMatch[1]) : -1,
+        key: k,
+        maxVcm: v.maxV * 100,
+      })
+    }
     totalAboveTD += aboveTD
     totalSubTD += subTD
     totalOverlapPairs += ovl.length
@@ -208,7 +230,7 @@ function scanAllSections(raw: { sections: RawSection[]; formationNames: Record<s
   console.log(
     `\n########## V2 TOTALS: holesAboveTD=${totalAboveTD} holesSubTD=${totalSubTD} overlapPairs=${totalOverlapPairs} ##########`,
   )
-  return { totalAboveTD, totalSubTD, totalOverlapPairs, aboveHoles }
+  return { totalAboveTD, totalSubTD, totalOverlapPairs, aboveHoles, overlaps }
 }
 
 describe('v2 holes + different-litho overlaps HARD GATE (S38)', () => {
@@ -272,8 +294,49 @@ describe('v2 holes + different-litho overlaps HARD GATE (S38)', () => {
       cs2g17.length,
       'flag-ON: the Cross-section 2 gap 17 wall must still be present (>0 sampled holes); a drop to 0 means the input/engine moved',
     ).toBeGreaterThan(0)
-    // Sub-TD holes and different-litho overlaps must be 0 on the product path.
+    // Sub-TD holes must be 0 on the product path.
     expect(res.totalSubTD, 'flag-ON sub-TD holes must be 0').toBe(0)
-    expect(res.totalOverlapPairs, 'flag-ON different-litho overlap pairs must be 0').toBe(0)
+    // RULING 8s (owner, 2026-07-19, "0.45 stands, matrix detours"): deleting the facing-sample
+    // reach cap opens 3 different-litho cm-slivers where a corr-0 lens whose 0.45 wedge crosses NO
+    // correlation line art reaches into surrounding fill. These are identity-pinned ENGINE DEFECTS
+    // (the enclosing region's contour must clip around the lens wedge — the lensEnclosure contour
+    // clip, a LATER build); until that lands they ride THIS explicit ratchet. They do NOT justify
+    // re-capping the lens. The ratchet fails on any FOURTH overlap (a NEW off-baseline pair) or on
+    // growth of these 3 beyond a small tolerance — so a regression that widens or multiplies the
+    // slivers is caught, while the 3 ruled slivers pass.
+    const PINNED_OVERLAPS = [
+      { section: 'Cross-section 1', gapIndex: 5, litho: 'ZAND(lens)×SILT', maxVcm: 14.7 },
+      { section: 'Cross-section 2', gapIndex: 13, litho: 'KLEI(quad)×ZAND', maxVcm: 24.3 },
+      { section: 'Cross-section 2', gapIndex: 13, litho: 'ZAND(quad)×KLEI', maxVcm: 2.8 },
+    ]
+    // Growth tolerance (cm) — a rounding/geometry wiggle on the pinned slivers is allowed; a real
+    // regression that widens one is not.
+    const GROWTH_TOL_CM = 1.0
+    const matchesPinned = (o: OverlapPair): (typeof PINNED_OVERLAPS)[number] | undefined =>
+      PINNED_OVERLAPS.find(
+        (p) => p.section === o.section && p.gapIndex === o.gapIndex && o.key.includes(p.litho),
+      )
+    const offRatchet = res.overlaps.filter((o) => matchesPinned(o) === undefined)
+    const offMsgO = offRatchet.map((o) => `${o.section} ${o.key} ${o.maxVcm.toFixed(1)}cm`).join('; ')
+    expect(
+      offRatchet.length,
+      `flag-ON different-litho overlaps must live ONLY at the ruling-8s identity-pinned slivers (CS1-g5 ZAND×SILT, CS2-g13 KLEI×ZAND + ZAND×KLEI). New off-ratchet overlaps: ${offMsgO || '(none)'}`,
+    ).toBe(0)
+    // Each pinned sliver must still be present (a drop to 0 means the input/engine moved) and must
+    // NOT have grown beyond tolerance.
+    for (const p of PINNED_OVERLAPS) {
+      const found = res.overlaps.filter(
+        (o) => o.section === p.section && o.gapIndex === p.gapIndex && o.key.includes(p.litho),
+      )
+      expect(
+        found.length,
+        `ruling-8s pinned sliver ${p.section} gap${p.gapIndex} ${p.litho} must still exist`,
+      ).toBeGreaterThan(0)
+      const worst = Math.max(...found.map((o) => o.maxVcm))
+      expect(
+        worst,
+        `ruling-8s pinned sliver ${p.section} gap${p.gapIndex} ${p.litho} must not grow past ${(p.maxVcm + GROWTH_TOL_CM).toFixed(1)}cm (was ${worst.toFixed(1)}cm)`,
+      ).toBeLessThanOrEqual(p.maxVcm + GROWTH_TOL_CM)
+    }
   })
 })
