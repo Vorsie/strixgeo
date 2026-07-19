@@ -4997,3 +4997,107 @@ paintMismatch metric must be redefined to exclude legitimate lens-keeps], or (B)
 0, but the synthetics stay red until Step 4]. Ruling 8r leans hard to (A). The discriminator code
 implementing (A) is IN THE TREE (uncommitted). Choosing (B) = revert `labelFaces` discriminator +
 `isMergeArtifactSeed`, keep synthetics red. NO git ops (orchestrator).
+
+## §49 — Session 44: RULING-8r UN-MERGE (SEED_FILL_MANDATE Step 4.1) — MEASURED WALL, REVERTED to `054b3589b`
+
+Task: un-merge the 54 enclosed interbeds so every raw picked unit gets its own 2/1/0 lines + own
+seed (ruling 8r "lines before the merge") — MERGED-AWAY 70→0, MERGED-MIN 54→0. The invariant the
+un-merge fights: an enclosed lens's face must own its interbed litho's column edge, but
+`sectionGeom.extractEnclosedLenses` (flag-ON) MERGES the enclosing matrix above+below into one band
++ SPLICES the interbed out, so its face's only column edge is the enclosing matrix (the merged-
+minority artifact seed §48b). THREE constructions built + MEASURED (all flag-OFF byte-identical =
+holes 0/0/0 held throughout):
+
+1. **NAIVE un-merge** (skip `extractEnclosedLenses` on flag-ON, retire the annulus): lineStageDiff
+   MERGED-AWAY 70→**0**, OK 767→834; BUT holes/overlaps **180 above-TD + 2 overlaps** (Tie-7/Tie-14/
+   CS3/CS1/CS2, spread) — the §25 wall reopens exactly as predicted: the enclosing matrix no longer
+   floods full-width around the interbed (the merge was the annulus-continuity mechanism). MEASURED
+   NEGATIVE, reverted. (It DID close the identity-pinned CS1-g3 22 + CS2-g17 42 walls — those were
+   interbed-absorption faces — but opened 180 elsewhere.)
+2. **ANNULUS-PRESERVING keep-raw** (record the lens but DON'T splice; add `ColumnGeom.lensLayerIds`;
+   `emitEnclosingFlood.enclosingFormationAt` + the sweep SKIP the recorded lens so the matrix floods
+   around the annulus hole while the interbed keeps its own `col:u` vertical for the seed), gated
+   `below un-edged`: holes **57** ALL at CS1 **gap15** (SILT-in-ZAND, above ZAND onlaps corr-1 + below
+   ZAND lenses corr-0 → the "matrix" is NOT a continuous through-band, so its two pieces terminate
+   independently and the SILT can't be a clean hole) + a SILT×ZAND overlap. MERGED-MIN 54→4,
+   MERGED-AWAY 70→2, paintMismatches 0. Bounded to ONE gap but still >0 new holes. MEASURED NEGATIVE.
+3. **Same, gated `both enclosers un-edged`**: holes back to **64 (baseline, 0 new)**, overlaps 0,
+   flag-OFF 0/0/0 — CLEAN. BUT un-merges only **2** units (MERGED-AWAY 70→69) and — decisively — does
+   NOT fix col18/the literalCorr synthetic (MERGED-MIN stays 6): in col18 the OUTERMOST enclosing
+   pieces are EDGED (the top/bottom clay carry ties), which the "both un-edged" gate reads on the
+   nested stack and excludes the whole thing. So the owner's own 8r case does NOT un-merge → the
+   construction earns near-zero 8r value for real complexity. Reverted.
+
+THE WALL (why none lands both bars). "col18 un-merges" and "zero new holes" are in tension for the
+edged-enclosed / terminating-matrix interbeds: the interbed needs its OWN column edge in the face
+(seed), but the enclosing matrix needs to occupy that same elevation continuously (hole-free flood) —
+a partition can give the elevation to ONE of them. The merged path gives it to the matrix (annulus
+hole, matrix seed = the artifact). The clean fix keeps the merge for CONTINUITY but SPLITS the merged
+matrix's COLUMN VERTICAL at the lens contacts so the annulus-hole sub-segment carries a
+`col<ci>:u<lensOrigIdx>` seed of the interbed's litho — i.e. un-merge the UNITS' identity for the seed
+while keeping the matrix band geometrically continuous. That is the multi-day column-vertical-split /
+notch-splitter rebuild the code + §22/§25 have flagged repeatedly (`intersect.ts`-adjacent), NOT a
+gate-condition tweak. `enclosingFormationAt`-skip + flood/sweep-defer are the right SHAPE but only
+work when the enclosing matrix is a genuine uncorrelated through-band (2 real interbeds) — the edged/
+terminating-matrix majority needs the split.
+
+DECISION: REVERTED all edits (`sectionGeom.ts` / `emitEnclosingFlood.ts` / `emitTerminationSweep.ts`
+byte-restored). Tree = `054b3589b` exactly: lineStageDiff MERGED-AWAY 70 / OK 767 / mergedAway 54,
+seedGate 790/568/8/151/9/54 paintMismatch 0, holes flag-OFF 0/0/0 flag-ON 64/0/0, tsc clean. Full
+utils: `convergingStack (a)` pre-existing red (unchanged); `cs1frozen` fails ONLY when run AFTER
+convergingStack (a pre-existing FLAG-LEAK in convergingStack's harness — cs1frozen is 6/6 in
+isolation, not a regression). ASK-FIRST item for the owner: 8r un-merge for the edged/terminating-
+matrix interbeds (the majority incl. col18) requires the column-vertical-split rebuild — is that the
+sanctioned next build, or should the merged-minority discriminator (§48b path A) remain the interim
+for those and only the genuinely-uncorrelated-through-matrix subset un-merge? NO git ops.
+
+## §50 — Session 45: RULING-8r STEP 4.1 — THE COLUMN-VERTICAL ID SPLIT (SHIPPED, all Stage-a gates exact)
+
+The cheap fix S44 characterised: the interbed's seed problem is an ID problem, not a geometry
+problem. The merge STAYS ON (annulus continuity preserved, holes untouched); only the merged host's
+column-vertical curve IDs are split so an enclosed interbed's own face reads its RAW litho.
+
+**Stage a — the id split (SHIPPED).** `emitColumnVerticals` (`emitCurves.ts`, flag-ON gated) now
+emits the merged host's vertical per RAW sub-segment: host pieces keep `col<ci>:u<ui>`; each lens
+interval gets `col<ci>:lens<j>` (a new seed vocabulary). `seedClassifier.ts` resolves `col:lens<j>`
+→ `columns[ci].enclosedLenses[j].lens.formationId` (`COL_LENS_SEED_RE`/`isColumnSeedId`/`formationOfRef`).
+Geometry byte-identical BY CONSTRUCTION (the arrangement already split the host vertical at lens
+contacts; the DCEL unions coincident-segment ids). **The NOTCH-vs-HOLE resolution** (`resolveNotchLensRefs`,
+shared + mirrored in the gate): a face carrying BOTH a `col:lens` and a host `col:u` edge is a NOTCH
+(the arrangement could not separate the lens triangle from the enclosing matrix's notch) — the
+`col:lens` is a shared boundary, dropped, matrix wins; a face carrying ONLY `col:lens` is the interior-
+hole lens's own face, interbed wins. Purely structural + geometric, no emission-time hole/notch guess,
+no multi-seed inflation. RESULT (seedGate, SHAPE_AUDIT=1): **790 / single 622 (+54) / void 8 / zeroDef
+151 / multiDef 9 / mergedMinority 0** — mergedMinority 54→0, single +54 EXACTLY, everything else
+unchanged, paintMismatches 0. holes flag-ON **64/0/0**, flag-OFF **0/0/0** (unchanged). CS1 gates 8/8.
+seedFill (a)/(e) updated to the FINAL semantics (genuine single-seed interbed, seed==paint==minority,
+cites 8r + Step 4.1) and GREEN; flag-OFF byte-identity (d) GREEN.
+
+**Stage b — lineStageDiff MERGED-AWAY resolution (SHIPPED, small explained residual).** Ground-truth
+refinement (diag test only): a merged-away interbed whose lens-carrier flanks (`lens<n>` closings /
+the id-split) are drawn at its own contacts is OK (its line art is present, ruling 8r "lines before
+the merge"), not the 8r debt. A non-consuming carrier-presence count (`carrierRootedFlanks`, `lens`
+prefix, ignores `matched`) confirms the carrier on EVERY look (a lens emits into BOTH adjacent gaps;
+the greedy per-look consumption otherwise left one look partial). RESULT: **MERGED-AWAY 70 → 8**
+(−62), **OK 767 → 829** (+62); MISSING 8 / COLLAPSED 11 / DANGLING 10 / PHANTOM 1 ALL unchanged (the
+hard "must not grow" constraint holds). The 8 residual are `1/2 lens-carrier flanks drawn` — genuine
+notch/annulus cases (one flank degenerate; B4 gap3 ZAND, Tie-6/Tie-12 KLEI) — the §49 wall, bounded.
+
+**Stage c — col18 acceptance (MEASURED + STOPPED for the owner).** `literalCorr` (c)/(d) un-skip
+attempt: the LITHO + FACES are now CORRECT via the id-split (seedGate `literalCorr (c)/(d)` = single 8,
+all clean — both SILT interbeds own genuine single-seed SILT faces, the middle CLAY paints CLAY as part
+of the merged band). BUT (c) asserts `mCol.units.length === 5` (the DEEP host-split, no merge); MEASURED
+`=== 1` (one merged CLAY band + 2 SILT enclosed lenses). What the gate wants = the deep host-split
+(geometry reshaping); what the annulus gives = the merge-preserving id-split (litho/faces right, holes
+preserved). S44 proved the deep un-merge reopens 180 holes (the merge IS the annulus continuity), so
+the shape is the notch/annulus-splitter rebuild, NOT a labelling fix. RE-SKIPPED with the precise
+what-wants-vs-what-gives recorded in the `describe.skip` block. `convergingStack (a)` = the same
+pre-existing red (VEEN notch, unchanged — checked, not forced).
+
+FILES: `emitCurves.ts` (emitColumnVerticals id split), `seedClassifier.ts` (col:lens vocabulary +
+resolveNotchLensRefs), `partitionFillV2.seedGate.diag.test.ts` (gate col:lens + notch rule),
+`partitionFillV2.seedFill.test.ts` ((a)/(e) final semantics), `partitionFillV2.lineStageDiff.diag.test.ts`
+(merged-away carrier ground-truth), `partitionFillV2.literalCorr.test.ts` (Stage-c skip doc). Full
+utils: 818 passed, only `convergingStack (a)` red (pre-existing §49). tsc clean. v1 + app untouched.
+STUB TO TRACK (debt #201): `emitCurves.ts` 522 lines + the two diag test files exceed the 500-line
+warn threshold (the id-split logic could extract to a `columnVerticalSplit.ts` helper). NO git ops.
