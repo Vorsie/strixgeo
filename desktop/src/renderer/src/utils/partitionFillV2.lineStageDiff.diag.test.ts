@@ -594,7 +594,19 @@ function diffSection(
         let danglingDetail = ''
         for (const ef of expectedFlanks) {
           // Candidate emitted flanks rooted at this contact (colX + contact elevation).
-          const cands = emittedFlanks.filter((f) => !f.matched && flankRootsAt(f, ef.root))
+          const rootedHere = emittedFlanks.filter((f) => !f.matched && flankRootsAt(f, ef.root))
+          // PREFIX-AWARE MATCHING (S48): the greedy ``cands[0]`` was prefix-agnostic, so when a
+          // corr-0 LENS flank of an ADJACENT unit happened to root at the SAME shared contact as
+          // this corr-1 ONLAP's free contact, ``cands[0]`` consumed the lens flank and reported a
+          // huge apexYerr (the lens apex is nowhere near the onlap's tie) — a MATCHER ARTIFACT, not
+          // a real onlap defect (§46/§52 gap19 class). Match the expected flank against its OWN
+          // family FIRST: a corr-1 onlap expects an ``oflank*`` flank; a corr-0 lens expects a
+          // ``lens`` / ``term`` / ``subtdlens`` closing. Only if no same-family flank is rooted here
+          // do we fall back to any rooted flank (which then surfaces the real geometry honestly).
+          const isOnlapPrefix = (p: string): boolean => p.startsWith('oflank')
+          const familyMatch = (p: string): boolean => (c === 1 ? isOnlapPrefix(p) : !isOnlapPrefix(p))
+          const preferred = rootedHere.filter((f) => familyMatch(f.prefix))
+          const cands = preferred.length > 0 ? preferred : rootedHere
           if (cands.length === 0) {
             // No flank rooted here: is there an emitted flank NEAR the root elevation but off-x
             // (MISROOTED) or is the root simply MISSING?
