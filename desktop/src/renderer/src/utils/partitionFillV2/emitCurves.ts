@@ -36,7 +36,6 @@
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosingFlood } from './emitEnclosingFlood'
-import { emitRuledBands } from './emitRuledBands'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
@@ -197,12 +196,17 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   if (twoSided) {
     emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans)
     emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves)
-    // RULED-EXEMPT band closures (round-3 Target 1): the sweep suppresses a termination for
-    // every unit the owner ruled a BAND (8e / 8g(b) / corr-2 band member), but the flood does
-    // not fill their OWN formation — a neighbouring flood face absorbs their space and they read
-    // ABSENT. This pass emits each such unit's missing same-formation band contour so its face
-    // closes and its column vertical labels it (the asymmetric ``emitBands`` device).
-    emitRuledBands(survivingSection, ties, lensLabels, curves)
+    // S41.c (ruling 8p / finding F1): the asymmetric ``emitRuledBands`` pass is DELETED. It
+    // invented same-formation band contours from formation-OVERLAP authority (a unit's own
+    // contact ↔ HALF a facing same-formation run), NOT from the two actual bracket ties bounding
+    // the unit-side — so at CS1 gap2 (B6↔B4) it drew a KLEI band whose base contour (L2-base 3.67
+    // ↔ R1-base 7.13) rode diagonally ACROSS the SILT band, and collapsed the real SILT base tie
+    // (L 5.023 ↔ R 7.509) to a point. Under the plan architecture a ruled band exists ONLY where
+    // the two REAL bracket contacts authorise it: the matched-pair band's own top/base contours,
+    // which ``emitEnclosingFlood`` already emits from ``collectGapBands`` (the symmetric tie
+    // geometry). The ABSENT protection §25 kept the pass for is subsumed by the 8j merge +
+    // that symmetric flood emission — measured: lensAudit MISSING stays 0 and the conformance
+    // ratchet is unmoved with the pass gone (no corr-2 band member flips to absent).
   } else {
     // Vacancy closure (design §4 increment 4): the untied units of each interval
     // between tie-anchored bands TILE it fully (opposing pinches meeting at a seam),

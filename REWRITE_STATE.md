@@ -4766,3 +4766,60 @@ ASK-FIRST / OWNER items surfaced (NOT bugfixed — per the ask-first directive):
   hugging its column?) rather than fall to the substrate — a semantic call on "what does a sub-TD
   corr-1 unit do when its tie escapes its own span". Left as-is (no invention).
 - Next: S41.c — band contours ride tie paths (NOT this stage).
+
+### Stage S41.c — band contours ride the tie paths; ``emitRuledBands`` DELETED (SHIPPED; F1 fixed)
+
+Finding F1 (CS1 gap2, B6↔B4): the SILT matched pair (B6 el[5.023..6.278] ↔ B4 el[7.509..13.130],
+tied top-top 6.278↔13.130 AND base-base 5.023↔7.509, a 6.85 m dip) rendered with a KLEI band whose
+base contour rode DIAGONALLY from L2-base 3.670 ↔ R1-base 7.130 — crossing the SILT band and
+collapsing the real SILT base tie to a point. ROOT: the ``emitRuledBands`` pass emitted ASYMMETRIC
+same-formation band contours from formation-OVERLAP authority — a corr-2 unit's own contact ↔ HALF
+of a facing same-formation run (``facingSameFormationRun`` + the ``overlap ≥ 0.5×runThickness`` peer
+guard). That is precisely the authority ruling 8p forbids ("no matrix search, no facing sample, no
+formation-overlap authority"). The KLEI L2 (5.023..3.670) and R1 (7.509..7.130) do not even share an
+elevation window, yet the peer guard passed them, inventing a band across the SILT.
+
+**Half 1 — the pass is DELETED, not re-guarded.** Under the plan architecture a ruled band exists
+ONLY where the two REAL bracket ties bounding the unit-side authorise it: the matched-pair band's own
+top/base contours, which ``emitEnclosingFlood`` ALREADY emits from ``collectGapBands`` (the symmetric
+tie geometry — top L 6.278↔R 13.130, base L 5.023↔R 7.509). The overlap peer test IS the deleted
+device (the guard lived inside ``emitRuledBands``; no external test imported the module). The
+ABSENT-guard purpose REWRITE_STATE §25 kept the pass for was MEASURED empty: with the pass removed,
+``lensAudit MISSING`` stays 0, the conformance ratchet is UNMOVED (no corr-2 band member flips to
+absent), and the holes walls hold at 64 — the 8j post-fill merge + the symmetric flood emission
+subsume it. The module now guards no live instance → deleted (``emitCurves`` dropped the import +
+call; the file is a deletion-marker stub — safe to ``rm``).
+
+**Half 2 — contours ride the tie path (verified on B6↔B4).** With the invented band gone, the SILT
+band's top rides its top tie, its base rides its real base tie, and the KLEI below stays intact.
+Verified by PIP probe against the owner's F1 acceptance ("silt quad top = top tie, base = base tie;
+the clay below intact"): (0.02, 5.5) and (0.1, 6.0) inside the SILT window are SILT (were KLEI);
+(0.02, 4.5) below the base tie stays KLEI. NEW permanent gate ``partitionFillV2.f1gate.diag.test.ts``
+encodes this — proven RED at ``96e2a531c`` (the restored pre-fix pass returned `['KLEI']` at (0.02,
+5.5), `expected to include 'SILT'`), GREEN after the deletion.
+
+RENDER MOVEMENTS (all characterised):
+- CS1 gap2: the invented KLEI band + degenerate SILT quad GONE; SILT band spans full-width between
+  its two ties; KLEI intact below the base tie. The F1 defect.
+- Conformance FLAG-ON ratchet UNMOVED at 14, FLAG-OFF 10 (gap2 was never a 2/1/0 conformance pin —
+  the F1 defect was a wrong-litho COVER, caught at the visual/PIP layer, not the corr classifier).
+  8e-enclosure advisory 30 (flag-ON) / 48 (flag-OFF) — unchanged.
+- Holes walls UNMOVED: flag-ON 64 (CS1-g3 22 + CS2-g17 42), flag-OFF 0/0/0, overlaps 0 both flags.
+  **CS2-g17 (42) was NOT touched by this stage** — it is a sloping-wall enclosure (S41.d/geometry
+  family); the invented band was a CS1-gap2 phenomenon with no CS2-g17 curve. The 20→42 growth
+  flagged at S41.b is NOT explained or changed here (out of stage scope).
+- Region counts unchanged (CS1 268 / CS2 267 flag-ON) — no band disappeared, none appeared.
+
+BATTERY (S41.c): tsc clean; f1gate 1/1 (RED-first proven), f5gate 1/1; conformance flag-OFF 10 /
+flag-ON 14 (ratchet HOLDS); holes flag-OFF 0/0/0, flag-ON 64, overlaps 0 both — HARD GATE GREEN;
+lensAudit MISSING 0; cs1gates 8/8; terminationPlan 6/6; full utils suite 1 failed (`convergingStack
+(a)`, the pre-existing red) / 813 passed / 26 skipped. Flag-OFF byte-identical (the pass ran flag-ON
+only). v1 + app BYTE-UNTOUCHED.
+
+Files changed: ``partitionFillV2/emitCurves.ts`` (dropped the ``emitRuledBands`` import + call),
+``partitionFillV2/emitRuledBands.ts`` (reduced to a deletion-marker stub — ``rm`` candidate). Files
+added: ``partitionFillV2.f1gate.diag.test.ts`` (F1 acceptance, SHAPE_AUDIT=1). Stubs to ``rm``:
+``partitionFillV2/emitRuledBands.ts``, ``partitionFillV2.throwaway_s41c_dump.diag.test.ts`` (inert).
+
+ASK-FIRST / OWNER items: none — the deletion is pure geometry (an invented band removed; the real
+ties already carry the correct band), no rule gap. Next: S41.d — the 8o hole-fill (NOT this stage).
