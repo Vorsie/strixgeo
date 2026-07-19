@@ -322,6 +322,42 @@ interface SectionResult {
   phantomTerminations: number
   duplicateRoots: number
   rows: DiffRow[]
+  // TIE-CONFORMANCE (SEED_FILL_MANDATE Step 4.2 "ALSO"): raw approved edges vs emitted
+  // tie/bridge curves. DROPPED = a raw edge with no emitted tie/bridge; MOVED = matched but an
+  // endpoint shifted > 2 cm; INVENTED = an emitted tie/bridge matching no raw edge.
+  tieRaw: number
+  tieDropped: TieConf[]
+  tieMoved: TieConf[]
+  tieInvented: number
+}
+
+/** One tie-conformance discrepancy (a dropped or moved approved edge). */
+interface TieConf {
+  aName: string
+  bName: string
+  aSide: 'top' | 'base'
+  bSide: 'top' | 'base'
+  detail: string
+}
+
+/** Curve-id prefixes that carry CORRELATION line art (a drawn/derived/bridge tie). */
+const TIE_PREFIXES = ['tie', 'bridge', 'jump'] as const
+
+/** Tolerances for matching a raw approved edge to an emitted tie/bridge curve. */
+const TIE_X_TOL_M = 0.05 // 5 cm laterally
+const TIE_ELEV_TOL_M = 0.02 // 2 cm in elevation
+
+/** Whether an emitted tie/bridge curve's endpoints match a raw edge's endpoints (either order). */
+function tieEndpointsMatch(
+  ca: Point,
+  cb: Point,
+  ra: Point,
+  rb: Point,
+  xTol: number,
+  eTol: number,
+): boolean {
+  const hit = (p: Point, q: Point): boolean => Math.abs(p.x - q.x) <= xTol && Math.abs(p.y - q.y) <= eTol
+  return (hit(ca, ra) && hit(cb, rb)) || (hit(ca, rb) && hit(cb, ra))
 }
 
 const EMPTY_CLASS_COUNTS = (): Record<MatchClass, number> => ({
@@ -423,6 +459,10 @@ function diffSection(
       phantomTerminations: 0,
       duplicateRoots: 0,
       rows,
+      tieRaw: 0,
+      tieDropped: [],
+      tieMoved: [],
+      tieInvented: 0,
     }
   }
 
@@ -551,6 +591,7 @@ function diffSection(
         let anyMisrooted = false
         let anyCollapsed = false
         let anyDangling = false
+        let danglingDetail = ''
         for (const ef of expectedFlanks) {
           // Candidate emitted flanks rooted at this contact (colX + contact elevation).
           const cands = emittedFlanks.filter((f) => !f.matched && flankRootsAt(f, ef.root))
@@ -577,7 +618,10 @@ function diffSection(
           if (expectedReach > ROOT_TOL_M && actualReach < COLLAPSE_FRAC * expectedReach) anyCollapsed = true
           // DANGLING: for a corr-1 onlap the apex should sit ON the tie within snap; measure the
           // apex-elevation error against the expected apex elevation.
-          if (c === 1 && Math.abs(apexPt.y - ef.apex.y) > ROOT_TOL_M) anyDangling = true
+          if (c === 1 && Math.abs(apexPt.y - ef.apex.y) > ROOT_TOL_M) {
+            anyDangling = true
+            danglingDetail = `matched ${f.prefix} apexYerr=${(Math.abs(apexPt.y - ef.apex.y) * 100).toFixed(1)}cm`
+          }
         }
 
         // Merged-away interbeds: count carrier presence WITHOUT consuming (``matched`` is not read),
@@ -663,7 +707,7 @@ function diffSection(
           note = 'emitted flank lateral reach < 10% of expected'
         } else if (anyDangling) {
           matchClass = 'DANGLING'
-          note = 'onlap apex not on its tie within snap'
+          note = `onlap apex not on its tie within snap (${danglingDetail})`
         } else {
           matchClass = 'OK'
           note = ''
@@ -710,6 +754,72 @@ function diffSection(
   }
   void planAt // plan indexed for future per-plan cross-checks; the raw diff is the authority here.
 
+  // ---- TIE-CONFORMANCE (SEED_FILL_MANDATE Step 4.2 "ALSO") ----
+  // Raw approved edges (endpoints = the picked unit's OWN contact elevations, on the RAW/un-merged
+  // stack — ruling 8r "lines before the merge") vs the emitted tie/bridge curves. A DROPPED edge is
+  // one whose two contact endpoints have NO emitted tie/bridge curve within tolerance (the S46b S5
+  // case: the edged interbed spliced into a same-formation band loses its layerId, so resolveTies
+  // drops it). MOVED = matched but an endpoint shifted > 2 cm. INVENTED = an emitted tie/bridge
+  // curve matching no raw approved edge. This measures the LINE ART only (no fill claim).
+  const rawLoc = new Map<string, { x: number; topElev: number; baseElev: number; colName: string }>()
+  for (let ci = 0; ci < rawSection.columns.length; ci++) {
+    const col = rawSection.columns[ci]
+    for (const u of col.units)
+      rawLoc.set(u.layerId, { x: col.x, topElev: u.topElev, baseElev: u.baseElev, colName: colNames[ci] ?? `col${ci}` })
+  }
+  const endpointOf = (layerId: string, sideRaw: 'top' | 'base'): Point | null => {
+    const loc = rawLoc.get(layerId)
+    if (!loc) return null
+    return { x: loc.x, y: sideRaw === 'top' ? loc.topElev : loc.baseElev }
+  }
+  const emittedTieCurves = emitted.curves
+    .filter((c) => (TIE_PREFIXES as readonly string[]).includes(idPrefix(c.id)))
+    .map((c) => ({ id: c.id, ...segEndpoints(c), matched: false }))
+  const tieDropped: TieConf[] = []
+  const tieMoved: TieConf[] = []
+  let tieRaw = 0
+  for (const e of edges) {
+    const aSideRaw = (e.aSide ?? 'top') as 'top' | 'base'
+    const bSideRaw = (e.bSide ?? 'top') as 'top' | 'base'
+    const pa = endpointOf(e.a, aSideRaw)
+    const pb = endpointOf(e.b, bSideRaw)
+    if (!pa || !pb) continue // an endpoint not on the RAW stack (shouldn't happen — raw is un-merged)
+    tieRaw++
+    const conf: TieConf = {
+      aName: rawLoc.get(e.a)?.colName ?? nameOf(e.a),
+      bName: rawLoc.get(e.b)?.colName ?? nameOf(e.b),
+      aSide: aSideRaw,
+      bSide: bSideRaw,
+      detail: '',
+    }
+    // Exact-tolerance match first (DROPPED vs present).
+    const exact = emittedTieCurves.find(
+      (c) => !c.matched && tieEndpointsMatch(c.a, c.b, pa, pb, TIE_X_TOL_M, TIE_ELEV_TOL_M),
+    )
+    if (exact) {
+      exact.matched = true
+      continue
+    }
+    // A looser elevation match → the tie EXISTS but MOVED (an endpoint shifted > 2 cm).
+    const moved = emittedTieCurves.find(
+      (c) => !c.matched && tieEndpointsMatch(c.a, c.b, pa, pb, TIE_X_TOL_M, 5),
+    )
+    if (moved) {
+      moved.matched = true
+      const dA = Math.min(
+        Math.hypot(moved.a.x - pa.x, moved.a.y - pa.y),
+        Math.hypot(moved.b.x - pa.x, moved.b.y - pa.y),
+      )
+      conf.detail = `moved ~${(dA * 100).toFixed(0)}cm (${moved.id})`
+      tieMoved.push(conf)
+      continue
+    }
+    // No emitted tie/bridge at these contacts at all → DROPPED.
+    conf.detail = `raw a=(${pa.x.toFixed(1)},${pa.y.toFixed(2)}) b=(${pb.x.toFixed(1)},${pb.y.toFixed(2)}) — no emitted tie/bridge`
+    tieDropped.push(conf)
+  }
+  const tieInvented = emittedTieCurves.filter((c) => !c.matched).length
+
   return {
     section: sec.name,
     cols: columns.length,
@@ -722,6 +832,10 @@ function diffSection(
     phantomTerminations: phantoms.length,
     duplicateRoots,
     rows,
+    tieRaw,
+    tieDropped,
+    tieMoved,
+    tieInvented,
   }
 }
 
@@ -875,6 +989,12 @@ describe('v2 line-stage diff (raw expected 0/1/2 -> endpoints -> emitted; MEASUR
         phantomTerminations: r.phantomTerminations,
         duplicateRootPairs: r.duplicateRoots,
         byClass: r.byClass,
+        tieConformance: {
+          rawEdges: r.tieRaw,
+          dropped: r.tieDropped,
+          moved: r.tieMoved,
+          invented: r.tieInvented,
+        },
       })),
       ownerCases: ownerCaseRows,
       notMissingTied,
@@ -908,6 +1028,26 @@ describe('v2 line-stage diff (raw expected 0/1/2 -> endpoints -> emitted; MEASUR
     console.log(
       `  emitted term flanks=${emittedTerm} matched=${matchedTerm} phantom=${phantomTerm} duplicateRootPairs=${dupRoots}`,
     )
+
+    // ---- TIE-CONFORMANCE grand totals (SEED_FILL_MANDATE Step 4.2 "ALSO") ----
+    const tieRawTot = results.reduce((s, r) => s + r.tieRaw, 0)
+    const tieDroppedTot = results.reduce((s, r) => s + r.tieDropped.length, 0)
+    const tieMovedTot = results.reduce((s, r) => s + r.tieMoved.length, 0)
+    const tieInventedTot = results.reduce((s, r) => s + r.tieInvented, 0)
+    console.log('\n########## TIE-CONFORMANCE (raw approved edges vs emitted tie/bridge) ##########')
+    console.log(
+      `  GRAND: rawEdges=${tieRawTot} DROPPED=${tieDroppedTot} MOVED=${tieMovedTot} INVENTED=${tieInventedTot}`,
+    )
+    for (const r of results) {
+      if (r.tieDropped.length === 0 && r.tieMoved.length === 0 && r.tieInvented === 0) continue
+      console.log(
+        `  ${r.section}: rawEdges=${r.tieRaw} DROPPED=${r.tieDropped.length} MOVED=${r.tieMoved.length} INVENTED=${r.tieInvented}`,
+      )
+      for (const d of r.tieDropped)
+        console.log(`     DROPPED  ${d.aName}[${d.aSide}] <-> ${d.bName}[${d.bSide}] | ${d.detail}`)
+      for (const d of r.tieMoved)
+        console.log(`     MOVED    ${d.aName}[${d.aSide}] <-> ${d.bName}[${d.bSide}] | ${d.detail}`)
+    }
 
     console.log('\n########## ID VOCABULARY (all emitted curve prefixes) ##########')
     for (const [k, v] of Object.entries(idVocabObj)) console.log(`  ${k}: ${v}`)
