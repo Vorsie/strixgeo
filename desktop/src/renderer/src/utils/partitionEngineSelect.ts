@@ -42,6 +42,7 @@ import {
   computeSectionFillV2WithConflicts,
   type TieConflict,
 } from './partitionFillV2'
+import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 import { log } from './log'
 
 /** localStorage key for the device-local engine choice. Namespaced like the
@@ -206,11 +207,23 @@ export function computeSectionFillActive(
   const useV2 = isPartitionEngineV2Active()
   if (useV2 !== lastLoggedV2) {
     lastLoggedV2 = useV2
-    log.info('partition', `active engine = ${useV2 ? 'v2 (experimental)' : 'v1 (stable)'}`)
+    log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (stable)'}`)
   }
-  return useV2
-    ? computeSectionFillV2(columns, edges, lensApexOverrides, alongM)
-    : computeSectionFill(columns, edges, lensApexOverrides, alongM)
+  if (useV2) {
+    // App-selected v2 = the FLAG-ON terminations-first engine. The sweep flag
+    // (tileFlags) is module state that only tests managed until session 39 —
+    // without this the app silently ran the flag-OFF seam engine even with the
+    // v2 toggle on (owner dogfeed 2026-07-19: "this doesn't look like any
+    // renders"). The compute is synchronous, so set/restore cannot leak across
+    // renders.
+    const prev = setTwoSidedTerminations(true)
+    try {
+      return computeSectionFillV2(columns, edges, lensApexOverrides, alongM)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  }
+  return computeSectionFill(columns, edges, lensApexOverrides, alongM)
 }
 
 /**
@@ -250,10 +263,16 @@ export function computeSectionFillActiveWithDiagnostics(
   const useV2 = isPartitionEngineV2Active()
   if (useV2 !== lastLoggedV2) {
     lastLoggedV2 = useV2
-    log.info('partition', `active engine = ${useV2 ? 'v2 (experimental)' : 'v1 (stable)'}`)
+    log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (stable)'}`)
   }
   if (useV2) {
-    return computeSectionFillV2WithConflicts(columns, edges, lensApexOverrides, alongM)
+    // Same flag-ON wiring as computeSectionFillActive — see the comment there.
+    const prev = setTwoSidedTerminations(true)
+    try {
+      return computeSectionFillV2WithConflicts(columns, edges, lensApexOverrides, alongM)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
   }
   return {
     regions: computeSectionFill(columns, edges, lensApexOverrides, alongM),
