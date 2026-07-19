@@ -102,9 +102,9 @@ for sec in fixture["sections"]:
         continue
     sid, name = m
     edges = [
-        {"a": r[0], "b": r[1], "aSide": r[2], "bSide": r[3]}
+        {"a": r[0], "b": r[1], "aSide": r[2], "bSide": r[3], "source": r[4]}
         for r in psql(
-            f"SELECT layer_a_id::text, layer_b_id::text, layer_a_side, layer_b_side "
+            f"SELECT layer_a_id::text, layer_b_id::text, layer_a_side, layer_b_side, source "
             f"FROM litho_contact_correlation_edge "
             f"WHERE model_id = '{MODEL_ID}' AND user_approved = true AND section_id = '{sid}';"
         )
