@@ -445,10 +445,28 @@ export function resolveJumpTies(section: SectionInput): ResolvedTie[] {
  * A tie's endpoint elevation depends on the side (``top`` → the unit's top
  * contact; ``base`` → the unit's base contact).
  */
+/**
+ * A resolved tie endpoint: the surviving column index, that column's contact
+ * elevations (top/base) and the unit index. ``ui = -1`` marks a RAW-only endpoint
+ * (ruling 8r) — the picked unit was spliced out of the normalised stack by the
+ * enclosed-lens merge, so its contact comes from ``rawLayerContacts`` and there is no
+ * normalised unit index. A ``-1`` index is harmless to the downstream band/corr
+ * consumers, which all guard ``units[ui]`` against ``undefined`` (``collectGapBands``
+ * ``if (!lu || !ru) continue``), so a spliced-out unit's tie emits as pure line art
+ * that splits the arrangement faces WITHOUT re-mapping onto or reshaping a surviving
+ * unit's band structure.
+ */
+interface TieEndpoint {
+  ci: number
+  ui: number
+  topElev: number
+  baseElev: number
+}
+
 function resolveTies(section: SectionInput): ResolvedTie[] {
-  const { columns } = section
+  const { columns, rawLayerContacts } = section
   const out: ResolvedTie[] = []
-  // layerId → {colIndex, unitIndex}
+  // layerId → {colIndex, unitIndex} for the NORMALISED stack.
   const layerLoc = new Map<string, { ci: number; ui: number }>()
   for (let ci = 0; ci < columns.length; ci++) {
     for (let ui = 0; ui < columns[ci].units.length; ui++) {
@@ -456,10 +474,26 @@ function resolveTies(section: SectionInput): ResolvedTie[] {
     }
   }
 
+  // Resolve an edge endpoint to its column + contact elevations. Normalised stack
+  // first (the common case); on a miss, RULING 8r's raw fallback so a tie into a
+  // merged-away picked unit still resolves at the elevation the owner drew.
+  const resolveEndpoint = (layerId: string): TieEndpoint | null => {
+    const loc = layerLoc.get(layerId)
+    if (loc) {
+      const u = columns[loc.ci].units[loc.ui]
+      return { ci: loc.ci, ui: loc.ui, topElev: u.topElev, baseElev: u.baseElev }
+    }
+    // RULING 8r — the picked unit was spliced out of the normalised stack (the
+    // enclosed-lens merge). Emit its tie at its RAW picked contact; ``ui = -1``.
+    const raw = rawLayerContacts?.get(layerId)
+    if (raw) return { ci: raw.colIndex, ui: -1, topElev: raw.topElev, baseElev: raw.baseElev }
+    return null
+  }
+
   let tieSeq = 0
   for (const e of section.edges) {
-    const la = layerLoc.get(e.a)
-    const lb = layerLoc.get(e.b)
+    const la = resolveEndpoint(e.a)
+    const lb = resolveEndpoint(e.b)
     if (!la || !lb) continue // endpoint not in this section
     // Only adjacent columns form a tie curve; non-adjacent = jump tie (incr 3).
     if (Math.abs(la.ci - lb.ci) !== 1) continue
@@ -467,12 +501,16 @@ function resolveTies(section: SectionInput): ResolvedTie[] {
     const rightLoc = la.ci < lb.ci ? lb : la
     const leftSide = (la.ci < lb.ci ? e.aSide : e.bSide) ?? 'top'
     const rightSide = (la.ci < lb.ci ? e.bSide : e.aSide) ?? 'top'
-    const lu = columns[leftLoc.ci].units[leftLoc.ui]
-    const ru = columns[rightLoc.ci].units[rightLoc.ui]
     out.push({
       gapIndex: leftLoc.ci,
-      left: { x: columns[leftLoc.ci].x, y: leftSide === 'top' ? lu.topElev : lu.baseElev },
-      right: { x: columns[rightLoc.ci].x, y: rightSide === 'top' ? ru.topElev : ru.baseElev },
+      left: {
+        x: columns[leftLoc.ci].x,
+        y: leftSide === 'top' ? leftLoc.topElev : leftLoc.baseElev,
+      },
+      right: {
+        x: columns[rightLoc.ci].x,
+        y: rightSide === 'top' ? rightLoc.topElev : rightLoc.baseElev,
+      },
       leftSide,
       rightSide,
       leftUnitIndex: leftLoc.ui,

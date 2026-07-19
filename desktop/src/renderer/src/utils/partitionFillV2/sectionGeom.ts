@@ -186,11 +186,43 @@ export function firstLithoTopElev(col: ColumnGeom, firstDataElevM?: number): num
   return firstDataElevM
 }
 
+/**
+ * A picked unit's RAW (pre-normalisation) contact elevations, keyed by its own
+ * ``layerId`` and its surviving column index.
+ *
+ * RULING 8r ("i want the lines before the merge — first fill then merge") — a drawn
+ * tie is input LINE ART on the RAW picked unit's contact, never on the merged host.
+ * The flag-ON enclosed-lens merge (``extractEnclosedLenses``) may SPLICE a raw picked
+ * unit out of the normalised ``ColumnGeom.units`` (e.g. CS1 col21 S5's edged SILT
+ * interbed ``dde4``, removed when its enclosed ZAND lens merges the two flanking SILTs
+ * into one band). ``resolveTies`` then cannot find that unit's ``layerId`` in the
+ * normalised stack and silently DROPS its approved ties. This table preserves the raw
+ * contact elevation of EVERY picked unit so a tie endpoint ``(layerId, side)`` is always
+ * resolvable at the elevation the owner drew — the tie emits as a curve there regardless
+ * of what the pre-merge did to the normalised stack.
+ */
+export interface RawLayerContact {
+  /** The surviving (normalised) column index this raw unit belongs to. */
+  colIndex: number
+  /** Raw top-contact elevation (mTAW). */
+  topElev: number
+  /** Raw base-contact elevation (mTAW). */
+  baseElev: number
+}
+
 /** The whole normalised section, ready for curve emission. */
 export interface SectionInput {
   columns: ColumnGeom[]
   edges: readonly CorrelationEdge[]
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>
+  /**
+   * RULING 8r fallback (flag-ON) — every RAW picked unit's own contact elevations,
+   * keyed by ``layerId``. ``resolveTies`` consults this when a tie endpoint's layerId is
+   * absent from the normalised stack (the enclosed-lens merge spliced it out), so the
+   * approved tie still emits at the raw picked contact. Absent flag-OFF (the merge never
+   * splices an edged unit there), so flag-OFF resolution is byte-identical.
+   */
+  rawLayerContacts?: ReadonlyMap<string, RawLayerContact>
 }
 
 /**
@@ -240,6 +272,10 @@ export function buildSectionInput(
   // it does NOT affect col18's TRUE 0-corr middle clay (both contacts interbed-cut, no tie there).
   const tieContactElevByOrigCol = buildTieContactElevs(columns, edges)
   const geom: ColumnGeom[] = []
+  // RULING 8r — the raw picked-unit contact table (see ``RawLayerContact``). Captured
+  // from every column's stack BEFORE ``extractEnclosedLenses`` mutates it, so a tie into a
+  // unit the merge later splices out still resolves at its own drawn contact.
+  const rawLayerContacts = new Map<string, RawLayerContact>()
   for (let oi = 0; oi < columns.length; oi++) {
     const c = columns[oi]
     if (c.units.length === 0) continue
@@ -254,6 +290,18 @@ export function buildSectionInput(
       topElev: c.surfaceElevM - u.topDepthM,
       baseElev: c.surfaceElevM - u.baseDepthM,
     }))
+    // Record RAW contacts (pre-extraction) keyed by layerId. The surviving column index is
+    // ``geom.length`` here because this column is pushed to ``geom`` at the end of the loop
+    // body (it survives — ``c.units.length !== 0``). x is assigned to ``geom`` below; a tie
+    // reads ``geom[colIndex].x`` at resolution time.
+    const survivingColIndex = geom.length
+    for (const u of stack) {
+      rawLayerContacts.set(u.layerId, {
+        colIndex: survivingColIndex,
+        topElev: u.topElev,
+        baseElev: u.baseElev,
+      })
+    }
     // Enclosed-lens extraction (matrix merge + lens-as-hole) — guarded OFF; see the
     // ``ENABLE_ENCLOSED_LENS`` doc for the increment-3 evaluation. STAGE-4 note: the
     // DOMINANT above-TD "pinch-vacancy" holes on the real sections are NOT an
@@ -300,7 +348,7 @@ export function buildSectionInput(
       enclosedLenses,
     })
   }
-  if (geom.length < 2) return { columns: [], edges, lensApexOverrides }
+  if (geom.length < 2) return { columns: [], edges, lensApexOverrides, rawLayerContacts }
 
   // Assign x: real alongM of the corresponding original column, else the index.
   let survivor = 0
@@ -309,7 +357,7 @@ export function buildSectionInput(
     geom[survivor].x = hasAlong ? (alongM as readonly number[])[oi] : survivor
     survivor++
   }
-  return { columns: geom, edges, lensApexOverrides }
+  return { columns: geom, edges, lensApexOverrides, rawLayerContacts }
 }
 
 /**
