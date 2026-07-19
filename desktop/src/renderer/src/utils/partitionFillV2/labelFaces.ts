@@ -23,10 +23,45 @@
 
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom } from './sectionGeom'
-import { type Face } from './types'
+import {
+  buildSegCurveMap,
+  classifyFaceSeed,
+  COL_SEED_RE,
+  isMergeArtifactSeed,
+  type SeedClass,
+} from './seedClassifier'
+import { twoSidedTerminationsEnabled } from './tileFlags'
+import { type Arrangement, type Face } from './types'
 
 /** BAND / ONLAP / LENS classification of a face. */
 export type FaceClass = 'band' | 'onlap' | 'lens'
+
+/**
+ * A topology-defect record (SEED_FILL_MANDATE §B). A face whose column-edge seeds do NOT
+ * resolve to exactly one formation carries this so the seed gate can pin it and Step 4 can
+ * repair it defect-by-defect. INTERIM (until Step 4 empties the list): a defect face keeps its
+ * CURRENT painted litho in the output regions (so the render never collapses and holes don't
+ * explode mid-campaign) but carries this record — see the seed-path note in ``labelFaces``.
+ */
+export interface FaceDefect {
+  reason: 'zero-seed' | 'multi-seed' | 'merged-minority'
+  /** The ``col<ci>:u<ui>`` seed refs found on the boundary (may be empty for zero-seed). */
+  seedRefs: string[]
+  /** All input-curve ids bounding the face (provenance for the linework repair). */
+  boundingCurveIds: string[]
+  bounds: { xLo: number; xHi: number; elLo: number; elHi: number }
+  /**
+   * ``merged-minority`` only: the RECORDED minority litho of the enclosed lens whose own face this
+   * is (the ``lensLabel`` formation that ``labelOneFace`` kept). The face's single seed is the
+   * ENCLOSING MATRIX formation (``mergeArtifactSeed`` below), so the seed disagrees with the
+   * recorded minority — the ruling-8r "lines before the merge" violation: a seed manufactured BY
+   * the same-formation enclosed-lens merge is illegitimate linework, not a valid seed. Step 4's 8r
+   * repair (emission on raw units) restores the true minority seed and ratchets this class to 0.
+   */
+  minorityFormation?: string
+  /** ``merged-minority`` only: the matrix formation the merge-artifact seed resolved to. */
+  mergeArtifactSeed?: string
+}
 
 /** A face with its litho label + classification. */
 export interface LabelledFace {
@@ -36,6 +71,36 @@ export interface LabelledFace {
   klass: FaceClass
   /** The bounding column-vertical unit refs (colIndex, unitIndex). */
   units: { ci: number; ui: number }[]
+  /**
+   * Flag-ON seed path only (SEED_FILL_MANDATE §B): the ``col<ci>:u<ui>`` seed refs whose picked
+   * unit's formation painted this face (kept for diagnostics + the 8j body merge provenance).
+   * Absent on the flag-OFF path (byte-identical to before).
+   */
+  seedRefs?: string[]
+  /**
+   * Flag-ON seed path only: the seed classification of this face. ``single-seed`` faces are
+   * painted from their column seed (the mandate's paint-bucket rule); ``topology-defect`` faces
+   * (zero-seed / multi-seed) keep their INTERIM current paint but carry ``defect`` below.
+   */
+  seedClass?: SeedClass
+  /**
+   * Flag-ON seed path only: the topology-defect record for a zero/multi face (absent for a
+   * single-seed or explicit-void face). Its presence marks a face whose OUTPUT litho is INTERIM
+   * (the pre-seed paint), pinned by the seed gate's 151/9 ratchet until Step 4 repairs the
+   * linework to a single seed.
+   */
+  defect?: FaceDefect
+  /**
+   * Internal marker: this is an ENCLOSED-LENS's OWN face (the ``lensLabel`` branch of
+   * ``labelOneFace``). Such a face carries the collapsed lens's TRUE litho, which the seed
+   * classifier CANNOT see — the lens's minority unit was merged out of ``col.units`` at the
+   * column level (sectionGeom), so the face's only non-zero column edge belongs to the ENCLOSING
+   * matrix. Reading that edge would repaint the lens as its matrix (the ``literalCorr`` col18
+   * middle-clay / coherent-stack SILT-lens limitation). The seed path therefore KEEPS the lens
+   * label here — this is the separately-pinned host-split rebuild (Step 4 / annulus-notch
+   * splitter), NOT this session's paint override.
+   */
+  enclosedLens?: boolean
 }
 
 const COL_RE = /^col(\d+):u(\d+)$/
@@ -43,26 +108,188 @@ const COL_RE = /^col(\d+):u(\d+)$/
 /**
  * Label every face of the arrangement.
  *
+ * TWO PATHS (SEED_FILL_MANDATE):
+ *
+ *   - FLAG-OFF (``twoSidedTerminationsEnabled() === false``): the ORIGINAL length-weighted
+ *     ``resolveLabel`` vote + flood/substrate/lens label authorities. BYTE-IDENTICAL to before
+ *     the seed rewrite — the campaign safety line. Never touched here.
+ *
+ *   - FLAG-ON with an ``arrangement`` provided: the SEEDED paint-bucket path (mandate §B). Each
+ *     face is classified by its NON-ZERO-LENGTH ``col<ci>:u<ui>`` boundary edges (the shared
+ *     ``seedClassifier``). A ``single-seed`` face is painted from THAT column seed — never a
+ *     vote, flood, enclosure, or facing sample. A ``zero-seed`` / ``multi-seed`` face is a
+ *     topology-defect: INTERIM it keeps its current (pre-seed) paint so the render never
+ *     collapses and holes don't explode mid-campaign, but it carries a ``defect`` record and the
+ *     seed gate pins the exact 151/9 count as an identity ratchet Step 4 drives to 0. An
+ *     ``explicit-void`` (geometric exterior) face is dropped (no litho), same as an unlabelled
+ *     cell today. **This interim-output decision is the ONE deviation from "a defect is never
+ *     painted" and it is TEMPORARY by construction** — voiding 151 faces now would break every
+ *     holes gate mid-mandate; the mandate's gate-1..4 acceptance applies at LANDING (after
+ *     Step 4). Flag-ON WITHOUT an arrangement (legacy 3-arg callers) falls back to the old path.
+ *
  * Parameters
  * ----------
  * faces : readonly Face[]
  *     Traced arrangement faces (metres×elevation).
  * columns : readonly ColumnGeom[]
  *     The normalised columns, so a ``col<ci>:u<ui>`` id resolves to a unit.
+ * lensLabels : optional lens/flood/substrate labels (flag-OFF + defect-interim authority only).
+ * arrangement : optional built arrangement. REQUIRED to activate the flag-ON seed path — the
+ *     per-edge curve provenance (half-edges) is the only way to measure a non-zero column-edge
+ *     seed (``Face.boundingCurveIds`` cannot tell a seed from a vertex touch).
  *
  * Returns
  * -------
  * LabelledFace[]
  *     One entry per face that resolves to a litho unit; faces bounded by NO column
- *     vertical (should not occur for a valid partition) are dropped.
+ *     vertical / geometric voids are dropped.
  */
 export function labelFaces(
   faces: readonly Face[],
   columns: readonly ColumnGeom[],
   lensLabels?: ReadonlyMap<string, LensLabel>,
+  arrangement?: Arrangement,
 ): LabelledFace[] {
+  // The seed classifier needs the per-edge curve provenance; build it once when the flag-ON
+  // seed path is active. When the flag is OFF or no arrangement was threaded, ``segCurve`` stays
+  // undefined and every face takes the original label path (flag-OFF byte-identity).
+  const seedActive = twoSidedTerminationsEnabled() && arrangement !== undefined
+  const segCurve = seedActive ? buildSegCurveMap(arrangement!) : undefined
+
   const out: LabelledFace[] = []
   for (const face of faces) {
+    // ---- FLAG-ON SEED PATH (mandate §B). ----
+    if (seedActive && segCurve) {
+      const seed = classifyFaceSeed(face, segCurve, columns)
+      const base = labelOneFace(face, columns, lensLabels)
+      // ---- RULING 8r DISCRIMINATOR (SEED_FILL_MANDATE Steps 2+3, 2026-07-19). ----
+      // An ENCLOSED-LENS's OWN face carries the collapsed lens's TRUE minority litho
+      // (``base.enclosedLens`` + ``base.formationId`` = the ``lensLabel`` minority). When the lens
+      // was a SAME-COLUMN enclosed lens, ``sectionGeom.extractEnclosedLenses`` DELETED that minority
+      // unit from that column's ``units`` (merging the enclosing matrix above+below into one band),
+      // so the lens face's ONLY non-zero column edge is the ENCLOSING MATRIX on the SAME column — a
+      // seed manufactured BY the merge. Ruling 8r ("lines before the merge"): the pre-merge is
+      // illegitimate linework, so a seed produced by the merge is NOT a valid seed.
+      //
+      // The discriminator is STRUCTURAL, not a heuristic: a face is a genuine merge-artifact ONLY
+      // when its single seed edge belongs to a column that HOSTS an enclosed lens whose formation ==
+      // this face's minority label AND whose recorded ``matrixFormationId`` == the seed formation.
+      // That triple (same host column + minority match + matrix match) is exactly the merge's
+      // fingerprint. It correctly EXCLUDES a foreign lens biting into a matrix notch (CS1#11: a
+      // KLEI lens emitted from a neighbour column bites the SILT matrix near col0 — col0 hosts NO
+      // enclosed lens, so its col0:u0 SILT seed is a REAL seed, not a merge artifact -> paint SILT),
+      // and INCLUDES the true same-column merge (coherentStack: col0's silt lens, col0:u1 ZAND seed
+      // == the lens's matrixFormationId -> keep SILT). It also keeps literalCorr CLAY green (a
+      // CLAY-seeded face whose seed IS the minority agrees -> ordinary single-seed path below).
+      if (
+        base?.enclosedLens === true &&
+        seed.classification === 'single-seed' &&
+        seed.seedFormations[0] !== base.formationId &&
+        isMergeArtifactSeed(seed.seedRefs, seed.seedFormations[0], base.formationId, columns)
+      ) {
+        out.push({
+          ...base,
+          seedRefs: seed.seedRefs,
+          seedClass: 'single-seed',
+          defect: {
+            reason: 'merged-minority',
+            seedRefs: seed.seedRefs,
+            boundingCurveIds: [...face.boundingCurveIds],
+            bounds: seed.bounds,
+            minorityFormation: base.formationId,
+            mergeArtifactSeed: seed.seedFormations[0],
+          },
+        })
+        continue
+      }
+      if (seed.classification === 'single-seed') {
+        // Paint from the picked-unit column edge — the paint-bucket rule. The bodyId comes from
+        // the SAME seed unit (the smallest (ci,ui) seed ref of the winning formation), preserved
+        // for the 8j post-fill body merge. The kind (BAND/ONLAP/LENS) still comes from boundary
+        // composition (geometry) via the original label path, so the region shape is unchanged;
+        // only the formationId/bodyId are overridden to the seed.
+        const { bodyId } = seedBody(seed.seedRefs, seed.seedFormations[0], columns)
+        out.push({
+          ...(base ?? { face, klass: 'band' as FaceClass, units: unitsOf(face) }),
+          face,
+          formationId: seed.seedFormations[0],
+          bodyId,
+          seedRefs: seed.seedRefs,
+          seedClass: 'single-seed',
+        })
+        continue
+      }
+      if (seed.classification === 'explicit-void') {
+        // A geometric exterior / no-fill face — never invent a lithology (mandate). Drop it, the
+        // same way an unlabelled cell is dropped on the flag-OFF path.
+        continue
+      }
+      // zero-seed-defect / multi-seed-defect: INTERIM keep the current (pre-seed) paint so the
+      // render + holes stay identical, but carry the defect record for the seed gate ratchet.
+      if (!base) continue // no interim label either (a genuine hole) — drop, as before.
+      out.push({
+        ...base,
+        seedRefs: seed.seedRefs,
+        seedClass: seed.classification,
+        defect: {
+          reason: seed.classification === 'zero-seed-defect' ? 'zero-seed' : 'multi-seed',
+          seedRefs: seed.seedRefs,
+          boundingCurveIds: [...face.boundingCurveIds],
+          bounds: seed.bounds,
+        },
+      })
+      continue
+    }
+
+    // ---- FLAG-OFF PATH (original vote/flood authorities — byte-identical). ----
+    const labelled = labelOneFace(face, columns, lensLabels)
+    if (labelled) out.push(labelled)
+  }
+  return out
+}
+
+/**
+ * The bodyId of the seed formation on a single-seed face: the ``bodyId`` of the smallest
+ * ``col<ci>:u<ui>`` seed ref whose unit carries the winning formation. Deterministic (seed refs
+ * are sorted) and matches the region's own drilled unit — never invented.
+ */
+function seedBody(
+  seedRefs: readonly string[],
+  formationId: string,
+  columns: readonly ColumnGeom[],
+): { bodyId: string | null } {
+  for (const ref of seedRefs) {
+    const m = COL_SEED_RE.exec(ref)
+    if (!m) continue
+    const u = columns[Number(m[1])]?.units[Number(m[2])]
+    if (u && u.formationId === formationId) return { bodyId: u.bodyId }
+  }
+  return { bodyId: null }
+}
+
+/** The bounding column-vertical unit refs of a face (fallback ``units`` when no interim label). */
+function unitsOf(face: Face): { ci: number; ui: number }[] {
+  const units: { ci: number; ui: number }[] = []
+  for (const id of face.boundingCurveIds) {
+    const m = COL_SEED_RE.exec(id)
+    if (m) units.push({ ci: Number(m[1]), ui: Number(m[2]) })
+  }
+  return units
+}
+
+/**
+ * Label ONE face by the ORIGINAL boundary-composition authorities (length-weighted
+ * ``resolveLabel`` vote + flood/substrate/lens labels). This is the flag-OFF logic verbatim,
+ * extracted so the flag-ON seed path can reuse it (a) as the interim paint for a topology-defect
+ * face, and (b) as the kind/units source for a single-seed face (whose formation/body it then
+ * overrides). Returns ``null`` when the face resolves to no litho (dropped).
+ */
+function labelOneFace(
+  face: Face,
+  columns: readonly ColumnGeom[],
+  lensLabels?: ReadonlyMap<string, LensLabel>,
+): LabelledFace | null {
+  {
     const units: { ci: number; ui: number }[] = []
     let nTie = 0
     let nClose = 0
@@ -171,8 +398,9 @@ export function labelFaces(
     // hole-free — adjacent-simple, not nested; see the loop comment + design §4 incr-12).
     const spansGap = new Set(units.map((u) => u.ci)).size >= 2
     if (lensLabel && !nonLensBoundary && nLensCurves > 0 && !spansGap) {
-      out.push({ face, formationId: lensLabel.formationId, bodyId: lensLabel.bodyId, klass: 'lens', units })
-      continue
+      // The enclosed lens's OWN face — mark it so the seed path keeps this true lens litho rather
+      // than repainting it from the enclosing-matrix column edge (the pinned host-split limitation).
+      return { face, formationId: lensLabel.formationId, bodyId: lensLabel.bodyId, klass: 'lens', units, enclosedLens: true }
     }
     // A sub-TD substrate wedge is bounded only by flat-floor + curtain curves — no
     // column vertical reaches below TD, so ``units`` is empty. Stamp it from the
@@ -180,8 +408,7 @@ export function labelFaces(
     // vertical is real drilled data — the column label wins (handled below), so the
     // substrate label only applies when there is no column vertical.
     if (substrateLabel && units.length === 0) {
-      out.push({ face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units })
-      continue
+      return { face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units }
     }
     // A lone-side flood wedge is bounded only by flood/close/bracket curves (its
     // corner->conv->apex triangles never carry a full facing column vertical), so
@@ -190,10 +417,9 @@ export function labelFaces(
     // substrate label, a wedge face that ALSO has a real column vertical is drilled data;
     // the column label wins (handled below).
     if (floodLabel && units.length === 0) {
-      out.push({ face, formationId: floodLabel.formationId, bodyId: floodLabel.bodyId, klass: 'band', units })
-      continue
+      return { face, formationId: floodLabel.formationId, bodyId: floodLabel.bodyId, klass: 'band', units }
     }
-    if (units.length === 0) continue // no column vertical bounds this cell — skip.
+    if (units.length === 0) return null // no column vertical bounds this cell — skip.
 
     // The face's elevation extent — resolveLabel weights each bounding unit by how much
     // of its column edge falls on this face (overlap with [faceMinElev..faceMaxElev]).
@@ -215,9 +441,8 @@ export function labelFaces(
     // lens/onlap face touches only its OWN column vertical, so it never enters this branch.
     const spanBand = spansGap && hasAnchorSpan
     const klass = spanBand ? 'band' : classifyFace(nTie, nClose)
-    out.push({ face, formationId, bodyId, klass, units })
+    return { face, formationId, bodyId, klass, units }
   }
-  return out
 }
 
 /**

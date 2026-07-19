@@ -85,7 +85,10 @@ export function computeSectionFillV2WithConflicts(
 
   const { curves, conflicts, lensLabels } = emitCurves(section)
   const arrangement = buildArrangement(curves)
-  const labelled = labelFaces(arrangement.faces, section.columns, lensLabels)
+  // Pass the whole ARRANGEMENT so the flag-ON seed path (labelFaces, SEED_FILL_MANDATE) can
+  // measure each face's non-zero column-edge seeds from the half-edge provenance. Flag-OFF
+  // ignores it and takes the original vote path (byte-identical).
+  const labelled = labelFaces(arrangement.faces, section.columns, lensLabels, arrangement)
   const sliced = sliceFaces(labelled, section.columns)
   // RULING 8j "MERGE AFTER FILL" (2026-07-17): after the fill, same-litho regions that TOUCH
   // (within-gap footprint + cross-gap shared-column overlap) merge into one body — the staged

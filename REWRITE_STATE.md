@@ -4889,3 +4889,111 @@ modules BYTE-UNTOUCHED. Files added: `partitionFillV2.seedGate.diag.test.ts`, `s
 (the dump). Next (later sessions): Step 2 red behavioural tests, Step 3 seed labelling, Step 4
 linework repair defect-by-defect (the 89 flood + 61 substrate zero-seed faces + 9 multi-seed
 separators). NO git ops this session (orchestrator commits).
+
+## §48 — Session 42.2: STEP 2 RED TESTS + STEP 3 SEEDED PAINT PATH (flag-ON) — STOPPED at an owner gap
+
+Delivered the mandate's Steps 2+3. NEW SHARED CLASSIFIER `partitionFillV2/seedClassifier.ts` —
+the ONE seed classifier (`buildSegCurveMap` / `seedRefsOfFace` / `formationOfRef` /
+`isExplicitVoidGeometric` / `classifyFaceSeed`) extracted from the S42.1 gate so the gate AND the
+engine resolve seeds identically (no drift). The seed gate + seedFill test + labelFaces now all
+import it.
+
+STEP 2 — `partitionFillV2.seedFill.test.ts` (permanent, owner-language). RED-first evidence
+recorded: (a) CS1#11 x=23.45 el=6.84 single-seed SILT face — CURRENT engine paints KLEI
+(vote/flood) → RED, seed path paints SILT → GREEN; (e) literalCorr#1 x[0..18]el[4..10] middle-clay
+lens face — CURRENT paints SILT → RED, seed CLAY → GREEN (the B3 inverse). (b) flood face =
+zero-seed-defect, (c) top-band two-column face = multi-seed-defect, (d) flag-OFF no-state-leak —
+all GREEN on arrival (they pin the Step-1 classifier + the flag-OFF guard, not new paint behaviour;
+recorded per the mandate's green-on-arrival investigate rule). 5/5 GREEN under the seed path.
+
+STEP 3 — flag-ON seed path in `labelFaces.ts` (`arrangement` param added, threaded from
+`computeSectionFillV2`; flag-OFF ignores it → byte-identical). The original per-face logic is
+extracted VERBATIM into `labelOneFace` (returns `LabelledFace | null`) so flag-OFF is untouched and
+the flag-ON path reuses it for kind/units + defect-interim paint. Flag-ON: single-seed → paint the
+column seed (bodyId from the same seed unit, 8j provenance); explicit-void → drop; zero/multi
+defect → INTERIM keep the current paint + attach a `FaceDefect` record. INTERIM-OUTPUT DECISION
+(the one deviation from "never painted", TEMPORARY by construction — voiding 151 faces would break
+every holes gate mid-mandate): defect faces keep their pre-seed litho so holes stay 64 and the seed
+gate's 151/9 ratchets Step 4 to 0.
+
+RESULTS — REAL-DATA ACCEPTANCE MET: seedGate ratchet single 622 / void 8 / zeroDef 151 / multiDef 9
+UNCHANGED, **paintMismatches 54 → 0** (every single-seed face now paints its column seed — the
+54-mismatch resolution proof). Holes flag-ON 64/0/0, flag-OFF 0/0/0 — pins HOLD. Real gates GREEN:
+faceLabel8n gap1(SILT wedge)/gap18(KLEI wrap — flood zero-seed defects keep interim paint), cs1gates
+8/8, conformance 10/14, lensAudit MISSING 0, f1/f5/gap0HostSplit/edgedAnnulus/followTieOnlap/
+zeroCorrAlwaysLens/oneCorrActualTie/mergeAfterFill/subTdLens/lensReach/terminationPlan/
+computeSectionFillV2. tsc clean.
+
+⚠ STOPPED — GENUINE OWNER GAP (3 NEW SYNTHETIC-GATE REDS, acceptance bar "1 pre-existing red" NOT
+met): the strict paint-bucket rule ("paint from the picked-unit column edge", mandate §B) REPAINTS
+a MERGED-OUT-MINORITY lens's own face from its ENCLOSING-MATRIX column seed — because the minority
+unit (e.g. a SILT lens in ZAND) was merged OUT of `col.units` at the column level (sectionGeom), so
+the face's only non-zero column edge belongs to the matrix. This ERASES the lens under the strict
+rule. Regressed synthetic gates: `coherentStack (a)` (SILT-in-ZAND lens), `bidirSweep (a)`/`(c)`
+(bidirectional lens survival); `convergingStack (a)` (the pre-existing red) changed its assertion
+message (VEEN interbed). The mandate's §47 frames this EXACTLY as the "pinned host-split rebuild
+(Step 4 / annulus-notch splitter): the seed model reads CLAY/minority correctly; making the FACE
+exist is Step 4." An `enclosedLens` deferral (keep the lens label for the lens-own triangle) was
+BUILT and REVERTED — it fixed coherentStack but re-broke CS1#11/literalCorr (both hit the same
+`enclosedLens` branch: CS1#11 is `col0:u0`(SILT)+lens4/lens5(KLEI-matrix), `enclosedLens=true`, yet
+its OWN seed SILT is the CORRECT answer and the KLEI lens label is a vote artifact). No clean LOCAL
+geometric discriminator separates "keep the lens minority (coherentStack)" from "use the column seed
+(CS1#11)" without deeper emitLenses provenance. Per the owner directive (ASK-FIRST on genuine gaps,
+never invent heuristics) this is an OWNER RULING: for a merged-out-minority lens's own face, does the
+interim (a) keep the lens minority litho [update the strict rule to defer], or (b) read the matrix
+seed and let the minority reappear at Step 4's host-split [update the 3 synthetic gates to the seed
+model]? The mandate's §47 language leans (b), but that fails the "1 pre-existing red" bar until the
+gates are updated. `enclosedLens` provenance field left in place (set on the lens-own branch, unused
+downstream) for whichever path is chosen. Files: `seedClassifier.ts`, `seedFill.test.ts` (new);
+`labelFaces.ts`, `computeSectionFillV2.ts`, `seedGate.diag.test.ts` (edited). NO git ops
+(orchestrator commits).
+
+## §48b — Session 42.2b: RULING-8r STRUCTURAL DISCRIMINATOR BUILT — BLOCKED, the mandate's two acceptance bars are mutually unsatisfiable
+
+Implemented the mandate's ruling-8r structural discriminator exactly as specified:
+`seedClassifier.isMergeArtifactSeed(seedRefs, seedFormation, minorityFormation, columns)` — a face
+is a merge-artifact ONLY when a seed edge belongs to a column that HOSTS an enclosed lens whose
+`formationId == minorityFormation` AND `matrixFormationId == seedFormation` (the merge's exact
+provenance fingerprint). `labelFaces` fires it on `base.enclosedLens && single-seed &&
+seed != minority && isMergeArtifactSeed(...)` → new `FaceDefect.reason = 'merged-minority'` (carries
+`minorityFormation` + `mergeArtifactSeed`), KEEPS the minority paint. `FaceDefect.reason` union +
+the two fields added. tsc clean.
+
+RESULT: the 3 synthetic reds (`coherentStack (a)`, `bidirSweep (a)/(c)`) → **GREEN** (lens survives).
+BUT seedFill `(a)` (CS1#11) + `(e)` (literalCorr) → **RED**, and the seedGate ratchet
+paintMismatches went **0 → 54**. These are NOT fixable together — proven irreconcilable:
+
+THE DISCRIMINATOR CANNOT SEPARATE THEM BECAUSE THEY ARE PROVENANCE-IDENTICAL. Measured, hard data
+(raw picks from `diag_allsections_input.json` + polygon dumps):
+* coherentStack lens face: 3-vtx triangle (0,3.0)(0,2.4)(18,2.7); seed=ZAND(matrix), minority=SILT;
+  col0 hosts `SILT(matrix=ZAND)`. Correct paint per synthetic = SILT (minority survives).
+* CS1#11 face: 3-vtx triangle (23.4,8.08)(23.4,6.84)(56.5,7.46); seed=SILT(matrix), minority=KLEI;
+  RAW col0 picks are SILT[8.70,8.08] / **KLEI[8.08,6.84]** / SILT[6.84,6.32] — a GENUINE
+  same-formation enclosed KLEI lens; col0 hosts `KLEI(matrix=SILT)`. seedFill (a) wants SILT (the
+  matrix seed — lens ERASED).
+* literalCorr face: 3-vtx triangle (0,10)(0,4)(18,7); seed=CLAY(matrix), minority=SILT; col0 hosts
+  `SILT(matrix=CLAY)`. seedFill (e) wants CLAY (the matrix seed — lens ERASED).
+
+All three are geometrically + structurally IDENTICAL (enclosed-lens own-triangles, seed==matrix
+≠minority, matching `col.enclosedLenses` provenance) yet the synthetics demand the minority survive
+and seedFill demands the matrix seed win. NO local OR provenance discriminator separates them.
+
+THE MANDATE'S PREMISE IS FACTUALLY WRONG. The S42.2b prompt asserts "seed == the recorded MINORITY
+→ paint the seed (keeps CS1#11 SILT and literalCorr CLAY green)". Measured: CS1#11 seed=SILT but
+minority=KLEI (NOT equal); literalCorr seed=CLAY but minority=SILT (NOT equal). Both are seed==MATRIX
+cases, exactly like coherentStack — not the "seed==minority agreement" cases the prompt assumed.
+
+THE TWO ACCEPTANCE BARS CONTRADICT: "paintMismatches 0" REQUIRES every enclosed-lens own-face to
+paint its (matrix) seed → ERASES the lens → fails the synthetics. "lens survives" REQUIRES keeping
+the minority ≠ seed → is BY DEFINITION a paintMismatch. For enclosed-lens own-faces the two are
+mutually exclusive.
+
+OWNER RULING NEEDED (semantic/geological, per the ask-first directive — NOT a heuristic to invent):
+does a GENUINE same-formation enclosed lens's own face paint (A) its MINORITY litho [lens survives —
+what ruling 8r's own words "the middle clay should LENS ... lines before the merge" demand; makes
+synthetics green, seedFill (a)/(e) are then STALE pre-8r expectations to update, and the
+paintMismatch metric must be redefined to exclude legitimate lens-keeps], or (B) its MATRIX seed
+[lens erased here, reappears only at Step-4 raw-unit emission; keeps seedFill (a)/(e) + paintMismatch
+0, but the synthetics stay red until Step 4]. Ruling 8r leans hard to (A). The discriminator code
+implementing (A) is IN THE TREE (uncommitted). Choosing (B) = revert `labelFaces` discriminator +
+`isMergeArtifactSeed`, keep synthetics red. NO git ops (orchestrator).

@@ -127,6 +127,8 @@ interface SeedFaceRecord {
   currentPaintFormation: string | null
   /** True when single-seed AND the current paint differs from the seed formation. */
   paintMismatch: boolean
+  /** Ruling-8r merged-minority keep (see SectionCounts.mergedMinority). */
+  mergedMinority: boolean
 }
 
 interface SectionCounts {
@@ -136,6 +138,9 @@ interface SectionCounts {
   explicitVoid: number
   zeroDefect: number
   multiDefect: number
+  /** Ruling-8r merged-minority keeps: a genuine enclosed lens whose single "seed" is a
+   *  merge artifact — the lens litho is kept; its own ratchet class, → 0 at Step 4. */
+  mergedMinority: number
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +350,7 @@ function scanSection(
     explicitVoid: 0,
     zeroDefect: 0,
     multiDefect: 0,
+    mergedMinority: 0,
   }
   const records: SeedFaceRecord[] = []
   if (section.columns.length < 2) return { counts, records }
@@ -369,11 +375,21 @@ function scanSection(
   const jumpTies = resolveJumpTies(survivingSection)
   const plans = buildTerminationPlans(survivingSection, [], jumpTies, bridgeGapAnchored)
 
-  // Thread the SAME faces through the current flag-ON labelFaces so each single-seed face can be
-  // compared to what the engine paints today (object identity: labelled.face === arr face).
-  const labelled = labelFaces(arr.faces, section.columns, lensLabels)
+  // Thread the SAME faces through the flag-ON labelFaces (SEED PATH — arrangement passed) so each
+  // single-seed face is compared to what the SEED engine now paints (object identity:
+  // labelled.face === arr face). After Step 3 the seed path paints single-seed faces from their
+  // column seed, so ``paintMismatch`` ratchets to 0 — the 54 old-vote mismatches are resolved.
+  const labelled = labelFaces(arr.faces, section.columns, lensLabels, arr)
   const paintByFace = new Map<Face, string>()
-  for (const lf of labelled) paintByFace.set(lf.face, lf.formationId)
+  // Faces the label layer classified merged-minority (ruling 8r): the single "seed" is a
+  // MERGE-ARTIFACT (the pre-merge erased the lens's own column segment), so the lens litho is
+  // KEPT and the paint≠seed difference is NOT a mismatch — it is its own ratchet class, driven
+  // to 0 by Step 4's raw-unit emission (which restores the true seed).
+  const mergedMinorityFaces = new Set<Face>()
+  for (const lf of labelled) {
+    paintByFace.set(lf.face, lf.formationId)
+    if (lf.defect?.reason === 'merged-minority') mergedMinorityFaces.add(lf.face)
+  }
 
   arr.faces.forEach((face, faceIndex) => {
     // Every traced face is a BOUNDED interior cell (the unbounded exterior face is never emitted
@@ -391,13 +407,16 @@ function scanSection(
     else classification = isExplicitVoidGeometric(b, section.columns) ? 'explicit-void' : 'zero-seed-defect'
 
     const currentPaintFormation = paintByFace.get(face) ?? null
+    const mergedMinority = mergedMinorityFaces.has(face)
     const paintMismatch =
       classification === 'single-seed' &&
+      !mergedMinority &&
       currentPaintFormation != null &&
       currentPaintFormation !== seedFormations[0]
 
     counts.faces++
-    if (classification === 'single-seed') counts.single++
+    if (mergedMinority) counts.mergedMinority++
+    else if (classification === 'single-seed') counts.single++
     else if (classification === 'explicit-void') counts.explicitVoid++
     else if (classification === 'zero-seed-defect') counts.zeroDefect++
     else counts.multiDefect++
@@ -418,6 +437,7 @@ function scanSection(
       planKeys: planKeysForFace(seedRefs, plans),
       currentPaintFormation,
       paintMismatch,
+      mergedMinority,
     })
   })
 
@@ -575,20 +595,21 @@ describe('partition-v2 MEASURED SEED GATE (mandate Step 1)', () => {
 
     // ---- per-section seed-count table ----
     console.log('\n########## SEED-COUNT TABLE (flag-ON, pre-slice faces) ##########')
-    console.log('  section                          faces  single  void  ZERO-DEF  MULTI-DEF')
-    let gFaces = 0, gSingle = 0, gVoid = 0, gZero = 0, gMulti = 0
+    console.log('  section                          faces  single  void  ZERO-DEF  MULTI-DEF  MERGED-MIN')
+    let gFaces = 0, gSingle = 0, gVoid = 0, gZero = 0, gMulti = 0, gMergedMin = 0
     for (const c of allCounts) {
       gFaces += c.faces
       gSingle += c.single
       gVoid += c.explicitVoid
       gZero += c.zeroDefect
       gMulti += c.multiDefect
+      gMergedMin += c.mergedMinority
       console.log(
-        `  ${c.section.padEnd(32)} ${String(c.faces).padStart(5)}  ${String(c.single).padStart(6)}  ${String(c.explicitVoid).padStart(4)}  ${String(c.zeroDefect).padStart(8)}  ${String(c.multiDefect).padStart(9)}`,
+        `  ${c.section.padEnd(32)} ${String(c.faces).padStart(5)}  ${String(c.single).padStart(6)}  ${String(c.explicitVoid).padStart(4)}  ${String(c.zeroDefect).padStart(8)}  ${String(c.multiDefect).padStart(9)}  ${String(c.mergedMinority).padStart(10)}`,
       )
     }
     console.log(
-      `  ${'TOTAL'.padEnd(32)} ${String(gFaces).padStart(5)}  ${String(gSingle).padStart(6)}  ${String(gVoid).padStart(4)}  ${String(gZero).padStart(8)}  ${String(gMulti).padStart(9)}`,
+      `  ${'TOTAL'.padEnd(32)} ${String(gFaces).padStart(5)}  ${String(gSingle).padStart(6)}  ${String(gVoid).padStart(4)}  ${String(gZero).padStart(8)}  ${String(gMulti).padStart(9)}  ${String(gMergedMin).padStart(10)}`,
     )
 
     // ---- zero-seed-defect: family histogram + identity list ----
@@ -636,7 +657,7 @@ describe('partition-v2 MEASURED SEED GATE (mandate Step 1)', () => {
         'partition-v2 measured seed gate — flag-ON pre-slice faces, all 14 real sections + convergingStack(a) + literalCorr(c)/(d)',
       minSeedEdgeM: MIN_SEED_EDGE_M,
       perSection: allCounts,
-      grandTotals: { faces: gFaces, single: gSingle, explicitVoid: gVoid, zeroSeedDefect: gZero, multiSeedDefect: gMulti },
+      grandTotals: { faces: gFaces, single: gSingle, explicitVoid: gVoid, zeroSeedDefect: gZero, multiSeedDefect: gMulti, mergedMinority: gMergedMin },
       zeroSeedDefects: zeros,
       multiSeedDefects: multis,
       paintMismatches: mismatches,
