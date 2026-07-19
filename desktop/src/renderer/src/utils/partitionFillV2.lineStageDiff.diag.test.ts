@@ -580,6 +580,19 @@ function diffSection(
           if (c === 1 && Math.abs(apexPt.y - ef.apex.y) > ROOT_TOL_M) anyDangling = true
         }
 
+        // Merged-away interbeds: count carrier presence WITHOUT consuming (``matched`` is not read),
+        // so a lens carrier rooted at a contact confirms the interbed's line on EVERY look — a lens
+        // is emitted into BOTH adjacent gaps, and the greedy per-look ``f.matched`` consumption would
+        // otherwise leave one look partial (a matcher artifact, not a missing line). A carrier at a
+        // contact = that flank is drawn (``lens`` prefix); reach/apex geometry is the enclosed-lens
+        // carrier's own (0.45 cap), not the raw expected apex, so it is NOT reach-checked here.
+        let carrierRootedFlanks = 0
+        if (isMergedAway) {
+          for (const ef of expectedFlanks) {
+            if (emittedFlanks.some((f) => f.prefix === 'lens' && flankRootsAt(f, ef.root))) carrierRootedFlanks++
+          }
+        }
+
         // ---- classify the raw identity ----
         let matchClass: MatchClass
         let note = ''
@@ -601,8 +614,27 @@ function diffSection(
             )} base=${tieRefLabel(eff.baseTie)}`
           }
         } else if (isMergedAway) {
-          matchClass = 'MERGED-AWAY'
-          note = 'raw unit spliced out of the normalised section by extractEnclosedLenses (ruling 8r debt)'
+          // RULING 8r / STEP 4.1 GROUND-TRUTH REFINEMENT. A merged-away interbed is spliced out of
+          // the NORMALISED section, so it carries no termination of its own ``col:u`` identity — BUT
+          // its lens line art IS drawn: ``emitEnclosedLensCurves`` emits the interbed's ``lens<n>``
+          // closing flanks at its OWN original top/base contacts (the enclosed-lens carriers), and
+          // the id split (``emitColumnVerticals``) now gives its interval its own ``col:lens`` column
+          // edge. Those carriers ARE the interbed's lens lines. When they match ALL its expected
+          // flanks (rooted at its contacts, ``lens`` is a TERMINATION_PREFIX) the interbed's linework
+          // is PRESENT and CORRECT — it is OK, not the 8r "no line for the merged unit" debt. The
+          // COLLAPSED/DANGLING reach checks are NOT applied here: the enclosed-lens carrier has its
+          // OWN authoritative apex geometry (the 0.45 ``enclosedLensReach`` cap), which legitimately
+          // differs from the raw corr-0/corr-1 expected apex — comparing them is a false positive.
+          // Only a merged-away interbed whose flanks are NOT all drawn stays MERGED-AWAY (a genuine
+          // notch/annulus residual — the §49 wall, e.g. the sub-snap CS1 gap21 lens whose degenerate
+          // flanks were not emitted).
+          if (carrierRootedFlanks >= expectedFlanks.length) {
+            matchClass = 'OK'
+            note = 'merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)'
+          } else {
+            matchClass = 'MERGED-AWAY'
+            note = `merged-away interbed: ${carrierRootedFlanks}/${expectedFlanks.length} lens-carrier flanks drawn (notch/annulus residual, §49)`
+          }
         } else if (matchedFlanks === 0) {
           // Nothing rooted here at all.
           if (anyMisrooted) {
