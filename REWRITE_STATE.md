@@ -4823,3 +4823,69 @@ added: ``partitionFillV2.f1gate.diag.test.ts`` (F1 acceptance, SHAPE_AUDIT=1). S
 
 ASK-FIRST / OWNER items: none — the deletion is pure geometry (an invented band removed; the real
 ties already carry the correct band), no rule gap. Next: S41.d — the 8o hole-fill (NOT this stage).
+
+## §47 — Session 42.1: THE MEASURED SEED GATE (SEED_FILL_MANDATE Step 1 — MEASUREMENT ONLY)
+
+The mandate's Step 1: establish the measured seed gate BEFORE any labelling change. NEW permanent
+gate `partitionFillV2.seedGate.diag.test.ts` (env-gate SHAPE_AUDIT; becomes the flag-ON seed gate).
+It runs the ACTUAL pre-slice pipeline flag-ON forced (`buildSectionInput → emitCurves →
+buildArrangement → traced faces → seed classifier`) on all 14 real sections +
+`convergingStack (a)` + `literalCorr (c)/(d)`, and per face records the NON-ZERO-LENGTH column-edge
+seed refs (`col<ci>:u<ui>`, measured on the traced polygon against the arrangement half-edges — a
+vertex touch is NOT a seed), the distinct seed FORMATION ids, the classification (single-seed /
+explicit-void [geometric only] / zero-seed-defect / multi-seed-defect), the zero-seed label-path
+FAMILY, the plan keys, and the single-seed-vs-current-paint comparison. Full table →
+`scripts/diag_seed_gate.json`. NO engine change, NO export-only change needed (all pre-slice
+modules were already path-importable). tsc clean; the diag is 682 lines (>500 desktop warn — kept
+one self-contained gate, mirroring the sibling `.shapeaudit.diag` / `.holes_overlaps.diag` pattern).
+
+MEASURED RESULT (grand totals, 790 pre-slice faces flag-ON):
+- **single-seed 622**, explicit-void 8 (all CS1, geometric), **zero-seed-defect 151**,
+  **multi-seed-defect 9**.
+- **Zero-seed by label-path family: flood 89 / substrate 61 / band-contour 1.** THE decisive Step-1
+  finding: the 151 zero-seed faces are NOT holes — they are painted TODAY by the two non-column
+  label authorities the mandate names for removal: the enclosing FLOOD (`floodsw`, 89) and the
+  deep-to-deep SUBSTRATE (`btfloor`/`btcurtain`, 61). Under the seed model each must become
+  single-seed via valid linework (Step 4) or prove a geometric void — the flood/substrate label is
+  removed as flag-ON lithology authority.
+- **Multi-seed 9** in two shapes: (i) same-column two-unit faces (CS1#39 `col3:u3+u4` ZAND+SILT;
+  CS2#123 `col14:u3+u4`; CS2#185 `col17:u6+u7`; CS2#235 `col21:u6+u7`) = a MISSING SEPARATOR between
+  two adjacent different-formation units on ONE column (the B2 SAND/CLAY "real separator not a label
+  choice" class); (ii) cross-column top-band faces (Tie-7#12, Tie-11#10, CS3#82/#97, CS2#242) where
+  the top band spans a gap whose two columns' FIRST units differ in formation (surface+tie+bandc
+  boundary, two column tops disagree).
+- **54 single-seed-vs-current-paint MISMATCHES** — each a concrete old-label bug the seed model
+  fixes: the length-weighted `resolveLabel` vote / flood label painted a DIFFERENT formation than
+  the face's own column seed. Examples: `literalCorr (c)/(d)` all 6 clay faces paint SILT today →
+  seed CLAY (the B3 "SILT termination continued by a CLAY-labelled wedge" inverse); CS1#11-13
+  KLEI/ZAND→SILT; many Tie-section VEEN→KLEI.
+
+KNOWN-CONTEXT verdicts (mandate §4):
+- **CS1-g3 holes** = the family above (CS1 zeroDef 52: flood + substrate; 8 geometric voids). Not a
+  new finding — the flag-ON holes-gate CS1-g3 wall is these seedless flood/substrate faces.
+- **CS2-g17 holes** = CS2 zeroDef 43 (flood/substrate) + 4 multi-seed same-column separators. The
+  sloping-enclosure wall is seedless flood faces + missing same-column separators.
+- **convergingStack (a)** = 4 single-seed + 1 **zero-seed-defect** (`#4 el[4.5..6]`, the converging
+  wedge apex slot the flood covers) → a zero-seed defect to repair by linework (the pre-existing red
+  is this slot).
+- **literalCorr (c)/(d)** = 8 faces, ALL single-seed, ZERO defects — BUT all 6 clay faces are
+  paint-MISMATCHES (paint SILT, seed CLAY). This is the SEPARATELY-PINNED col18 middle-clay
+  limitation: the enclosed-lens merge collapses the middle clay so its face is seeded by the
+  enclosing SILT column edge, not its own — the annulus/notch-splitter wall (`literalCorr` c/d are
+  `describe.skip`). The seed model reads CLAY correctly; making the FACE exist as clay is the pinned
+  host-split rebuild, not this gate.
+
+CONNECTIVITY ANSWER (mandate — CS1 cols 14-19 sub-TD under-B2 sand): every CS1 sub-TD substrate face
+is `[substrate]` = **zero-seed** (bounded by `btfloor`/`btcurtain`/`tie`, NEVER a `col<ci>:u<ui>`
+seed). The sub-TD under-B2 sand faces do NOT reach the neighbours' sand column segments through valid
+linework — they float on the synthetic flat-floor curves. They overlap the bracketing deep columns'
+real drilled sand elevations (fillable domain), so under the seed model they are defects to repair by
+linework (Step 4), NOT explicit voids.
+
+BATTERY (unperturbed — the diag's only job): full utils 1 failed (`convergingStack (a)`, the
+pre-existing red) / 813 passed / 26 skipped (was 25; +1 = this env-gated diag's `it.skip`); holes
+flag-OFF 0/0/0, flag-ON 64/0/0 — pin HOLDS; terminationPlan 6/6; tsc clean. v1 + app + all engine
+modules BYTE-UNTOUCHED. Files added: `partitionFillV2.seedGate.diag.test.ts`, `scripts/diag_seed_gate.json`
+(the dump). Next (later sessions): Step 2 red behavioural tests, Step 3 seed labelling, Step 4
+linework repair defect-by-defect (the 89 flood + 61 substrate zero-seed faces + 9 multi-seed
+separators). NO git ops this session (orchestrator commits).
