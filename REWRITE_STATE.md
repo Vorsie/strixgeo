@@ -4637,3 +4637,59 @@ Throwaway to `rm`: `desktop/src/renderer/src/utils/partitionFillV2.throwaway_s39
 Diag scripts written this session (owner may keep or rm): none new — reused the frozen
 `diag_allsections_input.json` + `diag_shape_audit_names.json`. tsc clean with the throwaway
 present; v1 + all engine/gate files BYTE-UNTOUCHED (diagnosis only).
+
+## §45 — Session 40: ruling 8b-rev (0.45 lens reach, thickness cap ONLY on collision)
+
+The 8b-rev implementation (default lens reach flat 0.45; the ~2× thickness cap becomes a
+COLLISION shortener wired into the live flag-ON path) + the F5 wall pins it exposed (CS1-g3 +
+CS2-g21, the thin-interbed flood-fragmentation the correct 0.45 reach surfaces) landed this
+session. FULL RECORD lives in commit `6342f4619` (message: the 8b-rev mechanics + why the g3/g21
+holes are the FILL defect, not the reach — repaired by the S41 plan rebuild, never by
+re-shortening). The holes gate WALLS list is `[CS2-g17, CS1-g3, CS2-g21]` as of that commit.
+
+## §46 — Session 41: THE TERMINATION-PLAN REBUILD — Stage S41.a (the PLAN layer) SHIPPED
+
+The capstone both F1–F5 investigations converged on: ONE provenance-carrying TERMINATION PLAN
+per (gap, side, unit), produced by a single planner from the classifier, consumed by everything
+downstream (no subsystem re-derives authority from formation overlap, stack walks, facing
+samples, face length, or depth special-cases). Owner doctrine, ruling 8p: "only litho's ties no
+ties and filling between lines, no extrapolating downward, upward leftward or rightward follow
+the lines". Multi-day, stage-gated; battery after every stage.
+
+### Stage S41.a — the PLAN layer (SHIPPED, additive, byte-identical both flag states)
+
+NEW `partitionFillV2/terminationPlan.ts` + gate `partitionFillV2.terminationPlan.test.ts`. The
+`TerminationPlan` record per (gap, side, unit) carries, VERBATIM from the classifier + geometry
+context ONLY (no facing sample, no matrix walk, no formationId gate):
+- `corr` — the literal 2/1/0 (`effectiveCorrForUnit`, ruling 8l);
+- `kind` — lens (0) / onlap (1) / band-member (2), mapped from corr;
+- `tieRef` — the EXACT tie a corr-1 onlap rides (S33 TieRef); a sub-TD/bridge onlap RESOLVES the
+  bridge tie (`findBridgeTie` over the jump ties + `bridgeGapAnchored`) into a real
+  `{kind:'resolved'}` ref, so the plan is NEVER "corr=1 with TieRef=null" (F5 provenance);
+- `geometry` — interior / surface (first unit) / td (last unit) / sub-td (below the FACING TD),
+  from unit index + column extent + facing TD ONLY (ruling 8i(e): geometry, never litho);
+- `plannedApex` — 0.45 for a lens, 0.5 for an onlap (ruling 8b-rev); ONE value the flank line AND
+  the fill wedge share (no line-vs-fill split — F2's root); the thickness/collision cap is the
+  EMITTER's job (S41.b), applied only on collision with tie/band line art;
+- `formationId`/`bodyId` — the terminating unit's own identity (the litho a wedge carries to its
+  apex and NOT ONE POINT PAST IT — ruling 8n; the space past the apex is the 8o hole-fill's call).
+
+The planner iterates COLUMN-first (ruling 8k). CONSUMED BY NOTHING YET — this stage builds the
+authority in isolation so it is testable before any emission rewire. The 5 gates encode the
+invariants in the owner's vocabulary: the 646.74 three-clay literal count (8l), every corr-1
+plan carries a non-null tieRef incl. the sub-TD bridge case (8p/F5), lens apex 0.45 / onlap 0.5
+(8b-rev), first→surface/last→td/sub-td-below-facing-TD (8i(e)), one plan per picked unit per
+adjacent gap-side (8k).
+
+BATTERY (S41.a): tsc clean; plan gate 5/5; holes flag-OFF 0/0/0, flag-ON 64 at the pinned walls
+(CS2-g17 + CS1-g3 + CS2-g21) — pin HOLDS; full utils suite 1 failed (`convergingStack (a)`, the
+pre-existing red) / 812 passed (807 + 5 new) / 23 skipped; conformance UNCHANGED (flag-OFF 10 /
+flag-ON 14 violations, 8e 48/30) — engine output byte-identical both flag states (the plan is
+consumed by nothing). v1 + every existing engine/gate file BYTE-UNTOUCHED.
+
+STAGE COMMIT-READY. Files added: `partitionFillV2/terminationPlan.ts`,
+`partitionFillV2.terminationPlan.test.ts`. Next: S41.b — emission consumes the plans
+(sweep/drawTermination/emitBoundaryLens/emitSubTdLenses become plan executors; the F5 sub-TD
+corr-1 dispatch lands here). ASK-FIRST points deferred to S41.b/d, NOT S41.a (the plan faithfully
+encodes the classifier; the genuine rule gaps — a hole with zero/multiple unterminated lithos per
+ruling 8o — arise only when the 8o hole-fill runs at S41.d).
