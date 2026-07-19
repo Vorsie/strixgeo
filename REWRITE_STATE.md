@@ -5286,3 +5286,83 @@ of `scripts/diag_cs1_flip_walkthrough.json` — the ORCHESTRATOR must run
 `CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`.
 `scripts/gen_paint_tool.mjs` untouched. v1 `utils/partitionFill/` + app READ-ONLY. NO git ops. STUB (debt #201):
 `emitCurves.ts` now 541 lines (was 522) — the raw-fallback resolver could extract to a `resolveTies.ts` helper.
+
+## §54 — Session 48: STAGE-A PREFIX-AWARE MATCHER SHIPPED (DANGLING 11→10); the g3/g17 walls RE-CONFIRMED as the §49 merge-annulus rebuild — MEASURED WALL, ASK-FIRST
+
+The finale ("finish it, then rerender") was worked stage-gated A→B→C→D. All prompt baselines VERIFIED
+EXACT at session start (seedGate 791/623/8/152/8/0 paintMismatch 0; holes flag-OFF 0/0/0, flag-ON 64/0
+overlaps 3; lineStageDiff OK 837 / MISSING 8 / COLLAPSED 2 / DANGLING 11 / MERGED-AWAY 8 / PHANTOM 1;
+tie 446/0/0/0; CS1 8/8; full utils 819 pass / 1 fail = convergingStack (a)). One clean fix shipped; the
+rest RE-DIAGNOSED to the SAME §49 wall with the current tools (S45 raw seeds / S47 raw tie roots did NOT
+change the verdict). NO engine geometry changed; NO gate regressed; NO git ops.
+
+**SHIPPED (Stage A, diagnostic-matcher only): PREFIX-AWARE FLANK MATCHING in `partitionFillV2.lineStageDiff.diag.test.ts`.**
+The greedy `cands[0]` was prefix-agnostic: when a corr-0 LENS flank of an adjacent unit rooted at the SAME
+shared contact as a corr-1 ONLAP's free contact, it consumed the lens flank and reported a huge apexYerr
+(the §46/§52 gap19 class). Now each expected flank matches its OWN family first — corr-1 → `oflank*`,
+corr-0 → non-`oflank` (`lens`/`term`/`subtdlens`) — falling back to any rooted flank only when no
+same-family flank exists (which then surfaces the real geometry honestly). RESULT: **DANGLING 11→10, OK
+837→838**; MISSING 8 / COLLAPSED 2 / MERGED-AWAY 8 / PHANTOM 1 / tie 446/0/0/0 ALL unchanged; no new
+phantoms (214 emitted / 213 matched / 1 phantom, byte-identical). One genuine matcher artifact resolved
+(CS1 g13[right] u5 ZAND: a real `subtdo` onlap flank existed; the greedy had grabbed a `subtdlens`).
+tsc clean; full utils 819 pass / 1 fail (convergingStack (a) unchanged). ENGINE UNTOUCHED — seedGate +
+holes + tie-conformance byte-identical (re-measured post-change). STUB (debt #201): the diag file is now
+1105 lines (>500 warn); the matcher could extract to a `lineStageDiffMatch.ts` helper.
+
+**DANGLING now cleanly split (10):** 3 genuine `oflankterm` (real onlap flank, apex off its tie by
+5/55/81.5 cm — Tie-10 g0, Tie-12 g0, CS1 g7 — an apex-PLACEMENT question, not a missing line); 3
+`oflanksubtdo` (sub-TD onlaps, CS1 g16/g17u6/g22, apex 309.5/309.5/1494.6 cm off — the substrate-onlap
+class); 4 residual `lens`-fallback (CS1 g17u1/g19, CS2 g15u0/u6 — no `oflank*` roots at the raw free
+contact at all, because those raw units are MERGE-collapsed or band-absorbed in the normalised stack →
+the corr-1 onlap flank genuinely never emits for that raw identity = the §49 merged-away territory, NOT
+a matcher bug).
+
+**THE TWO-PART STRUCTURE OF THE REMAINING DEFECTS — measured, decisive:**
+1. **The 152 zero-seed "defects" are all CORRECTLY-PAINTED doctrine-scaffold faces, NOT render holes.**
+   From `diag_seed_gate.json`: 61 `substrate` (btfloor/btcurtain — the ruling-8n/8p sub-TD carry) + 90
+   `flood` (floodsw — the ruling-8o hole-fill) + 1 `band-contour`; **all 152 carry a `currentPaintFormation`
+   and paintMismatch=0** (the render already covers them, interim-painted from the substrate/flood label =
+   the doctrine litho). Reclassifying them via the 8n carry-seed / 8o only-unterminated-litho rules is a
+   CLASSIFIER-RECORDING change with ZERO render impact — genuinely tractable and prompt-sanctioned for the
+   substrate half. NOT SHIPPED THIS SESSION (see the go/no-go below).
+2. **The 64 holes are SEPARATE and are the §49 MERGE-ANNULUS WALL.** From `diag_holes_overlaps`: the 64
+   above-TD holes are 2 continuous regions — CS1 gap3 (22 sample rays, elev ~0.29-0.56) + CS2 gap17 (42
+   rays, elev ~-4.9..-5.0). Traced CS1 gap3 to root: B4's raw stack SILT(u3)/ZAND(u4)/SILT(u5);
+   `extractEnclosedLenses` extracts u4 ZAND as the enclosed lens and MERGES u3+u5 SILT into one band
+   (`above.baseElev = below.baseElev`, u5 spliced). So u5 SILT is the MISSING one-flank lens (its own loop
+   never closes) and u4 ZAND is MERGED-AWAY (1/2 carrier flanks) — the hole opens exactly where u5's second
+   flank should close the annulus. This is the identical nested-enclosure tension §49 documented: the
+   annulus needs the merge for CONTINUITY, each interbed needs the un-merge for its own CLOSED loop, and a
+   partition can give the elevation to only one. §49 built THREE constructions (naive un-merge: g3/g17 close
+   but +180 holes elsewhere; annulus-preserving keep-raw: +57 holes at CS1 g15; both-un-edged gate: 0 new
+   holes but un-merges only 2 units, not col18). The current tools (S45 raw seeds, S47 raw tie roots) do
+   NOT dissolve this tension — they fixed tie-DROP and merged-minority SEED identity, not the annulus
+   GEOMETRY. The MISSING 5-lens + MERGED-AWAY 8 + the 3 overlap slivers (Stage B) all belong to this ONE
+   wall.
+
+**GO/NO-GO — why the substrate-carry (part 1) was NOT shipped despite being sanctioned.** The seed gate
+(`partitionFillV2.seedGate.diag.test.ts`) DUPLICATES the classifier inline (it does not call
+`classifyFaceSeed`), so a `carry-seed` class is a coordinated multi-place change: shared `seedClassifier`
++ the gate's inline copy + `labelFaces` + the ratchet counting. AND the 8o flood half (90 faces) is NOT a
+blanket legitimize — ruling 8o itself says "if a hole's boundary carries ZERO or MORE THAN ONE unterminated
+lithology, ASK the owner, never pick", so each of the 90 needs a per-face unterminated-litho check with an
+owner-ask fallback. Shipping only the substrate half moves the 152 ratchet without the flood half = exactly
+the "partial fix / gaps" ruling 7 forbids. This is bigger than one atomic gate-clean step and mixes a
+sanctioned mechanical change (substrate) with a genuine per-face geological judgement (flood 8o) — held for
+a dedicated, correctly-scoped session rather than force a half-landing.
+
+**ASK-FIRST for the owner (the §49 wall, unchanged and now re-confirmed with the newer tools):** the
+CS1-gap3 / CS2-gap17 render holes + the 5 MISSING lenses + 8 MERGED-AWAY + 3 overlap slivers are ONE wall
+— the nested-enclosure annulus. Closing them requires the sanctioned **column-vertical-split / notch-splitter
+geometry rebuild** (split the merged matrix band's column vertical AND its annulus geometry at each lens
+contact so every interbed owns its own closed loop while the matrix stays continuous). §49 flagged this as
+NOT a gate-tweak but a multi-day rebuild and asked whether it is the sanctioned build shape; that question
+is still open. Recommended split for the finale: (Q1) sanction the notch-splitter rebuild as the build for
+the g3/g17 annulus holes + MISSING/MERGED-AWAY + overlaps (one geometry track); (Q2) sanction the
+substrate-carry (8n) + flood (8o) seed reclassification as a SEPARATE classifier track (no render change,
+moves the 152 ratchet), with the per-face 8o ambiguity surfaced case-by-case per ruling 8o's own ask
+clause. Per the mandate ("a measured wall report beats a forced trade-off") + `feedback_ask_domain_questions_dont_bugfix`,
+neither track was force-built.
+
+FILES TOUCHED: `partitionFillV2.lineStageDiff.diag.test.ts` (prefix-aware matcher, diagnostic only).
+v1 `utils/partitionFill/` + app READ-ONLY. NO git ops. Env used: SHAPE_AUDIT / HOLES_DIAG only (allowlisted).
