@@ -385,6 +385,27 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8s. **MIXED-ENCLOSURE LENS KEEPS 0.45 — THE MATRIX DETOURS; an overlap
+   is a region-construction defect, never a reason to cap (owner,
+   2026-07-19, S46 ask-first on the real CS1 gap5 exemplar — S7's sand
+   [5.79..5.19] between silts opening 43 m toward S12): ruled "0.45
+   stands, matrix detours".** A corr-0 lens whose 0.45 wedge crosses
+   NO correlation line art keeps the FULL 0.45 reach even when its
+   enclosing hosts are two different lithologies and the wedge opens
+   into space filled by the surrounding regions — the surrounding
+   litho flows AROUND the wedge (the 8g detour); the wedge lines split
+   the surrounding region, so fill-between-the-lines makes overlap
+   impossible BY CONSTRUCTION. Consequences: (1) the facing-sample
+   caps are DELETED (`enclosedLensReach` facingDiffers,
+   `drawTermination` facingCompetes) — the ONLY reach shortener is a
+   genuine wedge-vs-correlation-art collision (drawn ties + bridges +
+   band contours; never scaffolds, never litho sampling), which drops
+   to the 8b-rev thickness rung; (2) the 3 measured cm-slivers this
+   exposes (CS1 gap5 ZAND×SILT 14.7 cm; CS2 gap13 KLEI×ZAND 24.3 cm +
+   ZAND×KLEI 2.8 cm) are identity-pinned ENGINE DEFECTS — the
+   enclosing region's contour must clip around the lens wedge
+   (lensEnclosure contour clip); until that lands they ride an
+   explicit ratchet, they do not justify re-capping the lens.
 8r. **LINES BEFORE THE MERGE — termination line art is emitted on the
    RAW PICKED UNITS, never on merged hosts (owner, 2026-07-19, paint-
    tool dogfeed on 23/125-S7's middle clay, verbatim): "the middle
