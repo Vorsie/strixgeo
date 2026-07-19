@@ -5231,3 +5231,58 @@ AFTER-STEP NOT DONE (env not allowlisted): `scripts/diag_cs1_flip_walkthrough.js
 `scripts/gen_paint_tool.mjs` left untouched. v1 `utils/partitionFill/` + app READ-ONLY. NO git ops.
 Full utils: only the KNOWN pre-existing reds (`convergingStack (a)` VEEN-notch synthetic; `cs1frozen` when run
 AFTER convergingStack = the flag-leak, GREEN 6/6 in isolation; `PartitionFillOverlay.test.tsx` V2P1-3).
+
+## §53 — Session 47: RULING-8r STAGE-B — THE TWO DROPPED MANUAL TIES FIXED (raw-contact tie resolution; SHIPPED, all gates exact/better)
+
+The §52 ask-first was RESOLVED by the orchestrator via rulings 8r + 8p (NOT a new owner call): NEITHER
+re-root nor subsume — "i want the lines before the merge (first fill then merge)". A drawn tie is input line
+art on its RAW picked contact; the merge is a paint-level weld with no authority over the owner's line art.
+Every approved tie emits at its RAW picked contact elevation regardless of what the pre-merge did to the
+normalised stack.
+
+**ROOT CAUSE re-confirmed (probe, now removed).** CS1 col21 = GEO-23/125-S5 raw stack (top→base):
+dde2 SILT[11.38..10.36] / dde3 ZAND[10.36..9.76] / **dde4 SILT[9.76..9.23] (EDGED — carries the two dropped
+ties)** / dde5 ZAND[9.23..8.88] / dde6 SILT[8.88..7.96, EDGED]. `extractEnclosedLenses` treats dde5 (ZAND) as
+an enclosed lens (above=dde4 SILT == below=dde6 SILT); its below-edged branch (`sectionGeom.ts` ~L390-397)
+grows dde6 UP (`below.topElev = above.topElev` → 9.76) and `splice(k-1, 2)` removes dde4 + dde5 — so **dde4's
+layerId vanishes from the normalised stack** (probe confirmed NORM col21 = dde2/dde3/dde6). dde4's two approved
+TOP ties (dde4↔ddeb col20 SILT-top, dde4↔ddef col22 SILT-top) then miss `layerLoc` in `resolveTies` →
+`continue` → DROPPED. (§52's text mislabelled the endpoints as `[base]`/S5A-S5B-base; the actual drops are dde4
+TOP ↔ ddeb/ddef TOP; dde6's base ties survive because dde6 survives. The 3 conformance "MOVED" were the greedy
+matcher cross-matching those two dropped dde4-top raw edges to nearby emitted curves at the coincident 9.76
+contact.)
+
+**THE FIX (raw-contact tie resolution — line art only, no re-map/suppress/un-merge).**
+`buildSectionInput` now captures a `rawLayerContacts: Map<layerId, {colIndex, topElev, baseElev}>` from EVERY
+column's stack BEFORE `extractEnclosedLenses` mutates it (keyed by the surviving geom index), attached
+additively to `SectionInput` (`RawLayerContact` type). `resolveTies` gains a `resolveEndpoint(layerId)` helper:
+normalised `layerLoc` first, RAW fallback on miss (`ui = -1`). A `-1` unit index is harmless to every
+band/corr consumer — `collectGapBands` guards `if (!lu || !ru) continue`, `effectiveCorr`/`emitIntervals`
+likewise — so the spliced-out unit's tie emits as PURE LINE ART at its raw contact (col21 x=801.4, y=9.76 =
+the existing dde3.base/dde6.top shared-contact vertex, so the root lands on real line art), WITHOUT re-mapping
+onto or reshaping a surviving unit's band structure. flag-OFF: the merge never splices an edged unit into a
+raw-only case there, and the fallback only fires on a `layerLoc` miss → byte-identical. FILES: `sectionGeom.ts`
+(`RawLayerContact` type + `SectionInput.rawLayerContacts` field + capture loop + both return sites),
+`emitCurves.ts` (`TieEndpoint` + `resolveEndpoint` raw fallback in `resolveTies`).
+
+**MEASURED — all acceptance met or better:**
+* Tie-conformance (SHAPE_AUDIT=1): GRAND rawEdges=446 **DROPPED 2→0, MOVED 3→0**, INVENTED 0. CS1 DROPPED 2→0.
+  Raw-vs-engine endpoint match CS1 = 111/111 (all raw edges emit at matching endpoints; per-section defect
+  lines print only on non-zero, so only the clean GRAND line remains).
+* Holes/overlaps ratchet: flag-ON holes **64** (unchanged), overlaps **EXACTLY the 3 pinned 8s slivers**
+  (CS1 g5 ZAND×SILT 14.7cm; CS2 g13 KLEI×ZAND 24.3cm + ZAND×KLEI 2.8cm) — no 4th, no growth. flag-OFF
+  **0/0/0 byte-identical**. The 2 new tie curves near S5 open NO hole/overlap (§49 wall cleared).
+* seedGate (SHAPE_AUDIT=1): **791 / single 623 / void 8 / zeroDef 152 / multiDef 8 / mergedMinority 0**,
+  paintMismatch 0 — byte-identical to baseline. The tie curves land on the existing 9.76 shared-contact vertex
+  → the DCEL unions them coincident, so NO new bounded faces (face count unchanged, not merely mislabel-free).
+* lineStageDiff: **OK 837 / MISSING 8 / COLLAPSED 2 / DANGLING 11 / MERGED-AWAY 8 / PHANTOM 1** — unchanged
+  (no regression; the S5 units' classes did not need to change — the drop was a resolution miss, not a
+  labelling defect).
+* CS1 gates 8/8. tsc clean. Full utils: **819 passed / 1 failed** = ONLY `convergingStack (a)` (the known
+  pre-existing §49 VEEN-notch synthetic red); `cs1frozen` GREEN in the full-run ordering.
+
+AFTER-STEP NOT DONE (env not allowlisted — DENIED twice, per RULES retry-once-then-STOP): `CS1_FLIP=1` regen
+of `scripts/diag_cs1_flip_walkthrough.json` — the ORCHESTRATOR must run
+`CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`.
+`scripts/gen_paint_tool.mjs` untouched. v1 `utils/partitionFill/` + app READ-ONLY. NO git ops. STUB (debt #201):
+`emitCurves.ts` now 541 lines (was 522) — the raw-fallback resolver could extract to a `resolveTies.ts` helper.
