@@ -4504,3 +4504,136 @@ sloping-enclosure wall, the one accepted flag-ON hole baseline); `literalCorr` (
 TRUE-untied interbed host-split, the +104-overlap annulus wall); `convergingStack (a)` (enclosed
 lens pokes past a corr-1 onlap host's flank — the 1 pre-existing red); the 8-of-436 MIXED-
 enclosure interior units (lens wedges fall back to facing-sampling — owner ruling pending).
+
+## §44 — Session 39: FLAG-ON dogfeed defects F1–F5 — DIAGNOSIS ONLY (no engine/gate edits)
+
+Owner dogfed the app on the CORRECT flag-ON engine (wiring fixed `4302a265d`) and found five
+fill defects; his meta-question: "Why are my simple 2/1/0 rules being broken?" This session is
+DIAGNOSIS ONLY — throwaway diags + this record. Fresh extraction `diag_allsections_input.json`
+(CS1 111 edges, CS2 172). Investigation names resolve via `scripts/diag_shape_audit_names.json`
+(the `nameOf` map the conformance gate uses). Bash: `cd .../desktop && CS1_GATE=1 npx vitest run
+<one file> --disableConsoleIntercept` WORKS; multi-file vitest / `>` redirects / `node -e` with a
+trailing `;echo` are DENIED (use one file per call, Grep/Read tools, the input via `node -e`
+single-command). Throwaway: `partitionFillV2.throwaway_s39_dump.diag.test.ts` (CS1_GATE=1 gated).
+
+### GATE MOVEMENT on the fresh input (data movement, NOT regression — gates NOT edited)
+- holes_overlaps: FLAG-OFF 0/0/0, FLAG-ON 20/0/0 (all CS2-g17). Pin HOLDS.
+- conformance: `0corr-not-lens 5 · 1corr-not-onlap 5 · 2corr-not-band 0` (=10 real) · 8e-enclosure
+  48 · q3-legit 5 · reach-cap(adv) 2 (was `5/14/0`=19, 8e 52 on the OLD extraction — the owner
+  drew new correlations, so the residual DROPPED; movement, not fix). Named residuals now include
+  the finding spots (CS1 gap7 SILT absent; gap18 ZAND / gap19 KLEI full-width; gap20/gap22 ZAND
+  absent; gap22 SILT band; Tie-10/12 rows; CS2 gap13 SILT).
+
+### The FIVE findings — reproduced on the fresh input, root-caused, classified (NAMES MAPPED)
+Column map (CS1): col2 GEO-10/171-B6, col3 1411-GEO-23/126-B4, col12 1411-GEO-23/126-B3, col16
+1411-GEO-23/126-B2, col17 GEO-23/125-S7A, col23 GEO-10/170-S11.
+
+- **F1 diagonal band — CS1 gap2 (B6↔B4). ROOT: STEEPLY-DIPPING TIE + straight band-contour geometry
+  (emission/face-topology).** B6's SILT top sits at el 6.28, B4's SILT top at 13.13 — a 6.85 m dip
+  across the gap. The matched SILT top-tie (+ the derived KLEI-below top-tie = SILT base) draws
+  the band's top/base contours as STRAIGHT left-elev→right-elev lines (`emitBandContourCurve`,
+  emitBands.ts:188-217; contours use each unit's OWN `baseElev`, `collectGapBands` :107-109). A
+  band bounded by two steeply-dipping straight ties traces a face that geometrically CROSSES the
+  intervening units: the SILT band collapses to a point on the left (`SILT quad poly (1.0,7.51)
+  (1.0,13.13) (0.0,6.28) (0.0,6.28) (1.0,7.13)`), and the KLEI-below's top-tie draws diagonally
+  from the L-KLEI-base 3.67 to the R-ZAND-top 7.13 (`KLEI quad poly (0.0,3.67)(1.0,7.13)(0.0,6.28)`)
+  — exactly the owner's "silt base runs from silt-top-LEFT to clay-bottom-RIGHT crossing two units,
+  clay fills the leftover next to the silt." Min-fix direction: a band contour riding a dipping tie
+  must NOT be a single straight segment across a gap where the facing contact is >~1 unit-thickness
+  away in elevation — the S7A linearisation class the design §4 table claims v2 "cannot occur"
+  because "the boundary passes through each tied contact." It DOES occur for a matched pair whose
+  two columns' tied contacts sit at very different elevations (no intervening column to pin it).
+- **F2 lens fill short of 0.45 — every wide-gap lens. ROOT: the ruling-8b `2×thickness` cap
+  (`lensReachM`, lensReach.ts:52) (fill geometry / RULING DISAGREEMENT).** MEASURED across all lens
+  regions: apexReach == `2×thickness/gapWidth` to 3 dp in EVERY wide-gap row (CS1 gap0 KLEI thick
+  1.24 m gap 73.5 m → reach 0.034; gap3 SILT 0.014; gap18 SILT 0.028; CS2 gap0 SILT 0.051; …). Only
+  NARROW gaps (≤~3 m) reach the 0.45 floor. The owner's stated expectation is "0.45 unless it
+  collides with a sloping correlation" → the `2×thickness` cap contradicts it. F2(a) line-vs-fill:
+  NO independent computation — `emitLens` (drawTermination.ts:292) and `emitLensClosing`
+  (emitIntervalLenses.ts:245) BOTH route the apex through `lensReachFraction`, and the flood wedge
+  (drawTermination.ts:293/318) shares the same capped `apexX`; the boundary lens
+  (emitBoundaryLens.ts:131) also uses `lensReachFraction`. So flank-line and fill agree; the
+  "flank reaches 0.45" the owner perceives is his 0.45 mental model / the adjacent correlation
+  line, NOT a separately-drawn 0.45 flank. Enumerated shrink paths (all `lensReach.ts`): (i)
+  `lensReachM` `2×thickness` cap :52; (ii) `fitLensReach` halving :127-149 (converging-bracket
+  conflict, halves further); (iii) `MIN_REACH_FRACTION` floor 1e-3 :34. Min-fix direction: OWNER
+  RULING — either drop/relax the `2×thickness` cap (restore flat 0.45, keep only the `fitLensReach`
+  collision-halving), or keep the cap and accept the halo look. Not an engine BUG — the cap is
+  ruling 8b as written; owner must re-rule.
+- **F3 SILT lens → CLAY lens — CS1 gap12 (right of B3), 2nd SILT from top el[8.48..5.98]. ROOT:
+  `lensEnclosingMatrix` walks PAST the immediate different neighbour (labelling).** The SILT is
+  enclosed by KLEI-above / ZAND-below (DIFFERENT → per ruling 8n(b) this is the "no common
+  enclosure → ASK-FIRST → null" case). But `lensEnclosingMatrix` (lensEnclosure.ts:56-88) ranks by
+  DISTANCE and returns any formation appearing in BOTH the up- and down-walk — it found KLEI
+  reappearing deeper on the down-walk and returned KLEI, so the wrap past the SILT apex is painted
+  KLEI. MEASURED region: `SILT quad f[0..0.144] e[5.98..8.48]` (silt near column) + `KLEI quad
+  f[0..0.5] e[7.23..8.48]` (clay outer portion) — the owner's "silt near the column, clay in the
+  outer portion" verbatim. The walk-past is meant only to skip a SIBLING MINORITY (another thin
+  lens, the col18 SILT/VEEN stack), but it cannot distinguish "skip a thin sibling" from "skip a
+  thick genuine neighbour" — so a minority with genuinely different thick above/below gets a wrong
+  wrap instead of null/ask-first. Min-fix direction: `lensEnclosingMatrix` must require the
+  enclosure to be the IMMEDIATE same-formation wrap (8g "same litho on both open ends"), walking
+  past ONLY sibling minorities (thin, or corr-0 lenses), and return null when the immediate
+  thick above ≠ below.
+- **F4 CLAY above a sand-top↔clay-bottom band — CS1 gap16 (B2↔S7A). ROOT: dipping band-top contour
+  leaves a sliver labelled from the own-column KLEI vertical (face topology / labelling).** S7A
+  (col17, right) is a SINGLE-unit SILT column (11.46..10.42, TD 10.42). The SILT band top runs from
+  (0.0,10.05) to (1.0,10.42) — a dip. A small KLEI triangle `KLEI quad f[0..0.262] e[10.05..10.42]`
+  (`poly (0,10.42)(0,10.05)(0.262,10.42)`) fills the sliver ABOVE the dipping band-top on the left
+  — labelled KLEI because it is bounded by col16's top-KLEI vertical (`resolveLabel` length-weights
+  the bounding column verticals, labelFaces.ts:206/235-274). The owner's "clay fill sits above the
+  band's top line where sand should be, a band litho crossing its own boundary" = this sliver.
+  Min-fix direction: same class as F1 — a band-top contour that dips must own the space up to the
+  surface on BOTH columns, or the sliver above it must be labelled from the band, not from the
+  adjacent column's vertical. Face-ownership under a dipping contour.
+- **F5 bottom SILT onlaps left not right — CS1 gap22 (S5B↔S11), S11=col23 (RIGHTMOST). ROOT:
+  right-side termination absorbed by the deep ZAND/KLEI substrate band (emission — the documented
+  absent/absorbed terminations-first class).** S11's bottom SILT el[-6.21..-7.53] sits between a
+  DEEP ZAND (6.74..-6.21) and the bottom KLEI (-7.53..-13.37). MEASURED: the gap22 deep regions are
+  `ZAND quad e[-7.53..6.88]` + `KLEI quad e[-13.37..-6.70]` — the thin SILT is SWALLOWED into these
+  spanning same-litho/substrate faces (no separate SILT face traced on S11's own side); it renders
+  only where it can lens toward S5B (its LEFT / only gap — S11 is the section edge, there is no
+  right gap). This is the SAME absent/merged-trace class §4's "Ruling-8e Milestone 2" + "STOPPED
+  WITH GEOMETRY" rows document: an enclosed/near-bottom minority whose lens closing IS emitted but
+  whose face is absorbed by the enclosing/substrate flood (holes=0 so `splitAnnulus` never fires).
+  Min-fix direction: the two-sided terminations-first interval restructuring — the same one every
+  residual routes through.
+
+### SYNTHESIS — "Why are my simple 2/1/0 rules being broken?"
+The 2/1/0 CLASSIFICATION is correct and single-source (`effectiveCorr`). The breakage is ENTIRELY
+downstream, in the FACE GEOMETRY + LABELLING, and the five findings share TWO structural seams —
+NOT the rules:
+
+1. **Line-art geometry ≠ face geometry (F1, F4, and F5's absorption).** The rulings assume "the
+   fill is the face-fill of the line art" (8n) — but the emitted line art (straight band contours
+   between two columns' own contact elevations) does NOT bound the faces the rules intend when the
+   tied contacts DIP steeply (F1: 6.85 m dip → the band crosses two units) or when a contour dips
+   under a sliver (F4). And a same-formation/substrate FLOOD face, being one continuous traced
+   face, ABSORBS a minority whose termination has no separating own-face (F5). The single root:
+   **the arrangement traces faces from the emitted curves, but the emitted curves are per-pair /
+   per-column straight segments that do not form the closed cells the 2/1/0 rules describe.** A
+   band is not "two ties + fill between them" when the ties dip across intervening lithology.
+2. **Labels sampled/walked instead of derived from the immediate bounding line art (F3, F4).** F3's
+   `lensEnclosingMatrix` distance-walk and (documented) `emitFloodWedge` facing-fallback both pick
+   a litho by SEARCHING (nearest common formation / nearest facing unit) rather than reading the
+   IMMEDIATE enclosure. When the search over-reaches (past a genuine thick neighbour), the wrap
+   gets a wrong litho. F4's `resolveLabel` length-weights the bounding column verticals — correct
+   for a clean cell, wrong for a sliver a dipping contour orphaned.
+
+**The ONE structural change that closes the class:** the design's own deferred item — the
+**interval-level, per-gap, two-sided terminations-first restructuring** (design §4 rows "Ruling-8e
+Milestone 2", "FINAL SHAPES", §8 ruling 8c). Every finding routes through it: F1/F4 need band/
+contour faces that ride the ACTUAL tie path (not a straight cross-gap segment) so a face never
+crosses a unit it doesn't own; F5 needs per-unit termination faces the flood cannot absorb; F3
+needs the enclosure read as the immediate wrap (a by-product of emitting each unit's own
+termination face BEFORE the flood, so the wrap is the neighbour the face actually touches). The
+2/1/0 rules are not broken — the FILL that paints them is still assembled from straight per-pair
+contours + search-based labels + a flood that absorbs un-separated minorities, exactly the seam
+§4 has flagged "cannot land under the holes-0/0/0-per-milestone bar; its own red→green increment"
+since S34. F2 is the ONE finding that is NOT this seam — it is a live RULING (8b `2×thickness`
+cap) the owner must re-decide.
+
+Throwaway to `rm`: `desktop/src/renderer/src/utils/partitionFillV2.throwaway_s39_dump.diag.test.ts`.
+Diag scripts written this session (owner may keep or rm): none new — reused the frozen
+`diag_allsections_input.json` + `diag_shape_audit_names.json`. tsc clean with the throwaway
+present; v1 + all engine/gate files BYTE-UNTOUCHED (diagnosis only).
