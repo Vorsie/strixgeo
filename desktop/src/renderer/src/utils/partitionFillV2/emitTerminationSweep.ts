@@ -51,9 +51,11 @@ import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
+import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
+import { LENS_PINCH_FRACTION } from '../partitionFill'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
@@ -316,8 +318,22 @@ function emitSideSweep(
  * exposes is a FILL construction defect to REPAIR (the flood's face ownership / its closure riding the
  * boundary polyline per 8n), never a reason to re-gate the emission. Each construction rides existing
  * line art, so it carves a hole-free lens out of the enclosing flood by design.
+ *
+ * SUB-TD GEOMETRY CONTEXT (audit item 4, S35). ``subTd === true`` selects the sub-TD flood context:
+ * a unit entirely below the FACING column's TD has NO facing enclosing formation to flood past its
+ * apex — the DEEP-TO-DEEP SUBSTRATE band (``emitSubstrate`` / ``emitBottomTieSubstrate``, already
+ * emitted) is the continuous flood the lens holes INTO (the col3 interbed-lens proof, session 9). So
+ * the sub-TD corr-0 lens emits ONLY the bare ``emitLensClosing`` pair (top→apex→base, 8b-capped at
+ * ``LENS_PINCH_FRACTION`` for parity with the session-13 sub-TD emission) — NO ``emitFloodWedge`` (that
+ * samples the FACING column, which is above the TD and carries no matrix at this elevation → a wrong
+ * label / an interior void). The substrate band's own rules (owner §8 Q3 empty voids, ruling 6
+ * tie-bounded floor, the deep-to-deep flat floor) are UNTOUCHED. This is the SAME corr-0 emission
+ * authority as the ordinary path (audit item 4 "ONE implementation") — the geometry context (which
+ * flood covers the vacated space) parameterises the FLOOD, never the emission decision (which is
+ * always the literal corr-0 lens; formationId never gates it). The 8n(b) sub-TD anchoring (the
+ * ``cs1subtdanchor`` band∩column intersect) lives in ``emitSubstrateBridges``, untouched.
  */
-function emitCorr0Termination(
+export function emitCorr0Termination(
   u: UnitGeom,
   ui: number,
   eff: EffectiveCorr,
@@ -333,7 +349,20 @@ function emitCorr0Termination(
   nextId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  subTd = false,
 ): void {
+  if (subTd) {
+    // SUB-TD: the deep-to-deep substrate is the flood. Emit ONLY the bare lens closing (no facing
+    // flood wedge) at the 8b-capped ``LENS_PINCH_FRACTION`` — byte-identical to the session-13
+    // sub-TD emission the M-in-M classifier used to gate. GEOMETRY only; ``ui``/extent/litho never
+    // gate it. The substrate band carves the hole around this closing by construction.
+    const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
+    const before = out.length
+    emitLensClosing(iu, colX, facingX, LENS_PINCH_FRACTION, nextId, out)
+    const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
+    for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)
+    return
+  }
   const isFirst = ui === 0
   const isLast = ui + 1 >= col.units.length
   // A multi-unit column's FIRST / LAST unit rides a boundary polyline (top band / shallow-TD floor) —

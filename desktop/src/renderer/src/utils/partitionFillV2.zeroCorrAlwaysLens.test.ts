@@ -219,8 +219,10 @@ describe('ruling 8i(e) — corr 0: emit that unit-side lens, always', () => {
     })
   })
 
-  // (c) — the SUB-TD M-in-M classifier. Un-skip in S35 (sub-TD rewrite).
-  describe.skip('the corr-0 sub-TD emission must not require a clean same-formation enclosure (RED verified S33: emitSubTdLenses M-in-M classifier skips a mixed-enclosure sub-TD corr-0 run; un-skip in S35)', () => {
+  // (c) — the SUB-TD M-in-M classifier. Un-skipped S35 (audit item 4): the M-in-M eligibility
+  // (no-above / same-above / no-matching-enclosure-below / bridge-run) is DELETED; every sub-TD
+  // corr-0 unit lenses via the shared ``emitCorr0Termination`` (sub-TD flood context).
+  describe('the corr-0 sub-TD emission must not require a clean same-formation enclosure (RED verified S33: emitSubTdLenses M-in-M classifier skips a mixed-enclosure sub-TD corr-0 run; un-skipped S35)', () => {
     it('(c) corr-0 SUB-TD unit with MIXED enclosure (no same-formation M-in-M annulus) emits its lens flank', () => {
       seq = 0
       // Column L is DEEP; column R is SHALLOW (TD at depth 4 → elev 6). Below R's TD, L carries a

@@ -4289,3 +4289,86 @@ skipped** (+1 pass, −1 skip vs the 796/27 with-throwaway baseline = the (b) un
 - STUB deleted this session (`rm` worked): `partitionFillV2.throwaway_s34_flagon.diag.test.ts`.
   Prior-session stubs (s33 one + s32 six + s31 three + s30 five + s29 two + s28 four + earlier) still
   pending orchestrator rm.
+
+## §40 — Session 35: AUDIT ITEM 4 SHIPPED — the sub-TD corr-0 M-in-M eligibility is DELETED; ONE shared corr-0 emission
+
+Mission (S35 of 6): delete ALL corr-0 suppression in the sub-TD path (`emitSubTdLenses.ts`) and
+share ONE corr-0 emission implementation with the ordinary sweep (audit item 4). Owner's law: "there
+can't be holes by design" — a hole a deletion exposes is a FILL defect to repair, never a reason to
+keep an eligibility check. Bash `npx vitest run <file>` + SINGLE env-prefix (`HOLES_DIAG=1` /
+`CS1_GATE=1` / `SHAPE_AUDIT=1`) WORK; bare `npx tsc --noEmit -p tsconfig.web.json` works. DENIED:
+multi-env-prefix combos in one line (`SHAPE_AUDIT=1 CS1_GATE=1 …` bounced — split), `grep`/`head`
+compounds via Bash (used the Grep tool). NO git ops (orchestrator commits).
+
+### THE MEASUREMENT THAT MADE IT TRACTABLE (probe, flag-ON, all 14 real sections)
+A throwaway probe (`partitionFillV2.throwaway_s35_probe.diag.test.ts`) replicated the M-in-M
+classifier's candidate walk over the 14 real sections: **exactly 2 sub-TD corr-0 RUNS (3 units),
+ALL emitted by the M-in-M classifier today, ZERO real-data skips.** The eligibility only suppressed
+SYNTHETIC edge cases. The two real runs:
+- **CS1 gap14 left u4 SILT** [ZAND above/below] el[-4.45..-6.32] — clean M-in-M, emitted.
+- **CS1 gap17 right u2..u3 run [SILT,VEEN]** [KLEI above/below] el[6.03..5.05] — 2-member run, emitted.
+Consequence: deleting the eligibility is REAL-DATA BYTE-IDENTICAL (the 3 units already lens); the
+only behavioural change is the synthetic edge cases un-gating (zeroCorrAlwaysLens (c)).
+
+### DELETION — `emitSubTdLenses.ts`: the M-in-M run classifier → per-unit loop
+Removed all four eligibility skips: the "no unit above" (`ui === 0`) skip, the "same lithology above"
+(`m === units[ui].formationId`) skip, the "no matching enclosure below" (`belowFid !== m`) skip, and
+the bridge/run suppression (`isBridged` + the `anyBridged` run bail). Replaced the run-classifier with
+a PER-UNIT loop: for every unit entirely below the facing TD with LITERAL corr 0 (`eff.corr === 0`),
+emit its lens. The BRIDGE guard is now STRUCTURAL not explicit — `effectiveCorrForSide` is called with
+`bridgeGapAnchored`, so a bridge-anchored deep-to-deep substrate band member reads corr ≥ 1 (ruling
+8i(e), §39) and is never a corr-0 candidate — the deleted explicit bridge guard was redundant (probe:
+0 bridge-flagged candidates). Deleted the `bridgeAnchorKey`/`emitLensClosing`/`IntervalUnit`/`UnitGeom`
+/`LENS_PINCH_FRACTION` imports; `bridgeAnchored` param kept for `emitCurves` signature parity, `void`ed.
+
+### THE SHARE — `emitCorr0Termination` EXPORTED + a sub-TD geometry context (audit item 4)
+`emitTerminationSweep.ts`: `emitCorr0Termination` is now EXPORTED with an added `subTd = false` param.
+The ordinary path (`subTd` false) is UNCHANGED (first/last → `emitBoundaryLens`, interior →
+`drawTermination(0)`). The sub-TD path (`subTd` true) emits ONLY the bare 8b-capped `emitLensClosing`
+pair at `LENS_PINCH_FRACTION` (0.45, parity with the session-13 sub-TD emission) — NO `emitFloodWedge`:
+sub-TD the FACING is above the TD and carries no matrix, so the deep-to-deep SUBSTRATE band (already
+emitted) is the flood the lens holes INTO (the col3 interbed-lens proof). This is the SAME emission
+authority as the ordinary sweep; the geometry context parameterises the FLOOD (which band covers the
+vacated space), never the emission decision (always the literal corr-0 lens; formationId never gates).
+`emitSubTdLenses`'s per-unit loop calls this shared helper with `subTd = true`, `shallowTD = Infinity`
+(ignored in sub-TD mode), and a `subtdflood`-prefixed floodId allocator (never allocates — no wedge).
+The 8n(b) sub-TD anchoring (`cs1subtdanchor` band∩column intersect) lives in `emitSubstrateBridges`,
+UNTOUCHED — it is load-bearing geometry, not an eligibility check.
+
+### NO FILL REPAIRS NEEDED
+Real-data byte-identical (the 3 sub-TD units already lensed), so no deletion-exposed hole. Flag-OFF
+holes/overlaps 0/0/0 (CS1 247 regions, CS2 249 — both unchanged); flag-ON 20/0/0 (all CS2-g17, the
+accepted wall, ZERO new). The synthetic zeroCorrAlwaysLens (c) (SAND-above/CLAY-below mixed enclosure)
+now lenses; subTdLens (c) (ZAND-in-ZAND) now emits a SAME-formation lens closing that the 8j merge
+welds — no different-litho overlap (the invariant the gate guards is unchanged).
+
+### ACCEPTANCE
+- **zeroCorrAlwaysLens (c)** (sub-TD corr-0, MIXED enclosure — S33 RED against the M-in-M classifier)
+  UN-SKIPPED → GREEN (RED S33 → GREEN S35). (a)(b)(d) stay green.
+- `cs1subtdanchor` (cs1gates 8/8) stays GREEN — the band∩column anchoring is untouched.
+- LENS_AUDIT MISSING 0 (32 present). subTdLens 3/3 (comments updated to the literal contract).
+- Flag-ON holes 20/0 (CS2-g17 baseline, ZERO new), overlaps 0. Flag-OFF 0/0/0 byte-identical.
+  conformance flag-OFF 5/5/0 = 10 (unchanged).
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+zeroCorrAlwaysLens (a)(b)(d)+(c NEW) · gap0HostSplit (A)(B)(C) · faceLabel8n 6/6 · edgedAnnulus ·
+followTieOnlap · literalCorr (a)(b) [(c)/(d) skipped col18] · oneCorrActualTie 3/3 · mergeAfterFill
+(non-skipped) · boundaryLens 6/6 · lensReach · cs1gates (CS1_GATE=1) 8/8 (incl. cs1subtdanchor) ·
+lensAudit (SHAPE_AUDIT=1) MISSING 0 · conformance flag-OFF 5/5/0=10 · coherentStack · coherentLoneStack ·
+bidirSweep · enclosedLensDetour · edgedLayers · lensEdged (skip) · subTdLens 3/3 · **tsc clean** ·
+full utils **1 failed (`convergingStack (a)` — PRE-EXISTING baseline) / 798 passed / 26 skipped**
+(+1 pass vs the S34 797 baseline = the (c) un-skip).
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/emitTerminationSweep.ts` (EDITED) — `emitCorr0Termination` EXPORTED + `subTd` param
+  (sub-TD flood context = bare `emitLensClosing`, no wedge); added `emitLensClosing`/`IntervalUnit`/
+  `LENS_PINCH_FRACTION` imports.
+- `partitionFillV2/emitSubTdLenses.ts` (EDITED) — M-in-M run classifier DELETED → per-unit loop calling
+  the shared `emitCorr0Termination(subTd=true)`; all four eligibility skips removed; import trims.
+- `partitionFillV2.zeroCorrAlwaysLens.test.ts` (EDITED) — un-skipped case (c) (RED S33 → GREEN S35).
+- `partitionFillV2.subTdLens.test.ts` (EDITED) — (c) description + comment updated to the S35 literal
+  contract (same-formation lens now fires but merges; the no-diff-overlap invariant is unchanged).
+- STUBS to delete (orchestrator `rm`): `partitionFillV2.throwaway_s35_flagon.diag.test.ts` (the forced-
+  flag-ON scan of record — regenerate with the AUDIT_PROMPT recipe), `partitionFillV2.throwaway_s35_probe.diag.test.ts`
+  (the sub-TD candidate probe). Prior-session stubs (s34 one + s33 one + s32 six + s31 three + s30 five
+  + s29 two + s28 four + earlier) still pending orchestrator rm.

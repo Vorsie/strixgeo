@@ -6,14 +6,17 @@
  * The gates encode the owner's acceptance in the RULE's vocabulary (NOT impl-shaped):
  *
  *   (a) MIXED MINORITY RUN — a run of 0-corr minorities where one member's formation IS the
- *       flooding substrate (trips the same-formation guard) and the others differ: the
- *       differing members each get their OWN hugging lens; the same-formation member merges
- *       into the substrate (no lens). The whole run does NOT bail.
+ *       flooding substrate and the others differ: the differing members each get their OWN
+ *       hugging lens (the DIFFERENT-litho invariant is what the gate checks).
  *   (b) SUB-FACING-TD UNIT — a 0-corr unit entirely below the FACING column's TD gets a
  *       per-side hugging lens carved into the deep-to-deep substrate; the partition stays
  *       hole-free and different-litho-overlap-free.
- *   (c) REGRESSION — a unit whose own formation IS the flooding substrate gets NO sub-TD lens:
- *       it merges (the same-formation-annulus wall).
+ *   (c) SAME-FORMATION SUB-TD UNIT — a sub-facing-TD ZAND minority in a ZAND substrate reads
+ *       LITERAL corr 0 too, so under ruling 8i(e) (S35, audit item 4 — the M-in-M eligibility
+ *       is deleted) it ALSO emits a lens closing; but the closing is SAME-formation as the
+ *       substrate, so the 8j post-fill merge welds it and NO DIFFERENT-litho overlap results.
+ *       The invariant the gate guards (no different-litho overlap on the sub-TD gap) is
+ *       unchanged whether the same-formation lens fires or not.
  *
  * FIXTURE SHAPE: a shallow-ish PRE column P, a DEEP column L carrying the interbed, and a
  * SHALLOW middle M. A deep-to-deep JUMP TIE P↔M... — actually: the interbed on L is EDGED to
@@ -181,9 +184,10 @@ describe('sub-TD per-side lens (owner ruling: 0-corr = lens same side, incl. sub
     assertNoDiffOverlap(regions, 1, -12, -6)
   })
 
-  // (c) REGRESSION / same-formation-annulus wall: a sub-facing-TD ZAND minority in a ZAND
-  //     substrate gets NO lens — no different-litho overlap on the sub-TD gap.
-  it('(c) a sub-facing-TD ZAND minority in a ZAND substrate gets no lens (merges)', () => {
+  // (c) SAME-FORMATION SUB-TD: a sub-facing-TD ZAND minority in a ZAND substrate reads corr 0,
+  //     so under 8i(e) (S35) it emits a lens closing — but same-formation as the substrate, so the
+  //     8j merge welds it and NO different-litho overlap results on the sub-TD gap.
+  it('(c) a sub-facing-TD ZAND minority in a ZAND substrate produces no different-litho overlap', () => {
     const { cols, edges } = fixture([
       { top: 6, base: 8, f: ZAND, layerId: '', edgeToP: true }, // SAME as neighbours
       { top: 8, base: 12, f: ZAND, layerId: '' },
