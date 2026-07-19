@@ -42,6 +42,7 @@ import { emitIntervalCurves } from './emitIntervals'
 import { emitSubstrateBridges } from './emitSubstrate'
 import { emitSubTdLenses } from './emitSubTdLenses'
 import { emitTerminationSweep } from './emitTerminationSweep'
+import { buildTerminationPlans } from './terminationPlan'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type CorrelationEdge } from '../partitionFill'
@@ -183,8 +184,18 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // ``isMinority`` gate also targets — but those units were already MERGED out of the column by
   // ``sectionGeom.extractEnclosedLenses``, so the sweep's ``isMinority`` never sees them).
   // Flag OFF: the seam-based ``emitIntervalCurves`` runs, byte-identical to the session-13 baseline.
-  if (twoSidedTerminationsEnabled()) {
-    emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves)
+  // THE TERMINATION PLAN (session 41, ruling 8p) — the single provenance-carrying authority the
+  // emission consumes instead of re-deriving corr/tie/geometry/apex per subsystem. Built HERE, once,
+  // AFTER the substrate bridges (so ``bridgeGapAnchored`` is populated) from the SAME classifier +
+  // geometry context the sweep used inline. ``jumpTies`` resolves the non-adjacent bridge edges into
+  // ``ResolvedTie`` provenance so a sub-TD/bridge corr-1 plan carries a real ``{kind:'resolved'}``
+  // tieRef (F5 — "corr=1 with TieRef=null cannot satisfy follow-the-actual-tie"). Only built on the
+  // flag-ON path (the seam path is untouched); flag-OFF stays byte-identical (plans = []).
+  const twoSided = twoSidedTerminationsEnabled()
+  const jumpTies = twoSided ? resolveJumpTies(survivingSection) : []
+  const plans = twoSided ? buildTerminationPlans(survivingSection, ties, jumpTies, bridgeGapAnchored) : []
+  if (twoSided) {
+    emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans)
     emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves)
     // RULED-EXEMPT band closures (round-3 Target 1): the sweep suppresses a termination for
     // every unit the owner ruled a BAND (8e / 8g(b) / corr-2 band member), but the flood does
@@ -218,7 +229,7 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // floor/curtain/bridge curves are untouched (owner §8 Q3 / ruling 6 preserved). Guarded so
   // a lens only fires where the flooding substrate DIFFERS from the unit (no same-formation
   // annulus — the session-9/12 sub-TD wall).
-  emitSubTdLenses(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves)
+  emitSubTdLenses(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans)
 
   return { curves, conflicts, activeTies: ties, lensLabels, bridgeGapAnchored }
 }
@@ -276,6 +287,82 @@ function emitSurfaceCurves(columns: readonly ColumnGeom[], out: InputCurve[]): v
       ],
     })
   }
+}
+
+/**
+ * Resolve every JUMP tie (a correlation edge spanning ≥ 2 columns) into ``ResolvedTie``
+ * records the termination PLAN consumes (ruling 8p — a sub-TD/bridge corr-1 must follow the
+ * RESOLVED bridge tie, never "corr=1 with TieRef=null"). Distinct from ``resolveTies`` (which
+ * emits only adjacent-gap tie CURVES); this produces the plan's provenance objects, ONE per
+ * anchored end, keyed to the gap+side the bridge spans TOWARD — the SAME directional convention
+ * ``emitSubstrateBridges`` uses to populate ``bridgeGapAnchored``:
+ *   - the LO anchor is tied looking RIGHT into gap ``loCi`` (side ``left``);
+ *   - the HI anchor is tied looking LEFT into gap ``hiCi - 1`` (side ``right``).
+ *
+ * Each record's NEAR endpoint (on ``side``) sits on the anchored column's tied contact; the FAR
+ * endpoint is the bridge line interpolated at the facing column's x. ``findBridgeTie`` (the plan
+ * resolver) matches a record by its near unit/contact — directly, or via the derived-base rule
+ * (a top anchor on unit k+1 shares unit k's base). The plan then carries a ``{kind:'resolved'}``
+ * ref, so the F5 sub-TD onlap follows the real bridge line rather than a null ref.
+ */
+export function resolveJumpTies(section: SectionInput): ResolvedTie[] {
+  const { columns } = section
+  const out: ResolvedTie[] = []
+  const layerLoc = new Map<string, { ci: number; ui: number }>()
+  for (let ci = 0; ci < columns.length; ci++) {
+    for (let ui = 0; ui < columns[ci].units.length; ui++) {
+      layerLoc.set(columns[ci].units[ui].layerId, { ci, ui })
+    }
+  }
+  let seq = 0
+  for (const e of section.edges) {
+    const la = layerLoc.get(e.a)
+    const lb = layerLoc.get(e.b)
+    if (!la || !lb) continue // endpoint not in this section
+    if (Math.abs(la.ci - lb.ci) < 2) continue // adjacent (or same) → an ordinary tie, not a bridge
+    const loLoc = la.ci < lb.ci ? la : lb
+    const hiLoc = la.ci < lb.ci ? lb : la
+    const loSide = (la.ci < lb.ci ? e.aSide : e.bSide) ?? 'top'
+    const hiSide = (la.ci < lb.ci ? e.bSide : e.aSide) ?? 'top'
+    const loU = columns[loLoc.ci].units[loLoc.ui]
+    const hiU = columns[hiLoc.ci].units[hiLoc.ui]
+    const loX = columns[loLoc.ci].x
+    const hiX = columns[hiLoc.ci].x
+    const loElev = loSide === 'top' ? loU.topElev : loU.baseElev
+    const hiElev = hiSide === 'top' ? hiU.topElev : hiU.baseElev
+    if (Math.abs(hiX - loX) < 1e-9) continue
+    // The straight bridge line in metres×elevation; sample it at the immediately-facing column of
+    // each anchor's own gap so the plan's far endpoint sits on the real bridge geometry.
+    const elevAt = (x: number): number => loElev + ((x - loX) / (hiX - loX)) * (hiElev - loElev)
+    // LO anchor: looks RIGHT into gap ``loLoc.ci`` (its own column is the gap's LEFT column). The
+    // FAR (right) endpoint is the bridge line at the next column's x.
+    const loFacingX = columns[loLoc.ci + 1]?.x ?? hiX
+    out.push({
+      gapIndex: loLoc.ci,
+      left: { x: loX, y: loElev },
+      right: { x: loFacingX, y: elevAt(loFacingX) },
+      leftSide: loSide,
+      rightSide: 'top',
+      leftUnitIndex: loLoc.ui,
+      rightUnitIndex: -1,
+      id: `jump${seq}lo:${loLoc.ci}-${hiLoc.ci}`,
+    })
+    // HI anchor: looks LEFT into gap ``hiLoc.ci - 1`` (its own column is that gap's RIGHT column).
+    // The FAR (left) endpoint is the bridge line at the previous column's x.
+    const hiFacingX = columns[hiLoc.ci - 1]?.x ?? loX
+    out.push({
+      gapIndex: hiLoc.ci - 1,
+      left: { x: hiFacingX, y: elevAt(hiFacingX) },
+      right: { x: hiX, y: hiElev },
+      leftSide: 'top',
+      rightSide: hiSide,
+      leftUnitIndex: -1,
+      rightUnitIndex: hiLoc.ui,
+      id: `jump${seq}hi:${loLoc.ci}-${hiLoc.ci}`,
+    })
+    seq++
+  }
+  return out
 }
 
 /**

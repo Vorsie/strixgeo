@@ -141,8 +141,19 @@ function resolveCorr1TieRef(
 
 /**
  * The jump tie (``ResolvedTie``) whose NEAR endpoint on ``side`` sits on ``unitIndex``'s
- * ``contact`` in ``gapIndex`` — the bridge tie a sub-TD/bridge onlap follows. ``null`` when no
- * jump tie anchors that contact (the caller falls back to the top-band ref).
+ * ``contact`` in ``gapIndex`` — the bridge tie a sub-TD/bridge onlap follows. Two provenance
+ * sources, mirroring ``tieRefForContact`` (``effectiveCorr.ts``):
+ *
+ *   1. DIRECT — the jump tie's near endpoint sits literally on THIS unit's own ``contact``.
+ *   2. DERIVED base (base only) — a jump tie's near TOP endpoint on the unit BELOW (``unitIndex+1``)
+ *      SHARES this unit's BASE contact (the ``§4 increment-2`` derivation: a top anchor on unit k+1
+ *      registers ``base`` of unit k in ``bridgeGapAnchored``, but the jump-tie endpoint lives on the
+ *      neighbour's top, not this unit's base). The real CS1 gap22 col23 SILT is exactly this shape —
+ *      its base is derived-anchored by the ZAND-top bridge below it, so a DIRECT match on
+ *      ``(unitIndex, 'base')`` finds nothing and the plan carried a null ref (the F5 hole).
+ *
+ * ``null`` when no jump tie anchors that contact directly or by derivation (the caller falls back
+ * to the top-band ref).
  */
 function findBridgeTie(
   jumpTies: readonly ResolvedTie[],
@@ -151,11 +162,19 @@ function findBridgeTie(
   unitIndex: number,
   contact: 'top' | 'base',
 ): ResolvedTie | null {
+  const nearUnit = (t: ResolvedTie): number => (side === 'left' ? t.leftUnitIndex : t.rightUnitIndex)
+  const nearSide = (t: ResolvedTie): 'top' | 'base' => (side === 'left' ? t.leftSide : t.rightSide)
+  // (1) DIRECT: the jump tie's near endpoint sits on this unit's own ``contact``.
   for (const t of jumpTies) {
     if (t.gapIndex !== gapIndex) continue
-    const nearUnit = side === 'left' ? t.leftUnitIndex : t.rightUnitIndex
-    const nearSide = side === 'left' ? t.leftSide : t.rightSide
-    if (nearUnit === unitIndex && nearSide === contact) return t
+    if (nearUnit(t) === unitIndex && nearSide(t) === contact) return t
+  }
+  // (2) DERIVED base: a TOP jump-tie on the unit BELOW (unitIndex+1) shares this unit's BASE.
+  if (contact === 'base') {
+    for (const t of jumpTies) {
+      if (t.gapIndex !== gapIndex) continue
+      if (nearUnit(t) === unitIndex + 1 && nearSide(t) === 'top') return t
+    }
   }
   return null
 }

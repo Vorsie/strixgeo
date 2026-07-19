@@ -204,6 +204,49 @@ describe('plan layer — follow the actual tie (ruling 8p: no corr-1 with null t
     expect(deep?.tieRef?.kind).toBe('resolved')
     expect(deep?.geometry, 'a unit entirely below the facing TD is sub-td geometry').toBe('sub-td')
   })
+
+  it('a DERIVED-base sub-TD corr-1 resolves the bridge tie on the unit BELOW (F5 real shape)', () => {
+    seq = 0
+    // The real CS1 gap22 col23 shape: a deep unit's BASE is bridge-anchored ONLY through the
+    // DERIVED-base rule — the jump tie's near endpoint sits on the TOP of the unit BELOW it, and a
+    // top-anchor on unit k+1 shares (derives) unit k's BASE contact (effectiveCorr § increment-2).
+    // So ``bridgeGapAnchored`` carries ``gap|right|k|base`` but the jump tie's endpoint is on
+    // ``(k+1, top)``. The plan MUST resolve the bridge tie via that derivation — else the corr-1
+    // plan carries a null tieRef (the measured F5 hole: col23 SILT reads corr 1, tieRef null).
+    // L is SHALLOW (SAND to depth 3 = elev 7, its TD). R is DEEP: SAND, then a deep SILT [4..6]
+    // (elev 6..4, sub-TD) over a deep ZAND [6..12]. R's deep ZAND is the bridge anchor (its TOP,
+    // elev 4, jump-tied); that top ANCHOR derives the SILT's BASE (the shared contact at elev 4).
+    const lSand = layer()
+    const rSand = layer()
+    const rSilt = layer()
+    const rZand = layer()
+    const columns: PartitionColumn[] = [
+      col('L', 10, [{ top: 0, base: 3, f: SAND, layerId: lSand }]),
+      col('R', 10, [
+        { top: 0, base: 4, f: SAND, layerId: rSand },
+        { top: 4, base: 6, f: SILT, layerId: rSilt },
+        { top: 6, base: 12, f: 'zand', layerId: rZand },
+      ]),
+    ]
+    const alongM = [0, 40]
+    const section = buildSectionInput(columns, [], undefined, alongM)
+    // The jump tie's near endpoint is on R's deep ZAND TOP (uindex 2, elev 4), looking LEFT into
+    // gap 0 (side 'right'); far endpoint on L's SAND base (elev 7). A top-anchor on uindex 2.
+    const jumpTies: ResolvedTie[] = [tie(0, 0, 7, 40, 4, 0, 2, 'base', 'top', 'bridgeDeriv')]
+    // The directional bridge-anchor set: the ZAND top anchors ``gap|right|2|top`` AND derives the
+    // SILT's base ``gap|right|1|base`` (a top-anchor on unit k registers base of unit k-1).
+    const bridgeGapAnchored = new Set<string>([
+      bridgeGapAnchorKey(0, 'right', 2, 'top'),
+      bridgeGapAnchorKey(0, 'right', 1, 'base'),
+    ])
+    const plans = buildTerminationPlans(section, [], jumpTies, bridgeGapAnchored)
+    // The SILT (uindex 1) is derived-base corr-1, sub-TD, and MUST resolve the bridge tie.
+    const silt = planFor(plans, 0, 'right', 1)
+    expect(silt?.corr, 'the derived-base SILT reads corr 1').toBe(1)
+    expect(silt?.geometry, 'the deep SILT below the facing TD is sub-td').toBe('sub-td')
+    expect(silt?.tieRef, 'a derived-base sub-TD corr-1 must resolve the bridge tie, never null').not.toBeNull()
+    expect(silt?.tieRef?.kind).toBe('resolved')
+  })
 })
 
 describe('plan layer — lens reach is 0.45 (ruling 8b-rev) + apex defaults', () => {

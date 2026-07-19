@@ -40,14 +40,25 @@
  */
 
 import { effectiveCorrForSide } from './effectiveCorr'
+import { tieRefFarElev } from './drawTermination'
 import { type ResolvedTie } from './emitCurves'
 import { emitCorr0Termination } from './emitTerminationSweep'
 import { type LensLabel } from './emitLenses'
-import { type ColumnGeom, type SectionInput } from './sectionGeom'
-import { type InputCurve } from './types'
+import { type TerminationPlan } from './terminationPlan'
+import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
+import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
+
+/** Whether both endpoints snap to the same 1 mm grid cell (inline to avoid a snap cycle). */
+function segmentDeg(a: Point, b: Point): boolean {
+  const SNAP = 0.001
+  return (
+    Math.round(a.x / SNAP) === Math.round(b.x / SNAP) && Math.round(a.y / SNAP) === Math.round(b.y / SNAP)
+  )
+}
 
 /** The near column's deepest base elevation (its own TD). */
 function columnTD(col: ColumnGeom): number {
@@ -89,6 +100,7 @@ export function emitSubTdLenses(
   bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
+  plans: readonly TerminationPlan[] = [],
 ): void {
   // Vestigial (ruling 8i(e)): bridges now feed the corr arithmetic, so the direction-blind
   // suppression set is no longer read by the sub-TD lens (a bridge-anchored deep unit reads
@@ -96,19 +108,92 @@ export function emitSubTdLenses(
   void bridgeAnchored
   const { columns } = section
   if (columns.length < 2) return
+  // Index the termination plans by (gap, side, unit) — the sub-TD emission CONSUMES the plan's
+  // authority (ruling 8p) rather than re-deriving corr/tie. A corr-1 sub-TD plan carries the
+  // resolved bridge tieRef (F5); a corr-0 plan drives the existing lens. The plan corr agrees with
+  // the local ``effectiveCorrForSide`` by construction (same classifier), so corr-0 dispatch stays
+  // byte-identical; the NEW behaviour is the corr-1 onlap the pre-plan pass dropped.
+  const planAt = new Map<string, TerminationPlan>()
+  for (const p of plans) planAt.set(`${p.gapIndex}|${p.side}|${p.unitIndex}`, p)
   let seq = 0
   const nextId = (): string => `subtdlens${seq++}`
   // A ``flood``-prefixed id space the shared helper needs for its (unused in sub-TD mode) flood
   // wedge; sub-TD mode emits no flood wedge, so this never allocates.
   let fseq = 0
   const nextFloodId = (): string => `subtdflood${fseq++}`
+  // A SEPARATE ``oflank`` id space for sub-TD onlap flanks (F5) — the same phase-2 onlap vocabulary
+  // the sweep uses, so ``labelFaces`` / the walkthrough diag treat it identically.
+  let oseq = 0
+  const nextOflankId = (): string => `subtdo${oseq++}`
   for (let gi = 0; gi + 1 < columns.length; gi++) {
     const left = columns[gi]
     const right = columns[gi + 1]
     // Each side's units lens toward the facing column when they sit below the FACING TD.
-    emitSideSubTd(gi, 'left', left, right, activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
-    emitSideSubTd(gi, 'right', right, left, activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
+    emitSideSubTd(gi, 'left', left, right, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
+    emitSideSubTd(gi, 'right', right, left, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
   }
+}
+
+/**
+ * Emit the F5 SUB-TD ONLAP — the ONE-line 8i(d) onlap (design §8) for a corr-1 unit entirely below
+ * the FACING TD whose plan resolved a real bridge tieRef. The unit's derived-anchored (or direct)
+ * contact rides the resolved bridge tie; the FREE contact flank pinches to the 0.5 apex ON that
+ * tie. Like the above-TD ``emitOnlap`` it is ONE closing flank (the tie itself is existing bridge
+ * line art bounding the other side), but with NO facing flood wedge — the deep-to-deep SUBSTRATE
+ * is the flood the onlap carves into (the sub-TD flood context, identical to the sub-TD lens). This
+ * closes the F5 hole: CS1 gap22 col23 u2 SILT read corr 1 (base derived-anchored by the ZAND-top
+ * bridge below) and the pre-plan pass dropped it (corr !== 0) → absent; now it onlaps its tie.
+ *
+ * Returns ``true`` when the flank was emitted, ``false`` on a physical degenerate no-op.
+ */
+function emitSubTdOnlap(
+  u: UnitGeom,
+  plan: TerminationPlan,
+  side: 'left' | 'right',
+  colX: number,
+  facingX: number,
+  lensLabels: Map<string, LensLabel>,
+  nextOflankId: () => string,
+  out: InputCurve[],
+): boolean {
+  const ref = plan.tieRef
+  // Only a RESOLVED bridge tie carries a far endpoint to ride; a null/top-band ref cannot anchor a
+  // sub-TD onlap (there is no surface polyline below the TD) — leave it to the lens fallback.
+  if (!ref || ref.kind !== 'resolved') return false
+  // Which of the unit's own contacts rides the tie (the plan's ``ownContact``): a base-tied onlap
+  // draws the free TOP flank; a top-tied onlap draws the free BASE flank.
+  const baseTied = ref.ownContact === 'base'
+  const tiedElev = baseTied ? u.baseElev : u.topElev
+  const facingTiedElev = tieRefFarElev(ref.tie, side)
+  const apexFrac = INTERIOR_PINCH_FRACTION
+  const apexX = colX + apexFrac * (facingX - colX)
+  const apexElev = tiedElev + apexFrac * (facingTiedElev - tiedElev)
+  // GEOMETRIC VALIDITY (physical, not policy — the "stay inside the lines" clamp): the 0.5 apex
+  // must lie within the unit's OWN elevation span. A bridge tie whose far endpoint rides a
+  // shallow-TD void floor ABOVE the unit's top (CS1 gap17 col18 u1 KLEI: far 10.42 > own top 10.11)
+  // pushes the apex OUT of the unit (apex 10.27 > top 10.11); the free flank then spans from above
+  // the unit through its whole height and CROSSES a neighbouring SILT lens (a 66 cm different-litho
+  // overlap — a hard partition violation). When the apex escapes the unit's span the onlap is
+  // geometrically invalid → no-op (the deep-to-deep substrate covers the slot, exactly the pre-plan
+  // absent behaviour for THIS unit); a valid sub-TD onlap (gap22 SILT/ZAND, gap14/16/21) keeps its
+  // apex strictly inside its own span and draws. This is the wedge-validity twin of the degenerate
+  // guard below, guarding the over-reach direction — never a formationId comparison.
+  const spanLo = Math.min(u.topElev, u.baseElev)
+  const spanHi = Math.max(u.topElev, u.baseElev)
+  if (apexElev > spanHi + ELEV_EPS || apexElev < spanLo - ELEV_EPS) return false
+  const apex: Point = { x: apexX, y: apexElev }
+  const topPt: Point = { x: colX, y: u.topElev }
+  const basePt: Point = { x: colX, y: u.baseElev }
+  // Degenerate guard: guard BOTH sub-segments (parity with the above-TD ``emitOnlap`` two-flank
+  // guard) so a sub-snap onlap drops the flank cleanly (the substrate flood covers the slot).
+  if (segmentDeg(topPt, apex) || segmentDeg(apex, basePt)) return false
+  const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
+  const id = `oflank${nextOflankId()}`
+  lensLabels.set(id, label)
+  // The ONE free-contact flank to the apex on the bridge tie (ruling 8i(d)). NO flood wedge — the
+  // deep-to-deep substrate is the flood; this flank carves the onlap face out of it by construction.
+  out.push({ id, kind: 'closing', points: baseTied ? [topPt, apex] : [apex, basePt] })
+  return true
 }
 
 /**
@@ -127,9 +212,11 @@ function emitSideSubTd(
   facing: ColumnGeom,
   activeTies: readonly ResolvedTie[],
   bridgeGapAnchored: ReadonlySet<string>,
+  planAt: ReadonlyMap<string, TerminationPlan>,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
   nextFloodId: () => string,
+  nextOflankId: () => string,
   out: InputCurve[],
 ): void {
   const facingTD = columnTD(facing)
@@ -142,15 +229,25 @@ function emitSideSubTd(
   const facingX = facing.x
   const units = col.units
   for (let ui = 0; ui < units.length; ui++) {
-    // A sub-TD corr-0 side: the unit sits entirely below the FACING TD AND reads LITERAL corr 0.
-    // Ruling 8i(e) "everything must lens" — no formationId comparison gates it; the shared helper
-    // emits its lens in the sub-TD flood context (the substrate carves the hole around the closing).
+    if (units[ui].topElev > facingTD - ELEV_EPS) continue // not sub-TD on this side
     const eff = corr[ui]
-    if (!eff || eff.corr !== 0) continue
-    if (units[ui].topElev > facingTD - ELEV_EPS) continue
-    emitCorr0Termination(
-      units[ui], ui, eff, col, facing, side, colX, facingX, gapIndex, Infinity,
-      activeTies, lensLabels, nextId, nextFloodId, out, true,
-    )
+    if (!eff) continue
+    const plan = planAt.get(`${gapIndex}|${side}|${ui}`)
+    if (eff.corr === 0) {
+      // A sub-TD corr-0 side (ruling 8i(e) "everything must lens" — no formationId gate): the shared
+      // helper emits its lens in the sub-TD flood context (the substrate carves the hole around it).
+      emitCorr0Termination(
+        units[ui], ui, eff, col, facing, side, colX, facingX, gapIndex, Infinity,
+        activeTies, lensLabels, nextId, nextFloodId, out, true,
+      )
+      continue
+    }
+    // A sub-TD corr-1 side (F5, ruling 8p): the pre-plan pass DROPPED this (corr !== 0) → the unit
+    // rendered absent (swallowed by the substrate flood). The plan resolves its bridge tieRef, so
+    // it now ONLAPS its bridge tie (one 8i(d) line, no facing flood wedge — the substrate is the
+    // flood). corr-2 sub-TD units are band members (given substrate/bridge line art) — not drawn.
+    if (eff.corr === 1 && plan) {
+      emitSubTdOnlap(units[ui], plan, side, colX, facingX, lensLabels, nextOflankId, out)
+    }
   }
 }

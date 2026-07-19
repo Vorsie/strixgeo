@@ -53,6 +53,7 @@ import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
+import { type TerminationPlan } from './terminationPlan'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
 import { LENS_PINCH_FRACTION } from '../partitionFill'
@@ -95,9 +96,17 @@ export function emitTerminationSweep(
   bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
+  plans: readonly TerminationPlan[] = [],
 ): void {
   const { columns } = section
   if (columns.length < 2) return
+  // Index the termination plans by (gap, side, unit) — the sweep CONSUMES the plan's authority
+  // (ruling 8p) for the dispatch (its ``corr`` + ``geometry``) rather than re-deriving it. The plan
+  // is built from the SAME ``effectiveCorrForSide`` + geometry context, so the dispatch is identical
+  // by construction (a divergence is an invariant break, asserted below); this makes the plan the
+  // single authority the whole downstream reads, per the S41 rebuild.
+  const planAt = new Map<string, TerminationPlan>()
+  for (const p of plans) planAt.set(`${p.gapIndex}|${p.side}|${p.unitIndex}`, p)
   // PART B (ruling 8i(e)): the direction-blind ``bridgeAnchored`` set is no longer read by the
   // sweep — bridges now feed the corr arithmetic (``bridgeGapAnchored``), so a bridge endpoint
   // carrier reads corr ≥ 1 (onlap/band, never a suppressed lens) and pass-through columns lens.
@@ -122,11 +131,11 @@ export function emitTerminationSweep(
     // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
     // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
     if (ci + 1 < columns.length) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
     if (ci - 1 >= 0) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out)
     }
   }
 }
@@ -148,6 +157,7 @@ function emitSideSweep(
   facing: ColumnGeom,
   activeTies: readonly ResolvedTie[],
   bridgeGapAnchored: ReadonlySet<string>,
+  planAt: ReadonlyMap<string, TerminationPlan>,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
   nextFloodId: () => string,
@@ -193,7 +203,12 @@ function emitSideSweep(
 
   for (let ui = 0; ui < col.units.length; ui++) {
     const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const, topTie: null, baseTie: null }
-    const c = eff.corr
+    // RULING 8p: the PLAN is the dispatch authority. Its ``corr`` + ``geometry`` decide the
+    // termination shape; the ``EffectiveCorr`` (``eff``) supplies only the draw-time tie geometry
+    // (topTie/baseTie provenance) ``drawTermination`` needs. The plan is built from the SAME
+    // classifier, so ``plan.corr === eff.corr`` by construction — a mismatch is an invariant break.
+    const plan = planAt.get(`${gapIndex}|${side}|${ui}`)
+    const c = plan ? plan.corr : eff.corr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
     // RULING 8l (CORR IS THE LITERAL COUNT — audit item 2, S34): the HIDDEN BAND PROMOTION
     // ``if (isBandMember) continue`` is DELETED. A ``collectGapBands`` matched-pair member is a
@@ -214,10 +229,13 @@ function emitSideSweep(
     // pair's flank; and the enclosing flood + 8j merge weld a same-litho run regardless. On ZERO
     // real intervals did this guard fire (measured — real same-formation runs collapse or read
     // corr-2), so its deletion is byte-neutral on real data; the literal rule now stands alone.
-    // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job (its
-    // M-in-M annulus + bridge guards are the safe sub-TD wall; the sweep defers so no double
-    // emit). Ruling 8i(e) "everything must lens" is honoured THERE (Part D relaxes its run-trim).
-    if (col.units[ui].topElev <= facingTD - ELEV_EPS) continue
+    // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job (the sweep
+    // defers so no double emit). RULING 8p: the PLAN's ``geometry === 'sub-td'`` is the authority
+    // (same facing-TD test, computed once in ``planGeometry``); fall back to the inline test when no
+    // plan exists (flag-OFF / test call without plans). ``emitSubTdLenses`` honours 8i(e) there —
+    // and now also the F5 sub-TD corr-1 onlap (a corr-1 sub-TD unit the sweep no longer touches).
+    const isSubTd = plan ? plan.geometry === 'sub-td' : col.units[ui].topElev <= facingTD - ELEV_EPS
+    if (isSubTd) continue
     const u = col.units[ui]
 
     if (c === 0) {

@@ -4693,3 +4693,76 @@ STAGE COMMIT-READY. Files added: `partitionFillV2/terminationPlan.ts`,
 corr-1 dispatch lands here). ASK-FIRST points deferred to S41.b/d, NOT S41.a (the plan faithfully
 encodes the classifier; the genuine rule gaps — a hole with zero/multiple unterminated lithos per
 ruling 8o — arise only when the 8o hole-fill runs at S41.d).
+
+### Stage S41.b — emission consumes the plans (SHIPPED; F5 sub-TD corr-1 onlap lands)
+
+The emission became a PLAN EXECUTOR. Three moves:
+
+1. **Jump-tie resolver** (`resolveJumpTies` in `emitCurves.ts`, exported) — the one new plumbing
+   item the S41.a handoff flagged: the plan wants `jumpTies: ResolvedTie[]` but `emitCurves`
+   produced bridges only as `kind:'tie'` curves. `resolveJumpTies` resolves every span-≥2 edge to
+   ONE `ResolvedTie` per anchored end, keyed to the gap+side the bridge spans TOWARD (the SAME
+   directional convention `emitSubstrateBridges` uses for `bridgeGapAnchored`: lo→`(loCi,left)`,
+   hi→`(hiCi-1,right)`), near endpoint on the anchored contact, far endpoint the bridge line at the
+   immediately-facing column. Built once in `emitCurves` (flag-ON only) and threaded into
+   `buildTerminationPlans`; the plan then carries a real `{kind:'resolved'}` sub-TD tieRef.
+2. **Derived-base bridge resolution** (`terminationPlan.ts` `findBridgeTie`) — the REAL CS1 gap22
+   col23 SILT is bridge-anchored ONLY through the derived-base rule: its base contact is
+   `bridgeGapAnchored` (`22|right|2|base`) but the jump-tie endpoint lives on the ZAND TOP of the
+   unit BELOW it. `findBridgeTie` gained the same derived-base derivation `tieRefForContact` has (a
+   TOP jump-tie on unit ui+1 shares unit ui's BASE). Without it the plan carried a null ref (the
+   measured F5 hole: the SILT read corr 1, tieRef null → absent). RED→GREEN gate added to the plan
+   test ("a DERIVED-base sub-TD corr-1 resolves the bridge tie on the unit BELOW").
+3. **Plan-executor threading** — `emitTerminationSweep` + `emitSubTdLenses` take `plans` and index
+   them by `(gap,side,unit)`. The SWEEP consumes `plan.corr` (dispatch corr) + `plan.geometry ===
+   'sub-td'` (sub-TD deferral authority) instead of re-deriving; the `EffectiveCorr` now supplies
+   ONLY the draw-time tie geometry `drawTermination` needs (documented). The plan is built from the
+   SAME classifier so the dispatch is identical by construction (byte-identical for already-correct
+   output). **F5**: `emitSideSubTd` previously dropped corr-1 (`eff.corr !== 0 continue`); it now
+   dispatches a corr-1 sub-TD unit with a resolved tieRef to the NEW `emitSubTdOnlap` — the one-line
+   8i(d) onlap riding the resolved bridge tie, NO facing flood wedge (the deep-to-deep substrate is
+   the flood, parity with the sub-TD lens).
+
+FLAG-ON RENDER DELTAS (every one characterised):
+- **CS1 gap22 col23 u2 SILT [-7.53..-6.21]** — the F5 RED-first acceptance: `absent` → `onlap`
+  (FIX). Proven RED on the pre-fix engine (`partitionFillV2.f5gate.diag.test.ts`, SHAPE_AUDIT=1),
+  GREEN after.
+- **CS2-g21 sub-TD holes** — dropped to 0 (the CS2-g21 sub-TD SILT/ZAND onlaps closed them). The
+  holes WALLS totals held at 64 (CS1-g3 22 + CS2-g17 42); CS2-g21 is no longer a sub-TD-hole wall.
+- **CS1 gap17 col18 u1 KLEI** — a MEASURED NEGATIVE, FIXED by construction (not reverted): the
+  general F5 dispatch first produced a 66 cm different-litho overlap (KLEI onlap × SILT lens, a hard
+  partition violation) because this unit's bridge tie far endpoint rides col17's shallow-TD VOID
+  FLOOR (10.42) ABOVE the unit's own top (10.11), pushing the 0.5 apex (10.27) OUT of the unit's
+  span → the free flank over-reached across a neighbouring SILT lens. ROOT-CAUSE = a geometric
+  validity break, NOT a policy gap: added the "apex must lie within the unit's own elevation span"
+  clamp to `emitSubTdOnlap` (the wedge-validity twin of the degenerate guard, the over-reach
+  direction; NEVER a formationId comparison) → the invalid onlap no-ops, the substrate covers the
+  slot (the pre-plan absent behaviour for THAT unit), and the overlap → 0. gap14/16/21/22 onlaps
+  keep their apex strictly inside their span and draw.
+- **Conformance FLAG-ON ratchet UNMOVED at 14** — the F5-fixed units are RIGHT-side / sub-TD deep
+  units the conformance classifier's left-unit sampling does not attribute to the pinned violation
+  set (the CS1-g22 / CS2-g21 SILT pins are the LEFT columns, different units). No new instance, no
+  silent disappearance → the ratchet holds. Pins UNCHANGED.
+
+BATTERY (S41.b): tsc clean; plan gate 6/6 (5 + the derived-base F5 case); F5 emission gate 1/1;
+holes flag-OFF 0/0/0, flag-ON 64 at the two remaining walls (CS2-g17 + CS1-g3), overlaps 0 both
+flags — HARD GATE GREEN both flags; conformance flag-OFF 10 / flag-ON 14 (ratchet HOLDS); cs1gates
+8/8; lensAudit MISSING 0; edgedAnnulus/faceLabel8n/followTieOnlap/gap0HostSplit/lensReach/
+mergeAfterFill/oneCorrActualTie/subTdLens/zeroCorrAlwaysLens all green (36/36); full utils suite 1
+failed (`convergingStack (a)`, the pre-existing red) / 813 passed (812 + the derived-base plan
+case) / 25 skipped. Flag-OFF byte-identical (plans=[] → planAt empty → every fallback to the inline
+path; holes 0/0/0 confirms). v1 + app BYTE-UNTOUCHED.
+
+Files changed: `partitionFillV2/emitCurves.ts` (+`resolveJumpTies`, plan build/thread),
+`partitionFillV2/terminationPlan.ts` (`findBridgeTie` derived-base), `partitionFillV2/
+emitTerminationSweep.ts` (plan-consuming dispatch), `partitionFillV2/emitSubTdLenses.ts`
+(`emitSubTdOnlap` + F5 dispatch). Files added: `partitionFillV2.f5gate.diag.test.ts` (F5 emission
+acceptance, SHAPE_AUDIT=1); plan test gained the derived-base case.
+
+ASK-FIRST / OWNER items surfaced (NOT bugfixed — per the ask-first directive):
+- The F5 sub-TD onlap's apex-in-span clamp DROPS an onlap when the bridge tie rides a shallow-TD
+  void floor above the unit (CS1 gap17 KLEI). This is geometrically correct (no over-reach) and the
+  substrate covers the slot, but the OWNER may want that unit to still terminate SOME way (a lens
+  hugging its column?) rather than fall to the substrate — a semantic call on "what does a sub-TD
+  corr-1 unit do when its tie escapes its own span". Left as-is (no invention).
+- Next: S41.c — band contours ride tie paths (NOT this stage).
