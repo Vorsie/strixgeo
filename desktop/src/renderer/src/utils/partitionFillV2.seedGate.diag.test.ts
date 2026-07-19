@@ -99,6 +99,10 @@ interface RawSection {
 }
 
 const COL_RE = /^col(\d+):u(\d+)$/
+// ``col<ci>:lens<j>`` — the ruling-8r / Step 4.1 enclosed-lens id split (emitCurves). The lens
+// interval of a merged host's column vertical carries this so the interbed's OWN face reads its
+// RAW litho (``enclosedLenses[j].lens.formationId``) instead of the enclosing matrix.
+const COL_LENS_RE = /^col(\d+):lens(\d+)$/
 
 /** Classification of a face under the seed invariant. */
 type SeedClass = 'single-seed' | 'explicit-void' | 'zero-seed-defect' | 'multi-seed-defect'
@@ -218,17 +222,33 @@ function seedRefsOfFace(face: Face, segCurve: Map<string, string[]>): string[] {
     if (edgeLen(a.x, a.y, b.x, b.y) <= MIN_SEED_EDGE_M) continue
     const ids = segCurve.get(segKey(ptKey(a.x, a.y), ptKey(b.x, b.y)))
     if (!ids) continue
-    for (const id of ids) if (COL_RE.test(id)) refs.add(id)
+    for (const id of ids) if (COL_RE.test(id) || COL_LENS_RE.test(id)) refs.add(id)
   }
-  return [...refs].sort()
+  // RULING 8r / STEP 4.1 notch-vs-hole resolution (mirrors seedClassifier.resolveNotchLensRefs):
+  // a ``col:lens`` edge on a face that ALSO carries a host ``col:u`` edge is a shared NOTCH boundary,
+  // not a seed — the enclosing matrix host owns the face. Only an INTERIOR-HOLE lens's own face
+  // (``col:lens`` edges ONLY) seeds the interbed litho.
+  const all = [...refs]
+  const hasHost = all.some((r) => COL_RE.test(r))
+  return (hasHost ? all.filter((r) => !COL_LENS_RE.test(r)) : all).sort()
 }
 
-/** Resolve a ``col<ci>:u<ui>`` ref to its unit's formationId (or null when out of range). */
+/**
+ * Resolve a column-vertical seed ref to its unit's formationId (or null). ``col<ci>:u<ui>`` ->
+ * ``units[ui]``; ``col<ci>:lens<j>`` (the id split) -> ``enclosedLenses[j].lens`` (raw interbed litho).
+ */
 function formationOfRef(ref: string, columns: readonly ColumnGeom[]): string | null {
   const m = COL_RE.exec(ref)
-  if (!m) return null
-  const u = columns[Number(m[1])]?.units[Number(m[2])]
-  return u ? u.formationId : null
+  if (m) {
+    const u = columns[Number(m[1])]?.units[Number(m[2])]
+    return u ? u.formationId : null
+  }
+  const ml = COL_LENS_RE.exec(ref)
+  if (ml) {
+    const el = columns[Number(ml[1])]?.enclosedLenses[Number(ml[2])]
+    return el ? el.lens.formationId : null
+  }
+  return null
 }
 
 /**
