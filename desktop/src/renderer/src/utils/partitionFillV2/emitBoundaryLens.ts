@@ -116,9 +116,12 @@ export function emitBoundaryLens(
   // The FREE contact corner (the flank the lens draws) is the OTHER contact.
   const freeElev = boundary === 'surface' ? u.baseElev : u.topElev
 
-  // Reach guard: the facing column must carry a lateral matrix at the free contact (else the
-  // apparent boundary is a data void, not a lens context — keep the enclosing flood's fill).
-  if (facingMatrixLabel(facing, freeElev) === null) return false
+  // RULING 8i(e) "EVERYTHING MUST LENS" (audit item 5, S34): the ``facingMatrixLabel === null`` reach
+  // guard is DELETED. A boundary corr-0 unit lenses regardless of whether the facing sample finds a
+  // lateral matrix — a formation/void comparison of the FACING column may never GATE this emission
+  // (the same letter-of-the-law that deleted the sweep's ``isMinorityWide``/``boundaryMinorityKind``).
+  // The remaining suppressions are PHYSICAL only: 8b reach-halving on a tie conflict, the genuine
+  // 1 mm snap degeneration, and the geometric validity of the emitted segment (all below).
 
   // Ruling 8b reach: start at the ~2× thickness cap, HALVE on conflict (owner 2026-07-16 —
   // "shorten the lenses by half if there is conflict with a tie") until the free flank fits.

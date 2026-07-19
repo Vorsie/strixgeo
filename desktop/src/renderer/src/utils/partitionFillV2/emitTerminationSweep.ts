@@ -47,13 +47,12 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { collectGapBands } from './emitBands'
 import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
 import { type ResolvedTie } from './emitCurves'
-import { effectiveCorrForSide, isBandMember, tiedFlags } from './effectiveCorr'
+import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
 import { type LensLabel } from './emitLenses'
-import { type ColumnGeom, type SectionInput } from './sectionGeom'
+import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -107,17 +106,6 @@ export function emitTerminationSweep(
   // A SEPARATE ``flood``-prefixed id space for the vacated-wedge closures.
   let fseq = 0
   const nextFloodId = (): string => `floodsw${fseq++}`
-  // Per-gap matched-pair bands, computed once and reused by BOTH the left-look and the right-look
-  // of the two columns bounding the gap (the gap is only the look-direction — ruling 8k).
-  const bandsOfGap = new Map<number, ReturnType<typeof collectGapBands>>()
-  const gapBands = (gi: number): ReturnType<typeof collectGapBands> => {
-    let b = bandsOfGap.get(gi)
-    if (!b) {
-      b = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
-      bandsOfGap.set(gi, b)
-    }
-    return b
-  }
   // RULING 8k — COLUMNS ARE GROUND TRUTH (owner, 2026-07-17: "you're looking at gaps not at
   // columns; on the columns the user's picked lithos are ground truth"). The primary loop is
   // COLUMN-first: for each column, for each unit of the user's picked stack, ask leftSide /
@@ -132,11 +120,11 @@ export function emitTerminationSweep(
     // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
     // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
     if (ci + 1 < columns.length) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], gapBands(ci), activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
     if (ci - 1 >= 0) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], gapBands(ci - 1), activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, lensLabels, nextId, nextFloodId, out)
     }
   }
 }
@@ -156,7 +144,6 @@ function emitSideSweep(
   colIndex: number,
   col: ColumnGeom,
   facing: ColumnGeom,
-  bands: ReturnType<typeof collectGapBands>,
   activeTies: readonly ResolvedTie[],
   bridgeGapAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
@@ -206,60 +193,47 @@ function emitSideSweep(
     const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const, topTie: null, baseTie: null }
     const c = eff.corr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
-    // RULING 8l EMERGENT BAND — a ``collectGapBands`` MATCHED-PAIR member (a same-side
-    // same-formation tie to the facing unit) is now corr-1 under the literal count (the promotion is
-    // deleted), but the EMERGENT band it forms is ALREADY filled FULL-WIDTH by
-    // ``emitEnclosingFlood``'s ``bandFids`` face — so it takes NO sweep termination (exactly as the
-    // old corr-2 ``continue`` did). Emitting an onlap here would add a redundant same-formation
-    // onlap ON TOP of that full-width fill and OVERLAP an enclosed lens sitting inside the band
-    // (the measured CS1 gap14/15 ZAND-quad × SILT-lens overlaps). The two facing members are the
-    // two conceptual halves of the emergent band; their shared full-width fill IS the meet-at-0.5
-    // outcome, and the 8j merge welds the pair into one body (final extent = the old promoted band).
-    // This suppression is DECOUPLED from the corr count — the arithmetic stays literal everywhere
-    // else (lens audit, conformance, genuine lone/derived onlaps), only matched-pair MEMBERS skip.
-    if (isBandMember(bands, side, ui)) continue
-    // SESSION-25 T4 — SAME-FORMATION MATRIX-RUN SUPPRESSION (ruling 8g(a) flow-around + 8j merge).
-    // A corr-1 unit whose IMMEDIATE same-column neighbour (above OR below) is the SAME formation is
-    // NOT a terminating minority — it is one enclosing MATRIX run split only by an EDGED contact (a
-    // tie landing at that shared contact; ``collapseAdjacentSameFormation`` already merged any
-    // un-edged same-formation adjacency, so a surviving same-formation adjacency means an internal
-    // correlation split it). Drawing its onlap emits a flood WEDGE labelled with the FACING minority
-    // litho (``facingMatrixLabel`` at the unit's mid-elev), which MISLABELS the through-going matrix
-    // full-width (the §18/§27 T4 defect: coherentLoneStack rKleiMid / coherentStack(b) rKm — a KLEI
-    // matrix reading full-width ZAND). The enclosing flood already fills this matrix full-width (same
-    // formation, continuous across the edged contact) and the 8j ``mergeTouchingBodies`` welds the
-    // run into one body, so the correct render is NO sweep termination here — exactly like the
-    // corr-2 band-member skip. Corr-0 is unaffected (its own ``isMinorityWide`` same-formation gate
-    // already floods a same-formation-neighbour unit). This fires on ZERO real intervals (measured):
-    // no real corr-1 unit has a surviving same-formation adjacency (real same-formation runs either
-    // collapse or read corr-2 band member). Gated inside the flag-ON sweep, so flag-OFF is untouched.
-    if (c === 1 && matrixRunNeighbour(col, ui)) continue
+    // RULING 8l (CORR IS THE LITERAL COUNT — audit item 2, S34): the HIDDEN BAND PROMOTION
+    // ``if (isBandMember) continue`` is DELETED. A ``collectGapBands`` matched-pair member is a
+    // literal corr-1 side (one own contact tied by the matched-pair tie); the normal corr-1 path now
+    // follows its ACTUAL tie (S33 TieRef) and 8m's ``matchedFacingSameLitho`` suppresses the flank
+    // for a SAME-formation matched pair (a matched pair is same-formation on both facing columns by
+    // ``collectGapBands`` construction), so the emergent band forms exactly as before — the
+    // enclosing flood fills it full-width (``bandFids`` face) and the 8j merge welds the pair — with
+    // NO extra onlap ON TOP of that fill. The corr arithmetic is literal everywhere; there is no
+    // band-shaped emission authority left in the sweep, only the literal 0/1/2 rule.
+    // RULING 8l (audit item 2, S34): the SESSION-25 T4 same-formation matrix-run suppression
+    // ``if (c === 1 && matrixRunNeighbour(col, ui)) continue`` is DELETED. An own-column same-litho
+    // neighbour is NOT a corr-1 rule — the literal 0/1/2 count is the only emission authority. The
+    // defect this guard papered over (a corr-1 onlap's flood WEDGE mislabelling the through-going
+    // matrix with the facing minority litho — §18/§27 rKleiMid/rKm) was ROOT-FIXED by S30's
+    // flood-wedge label source (§35): the wedge past a same-litho matrix reads the enclosing matrix,
+    // not the facing minority. The corr-1 8m follow-the-tie check already suppresses a same-formation
+    // pair's flank; and the enclosing flood + 8j merge weld a same-litho run regardless. On ZERO
+    // real intervals did this guard fire (measured — real same-formation runs collapse or read
+    // corr-2), so its deletion is byte-neutral on real data; the literal rule now stands alone.
     // Sub-TD deferral: a unit entirely below the facing TD is ``emitSubTdLenses``' job (its
     // M-in-M annulus + bridge guards are the safe sub-TD wall; the sweep defers so no double
     // emit). Ruling 8i(e) "everything must lens" is honoured THERE (Part D relaxes its run-trim).
     if (col.units[ui].topElev <= facingTD - ELEV_EPS) continue
     const u = col.units[ui]
 
-    if (c === 0 && !isMinorityWide(col, ui)) {
-      // WATERTIGHT BOUNDARY LENS (owner directive session 20, 2026-07-17: "lensing needs to be
-      // watertight by design"). A boundary minority — the FIRST unit (top rides the top band) or
-      // the LAST unit (base rides the shallow-TD floor) with a differing single neighbour — LENS
-      // like any 0-corr side (ruling 8i(e)). Its tied leg RIDES the boundary polyline (existing
-      // line art), so the lens closes as column-vertical + one free flank + the polyline; the
-      // enclosing flood already fills the width past the apex (``emitBoundaryLens`` draws NO
-      // separate wedge — that double-covered the fill with a different-litho band, session 20).
-      // REPLACES the session-19 ``boundaryResidual`` no-op (the interior lens shape left a
-      // linearly-growing +65-hole sliver against the boundary polyline; reverted, characterised).
-      const bk = boundaryMinorityKind(col, ui)
-      if (bk !== null) {
-        emitBoundaryLens(u, bk, colX, facingX, facing, shallowTD, lensLabels, nextId, out)
-        continue
-      }
-      // MINORITY-vs-DOMINANT fill gate (owner 8f/8h): a 0-corr unit lenses iff it is a genuine
-      // interior minority (both own-column neighbours a DIFFERENT formation, so the enclosing
-      // floods around it). A boundary / dominant matrix unit with a SAME-formation neighbour
-      // FLOODS instead — pinching a same-formation continuation to 0.5 breaks its band → holes.
-      // This is the STRUCTURAL fill rule (who holds the void), NOT a ruling-8i draw decision.
+    if (c === 0) {
+      // RULING 8i(e) "EVERYTHING MUST LENS" (audit items 3 + 5, S34): every corr-0 side emits its
+      // lens UNCONDITIONALLY. The ``!isMinorityWide`` eligibility gate + the ``boundaryMinorityKind``
+      // formationId comparisons that FLOODED a same-formation-neighbour boundary/dominant unit are
+      // DELETED — a formation comparison may never GATE emission (owner's letter-of-the-law). One
+      // shared dispatcher chooses interior vs TD/surface-boundary GEOMETRY solely from unitIndex +
+      // column extent (never any formationId): a FIRST unit rides the top-band polyline, a LAST unit
+      // rides the shallow-TD floor (both via the watertight S20 ``emitBoundaryLens`` triangle), an
+      // INTERIOR unit takes the S32 interior ``emitLens`` diamond (8b reach + tie clamp) through
+      // ``drawTermination``. "There can't be holes by design": a hole a formerly-flooded boundary
+      // unit now exposes is a FILL construction defect to repair (face ownership / closure riding
+      // line art), never a reason to restore the guard.
+      emitCorr0Termination(
+        u, ui, eff, col, facing, side, colX, facingX, gapIndex, shallowTD,
+        activeTies, lensLabels, nextId, nextFloodId, out,
+      )
       continue
     }
 
@@ -308,7 +282,6 @@ function emitSideSweep(
       gapIndex,
       col,
       facing,
-      bands,
       activeTies,
       lensLabels,
       nextId,
@@ -319,89 +292,61 @@ function emitSideSweep(
 }
 
 /**
- * SESSION-25 T4 — whether a unit is part of a SAME-FORMATION vertical run (its immediate
- * same-column neighbour above OR below shares its formation). After ``collapseAdjacentSameFormation``
- * any surviving same-formation adjacency was split by an EDGED contact (an internal correlation
- * tie), so such a pair is ONE enclosing MATRIX run — the enclosing flood fills it full-width and the
- * 8j post-fill merge welds it into one body. A corr-1 unit in such a run must take NO sweep
- * termination (its onlap's flood wedge would mislabel the through-going matrix with the facing
- * minority litho — the §18/§27 lone-stack full-width defect). Returns ``true`` when a same-formation
- * neighbour exists on either side.
- */
-function matrixRunNeighbour(col: ColumnGeom, ui: number): boolean {
-  const self = col.units[ui]
-  const above = ui > 0 ? col.units[ui - 1] : null
-  const below = ui + 1 < col.units.length ? col.units[ui + 1] : null
-  return (
-    (above !== null && above.formationId === self.formationId) ||
-    (below !== null && below.formationId === self.formationId)
-  )
-}
-
-/**
- * The BOUNDARY-minority test (session 20, watertight boundary lens). A 0-corr unit is a
- * boundary minority when it is the FIRST unit (``ui 0``, top rides the top band) or the LAST
- * unit (``ui last``, base rides the shallow-TD floor) AND its single interior neighbour is a
- * DIFFERENT formation. Such a unit lenses via ``emitBoundaryLens`` (its tied leg rides the
- * boundary polyline, hole-free) — distinct from an INTERIOR minority (handled by ``emitLens``
- * via ``isMinorityWide``). A boundary unit whose single neighbour is the SAME formation is NOT
- * a minority (it merges into that same-formation body — pinching it would break its band); a
- * degenerate single-unit column (no neighbour) has no lateral minority.
+ * UNCONDITIONAL corr-0 dispatch (ruling 8i(e) "everything must lens"; audit items 3 + 5, S34). Every
+ * corr-0 unit-side emits its lens; the ONLY choice is the GEOMETRY, taken SOLELY from ``ui`` +
+ * the column extent (``col.units.length``) — NEVER from any formationId (the deleted
+ * ``isMinorityWide`` / ``boundaryMinorityKind`` gates compared the unit's litho to its neighbours to
+ * FLOOD a same-formation-neighbour boundary/dominant unit; that comparison is gone, so a corr-0 unit
+ * is never suppressed by who its neighbour is).
  *
- * Returns the boundary kind (``'surface'`` for a first unit, ``'td'`` for a last unit) or
- * ``null`` when the unit is not a boundary minority (interior, single-unit, or same-formation
- * neighbour).
+ * The three geometries are the SHIPPED watertight constructions, unchanged:
+ *   - FIRST unit of a multi-unit column (``ui === 0``, top contact IS the top-band line) → the S20
+ *     ``emitBoundaryLens`` SURFACE triangle: the free BASE flank rides to an apex ON the top-band
+ *     polyline (existing line art), no separate wedge — the enclosing flood covers the width.
+ *   - LAST unit of a multi-unit column (``ui === last``, base contact rides the shallow-TD floor) →
+ *     the S20 ``emitBoundaryLens`` TD triangle: the free TOP flank rides to an apex ON the shallow-TD
+ *     floor polyline.
+ *   - INTERIOR unit (both neighbours exist), OR a degenerate single-unit column (no boundary polyline
+ *     applies) → the interior ``emitLens`` diamond via ``drawTermination(corr=0)``: the S32 8b reach +
+ *     ``fitLensReach`` halving + tie clamp + ``emitFloodWedge`` past the apex (``lensEnclosingMatrix``
+ *     wrap). This is byte-identical to the pre-S34 interior corr-0 path (which fell through to
+ *     ``drawTermination`` when ``isMinorityWide`` was true).
+ *
+ * "There can't be holes by design" (owner): a hole a formerly-flooded boundary corr-0 unit now
+ * exposes is a FILL construction defect to REPAIR (the flood's face ownership / its closure riding the
+ * boundary polyline per 8n), never a reason to re-gate the emission. Each construction rides existing
+ * line art, so it carves a hole-free lens out of the enclosing flood by design.
  */
-function boundaryMinorityKind(col: ColumnGeom, ui: number): 'surface' | 'td' | null {
-  const self = col.units[ui]
+function emitCorr0Termination(
+  u: UnitGeom,
+  ui: number,
+  eff: EffectiveCorr,
+  col: ColumnGeom,
+  facing: ColumnGeom,
+  side: 'left' | 'right',
+  colX: number,
+  facingX: number,
+  gapIndex: number,
+  shallowTD: number,
+  activeTies: readonly ResolvedTie[],
+  lensLabels: Map<string, LensLabel>,
+  nextId: () => string,
+  nextFloodId: () => string,
+  out: InputCurve[],
+): void {
   const isFirst = ui === 0
   const isLast = ui + 1 >= col.units.length
-  // Interior unit (has both neighbours) — not a boundary minority (``isMinorityWide`` owns it).
-  if (!isFirst && !isLast) return null
-  // Degenerate single-unit column — no interior neighbour, no lateral minority.
-  if (isFirst && isLast) return null
-  const neighbour = isFirst ? col.units[1] : col.units[ui - 1]
-  if (neighbour.formationId === self.formationId) return null // same-formation → merges, no lens
-  return isFirst ? 'surface' : 'td'
-}
-
-/**
- * The minority test for the 0-corr fill gate — RELAXED to ruling 8i(e) (owner, 2026-07-17:
- * "everything must lens … all 0-corr bodies lens in first instance").
- *
- * INTERIOR unit (both neighbours exist): a minority whenever BOTH its immediate neighbours are a
- * DIFFERENT formation from it (the round-1 same-formation enclosure ``above === below ≠ self``
- * PLUS the MIXED-bracket case ``above ≠ below, both ≠ self`` — the Tie-6/9/11 VEEN class).
- *
- * BOUNDARY unit (ui 0 = surface-topped, or ui last = TD-based): PREVIOUSLY excluded wholesale (it
- * was assumed the dominant flooding matrix — the +59-hole guard). Ruling 8i(e) requires it to lens
- * too WHEN it is a genuine minority: its SINGLE interior neighbour is a DIFFERENT formation. A thin
- * first unit (Tie-10/12 top ZAND, CS1 S8 top ZAND, CS2 B8 top SILT) or a thin last unit (CS1 S8
- * base SILT) whose one neighbour differs is a minority the enclosing (that neighbour, laterally the
- * facing formation) floods around — not a dominant matrix. A boundary unit whose single neighbour
- * is the SAME formation is still NOT a minority (it merges into that same-formation body → no lens,
- * hole-safe: pinching a same-formation continuation to 0.5 would break its band). A degenerate
- * single-unit column (no neighbour) has no lateral minority → excluded.
- */
-function isMinorityWide(col: ColumnGeom, ui: number): boolean {
-  const self = col.units[ui]
-  const hasAbove = ui > 0
-  const hasBelow = ui + 1 < col.units.length
-  if (hasAbove && hasBelow) {
-    const above = col.units[ui - 1]
-    const below = col.units[ui + 1]
-    return above.formationId !== self.formationId && below.formationId !== self.formationId
+  // A multi-unit column's FIRST / LAST unit rides a boundary polyline (top band / shallow-TD floor) —
+  // the watertight S20 boundary-lens triangle. GEOMETRY only: chosen from ui + extent, never litho.
+  if ((isFirst || isLast) && !(isFirst && isLast)) {
+    emitBoundaryLens(u, isFirst ? 'surface' : 'td', colX, facingX, facing, shallowTD, lensLabels, nextId, out)
+    return
   }
-  // BOUNDARY unit (ui 0 surface-topped / ui last TD-based): ruling 8i(e) wants it to lens too when
-  // its single interior neighbour differs, BUT the ONE-run OFF/ON battery (session 19) measured that
-  // firing the lens here opens the +59-class fill hole — the enclosing flood behind a first/last-unit
-  // lens does NOT close the vacated wedge (Tie-10 g0 top ZAND: +63 holes; Tie-12 g0 top ZAND: +2). The
-  // lens CURVE is emitted (LENS_AUDIT MISSING drops to 0), but ``emitEnclosingFlood``'s interval closure
-  // cannot bound a surface-/TD-boundary lens hole-free — the documented multi-day fill-rebuild wall
-  // (design §4 "cannot land as one increment with the holes-0/0/0 bar"). Per Part-D "characterise +
-  // stop" this boundary case stays EXCLUDED from the sweep lens until that fill rebuild; the audit
-  // flags these as the boundary-lens residual (5 units, all with a differing single neighbour).
-  void hasAbove
-  void hasBelow
-  return false // boundary / single-unit column — excluded pending the emitEnclosingFlood rebuild
+  // INTERIOR unit (both neighbours) or a degenerate single-unit column (no boundary polyline) — the
+  // interior ``emitLens`` diamond via ``drawTermination(corr=0)`` (its physical degenerate guard
+  // no-ops a sub-snap lens cleanly). Byte-identical to the pre-S34 ``isMinorityWide``-true path.
+  drawTermination(
+    u, ui, 0, eff.topTied, eff.baseTied, eff.topTie, eff.baseTie, false, false,
+    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out,
+  )
 }

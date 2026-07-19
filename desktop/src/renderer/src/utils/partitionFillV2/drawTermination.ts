@@ -52,7 +52,6 @@
  */
 
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
-import { type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
@@ -147,8 +146,8 @@ export function tiedContactSide(topTied: boolean, baseTied: boolean): 'top' | 'b
  * u : UnitGeom
  *     The unit terminating into the gap.
  * ui : number
- *     The unit's index on its column (for the ``collectGapBands`` matched-pair membership test
- *     that suppresses an emergent-band member's flood wedge — ruling 8l).
+ *     The unit's index on its column. Vestigial as of S34 (audit item 2): the emergent-band
+ *     ``isBandMember`` suppression it fed was deleted from the sweep; kept for call-site parity.
  * corr : 0 | 1 | 2
  *     The effective 2/1/0 band count on this side (from ``effectiveCorrForSide`` — the
  *     classify half, 8i's ``leftSide``/``rightSide``).
@@ -200,7 +199,6 @@ export function drawTermination(
   gapIndex: number,
   col: ColumnGeom,
   facing: ColumnGeom,
-  bands: readonly GapBand[],
   activeTies: readonly ResolvedTie[],
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
@@ -234,12 +232,12 @@ export function drawTermination(
   // free BASE unbounded → the onlap floods full-width (the measured coherentLoneStack regression).
   // When BOTH / NEITHER effective flag is set (an ambiguous derived edge) fall back to the direct
   // default (BASE), which the flood then floods away from correctly.
-  // Ruling 8l: ``bands``/``ui`` are no longer read here — the EMERGENT-band suppression (a
-  // matched-pair member is filled full-width by ``emitEnclosingFlood``'s bandFid face, so it takes
-  // no sweep termination) lives in ``emitTerminationSweep`` BEFORE this call (like the corr-2
-  // ``continue``), keeping the arithmetic literal-count everywhere else. A unit that reaches here is
-  // a genuine lone/derived onlap into a DIFFERENT-formation facing → it needs its flank + wedge.
-  void bands
+  // Ruling 8l (audit item 2, S34): ``ui`` is no longer read here — the emergent-band ``isBandMember``
+  // suppression it served is DELETED from the sweep (the ``bands`` param went with it). A matched-pair
+  // member is a literal corr-1 side whose flank 8m's ``matchedFacingSameLitho`` suppresses (same
+  // formation both facing columns); its band forms from the enclosing flood's full-width ``bandFids``
+  // face + the 8j merge, with no extra onlap. A unit that reaches this corr-1 draw is a genuine
+  // lone/derived onlap into a DIFFERENT-formation facing → it needs its flank + wedge.
   void ui
   void activeTies
   const eff = { top: topTied, base: baseTied }

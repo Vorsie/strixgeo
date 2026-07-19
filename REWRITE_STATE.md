@@ -4195,3 +4195,97 @@ PRE-EXISTING baseline) / 796 passed / 26 skipped** (+7 pass, +3 skip vs the 789/
 - STUB deleted this session (rm WORKED): `partitionFillV2.throwaway_s33_flagon.diag.test.ts`.
   Prior-session stubs (s32 six + s31 three + s30 five + s29 two + s28 four + earlier) still pending
   orchestrator rm.
+
+## §39 — Session 34: AUDIT ITEMS 2 + 3 + 5 SHIPPED — the literal 0/1/2 rule is the ONLY emission authority in the sweep
+
+Mission (S34 of 6): delete every guard/threshold that let something OTHER than the literal 8l count
+gate an emission in the termination sweep. Four deletions (A/B/C/D), stage-gated, each measured. Owner
+verbatim: "there can't be holes by design" — a deletion-exposed hole is a FILL defect to repair, never
+a reason to restore a guard. Bash `npx vitest run <file>` + single env-prefix (`HOLES_DIAG=1` /
+`CS1_GATE=1` / `SHAPE_AUDIT=1`) WORK; bare `npx tsc --noEmit -p tsconfig.web.json` works; `rm -f`
+works. NO git ops (orchestrator commits).
+
+### THE FORCED-FLAG-ON SCAN (measurement instrument)
+Copied `partitionFillV2.holes_overlaps.diag.test.ts` → `.throwaway_s34_flagon.diag.test.ts`, wrapped
+the 14-section compute in `setTwoSidedTerminations(true)`/try/finally. Baseline 20/0 (all CS2-g17).
+Re-ran after EACH of A/B/C/D. STUB deleted at session end (`rm` worked).
+
+### DELETION A — `emitTerminationSweep.ts`: the hidden band promotion `if (isBandMember) continue`
+Removed the matched-pair-member skip + the sweep's `collectGapBands`/`isBandMember`/`GapBand`
+plumbing (the `bandsOfGap` map, `gapBands` closure, the `bands` param threaded through `emitSideSweep`
+→ `drawTermination`). `drawTermination` lost its `bands` param + `GapBand` import + `void bands`
+(the `ui` param kept for call-site parity, now vestigial). The EXPORTS `collectGapBands`/`isBandMember`
+/`GapBand` STAY — still consumed by `emitRuledBands` (the corr-2 ABSENT guard, a DIFFERENT purpose),
+`effectiveCorrForSide`, `emitEnclosingFlood`, `emitIntervals`, and the conformance gate.
+RISK (the §25 +36 history): NONE materialised. A matched pair is same-formation on both facing columns
+by `collectGapBands` construction, so 8m's `matchedFacingSameLitho` suppresses the corr-1 flank; the
+emergent band still forms from the enclosing flood's full-width `bandFids` face + the 8j merge, no
+onlap on top. Battery: flag-ON 20/0, flag-OFF 0/0/0, conformance 5/5/0=10, lensAudit MISSING 0. All
+gates green (faceLabel8n, gap0HostSplit, edgedAnnulus, followTieOnlap, oneCorrActualTie 3/3, literalCorr
+a/b, cs1gates 8/8, coherentStack, coherentLoneStack).
+
+### DELETION B — `emitTerminationSweep.ts`: `if (c === 1 && matrixRunNeighbour) continue` + the fn
+Removed the session-25 T4 same-formation-matrix-run corr-1 suppression + the `matrixRunNeighbour`
+helper. The defect it papered over (a corr-1 onlap's flood wedge mislabelling a through-going matrix
+with the facing minority litho — §18/§27 rKleiMid/rKm) was ROOT-FIXED by S30's flood-wedge label
+source (§35). SYNTHETIC MOVEMENTS: `coherentStack (b)` GREEN (unchanged), `coherentLoneStack` GREEN
+(unchanged) — the S30 root-fix holds, the guard was redundant; `convergingStack (a)` UNCHANGED (still
+the 1 pre-existing red, 5 pass / 1 fail — B did not touch it). Battery: flag-ON 20/0, flag-OFF 0/0/0,
+conformance 5/5/0, lensAudit MISSING 0.
+
+### DELETION C — `emitTerminationSweep.ts`: the corr-0 eligibility block → `emitCorr0Termination`
+Replaced the entire `c === 0 && !isMinorityWide(...)` block (the `boundaryMinorityKind`/`emitBoundaryLens`
+routing + the two formationId-comparison FLOOD `continue`s) with ONE unconditional dispatch:
+`if (c === 0) { emitCorr0Termination(...); continue }`. Deleted `isMinorityWide` + `boundaryMinorityKind`
+(both compared the unit's litho to its neighbours). `emitCorr0Termination` chooses geometry SOLELY from
+`ui` + `col.units.length` (never any formationId) and PRESERVES the shipped constructions verbatim:
+- FIRST unit of a multi-unit column (`ui === 0`) → S20 `emitBoundaryLens('surface', ...)`.
+- LAST unit of a multi-unit column (`ui === last`) → S20 `emitBoundaryLens('td', ...)`.
+- INTERIOR unit OR degenerate single-unit column → the interior `emitLens` diamond via
+  `drawTermination(corr=0)` (S32 8b reach + `fitLensReach` halving + tie clamp + flood wedge) —
+  byte-identical to the pre-S34 `isMinorityWide`-true fall-through.
+The corr-1 8d-rev surface-onlap routing (`emitSurfaceOnlapFlank`) is corr-1 territory, UNTOUCHED.
+"There can't be holes by design": measured NO new holes. On the 14 real sections all corr-0 sides are
+INTERIOR (lensAudit boundaryResidual=0), so the real render is byte-neutral (flag-ON 20/0); the boundary
+path change is exercised only by the synthetic. Battery: flag-ON 20/0, flag-OFF 0/0/0, conformance
+5/5/0, lensAudit MISSING 0.
+ACCEPTANCE: `zeroCorrAlwaysLens (b)` (TD-boundary corr-0, same-litho neighbour) UN-SKIPPED → GREEN
+(RED S33 → GREEN S34). (a)/(d) stay green; (c) stays skipped (S35 sub-TD scope — `emitSubTdLenses`
+untouched). LENS_AUDIT: population unchanged on real data (32 corr-0 sides, all present); the newly-
+lensing boundary units are the SYNTHETIC edge cases the real sections don't exercise.
+
+### DELETION D — `emitBoundaryLens.ts`: `if (facingMatrixLabel(facing, freeElev) === null) return false`
+Removed the boundary-lens facing-void reach guard. A boundary corr-0 unit now lenses regardless of
+whether the facing sample finds a lateral matrix (a facing-column formation/void comparison may not
+gate emission). KEPT: the 8b reach-halving on tie conflict, the genuine 1 mm snap degeneration, the
+segment geometric validity. The `facingMatrixLabel === null` guard in `emitSurfaceOnlapFlank` (corr-1
+8d-rev path) is OUT OF SCOPE — untouched; `facingMatrixLabel` import stays (still used there). Battery:
+flag-ON 20/0, flag-OFF 0/0/0, conformance 5/5/0, lensAudit MISSING 0, boundaryLens gate 6/6.
+
+### NO FILL REPAIRS NEEDED
+Every deletion measured flag-ON holes = 20 (all CS2-g17, the accepted baseline) and overlaps = 0. No
+deletion exposed a hole on the 14 real sections, so no fill face-ownership / closure repair was
+required. The unconditional constructions ride existing line art (top-band polyline / shallow-TD floor
+/ interior diamond) and carve hole-free out of the enclosing flood by design.
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+faceLabel8n 6/6 · gap0HostSplit (A)(B)(C) · edgedAnnulus · followTieOnlap · oneCorrActualTie 3/3 ·
+literalCorr (a)(b) · mergeAfterFill (non-skipped) · cs1gates (CS1_GATE=1) 8/8 · lensAudit
+(SHAPE_AUDIT=1) MISSING 0 · conformance flag-OFF 5/5/0=10 · zeroCorrAlwaysLens (a)(b NEW)(d) + (c)
+skipped · coherentStack · coherentLoneStack · boundaryLens 6/6 · lensReach · **tsc clean** · full
+utils dir (no env) **1 failed (`convergingStack (a)` — PRE-EXISTING baseline) / 797 passed / 26
+skipped** (+1 pass, −1 skip vs the 796/27 with-throwaway baseline = the (b) un-skip).
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/emitTerminationSweep.ts` (EDITED) — deletions A/B/C: removed `isBandMember` skip +
+  band plumbing, `matrixRunNeighbour` guard+fn, the corr-0 eligibility block; added
+  `emitCorr0Termination`; deleted `isMinorityWide` + `boundaryMinorityKind`; import trims
+  (`collectGapBands`/`isBandMember` out, `EffectiveCorr`/`UnitGeom` in).
+- `partitionFillV2/drawTermination.ts` (EDITED) — dropped the `bands` param + `GapBand` import +
+  `void bands`; updated the `ui` docstring (vestigial).
+- `partitionFillV2/emitBoundaryLens.ts` (EDITED) — deletion D: removed the `facingMatrixLabel === null`
+  reach guard in `emitBoundaryLens` (the `emitSurfaceOnlapFlank` one is corr-1, kept).
+- `partitionFillV2.zeroCorrAlwaysLens.test.ts` (EDITED) — un-skipped case (b) (RED S33 → GREEN S34).
+- STUB deleted this session (`rm` worked): `partitionFillV2.throwaway_s34_flagon.diag.test.ts`.
+  Prior-session stubs (s33 one + s32 six + s31 three + s30 five + s29 two + s28 four + earlier) still
+  pending orchestrator rm.

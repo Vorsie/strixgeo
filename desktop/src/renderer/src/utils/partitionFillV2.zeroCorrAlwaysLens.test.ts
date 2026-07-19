@@ -178,8 +178,10 @@ describe('ruling 8i(e) — corr 0: emit that unit-side lens, always', () => {
     expect(lensFlankAt(curves, g[1].x, clayTopElev, clayBaseElev)).toBe(true)
   })
 
-  // (b) — the BOUNDARY (TD-last) corr-0 minority. Un-skip in S34 (guard deletions).
-  describe.skip('the corr-0 boundary emission must not be gated by a formation comparison (RED verified S33: emitTerminationSweep boundary path floods a same-litho-neighbour boundary corr-0 unit; un-skip in S34)', () => {
+  // (b) — the BOUNDARY (TD-last) corr-0 minority. Un-skipped in S34 (guard deletions A/B/C:
+  // ``isMinorityWide`` + ``boundaryMinorityKind`` formation-comparison gates deleted; corr-0 now
+  // dispatches unconditionally through ``emitCorr0Termination``, geometry from ui + extent only).
+  describe('the corr-0 boundary emission must not be gated by a formation comparison (RED S33 → GREEN S34: emitCorr0Termination lenses a same-litho-neighbour boundary corr-0 unit)', () => {
     it('(b) corr-0 TD-BOUNDARY (last) unit whose single neighbour is the SAME litho emits its lens flank', () => {
       seq = 0
       // Column M's LAST unit is a corr-0 minority CLAY[8..9] at the base; its single interior
