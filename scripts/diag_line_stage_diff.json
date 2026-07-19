@@ -10,11 +10,11 @@
   "phantomTerminations": 1,
   "duplicateRootPairs": 0,
   "byClass": {
-   "OK": 829,
+   "OK": 837,
    "MISSING": 8,
    "MISROOTED": 0,
-   "COLLAPSED": 11,
-   "DANGLING": 10,
+   "COLLAPSED": 2,
+   "DANGLING": 11,
    "WRONG-SIDE": 0,
    "INVISIBLE-SUPPORT": 0,
    "NOT-MISSING-TIED": 0,
@@ -67,6 +67,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 4
+   },
+   "tieConformance": {
+    "rawEdges": 6,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -90,6 +96,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 1
+   },
+   "tieConformance": {
+    "rawEdges": 9,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -113,6 +125,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 3
+   },
+   "tieConformance": {
+    "rawEdges": 7,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -136,6 +154,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 1,
     "SUPPRESSED-8M": 3
+   },
+   "tieConformance": {
+    "rawEdges": 4,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -149,16 +173,22 @@
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 11,
+    "OK": 12,
     "MISSING": 0,
     "MISROOTED": 0,
-    "COLLAPSED": 1,
+    "COLLAPSED": 0,
     "DANGLING": 0,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 7
+   },
+   "tieConformance": {
+    "rawEdges": 6,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -172,16 +202,22 @@
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 25,
+    "OK": 26,
     "MISSING": 0,
     "MISROOTED": 0,
-    "COLLAPSED": 1,
+    "COLLAPSED": 0,
     "DANGLING": 0,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 0
+   },
+   "tieConformance": {
+    "rawEdges": 12,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -205,6 +241,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 4
+   },
+   "tieConformance": {
+    "rawEdges": 4,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -218,16 +260,22 @@
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 6,
+    "OK": 7,
     "MISSING": 1,
     "MISROOTED": 0,
-    "COLLAPSED": 1,
+    "COLLAPSED": 0,
     "DANGLING": 1,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 3
+   },
+   "tieConformance": {
+    "rawEdges": 3,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -251,6 +299,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 2
+   },
+   "tieConformance": {
+    "rawEdges": 7,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -274,6 +328,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 1,
     "SUPPRESSED-8M": 3
+   },
+   "tieConformance": {
+    "rawEdges": 4,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -297,6 +357,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 6
+   },
+   "tieConformance": {
+    "rawEdges": 23,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -320,6 +386,12 @@
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 0,
     "SUPPRESSED-8M": 18
+   },
+   "tieConformance": {
+    "rawEdges": 78,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   },
   {
@@ -333,16 +405,59 @@
    "phantomTerminations": 1,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 205,
+    "OK": 208,
     "MISSING": 4,
     "MISROOTED": 0,
-    "COLLAPSED": 6,
-    "DANGLING": 6,
+    "COLLAPSED": 2,
+    "DANGLING": 7,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 5,
     "SUPPRESSED-8M": 39
+   },
+   "tieConformance": {
+    "rawEdges": 111,
+    "dropped": [
+     {
+      "aName": "GEO-23/125-S5",
+      "bName": "GEO-23/125-S5A",
+      "aSide": "base",
+      "bSide": "base",
+      "detail": "raw a=(801.4,7.96) b=(800.3,7.91) — no emitted tie/bridge"
+     },
+     {
+      "aName": "GEO-23/125-S5",
+      "bName": "GEO-23/125-S5B",
+      "aSide": "base",
+      "bSide": "base",
+      "detail": "raw a=(801.4,7.96) b=(801.6,8.92) — no emitted tie/bridge"
+     }
+    ],
+    "moved": [
+     {
+      "aName": "GEO-23/125-S5",
+      "bName": "GEO-23/125-S5A",
+      "aSide": "top",
+      "bSide": "top",
+      "detail": "moved ~180cm (tie76:20)"
+     },
+     {
+      "aName": "GEO-23/125-S5",
+      "bName": "GEO-23/125-S5B",
+      "aSide": "top",
+      "bSide": "top",
+      "detail": "moved ~60cm (tie74:21)"
+     },
+     {
+      "aName": "GEO-23/125-S5",
+      "bName": "GEO-23/125-S5B",
+      "aSide": "top",
+      "bSide": "top",
+      "detail": "moved ~145cm (tie94:21)"
+     }
+    ],
+    "invented": 0
    }
   },
   {
@@ -356,16 +471,22 @@
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 312,
+    "OK": 314,
     "MISSING": 1,
     "MISROOTED": 0,
-    "COLLAPSED": 2,
+    "COLLAPSED": 0,
     "DANGLING": 2,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
     "NOT-MISSING-TIED": 0,
     "MERGED-AWAY": 1,
     "SUPPRESSED-8M": 27
+   },
+   "tieConformance": {
+    "rawEdges": 172,
+    "dropped": [],
+    "moved": [],
+    "invented": 0
    }
   }
  ],
@@ -429,7 +550,7 @@
     "expectedFlanks": 1,
     "matchedFlanks": 1,
     "matchClass": "DANGLING",
-    "note": "onlap apex not on its tie within snap"
+    "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=5.0cm)"
    },
    {
     "section": "Cross-section 1",
@@ -492,7 +613,7 @@
     "expectedFlanks": 1,
     "matchedFlanks": 1,
     "matchClass": "DANGLING",
-    "note": "onlap apex not on its tie within snap"
+    "note": "onlap apex not on its tie within snap (matched oflanksubtdo apexYerr=1494.6cm)"
    },
    {
     "section": "Cross-section 1",
@@ -1505,8 +1626,8 @@
     "expectedKind": "lens",
     "expectedFlanks": 2,
     "matchedFlanks": 2,
-    "matchClass": "COLLAPSED",
-    "note": "emitted flank lateral reach < 10% of expected",
+    "matchClass": "OK",
+    "note": "",
     "collisionCouldShorten": true
    },
    {
@@ -1526,8 +1647,8 @@
     "expectedKind": "lens",
     "expectedFlanks": 2,
     "matchedFlanks": 2,
-    "matchClass": "COLLAPSED",
-    "note": "emitted flank lateral reach < 10% of expected",
+    "matchClass": "OK",
+    "note": "",
     "collisionCouldShorten": true
    },
    {
@@ -1570,7 +1691,7 @@
     "expectedFlanks": 1,
     "matchedFlanks": 1,
     "matchClass": "DANGLING",
-    "note": "onlap apex not on its tie within snap"
+    "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=81.5cm)"
    },
    {
     "section": "Tie-section 12",
@@ -1772,8 +1893,8 @@
     "expectedKind": "onlap",
     "expectedFlanks": 1,
     "matchedFlanks": 1,
-    "matchClass": "COLLAPSED",
-    "note": "emitted flank lateral reach < 10% of expected"
+    "matchClass": "DANGLING",
+    "note": "onlap apex not on its tie within snap (matched lens apexYerr=702.4cm)"
    },
    {
     "section": "Cross-section 1",
@@ -2203,8 +2324,8 @@
     "expectedKind": "lens",
     "expectedFlanks": 2,
     "matchedFlanks": 2,
-    "matchClass": "COLLAPSED",
-    "note": "emitted flank lateral reach < 10% of expected",
+    "matchClass": "OK",
+    "note": "",
     "collisionCouldShorten": true
    },
    {
@@ -3386,8 +3507,8 @@
   }
  ],
  "utilsDir": {
-  "fileCount": 198,
-  "diagTestCount": 15
+  "fileCount": 199,
+  "diagTestCount": 16
  },
  "rows": [
   {
@@ -4661,8 +4782,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -5186,8 +5307,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -5879,7 +6000,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=55.0cm)"
   },
   {
    "section": "Tie-section 10",
@@ -5898,8 +6019,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -6447,7 +6568,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=81.5cm)"
   },
   {
    "section": "Tie-section 12",
@@ -12853,8 +12974,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -13218,7 +13339,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=5.0cm)"
   },
   {
    "section": "Cross-section 1",
@@ -14662,7 +14783,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched subtdlens apexYerr=199.0cm)"
   },
   {
    "section": "Cross-section 1",
@@ -15008,7 +15129,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched oflanksubtdo apexYerr=309.5cm)"
   },
   {
    "section": "Cross-section 1",
@@ -15314,7 +15435,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched lens apexYerr=306.5cm)"
   },
   {
    "section": "Cross-section 1",
@@ -15418,7 +15539,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched oflanksubtdo apexYerr=309.5cm)"
   },
   {
    "section": "Cross-section 1",
@@ -15497,8 +15618,8 @@
    "expectedKind": "onlap",
    "expectedFlanks": 1,
    "matchedFlanks": 1,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected"
+   "matchClass": "DANGLING",
+   "note": "onlap apex not on its tie within snap (matched lens apexYerr=702.4cm)"
   },
   {
    "section": "Cross-section 1",
@@ -15862,8 +15983,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -15883,8 +16004,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -16312,7 +16433,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched oflanksubtdo apexYerr=1494.6cm)"
   },
   {
    "section": "Cross-section 1",
@@ -19555,8 +19676,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -20624,7 +20745,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched lens apexYerr=41.0cm)"
   },
   {
    "section": "Cross-section 2",
@@ -20746,7 +20867,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap"
+   "note": "onlap apex not on its tie within snap (matched lens apexYerr=104.5cm)"
   },
   {
    "section": "Cross-section 2",
@@ -20869,8 +20990,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {

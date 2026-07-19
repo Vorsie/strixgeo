@@ -121,11 +121,11 @@
   },
   {
    "section": "Cross-section 2",
-   "faces": 253,
-   "single": 206,
+   "faces": 254,
+   "single": 207,
    "explicitVoid": 0,
-   "zeroDefect": 43,
-   "multiDefect": 4,
+   "zeroDefect": 44,
+   "multiDefect": 3,
    "mergedMinority": 0
   },
   {
@@ -148,11 +148,11 @@
   }
  ],
  "grandTotals": {
-  "faces": 790,
-  "single": 622,
+  "faces": 791,
+  "single": 623,
   "explicitVoid": 8,
-  "zeroSeedDefect": 151,
-  "multiSeedDefect": 9,
+  "zeroSeedDefect": 152,
+  "multiSeedDefect": 8,
   "mergedMinority": 0
  },
  "zeroSeedDefects": [
@@ -502,8 +502,8 @@
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 14,
-   "diagId": "Tie-section 7#14@x[0..31.01]el[6.88..7.45]",
+   "faceIndex": 13,
+   "diagId": "Tie-section 7#13@x[0..31.01]el[6.88..7.45]",
    "xLo": 0,
    "xHi": 31.005,
    "elLo": 6.877,
@@ -524,8 +524,8 @@
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 16,
-   "diagId": "Tie-section 7#16@x[0..31.01]el[8.88..10.3]",
+   "faceIndex": 15,
+   "diagId": "Tie-section 7#15@x[0..31.01]el[8.88..10.3]",
    "xLo": 0,
    "xHi": 31.005,
    "elLo": 8.875,
@@ -547,51 +547,7 @@
   {
    "section": "Tie-section 7",
    "faceIndex": 17,
-   "diagId": "Tie-section 7#17@x[0..31.01]el[6.31..6.88]",
-   "xLo": 0,
-   "xHi": 31.005,
-   "elLo": 6.305,
-   "elHi": 6.877,
-   "boundaryCurveIds": [
-    "floodsw4",
-    "floodsw5",
-    "term3"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 7",
-   "faceIndex": 18,
-   "diagId": "Tie-section 7#18@x[0..31.01]el[7.45..8.88]",
-   "xLo": 0,
-   "xHi": 31.005,
-   "elLo": 7.45,
-   "elHi": 8.875,
-   "boundaryCurveIds": [
-    "floodsw1",
-    "floodsw2",
-    "term1"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 7",
-   "faceIndex": 19,
-   "diagId": "Tie-section 7#19@x[0..31.01]el[-6.27..-5.96]",
+   "diagId": "Tie-section 7#17@x[0..31.01]el[-6.27..-5.96]",
    "xLo": 0,
    "xHi": 31.005,
    "elLo": -6.273,
@@ -612,8 +568,8 @@
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 20,
-   "diagId": "Tie-section 7#20@x[0..31.01]el[-5.64..-5.33]",
+   "faceIndex": 18,
+   "diagId": "Tie-section 7#18@x[0..31.01]el[-5.64..-5.33]",
    "xLo": 0,
    "xHi": 31.005,
    "elLo": -5.643,
@@ -622,6 +578,50 @@
     "floodsw7",
     "floodsw8",
     "term5"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 7",
+   "faceIndex": 19,
+   "diagId": "Tie-section 7#19@x[0..31.01]el[6.31..6.88]",
+   "xLo": 0,
+   "xHi": 31.005,
+   "elLo": 6.305,
+   "elHi": 6.877,
+   "boundaryCurveIds": [
+    "floodsw4",
+    "floodsw5",
+    "term3"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 7",
+   "faceIndex": 20,
+   "diagId": "Tie-section 7#20@x[0..31.01]el[7.45..8.88]",
+   "xLo": 0,
+   "xHi": 31.005,
+   "elLo": 7.45,
+   "elHi": 8.875,
+   "boundaryCurveIds": [
+    "floodsw1",
+    "floodsw2",
+    "term1"
    ],
    "seedRefs": [],
    "seedFormations": [],
@@ -709,8 +709,8 @@
   },
   {
    "section": "Tie-section 8",
-   "faceIndex": 16,
-   "diagId": "Tie-section 8#16@x[0.04..35.07]el[6.65..9.27]",
+   "faceIndex": 15,
+   "diagId": "Tie-section 8#15@x[0.04..35.07]el[6.65..9.27]",
    "xLo": 0.043,
    "xHi": 35.068,
    "elLo": 6.649,
@@ -731,8 +731,8 @@
   },
   {
    "section": "Tie-section 8",
-   "faceIndex": 18,
-   "diagId": "Tie-section 8#18@x[0.04..35.07]el[9.47..9.67]",
+   "faceIndex": 17,
+   "diagId": "Tie-section 8#17@x[0.04..35.07]el[9.47..9.67]",
    "xLo": 0.043,
    "xHi": 35.068,
    "elLo": 9.47,
@@ -754,29 +754,7 @@
   {
    "section": "Tie-section 8",
    "faceIndex": 21,
-   "diagId": "Tie-section 8#21@x[0.04..35.07]el[9.27..9.47]",
-   "xLo": 0.043,
-   "xHi": 35.068,
-   "elLo": 9.268,
-   "elHi": 9.47,
-   "boundaryCurveIds": [
-    "floodsw2",
-    "floodsw3",
-    "term2"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 8",
-   "faceIndex": 22,
-   "diagId": "Tie-section 8#22@x[0.04..35.07]el[4.03..6.65]",
+   "diagId": "Tie-section 8#21@x[0.04..35.07]el[4.03..6.65]",
    "xLo": 0.043,
    "xHi": 35.068,
    "elLo": 4.03,
@@ -792,6 +770,28 @@
    "zeroSeedFamily": "flood",
    "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 8",
+   "faceIndex": 22,
+   "diagId": "Tie-section 8#22@x[0.04..35.07]el[9.27..9.47]",
+   "xLo": 0.043,
+   "xHi": 35.068,
+   "elLo": 9.268,
+   "elHi": 9.47,
+   "boundaryCurveIds": [
+    "floodsw2",
+    "floodsw3",
+    "term2"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -863,8 +863,8 @@
   },
   {
    "section": "Tie-section 10",
-   "faceIndex": 11,
-   "diagId": "Tie-section 10#11@x[39.25..78.49]el[5.73..6.09]",
+   "faceIndex": 10,
+   "diagId": "Tie-section 10#10@x[39.25..78.49]el[5.73..6.09]",
    "xLo": 39.247,
    "xHi": 78.494,
    "elLo": 5.73,
@@ -1688,8 +1688,8 @@
   },
   {
    "section": "Cross-section 1",
-   "faceIndex": 66,
-   "diagId": "Cross-section 1#66@x[337.79..385.73]el[6.37..8.75]",
+   "faceIndex": 67,
+   "diagId": "Cross-section 1#67@x[337.79..385.73]el[6.37..8.75]",
    "xLo": 337.792,
    "xHi": 385.729,
    "elLo": 6.37,
@@ -2259,8 +2259,8 @@
   },
   {
    "section": "Cross-section 1",
-   "faceIndex": 190,
-   "diagId": "Cross-section 1#190@x[646.74..685.78]el[5.75..6.03]",
+   "faceIndex": 189,
+   "diagId": "Cross-section 1#189@x[646.74..685.78]el[5.75..6.03]",
    "xLo": 646.737,
    "xHi": 685.783,
    "elLo": 5.745,
@@ -2348,15 +2348,15 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 208,
-   "diagId": "Cross-section 1#208@x[762.57..800.32]el[10.14..10.37]",
+   "diagId": "Cross-section 1#208@x[762.57..800.32]el[10.37..10.59]",
    "xLo": 762.574,
    "xHi": 800.32,
-   "elLo": 10.14,
-   "elHi": 10.365,
+   "elLo": 10.365,
+   "elHi": 10.59,
    "boundaryCurveIds": [
+    "floodsw36",
     "floodsw37",
-    "floodsw38",
-    "term31"
+    "term30"
    ],
    "seedRefs": [],
    "seedFormations": [],
@@ -2369,8 +2369,8 @@
   },
   {
    "section": "Cross-section 1",
-   "faceIndex": 210,
-   "diagId": "Cross-section 1#210@x[762.57..800.32]el[9.61..9.88]",
+   "faceIndex": 209,
+   "diagId": "Cross-section 1#209@x[762.57..800.32]el[9.61..9.88]",
    "xLo": 762.574,
    "xHi": 800.32,
    "elLo": 9.61,
@@ -2386,6 +2386,28 @@
    "zeroSeedFamily": "flood",
    "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 1",
+   "faceIndex": 211,
+   "diagId": "Cross-section 1#211@x[762.57..800.32]el[10.14..10.37]",
+   "xLo": 762.574,
+   "xHi": 800.32,
+   "elLo": 10.14,
+   "elHi": 10.365,
+   "boundaryCurveIds": [
+    "floodsw37",
+    "floodsw38",
+    "term31"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -2410,28 +2432,6 @@
    "zeroSeedFamily": "flood",
    "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 1",
-   "faceIndex": 218,
-   "diagId": "Cross-section 1#218@x[762.57..800.32]el[10.37..10.59]",
-   "xLo": 762.574,
-   "xHi": 800.32,
-   "elLo": 10.365,
-   "elHi": 10.59,
-   "boundaryCurveIds": [
-    "floodsw36",
-    "floodsw37",
-    "term30"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -3030,8 +3030,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 125,
-   "diagId": "Cross-section 2#125@x[369.91..383.88]el[-4.13..-3.84]",
+   "faceIndex": 123,
+   "diagId": "Cross-section 2#123@x[369.91..383.88]el[-4.13..-3.84]",
    "xLo": 369.906,
    "xHi": 383.881,
    "elLo": -4.133,
@@ -3040,6 +3040,32 @@
     "floodsw10",
     "floodsw9",
     "term8"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 2",
+   "faceIndex": 125,
+   "diagId": "Cross-section 2#125@x[369.91..397.86]el[-5.43..-3.84]",
+   "xLo": 369.906,
+   "xHi": 397.855,
+   "elLo": -5.429,
+   "elHi": -3.845,
+   "boundaryCurveIds": [
+    "bandc133",
+    "bandc139",
+    "floodsw11",
+    "floodsw12",
+    "floodsw9",
+    "oflankterm10",
+    "tie0:13"
    ],
    "seedRefs": [],
    "seedFormations": [],
@@ -3074,8 +3100,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 131,
-   "diagId": "Cross-section 2#131@x[397.86..412.37]el[-10.53..-7.61]",
+   "faceIndex": 132,
+   "diagId": "Cross-section 2#132@x[397.86..412.37]el[-10.53..-7.61]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": -10.53,
@@ -3097,8 +3123,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 139,
-   "diagId": "Cross-section 2#139@x[405.11..412.37]el[-4.36..-3.61]",
+   "faceIndex": 140,
+   "diagId": "Cross-section 2#140@x[405.11..412.37]el[-4.36..-3.61]",
    "xLo": 405.112,
    "xHi": 412.368,
    "elLo": -4.36,
@@ -3119,8 +3145,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 140,
-   "diagId": "Cross-section 2#140@x[405.11..412.37]el[-5.11..-4.36]",
+   "faceIndex": 141,
+   "diagId": "Cross-section 2#141@x[405.11..412.37]el[-5.11..-4.36]",
    "xLo": 405.112,
    "xHi": 412.368,
    "elLo": -5.11,
@@ -3141,8 +3167,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 141,
-   "diagId": "Cross-section 2#141@x[412.37..441.58]el[-10.53..-10.45]",
+   "faceIndex": 142,
+   "diagId": "Cross-section 2#142@x[412.37..441.58]el[-10.53..-10.45]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -10.53,
@@ -3164,8 +3190,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 154,
-   "diagId": "Cross-section 2#154@x[426.97..441.58]el[-6.17..-5.98]",
+   "faceIndex": 155,
+   "diagId": "Cross-section 2#155@x[426.97..441.58]el[-6.17..-5.98]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -6.175,
@@ -3186,8 +3212,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 155,
-   "diagId": "Cross-section 2#155@x[426.97..441.58]el[-5.98..-5.75]",
+   "faceIndex": 156,
+   "diagId": "Cross-section 2#156@x[426.97..441.58]el[-5.98..-5.75]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -5.98,
@@ -3208,8 +3234,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 160,
-   "diagId": "Cross-section 2#160@x[426.97..441.58]el[-6.37..-6.17]",
+   "faceIndex": 157,
+   "diagId": "Cross-section 2#157@x[426.97..441.58]el[-6.37..-6.17]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -6.37,
@@ -3230,8 +3256,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 161,
-   "diagId": "Cross-section 2#161@x[441.58..455.94]el[-12.58..-10.45]",
+   "faceIndex": 162,
+   "diagId": "Cross-section 2#162@x[441.58..455.94]el[-12.58..-10.45]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -12.58,
@@ -3253,8 +3279,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 165,
-   "diagId": "Cross-section 2#165@x[441.58..455.94]el[-6.87..-6.37]",
+   "faceIndex": 166,
+   "diagId": "Cross-section 2#166@x[441.58..455.94]el[-6.87..-6.37]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -6.869,
@@ -3277,8 +3303,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 167,
-   "diagId": "Cross-section 2#167@x[426.97..441.58]el[-5.75..-5.52]",
+   "faceIndex": 168,
+   "diagId": "Cross-section 2#168@x[426.97..441.58]el[-5.75..-5.52]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -5.75,
@@ -3299,8 +3325,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 180,
-   "diagId": "Cross-section 2#180@x[455.94..458.37]el[-12.58..-7.7]",
+   "faceIndex": 181,
+   "diagId": "Cross-section 2#181@x[455.94..458.37]el[-12.58..-7.7]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -12.58,
@@ -3322,8 +3348,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 186,
-   "diagId": "Cross-section 2#186@x[455.94..457.15]el[-4.6..-4.19]",
+   "faceIndex": 187,
+   "diagId": "Cross-section 2#187@x[455.94..457.15]el[-4.6..-4.19]",
    "xLo": 455.938,
    "xHi": 457.153,
    "elLo": -4.601,
@@ -3344,8 +3370,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 194,
-   "diagId": "Cross-section 2#194@x[455.94..457.15]el[-5.01..-4.6]",
+   "faceIndex": 195,
+   "diagId": "Cross-section 2#195@x[455.94..457.15]el[-5.01..-4.6]",
    "xLo": 455.938,
    "xHi": 457.153,
    "elLo": -5.01,
@@ -3366,8 +3392,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 195,
-   "diagId": "Cross-section 2#195@x[458.37..482.34]el[-10.36..-7.7]",
+   "faceIndex": 196,
+   "diagId": "Cross-section 2#196@x[458.37..482.34]el[-10.36..-7.7]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -10.36,
@@ -3389,8 +3415,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 207,
-   "diagId": "Cross-section 2#207@x[482.34..530.38]el[-10.36..-6.65]",
+   "faceIndex": 208,
+   "diagId": "Cross-section 2#208@x[482.34..530.38]el[-10.36..-6.65]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -10.36,
@@ -3412,8 +3438,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 215,
-   "diagId": "Cross-section 2#215@x[482.34..530.38]el[2.69..3.86]",
+   "faceIndex": 216,
+   "diagId": "Cross-section 2#216@x[482.34..530.38]el[2.69..3.86]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": 2.69,
@@ -3436,8 +3462,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 220,
-   "diagId": "Cross-section 2#220@x[530.38..533.64]el[-11.51..-6.65]",
+   "faceIndex": 221,
+   "diagId": "Cross-section 2#221@x[530.38..533.64]el[-11.51..-6.65]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -11.51,
@@ -3459,8 +3485,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 225,
-   "diagId": "Cross-section 2#225@x[530.38..533.64]el[3.53..3.86]",
+   "faceIndex": 226,
+   "diagId": "Cross-section 2#226@x[530.38..533.64]el[3.53..3.86]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": 3.528,
@@ -3483,8 +3509,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 232,
-   "diagId": "Cross-section 2#232@x[533.64..570.46]el[-11.51..-10.35]",
+   "faceIndex": 233,
+   "diagId": "Cross-section 2#233@x[533.64..570.46]el[-11.51..-10.35]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -11.51,
@@ -3505,8 +3531,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 236,
-   "diagId": "Cross-section 2#236@x[533.64..552.05]el[-3.83..-3.67]",
+   "faceIndex": 237,
+   "diagId": "Cross-section 2#237@x[533.64..552.05]el[-3.83..-3.67]",
    "xLo": 533.636,
    "xHi": 552.049,
    "elLo": -3.83,
@@ -3527,8 +3553,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 243,
-   "diagId": "Cross-section 2#243@x[533.64..552.05]el[-3.99..-3.83]",
+   "faceIndex": 244,
+   "diagId": "Cross-section 2#244@x[533.64..552.05]el[-3.99..-3.83]",
    "xLo": 533.636,
    "xHi": 552.049,
    "elLo": -3.99,
@@ -3549,8 +3575,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 244,
-   "diagId": "Cross-section 2#244@x[570.46..600.9]el[-10.35..-10.16]",
+   "faceIndex": 245,
+   "diagId": "Cross-section 2#245@x[570.46..600.9]el[-10.35..-10.16]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": -10.35,
@@ -3781,50 +3807,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 123,
-   "diagId": "Cross-section 2#123@x[369.91..397.86]el[-5.43..5.27]",
-   "xLo": 369.906,
-   "xHi": 397.855,
-   "elLo": -5.429,
-   "elHi": 5.27,
-   "boundaryCurveIds": [
-    "bandc133",
-    "bandc135",
-    "col14:u3",
-    "col14:u4",
-    "floodsw11",
-    "floodsw12",
-    "floodsw8",
-    "floodsw9",
-    "oflankterm10",
-    "oflankterm7",
-    "tie0:13",
-    "tie53:13"
-   ],
-   "seedRefs": [
-    "col14:u3",
-    "col14:u4"
-   ],
-   "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc",
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
-   ],
-   "classification": "multi-seed-defect",
-   "zeroSeedFamily": null,
-   "planKeys": [
-    "13|right|3",
-    "13|right|4",
-    "14|left|3",
-    "14|left|4"
-   ],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 2",
-   "faceIndex": 185,
-   "diagId": "Cross-section 2#185@x[455.94..458.37]el[-5.64..-4.19]",
+   "faceIndex": 186,
+   "diagId": "Cross-section 2#186@x[455.94..458.37]el[-5.64..-4.19]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -5.643,
@@ -3862,8 +3846,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 235,
-   "diagId": "Cross-section 2#235@x[533.64..570.46]el[-5.49..-3.67]",
+   "faceIndex": 236,
+   "diagId": "Cross-section 2#236@x[533.64..570.46]el[-5.49..-3.67]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -5.487,
@@ -3897,8 +3881,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 242,
-   "diagId": "Cross-section 2#242@x[533.64..570.46]el[10.76..12.79]",
+   "faceIndex": 243,
+   "diagId": "Cross-section 2#243@x[533.64..570.46]el[10.76..12.79]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": 10.76,
@@ -5314,9 +5298,9 @@
   {
    "section": "Tie-section 6",
    "faceIndex": 10,
-   "diagId": "Tie-section 6#10@x[0..8.3]el[4.3..8.45]",
+   "diagId": "Tie-section 6#10@x[0..26.6]el[4.3..8.45]",
    "xLo": 0,
-   "xHi": 8.3,
+   "xHi": 26.603,
    "elLo": 4.3,
    "elHi": 8.45,
    "boundaryCurveIds": [
@@ -5812,9 +5796,31 @@
   {
    "section": "Tie-section 7",
    "faceIndex": 13,
-   "diagId": "Tie-section 7#13@x[0..2.29]el[6.31..7.45]",
+   "diagId": "Tie-section 7#13@x[0..31.01]el[6.88..7.45]",
    "xLo": 0,
-   "xHi": 2.29,
+   "xHi": 31.005,
+   "elLo": 6.877,
+   "elHi": 7.45,
+   "boundaryCurveIds": [
+    "floodsw3",
+    "floodsw4",
+    "term2"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 7",
+   "faceIndex": 14,
+   "diagId": "Tie-section 7#14@x[0..27.91]el[6.31..7.45]",
+   "xLo": 0,
+   "xHi": 27.905,
    "elLo": 6.305,
    "elHi": 7.45,
    "boundaryCurveIds": [
@@ -5839,32 +5845,32 @@
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 14,
-   "diagId": "Tie-section 7#14@x[0..31.01]el[6.88..7.45]",
+   "faceIndex": 15,
+   "diagId": "Tie-section 7#15@x[0..31.01]el[8.88..10.3]",
    "xLo": 0,
    "xHi": 31.005,
-   "elLo": 6.877,
-   "elHi": 7.45,
+   "elLo": 8.875,
+   "elHi": 10.3,
    "boundaryCurveIds": [
-    "floodsw3",
-    "floodsw4",
-    "term2"
+    "floodsw0",
+    "floodsw1",
+    "term0"
    ],
    "seedRefs": [],
    "seedFormations": [],
    "classification": "zero-seed-defect",
    "zeroSeedFamily": "flood",
    "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
    "mergedMinority": false
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 15,
-   "diagId": "Tie-section 7#15@x[0..5.7]el[7.45..10.3]",
+   "faceIndex": 16,
+   "diagId": "Tie-section 7#16@x[0..27.91]el[7.45..10.3]",
    "xLo": 0,
-   "xHi": 5.701,
+   "xHi": 27.905,
    "elLo": 7.45,
    "elHi": 10.3,
    "boundaryCurveIds": [
@@ -5889,74 +5895,8 @@
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 16,
-   "diagId": "Tie-section 7#16@x[0..31.01]el[8.88..10.3]",
-   "xLo": 0,
-   "xHi": 31.005,
-   "elLo": 8.875,
-   "elHi": 10.3,
-   "boundaryCurveIds": [
-    "floodsw0",
-    "floodsw1",
-    "term0"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 7",
    "faceIndex": 17,
-   "diagId": "Tie-section 7#17@x[0..31.01]el[6.31..6.88]",
-   "xLo": 0,
-   "xHi": 31.005,
-   "elLo": 6.305,
-   "elHi": 6.877,
-   "boundaryCurveIds": [
-    "floodsw4",
-    "floodsw5",
-    "term3"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 7",
-   "faceIndex": 18,
-   "diagId": "Tie-section 7#18@x[0..31.01]el[7.45..8.88]",
-   "xLo": 0,
-   "xHi": 31.005,
-   "elLo": 7.45,
-   "elHi": 8.875,
-   "boundaryCurveIds": [
-    "floodsw1",
-    "floodsw2",
-    "term1"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 7",
-   "faceIndex": 19,
-   "diagId": "Tie-section 7#19@x[0..31.01]el[-6.27..-5.96]",
+   "diagId": "Tie-section 7#17@x[0..31.01]el[-6.27..-5.96]",
    "xLo": 0,
    "xHi": 31.005,
    "elLo": -6.273,
@@ -5977,8 +5917,8 @@
   },
   {
    "section": "Tie-section 7",
-   "faceIndex": 20,
-   "diagId": "Tie-section 7#20@x[0..31.01]el[-5.64..-5.33]",
+   "faceIndex": 18,
+   "diagId": "Tie-section 7#18@x[0..31.01]el[-5.64..-5.33]",
    "xLo": 0,
    "xHi": 31.005,
    "elLo": -5.643,
@@ -5987,6 +5927,50 @@
     "floodsw7",
     "floodsw8",
     "term5"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 7",
+   "faceIndex": 19,
+   "diagId": "Tie-section 7#19@x[0..31.01]el[6.31..6.88]",
+   "xLo": 0,
+   "xHi": 31.005,
+   "elLo": 6.305,
+   "elHi": 6.877,
+   "boundaryCurveIds": [
+    "floodsw4",
+    "floodsw5",
+    "term3"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 7",
+   "faceIndex": 20,
+   "diagId": "Tie-section 7#20@x[0..31.01]el[7.45..8.88]",
+   "xLo": 0,
+   "xHi": 31.005,
+   "elLo": 7.45,
+   "elHi": 8.875,
+   "boundaryCurveIds": [
+    "floodsw1",
+    "floodsw2",
+    "term1"
    ],
    "seedRefs": [],
    "seedFormations": [],
@@ -6482,9 +6466,31 @@
   {
    "section": "Tie-section 8",
    "faceIndex": 15,
-   "diagId": "Tie-section 8#15@x[0.04..10.52]el[4.03..9.27]",
+   "diagId": "Tie-section 8#15@x[0.04..35.07]el[6.65..9.27]",
    "xLo": 0.043,
-   "xHi": 10.518,
+   "xHi": 35.068,
+   "elLo": 6.649,
+   "elHi": 9.268,
+   "boundaryCurveIds": [
+    "floodsw4",
+    "floodsw5",
+    "term3"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 8",
+   "faceIndex": 16,
+   "diagId": "Tie-section 8#16@x[0.04..31.57]el[4.03..9.27]",
+   "xLo": 0.043,
+   "xHi": 31.565,
    "elLo": 4.03,
    "elHi": 9.268,
    "boundaryCurveIds": [
@@ -6510,32 +6516,32 @@
   },
   {
    "section": "Tie-section 8",
-   "faceIndex": 16,
-   "diagId": "Tie-section 8#16@x[0.04..35.07]el[6.65..9.27]",
+   "faceIndex": 17,
+   "diagId": "Tie-section 8#17@x[0.04..35.07]el[9.47..9.67]",
    "xLo": 0.043,
    "xHi": 35.068,
-   "elLo": 6.649,
-   "elHi": 9.268,
+   "elLo": 9.47,
+   "elHi": 9.673,
    "boundaryCurveIds": [
-    "floodsw4",
-    "floodsw5",
-    "term3"
+    "floodsw1",
+    "floodsw2",
+    "term1"
    ],
    "seedRefs": [],
    "seedFormations": [],
    "classification": "zero-seed-defect",
    "zeroSeedFamily": "flood",
    "planKeys": [],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
   {
    "section": "Tie-section 8",
-   "faceIndex": 17,
-   "diagId": "Tie-section 8#17@x[0.04..0.85]el[9.27..9.67]",
+   "faceIndex": 18,
+   "diagId": "Tie-section 8#18@x[0.04..31.57]el[9.27..9.67]",
    "xLo": 0.043,
-   "xHi": 0.854,
+   "xHi": 31.565,
    "elLo": 9.268,
    "elHi": 9.673,
    "boundaryCurveIds": [
@@ -6556,28 +6562,6 @@
     "1|left|2"
    ],
    "currentPaintFormation": "019e940a-4b52-7560-bc4d-93ca84512af4",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 8",
-   "faceIndex": 18,
-   "diagId": "Tie-section 8#18@x[0.04..35.07]el[9.47..9.67]",
-   "xLo": 0.043,
-   "xHi": 35.068,
-   "elLo": 9.47,
-   "elHi": 9.673,
-   "boundaryCurveIds": [
-    "floodsw1",
-    "floodsw2",
-    "term1"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -6646,29 +6630,7 @@
   {
    "section": "Tie-section 8",
    "faceIndex": 21,
-   "diagId": "Tie-section 8#21@x[0.04..35.07]el[9.27..9.47]",
-   "xLo": 0.043,
-   "xHi": 35.068,
-   "elLo": 9.268,
-   "elHi": 9.47,
-   "boundaryCurveIds": [
-    "floodsw2",
-    "floodsw3",
-    "term2"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 8",
-   "faceIndex": 22,
-   "diagId": "Tie-section 8#22@x[0.04..35.07]el[4.03..6.65]",
+   "diagId": "Tie-section 8#21@x[0.04..35.07]el[4.03..6.65]",
    "xLo": 0.043,
    "xHi": 35.068,
    "elLo": 4.03,
@@ -6684,6 +6646,28 @@
    "zeroSeedFamily": "flood",
    "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 8",
+   "faceIndex": 22,
+   "diagId": "Tie-section 8#22@x[0.04..35.07]el[9.27..9.47]",
+   "xLo": 0.043,
+   "xHi": 35.068,
+   "elLo": 9.268,
+   "elHi": 9.47,
+   "boundaryCurveIds": [
+    "floodsw2",
+    "floodsw3",
+    "term2"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -7141,9 +7125,9 @@
   {
    "section": "Tie-section 10",
    "faceIndex": 6,
-   "diagId": "Tie-section 10#6@x[0..6.98]el[5.06..8.55]",
+   "diagId": "Tie-section 10#6@x[0..35.32]el[5.06..8.55]",
    "xLo": 0,
-   "xHi": 6.98,
+   "xHi": 35.322,
    "elLo": 5.06,
    "elHi": 8.55,
    "boundaryCurveIds": [
@@ -7247,8 +7231,30 @@
   {
    "section": "Tie-section 10",
    "faceIndex": 10,
-   "diagId": "Tie-section 10#10@x[77.07..78.49]el[5.73..6.44]",
-   "xLo": 77.074,
+   "diagId": "Tie-section 10#10@x[39.25..78.49]el[5.73..6.09]",
+   "xLo": 39.247,
+   "xHi": 78.494,
+   "elLo": 5.73,
+   "elHi": 6.085,
+   "boundaryCurveIds": [
+    "floodsw4",
+    "floodsw5",
+    "term4"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Tie-section 10",
+   "faceIndex": 11,
+   "diagId": "Tie-section 10#11@x[43.17..78.49]el[5.73..6.44]",
+   "xLo": 43.172,
    "xHi": 78.494,
    "elLo": 5.73,
    "elHi": 6.44,
@@ -7269,28 +7275,6 @@
     "0|right|1"
    ],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Tie-section 10",
-   "faceIndex": 11,
-   "diagId": "Tie-section 10#11@x[39.25..78.49]el[5.73..6.09]",
-   "xLo": 39.247,
-   "xHi": 78.494,
-   "elLo": 5.73,
-   "elHi": 6.085,
-   "boundaryCurveIds": [
-    "floodsw4",
-    "floodsw5",
-    "term4"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -7577,9 +7561,9 @@
   {
    "section": "Tie-section 11",
    "faceIndex": 9,
-   "diagId": "Tie-section 11#9@x[0..9.03]el[5.86..10.37]",
+   "diagId": "Tie-section 11#9@x[0..35.27]el[5.86..10.37]",
    "xLo": 0,
-   "xHi": 9.025,
+   "xHi": 35.273,
    "elLo": 5.86,
    "elHi": 10.373,
    "boundaryCurveIds": [
@@ -14042,9 +14026,9 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 42,
-   "diagId": "Cross-section 1#42@x[101.56..102.85]el[4.06..4.71]",
+   "diagId": "Cross-section 1#42@x[101.56..142.23]el[4.06..4.71]",
    "xLo": 101.562,
-   "xHi": 102.853,
+   "xHi": 142.234,
    "elLo": 4.059,
    "elHi": 4.705,
    "boundaryCurveIds": [
@@ -14778,7 +14762,33 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 66,
-   "diagId": "Cross-section 1#66@x[337.79..385.73]el[6.37..8.75]",
+   "diagId": "Cross-section 1#66@x[342.59..385.73]el[5.19..5.79]",
+   "xLo": 342.586,
+   "xHi": 385.729,
+   "elLo": 5.19,
+   "elHi": 5.79,
+   "boundaryCurveIds": [
+    "col6:lens0",
+    "lens12",
+    "lens13"
+   ],
+   "seedRefs": [
+    "col6:lens0"
+   ],
+   "seedFormations": [
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+   ],
+   "classification": "single-seed",
+   "zeroSeedFamily": null,
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 1",
+   "faceIndex": 67,
+   "diagId": "Cross-section 1#67@x[337.79..385.73]el[6.37..8.75]",
    "xLo": 337.792,
    "xHi": 385.729,
    "elLo": 6.37,
@@ -14799,8 +14809,8 @@
   },
   {
    "section": "Cross-section 1",
-   "faceIndex": 67,
-   "diagId": "Cross-section 1#67@x[342.59..385.73]el[6.37..11.13]",
+   "faceIndex": 68,
+   "diagId": "Cross-section 1#68@x[342.59..385.73]el[6.37..11.13]",
    "xLo": 342.586,
    "xHi": 385.729,
    "elLo": 6.37,
@@ -14823,32 +14833,6 @@
     "6|left|1"
    ],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 1",
-   "faceIndex": 68,
-   "diagId": "Cross-section 1#68@x[384.53..385.73]el[5.19..5.79]",
-   "xLo": 384.529,
-   "xHi": 385.729,
-   "elLo": 5.19,
-   "elHi": 5.79,
-   "boundaryCurveIds": [
-    "col6:lens0",
-    "lens12",
-    "lens13"
-   ],
-   "seedRefs": [
-    "col6:lens0"
-   ],
-   "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
-   ],
-   "classification": "single-seed",
-   "zeroSeedFamily": null,
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -18481,9 +18465,31 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 189,
-   "diagId": "Cross-section 1#189@x[646.74..647.88]el[5.46..6.03]",
+   "diagId": "Cross-section 1#189@x[646.74..685.78]el[5.75..6.03]",
    "xLo": 646.737,
-   "xHi": 647.877,
+   "xHi": 685.783,
+   "elLo": 5.745,
+   "elHi": 6.03,
+   "boundaryCurveIds": [
+    "floodsw29",
+    "floodsw30",
+    "term25"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 1",
+   "faceIndex": 190,
+   "diagId": "Cross-section 1#190@x[646.74..681.88]el[5.46..6.03]",
+   "xLo": 646.737,
+   "xHi": 681.879,
    "elLo": 5.46,
    "elHi": 6.03,
    "boundaryCurveIds": [
@@ -18504,28 +18510,6 @@
     "18|left|2"
    ],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 1",
-   "faceIndex": 190,
-   "diagId": "Cross-section 1#190@x[646.74..685.78]el[5.75..6.03]",
-   "xLo": 646.737,
-   "xHi": 685.783,
-   "elLo": 5.745,
-   "elHi": 6.03,
-   "boundaryCurveIds": [
-    "floodsw29",
-    "floodsw30",
-    "term25"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -18850,9 +18834,9 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 202,
-   "diagId": "Cross-section 1#202@x[724.83..726.45]el[0.04..0.85]",
+   "diagId": "Cross-section 1#202@x[724.83..758.8]el[0.04..0.85]",
    "xLo": 724.829,
-   "xHi": 726.449,
+   "xHi": 758.8,
    "elLo": 0.04,
    "elHi": 0.85,
    "boundaryCurveIds": [
@@ -19035,15 +19019,15 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 208,
-   "diagId": "Cross-section 1#208@x[762.57..800.32]el[10.14..10.37]",
+   "diagId": "Cross-section 1#208@x[762.57..800.32]el[10.37..10.59]",
    "xLo": 762.574,
    "xHi": 800.32,
-   "elLo": 10.14,
-   "elHi": 10.365,
+   "elLo": 10.365,
+   "elHi": 10.59,
    "boundaryCurveIds": [
+    "floodsw36",
     "floodsw37",
-    "floodsw38",
-    "term31"
+    "term30"
    ],
    "seedRefs": [],
    "seedFormations": [],
@@ -19057,8 +19041,30 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 209,
-   "diagId": "Cross-section 1#209@x[799.26..800.32]el[9.61..10.14]",
-   "xLo": 799.26,
+   "diagId": "Cross-section 1#209@x[762.57..800.32]el[9.61..9.88]",
+   "xLo": 762.574,
+   "xHi": 800.32,
+   "elLo": 9.61,
+   "elHi": 9.875,
+   "boundaryCurveIds": [
+    "floodsw40",
+    "floodsw41",
+    "term33"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 1",
+   "faceIndex": 210,
+   "diagId": "Cross-section 1#210@x[766.35..800.32]el[9.61..10.14]",
+   "xLo": 766.349,
    "xHi": 800.32,
    "elLo": 9.61,
    "elHi": 10.14,
@@ -19085,52 +19091,23 @@
   },
   {
    "section": "Cross-section 1",
-   "faceIndex": 210,
-   "diagId": "Cross-section 1#210@x[762.57..800.32]el[9.61..9.88]",
+   "faceIndex": 211,
+   "diagId": "Cross-section 1#211@x[762.57..800.32]el[10.14..10.37]",
    "xLo": 762.574,
    "xHi": 800.32,
-   "elLo": 9.61,
-   "elHi": 9.875,
+   "elLo": 10.14,
+   "elHi": 10.365,
    "boundaryCurveIds": [
-    "floodsw40",
-    "floodsw41",
-    "term33"
+    "floodsw37",
+    "floodsw38",
+    "term31"
    ],
    "seedRefs": [],
    "seedFormations": [],
    "classification": "zero-seed-defect",
    "zeroSeedFamily": "flood",
    "planKeys": [],
-   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 1",
-   "faceIndex": 211,
-   "diagId": "Cross-section 1#211@x[799.42..800.32]el[10.14..10.59]",
-   "xLo": 799.42,
-   "xHi": 800.32,
-   "elLo": 10.14,
-   "elHi": 10.59,
-   "boundaryCurveIds": [
-    "col20:u2",
-    "term30",
-    "term31"
-   ],
-   "seedRefs": [
-    "col20:u2"
-   ],
-   "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
-   ],
-   "classification": "single-seed",
-   "zeroSeedFamily": null,
-   "planKeys": [
-    "19|right|2",
-    "20|left|2"
-   ],
-   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
+   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -19314,22 +19291,29 @@
   {
    "section": "Cross-section 1",
    "faceIndex": 218,
-   "diagId": "Cross-section 1#218@x[762.57..800.32]el[10.37..10.59]",
-   "xLo": 762.574,
+   "diagId": "Cross-section 1#218@x[766.35..800.32]el[10.14..10.59]",
+   "xLo": 766.349,
    "xHi": 800.32,
-   "elLo": 10.365,
+   "elLo": 10.14,
    "elHi": 10.59,
    "boundaryCurveIds": [
-    "floodsw36",
-    "floodsw37",
-    "term30"
+    "col20:u2",
+    "term30",
+    "term31"
    ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "seedRefs": [
+    "col20:u2"
+   ],
+   "seedFormations": [
+    "019e940a-4b50-7f69-af85-2354e519bb43"
+   ],
+   "classification": "single-seed",
+   "zeroSeedFamily": null,
+   "planKeys": [
+    "19|right|2",
+    "20|left|2"
+   ],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
@@ -23989,51 +23973,31 @@
   {
    "section": "Cross-section 2",
    "faceIndex": 123,
-   "diagId": "Cross-section 2#123@x[369.91..397.86]el[-5.43..5.27]",
+   "diagId": "Cross-section 2#123@x[369.91..383.88]el[-4.13..-3.84]",
    "xLo": 369.906,
-   "xHi": 397.855,
-   "elLo": -5.429,
-   "elHi": 5.27,
+   "xHi": 383.881,
+   "elLo": -4.133,
+   "elHi": -3.845,
    "boundaryCurveIds": [
-    "bandc133",
-    "bandc135",
-    "col14:u3",
-    "col14:u4",
-    "floodsw11",
-    "floodsw12",
-    "floodsw8",
+    "floodsw10",
     "floodsw9",
-    "oflankterm10",
-    "oflankterm7",
-    "tie0:13",
-    "tie53:13"
+    "term8"
    ],
-   "seedRefs": [
-    "col14:u3",
-    "col14:u4"
-   ],
-   "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc",
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
-   ],
-   "classification": "multi-seed-defect",
-   "zeroSeedFamily": null,
-   "planKeys": [
-    "13|right|3",
-    "13|right|4",
-    "14|left|3",
-    "14|left|4"
-   ],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
    "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
    "faceIndex": 124,
-   "diagId": "Cross-section 2#124@x[369.91..371.06]el[-4.42..-3.84]",
+   "diagId": "Cross-section 2#124@x[369.91..382.48]el[-4.42..-3.84]",
    "xLo": 369.906,
-   "xHi": 371.056,
+   "xHi": 382.483,
    "elLo": -4.42,
    "elHi": -3.845,
    "boundaryCurveIds": [
@@ -24060,15 +24024,19 @@
   {
    "section": "Cross-section 2",
    "faceIndex": 125,
-   "diagId": "Cross-section 2#125@x[369.91..383.88]el[-4.13..-3.84]",
+   "diagId": "Cross-section 2#125@x[369.91..397.86]el[-5.43..-3.84]",
    "xLo": 369.906,
-   "xHi": 383.881,
-   "elLo": -4.133,
+   "xHi": 397.855,
+   "elLo": -5.429,
    "elHi": -3.845,
    "boundaryCurveIds": [
-    "floodsw10",
+    "bandc133",
+    "bandc139",
+    "floodsw11",
+    "floodsw12",
     "floodsw9",
-    "term8"
+    "oflankterm10",
+    "tie0:13"
    ],
    "seedRefs": [],
    "seedFormations": [],
@@ -24082,20 +24050,21 @@
   {
    "section": "Cross-section 2",
    "faceIndex": 126,
-   "diagId": "Cross-section 2#126@x[369.91..383.88]el[-3.84..4.31]",
+   "diagId": "Cross-section 2#126@x[369.91..397.86]el[-5.43..3.77]",
    "xLo": 369.906,
-   "xHi": 383.881,
-   "elLo": -3.845,
-   "elHi": 4.31,
+   "xHi": 397.855,
+   "elLo": -5.429,
+   "elHi": 3.77,
    "boundaryCurveIds": [
-    "bandc135",
+    "bandc138",
+    "bandc139",
     "col13:u3",
-    "floodsw8",
-    "oflankterm7",
-    "tie53:13"
+    "col14:u4",
+    "tie72:13"
    ],
    "seedRefs": [
-    "col13:u3"
+    "col13:u3",
+    "col14:u4"
    ],
    "seedFormations": [
     "019e940a-4b41-7e01-a763-ab030a38d1bc"
@@ -24104,7 +24073,9 @@
    "zeroSeedFamily": null,
    "planKeys": [
     "12|right|3",
-    "13|left|3"
+    "13|left|3",
+    "13|right|4",
+    "14|left|4"
    ],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
@@ -24245,7 +24216,38 @@
   {
    "section": "Cross-section 2",
    "faceIndex": 131,
-   "diagId": "Cross-section 2#131@x[397.86..412.37]el[-10.53..-7.61]",
+   "diagId": "Cross-section 2#131@x[369.91..397.86]el[3.35..5.27]",
+   "xLo": 369.906,
+   "xHi": 397.855,
+   "elLo": 3.35,
+   "elHi": 5.27,
+   "boundaryCurveIds": [
+    "bandc135",
+    "bandc138",
+    "col14:u3",
+    "tie53:13",
+    "tie72:13"
+   ],
+   "seedRefs": [
+    "col14:u3"
+   ],
+   "seedFormations": [
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+   ],
+   "classification": "single-seed",
+   "zeroSeedFamily": null,
+   "planKeys": [
+    "13|right|3",
+    "14|left|3"
+   ],
+   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 2",
+   "faceIndex": 132,
+   "diagId": "Cross-section 2#132@x[397.86..412.37]el[-10.53..-7.61]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": -10.53,
@@ -24267,8 +24269,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 132,
-   "diagId": "Cross-section 2#132@x[397.86..412.37]el[-10.53..-7.61]",
+   "faceIndex": 133,
+   "diagId": "Cross-section 2#133@x[397.86..412.37]el[-10.53..-7.61]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": -10.53,
@@ -24296,8 +24298,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 133,
-   "diagId": "Cross-section 2#133@x[397.86..412.37]el[-7.61..-5.43]",
+   "faceIndex": 134,
+   "diagId": "Cross-section 2#134@x[397.86..412.37]el[-7.61..-5.43]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": -7.61,
@@ -24330,8 +24332,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 134,
-   "diagId": "Cross-section 2#134@x[397.86..412.37]el[-6.01..3.77]",
+   "faceIndex": 135,
+   "diagId": "Cross-section 2#135@x[397.86..412.37]el[-6.01..3.77]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": -6.01,
@@ -24372,8 +24374,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 135,
-   "diagId": "Cross-section 2#135@x[397.86..412.37]el[2.7..5.27]",
+   "faceIndex": 136,
+   "diagId": "Cross-section 2#136@x[397.86..412.37]el[2.7..5.27]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": 2.7,
@@ -24409,8 +24411,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 136,
-   "diagId": "Cross-section 2#136@x[397.86..412.37]el[3.86..6.77]",
+   "faceIndex": 137,
+   "diagId": "Cross-section 2#137@x[397.86..412.37]el[3.86..6.77]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": 3.86,
@@ -24446,8 +24448,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 137,
-   "diagId": "Cross-section 2#137@x[397.86..412.37]el[4.59..8.72]",
+   "faceIndex": 138,
+   "diagId": "Cross-section 2#138@x[397.86..412.37]el[4.59..8.72]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": 4.59,
@@ -24483,8 +24485,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 138,
-   "diagId": "Cross-section 2#138@x[397.86..412.37]el[7.37..12.77]",
+   "faceIndex": 139,
+   "diagId": "Cross-section 2#139@x[397.86..412.37]el[7.37..12.77]",
    "xLo": 397.855,
    "xHi": 412.368,
    "elLo": 7.37,
@@ -24520,8 +24522,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 139,
-   "diagId": "Cross-section 2#139@x[405.11..412.37]el[-4.36..-3.61]",
+   "faceIndex": 140,
+   "diagId": "Cross-section 2#140@x[405.11..412.37]el[-4.36..-3.61]",
    "xLo": 405.112,
    "xHi": 412.368,
    "elLo": -4.36,
@@ -24542,8 +24544,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 140,
-   "diagId": "Cross-section 2#140@x[405.11..412.37]el[-5.11..-4.36]",
+   "faceIndex": 141,
+   "diagId": "Cross-section 2#141@x[405.11..412.37]el[-5.11..-4.36]",
    "xLo": 405.112,
    "xHi": 412.368,
    "elLo": -5.11,
@@ -24564,8 +24566,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 141,
-   "diagId": "Cross-section 2#141@x[412.37..441.58]el[-10.53..-10.45]",
+   "faceIndex": 142,
+   "diagId": "Cross-section 2#142@x[412.37..441.58]el[-10.53..-10.45]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -10.53,
@@ -24587,8 +24589,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 142,
-   "diagId": "Cross-section 2#142@x[412.37..441.58]el[-10.53..-10.45]",
+   "faceIndex": 143,
+   "diagId": "Cross-section 2#143@x[412.37..441.58]el[-10.53..-10.45]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -10.53,
@@ -24616,8 +24618,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 143,
-   "diagId": "Cross-section 2#143@x[412.37..441.58]el[-10.45..-6.01]",
+   "faceIndex": 144,
+   "diagId": "Cross-section 2#144@x[412.37..441.58]el[-10.45..-6.01]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -10.45,
@@ -24650,8 +24652,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 144,
-   "diagId": "Cross-section 2#144@x[412.37..441.58]el[-6.37..-5.11]",
+   "faceIndex": 145,
+   "diagId": "Cross-section 2#145@x[412.37..441.58]el[-6.37..-5.11]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -6.37,
@@ -24692,8 +24694,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 145,
-   "diagId": "Cross-section 2#145@x[405.84..412.37]el[-5.11..-3.61]",
+   "faceIndex": 146,
+   "diagId": "Cross-section 2#146@x[405.84..412.37]el[-5.11..-3.61]",
    "xLo": 405.837,
    "xHi": 412.368,
    "elLo": -5.11,
@@ -24721,8 +24723,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 146,
-   "diagId": "Cross-section 2#146@x[412.37..441.58]el[-5.12..-3.61]",
+   "faceIndex": 147,
+   "diagId": "Cross-section 2#147@x[412.37..441.58]el[-5.12..-3.61]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -5.12,
@@ -24757,8 +24759,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 147,
-   "diagId": "Cross-section 2#147@x[412.37..441.58]el[-4.34..3.7]",
+   "faceIndex": 148,
+   "diagId": "Cross-section 2#148@x[412.37..441.58]el[-4.34..3.7]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": -4.344,
@@ -24796,8 +24798,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 148,
-   "diagId": "Cross-section 2#148@x[412.37..426.97]el[2.7..3.86]",
+   "faceIndex": 149,
+   "diagId": "Cross-section 2#149@x[412.37..426.97]el[2.7..3.86]",
    "xLo": 412.368,
    "xHi": 426.974,
    "elLo": 2.7,
@@ -24827,8 +24829,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 149,
-   "diagId": "Cross-section 2#149@x[412.37..441.58]el[3.53..6.12]",
+   "faceIndex": 150,
+   "diagId": "Cross-section 2#150@x[412.37..441.58]el[3.53..6.12]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": 3.53,
@@ -24863,8 +24865,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 150,
-   "diagId": "Cross-section 2#150@x[412.37..441.58]el[4.59..8.72]",
+   "faceIndex": 151,
+   "diagId": "Cross-section 2#151@x[412.37..441.58]el[4.59..8.72]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": 4.59,
@@ -24900,8 +24902,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 151,
-   "diagId": "Cross-section 2#151@x[412.37..441.58]el[10.18..11.82]",
+   "faceIndex": 152,
+   "diagId": "Cross-section 2#152@x[412.37..441.58]el[10.18..11.82]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": 10.18,
@@ -24932,8 +24934,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 152,
-   "diagId": "Cross-section 2#152@x[412.37..441.58]el[6.48..11.1]",
+   "faceIndex": 153,
+   "diagId": "Cross-section 2#153@x[412.37..441.58]el[6.48..11.1]",
    "xLo": 412.368,
    "xHi": 441.58,
    "elLo": 6.48,
@@ -24968,8 +24970,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 153,
-   "diagId": "Cross-section 2#153@x[426.97..441.58]el[-6.67..-6.34]",
+   "faceIndex": 154,
+   "diagId": "Cross-section 2#154@x[426.97..441.58]el[-6.67..-6.34]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -6.67,
@@ -24999,8 +25001,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 154,
-   "diagId": "Cross-section 2#154@x[426.97..441.58]el[-6.17..-5.98]",
+   "faceIndex": 155,
+   "diagId": "Cross-section 2#155@x[426.97..441.58]el[-6.17..-5.98]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -6.175,
@@ -25021,8 +25023,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 155,
-   "diagId": "Cross-section 2#155@x[426.97..441.58]el[-5.98..-5.75]",
+   "faceIndex": 156,
+   "diagId": "Cross-section 2#156@x[426.97..441.58]el[-5.98..-5.75]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -5.98,
@@ -25043,8 +25045,59 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 156,
-   "diagId": "Cross-section 2#156@x[428.44..441.58]el[-5.98..-5.52]",
+   "faceIndex": 157,
+   "diagId": "Cross-section 2#157@x[426.97..441.58]el[-6.37..-6.17]",
+   "xLo": 426.974,
+   "xHi": 441.58,
+   "elLo": -6.37,
+   "elHi": -6.175,
+   "boundaryCurveIds": [
+    "floodsw22",
+    "floodsw23",
+    "term18"
+   ],
+   "seedRefs": [],
+   "seedFormations": [],
+   "classification": "zero-seed-defect",
+   "zeroSeedFamily": "flood",
+   "planKeys": [],
+   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 2",
+   "faceIndex": 158,
+   "diagId": "Cross-section 2#158@x[428.44..441.58]el[-6.37..-5.98]",
+   "xLo": 428.435,
+   "xHi": 441.58,
+   "elLo": -6.37,
+   "elHi": -5.98,
+   "boundaryCurveIds": [
+    "col16:u8",
+    "term17",
+    "term18"
+   ],
+   "seedRefs": [
+    "col16:u8"
+   ],
+   "seedFormations": [
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+   ],
+   "classification": "single-seed",
+   "zeroSeedFamily": null,
+   "planKeys": [
+    "15|right|8",
+    "16|left|8"
+   ],
+   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
+   "paintMismatch": false,
+   "mergedMinority": false
+  },
+  {
+   "section": "Cross-section 2",
+   "faceIndex": 159,
+   "diagId": "Cross-section 2#159@x[428.44..441.58]el[-5.98..-5.52]",
    "xLo": 428.435,
    "xHi": 441.58,
    "elLo": -5.98,
@@ -25072,8 +25125,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 157,
-   "diagId": "Cross-section 2#157@x[428.44..441.58]el[2.44..2.86]",
+   "faceIndex": 160,
+   "diagId": "Cross-section 2#160@x[428.44..441.58]el[2.44..2.86]",
    "xLo": 428.435,
    "xHi": 441.58,
    "elLo": 2.44,
@@ -25098,8 +25151,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 158,
-   "diagId": "Cross-section 2#158@x[428.44..441.58]el[10.78..11.32]",
+   "faceIndex": 161,
+   "diagId": "Cross-section 2#161@x[428.44..441.58]el[10.78..11.32]",
    "xLo": 428.435,
    "xHi": 441.58,
    "elLo": 10.78,
@@ -25124,59 +25177,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 159,
-   "diagId": "Cross-section 2#159@x[440.8..441.58]el[-6.37..-5.98]",
-   "xLo": 440.8,
-   "xHi": 441.58,
-   "elLo": -6.37,
-   "elHi": -5.98,
-   "boundaryCurveIds": [
-    "col16:u8",
-    "term17",
-    "term18"
-   ],
-   "seedRefs": [
-    "col16:u8"
-   ],
-   "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
-   ],
-   "classification": "single-seed",
-   "zeroSeedFamily": null,
-   "planKeys": [
-    "15|right|8",
-    "16|left|8"
-   ],
-   "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 2",
-   "faceIndex": 160,
-   "diagId": "Cross-section 2#160@x[426.97..441.58]el[-6.37..-6.17]",
-   "xLo": 426.974,
-   "xHi": 441.58,
-   "elLo": -6.37,
-   "elHi": -6.175,
-   "boundaryCurveIds": [
-    "floodsw22",
-    "floodsw23",
-    "term18"
-   ],
-   "seedRefs": [],
-   "seedFormations": [],
-   "classification": "zero-seed-defect",
-   "zeroSeedFamily": "flood",
-   "planKeys": [],
-   "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
-   "paintMismatch": false,
-   "mergedMinority": false
-  },
-  {
-   "section": "Cross-section 2",
-   "faceIndex": 161,
-   "diagId": "Cross-section 2#161@x[441.58..455.94]el[-12.58..-10.45]",
+   "faceIndex": 162,
+   "diagId": "Cross-section 2#162@x[441.58..455.94]el[-12.58..-10.45]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -12.58,
@@ -25198,8 +25200,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 162,
-   "diagId": "Cross-section 2#162@x[441.58..455.94]el[-12.58..-10.45]",
+   "faceIndex": 163,
+   "diagId": "Cross-section 2#163@x[441.58..455.94]el[-12.58..-10.45]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -12.58,
@@ -25227,8 +25229,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 163,
-   "diagId": "Cross-section 2#163@x[441.58..455.94]el[-10.45..-6.67]",
+   "faceIndex": 164,
+   "diagId": "Cross-section 2#164@x[441.58..455.94]el[-10.45..-6.67]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -10.45,
@@ -25261,8 +25263,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 164,
-   "diagId": "Cross-section 2#164@x[441.58..448.76]el[-6.77..-6.37]",
+   "faceIndex": 165,
+   "diagId": "Cross-section 2#165@x[441.58..448.76]el[-6.77..-6.37]",
    "xLo": 441.58,
    "xHi": 448.759,
    "elLo": -6.77,
@@ -25292,8 +25294,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 165,
-   "diagId": "Cross-section 2#165@x[441.58..455.94]el[-6.87..-6.37]",
+   "faceIndex": 166,
+   "diagId": "Cross-section 2#166@x[441.58..455.94]el[-6.87..-6.37]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -6.869,
@@ -25316,8 +25318,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 166,
-   "diagId": "Cross-section 2#166@x[441.58..455.94]el[-6.87..-5.98]",
+   "faceIndex": 167,
+   "diagId": "Cross-section 2#167@x[441.58..455.94]el[-6.87..-5.98]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -6.869,
@@ -25351,8 +25353,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 167,
-   "diagId": "Cross-section 2#167@x[426.97..441.58]el[-5.75..-5.52]",
+   "faceIndex": 168,
+   "diagId": "Cross-section 2#168@x[426.97..441.58]el[-5.75..-5.52]",
    "xLo": 426.974,
    "xHi": 441.58,
    "elLo": -5.75,
@@ -25373,8 +25375,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 168,
-   "diagId": "Cross-section 2#168@x[441.58..455.94]el[-6.27..-5.52]",
+   "faceIndex": 169,
+   "diagId": "Cross-section 2#169@x[441.58..455.94]el[-6.27..-5.52]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -6.273,
@@ -25410,8 +25412,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 169,
-   "diagId": "Cross-section 2#169@x[441.58..455.94]el[-5.64..-5.01]",
+   "faceIndex": 170,
+   "diagId": "Cross-section 2#170@x[441.58..455.94]el[-5.64..-5.01]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -5.643,
@@ -25447,8 +25449,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 170,
-   "diagId": "Cross-section 2#170@x[441.58..455.94]el[-5.12..-4.19]",
+   "faceIndex": 171,
+   "diagId": "Cross-section 2#171@x[441.58..455.94]el[-5.12..-4.19]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -5.12,
@@ -25484,8 +25486,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 171,
-   "diagId": "Cross-section 2#171@x[441.58..455.94]el[-4.34..3.53]",
+   "faceIndex": 172,
+   "diagId": "Cross-section 2#172@x[441.58..455.94]el[-4.34..3.53]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": -4.344,
@@ -25524,10 +25526,10 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 172,
-   "diagId": "Cross-section 2#172@x[441.58..442.42]el[2.44..2.86]",
+   "faceIndex": 173,
+   "diagId": "Cross-section 2#173@x[441.58..448.04]el[2.44..2.86]",
    "xLo": 441.58,
-   "xHi": 442.42,
+   "xHi": 448.041,
    "elLo": 2.44,
    "elHi": 2.86,
    "boundaryCurveIds": [
@@ -25550,8 +25552,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 173,
-   "diagId": "Cross-section 2#173@x[441.58..455.94]el[2.26..3.53]",
+   "faceIndex": 174,
+   "diagId": "Cross-section 2#174@x[441.58..455.94]el[2.26..3.53]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": 2.26,
@@ -25581,8 +25583,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 174,
-   "diagId": "Cross-section 2#174@x[441.58..455.94]el[3.14..6.31]",
+   "faceIndex": 175,
+   "diagId": "Cross-section 2#175@x[441.58..455.94]el[3.14..6.31]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": 3.14,
@@ -25617,8 +25619,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 175,
-   "diagId": "Cross-section 2#175@x[441.58..455.94]el[6.12..7.45]",
+   "faceIndex": 176,
+   "diagId": "Cross-section 2#176@x[441.58..455.94]el[6.12..7.45]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": 6.12,
@@ -25654,8 +25656,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 176,
-   "diagId": "Cross-section 2#176@x[441.58..455.94]el[6.48..10.3]",
+   "faceIndex": 177,
+   "diagId": "Cross-section 2#177@x[441.58..455.94]el[6.48..10.3]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": 6.48,
@@ -25691,8 +25693,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 177,
-   "diagId": "Cross-section 2#177@x[441.58..455.94]el[10.18..11.82]",
+   "faceIndex": 178,
+   "diagId": "Cross-section 2#178@x[441.58..455.94]el[10.18..11.82]",
    "xLo": 441.58,
    "xHi": 455.938,
    "elLo": 10.18,
@@ -25730,8 +25732,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 178,
-   "diagId": "Cross-section 2#178@x[441.58..448.04]el[10.78..11.32]",
+   "faceIndex": 179,
+   "diagId": "Cross-section 2#179@x[441.58..448.04]el[10.78..11.32]",
    "xLo": 441.58,
    "xHi": 448.041,
    "elLo": 10.78,
@@ -25756,8 +25758,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 179,
-   "diagId": "Cross-section 2#179@x[449.48..455.94]el[-3.83..-3.14]",
+   "faceIndex": 180,
+   "diagId": "Cross-section 2#180@x[449.48..455.94]el[-3.83..-3.14]",
    "xLo": 449.477,
    "xHi": 455.938,
    "elLo": -3.831,
@@ -25782,8 +25784,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 180,
-   "diagId": "Cross-section 2#180@x[455.94..458.37]el[-12.58..-7.7]",
+   "faceIndex": 181,
+   "diagId": "Cross-section 2#181@x[455.94..458.37]el[-12.58..-7.7]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -12.58,
@@ -25805,8 +25807,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 181,
-   "diagId": "Cross-section 2#181@x[455.94..458.37]el[-12.58..-7.7]",
+   "faceIndex": 182,
+   "diagId": "Cross-section 2#182@x[455.94..458.37]el[-12.58..-7.7]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -12.58,
@@ -25834,8 +25836,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 182,
-   "diagId": "Cross-section 2#182@x[455.94..458.37]el[-7.7..-6.87]",
+   "faceIndex": 183,
+   "diagId": "Cross-section 2#183@x[455.94..458.37]el[-7.7..-6.87]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -7.7,
@@ -25869,8 +25871,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 183,
-   "diagId": "Cross-section 2#183@x[455.94..458.37]el[-7.17..-6.27]",
+   "faceIndex": 184,
+   "diagId": "Cross-section 2#184@x[455.94..458.37]el[-7.17..-6.27]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -7.175,
@@ -25906,8 +25908,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 184,
-   "diagId": "Cross-section 2#184@x[455.94..458.37]el[-6.8..-5.25]",
+   "faceIndex": 185,
+   "diagId": "Cross-section 2#185@x[455.94..458.37]el[-6.8..-5.25]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -6.804,
@@ -25942,8 +25944,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 185,
-   "diagId": "Cross-section 2#185@x[455.94..458.37]el[-5.64..-4.19]",
+   "faceIndex": 186,
+   "diagId": "Cross-section 2#186@x[455.94..458.37]el[-5.64..-4.19]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -5.643,
@@ -25981,8 +25983,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 186,
-   "diagId": "Cross-section 2#186@x[455.94..457.15]el[-4.6..-4.19]",
+   "faceIndex": 187,
+   "diagId": "Cross-section 2#187@x[455.94..457.15]el[-4.6..-4.19]",
    "xLo": 455.938,
    "xHi": 457.153,
    "elLo": -4.601,
@@ -26003,8 +26005,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 187,
-   "diagId": "Cross-section 2#187@x[455.94..458.37]el[-5.25..2.75]",
+   "faceIndex": 188,
+   "diagId": "Cross-section 2#188@x[455.94..458.37]el[-5.25..2.75]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": -5.247,
@@ -26040,8 +26042,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 188,
-   "diagId": "Cross-section 2#188@x[455.94..457.03]el[-3.83..-3.14]",
+   "faceIndex": 189,
+   "diagId": "Cross-section 2#189@x[455.94..457.03]el[-3.83..-3.14]",
    "xLo": 455.938,
    "xHi": 457.032,
    "elLo": -3.831,
@@ -26066,8 +26068,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 189,
-   "diagId": "Cross-section 2#189@x[455.94..458.37]el[2.26..4.8]",
+   "faceIndex": 190,
+   "diagId": "Cross-section 2#190@x[455.94..458.37]el[2.26..4.8]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": 2.26,
@@ -26103,8 +26105,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 190,
-   "diagId": "Cross-section 2#190@x[455.94..458.37]el[3.14..6.31]",
+   "faceIndex": 191,
+   "diagId": "Cross-section 2#191@x[455.94..458.37]el[3.14..6.31]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": 3.14,
@@ -26140,8 +26142,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 191,
-   "diagId": "Cross-section 2#191@x[455.94..458.37]el[6.3..7.79]",
+   "faceIndex": 192,
+   "diagId": "Cross-section 2#192@x[455.94..458.37]el[6.3..7.79]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": 6.3,
@@ -26177,8 +26179,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 192,
-   "diagId": "Cross-section 2#192@x[455.94..458.37]el[7.45..10.3]",
+   "faceIndex": 193,
+   "diagId": "Cross-section 2#193@x[455.94..458.37]el[7.45..10.3]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": 7.45,
@@ -26214,8 +26216,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 193,
-   "diagId": "Cross-section 2#193@x[455.94..458.37]el[9.8..12.8]",
+   "faceIndex": 194,
+   "diagId": "Cross-section 2#194@x[455.94..458.37]el[9.8..12.8]",
    "xLo": 455.938,
    "xHi": 458.369,
    "elLo": 9.8,
@@ -26251,8 +26253,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 194,
-   "diagId": "Cross-section 2#194@x[455.94..457.15]el[-5.01..-4.6]",
+   "faceIndex": 195,
+   "diagId": "Cross-section 2#195@x[455.94..457.15]el[-5.01..-4.6]",
    "xLo": 455.938,
    "xHi": 457.153,
    "elLo": -5.01,
@@ -26273,8 +26275,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 195,
-   "diagId": "Cross-section 2#195@x[458.37..482.34]el[-10.36..-7.7]",
+   "faceIndex": 196,
+   "diagId": "Cross-section 2#196@x[458.37..482.34]el[-10.36..-7.7]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -10.36,
@@ -26296,8 +26298,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 196,
-   "diagId": "Cross-section 2#196@x[458.37..482.34]el[-10.36..-7.7]",
+   "faceIndex": 197,
+   "diagId": "Cross-section 2#197@x[458.37..482.34]el[-10.36..-7.7]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -10.36,
@@ -26325,8 +26327,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 197,
-   "diagId": "Cross-section 2#197@x[458.37..482.34]el[-7.7..-6.45]",
+   "faceIndex": 198,
+   "diagId": "Cross-section 2#198@x[458.37..482.34]el[-7.7..-6.45]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -7.7,
@@ -26360,8 +26362,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 198,
-   "diagId": "Cross-section 2#198@x[458.37..482.34]el[-7.17..-4.59]",
+   "faceIndex": 199,
+   "diagId": "Cross-section 2#199@x[458.37..482.34]el[-7.17..-4.59]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -7.175,
@@ -26397,8 +26399,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 199,
-   "diagId": "Cross-section 2#199@x[458.37..482.34]el[-6.8..-2.6]",
+   "faceIndex": 200,
+   "diagId": "Cross-section 2#200@x[458.37..482.34]el[-6.8..-2.6]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -6.804,
@@ -26434,8 +26436,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 200,
-   "diagId": "Cross-section 2#200@x[458.37..482.34]el[-5.25..2.75]",
+   "faceIndex": 201,
+   "diagId": "Cross-section 2#201@x[458.37..482.34]el[-5.25..2.75]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": -5.247,
@@ -26473,8 +26475,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 201,
-   "diagId": "Cross-section 2#201@x[458.37..482.34]el[2.31..4.8]",
+   "faceIndex": 202,
+   "diagId": "Cross-section 2#202@x[458.37..482.34]el[2.31..4.8]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": 2.31,
@@ -26510,8 +26512,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 202,
-   "diagId": "Cross-section 2#202@x[458.37..482.34]el[2.69..6.8]",
+   "faceIndex": 203,
+   "diagId": "Cross-section 2#203@x[458.37..482.34]el[2.69..6.8]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": 2.69,
@@ -26547,8 +26549,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 203,
-   "diagId": "Cross-section 2#203@x[458.37..482.34]el[6.3..8.17]",
+   "faceIndex": 204,
+   "diagId": "Cross-section 2#204@x[458.37..482.34]el[6.3..8.17]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": 6.3,
@@ -26584,8 +26586,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 204,
-   "diagId": "Cross-section 2#204@x[458.37..482.34]el[7.79..11.17]",
+   "faceIndex": 205,
+   "diagId": "Cross-section 2#205@x[458.37..482.34]el[7.79..11.17]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": 7.794,
@@ -26620,8 +26622,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 205,
-   "diagId": "Cross-section 2#205@x[458.37..482.34]el[9.8..12.8]",
+   "faceIndex": 206,
+   "diagId": "Cross-section 2#206@x[458.37..482.34]el[9.8..12.8]",
    "xLo": 458.369,
    "xHi": 482.34,
    "elLo": 9.8,
@@ -26650,8 +26652,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 206,
-   "diagId": "Cross-section 2#206@x[471.55..482.34]el[-1.85..-1.18]",
+   "faceIndex": 207,
+   "diagId": "Cross-section 2#207@x[471.55..482.34]el[-1.85..-1.18]",
    "xLo": 471.553,
    "xHi": 482.34,
    "elLo": -1.85,
@@ -26676,8 +26678,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 207,
-   "diagId": "Cross-section 2#207@x[482.34..530.38]el[-10.36..-6.65]",
+   "faceIndex": 208,
+   "diagId": "Cross-section 2#208@x[482.34..530.38]el[-10.36..-6.65]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -10.36,
@@ -26699,8 +26701,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 208,
-   "diagId": "Cross-section 2#208@x[482.34..530.38]el[-10.36..-6.65]",
+   "faceIndex": 209,
+   "diagId": "Cross-section 2#209@x[482.34..530.38]el[-10.36..-6.65]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -10.36,
@@ -26728,8 +26730,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 209,
-   "diagId": "Cross-section 2#209@x[482.34..530.38]el[-6.65..-5.65]",
+   "faceIndex": 210,
+   "diagId": "Cross-section 2#210@x[482.34..530.38]el[-6.65..-5.65]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -6.65,
@@ -26763,8 +26765,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 210,
-   "diagId": "Cross-section 2#210@x[482.34..530.38]el[-6.45..-4.59]",
+   "faceIndex": 211,
+   "diagId": "Cross-section 2#211@x[482.34..530.38]el[-6.45..-4.59]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -6.45,
@@ -26800,8 +26802,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 211,
-   "diagId": "Cross-section 2#211@x[482.34..530.38]el[-5.18..-2.6]",
+   "faceIndex": 212,
+   "diagId": "Cross-section 2#212@x[482.34..530.38]el[-5.18..-2.6]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -5.185,
@@ -26837,8 +26839,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 212,
-   "diagId": "Cross-section 2#212@x[482.34..530.38]el[-4.19..3.86]",
+   "faceIndex": 213,
+   "diagId": "Cross-section 2#213@x[482.34..530.38]el[-4.19..3.86]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": -4.193,
@@ -26875,8 +26877,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 213,
-   "diagId": "Cross-section 2#213@x[482.34..503.96]el[-1.85..-1.18]",
+   "faceIndex": 214,
+   "diagId": "Cross-section 2#214@x[482.34..503.96]el[-1.85..-1.18]",
    "xLo": 482.34,
    "xHi": 503.96,
    "elLo": -1.85,
@@ -26901,8 +26903,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 214,
-   "diagId": "Cross-section 2#214@x[482.34..506.36]el[2.31..3.08]",
+   "faceIndex": 215,
+   "diagId": "Cross-section 2#215@x[482.34..506.36]el[2.31..3.08]",
    "xLo": 482.34,
    "xHi": 506.362,
    "elLo": 2.31,
@@ -26932,8 +26934,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 215,
-   "diagId": "Cross-section 2#215@x[482.34..530.38]el[2.69..3.86]",
+   "faceIndex": 216,
+   "diagId": "Cross-section 2#216@x[482.34..530.38]el[2.69..3.86]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": 2.69,
@@ -26956,8 +26958,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 216,
-   "diagId": "Cross-section 2#216@x[482.34..530.38]el[2.69..6.85]",
+   "faceIndex": 217,
+   "diagId": "Cross-section 2#217@x[482.34..530.38]el[2.69..6.85]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": 2.69,
@@ -26991,8 +26993,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 217,
-   "diagId": "Cross-section 2#217@x[482.34..530.38]el[6.8..8.17]",
+   "faceIndex": 218,
+   "diagId": "Cross-section 2#218@x[482.34..530.38]el[6.8..8.17]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": 6.8,
@@ -27028,8 +27030,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 218,
-   "diagId": "Cross-section 2#218@x[482.34..530.38]el[10.35..12.85]",
+   "faceIndex": 219,
+   "diagId": "Cross-section 2#219@x[482.34..530.38]el[10.35..12.85]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": 10.35,
@@ -27058,8 +27060,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 219,
-   "diagId": "Cross-section 2#219@x[482.34..530.38]el[8.05..11.17]",
+   "faceIndex": 220,
+   "diagId": "Cross-section 2#220@x[482.34..530.38]el[8.05..11.17]",
    "xLo": 482.34,
    "xHi": 530.384,
    "elLo": 8.05,
@@ -27094,8 +27096,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 220,
-   "diagId": "Cross-section 2#220@x[530.38..533.64]el[-11.51..-6.65]",
+   "faceIndex": 221,
+   "diagId": "Cross-section 2#221@x[530.38..533.64]el[-11.51..-6.65]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -11.51,
@@ -27117,8 +27119,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 221,
-   "diagId": "Cross-section 2#221@x[530.38..533.64]el[-11.51..-6.65]",
+   "faceIndex": 222,
+   "diagId": "Cross-section 2#222@x[530.38..533.64]el[-11.51..-6.65]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -11.51,
@@ -27146,8 +27148,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 222,
-   "diagId": "Cross-section 2#222@x[530.38..533.64]el[-6.65..-5.49]",
+   "faceIndex": 223,
+   "diagId": "Cross-section 2#223@x[530.38..533.64]el[-6.65..-5.49]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -6.65,
@@ -27181,8 +27183,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 223,
-   "diagId": "Cross-section 2#223@x[530.38..533.64]el[-5.65..-3.99]",
+   "faceIndex": 224,
+   "diagId": "Cross-section 2#224@x[530.38..533.64]el[-5.65..-3.99]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -5.65,
@@ -27218,8 +27220,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 224,
-   "diagId": "Cross-section 2#224@x[530.38..533.64]el[-5.18..-3.67]",
+   "faceIndex": 225,
+   "diagId": "Cross-section 2#225@x[530.38..533.64]el[-5.18..-3.67]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -5.185,
@@ -27255,8 +27257,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 225,
-   "diagId": "Cross-section 2#225@x[530.38..533.64]el[3.53..3.86]",
+   "faceIndex": 226,
+   "diagId": "Cross-section 2#226@x[530.38..533.64]el[3.53..3.86]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": 3.528,
@@ -27279,8 +27281,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 226,
-   "diagId": "Cross-section 2#226@x[530.38..533.64]el[-4.19..3.86]",
+   "faceIndex": 227,
+   "diagId": "Cross-section 2#227@x[530.38..533.64]el[-4.19..3.86]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": -4.193,
@@ -27315,8 +27317,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 227,
-   "diagId": "Cross-section 2#227@x[530.38..533.64]el[3.66..7.05]",
+   "faceIndex": 228,
+   "diagId": "Cross-section 2#228@x[530.38..533.64]el[3.66..7.05]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": 3.66,
@@ -27350,8 +27352,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 228,
-   "diagId": "Cross-section 2#228@x[530.38..533.64]el[6.85..8.13]",
+   "faceIndex": 229,
+   "diagId": "Cross-section 2#229@x[530.38..533.64]el[6.85..8.13]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": 6.85,
@@ -27387,8 +27389,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 229,
-   "diagId": "Cross-section 2#229@x[530.38..533.64]el[8.05..10.76]",
+   "faceIndex": 230,
+   "diagId": "Cross-section 2#230@x[530.38..533.64]el[8.05..10.76]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": 8.05,
@@ -27424,8 +27426,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 230,
-   "diagId": "Cross-section 2#230@x[530.38..533.64]el[10.35..12.85]",
+   "faceIndex": 231,
+   "diagId": "Cross-section 2#231@x[530.38..533.64]el[10.35..12.85]",
    "xLo": 530.384,
    "xHi": 533.636,
    "elLo": 10.35,
@@ -27461,8 +27463,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 231,
-   "diagId": "Cross-section 2#231@x[532.01..533.64]el[3.2..3.66]",
+   "faceIndex": 232,
+   "diagId": "Cross-section 2#232@x[532.01..533.64]el[3.2..3.66]",
    "xLo": 532.01,
    "xHi": 533.636,
    "elLo": 3.2,
@@ -27492,8 +27494,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 232,
-   "diagId": "Cross-section 2#232@x[533.64..570.46]el[-11.51..-10.35]",
+   "faceIndex": 233,
+   "diagId": "Cross-section 2#233@x[533.64..570.46]el[-11.51..-10.35]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -11.51,
@@ -27514,8 +27516,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 233,
-   "diagId": "Cross-section 2#233@x[533.64..570.46]el[-11.51..-10.35]",
+   "faceIndex": 234,
+   "diagId": "Cross-section 2#234@x[533.64..570.46]el[-11.51..-10.35]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -11.51,
@@ -27543,8 +27545,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 234,
-   "diagId": "Cross-section 2#234@x[533.64..570.46]el[-10.35..-5.24]",
+   "faceIndex": 235,
+   "diagId": "Cross-section 2#235@x[533.64..570.46]el[-10.35..-5.24]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -10.35,
@@ -27577,8 +27579,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 235,
-   "diagId": "Cross-section 2#235@x[533.64..570.46]el[-5.49..-3.67]",
+   "faceIndex": 236,
+   "diagId": "Cross-section 2#236@x[533.64..570.46]el[-5.49..-3.67]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -5.487,
@@ -27612,8 +27614,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 236,
-   "diagId": "Cross-section 2#236@x[533.64..552.05]el[-3.83..-3.67]",
+   "faceIndex": 237,
+   "diagId": "Cross-section 2#237@x[533.64..552.05]el[-3.83..-3.67]",
    "xLo": 533.636,
    "xHi": 552.049,
    "elLo": -3.83,
@@ -27634,8 +27636,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 237,
-   "diagId": "Cross-section 2#237@x[533.64..570.46]el[-5.24..3.2]",
+   "faceIndex": 238,
+   "diagId": "Cross-section 2#238@x[533.64..570.46]el[-5.24..3.2]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": -5.24,
@@ -27673,8 +27675,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 238,
-   "diagId": "Cross-section 2#238@x[533.64..570.46]el[2.01..3.66]",
+   "faceIndex": 239,
+   "diagId": "Cross-section 2#239@x[533.64..570.46]el[2.01..3.66]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": 2.01,
@@ -27710,8 +27712,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 239,
-   "diagId": "Cross-section 2#239@x[533.64..570.46]el[3.14..7.05]",
+   "faceIndex": 240,
+   "diagId": "Cross-section 2#240@x[533.64..570.46]el[3.14..7.05]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": 3.14,
@@ -27747,8 +27749,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 240,
-   "diagId": "Cross-section 2#240@x[533.64..570.46]el[6.31..9.54]",
+   "faceIndex": 241,
+   "diagId": "Cross-section 2#241@x[533.64..570.46]el[6.31..9.54]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": 6.31,
@@ -27784,8 +27786,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 241,
-   "diagId": "Cross-section 2#241@x[533.64..570.46]el[8.13..12.37]",
+   "faceIndex": 242,
+   "diagId": "Cross-section 2#242@x[533.64..570.46]el[8.13..12.37]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": 8.133,
@@ -27820,8 +27822,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 242,
-   "diagId": "Cross-section 2#242@x[533.64..570.46]el[10.76..12.79]",
+   "faceIndex": 243,
+   "diagId": "Cross-section 2#243@x[533.64..570.46]el[10.76..12.79]",
    "xLo": 533.636,
    "xHi": 570.461,
    "elLo": 10.76,
@@ -27855,8 +27857,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 243,
-   "diagId": "Cross-section 2#243@x[533.64..552.05]el[-3.99..-3.83]",
+   "faceIndex": 244,
+   "diagId": "Cross-section 2#244@x[533.64..552.05]el[-3.99..-3.83]",
    "xLo": 533.636,
    "xHi": 552.049,
    "elLo": -3.99,
@@ -27877,8 +27879,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 244,
-   "diagId": "Cross-section 2#244@x[570.46..600.9]el[-10.35..-10.16]",
+   "faceIndex": 245,
+   "diagId": "Cross-section 2#245@x[570.46..600.9]el[-10.35..-10.16]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": -10.35,
@@ -27899,8 +27901,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 245,
-   "diagId": "Cross-section 2#245@x[570.46..600.9]el[-10.35..-10.16]",
+   "faceIndex": 246,
+   "diagId": "Cross-section 2#246@x[570.46..600.9]el[-10.35..-10.16]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": -10.35,
@@ -27928,8 +27930,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 246,
-   "diagId": "Cross-section 2#246@x[570.46..600.9]el[-10.16..-4.55]",
+   "faceIndex": 247,
+   "diagId": "Cross-section 2#247@x[570.46..600.9]el[-10.16..-4.55]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": -10.16,
@@ -27962,8 +27964,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 247,
-   "diagId": "Cross-section 2#247@x[570.46..600.9]el[-5.24..2.01]",
+   "faceIndex": 248,
+   "diagId": "Cross-section 2#248@x[570.46..600.9]el[-5.24..2.01]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": -5.24,
@@ -27998,8 +28000,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 248,
-   "diagId": "Cross-section 2#248@x[570.46..600.9]el[2.01..4.17]",
+   "faceIndex": 249,
+   "diagId": "Cross-section 2#249@x[570.46..600.9]el[2.01..4.17]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": 2.01,
@@ -28034,8 +28036,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 249,
-   "diagId": "Cross-section 2#249@x[570.46..600.9]el[3.14..6.31]",
+   "faceIndex": 250,
+   "diagId": "Cross-section 2#250@x[570.46..600.9]el[3.14..6.31]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": 3.14,
@@ -28070,8 +28072,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 250,
-   "diagId": "Cross-section 2#250@x[570.46..600.9]el[5.65..9.54]",
+   "faceIndex": 251,
+   "diagId": "Cross-section 2#251@x[570.46..600.9]el[5.65..9.54]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": 5.65,
@@ -28106,8 +28108,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 251,
-   "diagId": "Cross-section 2#251@x[570.46..600.9]el[8.6..13.06]",
+   "faceIndex": 252,
+   "diagId": "Cross-section 2#252@x[570.46..600.9]el[8.6..13.06]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": 8.599,
@@ -28141,8 +28143,8 @@
   },
   {
    "section": "Cross-section 2",
-   "faceIndex": 252,
-   "diagId": "Cross-section 2#252@x[570.46..600.9]el[12.37..13.06]",
+   "faceIndex": 253,
+   "diagId": "Cross-section 2#253@x[570.46..600.9]el[12.37..13.06]",
    "xLo": 570.461,
    "xHi": 600.895,
    "elLo": 12.37,

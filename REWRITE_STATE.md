@@ -5101,3 +5101,133 @@ resolveNotchLensRefs), `partitionFillV2.seedGate.diag.test.ts` (gate col:lens + 
 utils: 818 passed, only `convergingStack (a)` red (pre-existing §49). tsc clean. v1 + app untouched.
 STUB TO TRACK (debt #201): `emitCurves.ts` 522 lines + the two diag test files exceed the 500-line
 warn threshold (the id-split logic could extract to a `columnVerticalSplit.ts` helper). NO git ops.
+
+## §51 — Session 46: STAGE-A LENS-REACH FIX BUILT + MEASURED WALL (overlap), REVERTED to baseline; STAGE-B NOT STARTED (ask-first)
+
+Task (Step 4.2 Stage A): delete the banned FACING-SAMPLE reach heuristic so the 4 phantom hugs open
+to 0.45, using ONE shared collision test = the lens's 0.45 wedge vs CORRELATION LINE ART ONLY (drawn
+ties + band-edge ties), never facing litho (rulings 8q/8p "no facing sample ever").
+
+**DIAGNOSIS (proven, throwaway `partitionFillV2.reachScan.diag.test.ts`, SHAPE_AUDIT=1):**
+* The reach scan reproduced all 14 CS1 hugs (~1-2 % of gap). Two banned facing-sample paths:
+  - `interiorLensReachToTies`'s `facingCompetes` (`facingMatrixLabel(facing, mid)` in `drawTermination`)
+    — col18 ui2 SILT[5.46..6.03] mid=5.745 dropped to reach 0.015 PURELY because col19 carries ZAND
+    78 m away (`reach(comp)=0.015` vs `reach(noComp)=0.45`). The map's "term25/26 collider a wedge-vs-art
+    test can't find" = this facing sample; NOT a scaffold, NOT the root line. The genuine hug term27/28
+    (ui3 VEEN mid=5.255) survives WITHOUT facingCompetes (`reach(noComp)=0.011`) because tie81:18
+    (base 4.23→top 7.027) actually crosses its extent — so the tie-bracket test alone separates
+    phantom from genuine, exactly as ruled.
+  - `enclosedLensReach`'s `facingDiffers` (same `facingMatrixLabel` sample in `emitLenses`) — the 3
+    `lens*` phantoms take this path.
+
+**THE FIX (built, tsc clean):** deleted BOTH facing branches; `interiorLensReachToTies` loses the
+`facingCompetes` param (tie-bracket collision is the sole override); `enclosedLensReach` re-signatured
+to `(thick, colX, facingX, mid, top, base, gapTies)` and delegates to `interiorLensReachToTies` (flag-OFF
+keeps the flat `lensReachFraction` cap byte-identical). `ties` threaded emitCurves → `emitEnclosedLensCurves`
+→ `emitOne`. `lensReach.test.ts` rewritten to the owner's rule (no-line-art → 0.45; the ex-"facing
+competitor caps" cases now assert 0.45). Files: `lensReach.ts`, `drawTermination.ts`, `emitLenses.ts`,
+`emitCurves.ts`, `lensReach.test.ts`.
+
+**MEASURED — the 4 phantoms open CORRECTLY, but a WALL:**
+* Reach scan: all 4 named phantoms (lens6/7, lens12/13, lens22/23, term25/26) → 0.45 (left the HUG list);
+  the 3 genuine (term27/28, term30/31, term32/33) — term27/28 stays 0.011 (tie81:18). BUT term30-33
+  (col20, map says "genuine, cross bandc124") ALSO opened to 0.45: gap19 has only tie1:19/tie2:19 which
+  bracket ui2/ui3 from OUTSIDE — bandc124 is a band FILL, its edges touch only at the columns, so no
+  line art crosses their wedge interiors.
+* lineStageDiff: OK 829→837, **COLLAPSED 11→2** (−9, the phantom-hug fix landing), DANGLING 10→11,
+  MISSING 8, MERGED-AWAY 8, PHANTOM 1 (unchanged). seedGate 790→791 / single 622→623 / void 8 /
+  zeroDef 151→152 / **multiDef 9→8** / mergedMinority 0, paintMismatch 0. CS1 gates 8/8. — all POSITIVE.
+* **HOLES GATE RED (the wall): flag-ON different-litho `overlapPairs 0→3`** — CS1 gap5 ZAND(lens)×SILT
+  14.7 cm; CS2 gap13 KLEI×ZAND 24.3 cm + ZAND×KLEI 2.8 cm. holesAboveTD stays 64, sub-TD 0, flag-OFF
+  0/0/0. These are lenses the deleted facing cap was doing REAL overlap-prevention on — minorities
+  between TWO DIFFERENT lithos (`matrixFid=null`: SILT above / KLEI below), NOT clean enclosed lenses.
+  PROBE (throwaway, gap5): NO tie/band/bridge crosses the ZAND lens's 0.45 wedge interior — only
+  endpoint-touching art. So even the FULL mandated collision set (+ band contours + bridges) would NOT
+  bracket them; the doctrine-pure result IS 0.45 → overlap. The owner's 8n/8q framing calls such an
+  overlap "a LINE-ART DEFECT to fix in geometry" — the fix is the F3 `lensEnclosure` enclosing-matrix
+  CONTOUR CLIP, which the `interiorLensReachToTies` doc itself marks "out of scope this session".
+
+**DECISION: source REVERTED to baseline (all 5 files byte-restored; holes flag-OFF 0/0/0, flag-ON
+64/0/0/overlap 0, seedGate 790/622/8/151/9/0, CS1 8/8 — clean). Throwaway diag kept. STAGE B NOT
+STARTED.** This is a GENUINE RULE GAP (memory `feedback_ask_domain_questions_dont_bugfix`): deleting
+the facing sample is mandated and opens the 4 phantoms correctly, but a DIFFERENT class the map did not
+enumerate — a corr-0 minority between two different lithos with NO bracketing line art — then reaches
+0.45 straight into the facing's third litho (paint overlap). No in-scope, non-facing-sample mechanism
+prevents it. ASK-FIRST QUESTION for the owner (one): *for a corr-0 lens whose 0.45 wedge crosses NO
+correlation line art but whose enclosing "matrix" is TWO DIFFERENT lithos (SILT above / KLEI below, not
+a clean same-formation wrap), and whose 0.45 reach lands in the facing column's THIRD litho — do we (a)
+still emit it at 0.45 and accept/repair the resulting different-litho overlap via the enclosing-matrix
+contour clip [F3 lensEnclosure, currently out of scope — a bigger build], or (b) is a NON-facing-sample
+geometric cap sanctioned for the different-litho-enclosed case [e.g. cap reach at the nearest OWN-column
+enclosing-contact's dip, which is line art of the lens's own column, not a facing sample]?* Until
+answered, the facing-sample deletion stays reverted. NO git ops.
+
+## §52 — Session 46b: STAGE-A LENS-REACH FIX RE-LANDED under RULING 8s (SHIPPED); STAGE-B tie-conformance layer SHIPPED + tie-drop DIAGNOSED → ASK-FIRST (band structure)
+
+The owner answered S51's ask-first as RULING 8s (design §8, "0.45 stands, matrix detours"): a corr-0 lens
+whose 0.45 wedge crosses NO correlation line art keeps the full 0.45 even when its enclosing hosts are two
+different lithos and the wedge opens into surrounding fill; the facing-sample caps are DELETED; the sole
+shortener is a genuine wedge-vs-tie collision; the 3 cm-slivers this exposes are identity-pinned engine
+defects on a ratchet, never a reason to re-cap.
+
+**STAGE A — RE-LANDED (S51's construction, now sanctioned).** `interiorLensReachToTies` lost `facingCompetes`
+(tie-bracket collision = sole override, per 8s); `enclosedLensReach` re-signatured to
+`(unitThicknessM, colX, facingX, midElev, topElev, baseElev, gapTies)` and DELEGATES to
+`interiorLensReachToTies` flag-ON (flag-OFF returns the frozen `lensReachFraction` cap byte-identical — no
+tie scan). `drawTermination.emitLens` dropped the `facingCompetes`/`enclosingMatrixFid` computation;
+`emitEnclosedLensCurves`/`emitOne` thread the gap `ties` (filtered by gapIndex). `lensReach.test.ts` rewritten
+to 8s (no-line-art → 0.45; ex-competitor caps now assert 0.45). Files: `lensReach.ts`, `drawTermination.ts`,
+`emitLenses.ts`, `emitCurves.ts`, `lensReach.test.ts` (+ `faceLabel8n.test.ts` + `holes_overlaps.diag.test.ts`
+ratchet). tsc clean.
+MEASURED (matches §51 exactly): reach scan — the 4 phantoms (lens6/7 col3R, lens12/13 col6L, lens22/23 col19R,
+term25/26 col18R) + term30-33 (col20) → 0.45; ONLY term27/28 (col18 VEEN, tie81:18 crosses) stays hugged
+0.011. lineStageDiff OK 829→837, **COLLAPSED 11→2** (the phantom-hug fix), DANGLING 10→**11**, MISSING 8 /
+MERGED-AWAY 8 / PHANTOM 1 unchanged. seedGate 790→**791** / single 622→623 / void 8 / zeroDef 151→152 /
+**multiDef 9→8** / mergedMinority 0 / paintMismatch 0. CS1 gates 8/8. holes flag-OFF **0/0/0** byte-identical;
+flag-ON holes **64/0** (unchanged) + **overlapPairs 0→3** = the 3 ruled slivers, PINNED BY IDENTITY on the
+holes-diag ratchet (CS1 g5 ZAND×SILT 14.7cm; CS2 g13 KLEI×ZAND 24.3cm + ZAND×KLEI 2.8cm; ratchet fails on any
+4th overlap or growth >1cm).
+**DANGLING +1 CHARACTERISED = a matcher RECLASSIFICATION, not a defect.** The +1 is CS1 gap19-left, S6 ZAND
+corr-1 onlap facing S5A: `matched lens apexYerr=702.4cm` (added `danglingDetail` to the diag). The col20 lens
+(term30-33) that ruling 8s opened from ~0.014 to 0.45 now roots near the S6 onlap's contact; the diag's greedy
+per-look matcher (`cands[0]`, prefix-agnostic) consumes that `lens` flank for the onlap → its apex (on the tie)
+mismatches the lens apex → DANGLING. The onlap emission (`emitOnlap`) is byte-unchanged, gap19 holes stay 0, and
+the intruding lens is CORRECTLY at 0.45 per 8s. Target is 11 (the map's expected); left at 11.
+**faceLabel8n (b) UPDATED (test-premise, not a regression).** The CS1 gap18 8n(b) gate sampled the KLEI wrap at
+f=0.1 assuming the OLD tiny-hug SILT reach. Under 8s the SILT lens opens to 0.45, so f=0.1 is now inside the SILT
+interior. Moved the SILT-wrap sample past the 0.45 apex (f=0.5, still below the ZAND-top tie at f≈0.58); the VEEN
+lens stays hugged (tie81:18) so its wrap stays at f=0.1. Both ruled invariants hold: (a) no ZAND in the lens
+band, (b) the wrap reads KLEI, (c) interiors read SILT/VEEN, (d) no gap18 overlap.
+
+**STAGE B — DIAGNOSED (the exact drop) + TIE-CONFORMANCE LAYER SHIPPED; the FIX is ASK-FIRST (band structure).**
+Root cause (throwaway `tieDropProbe`, now removed; env-gated trace in `extractEnclosedLenses`, now removed):
+CS1 S5's stack is SILT(dde2)/SAND(dde3)/**SILT(dde4, edged, the dropped-tie unit)**/SAND(dde5, un-edged)/SILT(dde6,
+edged). `extractEnclosedLenses` treats **dde5 (SAND) as an enclosed lens** (above=dde4 SILT == below=dde6 SILT).
+Its BELOW-EDGED branch (`sectionGeom.ts` ~L390-397) keeps dde6's identity, grows it UP over the lens, and
+`units.splice(k-1, 2)` removes `above=dde4` + the lens — SACRIFICING dde4's identity. dde4 is EDGED, so its two
+approved ties (S5↔S5A, S5↔S5B) lose their layerId → `resolveTies` drops them (`layerLoc.get` undefined). The
+code comment at L392-394 assumed this "did not fire on any real interbed" — FALSE, it fires on S5. The
+tie-conformance layer confirms: **CS1 2 DROPPED (S5↔S5A, S5↔S5B), 3 MOVED, 0 INVENTED; GRAND 446 rawEdges,
+2 DROPPED, all on CS1.**
+Tie-conformance layer added to `partitionFillV2.lineStageDiff.diag.test.ts`: per-section raw approved edges
+(endpoints = the picked unit's own RAW contact elevations) vs emitted tie/bridge/jump curves → DROPPED / MOVED
+(>2cm) / INVENTED, printed under GRAND TOTALS + dumped to `perSection.tieConformance`. Pure reporter (lineStageDiff
+totals unchanged). tsc clean.
+**ASK-FIRST (mandate's named trigger "a tie into an enclosed interbed... for band structure"):** the merged
+survivor dde6 (SILT) grew its top to dde4's old top (9.76), so dde4's dropped ties' contact elevation still
+EXISTS on the merged same-formation SILT band — the ties are re-rootable geometrically. BUT re-attaching dde4's
+S5↔S5A/S5B ties to the merged SILT band changes BAND STRUCTURE (the merged SILT band would newly BAND/ONLAP with
+S5A/S5B where those ties were silently dropped). Per `feedback_ask_domain_questions_dont_bugfix` + the mandate's
+STOP-AND-ASK on exactly this class, the fix is NOT invented. QUESTION for the owner (one): *when a SAND lens is
+enclosed between two DIFFERENT edged SILT interbeds (S5: SILT/SAND/SILT, both SILTs carrying approved ties), the
+merge collapses both SILTs into ONE SILT band around the SAND-lens hole. Should the spliced interbed's approved
+ties (S5↔S5A, S5↔S5B) be RE-ROOTED onto that merged SILT band (they band/onlap it into the surrounding SILT), or
+is one SILT interbed's tie legitimately subsumed when two same-formation interbeds merge?* Until answered, the
+tie-drop stays (2 DROPPED on CS1), measured by the new conformance layer.
+
+AFTER-STEP NOT DONE (env not allowlisted): `scripts/diag_cs1_flip_walkthrough.json` regen needs `CS1_FLIP=1`
+(only SHAPE_AUDIT/HOLES_DIAG/CS1_GATE are allowlisted for me) — the ORCHESTRATOR must run
+`CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`.
+`scripts/gen_paint_tool.mjs` left untouched. v1 `utils/partitionFill/` + app READ-ONLY. NO git ops.
+Full utils: only the KNOWN pre-existing reds (`convergingStack (a)` VEEN-notch synthetic; `cs1frozen` when run
+AFTER convergingStack = the flag-leak, GREEN 6/6 in isolation; `PartitionFillOverlay.test.tsx` V2P1-3).
