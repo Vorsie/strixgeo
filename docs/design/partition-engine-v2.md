@@ -385,6 +385,26 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8q. **THE FILL IS A SEEDED PAINT BUCKET — no label rule exists (owner,
+   2026-07-19, rejecting the (a)/(b) continuation-rule preview,
+   verbatim): "my rules are perfect, lens lines first left and right,
+   onlap lines second left and right, then you have a connected set of
+   lines and you don't have any gaps, you just need to fill like the
+   fill tool in paint?"** Operationally: after the termination sweep
+   the line set (columns, contacts, ties, lens flanks, onlap flanks,
+   surface, TD floor) is CONNECTED and closes every region. Each face
+   is painted by the flood from the PICKED UNIT COLUMN FACE(S) on its
+   boundary — the litho comes from the seed, never from a rule: the
+   646.74 KLEI wrap = the KLEI column segments' own flood spreading
+   around the closed lens wedges; B3's wedge = col13's silt face flood
+   spreading past the closed clay lens; the sand under B2 = the
+   neighbours' sand segments flooding under the TD (no column line
+   exists below a TD, so the face connects straight to them). A face
+   whose boundary carries ZERO unit-column segments, or segments of
+   TWO different lithologies, is not a labelling question — it is a
+   LINE-ART DEFECT (a missing or unclosed line) to be fixed in the
+   geometry. Supersedes the S30/S31 label lookups AND the orchestrator's
+   interim (a)/(b) continuation rule (never built).
 8p. **THE COMPLETE DOCTRINE — lithos, ties, no-ties, fill between the
    lines; NEVER extrapolate (owner, 2026-07-19, confirming the B3
    one-silt-body and B2 one-sand-body interpretation renders
