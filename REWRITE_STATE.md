@@ -4084,3 +4084,114 @@ passed / 24 skipped**.
 - STUBS deleted this session (rm WORKED): `partitionFillV2.throwaway_s32_{gap18,probe,faces,curves,
   stack,flagon}.diag.test.ts`. Prior-session stubs (s31 three + s30 five + s29 two + s28 four + earlier)
   still pending orchestrator rm.
+
+## §38 — Session 33: EXTERNAL AUDIT SIMPLIFICATION items 10 (RED-first tests) + 6 (TieRef) SHIPPED
+
+Mission (S33 of 6): lay the RED-first test scaffolding for the audit-driven guard deletions (S34-S38
+do the deletions; my tests set their RED targets) + land the TieRef provenance fix (item 6). Bash
+`npx vitest run <file>` + `HOLES_DIAG=1`/`CS1_GATE=1`/`SHAPE_AUDIT=1` SINGLE env-prefix WORK; bare
+`npx tsc --noEmit -p tsconfig.web.json` works; `rm -f <path>` bare works. DENIED: multi-env-prefix
+combos in one line, `; echo`, `wc`/`grep` compounds, `rm && ls`. NO git ops (orchestrator commits).
+
+### PART 1 — RED-first test scaffolding (audit item 10)
+
+**NEW `partitionFillV2.zeroCorrAlwaysLens.test.ts`** (4 cases; behaviour-vocabulary, flag-ON):
+- **(a) interior mixed-enclosure corr-0 (CLAY/VEEN/SAND, VEEN minority)** — GREEN LOCK. `emitLens`
+  already lenses it (`isMinorityWide` true, both neighbours differ). The interior corr-0 contract is
+  already satisfied; kept un-skipped as a lock.
+- **(d) interior M-in-M corr-0 (SAND/CLAY/SAND)** — GREEN LOCK. `extractEnclosedLenses` merges the
+  matrix + `emitEnclosedLensCurves` emits a `lens`-prefixed flank. Opposite enclosure kind to (a),
+  proving neither kind gates emission.
+- **(b) TD-boundary corr-0, same-litho neighbour** — RED verified: `lensFlankAt` false (expected
+  true). Guard: `emitTerminationSweep` boundary path — `boundaryMinorityKind` returns null on a
+  same-formation neighbour + `isMinorityWide` returns false for boundary → the unit FLOODS, no lens.
+  `it.skip` → un-skip in S34.
+- **(c) sub-TD corr-0, MIXED enclosure (SAND above / CLAY below)** — RED verified: `lensFlankAt`
+  false. Guard: `emitSubTdLenses` M-in-M classifier (`belowFid !== m` → skip). `it.skip` → un-skip S35.
+- KEY FINDING: the real-14-section `lensAudit` MISSING=0 ALREADY (every real corr-0 side lenses), so
+  these RED targets are SYNTHETIC edge cases the real sections don't exercise but the surviving guards
+  would block — exactly the guards S34/S35 delete.
+
+**NEW `partitionFillV2.oneCorrActualTie.test.ts`** (3 cases, flag-ON):
+- **(a) two ties at ONE near elevation, DIFFERENT far endpoints** — the TieRef RED target. Fixture:
+  L CLAY base + L SILT top share elev 3; Tie A (L CLAY's own) far=elev 3 → R CLAY (same litho, 8m
+  SKIP correct); Tie B (L SILT's) far=elev 5 → R SILT (different). Edge order lists Tie B first so the
+  pre-fix elevation-guessing `tieFacingElevAt` picks Tie B → samples wrong facing litho → draws a
+  spurious `oflank`. RED verified: expected 0 oflanks, got 1. → Part-2 fix turns it GREEN this session.
+- **(b)/(c)** same/different matched litho via the actual single tie → NO flank / EXACTLY ONE flank.
+  Both GREEN (regression locks, pass via 8m unchanged).
+
+**EXTENDED `partitionFillV2.mergeAfterFill.test.ts`** (+3 cases, direct `mergeTouchingBodies` calls):
+- **sub-cell gap (SAND 0..0.499 | SAND 0.501..1, 0.002 vacant strip)** — RED verified: expected 2
+  bodies, got 1. The GX=200 raster (cell 0.005) 4-neighbour-bridges the sub-cell gap and false-merges
+  — the audit's verified counterexample. `it.skip` → un-skip S37 (exact-geometry merge).
+- **thin SILT separator between two SANDs** — GREEN LOCK (unexpectedly green — the raster does NOT
+  false-merge across a 0.04 different-litho strip since SILT cells aren't SAND). Moved OUT of the skip
+  block; kept as a lock.
+- **shared boundary segment (SAND 0..0.5 | SAND 0.5..1)** — GREEN LOCK (merges to 1 body correctly).
+
+### PART 2 — TieRef (exact tie provenance, audit item 6) — SHIPPED
+
+`effectiveCorr.ts`: extended `EffectiveCorr` with `topTie`/`baseTie: TieRef | null` where
+`TieRef = { kind:'resolved'; tie: ResolvedTie; ownContact:'top'|'base' } | { kind:'top-band' }`. New
+`tieRefForContact(gap, side, ui, contact, activeTies)` resolves the EXACT edge on a contact: (1)
+direct/8a-shared (the tie whose near endpoint sits on THIS unit's own contact — a shared physical
+contact hands both adjacent units the same `ResolvedTie`, ruling 8a structurally), (2) derived
+base-tie (a top tie on unit ui+1 shares this unit's base). Top-band implicit tie → `{kind:'top-band'}`.
+Bridge-anchored contact with no resolved edge → `null` (documented: bridges never reach the corr-1 8m
+onlap-follow path — handled by `emitSubstrate`/`emitSubTdLenses` — so the draw half never dereferences
+a bridge-only ref). Refs computed but INERT flag-OFF (effectiveCorr unread flag-OFF).
+
+`drawTermination.ts`: added `topTie`/`baseTie` params; the corr-1 path picks the tied side's TieRef
+and derives the facing endpoint from the resolved tie's EXACT far endpoint
+(`tieRefFarElev(tie, side)` = `side==='left' ? tie.right.y : tie.left.y`, verified against the
+`ResolvedTie` shape in `emitCurves.ts`). `matchedFacingSameLitho` now TAKES the exact facing elevation
+(no lookup). Both the 8m litho sample AND the onlap apex geometry use the same exact endpoint.
+`{kind:'top-band'}`/null refs fall back to `facingElevAt` (kept — its legitimate remaining caller).
+
+**`tieFacingElevAt` DELETED** (grep-confirmed only-caller was `drawTermination` × 2; the
+`emitTerminationSweep` mentions were comments, updated). **`facingElevAt` KEPT ALIVE** — it is the
+documented fallback for a `top-band`/null TieRef (a derived/implicit tie whose curve does not live on
+the unit's own contact); precisely stated, not silently left as a dual system.
+
+`emitTerminationSweep.ts`: threads `eff.topTie`/`eff.baseTie` into the `drawTermination` call; the
+`corr[ui]` fallback literal gains `topTie:null, baseTie:null`. `emitLoneStack.ts` (flag-OFF seam
+path) dummy-corr literal gains the two null fields. tsc clean.
+
+### CORR SEMANTICS UNCHANGED — MEASUREMENT (before → after S33)
+| metric | baseline (§37) | after S33 |
+|---|---|---|
+| conformance flag-OFF | 5/5/0 = 10 | **5/5/0 = 10 (unchanged)** |
+| lensAudit MISSING (14 real, flag-ON) | 0 | **0 (unchanged)** |
+| flag-OFF holes/overlaps (HOLES_DIAG) | 0/0/0 | **0/0/0 byte-identical** |
+| flag-ON holes above-TD (forced scan) | 20 (CS2-g17 wall) | **20 (ZERO new)** |
+| flag-ON holes sub-TD / diff-litho overlaps | 0 / 0 | **0 / 0** |
+
+The TieRef fix is pure provenance threading (same corr numbers everywhere). The flag-ON render is
+byte-identical to §37 EXCEPT where the wrong-tie-selection bug fired — and on the 14 real sections
+that produced NO holes/overlaps delta (20/0 identical), so the only observable change is the
+`oneCorrActualTie (a)` synthetic RED→GREEN. `followTieOnlap` (the 8m gate) + `faceLabel8n` +
+`gap0HostSplit` + `edgedAnnulus` + `literalCorr` all stayed GREEN → no real 8m decision flipped.
+
+### GATE BATTERY (all GREEN except the pre-existing baseline)
+followTieOnlap · faceLabel8n 6/6 · gap0HostSplit (A)(B)(C) · edgedAnnulus · literalCorr (a)(b) ·
+mergeAfterFill (existing + 3 new: 1 skip + 2 locks) · cs1gates (CS1_GATE=1) 8/8 · lensAudit
+(SHAPE_AUDIT=1) MISSING 0 · conformance + classify GREEN · oneCorrActualTie 3/3 · zeroCorrAlwaysLens
+2 locks + 2 RED-skips · **tsc clean** · full utils dir (no env) **1 failed (`convergingStack (a)` —
+PRE-EXISTING baseline) / 796 passed / 26 skipped** (+7 pass, +3 skip vs the 789/23 baseline).
+
+### Files this session (worktree — orchestrator commits; NO git ops here)
+- `partitionFillV2/effectiveCorr.ts` (EDITED) — `TieRef` type + `topTie`/`baseTie` on `EffectiveCorr`
+  + `tieRefForContact` resolver; refs populated in `effectiveCorrForUnit`.
+- `partitionFillV2/drawTermination.ts` (EDITED) — `tieRefFarElev`; `matchedFacingSameLitho` takes the
+  exact facing elev; corr-1 path uses the tied side's TieRef; `tieFacingElevAt` DELETED, `facingElevAt`
+  KEPT (documented fallback); `topTie`/`baseTie` params.
+- `partitionFillV2/emitTerminationSweep.ts` (EDITED) — threads the refs; fallback literal + a comment.
+- `partitionFillV2/emitLoneStack.ts` (EDITED) — dummy-corr literal gains the two null fields.
+- `partitionFillV2.zeroCorrAlwaysLens.test.ts` (NEW) — 4 cases (2 locks + (b) S34-RED-skip + (c)
+  S35-RED-skip).
+- `partitionFillV2.oneCorrActualTie.test.ts` (NEW) — 3 cases ((a) TieRef RED→GREEN + 2 locks).
+- `partitionFillV2.mergeAfterFill.test.ts` (EDITED) — +3 cases (sub-cell-gap S37-RED-skip + 2 locks).
+- STUB deleted this session (rm WORKED): `partitionFillV2.throwaway_s33_flagon.diag.test.ts`.
+  Prior-session stubs (s32 six + s31 three + s30 five + s29 two + s28 four + earlier) still pending
+  orchestrator rm.

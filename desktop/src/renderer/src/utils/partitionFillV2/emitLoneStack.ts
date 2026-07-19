@@ -254,7 +254,7 @@ export function routeLoneStack(
     if (run.length === 0) return false // the whole stack is enclosing matrix — nothing to lens
     const conv: ConvergingSide = { col: loneCol, ownX: loneX, facing, facingX, facingTop: facingTopElev, facingBase: facingBaseElev }
     // ``emitConvergingStack`` consumes only ``cu.iu`` (never ``cu.corr``) — a placeholder corr is safe.
-    const dummyCorr: EffectiveCorr = { topTied: false, baseTied: false, corr: 0 }
+    const dummyCorr: EffectiveCorr = { topTied: false, baseTied: false, corr: 0, topTie: null, baseTie: null }
     const sorted: CorrUnit[] = run.map((iu, i) => ({ iu, corr: dummyCorr, colUnitIndex: i }))
     return emitConvergingStack(conv, sorted, nextId, nextFloodId, lensLabels, out)
   }

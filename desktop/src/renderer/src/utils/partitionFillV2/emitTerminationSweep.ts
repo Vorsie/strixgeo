@@ -203,7 +203,7 @@ function emitSideSweep(
   const shallowTD = Math.max(colTD, facingTD)
 
   for (let ui = 0; ui < col.units.length; ui++) {
-    const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const }
+    const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const, topTie: null, baseTie: null }
     const c = eff.corr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
     // RULING 8l EMERGENT BAND — a ``collectGapBands`` MATCHED-PAIR member (a same-side
@@ -272,8 +272,9 @@ function emitSideSweep(
     // but with the 0.5 onlap apex + phase-2 ``oflank`` id. This fires ONLY when the sole anchor is
     // the top band (ui 0, corr 1, no direct/derived-base tie on either own contact, base untied);
     // a first unit with a REAL top tie flows to ``drawTermination`` (its ``emitOnlap`` rides that
-    // real tie). Distinct from the generic ``emitOnlap``, whose ``tieFacingElevAt`` falls back to
-    // ``facingElevAt`` (NOT the top-band polyline) → a divergent tied leg → a sliver hole.
+    // real tie via its ``TieRef``). Distinct from the generic ``emitOnlap``, whose ``top-band``/null
+    // TieRef falls back to ``facingElevAt`` (NOT the top-band polyline) → a divergent tied leg → a
+    // sliver hole; so a top-band-only first unit is routed HERE (to the surface-onlap polyline ride).
     if (ui === 0 && c === 1 && eff.topTied && !eff.baseTied && !df.top && !df.base) {
       // RULING 8m (owner, 2026-07-17): a surface onlap's "tie" is the TOP BAND, whose matched facing
       // contact (below the top band) is the facing FIRST unit. If that facing first unit is the SAME
@@ -297,6 +298,8 @@ function emitSideSweep(
       c,
       eff.topTied,
       eff.baseTied,
+      eff.topTie,
+      eff.baseTie,
       df.top,
       df.base,
       side,

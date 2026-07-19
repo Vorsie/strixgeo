@@ -22,8 +22,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { computeSectionFillV2 } from './partitionFillV2'
+import { mergeTouchingBodies } from './partitionFillV2/mergeTouchingBodies'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
+import {
+  type CorrelationEdge,
+  type PartitionColumn,
+  type PartitionPoint,
+  type SectionRegion,
+} from './partitionFill'
 
 let seq = 0
 const layer = (): string => `L${seq++}`
@@ -196,5 +202,75 @@ describe('ruling 8i(d) / 8j — one-line onlap + merge after fill', () => {
       // The upper SAND and lower SAND are separated by SILT → distinct bodies (no false merge).
       for (const tb of topBodies) expect(botBodies.has(tb)).toBe(false)
     }
+  })
+})
+
+/** A rectangular SectionRegion in (fraction, elevation) space with an explicit bodyId. */
+function rect(
+  gapIndex: number,
+  formationId: string,
+  bodyId: string | null,
+  fLo: number,
+  fHi: number,
+  eLo: number,
+  eHi: number,
+): SectionRegion {
+  const polygon: PartitionPoint[] = [
+    { fraction: fLo, elevation: eHi },
+    { fraction: fHi, elevation: eHi },
+    { fraction: fHi, elevation: eLo },
+    { fraction: fLo, elevation: eLo },
+  ]
+  return { formationId, bodyId, kind: 'quad', polygon, gapIndex }
+}
+
+describe('audit item 10 — the same-litho merge must connect on EXACT geometry, not a coarse raster', () => {
+  // RED-verify these against the current GX=200 raster ``mergeTouchingBodies`` (the audit's
+  // verified counterexample: a sub-cell gap between two disjoint same-litho regions lights adjacent
+  // raster cells and false-merges them), then ``it.skip`` citing S37 (exact-geometry merge). The
+  // separated / different-litho cases go RED; the touching case is a lock (may already pass).
+
+  describe.skip('exact-geometry merge (RED verified S33: the GX=200 raster false-merges a sub-cell gap; un-skip in S37 (exact-geometry merge))', () => {
+    it('two SAND regions with a sub-cell gap (0.499 | 0.501), NOT touching, stay TWO bodies', () => {
+      // Same elevation band [0..4], same gap, same formation, but fraction ranges [0..0.499] and
+      // [0.501..1]: a 0.002-wide vacant strip between them. A true partition never merges across a
+      // real gap; the GX=200 raster (cell width 0.005) 4-neighbour-bridges the 0.002 gap and
+      // FALSE-MERGES them into one body — the audit's verified counterexample.
+      const regions: SectionRegion[] = [
+        rect(0, SAND, 'sand-A', 0.0, 0.499, 0, 4),
+        rect(0, SAND, 'sand-B', 0.501, 1.0, 0, 4),
+      ]
+      const merged = mergeTouchingBodies(regions, [])
+      const bodies = new Set(merged.map((r) => r.bodyId))
+      expect(bodies.size).toBe(2) // two disjoint SAND regions → two bodies (no false merge)
+    })
+  })
+
+  it('two SAND regions with a thin different-litho SILT separator stay TWO SAND bodies (lock)', () => {
+    // SAND [0..0.48] and SAND [0.52..1] with a SILT [0.48..0.52] separator in the same elevation
+    // band: the two SANDs do not touch (SILT is between them) → two SAND bodies. ALREADY correct on
+    // the raster (SILT cells are not SAND, so the two SAND cell-clusters never 4-neighbour across
+    // the 0.04 strip) — verified GREEN S33; kept as a lock the exact-geometry rewrite must preserve.
+    const regions: SectionRegion[] = [
+      rect(0, SAND, 'sand-A', 0.0, 0.48, 0, 4),
+      rect(0, SILT, 'silt-M', 0.48, 0.52, 0, 4),
+      rect(0, SAND, 'sand-B', 0.52, 1.0, 0, 4),
+    ]
+    const merged = mergeTouchingBodies(regions, [])
+    const sandBodies = new Set(merged.filter((r) => r.formationId === SAND).map((r) => r.bodyId))
+    expect(sandBodies.size).toBe(2) // the SILT separates the two SANDs → two SAND bodies
+  })
+
+  it('two SAND regions sharing a boundary segment merge into ONE body (lock)', () => {
+    // SAND [0..0.5] and SAND [0.5..1] share the fraction-0.5 edge over the whole elevation band →
+    // they TOUCH → one body. This is the true-partition merge the audit keeps; a lock that the
+    // exact-geometry rewrite must preserve.
+    const regions: SectionRegion[] = [
+      rect(0, SAND, 'sand-A', 0.0, 0.5, 0, 4),
+      rect(0, SAND, 'sand-B', 0.5, 1.0, 0, 4),
+    ]
+    const merged = mergeTouchingBodies(regions, [])
+    const bodies = new Set(merged.map((r) => r.bodyId))
+    expect(bodies.size).toBe(1) // shared boundary → one welded body
   })
 })

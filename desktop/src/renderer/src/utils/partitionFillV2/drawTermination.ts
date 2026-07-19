@@ -54,6 +54,7 @@
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
 import { type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
+import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { facingMatrixLabel } from './facingMatrix'
 import { lensReachFraction } from './lensReach'
@@ -74,18 +75,31 @@ const ELEV_EPS = 1e-6
 const MATCH_OFFSET = 1e-3
 
 /**
- * Ruling 8m (owner, 2026-07-17): before drawing a corr-1 onlap flank, FOLLOW the actual tie to
- * the MATCHED facing contact (below-for-top-tie / above-for-bottom-tie) and compare litho. SAME
+ * The FACING endpoint elevation of a resolved tie for the look ``side`` (audit item 6 — TieRef).
+ * The near endpoint is on OUR column (left endpoint for a left look, right for a right look), so
+ * the FAR endpoint is the other one: ``side === 'left' ? tie.right.y : tie.left.y``. This is the
+ * EXACT geometry of the unit's OWN edge — no elevation guessing.
+ */
+export function tieRefFarElev(tie: ResolvedTie, side: 'left' | 'right'): number {
+  return side === 'left' ? tie.right.y : tie.left.y
+}
+
+/**
+ * Ruling 8m (owner, 2026-07-17): before drawing a corr-1 onlap flank, FOLLOW the unit's ACTUAL tie
+ * to the MATCHED facing contact (below-for-top-tie / above-for-bottom-tie) and compare litho. SAME
  * litho → the tie is the boundary, the fill flows through, and the 8j post-fill merge welds the
  * two same-litho regions into ONE body — the flank would only be an interior seam of that
  * identical final body, so it is SKIPPED. DIFFERENT litho → the unit genuinely onlaps its tie
  * (the flank is drawn). Scope: corr-1 onlaps ONLY (lenses stay untouchable, 8i(e)).
  *
- * The matched facing unit is the one on the SAME side of the tie line as OUR unit: a TOP-tied unit
- * sits BELOW its top contact → the matched facing unit is BELOW the facing tie contact; a
- * BASE-tied unit sits ABOVE its base contact → the matched facing unit is ABOVE it. We sample the
- * facing column a hair off the tie elevation on that side (``facingMatrixLabel``, the proven facing
- * sampler with its nearest-unit fallback at a TD/surface boundary) and compare formation ids.
+ * AUDIT ITEM 6 (TieRef): the facing endpoint is now the EXACT far endpoint of the unit's OWN
+ * resolved tie (``tieRefFarElev``), NOT the first tie found at the shared near elevation (the old
+ * ``tieFacingElevAt`` guess, which followed a DIFFERENT unit's tie when two ties shared a contact
+ * elevation — the ``oneCorrActualTie (a)`` bug). The matched facing unit is the one on OUR side of
+ * the tie: a TOP-tied unit sits BELOW its top contact → the matched facing unit is BELOW the facing
+ * tie contact; a BASE-tied unit sits ABOVE its base contact → ABOVE it. We sample the facing column
+ * a hair off the FAR endpoint on that side (``facingMatrixLabel``, the proven facing sampler with
+ * its nearest-unit fallback) and compare formation ids.
  *
  * Returns ``true`` when the matched facing unit is the SAME formation as ``ownFormationId`` (→ skip
  * the flank, merge-equivalent), ``false`` otherwise (→ draw the onlap).
@@ -96,27 +110,17 @@ const MATCH_OFFSET = 1e-3
  *     The terminating unit's own formation.
  * tieSide : 'top' | 'base'
  *     Which of the unit's own contacts carries the tie being followed.
- * tiedElev : number
- *     The unit's tied contact elevation (mTAW) — the near endpoint of the tie.
- * gapIndex : number
- *     The gap index (for the tie lookup).
- * side : 'left' | 'right'
- *     Which facing column the unit lives on for this gap.
- * activeTies : readonly ResolvedTie[]
- *     The gap's active ties (to locate the facing tie endpoint elevation).
+ * facingTiedElev : number
+ *     The FAR (facing) endpoint elevation of the unit's OWN tie (from ``tieRefFarElev``).
  * facing : ColumnGeom
  *     The facing column whose matched-side litho is compared.
  */
 export function matchedFacingSameLitho(
   ownFormationId: string,
   tieSide: 'top' | 'base',
-  tiedElev: number,
-  gapIndex: number,
-  side: 'left' | 'right',
-  activeTies: readonly ResolvedTie[],
+  facingTiedElev: number,
   facing: ColumnGeom,
 ): boolean {
-  const facingTiedElev = tieFacingElevAt(gapIndex, side, tiedElev, activeTies, facing)
   // Sample the facing unit on OUR side of the tie: below for a top tie, above for a base tie.
   const sampleElev = tieSide === 'top' ? facingTiedElev - MATCH_OFFSET : facingTiedElev + MATCH_OFFSET
   const matched = facingMatrixLabel(facing, sampleElev)
@@ -130,33 +134,6 @@ export function matchedFacingSameLitho(
  */
 export function tiedContactSide(topTied: boolean, baseTied: boolean): 'top' | 'base' {
   return baseTied && !topTied ? 'base' : topTied && !baseTied ? 'top' : 'base'
-}
-
-/**
- * The tie's FACING endpoint elevation for the tie that anchors this unit's tied contact — the
- * tie-line geometry the onlap apex rides. Searches ``activeTies`` for the tie in this gap whose
- * endpoint on ``side`` matches ``tiedElev``. When none matches (a DERIVED tie whose curve lives
- * on a neighbouring unit, or a top-band implicit tie), falls back to the facing unit spanning the
- * elevation.
- */
-export function tieFacingElevAt(
-  gapIndex: number,
-  side: 'left' | 'right',
-  tiedElev: number,
-  activeTies: readonly ResolvedTie[],
-  facing: ColumnGeom,
-): number {
-  for (const t of activeTies) {
-    if (t.gapIndex !== gapIndex) continue
-    const nearPt = side === 'left' ? t.left : t.right
-    const farPt = side === 'left' ? t.right : t.left
-    // Match on the shared-contact ELEVATION, not the tie's labelled side: a DERIVED base-tie
-    // (from the unit below carrying a top-tie) shares this contact via that neighbour, whose tie
-    // endpoint sits at the SAME elevation. The first match at that elevation is the shared anchor.
-    if (Math.abs(nearPt.y - tiedElev) > ELEV_EPS + 1e-3) continue
-    return farPt.y
-  }
-  return facingElevAt(facing, tiedElev)
 }
 
 /**
@@ -178,6 +155,10 @@ export function tieFacingElevAt(
  * topTied, baseTied : boolean
  *     The unit's EFFECTIVE tie flags (direct + derived-base + ruling-8a derived band) — drive the
  *     merge decision.
+ * topTie, baseTie : TieRef | null
+ *     EXACT provenance of the unit's top/base tie (audit item 6). The corr-1 path follows the
+ *     TIED side's ``TieRef`` to its resolved tie's far endpoint — the unit's OWN edge, not the
+ *     first tie at the shared near elevation (the ``oneCorrActualTie (a)`` wrong-tie bug).
  * directTop, directBase : boolean
  *     The unit's DIRECT + derived-base tie flags (``tiedFlags``, WITHOUT the ruling-8a derived
  *     band) — drive the onlap SIDE (which contact the tip rides / which way the flood floods) so a
@@ -209,6 +190,8 @@ export function drawTermination(
   corr: 0 | 1 | 2,
   topTied: boolean,
   baseTied: boolean,
+  topTie: TieRef | null,
+  baseTie: TieRef | null,
   directTop: boolean,
   directBase: boolean,
   side: 'left' | 'right',
@@ -258,19 +241,28 @@ export function drawTermination(
   // a genuine lone/derived onlap into a DIFFERENT-formation facing → it needs its flank + wedge.
   void bands
   void ui
+  void activeTies
   const eff = { top: topTied, base: baseTied }
   const tieSide: 'top' | 'base' =
     eff.base && !eff.top ? 'base' : eff.top && !eff.base ? 'top' : tiedContactSide(directTop, directBase)
   const baseIsTied = tieSide === 'base'
   const tiedElev = baseIsTied ? u.baseElev : u.topElev
+  // AUDIT ITEM 6 (TieRef): the FACING endpoint elevation is the EXACT far endpoint of the unit's
+  // OWN resolved tie on the tied side — NOT the first tie found at the shared near elevation (the
+  // deleted ``tieFacingElevAt`` guess that followed a DIFFERENT unit's tie, the ``oneCorrActualTie
+  // (a)`` bug). A ``top-band`` ref or a missing/bridge-only ref (null) falls back to the facing
+  // unit spanning the tied elevation (``facingElevAt`` — the historical fallback for a derived/
+  // implicit tie whose curve does not live on this unit's own contact).
+  const tiedRef = baseIsTied ? baseTie : topTie
+  const facingTiedElev =
+    tiedRef?.kind === 'resolved' ? tieRefFarElev(tiedRef.tie, side) : facingElevAt(facing, tiedElev)
   // RULING 8m (owner, 2026-07-17): FOLLOW the tie to the matched facing contact (below-for-top /
   // above-for-bottom) and compare litho. SAME litho → SKIP the flank (the tie is the boundary, the
   // enclosing flood flows through, the 8j merge welds the two same-litho regions into ONE body — the
   // flank would only be an interior seam of that identical final body). This is an INTENTIONAL
   // absence, not a missing termination: the space is bound by the tie + fill + merge, not left open.
-  if (matchedFacingSameLitho(u.formationId, tieSide, tiedElev, gapIndex, side, activeTies, facing)) return false
-  const facingTiedElev = tieFacingElevAt(gapIndex, side, tiedElev, activeTies, facing)
-  // DIFFERENT litho → onlap the tie (tip 0.5 riding the tie, never absent).
+  if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) return false
+  // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent).
   return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, facing, u, lensLabels, nextId, nextFloodId, out)
 }
 

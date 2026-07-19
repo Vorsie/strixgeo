@@ -34,6 +34,22 @@ export interface CorrColumn {
   units: { formationId: string }[]
 }
 
+/**
+ * EXACT tie provenance for one tied contact (audit item 6 — TieRef). A corr-1 onlap must
+ * follow ITS OWN tie, not "whichever tie sits at that near elevation" — the elevation-guessing
+ * ``tieFacingElevAt`` matched the FIRST tie at the shared contact elevation, which can be a
+ * DIFFERENT unit's tie landing at a DIFFERENT far endpoint (the ``oneCorrActualTie (a)`` bug).
+ *
+ * A shared physical contact hands BOTH adjacent units the same ``TieRef`` (ruling 8a, expressed
+ * structurally here — the resolved tie is the one edge on that surface; ``ownContact`` says which
+ * of THIS unit's two contacts rides it). Derived-band ties (ruling 8a derivation) reference the
+ * underlying resolved tie. A first unit's top-band implicit tie carries ``{ kind: 'top-band' }``
+ * (no resolved edge — the surface polyline is the tie); its draw keeps the surface-onlap routing.
+ */
+export type TieRef =
+  | { kind: 'resolved'; tie: ResolvedTie; ownContact: 'top' | 'base' }
+  | { kind: 'top-band' }
+
 /** Effective per-contact tie state + the collapsed 2/1/0 outcome for one unit-in-a-gap. */
 export interface EffectiveCorr {
   /** Top contact effectively tied (direct edge or derived via an adjacent same-side band). */
@@ -42,6 +58,10 @@ export interface EffectiveCorr {
   baseTied: boolean
   /** Owner's 2/1/0 outcome: 2 = band, 1 = onlap, 0 = lens. */
   corr: 0 | 1 | 2
+  /** EXACT provenance of the top tie (the actual edge this unit's top rides), or null if untied. */
+  topTie: TieRef | null
+  /** EXACT provenance of the base tie, or null if untied. */
+  baseTie: TieRef | null
 }
 
 /**
@@ -173,6 +193,48 @@ export function unitHasDirectTie(
 }
 
 /**
+ * Resolve the EXACT ``TieRef`` for one of a unit's OWN contacts (audit item 6). Two provenance
+ * sources, in priority order — a contact's OWN direct/shared/derived edge always beats a
+ * further-away derivation:
+ *
+ *   1. DIRECT (or 8a shared-contact) — an active tie whose NEAR endpoint on ``side`` sits on THIS
+ *      unit's own ``contact`` (its ``ui``/``contact`` == the tie's ``leftUnitIndex``/``leftSide``
+ *      for a left look, mirror for right). This is the unit's literal edge on that surface. A
+ *      shared physical contact returns the same ``ResolvedTie`` to both adjacent units (ruling 8a
+ *      is structural here — one edge on one surface), differing only in ``ownContact``.
+ *   2. DERIVED (ruling 8a derivation, base only) — a unit's BASE is derived-tied when the unit
+ *      BELOW carries a TOP tie on the shared contact (``§4 increment-2``: a top tie on unit k+1
+ *      ties k.base). The ref is that neighbour's resolved tie; ``ownContact`` is this unit's base.
+ *
+ * Returns the resolved ``TieRef`` for the requested contact, or ``null`` when no edge ties it
+ * (the top-band implicit tie is handled separately by ``effectiveCorrForUnit``).
+ */
+export function tieRefForContact(
+  gapIndex: number,
+  side: 'left' | 'right',
+  ui: number,
+  contact: 'top' | 'base',
+  activeTies: readonly ResolvedTie[],
+): TieRef | null {
+  const nearUnit = (t: ResolvedTie): number => (side === 'left' ? t.leftUnitIndex : t.rightUnitIndex)
+  const nearSide = (t: ResolvedTie): 'top' | 'base' => (side === 'left' ? t.leftSide : t.rightSide)
+  // (1) DIRECT / 8a shared-contact: the tie sits on THIS unit's own ``contact``.
+  for (const t of activeTies) {
+    if (t.gapIndex !== gapIndex) continue
+    if (nearUnit(t) === ui && nearSide(t) === contact) return { kind: 'resolved', tie: t, ownContact: contact }
+  }
+  // (2) DERIVED base-tie (ruling 8a derivation): a TOP tie on the unit BELOW (ui+1) shares this
+  // unit's BASE contact. The ref is that neighbour's tie; this unit's own contact is its base.
+  if (contact === 'base') {
+    for (const t of activeTies) {
+      if (t.gapIndex !== gapIndex) continue
+      if (nearUnit(t) === ui + 1 && nearSide(t) === 'top') return { kind: 'resolved', tie: t, ownContact: 'base' }
+    }
+  }
+  return null
+}
+
+/**
  * The effective 2/1/0 correlation outcome for ONE unit into ONE gap on ONE side — the
  * shared arithmetic the engine and the conformance gate both consume (ruling 8c: the
  * engine emits the termination the outcome names; the gate checks the render matches).
@@ -248,7 +310,20 @@ export function effectiveCorrForUnit(
   const realCount = (realTop ? 1 : 0) + (realBase ? 1 : 0)
   const hasAnyTie = topTied || baseTied
   const corr: 0 | 1 | 2 = realCount === 2 ? 2 : hasAnyTie ? 1 : 0
-  return { topTied, baseTied, corr }
+  // EXACT tie provenance (audit item 6 — TieRef). For each effectively-tied contact, resolve the
+  // ACTUAL edge it rides (``tieRefForContact``: the direct/8a-shared edge on that surface, then the
+  // derived base-tie from the unit below). The top-band implicit tie (8d-rev, ui 0) has NO resolved
+  // edge — its surface polyline IS the tie — so it carries ``{ kind: 'top-band' }``. A bridge-
+  // anchored contact (``direct.*`` set via ``bridgeGapAnchored`` but not an ``activeTies`` edge)
+  // resolves to ``null`` here: bridges never reach the corr-1 8m onlap-follow path (a bridge
+  // endpoint carrier is handled by ``emitSubstrate`` / ``emitSubTdLenses``, not ``drawTermination``),
+  // so no resolved bridge tie is needed for the draw; the ``null`` is the documented representation
+  // (the draw half never dereferences a bridge-only TieRef).
+  const topTie: TieRef | null = topTied
+    ? (tieRefForContact(gapIndex, side, ui, 'top', activeTies) ?? (topBandTied ? { kind: 'top-band' } : null))
+    : null
+  const baseTie: TieRef | null = baseTied ? tieRefForContact(gapIndex, side, ui, 'base', activeTies) : null
+  return { topTied, baseTied, corr, topTie, baseTie }
 }
 
 /**
