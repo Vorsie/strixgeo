@@ -385,6 +385,29 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8o. **HOLES FILL WITH THE UNTERMINATED LITHOLOGY — no matrix lookup,
+   no facing sample (owner, 2026-07-19, answering the mixed-enclosure
+   question on B3's 2nd silt, verbatim): "the sand below the second
+   silt on b3 onlaps left and right. the top clay on b3 just lens
+   right. then just fills shapes? which means you get one silt body
+   going from top silt of s9 to second silt on b3 terminating as a
+   lens. you have the same pattern for the clay above? you then fill
+   the hole between B3 and S9 with silt ofcourses because that is the
+   only unterminated lithology and then merge the touching silt
+   bodies?"** Operationally: (1) the sweep emits EVERY termination per
+   literal 2/1/0 — those close shapes; (2) each remaining hole is
+   filled by THE ONLY lithology left UNTERMINATED on its boundary (the
+   unit whose flow no lens/onlap closed — a corr-2 band flows, a
+   facing unit whose termination apexes short of the hole flows into
+   it); (3) the 8j merge welds touching same-litho regions into one
+   body (two facing corr-0 lenses + the hole-fill between them = ONE
+   body with lens-shaped ends, the lens analogue of 8l's emergent
+   band). RETIRES the lens flood-wedge label lookups entirely (the
+   s30 flooded-contact sample and the s31 lensEnclosingMatrix walk are
+   superseded by hole-fill at the face level; the 8-of-436
+   mixed-enclosure question DISSOLVES — no matrix concept exists). If
+   a hole's boundary ever carries ZERO or MORE THAN ONE unterminated
+   lithology, that is undecided — ask the owner, never pick.
 8b-rev. **LENS REACH IS 0.45 — the thickness cap applies ONLY on
    collision (owner, 2026-07-19, app dogfeed round 1: "lenses should
    fill to 0.45 dist … we only need to shorten lenses that collide with
