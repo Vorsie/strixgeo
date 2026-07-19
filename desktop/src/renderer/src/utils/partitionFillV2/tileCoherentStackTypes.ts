@@ -10,6 +10,21 @@
  */
 
 import { type ColumnGeom } from './sectionGeom'
+import { type EffectiveCorr } from './effectiveCorr'
+import { type IntervalUnit } from './emitIntervalLenses'
+
+/**
+ * One matrix unit paired with its per-gap effective corr (2/1/0) on its own side.
+ * Moved here from the deleted ``tileGap.ts`` (audit item 7, session 36) — the live
+ * flag-OFF lone-stack path (``emitLoneStack`` / ``tileConvergingStack``) still keys
+ * unit geometry to its effective corr through this shape.
+ */
+export interface CorrUnit {
+  iu: IntervalUnit
+  corr: EffectiveCorr
+  /** Unit index on the owning column (to key the effective-corr lookup). */
+  colUnitIndex: number
+}
 
 /**
  * The subset of one side's resolved geometry the converging-stack tiler needs: the present

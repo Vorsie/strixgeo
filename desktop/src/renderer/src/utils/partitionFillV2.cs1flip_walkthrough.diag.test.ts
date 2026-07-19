@@ -54,8 +54,13 @@ import {
 } from './partitionFillV2/effectiveCorr'
 import { collectGapBands } from './partitionFillV2/emitBands'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
-import { TILEGAP_DIAG, tileGapDiagReset } from './partitionFillV2/tileGap'
-import { COHERENT_STACK_DIAG, coherentStackDiagReset } from './partitionFillV2/tileCoherentStack'
+// The tileGap/tileCoherentStack branch counters died with those modules (audit item 7,
+// session 36) — they had reported {} since the session-15 hoist anyway. Inline stubs keep
+// the dump shape (branchSummary) stable for the HTML generator.
+const TILEGAP_DIAG: Record<string, number> = {}
+const COHERENT_STACK_DIAG: Record<string, number> = {}
+const tileGapDiagReset = (): void => {}
+const coherentStackDiagReset = (): void => {}
 import { type InputCurve } from './partitionFillV2/types'
 
 const HERE = dirname(fileURLToPath(import.meta.url))

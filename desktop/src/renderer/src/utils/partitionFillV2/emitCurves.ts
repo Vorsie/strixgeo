@@ -174,9 +174,9 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // termination sweep (``emitTerminationSweep``, 0→lens / 1→onlap per gap/side/unit) draws every
   // lens/onlap FIRST, then the fill-only enclosing flood (``emitEnclosingFlood``, owner 8f "fill
   // the void with the dominant lithology") closes the enclosing faces behind them so the sweep's
-  // terminations carve holes/detours BY CONSTRUCTION. This DELETES the tilers' termination
-  // emission (``emitIntervalCurves`` / ``tileGapTwoSided`` and its lone / coherent / converging
-  // routers are BYPASSED when the flag is on). ``emitSubTdLenses`` + ``emitEnclosedLensCurves``
+  // terminations carve holes/detours BY CONSTRUCTION. The seam engine (``emitIntervalCurves``)
+  // is BYPASSED when the flag is on; its in-file cut-over branch and the dead tileGap /
+  // tileCoherentStack modules were deleted in session 36. ``emitSubTdLenses`` + ``emitEnclosedLensCurves``
   // (the proven column-merge carriers) STILL run below — the sweep DEFERS to them for the sub-TD
   // and enclosed-minority cases (it never double-emits: the sub-TD deferral skips sub-TD units,
   // and ``emitEnclosedLensCurves`` handles the same-formation-enclosed minorities the sweep's

@@ -4372,3 +4372,27 @@ full utils **1 failed (`convergingStack (a)` — PRE-EXISTING baseline) / 798 pa
   flag-ON scan of record — regenerate with the AUDIT_PROMPT recipe), `partitionFillV2.throwaway_s35_probe.diag.test.ts`
   (the sub-TD candidate probe). Prior-session stubs (s34 one + s33 one + s32 six + s31 three + s30 five
   + s29 two + s28 four + earlier) still pending orchestrator rm.
+
+## §41 — Session 36 (audit item 7): dead-tiler deletion — PREMISE CORRECTED, executed by the orchestrator
+
+The S36 agent stopped-and-reported (execution permission denied + a premise correction) and the
+orchestrator executed its corrected plan directly. The audit's "four dead tiler files" claim was
+WRONG for two of them: the flag-OFF lone-stack chain (`emitIntervals` → `routeLoneSidePinch` →
+`emitLoneStack`) LIVE-imports `emitConvergingStack` (`tileConvergingStack.ts`, 331 lines) and
+`ConvergingSide` (`tileCoherentStackTypes.ts`, 34 lines) — both KEPT. Actually dead in both flag
+states: `tileGap.ts` (170) + `tileCoherentStack.ts` (458) + the in-file `tileGapTwoSided` branch
+in `emitIntervals.ts` (~20) ≈ 650 lines deleted, NOT the audit's ~2,800 estimate (which counted
+live modules; the bulk of the seam-era code dies at CUTOVER with the whole flag-OFF path, not now).
+
+Executed: (1) `emitIntervals.ts` — `tileGapTwoSided` import + unreachable flag-ON branch deleted,
+comments rewritten to current state; (2) live `CorrUnit` type extracted from `tileGap.ts` into
+`tileCoherentStackTypes.ts`, the two live importers (`emitLoneStack`, `tileConvergingStack`)
+repointed; (3) `tileGap.ts` + `tileCoherentStack.ts` deleted; (4) the CS1_FLIP walkthrough diag's
+vestigial TILEGAP_DIAG/COHERENT_STACK_DIAG imports replaced with inline `{}` stubs (they had
+reported empty since the session-15 hoist); (5) `emitCurves.ts` header comment updated.
+
+Verified: tsc clean; full utils 798 pass / 1 pre-existing red (`convergingStack (a)`, identical
+signature) / 24 skips; flag-OFF holes 0/0/0 byte-identical; forced-flag-ON 20/0 (CS2-g17 only) +
+overlaps 0; CS1_FLIP walkthrough dump runs with the stubs. The four synthetic test files
+(coherentStack/coherentLoneStack/convergingStack/bidirSweep) all exercise the flag-ON sweep via
+`computeSectionFillV2` — zero direct tile* imports; untouched.

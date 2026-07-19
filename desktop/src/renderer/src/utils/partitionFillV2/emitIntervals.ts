@@ -39,8 +39,6 @@ import { type LensLabel } from './emitLenses'
 import { routeLoneSidePinch } from './emitLonePinch'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
 import { seamAnchorOnBracket } from './seamAnchor'
-import { tileGapTwoSided } from './tileGap'
-import { twoSidedTerminationsEnabled } from './tileFlags'
 import { type InputCurve } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -125,10 +123,9 @@ export function emitIntervalCurves(
     // unit tiles only the residue OUTSIDE the band — its lone-side fill stops at the
     // band boundary instead of overrunning the band interior (cs1bandauthority).
     const bands = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
-    // Per-gap effective corr (2/1/0) for both columns — the terminations-first ``tileGap``
-    // driver (ruling 8c). Computed once per gap here (shared with the conformance gate's
-    // ``effectiveCorr`` arithmetic) and threaded into ``tileInterval`` so it can route a
-    // two-sided interval through ``tileGapTwoSided`` when the cut-over flag is on.
+    // Per-gap effective corr (2/1/0) for both columns — computed once per gap (shared
+    // with the conformance gate's ``effectiveCorr`` arithmetic). Historical note: this
+    // used to also feed the in-file cut-over branch, deleted in session 36.
     const leftCorr = effectiveCorrForSide(gi, 'left', columns[gi], columns[gi + 1], columns[gi], columns[gi + 1], activeTies)
     const rightCorr = effectiveCorrForSide(gi, 'right', columns[gi + 1], columns[gi], columns[gi], columns[gi + 1], activeTies)
     emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, leftCorr, rightCorr, nextId, nextBandId, nextFloodId, lensLabels, out)
@@ -221,7 +218,7 @@ function emitGapIntervals(
   // same-formation full-width render enclosed by its own tied band is one body, so its
   // single-single merge must NOT be terminated (kept as the geometric band). A same-formation
   // pair with NO band of that formation is the retired auto-match — the terminations-first path
-  // splits it into opposing onlaps. Threaded to ``tileGapTwoSided`` for the same-formation gate.
+  // splits it into opposing onlaps.
   const bandFormations = new Set<string>()
   for (const b of bands) {
     leftBanded.add(b.leftUnitIndex)
@@ -434,26 +431,10 @@ function tileInterval(
   const rightMatrix = extractEnclosedLenses(rightUnits, rightLenses, rightFacing)
   if (leftMatrix.length === 0 && rightMatrix.length === 0) return
 
-  // TERMINATIONS-FIRST two-sided tiler (ruling 8c, the cut-over — design §4 "Terminate-by-
-  // default"). When the cut-over flag is on, route the interval through the per-unit termination
-  // emitter (``tileGapTwoSided``) BEFORE ``routeLoneSidePinch`` AND the geometric same-formation
-  // merge: each matrix unit emits its own termination (1 → onlap tip 0.5, 0 → lens) so a
-  // same-formation band never claims a terminating unit's slot (the ``1corr-not-onlap`` /
-  // ``0corr-not-lens`` leaks). ``tileGapTwoSided`` OWNS the interval fully when it returns true —
-  // it handles the lone case too (a lone stack facing TIED/BANDED facing units — the §7 lone-class
-  // ROOT the seam-based ``routeLoneStack`` floods full-width). It returns false for shapes this
-  // increment does not yet cover, keeping them on ``routeLoneSidePinch`` / the seam model below.
-  // (Flag OFF: this whole block is skipped and the order below is byte-identical to the baseline.)
-  if (twoSidedTerminationsEnabled()) {
-    const handled = tileGapTwoSided(
-      { gapIndex, left, right, top, base, leftMatrix, rightMatrix, leftLenses, rightLenses, leftCorr, rightCorr, bandFormations },
-      nextId,
-      nextFloodId,
-      lensLabels,
-      out,
-    )
-    if (handled) return
-  }
+  // NOTE: this file is the FLAG-OFF seam engine only. The flag-ON path never reaches it
+  // (emitCurves routes flag-ON through emitTerminationSweep + emitEnclosingFlood); the old
+  // in-file ``tileGapTwoSided`` cut-over branch was unreachable in both states and was
+  // deleted (audit item 7, session 36).
 
   // LONE-SIDE pinch (finding A): one side has matrix units, the other is empty. v1
   // makes such a lone untied unit PINCH short of the far column (apex at 0.45 lens /
