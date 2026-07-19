@@ -57,7 +57,7 @@ import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { facingMatrixLabel } from './facingMatrix'
 import { interiorLensReachToTies } from './lensReach'
-import { enclosingMatrixFid, type LensLabel } from './emitLenses'
+import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
 import { lensEnclosingMatrix } from './lensEnclosure'
 import { type ColumnGeom, type UnitGeom } from './sectionGeom'
@@ -297,20 +297,14 @@ function emitLens(
   // in ``emitFloodWedge``) still rides the wrap inside the ties past the apex — clamp (stay inside
   // the lines) is preferred over shorten for the WRAP, shorten for the DIAMOND that would cross.
   const lensMid = (u.topElev + u.baseElev) / 2
-  // The FACING band-contour bracket (8b-rev "collide with a sloping correlation" — a band edge is
-  // line art too, even where no tie bounds it). A collision is a THIRD competing lithology on the
-  // facing side: when the facing unit at the lens mid-elevation is NEITHER the lens litho NOR the
-  // lens's ENCLOSING MATRIX, its top/base contour is the sloping band edge the diamond must not
-  // cross (CS2 gap13: a KLEI interbed poking above the dipping ZAND wrap). When the facing carries
-  // the enclosing matrix (ruling 8n(b): the SILT/VEEN lens wrapped in KLEI, facing KLEI) the lens
-  // is a full-width-safe hole and keeps 0.45 — the diamond is not bracketed. Same litho → also safe.
-  // The wrap PAST the apex is handled by the flood wedge's own tie clamp — this bounds the diamond.
-  const matrixFid = enclosingMatrixFid(col, u)
-  const facingFid = facingMatrixLabel(facing, lensMid)?.formationId
-  const facingCompetes =
-    facingFid != null &&
-    facingFid !== u.formationId &&
-    (matrixFid === null || facingFid !== matrixFid)
+  // RULING 8s (owner, 2026-07-19, "0.45 stands, matrix detours"): the facing-sample cap is DELETED.
+  // A corr-0 lens whose 0.45 wedge crosses NO correlation line art keeps the full 0.45 even when the
+  // facing carries a THIRD lithology — the surrounding litho detours AROUND the wedge (the wedge
+  // lines split the surrounding region → fill-between-the-lines makes overlap impossible by
+  // construction). The SOLE reach shortener is a gap TIE crossing the diamond (the "sloping
+  // correlation" collision), which ``interiorLensReachToTies`` applies. An overlap that survives is a
+  // region-construction defect (the enclosing contour must clip the wedge — a later build), never a
+  // reason to re-cap. The wrap PAST the apex is still handled by the flood wedge's own tie clamp.
   const apexFrac = Math.min(
     INTERIOR_PINCH_FRACTION,
     interiorLensReachToTies(
@@ -321,7 +315,6 @@ function emitLens(
       u.topElev,
       u.baseElev,
       activeTies.filter((t) => t.gapIndex === gapIndex),
-      facingCompetes,
     ),
   )
   const apexX = colX + apexFrac * (facingX - colX)

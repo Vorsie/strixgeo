@@ -17,8 +17,8 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { facingMatrixLabel } from './facingMatrix'
-import { enclosedLensReach } from './lensReach'
+import { type ResolvedTie } from './emitCurves'
+import { enclosedLensReach, type ReachTie } from './lensReach'
 import { type ColumnGeom, type EnclosedLens, type SectionInput, type UnitGeom } from './sectionGeom'
 import { segmentDegenerate } from './snap'
 import { type InputCurve, type Point } from './types'
@@ -49,6 +49,7 @@ export function emitEnclosedLensCurves(
   section: SectionInput,
   out: InputCurve[],
   labels: Map<string, LensLabel>,
+  ties: readonly ResolvedTie[] = [],
 ): void {
   const { columns } = section
   let seq = 0
@@ -59,16 +60,18 @@ export function emitEnclosedLensCurves(
     // Into the gap to the RIGHT (this column is the gap's LEFT column).
     if (ci + 1 < columns.length) {
       const gw = columns[ci + 1].x - col.x
+      const gapTies = ties.filter((t) => t.gapIndex === ci)
       for (const el of col.enclosedLenses)
         if (shouldEmitLens(col, columns[ci + 1], el))
-          emitOne(el.lens, col, columns[ci + 1], ci, 'left', gw, section, nextId, out, labels)
+          emitOne(el.lens, col, columns[ci + 1], ci, 'left', gw, section, gapTies, nextId, out, labels)
     }
     // Into the gap to the LEFT (this column is the gap's RIGHT column).
     if (ci - 1 >= 0) {
       const gw = col.x - columns[ci - 1].x
+      const gapTies = ties.filter((t) => t.gapIndex === ci - 1)
       for (const el of col.enclosedLenses)
         if (shouldEmitLens(col, columns[ci - 1], el))
-          emitOne(el.lens, col, columns[ci - 1], ci - 1, 'right', gw, section, nextId, out, labels)
+          emitOne(el.lens, col, columns[ci - 1], ci - 1, 'right', gw, section, gapTies, nextId, out, labels)
     }
   }
 }
@@ -118,6 +121,7 @@ function emitOne(
   side: 'left' | 'right',
   gapWidth: number,
   section: SectionInput,
+  gapTies: readonly ReachTie[],
   nextId: () => string,
   out: InputCurve[],
   labels: Map<string, LensLabel>,
@@ -144,22 +148,26 @@ function emitOne(
     push([topPt, ...upper, ...lower, basePt])
     return
   }
-  // Ruling 8b-rev (design partition-engine-v2.md §8, owner 2026-07-19): the DEFAULT 0-corr reach
-  // is 0.45; the ~2× thickness cap applies ONLY on COLLISION. For an enclosed lens the collision is
-  // with a THIRD competing lithology on the facing side. A 0.45 hole is safe when the facing
-  // carries the lens's OWN litho OR the lens's ENCLOSING MATRIX (either bands full-width and the
-  // lens is an interior hole in it — ruling 8n(b): the SILT/VEEN lens wrapped in KLEI stays 0.45
-  // even though the facing KLEI ≠ the SILT lens, because KLEI is the enclosing matrix, NOT a
-  // competing litho). It reaches INTO foreign territory only when the facing is NEITHER (CS1 gap5
-  // ZAND-lens facing SILT — the paint-level overlap the old cap prevented). The enclosing matrix is
-  // read from the lens's OWN-column neighbours (the merged band above+below the lens). Flag-ON only;
-  // flag-OFF keeps the original cap byte-identical. A USER apex override is NEVER capped.
+  // Ruling 8s (design partition-engine-v2.md §8, owner 2026-07-19, "0.45 stands, matrix detours"):
+  // the DEFAULT 0-corr reach is 0.45 and STAYS 0.45 even when the facing carries a THIRD lithology
+  // and the wedge opens into surrounding fill — the enclosing region detours AROUND the wedge (its
+  // lines split the surrounding region → fill-between-the-lines makes overlap impossible by
+  // construction). The facing-differs cap is DELETED; the SOLE shortener is a gap TIE crossing the
+  // diamond (``enclosedLensReach`` delegates to ``interiorLensReachToTies``). An overlap that
+  // survives (CS1 gap5 ZAND×SILT) is a region-construction defect ridden on the pinned holes-diag
+  // ratchet, not a reason to re-cap. Flag-OFF keeps the original ``min(0.45, 2t/gap)`` cap
+  // byte-identical (no tie scan). A USER apex override is NEVER capped.
   const lensMid = (lens.topElev + lens.baseElev) / 2
-  const matrixFid = enclosingMatrixFid(col, lens)
-  const facingFid = facingMatrixLabel(facing, lensMid)?.formationId
-  const facingDiffers =
-    facingFid !== lens.formationId && (matrixFid === null || facingFid !== matrixFid)
-  const capFrac = enclosedLensReach(lens.topElev - lens.baseElev, gapWidth, facingDiffers)
+  const facingX = facing.x
+  const capFrac = enclosedLensReach(
+    lens.topElev - lens.baseElev,
+    colX,
+    facingX,
+    lensMid,
+    lens.topElev,
+    lens.baseElev,
+    gapTies,
+  )
   const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
   const apexFrac = ov?.fraction ?? defaultFrac
   const apexElev = ov?.elevation ?? (lens.topElev + lens.baseElev) / 2

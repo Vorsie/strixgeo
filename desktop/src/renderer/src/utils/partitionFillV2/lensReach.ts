@@ -230,17 +230,20 @@ function reachTieElevAt(t: ReachTie, x: number): number {
  *     diamond, so it never shortens the lens).
  * gapTies : readonly ReachTie[]
  *     The gap's ties (already filtered to this gap by the caller).
- * facingCompetes : boolean
- *     ``true`` when the FACING column carries a THIRD competing lithology at ``midElev`` (NEITHER
- *     the lens litho NOR the lens's enclosing matrix — CS2 gap13's KLEI interbed between ZAND and
- *     SILT, facing ZAND). A competitor is a collision ("collide with a sloping correlation") with
- *     no clean wrap, so the reach hugs the ``2× thickness`` cap. ``false`` when the facing carries
- *     the lens litho or the enclosing matrix (ruling 8n(b): a full-width-safe wrap — keep 0.45).
+ *
+ * Ruling 8s (owner, 2026-07-19, "0.45 stands, matrix detours"): a corr-0 lens whose 0.45 wedge
+ * crosses NO correlation line art keeps the FULL 0.45 even when its enclosing hosts are two
+ * different lithos and the wedge opens into surrounding fill. The FACING-SAMPLE caps are DELETED
+ * (no ``facingCompetes`` param) — the SOLE reach shortener is a genuine wedge-vs-correlation-art
+ * collision: a gap TIE that crosses the diamond. The surrounding litho detours AROUND the wedge
+ * (the wedge lines split the surrounding region), so fill-between-the-lines makes overlap
+ * impossible BY CONSTRUCTION; an overlap that survives is a region-construction defect (the
+ * enclosing contour must clip around the wedge — a later build), never a reason to re-cap.
  *
  * Returns
  * -------
  * number
- *     The collision-shortened apex fraction in [0, LENS_PINCH_FRACTION]; 0.45 when nothing collides.
+ *     The collision-shortened apex fraction in [0, LENS_PINCH_FRACTION]; 0.45 when no tie collides.
  */
 export function interiorLensReachToTies(
   unitThicknessM: number,
@@ -250,12 +253,9 @@ export function interiorLensReachToTies(
   topElev: number,
   baseElev: number,
   gapTies: readonly ReachTie[],
-  facingCompetes = false,
 ): number {
   const gapWidthM = facingX - colX
   const defaultReach = lensReachFraction(unitThicknessM, gapWidthM)
-  // A gapless-tie lens still needs the FACING-COMPETITOR cap (a competing facing litho collides
-  // even where no tie bounds it) — compute that below; only the tie-bracket search is skipped.
   // Nearest tie above / below the unit's mid-elevation, tracked at BOTH columns so the wedge the
   // ``fitLensReach`` fit uses is the sloping tie line, not a single-point snapshot. A tie is a
   // candidate bracket only if it lies within the unit's own [baseElev, topElev] extent at either
@@ -322,67 +322,56 @@ export function interiorLensReachToTies(
         )
       : defaultReach
   const tieReach = rawTieReach > 0 ? rawTieReach : MIN_REACH_FRACTION
-  // (2) FACING THIRD-LITHO competitor (owner 8b-rev: "collide with a sloping correlation"). A
-  //     competing facing litho (NEITHER the lens nor its enclosing matrix) is a collision with no
-  //     clean wrap; the exact enclosing-matrix CONTOUR clip is the F3 ``lensEnclosure`` machinery
-  //     (out of scope this session), so the conservative in-scope hug is the ORIGINAL ruling-8b
-  //     ``2× thickness`` cap — the reach proven overlap-safe against a foreign facing (the same cap
-  //     ``enclosedLensReach`` applies). MIN'd with the tie reach so neither loosens the other.
-  const facingReach =
-    facingCompetes && Math.abs(gapWidthM) >= MIN_REACH_FRACTION
-      ? Math.min(
-          defaultReach,
-          Math.max(MIN_REACH_FRACTION, Math.min(LENS_PINCH_FRACTION, lensReachM(unitThicknessM, Math.abs(gapWidthM)) / Math.abs(gapWidthM))),
-        )
-      : defaultReach
-  return Math.min(tieReach, facingReach)
+  // Ruling 8s: the tie-bracket collision is the SOLE override. No facing-sample cap — a wedge that
+  // crosses no line art keeps the full 0.45 (the surrounding region detours around it).
+  return tieReach
 }
 
 /**
- * The 8b-rev reach for an ENCLOSED lens (``emitEnclosedLensCurves``), given whether the FACING
- * column carries a DIFFERENT lithology at the lens mid-elevation.
+ * The 8b-rev / 8s reach for an ENCLOSED lens (``emitEnclosedLensCurves``).
  *
- * The default 0-corr reach is 0.45 (8b-rev). An enclosed lens is a HOLE in its OWN-column matrix
- * band; when the facing carries the SAME matrix the band is FULL-WIDTH and a 0.45 hole is safe.
- * When the facing carries a DIFFERENT lithology, a 0.45 lens reaches ACROSS the gap INTO that
- * different-litho territory — the paint-level overlap the original ruling-8b ``2× thickness`` cap
- * prevented ("the 8b reach cap keeps the lens hugging its own column so it never crosses into the
- * facing's different-lithology territory", emitLenses.ts doc). This is exactly the 8b-rev
- * COLLISION case (the facing's different-litho contour is the "sloping correlation" the lens must
- * not cross), so the reach shortens to the ``2× thickness`` rung — the proven overlap-safe hug.
+ * Ruling 8s (owner, 2026-07-19, "0.45 stands, matrix detours"): the default 0-corr reach is 0.45,
+ * kept even when the facing carries a DIFFERENT lithology and the wedge opens into surrounding
+ * fill. The prior FACING-DIFFERS cap is DELETED — the enclosing region detours AROUND the wedge
+ * (its lines split the surrounding region → fill-between-the-lines makes overlap impossible by
+ * construction). The SOLE shortener is a genuine wedge-vs-correlation-art collision, so this
+ * delegates to ``interiorLensReachToTies`` (a gap TIE crossing the diamond drops to the 8b-rev
+ * thickness rung; nothing else caps).
  *
- * Flag-OFF ALWAYS returns the original ``lensReachFraction`` cap (byte-identical to the pre-8b-rev
- * seam engine, which never took a different-litho argument); the collision shortening is flag-ON
- * only. The caller reads it via ``twoSidedTerminationsEnabled`` before deciding to call this.
+ * Flag-OFF ALWAYS returns the original ruling-8b ``lensReachFraction`` cap (``min(0.45, 2t/gap)``),
+ * byte-identical to the pre-8b-rev seam engine — the delegate (and its tie-bracket search) is
+ * flag-ON only, so flag-OFF never runs the tie scan and stays unchanged.
  *
  * Parameters
  * ----------
  * unitThicknessM : number
  *     The enclosed lens's own thickness in metres.
- * gapWidthM : number
- *     The gap width in REAL alongM metres.
- * facingDiffers : boolean
- *     ``true`` when the facing column carries a DIFFERENT formation at the lens mid-elevation.
+ * colX, facingX : number
+ *     The lens's own column x and the facing column x (REAL alongM). ``facingX − colX`` is the
+ *     signed gap width; ``interiorLensReachToTies`` derives the width from them.
+ * midElev, topElev, baseElev : number
+ *     The lens's mid / top / base elevations — the diamond's apex + corners for the tie-cross test.
+ * gapTies : readonly ReachTie[]
+ *     The gap's ties (filtered to this gap by the caller) — the SOLE collision brackets under 8s.
  *
  * Returns
  * -------
  * number
- *     Apex fraction in (0, LENS_PINCH_FRACTION]: 0.45 when the facing is the same matrix (safe
- *     full-width hole), the ``2× thickness`` cap when the facing differs (collision hug).
+ *     Apex fraction in (0, LENS_PINCH_FRACTION]: 0.45 (8s default) unless a gap tie crosses the
+ *     diamond, then the tie-fitted reach. Flag-OFF: the original ``min(0.45, 2t/gap)`` cap.
  */
 export function enclosedLensReach(
   unitThicknessM: number,
-  gapWidthM: number,
-  facingDiffers: boolean,
+  colX: number,
+  facingX: number,
+  midElev: number,
+  topElev: number,
+  baseElev: number,
+  gapTies: readonly ReachTie[],
 ): number {
-  const defaultReach = lensReachFraction(unitThicknessM, gapWidthM)
-  if (!facingDiffers || !twoSidedTerminationsEnabled()) return defaultReach
-  // COLLISION with the facing's different lithology — shorten to the 2× thickness rung.
-  const width = Math.abs(gapWidthM)
-  if (width < MIN_REACH_FRACTION) return defaultReach
-  const thicknessReach = Math.max(
-    MIN_REACH_FRACTION,
-    Math.min(LENS_PINCH_FRACTION, lensReachM(unitThicknessM, width) / width),
-  )
-  return Math.min(defaultReach, thicknessReach)
+  const gapWidthM = facingX - colX
+  // Flag-OFF: the frozen seam engine's original ruling-8b cap, byte-identical (never runs the tie
+  // scan). Flag-ON: ruling 8s — 0.45 unless a gap tie collides with the diamond.
+  if (!twoSidedTerminationsEnabled()) return lensReachFraction(unitThicknessM, gapWidthM)
+  return interiorLensReachToTies(unitThicknessM, colX, facingX, midElev, topElev, baseElev, gapTies)
 }

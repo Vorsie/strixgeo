@@ -89,13 +89,26 @@ describe('lensReachM / lensReachFraction — flag-OFF keeps the OLD ruling-8b ca
   })
 })
 
-describe('8b-rev collision shortener — interior lens (tie / facing competitor)', () => {
-  it('UNCONTESTED wide-gap thin lens reaches 0.45 (no tie, no competitor)', () => {
+describe('8s collision shortener — interior lens: the ONLY shortener is a tie crossing the diamond', () => {
+  it('a wedge crossing NO line art reaches 0.45 (no ties) — 0.45 stands', () => {
     const prev = setTwoSidedTerminations(true)
     try {
-      // 5 m thick unit, 100 m gap, NO gap ties, facing NOT a competitor → the 8b-rev default.
-      // Was thickness-capped to 0.10 under the old ruling-8b; 8b-rev keeps the full 0.45.
-      expect(interiorLensReachToTies(5, 0, 100, 5, 7.5, 2.5, [], false)).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+      // Ruling 8s: a 5 m unit in a 100 m gap with NO gap ties keeps the full 0.45 — nothing
+      // collides. (Was thickness-capped to 0.10 under ruling-8b.)
+      expect(interiorLensReachToTies(5, 0, 100, 5, 7.5, 2.5, [])).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+
+  it('ruling 8s: a lens whose 0.45 wedge opens into a DIFFERENT facing litho STILL reaches 0.45', () => {
+    const prev = setTwoSidedTerminations(true)
+    try {
+      // Ruling 8s exemplar (CS1 gap5): a corr-0 sand lens between silts, its 0.45 wedge opening
+      // toward a facing column carrying a THIRD litho, crosses NO correlation line art → it keeps
+      // the FULL 0.45. The facing-sample cap is DELETED: the enclosing region detours around the
+      // wedge. (Under the old facingCompetes cap this hugged ~2× thickness; 8s forbids that.)
+      expect(interiorLensReachToTies(3, 0, 100, 5, 6.5, 3.5, [])).toBeCloseTo(LENS_PINCH_FRACTION, 6)
     } finally {
       setTwoSidedTerminations(prev)
     }
@@ -110,7 +123,44 @@ describe('8b-rev collision shortener — interior lens (tie / facing competitor)
       // rising tie); the shortener drops to the 2× thickness rung (2·6/100 = 0.12), where baseAt is
       // 4.68 < mid → fits. So the reach shortens to a POSITIVE value below 0.45 (stay inside the line).
       const tie: ReachTie = { left: { x: 0, y: 4.5 }, right: { x: 100, y: 6 } }
-      const r = interiorLensReachToTies(6, 0, 100, 5, 8, 2, [tie], false)
+      const r = interiorLensReachToTies(6, 0, 100, 5, 8, 2, [tie])
+      expect(r).toBeGreaterThan(0)
+      expect(r).toBeLessThan(LENS_PINCH_FRACTION)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+})
+
+describe('8s enclosed-lens reach — 0.45 stands, only a gap tie shortens', () => {
+  it('facing carries the SAME matrix (no ties) → 0.45', () => {
+    const prev = setTwoSidedTerminations(true)
+    try {
+      // colX 0, facingX 100, mid 5, unit [top 6 .. base 4], no gap ties → 0.45.
+      expect(enclosedLensReach(2, 0, 100, 5, 6, 4, [])).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+
+  it('ruling 8s: facing carries a DIFFERENT litho but no tie collides → STILL 0.45', () => {
+    const prev = setTwoSidedTerminations(true)
+    try {
+      // The old ``facingDiffers`` argument is GONE — a different facing litho with no bracketing
+      // tie no longer caps. 2 m lens, 100 m gap, no ties → 0.45 (was 0.04 under the deleted cap).
+      expect(enclosedLensReach(2, 0, 100, 5, 6, 4, [])).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+
+  it('a gap tie crossing the enclosed-lens diamond shortens it below 0.45', () => {
+    const prev = setTwoSidedTerminations(true)
+    try {
+      // Same rising-tie geometry as the interior case: tie 4.5→6 crosses the [2..8] diamond → the
+      // shortener drops below 0.45 (delegates to interiorLensReachToTies).
+      const tie: ReachTie = { left: { x: 0, y: 4.5 }, right: { x: 100, y: 6 } }
+      const r = enclosedLensReach(6, 0, 100, 5, 8, 2, [tie])
       expect(r).toBeGreaterThan(0)
       expect(r).toBeLessThan(LENS_PINCH_FRACTION)
     } finally {
@@ -118,42 +168,10 @@ describe('8b-rev collision shortener — interior lens (tie / facing competitor)
     }
   })
 
-  it('a FACING third-litho competitor caps the reach at ~2× thickness (hug)', () => {
-    const prev = setTwoSidedTerminations(true)
-    try {
-      // 3 m thick unit, 100 m gap, facing carries a competing litho → the 2× thickness hug
-      // (2·3/100 = 0.06), well below the 0.45 default.
-      const r = interiorLensReachToTies(3, 0, 100, 5, 6.5, 3.5, [], true)
-      expect(r).toBeCloseTo(0.06, 6)
-    } finally {
-      setTwoSidedTerminations(prev)
-    }
-  })
-})
-
-describe('8b-rev enclosed-lens reach — facing matrix vs competitor', () => {
-  it('facing carries the SAME matrix (full-width band) → keeps 0.45', () => {
-    const prev = setTwoSidedTerminations(true)
-    try {
-      expect(enclosedLensReach(2, 100, false)).toBeCloseTo(LENS_PINCH_FRACTION, 6)
-    } finally {
-      setTwoSidedTerminations(prev)
-    }
-  })
-
-  it('facing carries a DIFFERENT competing litho → 2× thickness hug', () => {
-    const prev = setTwoSidedTerminations(true)
-    try {
-      // 2 m thick unit, 100 m gap, facing differs → 2·2/100 = 0.04.
-      expect(enclosedLensReach(2, 100, true)).toBeCloseTo(0.04, 6)
-    } finally {
-      setTwoSidedTerminations(prev)
-    }
-  })
-
-  it('flag-OFF: enclosed-lens reach ignores the facing arg → original cap (byte-identical)', () => {
-    // Flag-OFF must keep min(0.45, 2t/gap) regardless of the facingDiffers flag.
-    expect(enclosedLensReach(2, 100, true)).toBeCloseTo(0.04, 6)
-    expect(enclosedLensReach(30, 20, true)).toBeCloseTo(LENS_PINCH_FRACTION, 6)
+  it('flag-OFF: enclosed-lens reach keeps the original min(0.45, 2t/gap) cap (byte-identical)', () => {
+    // Flag-OFF never runs the tie scan — the frozen seam engine's original ruling-8b cap.
+    // 2 m lens, 100 m gap → min(0.45, 2·2/100) = 0.04; 30 m lens, 20 m gap → clamped 0.45.
+    expect(enclosedLensReach(2, 0, 100, 5, 6, 4, [])).toBeCloseTo(0.04, 6)
+    expect(enclosedLensReach(30, 0, 20, 5, 20, -10, [])).toBeCloseTo(LENS_PINCH_FRACTION, 6)
   })
 })

@@ -214,7 +214,10 @@ export function emitCurves(section: SectionInput): EmittedCurves {
     emitIntervalCurves(survivingSection, ties, bridgeAnchored, lensLabels, curves)
   }
 
-  emitEnclosedLensCurves(survivingSection, curves, lensLabels)
+  // Ruling 8s: the enclosed-lens reach is 0.45 unless a gap TIE crosses its diamond (the sole
+  // collision shortener). Pass the resolved gap ties so ``enclosedLensReach`` can run the
+  // tie-cross test (flag-ON); flag-OFF ignores them and keeps the original cap byte-identical.
+  emitEnclosedLensCurves(survivingSection, curves, lensLabels, ties)
 
   // Deep-to-deep FLAT-FLOOR substrate (design §4 increment-6): where a bottom-tie
   // bracket reaches below a shallow column's TD, flatten the deepest band's base to
