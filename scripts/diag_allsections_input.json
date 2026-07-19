@@ -120,37 +120,43 @@
      "a": "019e940a-4b76-70be-a8cf-ed6d0bac383b",
      "b": "019ea3e1-51e9-730e-b3f1-f808f8c19f09",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b77-7281-8b29-9d7849878900",
      "b": "019ea3e1-51ea-7c21-a1e6-69b721914caa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b79-7c17-995f-f7d35fa67510",
      "b": "019ea3e1-51eb-7ae1-a744-378860935eb8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b72-7f92-8313-6f0607f51f7f",
      "b": "019ea3e1-51e4-7226-9948-793b72a7c757",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b7c-7331-9835-14c04250f74a",
      "b": "019ea3e1-51ec-7e17-9445-a04d830a9c18",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b7c-7331-9835-14c04250f74a",
      "b": "019ea3e1-51ec-7e17-9445-a04d830a9c18",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -299,103 +305,120 @@
      "a": "019ea3e1-517b-77b0-9e9a-9e8c9c036eb7",
      "b": "019ea3e1-523d-7f4c-b0f9-6e0c15bbd258",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5178-74fb-bd7c-6aafd6f934aa",
      "b": "019ea3e1-5239-74be-a774-c8efdfb60d06",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5173-73e8-85d9-e45ca6d59ec2",
      "b": "019ea3e1-5231-7225-ba5d-755574430fb6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b5b-7beb-be84-ad4a892e1927",
      "b": "019ea3e1-5239-74be-a774-c8efdfb60d06",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b5d-7e09-91ce-f9e55150c644",
      "b": "019ea3e1-523d-7f4c-b0f9-6e0c15bbd258",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-517a-7535-9cad-03c554593bf7",
      "b": "019ea3e1-523c-76d4-a551-a6cde2ab9b79",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b4f-7062-b988-c5fc57eb49ca",
      "b": "019ea3e1-5231-7225-ba5d-755574430fb6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b5c-7ab4-bad8-44ae30badbff",
      "b": "019ea3e1-523c-76d4-a551-a6cde2ab9b79",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5174-7ecd-9584-ef0d4dbbb29d",
      "b": "019ea3e1-5236-7432-b39b-ab75f2464465",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5176-70c1-a6ff-6bf4aa1acd68",
      "b": "019ea3e1-5238-77bf-ba63-bbefb3b9e83b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-517c-74ee-a91f-527b2d76a12d",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b51-762f-bd6b-2303bdadbe95",
      "b": "019ea3e1-5236-7432-b39b-ab75f2464465",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b55-775f-a746-d25ab2bfdfce",
      "b": "019ea3e1-5238-77bf-ba63-bbefb3b9e83b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b5e-7b10-8a15-853b0c041c00",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5175-7b74-b883-f2ea229316e9",
      "b": "019ea3e1-5237-7a7b-b2da-946c6ee46e83",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b54-7320-be9f-25cde178393b",
      "b": "019ea3e1-5237-7a7b-b2da-946c6ee46e83",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-517c-74ee-a91f-527b2d76a12d",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -537,43 +560,50 @@
      "a": "019e940a-4ba2-702c-bdee-ea04cc280af6",
      "b": "019ea3e1-51ab-7947-bdc2-63dacc13510b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba9-763d-8a55-c67ee5ace3bf",
      "b": "019ea3e1-51b2-72cf-a95c-88f22b2a4584",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bad-736e-b485-4ca0695a9366",
      "b": "019ea3e1-51b5-7b4f-a00e-e0506a316e27",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba8-7dfd-a453-cd9c98458819",
      "b": "019ea3e1-51b1-7f82-93e5-237586c04647",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4baa-717d-b56e-445cfbd6792a",
      "b": "019ea3e1-51b3-708f-9891-e2c109db8de7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bab-7a0b-ad7f-249d38765644",
      "b": "019ea3e1-51b4-7cb6-85a8-21b65c1ee1ba",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bad-736e-b485-4ca0695a9366",
      "b": "019ea3e1-51b5-7b4f-a00e-e0506a316e27",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -694,25 +724,29 @@
      "a": "019ea3e1-51dd-7ff7-a734-f8338f8d26b2",
      "b": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51d4-71cf-bcfe-63629cf5179f",
      "b": "019ea42d-de19-731e-a579-d3b27b7edcd2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d7-76ba-beae-487e83bbc11d",
      "b": "019ea42d-de1e-7149-bcc5-5542d308ffab",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51dd-7ff7-a734-f8338f8d26b2",
      "b": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -875,79 +909,92 @@
      "a": "019ea3e1-5139-734d-ab2b-b3f766305aa5",
      "b": "019ea3e1-524a-78ab-9610-d2d4bd7811a6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-512e-7a29-be4e-32a08c8b6104",
      "b": "019ea42d-de0e-7aac-82f7-7a432f67cdef",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5132-7afd-8420-84dd4b151ae0",
      "b": "019ea42d-de10-71d7-aa81-4cf350e8fbed",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5137-78ae-8f6b-ca72089279a5",
      "b": "019ea42d-de12-74fe-9d02-e2b3011f7b24",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-512f-7378-ba0b-6cf1900cd52c",
      "b": "019ea3e1-5245-793a-8e16-2cef03e0895f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5131-7ebe-858c-fc35fe07a40e",
      "b": "019ea3e1-5247-76a5-96d3-7370b13b76df",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea3e1-524c-7800-aff8-60c91a18ba82",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea42d-de13-7b76-8c71-ba184724a38d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5130-7085-913e-8d0a113a712b",
      "b": "019ea3e1-5246-787b-8033-c55f0cdc3dc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5133-7521-aca6-4364014ac458",
      "b": "019ea3e1-5249-7ed6-b033-fa1a3329d020",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513a-7452-b7ca-48faa50e272f",
      "b": "019ea3e1-524b-7d5f-990b-b9ffa6799b59",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5133-7521-aca6-4364014ac458",
      "b": "019ea42d-de11-7f77-a5b0-eebb2740f6b4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea42d-de13-7b76-8c71-ba184724a38d",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -1116,73 +1163,85 @@
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea42d-de42-7bf9-89b6-8944cd9b8753",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5158-72ac-987c-0fcc5c1bf867",
      "b": "019ea3e1-526d-7d29-a1ce-c525f960c22e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5159-7344-ad80-67a7f0561217",
      "b": "019ea3e1-526e-7927-bf98-89c1b81216e6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515a-7559-9829-be205a0aa656",
      "b": "019ea3e1-526f-76d5-a1b2-606a0ecb4657",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515b-7255-8d9d-c933bbdfb76f",
      "b": "019ea3e1-5270-7874-b309-769d811dff6d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea3e1-5271-766b-a9fe-4b4c30e93509",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5150-7bae-acc3-3b48a5171d75",
      "b": "019ea3e1-5266-7032-94c5-1a821232c0fa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515b-7255-8d9d-c933bbdfb76f",
      "b": "019ea42d-de41-785f-8395-e9c65b4334f6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5151-7744-aa60-176974317f6e",
      "b": "019ea3e1-5267-7f24-83b7-f0fa6c1736f6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea42d-de42-7bf9-89b6-8944cd9b8753",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5151-7744-aa60-176974317f6e",
      "b": "019ea42d-de3e-790a-8d70-3420bd167782",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea3e1-5271-766b-a9fe-4b4c30e93509",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -1283,25 +1342,29 @@
      "a": "019ea3e1-51f4-70d5-8d7d-39f9c5e5b98f",
      "b": "019ea42d-de2a-7013-bb67-7772b0c8c2f4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f1-7b56-a3a8-336250103a69",
      "b": "019ea42d-de27-7168-af53-805833018a3c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f7-74a7-a45f-b83afcc828b4",
      "b": "019ea42d-de2b-7401-8140-0f0bc4bab5dc",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f7-74a7-a45f-b83afcc828b4",
      "b": "019ea42d-de2b-7401-8140-0f0bc4bab5dc",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -1415,19 +1478,22 @@
      "a": "019ea3e1-520d-71d0-9691-0729a5eb3045",
      "b": "019ea42d-de37-7270-8993-5488cf5c8120",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5208-7b51-8c05-c498d9f7354f",
      "b": "019ea42d-de31-7608-80c2-305a8a0c08df",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-520d-71d0-9691-0729a5eb3045",
      "b": "019ea42d-de37-7270-8993-5488cf5c8120",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     }
    ],
    "alongM": [
@@ -1576,79 +1642,92 @@
      "a": "019ea3e1-522e-7ff6-9402-604810a06002",
      "b": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd9d-788a-abfd-db0f88f5fd60",
      "b": "019ea42d-de71-7fdd-8bbb-81abd238e7c4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522d-7e9d-987b-cb6bcb322f51",
      "b": "019ea42d-de71-7fdd-8bbb-81abd238e7c4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9d-788a-abfd-db0f88f5fd60",
      "b": "019ea42d-de7b-7752-9791-636c794beca0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9c-7069-b75e-664c43eddec6",
      "b": "019ea42d-de70-781a-9b6c-24e98734c85f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522c-704a-aa73-1e4b610598ba",
      "b": "019ea42d-de70-781a-9b6c-24e98734c85f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9c-7069-b75e-664c43eddec6",
      "b": "019ea42d-de7a-71f5-b446-da86a2b52605",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9e-7db1-9e09-ca0169cb86a2",
      "b": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522e-7ff6-9402-604810a06002",
      "b": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd97-77a9-91a1-245172ca39d5",
      "b": "019ea42d-de75-7ea5-969d-88bde4a7168c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522a-786b-99e5-a190228271fe",
      "b": "019ea42d-de6e-7b1d-ac7c-2bd1dd8a9aae",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-522b-7583-8e5f-f4128d69dd3c",
      "b": "019ea42d-de6f-78e8-91df-60db644a327b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5222-7d75-a192-9cf6301134d0",
      "b": "019ea42d-de6c-78dd-bed6-9b88cd886d1d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -1769,25 +1848,29 @@
      "a": "019ea3e1-51a0-7e97-a337-1049881afe88",
      "b": "019ea42d-ddf3-7f4c-b47d-bcc30583d7b3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5196-76cb-ad6e-8ba14b02018f",
      "b": "019ea42d-ddf2-7b23-ad1e-ace849ce7e21",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51a1-70fb-b61f-dc25f86d9dac",
      "b": "019ea42d-ddf6-7993-8527-a3d63e8e4fc4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51a1-70fb-b61f-dc25f86d9dac",
      "b": "019ea42d-ddf6-7993-8527-a3d63e8e4fc4",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -2060,217 +2143,253 @@
      "a": "019e940a-4b63-7bcc-ac45-819bd9031be9",
      "b": "019ea3e1-5282-7706-a1e6-976351257cf1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6a-79a5-adcb-d80612b23d47",
      "b": "019ea3e1-5284-726a-8002-1421839010c3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de1c-7243-9187-9baae4b0d550",
      "b": "019ea42d-de80-702c-8c29-901a1c5e4aaa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "b": "019ea42d-de82-7790-8405-703ecec10b5d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddc9-7567-8318-333b56ac15d1",
      "b": "019ea42d-de82-7790-8405-703ecec10b5d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51c8-7b1a-9c37-2626faac3335",
      "b": "019ea42d-ddbf-7d2d-9dea-ed0173e97b9e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "b": "019ea42d-ddc9-7567-8318-333b56ac15d1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b69-70d7-aa16-4c8307b9aee7",
      "b": "019e940a-4b9a-7103-92ca-2a5d36470b8e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9a-7103-92ca-2a5d36470b8e",
      "b": "019e940a-4bd5-73c2-9fe9-1a95f9b67d1c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b69-70d7-aa16-4c8307b9aee7",
      "b": "019ea3e1-5283-7f25-9aea-f136ccb1990f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51ce-7f26-9e15-9ecb4bd6c11b",
      "b": "019ea3e1-5284-726a-8002-1421839010c3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b6c-76e0-b37d-d8bb1674197d",
      "b": "019e940a-4b9d-7395-a8af-552879e3df60",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b92-7cfb-abfb-a3900854b346",
      "b": "019e940a-4bcd-7a13-8cf6-92d9a73931af",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b6c-76e0-b37d-d8bb1674197d",
      "b": "019ea3e1-5286-739d-bab8-b81a60c6a672",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d0-7054-821b-00dad3f3ad00",
      "b": "019ea42d-ddc8-70ee-b0e3-23003d106456",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d0-7054-821b-00dad3f3ad00",
      "b": "019ea3e1-5286-739d-bab8-b81a60c6a672",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b67-7b62-bae6-298911974e54",
      "b": "019e940a-4b95-7620-a7d9-48225b83d5ef",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6b-7a47-b5eb-7cd7630e54cb",
      "b": "019e940a-4b9c-773d-8100-796f2ef915b6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9c-773d-8100-796f2ef915b6",
      "b": "019e940a-4bd7-78d7-9fce-48bce50c6c6b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51cf-7da1-a9a5-6d5f6fb9a0cf",
      "b": "019ea3e1-5285-7231-af3b-a1fba9e4bbff",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51cd-79c8-bc0c-aac99b85c792",
      "b": "019ea3e1-5283-7f25-9aea-f136ccb1990f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51c8-7b1a-9c37-2626faac3335",
      "b": "019ea3e1-5282-7706-a1e6-976351257cf1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b6b-7a47-b5eb-7cd7630e54cb",
      "b": "019ea3e1-5285-7231-af3b-a1fba9e4bbff",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de1b-758b-9f15-7043b6bbbed4",
      "b": "019ea42d-de7f-7af8-93c9-e6911200533b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b63-7bcc-ac45-819bd9031be9",
      "b": "019e940a-4b94-7b6f-8548-8b475d67a19c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b68-7cea-a49e-bc66245688cd",
      "b": "019e940a-4b99-73c9-b24d-7139549782b5",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6a-79a5-adcb-d80612b23d47",
      "b": "019e940a-4b9b-72d4-a657-362050c23bf1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b94-7b6f-8548-8b475d67a19c",
      "b": "019e940a-4bd1-792d-8a50-3a35480dcb1a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9b-72d4-a657-362050c23bf1",
      "b": "019e940a-4bd6-7239-8ff6-802a62b34947",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "b": "019e940a-4bda-7f19-9554-fd4bac66e119",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     }
    ],
    "alongM": [
@@ -3022,469 +3141,547 @@
      "a": "019e940a-4b79-7c17-995f-f7d35fa67510",
      "b": "019e940a-4b8c-76a6-af9d-76a166d75d44",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b77-7281-8b29-9d7849878900",
      "b": "019e940a-4b8a-7378-abd7-406e3ba173a2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b76-70be-a8cf-ed6d0bac383b",
      "b": "019e940a-4b89-7ded-975b-3025d47a7ed3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b72-7f92-8313-6f0607f51f7f",
      "b": "019e940a-4b84-7b45-8a6b-3c0203b63333",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b91-7c94-8aff-67f616352c86",
      "b": "019e940a-4bda-7f19-9554-fd4bac66e119",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b8c-76a6-af9d-76a166d75d44",
      "b": "019e940a-4bd8-7016-aebf-3602b5cb71f2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b8a-7378-abd7-406e3ba173a2",
      "b": "019e940a-4bd6-7239-8ff6-802a62b34947",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b89-7ded-975b-3025d47a7ed3",
      "b": "019e940a-4bd5-73c2-9fe9-1a95f9b67d1c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b84-7b45-8a6b-3c0203b63333",
      "b": "019e940a-4bd1-792d-8a50-3a35480dcb1a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b80-714d-8b43-b7370fdff8bc",
      "b": "019e940a-4bcd-7a13-8cf6-92d9a73931af",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "b": "019e940a-4bda-7f19-9554-fd4bac66e119",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9c-773d-8100-796f2ef915b6",
      "b": "019e940a-4bd7-78d7-9fce-48bce50c6c6b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9a-7103-92ca-2a5d36470b8e",
      "b": "019e940a-4bd5-73c2-9fe9-1a95f9b67d1c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b94-7b6f-8548-8b475d67a19c",
      "b": "019e940a-4bd1-792d-8a50-3a35480dcb1a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b92-7cfb-abfb-a3900854b346",
      "b": "019e940a-4bcd-7a13-8cf6-92d9a73931af",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6c-76e0-b37d-d8bb1674197d",
      "b": "019e940a-4b9d-7395-a8af-552879e3df60",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6b-7a47-b5eb-7cd7630e54cb",
      "b": "019e940a-4b9c-773d-8100-796f2ef915b6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6a-79a5-adcb-d80612b23d47",
      "b": "019e940a-4b9b-72d4-a657-362050c23bf1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b69-70d7-aa16-4c8307b9aee7",
      "b": "019e940a-4b9a-7103-92ca-2a5d36470b8e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b68-7cea-a49e-bc66245688cd",
      "b": "019e940a-4b99-73c9-b24d-7139549782b5",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b67-7b62-bae6-298911974e54",
      "b": "019e940a-4b95-7620-a7d9-48225b83d5ef",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b63-7bcc-ac45-819bd9031be9",
      "b": "019e940a-4b94-7b6f-8548-8b475d67a19c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b63-7bcc-ac45-819bd9031be9",
      "b": "019e940a-4be0-72f0-8086-e9a104a4f3c8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b67-7b62-bae6-298911974e54",
      "b": "019e940a-4be3-724a-a1e3-04cd2842b7eb",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b68-7cea-a49e-bc66245688cd",
      "b": "019e940a-4be4-7bbf-8305-1b71e6b6e1a7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b69-70d7-aa16-4c8307b9aee7",
      "b": "019e940a-4be5-7219-b617-d7f02094c90f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6b-7a47-b5eb-7cd7630e54cb",
      "b": "019e940a-4be7-7579-95d3-0e203961ac82",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6c-76e0-b37d-d8bb1674197d",
      "b": "019e940a-4be8-7abb-8d3b-f2151874962b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019e940a-4be9-7f62-8cad-d2923d8a7383",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bbb-791a-9abe-6a435b760cdf",
      "b": "019e940a-4be9-7f62-8cad-d2923d8a7383",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bb8-7808-b801-0302809febd9",
      "b": "019e940a-4be6-7779-9e14-2cd720e19ebd",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bae-77e5-af73-ab8cdcfa5448",
      "b": "019e940a-4be0-72f0-8086-e9a104a4f3c8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b5e-7b10-8a15-853b0c041c00",
      "b": "019e940a-4bbb-791a-9abe-6a435b760cdf",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b57-78f6-b68a-69ee37006543",
      "b": "019e940a-4bba-7d42-b316-7d5144e47fcf",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b56-721f-aafc-7449e553f948",
      "b": "019e940a-4bb9-7924-8e8d-d9b2f79a04eb",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b55-775f-a746-d25ab2bfdfce",
      "b": "019e940a-4bb8-7808-b801-0302809febd9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b54-7320-be9f-25cde178393b",
      "b": "019e940a-4bb7-784c-9995-de0b28450afe",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b51-762f-bd6b-2303bdadbe95",
      "b": "019e940a-4bb6-7151-8ecf-51038a8be81f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b4f-7062-b988-c5fc57eb49ca",
      "b": "019e940a-4bb2-77d8-8d49-e117db6d1500",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b4f-7062-b988-c5fc57eb49ca",
      "b": "019e940a-4ba6-75f7-ac27-e6c325201a0e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b51-762f-bd6b-2303bdadbe95",
      "b": "019e940a-4ba7-7aa8-83b5-bc5f5cecb8cb",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b5e-7b10-8a15-853b0c041c00",
      "b": "019e940a-4bad-736e-b485-4ca0695a9366",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bad-736e-b485-4ca0695a9366",
      "b": "019e940a-4bcb-76a0-854f-1c97fb31660b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bac-7b54-8d64-d4344587b4c4",
      "b": "019e940a-4bca-70f2-8f3d-6a969250a473",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4bab-7a0b-ad7f-249d38765644",
      "b": "019e940a-4bc7-79df-9f45-0b8693696818",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4baa-717d-b56e-445cfbd6792a",
      "b": "019e940a-4bc6-7e20-970d-1a6c0694704e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba9-763d-8a55-c67ee5ace3bf",
      "b": "019e940a-4bc5-7984-bf3a-2d8b6bd7528e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba8-7dfd-a453-cd9c98458819",
      "b": "019e940a-4bc4-74a9-bce9-8f5cbb34b120",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba7-7aa8-83b5-bc5f5cecb8cb",
      "b": "019e940a-4bc3-747f-8409-9136c5bd400d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba6-75f7-ac27-e6c325201a0e",
      "b": "019e940a-4bc2-7485-875e-51a83a165090",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4ba2-702c-bdee-ea04cc280af6",
      "b": "019e940a-4bbe-787f-9f5b-5fd27fc9bcf7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b54-7320-be9f-25cde178393b",
      "b": "019e940a-4ba8-7dfd-a453-cd9c98458819",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b7c-7331-9835-14c04250f74a",
      "b": "019e940a-4b91-7c94-8aff-67f616352c86",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b78-783f-82c5-14f323286a55",
      "b": "019e940a-4b8b-7774-b159-8950a49a36c2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b75-74de-bdcd-dd251e3e742b",
      "b": "019e940a-4b88-7ecd-9f9c-64f831997c74",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b8b-7774-b159-8950a49a36c2",
      "b": "019e940a-4bd7-78d7-9fce-48bce50c6c6b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b88-7ecd-9f9c-64f831997c74",
      "b": "019e940a-4bd2-7b2b-9e99-189fa2686cbb",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9b-72d4-a657-362050c23bf1",
      "b": "019e940a-4bd6-7239-8ff6-802a62b34947",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019e940a-4b9d-7395-a8af-552879e3df60",
      "b": "019e940a-4bd8-7016-aebf-3602b5cb71f2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b6a-79a5-adcb-d80612b23d47",
      "b": "019e940a-4be6-7779-9e14-2cd720e19ebd",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bb2-77d8-8d49-e117db6d1500",
      "b": "019e940a-4be3-724a-a1e3-04cd2842b7eb",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bb6-7151-8ecf-51038a8be81f",
      "b": "019e940a-4be4-7bbf-8305-1b71e6b6e1a7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bb7-784c-9995-de0b28450afe",
      "b": "019e940a-4be5-7219-b617-d7f02094c90f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bb9-7924-8e8d-d9b2f79a04eb",
      "b": "019e940a-4be7-7579-95d3-0e203961ac82",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bba-7d42-b316-7d5144e47fcf",
      "b": "019e940a-4be8-7abb-8d3b-f2151874962b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b55-775f-a746-d25ab2bfdfce",
      "b": "019e940a-4ba9-763d-8a55-c67ee5ace3bf",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b56-721f-aafc-7449e553f948",
      "b": "019e940a-4baa-717d-b56e-445cfbd6792a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b57-78f6-b68a-69ee37006543",
      "b": "019e940a-4bab-7a0b-ad7f-249d38765644",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b7c-7331-9835-14c04250f74a",
      "b": "019e940a-4b91-7c94-8aff-67f616352c86",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019e940a-4be9-7f62-8cad-d2923d8a7383",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bad-736e-b485-4ca0695a9366",
      "b": "019e940a-4bcb-76a0-854f-1c97fb31660b",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b91-7c94-8aff-67f616352c86",
      "b": "019e940a-4bda-7f19-9554-fd4bac66e119",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4bbb-791a-9abe-6a435b760cdf",
      "b": "019e940a-4be9-7f62-8cad-d2923d8a7383",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b6d-7dcf-8e2d-ed2755766e0b",
      "b": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b5e-7b10-8a15-853b0c041c00",
      "b": "019e940a-4bad-736e-b485-4ca0695a9366",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4ba0-780e-ab75-6d1bd061be63",
      "b": "019e940a-4bda-7f19-9554-fd4bac66e119",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019e940a-4b5e-7b10-8a15-853b0c041c00",
      "b": "019e940a-4bbb-791a-9abe-6a435b760cdf",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -4648,667 +4845,778 @@
      "a": "019ea42d-ddbb-7a13-b08b-40218243f915",
      "b": "019ea42d-de30-74fd-ae5f-4097db41b591",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de1e-7149-bcc5-5542d308ffab",
      "b": "019ea42d-de29-783d-823d-fca15f9df740",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddeb-7ccd-8124-0943737353dd",
      "b": "019ea42d-ddf2-7b23-ad1e-ace849ce7e21",
      "aSide": "base",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde8-7cd1-af21-9864347b547c",
      "b": "019ea42d-ddf1-7782-a445-174099e531b3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde3-719e-9379-a1fd66e05fb9",
      "b": "019ea42d-ddea-7849-a6d6-b01169423147",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddce-7ec5-814b-00bd463431ea",
      "b": "019ea42d-de1b-758b-9f15-7043b6bbbed4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde2-7c37-ab6f-d194857bf5f0",
      "b": "019ea42d-dde8-7cd1-af21-9864347b547c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde4-7afb-88fe-c8f9ac9d1895",
      "b": "019ea42d-ddeb-7ccd-8124-0943737353dd",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddbf-7d2d-9dea-ed0173e97b9e",
      "b": "019ea42d-de59-75eb-bfbd-f5fa32ec8fb4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddc7-7d4f-b510-3aea89eca999",
      "b": "019ea42d-de60-70a8-bdbb-b6abf2fa023c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddc9-7567-8318-333b56ac15d1",
      "b": "019ea42d-de63-7cab-b4b9-30744299ff83",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9e-7db1-9e09-ca0169cb86a2",
      "b": "019ea42d-de7c-750e-b18f-9ebc6bc0807e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de65-7466-898a-a7c0e2ab6518",
      "b": "019ea42d-de74-722c-88ab-3616afdb09d4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de1e-7149-bcc5-5542d308ffab",
      "b": "019ea42d-de81-72f5-a5c5-e893ba3c8095",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddc6-7e68-85a4-63eeb5f99dd5",
      "b": "019ea42d-de5e-701c-99f4-dcb7fa153703",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de13-7b76-8c71-ba184724a38d",
      "b": "019ea42d-de63-7cab-b4b9-30744299ff83",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd8a-7cbe-a16c-adfa654a0c0f",
      "b": "019ea42d-de06-7bfa-b41c-66662c78f2ca",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd88-7eb1-ae0c-a73753c358f2",
      "b": "019ea42d-de04-7c5b-bc71-a60604a959ff",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd89-765e-aa6a-2146a27235a5",
      "b": "019ea42d-de52-7e22-acdc-d001e07a1e3b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de0f-7123-b6e5-5fa082bf3b18",
      "b": "019ea42d-de60-70a8-bdbb-b6abf2fa023c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd79-7ab3-92c0-f8b733a00396",
      "b": "019ea42d-de03-764f-81be-f546eb754c9c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd89-765e-aa6a-2146a27235a5",
      "b": "019ea42d-de05-7ee1-bda7-ccd64cbb3c9a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de05-7ee1-bda7-ccd64cbb3c9a",
      "b": "019ea42d-de0f-7123-b6e5-5fa082bf3b18",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de09-7cf5-8252-5aa4468503a9",
      "b": "019ea42d-de13-7b76-8c71-ba184724a38d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd97-77a9-91a1-245172ca39d5",
      "b": "019ea42d-de75-7ea5-969d-88bde4a7168c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddc9-7567-8318-333b56ac15d1",
      "b": "019ea42d-de82-7790-8405-703ecec10b5d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de19-731e-a579-d3b27b7edcd2",
      "b": "019ea42d-de27-7168-af53-805833018a3c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "b": "019ea42d-de2b-7401-8140-0f0bc4bab5dc",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddb7-7af8-aa68-f7bb520430fd",
      "b": "019ea42d-de27-7168-af53-805833018a3c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddbb-7a13-b08b-40218243f915",
      "b": "019ea42d-de29-783d-823d-fca15f9df740",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddbd-753e-a567-531b5cc73b3c",
      "b": "019ea42d-de2b-7401-8140-0f0bc4bab5dc",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de1c-7243-9187-9baae4b0d550",
      "b": "019ea42d-de80-702c-8c29-901a1c5e4aaa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "b": "019ea42d-de82-7790-8405-703ecec10b5d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddbd-753e-a567-531b5cc73b3c",
      "b": "019ea42d-de37-7270-8993-5488cf5c8120",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddac-7bf0-8f11-ffaed3c219e2",
      "b": "019ea42d-ddf6-7993-8527-a3d63e8e4fc4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd97-77a9-91a1-245172ca39d5",
      "b": "019ea42d-dddb-7bf4-8c4d-c01b67222032",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9e-7db1-9e09-ca0169cb86a2",
      "b": "019ea42d-dde1-7c47-b794-1a5e42a2e6a0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de40-7c10-b5d8-cac77f63d61b",
      "b": "019ea42d-de6c-78dd-bed6-9b88cd886d1d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de42-7bf9-89b6-8944cd9b8753",
      "b": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de30-74fd-ae5f-4097db41b591",
      "b": "019ea42d-de40-7c10-b5d8-cac77f63d61b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de37-7270-8993-5488cf5c8120",
      "b": "019ea42d-de42-7bf9-89b6-8944cd9b8753",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd8a-7cbe-a16c-adfa654a0c0f",
      "b": "019ea42d-de53-7b5a-a9b4-7934f3f4c4c9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddc8-70ee-b0e3-23003d106456",
      "b": "019ea42d-de62-7d14-9067-a7fcf609edf7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de11-7f77-a5b0-eebb2740f6b4",
      "b": "019ea42d-de62-7d14-9067-a7fcf609edf7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de06-7bfa-b41c-66662c78f2ca",
      "b": "019ea42d-de11-7f77-a5b0-eebb2740f6b4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de71-7fdd-8bbb-81abd238e7c4",
      "b": "019ea42d-de7b-7752-9791-636c794beca0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9d-788a-abfd-db0f88f5fd60",
      "b": "019ea42d-de7b-7752-9791-636c794beca0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de1e-7149-bcc5-5542d308ffab",
      "b": "019ea42d-de2a-7013-bb67-7772b0c8c2f4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddbc-722c-8772-e16663f0912f",
      "b": "019ea42d-de2a-7013-bb67-7772b0c8c2f4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddbc-722c-8772-e16663f0912f",
      "b": "019ea42d-de31-7608-80c2-305a8a0c08df",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddaa-73ac-b698-dd9180f72251",
      "b": "019ea42d-ddf3-7f4c-b47d-bcc30583d7b3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd96-747c-bda4-14b6a3c9e87b",
      "b": "019ea42d-ddda-7d33-97f1-2dea41dd6b14",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9d-788a-abfd-db0f88f5fd60",
      "b": "019ea42d-dde0-7bd5-a239-1e46c7717cd8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de31-7608-80c2-305a8a0c08df",
      "b": "019ea42d-de41-785f-8395-e9c65b4334f6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de0e-7aac-82f7-7a432f67cdef",
      "b": "019ea42d-de57-7056-b693-1f3e1ad907af",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de10-71d7-aa81-4cf350e8fbed",
      "b": "019ea42d-de61-7bb5-b48c-2621eee4ccca",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd98-795c-a2be-62148d8723dc",
      "b": "019ea42d-dddc-7f61-9df9-b2c9386e4ed9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd98-795c-a2be-62148d8723dc",
      "b": "019ea42d-de76-7d3d-832b-e15093fbceb8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd95-7bc6-916a-a415d7e196ff",
      "b": "019ea42d-de74-722c-88ab-3616afdb09d4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de6c-78dd-bed6-9b88cd886d1d",
      "b": "019ea42d-de75-7ea5-969d-88bde4a7168c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "b": "019ea42d-de7c-750e-b18f-9ebc6bc0807e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de41-785f-8395-e9c65b4334f6",
      "b": "019ea42d-de6d-7d39-ac27-6e77a84741b4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddc8-70ee-b0e3-23003d106456",
      "b": "019ea42d-de81-72f5-a5c5-e893ba3c8095",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddbf-7d2d-9dea-ed0173e97b9e",
      "b": "019ea42d-de80-702c-8c29-901a1c5e4aaa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de04-7c5b-bc71-a60604a959ff",
      "b": "019ea42d-de0e-7aac-82f7-7a432f67cdef",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf6-7993-8527-a3d63e8e4fc4",
      "b": "019ea42d-de09-7cf5-8252-5aa4468503a9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd79-7ab3-92c0-f8b733a00396",
      "b": "019ea42d-de4e-753f-a6d2-d1125d156b7c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd88-7eb1-ae0c-a73753c358f2",
      "b": "019ea42d-de51-71ea-be57-77c6f3ce8d09",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de07-7bfa-b6df-826dd3d9e679",
      "b": "019ea42d-de12-74fe-9d02-e2b3011f7b24",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de70-781a-9b6c-24e98734c85f",
      "b": "019ea42d-de7a-71f5-b446-da86a2b52605",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9c-7069-b75e-664c43eddec6",
      "b": "019ea42d-de7a-71f5-b446-da86a2b52605",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de1d-762a-a30e-0301fa10082f",
      "b": "019ea42d-de28-7a53-935a-c6ff13bcee13",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddb8-74c2-88cf-f41ceea780d4",
      "b": "019ea42d-de28-7a53-935a-c6ff13bcee13",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de1b-758b-9f15-7043b6bbbed4",
      "b": "019ea42d-de7f-7af8-93c9-e6911200533b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddb1-72f8-91ca-663cf8180f9f",
      "b": "019ea42d-de2e-7dc0-b71e-9c99f1524637",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd99-7e0a-bcab-935cfd9befc1",
      "b": "019ea42d-ddde-7200-bddd-bb66573499c1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de6d-7d39-ac27-6e77a84741b4",
      "b": "019ea42d-de76-7d3d-832b-e15093fbceb8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd95-7bc6-916a-a415d7e196ff",
      "b": "019ea42d-ddd3-7a6b-8589-eaa8dc30fcfe",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-dd9c-7069-b75e-664c43eddec6",
      "b": "019ea42d-dddf-77f0-b1d2-977a853bde26",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de3e-790a-8d70-3420bd167782",
      "b": "019ea42d-de65-7466-898a-a7c0e2ab6518",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-de2e-7dc0-b71e-9c99f1524637",
      "b": "019ea42d-de3e-790a-8d70-3420bd167782",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea42d-ddce-7ec5-814b-00bd463431ea",
      "b": "019ea42d-de1c-7243-9187-9baae4b0d550",
      "aSide": "base",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde2-7c37-ab6f-d194857bf5f0",
      "b": "019ea42d-dded-7182-94fe-733366b5bd57",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde4-7afb-88fe-c8f9ac9d1895",
      "b": "019ea42d-ddef-7d08-bb8e-e3867e2338f0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde3-719e-9379-a1fd66e05fb9",
      "b": "019ea42d-ddee-7612-a12a-6143402e40b5",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf1-7782-a445-174099e531b3",
      "b": "019ea42d-ddf7-7156-80d8-e358452199cf",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde6-73b3-8d86-08ab7463eb72",
      "b": "019ea42d-ddeb-7ccd-8124-0943737353dd",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddfd-770f-8a7a-126284fe5e5a",
      "b": "019ea42d-de53-7b5a-a9b4-7934f3f4c4c9",
      "aSide": "base",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de09-7cf5-8252-5aa4468503a9",
      "b": "019ea42d-de13-7b76-8c71-ba184724a38d",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "b": "019ea42d-de82-7790-8405-703ecec10b5d",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de37-7270-8993-5488cf5c8120",
      "b": "019ea42d-de42-7bf9-89b6-8944cd9b8753",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd9e-7db1-9e09-ca0169cb86a2",
      "b": "019ea42d-dde1-7c47-b794-1a5e42a2e6a0",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf3-7f4c-b47d-bcc30583d7b3",
      "b": "019ea42d-ddfd-770f-8a7a-126284fe5e5a",
      "aSide": "top",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf8-7704-834c-3127ad0f0f8a",
      "b": "019ea42d-ddff-799e-aae0-7d6cf2af9ff8",
      "aSide": "top",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddff-799e-aae0-7d6cf2af9ff8",
      "b": "019ea42d-de52-7e22-acdc-d001e07a1e3b",
      "aSide": "base",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddaa-73ac-b698-dd9180f72251",
      "b": "019ea42d-ddef-7d08-bb8e-e3867e2338f0",
      "aSide": "top",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddac-7bf0-8f11-ffaed3c219e2",
      "b": "019ea42d-ddf6-7993-8527-a3d63e8e4fc4",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddc9-7567-8318-333b56ac15d1",
      "b": "019ea42d-de63-7cab-b4b9-30744299ff83",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddbd-753e-a567-531b5cc73b3c",
      "b": "019ea42d-de2b-7401-8140-0f0bc4bab5dc",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "b": "019ea42d-de7c-750e-b18f-9ebc6bc0807e",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf2-7b23-ad1e-ace849ce7e21",
      "b": "019ea42d-ddf8-7704-834c-3127ad0f0f8a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddff-799e-aae0-7d6cf2af9ff8",
      "b": "019ea42d-de51-71ea-be57-77c6f3ce8d09",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf6-7993-8527-a3d63e8e4fc4",
      "b": "019ea42d-de09-7cf5-8252-5aa4468503a9",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddc9-7567-8318-333b56ac15d1",
      "b": "019ea42d-de82-7790-8405-703ecec10b5d",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddbd-753e-a567-531b5cc73b3c",
      "b": "019ea42d-de37-7270-8993-5488cf5c8120",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dd9e-7db1-9e09-ca0169cb86a2",
      "b": "019ea42d-de7c-750e-b18f-9ebc6bc0807e",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-ddf7-7156-80d8-e358452199cf",
      "b": "019ea42d-ddff-799e-aae0-7d6cf2af9ff8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea42d-dde6-73b3-8d86-08ab7463eb72",
      "b": "019ea42d-ddef-7d08-bb8e-e3867e2338f0",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de13-7b76-8c71-ba184724a38d",
      "b": "019ea42d-de63-7cab-b4b9-30744299ff83",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de20-7bc9-9a7c-0149d2f3f251",
      "b": "019ea42d-de2b-7401-8140-0f0bc4bab5dc",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea42d-de42-7bf9-89b6-8944cd9b8753",
      "b": "019ea42d-de72-74ec-9447-ea33162b19b8",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [
@@ -6752,1033 +7060,1205 @@
      "a": "019ea3e1-51dd-7ff7-a734-f8338f8d26b2",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513c-7d0e-91cb-b65e188ea3cb",
      "b": "019ea3e1-5205-70f9-acc5-a6b8d94a099f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5143-7eba-b160-76287a79d61c",
      "b": "019ea3e1-5207-79ea-83cd-99628bf92bd4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-514a-7ec4-bd69-0388963c105e",
      "b": "019ea3e1-520d-71d0-9691-0729a5eb3045",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f1-7b56-a3a8-336250103a69",
      "b": "019ea3e1-5274-7f4c-946b-43bb1e821e41",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5121-7001-8fd5-f8808ee12245",
      "b": "019ea3e1-5260-7724-abbc-1c1e4791f345",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-512e-7a29-be4e-32a08c8b6104",
      "b": "019ea3e1-51b9-70dd-a45e-0e04eda5ed9c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-518f-7c57-9588-b97279d7a179",
      "b": "019ea3e1-5239-74be-a774-c8efdfb60d06",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-518f-7c57-9588-b97279d7a179",
      "b": "019ea3e1-5249-7ed6-b033-fa1a3329d020",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5193-76c2-93d3-1986f38e7413",
      "b": "019ea3e1-523d-7f4c-b0f9-6e0c15bbd258",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5138-77ca-9c52-65f27be370ed",
      "b": "019ea3e1-51c3-75cf-aea5-596bfa2312b6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513a-7452-b7ca-48faa50e272f",
      "b": "019ea3e1-51c5-7142-a2f9-cd874f018d00",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5122-7e4e-b380-4800e8438e3b",
      "b": "019ea3e1-5261-7aee-9244-13dd4a17d05e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5159-7344-ad80-67a7f0561217",
      "b": "019ea3e1-526e-7927-bf98-89c1b81216e6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea3e1-5271-766b-a9fe-4b4c30e93509",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5158-72ac-987c-0fcc5c1bf867",
      "b": "019ea3e1-526d-7d29-a1ce-c525f960c22e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-510b-7a0f-ad99-35d5574f19a2",
      "b": "019ea3e1-525a-7629-a7c1-57b5c9ee5970",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5120-76eb-bb93-7a8206789e93",
      "b": "019ea3e1-525b-78ab-8e6f-b7f0cafabc50",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5168-7f4d-ad04-b813757bd702",
      "b": "019ea3e1-527d-75c2-b7cd-3bf0d8384a99",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5169-70df-b217-e638d7c82e2f",
      "b": "019ea3e1-527e-7034-9949-da503916fe86",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51d6-76e7-bb19-0c0ca941c2eb",
      "b": "019ea3e1-5284-726a-8002-1421839010c3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5123-7f2d-a50a-7496af789b6c",
      "b": "019ea3e1-5261-7aee-9244-13dd4a17d05e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51c8-7b1a-9c37-2626faac3335",
      "b": "019ea3e1-5282-7706-a1e6-976351257cf1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51bf-7ff3-8d8c-7ddb063af923",
      "b": "019ea3e1-51cf-7da1-a9a5-6d5f6fb9a0cf",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5132-7afd-8420-84dd4b151ae0",
      "b": "019ea3e1-5248-71be-b8c2-c9ae11ba3f30",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-512e-7a29-be4e-32a08c8b6104",
      "b": "019ea3e1-5244-7830-8b72-fc755f565929",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5192-7395-92dd-81f419f02558",
      "b": "019ea3e1-524a-78ab-9610-d2d4bd7811a6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-517b-77b0-9e9a-9e8c9c036eb7",
      "b": "019ea3e1-523d-7f4c-b0f9-6e0c15bbd258",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5173-73e8-85d9-e45ca6d59ec2",
      "b": "019ea3e1-5231-7225-ba5d-755574430fb6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-514a-7ec4-bd69-0388963c105e",
      "b": "019ea3e1-51ec-7e17-9445-a04d830a9c18",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5189-7369-a6b7-610bd63daa0b",
      "b": "019ea3e1-5246-787b-8033-c55f0cdc3dc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5189-7369-a6b7-610bd63daa0b",
      "b": "019ea3e1-5237-7a7b-b2da-946c6ee46e83",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5130-7085-913e-8d0a113a712b",
      "b": "019ea3e1-51bd-71fd-a933-b8c4fdeba35f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5130-7085-913e-8d0a113a712b",
      "b": "019ea3e1-5246-787b-8033-c55f0cdc3dc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5228-7a6f-9e8d-1d9949731d9b",
      "b": "019ea3e1-526d-7d29-a1ce-c525f960c22e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-519d-77f6-9403-8a6456c77ac3",
      "b": "019ea3e1-51b1-7f82-93e5-237586c04647",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5175-7b74-b883-f2ea229316e9",
      "b": "019ea3e1-51b1-7f82-93e5-237586c04647",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5158-72ac-987c-0fcc5c1bf867",
      "b": "019ea3e1-5219-7010-8ab1-dfe4825dbb39",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5206-721d-a06b-ec2e6bcb6928",
      "b": "019ea3e1-5219-7010-8ab1-dfe4825dbb39",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d5-7638-a8cf-b98b71a501e3",
      "b": "019ea3e1-5254-7b91-afa3-bfde3ac941bd",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d5-7638-a8cf-b98b71a501e3",
      "b": "019ea3e1-5283-7f25-9aea-f136ccb1990f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5167-7b43-94db-1bd2fc8cf159",
      "b": "019ea3e1-527c-7389-8d8b-f335c7f5547f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f2-7161-912c-ed5ff5082525",
      "b": "019ea3e1-527c-7389-8d8b-f335c7f5547f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5175-7b74-b883-f2ea229316e9",
      "b": "019ea3e1-5237-7a7b-b2da-946c6ee46e83",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51e9-730e-b3f1-f808f8c19f09",
      "b": "019ea3e1-5260-7724-abbc-1c1e4791f345",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5167-7b43-94db-1bd2fc8cf159",
      "b": "019ea3e1-5254-7b91-afa3-bfde3ac941bd",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5121-7001-8fd5-f8808ee12245",
      "b": "019ea3e1-51f2-7161-912c-ed5ff5082525",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5142-77c7-aa28-ecd7e7688462",
      "b": "019ea3e1-51e9-730e-b3f1-f808f8c19f09",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5133-7521-aca6-4364014ac458",
      "b": "019ea3e1-51bf-7ff3-8d8c-7ddb063af923",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515b-7255-8d9d-c933bbdfb76f",
      "b": "019ea3e1-5270-7874-b309-769d811dff6d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5207-79ea-83cd-99628bf92bd4",
      "b": "019ea3e1-521a-711a-a679-d1c024a521a1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51f3-783c-92be-bec3b89f9ddc",
      "b": "019ea3e1-527d-75c2-b7cd-3bf0d8384a99",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-516c-70e7-b116-042cbb52411b",
      "b": "019ea3e1-527f-7700-9ff8-11a290df32a2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51d7-76ba-beae-487e83bbc11d",
      "b": "019ea3e1-5285-7231-af3b-a1fba9e4bbff",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51cd-79c8-bc0c-aac99b85c792",
      "b": "019ea3e1-5283-7f25-9aea-f136ccb1990f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51cf-7da1-a9a5-6d5f6fb9a0cf",
      "b": "019ea3e1-5285-7231-af3b-a1fba9e4bbff",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51bd-71fd-a933-b8c4fdeba35f",
      "b": "019ea3e1-51cd-79c8-bc0c-aac99b85c792",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5132-7afd-8420-84dd4b151ae0",
      "b": "019ea3e1-51bf-7ff3-8d8c-7ddb063af923",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5193-76c2-93d3-1986f38e7413",
      "b": "019ea3e1-524b-7d5f-990b-b9ffa6799b59",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5178-74fb-bd7c-6aafd6f934aa",
      "b": "019ea3e1-5239-74be-a774-c8efdfb60d06",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51c3-75cf-aea5-596bfa2312b6",
      "b": "019ea3e1-51d2-73d6-9eb8-2b82258f42ae",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5133-7521-aca6-4364014ac458",
      "b": "019ea3e1-5249-7ed6-b033-fa1a3329d020",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513a-7452-b7ca-48faa50e272f",
      "b": "019ea3e1-524b-7d5f-990b-b9ffa6799b59",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5221-75b1-92eb-5a97587a590e",
      "b": "019ea3e1-5266-7032-94c5-1a821232c0fa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522b-7583-8e5f-f4128d69dd3c",
      "b": "019ea3e1-5270-7874-b309-769d811dff6d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51a0-7e97-a337-1049881afe88",
      "b": "019ea3e1-51b4-7cb6-85a8-21b65c1ee1ba",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5178-74fb-bd7c-6aafd6f934aa",
      "b": "019ea3e1-51b4-7cb6-85a8-21b65c1ee1ba",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515b-7255-8d9d-c933bbdfb76f",
      "b": "019ea3e1-521c-7366-8d01-b7619827da0e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5150-7bae-acc3-3b48a5171d75",
      "b": "019ea3e1-5266-7032-94c5-1a821232c0fa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-520c-7162-9a20-19f37d98e02b",
      "b": "019ea3e1-521c-7366-8d01-b7619827da0e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d0-7054-821b-00dad3f3ad00",
      "b": "019ea3e1-5286-739d-bab8-b81a60c6a672",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d7-76ba-beae-487e83bbc11d",
      "b": "019ea3e1-5256-7fc9-bc57-ac5c1d9f7e5a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d7-76ba-beae-487e83bbc11d",
      "b": "019ea3e1-5286-739d-bab8-b81a60c6a672",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5144-7009-8cb2-05b8816bf9d2",
      "b": "019ea3e1-520c-7162-9a20-19f37d98e02b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f4-70d5-8d7d-39f9c5e5b98f",
      "b": "019ea3e1-527e-7034-9949-da503916fe86",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51eb-7ae1-a744-378860935eb8",
      "b": "019ea3e1-5261-7aee-9244-13dd4a17d05e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5169-70df-b217-e638d7c82e2f",
      "b": "019ea3e1-5256-7fc9-bc57-ac5c1d9f7e5a",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5123-7f2d-a50a-7496af789b6c",
      "b": "019ea3e1-51f4-70d5-8d7d-39f9c5e5b98f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5144-7009-8cb2-05b8816bf9d2",
      "b": "019ea3e1-51eb-7ae1-a744-378860935eb8",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5192-7395-92dd-81f419f02558",
      "b": "019ea3e1-523c-76d4-a551-a6cde2ab9b79",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5137-78ae-8f6b-ca72089279a5",
      "b": "019ea3e1-51c2-7f49-992c-de1098858eec",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5139-734d-ab2b-b3f766305aa5",
      "b": "019ea3e1-51c4-7732-a286-c324ce0cbe69",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51c2-7f49-992c-de1098858eec",
      "b": "019ea3e1-51d1-7874-a7bb-089e7eef996b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5139-734d-ab2b-b3f766305aa5",
      "b": "019ea3e1-524a-78ab-9610-d2d4bd7811a6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522a-786b-99e5-a190228271fe",
      "b": "019ea3e1-526f-76d5-a1b2-606a0ecb4657",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-519f-7d3f-935b-d9b8fd6379c3",
      "b": "019ea3e1-51b3-708f-9891-e2c109db8de7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5177-78e0-ba2c-8a8905c50e09",
      "b": "019ea3e1-51b3-708f-9891-e2c109db8de7",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515a-7559-9829-be205a0aa656",
      "b": "019ea3e1-521b-7482-84e9-a6872e11857e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5208-7b51-8c05-c498d9f7354f",
      "b": "019ea3e1-521b-7482-84e9-a6872e11857e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51dc-723d-826c-7c6b62ef76ab",
      "b": "019ea3e1-5258-7407-8b8f-3f793d500e3e",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-517a-7535-9cad-03c554593bf7",
      "b": "019ea3e1-523c-76d4-a551-a6cde2ab9b79",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5183-7f63-bba0-5d8dd14f8011",
      "b": "019ea3e1-5245-793a-8e16-2cef03e0895f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-518a-77e6-a89b-319d32215dcd",
      "b": "019ea3e1-5247-76a5-96d3-7370b13b76df",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5194-797e-b33a-2e219feceafd",
      "b": "019ea3e1-524c-7800-aff8-60c91a18ba82",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5183-7f63-bba0-5d8dd14f8011",
      "b": "019ea3e1-5236-7432-b39b-ab75f2464465",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-518a-77e6-a89b-319d32215dcd",
      "b": "019ea3e1-5238-77bf-ba63-bbefb3b9e83b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5194-797e-b33a-2e219feceafd",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-512f-7378-ba0b-6cf1900cd52c",
      "b": "019ea3e1-51bc-7e19-ae0f-ecebc3fb39d6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5131-7ebe-858c-fc35fe07a40e",
      "b": "019ea3e1-51be-7b82-a189-1efa2f5bdaa3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea3e1-51c7-7baf-8f08-c9c10a333a93",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51be-7b82-a189-1efa2f5bdaa3",
      "b": "019ea3e1-51ce-7f26-9e15-9ecb4bd6c11b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51c7-7baf-8f08-c9c10a333a93",
      "b": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-512f-7378-ba0b-6cf1900cd52c",
      "b": "019ea3e1-5245-793a-8e16-2cef03e0895f",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5131-7ebe-858c-fc35fe07a40e",
      "b": "019ea3e1-5247-76a5-96d3-7370b13b76df",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea3e1-524c-7800-aff8-60c91a18ba82",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515a-7559-9829-be205a0aa656",
      "b": "019ea3e1-526f-76d5-a1b2-606a0ecb4657",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5142-77c7-aa28-ecd7e7688462",
      "b": "019ea3e1-5206-721d-a06b-ec2e6bcb6928",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5166-793c-b16c-c0c6c3d22e7c",
      "b": "019ea3e1-5274-7f4c-946b-43bb1e821e41",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5165-7f7f-9745-f53b3927f609",
      "b": "019ea3e1-524d-74f4-aafb-2ccdf1693335",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51ce-7f26-9e15-9ecb4bd6c11b",
      "b": "019ea3e1-5284-726a-8002-1421839010c3",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51bc-7e19-ae0f-ecebc3fb39d6",
      "b": "019ea3e1-51c8-7b1a-9c37-2626faac3335",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-518b-7247-90f5-bc743edad95f",
      "b": "019ea3e1-5248-71be-b8c2-c9ae11ba3f30",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5222-7d75-a192-9cf6301134d0",
      "b": "019ea3e1-5267-7f24-83b7-f0fa6c1736f6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5229-7d4b-8d56-84005356d3ca",
      "b": "019ea3e1-526e-7927-bf98-89c1b81216e6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-522e-7ff6-9402-604810a06002",
      "b": "019ea3e1-5271-766b-a9fe-4b4c30e93509",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5196-76cb-ad6e-8ba14b02018f",
      "b": "019ea3e1-51ab-7947-bdc2-63dacc13510b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-519e-7b7f-9e50-27512f9d373e",
      "b": "019ea3e1-51b2-72cf-a95c-88f22b2a4584",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51a1-70fb-b61f-dc25f86d9dac",
      "b": "019ea3e1-51b5-7b4f-a00e-e0506a316e27",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5174-7ecd-9584-ef0d4dbbb29d",
      "b": "019ea3e1-51ab-7947-bdc2-63dacc13510b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5176-70c1-a6ff-6bf4aa1acd68",
      "b": "019ea3e1-51b2-72cf-a95c-88f22b2a4584",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-517c-74ee-a91f-527b2d76a12d",
      "b": "019ea3e1-51b5-7b4f-a00e-e0506a316e27",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5151-7744-aa60-176974317f6e",
      "b": "019ea3e1-5213-73e5-a0b3-1eb9e7af139d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5159-7344-ad80-67a7f0561217",
      "b": "019ea3e1-521a-711a-a679-d1c024a521a1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea3e1-521d-7a73-b281-77e8aa7187fa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5151-7744-aa60-176974317f6e",
      "b": "019ea3e1-5267-7f24-83b7-f0fa6c1736f6",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5205-70f9-acc5-a6b8d94a099f",
      "b": "019ea3e1-5213-73e5-a0b3-1eb9e7af139d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-520d-71d0-9691-0729a5eb3045",
      "b": "019ea3e1-521d-7a73-b281-77e8aa7187fa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d4-71cf-bcfe-63629cf5179f",
      "b": "019ea3e1-5253-70ef-9199-a53ca5fc107c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d6-76e7-bb19-0c0ca941c2eb",
      "b": "019ea3e1-5255-72ed-83a1-3c684691dc8d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51db-7d56-ae78-a723d4bcc7ba",
      "b": "019ea3e1-5257-7d10-b23d-131277240d0b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51dd-7ff7-a734-f8338f8d26b2",
      "b": "019ea3e1-5259-7cb4-bf5f-a4d43155c64d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51d4-71cf-bcfe-63629cf5179f",
      "b": "019ea3e1-5282-7706-a1e6-976351257cf1",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51f7-74a7-a45f-b83afcc828b4",
      "b": "019ea3e1-527f-7700-9ff8-11a290df32a2",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5174-7ecd-9584-ef0d4dbbb29d",
      "b": "019ea3e1-5236-7432-b39b-ab75f2464465",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5176-70c1-a6ff-6bf4aa1acd68",
      "b": "019ea3e1-5238-77bf-ba63-bbefb3b9e83b",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-517c-74ee-a91f-527b2d76a12d",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51e4-7226-9948-793b72a7c757",
      "b": "019ea3e1-525f-7437-abf4-507c0f5b39d0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-51ec-7e17-9445-a04d830a9c18",
      "b": "019ea3e1-5262-7461-93da-d13cea829781",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5120-76eb-bb93-7a8206789e93",
      "b": "019ea3e1-525f-7437-abf4-507c0f5b39d0",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5128-7688-9e12-59a772f5c5e7",
      "b": "019ea3e1-5262-7461-93da-d13cea829781",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5166-793c-b16c-c0c6c3d22e7c",
      "b": "019ea3e1-5253-70ef-9199-a53ca5fc107c",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5168-7f4d-ad04-b813757bd702",
      "b": "019ea3e1-5255-72ed-83a1-3c684691dc8d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-516c-70e7-b116-042cbb52411b",
      "b": "019ea3e1-5259-7cb4-bf5f-a4d43155c64d",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5120-76eb-bb93-7a8206789e93",
      "b": "019ea3e1-51f1-7b56-a3a8-336250103a69",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5122-7e4e-b380-4800e8438e3b",
      "b": "019ea3e1-51f3-783c-92be-bec3b89f9ddc",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5128-7688-9e12-59a772f5c5e7",
      "b": "019ea3e1-51f7-74a7-a45f-b83afcc828b4",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-513c-7d0e-91cb-b65e188ea3cb",
      "b": "019ea3e1-51e4-7226-9948-793b72a7c757",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-5143-7eba-b160-76287a79d61c",
      "b": "019ea3e1-51ea-7c21-a1e6-69b721914caa",
      "aSide": "top",
-     "bSide": "top"
+     "bSide": "top",
+     "source": "auto"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea3e1-5271-766b-a9fe-4b4c30e93509",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-520d-71d0-9691-0729a5eb3045",
      "b": "019ea3e1-521d-7a73-b281-77e8aa7187fa",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5128-7688-9e12-59a772f5c5e7",
      "b": "019ea3e1-5262-7461-93da-d13cea829781",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-516c-70e7-b116-042cbb52411b",
      "b": "019ea3e1-5259-7cb4-bf5f-a4d43155c64d",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51c7-7baf-8f08-c9c10a333a93",
      "b": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5194-797e-b33a-2e219feceafd",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-514a-7ec4-bd69-0388963c105e",
      "b": "019ea3e1-520d-71d0-9691-0729a5eb3045",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5128-7688-9e12-59a772f5c5e7",
      "b": "019ea3e1-51f7-74a7-a45f-b83afcc828b4",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51dd-7ff7-a734-f8338f8d26b2",
      "b": "019ea3e1-5259-7cb4-bf5f-a4d43155c64d",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea3e1-51c7-7baf-8f08-c9c10a333a93",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-517c-74ee-a91f-527b2d76a12d",
      "b": "019ea3e1-523e-7629-a624-15f9c2511838",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-522e-7ff6-9402-604810a06002",
      "b": "019ea3e1-5271-766b-a9fe-4b4c30e93509",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-515e-78d3-861e-edbd36fa807a",
      "b": "019ea3e1-521d-7a73-b281-77e8aa7187fa",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51ec-7e17-9445-a04d830a9c18",
      "b": "019ea3e1-5262-7461-93da-d13cea829781",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-516c-70e7-b116-042cbb52411b",
      "b": "019ea3e1-527f-7700-9ff8-11a290df32a2",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51d3-72d5-a7b8-89a134c59594",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-5194-797e-b33a-2e219feceafd",
      "b": "019ea3e1-524c-7800-aff8-60c91a18ba82",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51a1-70fb-b61f-dc25f86d9dac",
      "b": "019ea3e1-51b5-7b4f-a00e-e0506a316e27",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-514a-7ec4-bd69-0388963c105e",
      "b": "019ea3e1-51ec-7e17-9445-a04d830a9c18",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51f7-74a7-a45f-b83afcc828b4",
      "b": "019ea3e1-527f-7700-9ff8-11a290df32a2",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-51dd-7ff7-a734-f8338f8d26b2",
      "b": "019ea3e1-5289-732a-b524-7275839e6cc9",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-513b-7f84-a1dc-1e4946b6b143",
      "b": "019ea3e1-524c-7800-aff8-60c91a18ba82",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     },
     {
      "a": "019ea3e1-517c-74ee-a91f-527b2d76a12d",
      "b": "019ea3e1-51b5-7b4f-a00e-e0506a316e27",
      "aSide": "base",
-     "bSide": "base"
+     "bSide": "base",
+     "source": "manual"
     }
    ],
    "alongM": [

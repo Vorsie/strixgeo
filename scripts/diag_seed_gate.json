@@ -5,11 +5,11 @@
   {
    "section": "Tie-section 4",
    "faces": 12,
-   "single": 8,
+   "single": 9,
    "explicitVoid": 0,
    "zeroDefect": 3,
    "multiDefect": 0,
-   "mergedMinority": 1
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 13",
@@ -23,29 +23,29 @@
   {
    "section": "Tie-section 5",
    "faces": 12,
-   "single": 9,
+   "single": 10,
    "explicitVoid": 0,
    "zeroDefect": 2,
    "multiDefect": 0,
-   "mergedMinority": 1
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 6",
    "faces": 14,
-   "single": 7,
+   "single": 9,
    "explicitVoid": 0,
    "zeroDefect": 5,
    "multiDefect": 0,
-   "mergedMinority": 2
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 7",
    "faces": 21,
-   "single": 10,
+   "single": 11,
    "explicitVoid": 0,
    "zeroDefect": 9,
    "multiDefect": 1,
-   "mergedMinority": 1
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 8",
@@ -59,74 +59,74 @@
   {
    "section": "Tie-section 9",
    "faces": 7,
-   "single": 4,
+   "single": 6,
    "explicitVoid": 0,
    "zeroDefect": 1,
    "multiDefect": 0,
-   "mergedMinority": 2
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 10",
    "faces": 12,
-   "single": 8,
+   "single": 9,
    "explicitVoid": 0,
    "zeroDefect": 3,
    "multiDefect": 0,
-   "mergedMinority": 1
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 11",
    "faces": 12,
-   "single": 8,
+   "single": 9,
    "explicitVoid": 0,
    "zeroDefect": 2,
    "multiDefect": 1,
-   "mergedMinority": 1
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 12",
    "faces": 12,
-   "single": 7,
+   "single": 9,
    "explicitVoid": 0,
    "zeroDefect": 3,
    "multiDefect": 0,
-   "mergedMinority": 2
+   "mergedMinority": 0
   },
   {
    "section": "Tie-section 14",
    "faces": 32,
-   "single": 25,
+   "single": 27,
    "explicitVoid": 0,
    "zeroDefect": 5,
    "multiDefect": 0,
-   "mergedMinority": 2
+   "mergedMinority": 0
   },
   {
    "section": "Cross-section 3",
    "faces": 111,
-   "single": 84,
+   "single": 96,
    "explicitVoid": 0,
    "zeroDefect": 13,
    "multiDefect": 2,
-   "mergedMinority": 12
+   "mergedMinority": 0
   },
   {
    "section": "Cross-section 1",
    "faces": 242,
-   "single": 167,
+   "single": 181,
    "explicitVoid": 8,
    "zeroDefect": 52,
    "multiDefect": 1,
-   "mergedMinority": 14
+   "mergedMinority": 0
   },
   {
    "section": "Cross-section 2",
    "faces": 253,
-   "single": 197,
+   "single": 206,
    "explicitVoid": 0,
    "zeroDefect": 43,
    "multiDefect": 4,
-   "mergedMinority": 9
+   "mergedMinority": 0
   },
   {
    "section": "convergingStack (a)",
@@ -140,20 +140,20 @@
   {
    "section": "literalCorr (c)/(d)",
    "faces": 8,
-   "single": 2,
+   "single": 8,
    "explicitVoid": 0,
    "zeroDefect": 0,
    "multiDefect": 0,
-   "mergedMinority": 6
+   "mergedMinority": 0
   }
  ],
  "grandTotals": {
   "faces": 790,
-  "single": 568,
+  "single": 622,
   "explicitVoid": 8,
   "zeroSeedDefect": 151,
   "multiSeedDefect": 9,
-  "mergedMinority": 54
+  "mergedMinority": 0
  },
  "zeroSeedDefects": [
   {
@@ -4269,24 +4269,22 @@
    "elLo": 0.56,
    "elHi": 0.91,
    "boundaryCurveIds": [
-    "col1:u5",
+    "col1:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col1:u5"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|5"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 13",
@@ -5015,24 +5013,22 @@
    "elLo": 9.68,
    "elHi": 10.08,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 6",
@@ -5324,24 +5320,22 @@
    "elLo": 4.3,
    "elHi": 8.45,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b52-7560-bc4d-93ca84512af4"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b52-7560-bc4d-93ca84512af4",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 6",
@@ -5404,24 +5398,22 @@
    "elLo": 8.84,
    "elHi": 9.87,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 7",
@@ -5721,24 +5713,22 @@
    "elLo": -3.831,
    "elHi": -3.141,
    "boundaryCurveIds": [
-    "col0:u5",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u5"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|5"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 7",
@@ -6922,24 +6912,22 @@
    "elLo": 4.9,
    "elHi": 7.59,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b52-7560-bc4d-93ca84512af4"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b52-7560-bc4d-93ca84512af4",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 9",
@@ -6950,24 +6938,22 @@
    "elLo": 5.01,
    "elHi": 5.96,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 10",
@@ -7161,24 +7147,22 @@
    "elLo": 5.06,
    "elHi": 8.55,
    "boundaryCurveIds": [
-    "col0:u1",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u1"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b52-7560-bc4d-93ca84512af4"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|1"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b52-7560-bc4d-93ca84512af4",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 10",
@@ -7599,24 +7583,22 @@
    "elLo": 5.86,
    "elHi": 10.373,
    "boundaryCurveIds": [
-    "col0:u1",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u1"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b52-7560-bc4d-93ca84512af4"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|1"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b52-7560-bc4d-93ca84512af4",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 11",
@@ -7897,24 +7879,22 @@
    "elLo": 5.65,
    "elHi": 8.599,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b52-7560-bc4d-93ca84512af4"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b52-7560-bc4d-93ca84512af4",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 12",
@@ -8010,24 +7990,22 @@
    "elLo": 0.04,
    "elHi": 0.85,
    "boundaryCurveIds": [
-    "col1:u3",
+    "col1:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col1:u3"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|3"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 14",
@@ -8161,24 +8139,22 @@
    "elLo": -5.11,
    "elHi": -3.61,
    "boundaryCurveIds": [
-    "col0:u4",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u4"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|4"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Tie-section 14",
@@ -9049,24 +9025,22 @@
    "elLo": -2.53,
    "elHi": -1.74,
    "boundaryCurveIds": [
-    "col3:u7",
+    "col3:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col3:u7"
+    "col3:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "2|right|7"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -9204,24 +9178,22 @@
    "elLo": 0.56,
    "elHi": 0.91,
    "boundaryCurveIds": [
-    "col0:u5",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u5"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|5"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -9441,25 +9413,22 @@
    "elLo": -2.413,
    "elHi": -1.85,
    "boundaryCurveIds": [
-    "col1:u6",
+    "col1:lens1",
     "lens8",
     "lens9"
    ],
    "seedRefs": [
-    "col1:u6"
+    "col1:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|6",
-    "1|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -9470,25 +9439,22 @@
    "elLo": -1.34,
    "elHi": 0.35,
    "boundaryCurveIds": [
-    "col1:u6",
+    "col1:lens0",
     "lens6",
     "lens7"
    ],
    "seedRefs": [
-    "col1:u6"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|6",
-    "1|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -9627,25 +9593,22 @@
    "elLo": -2.413,
    "elHi": -1.85,
    "boundaryCurveIds": [
-    "col1:u6",
+    "col1:lens1",
     "lens4",
     "lens5"
    ],
    "seedRefs": [
-    "col1:u6"
+    "col1:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|6",
-    "1|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -9656,25 +9619,22 @@
    "elLo": -1.34,
    "elHi": 0.35,
    "boundaryCurveIds": [
-    "col1:u6",
+    "col1:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col1:u6"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|6",
-    "1|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -10324,25 +10284,22 @@
    "elLo": -2.53,
    "elHi": -1.74,
    "boundaryCurveIds": [
-    "col3:u7",
+    "col3:lens0",
     "lens12",
     "lens13"
    ],
    "seedRefs": [
-    "col3:u7"
+    "col3:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "2|right|7",
-    "3|left|7"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -10529,25 +10486,22 @@
    "elLo": -2.53,
    "elHi": -1.74,
    "boundaryCurveIds": [
-    "col3:u7",
+    "col3:lens0",
     "lens10",
     "lens11"
    ],
    "seedRefs": [
-    "col3:u7"
+    "col3:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "2|right|7",
-    "3|left|7"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -11847,25 +11801,22 @@
    "elLo": -3.94,
    "elHi": -3.385,
    "boundaryCurveIds": [
-    "col7:u6",
+    "col7:lens1",
     "lens20",
     "lens21"
    ],
    "seedRefs": [
-    "col7:u6"
+    "col7:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "6|right|6",
-    "7|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -11876,25 +11827,22 @@
    "elLo": 2.15,
    "elHi": 3.55,
    "boundaryCurveIds": [
-    "col7:u6",
+    "col7:lens0",
     "lens18",
     "lens19"
    ],
    "seedRefs": [
-    "col7:u6"
+    "col7:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "6|right|6",
-    "7|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -12054,25 +12002,22 @@
    "elLo": -3.94,
    "elHi": -3.385,
    "boundaryCurveIds": [
-    "col7:u6",
+    "col7:lens1",
     "lens16",
     "lens17"
    ],
    "seedRefs": [
-    "col7:u6"
+    "col7:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "6|right|6",
-    "7|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -12083,25 +12028,22 @@
    "elLo": 2.15,
    "elHi": 3.55,
    "boundaryCurveIds": [
-    "col7:u6",
+    "col7:lens0",
     "lens14",
     "lens15"
    ],
    "seedRefs": [
-    "col7:u6"
+    "col7:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "6|right|6",
-    "7|left|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 3",
@@ -12737,24 +12679,22 @@
    "elLo": -5.51,
    "elHi": -5.06,
    "boundaryCurveIds": [
-    "col9:u6",
+    "col9:lens0",
     "lens22",
     "lens23"
    ],
    "seedRefs": [
-    "col9:u6"
+    "col9:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "8|right|6"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -13136,24 +13076,22 @@
    "elLo": 6.84,
    "elHi": 8.08,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens2",
     "lens4",
     "lens5"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens2"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -13164,24 +13102,22 @@
    "elLo": 8.7,
    "elHi": 10.53,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens1",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -13192,24 +13128,22 @@
    "elLo": 10.91,
    "elHi": 11.68,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -13904,25 +13838,22 @@
    "elLo": 4.059,
    "elHi": 4.705,
    "boundaryCurveIds": [
-    "col3:u2",
+    "col3:lens0",
     "lens8",
     "lens9"
    ],
    "seedRefs": [
-    "col3:u2"
+    "col3:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "2|right|2",
-    "3|left|2"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -14117,25 +14048,22 @@
    "elLo": 4.059,
    "elHi": 4.705,
    "boundaryCurveIds": [
-    "col3:u2",
+    "col3:lens0",
     "lens6",
     "lens7"
    ],
    "seedRefs": [
-    "col3:u2"
+    "col3:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "2|right|2",
-    "3|left|2"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -14907,25 +14835,22 @@
    "elLo": 5.19,
    "elHi": 5.79,
    "boundaryCurveIds": [
-    "col6:u2",
+    "col6:lens0",
     "lens12",
     "lens13"
    ],
    "seedRefs": [
-    "col6:u2"
+    "col6:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "5|right|2",
-    "6|left|2"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -15136,25 +15061,22 @@
    "elLo": 5.19,
    "elHi": 5.79,
    "boundaryCurveIds": [
-    "col6:u2",
+    "col6:lens0",
     "lens10",
     "lens11"
    ],
    "seedRefs": [
-    "col6:u2"
+    "col6:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "5|right|2",
-    "6|left|2"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -17805,25 +17727,22 @@
    "elLo": -1.17,
    "elHi": -0.26,
    "boundaryCurveIds": [
-    "col15:u3",
+    "col15:lens0",
     "lens16",
     "lens17"
    ],
    "seedRefs": [
-    "col15:u3"
+    "col15:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "14|right|3",
-    "15|left|3"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -17893,25 +17812,22 @@
    "elLo": -1.17,
    "elHi": -0.26,
    "boundaryCurveIds": [
-    "col15:u3",
+    "col15:lens0",
     "lens14",
     "lens15"
    ],
    "seedRefs": [
-    "col15:u3"
+    "col15:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "14|right|3",
-    "15|left|3"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -18418,25 +18334,22 @@
    "elLo": 6.65,
    "elHi": 7.75,
    "boundaryCurveIds": [
-    "col18:u1",
+    "col18:lens0",
     "lens20",
     "lens21"
    ],
    "seedRefs": [
-    "col18:u1"
+    "col18:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "17|right|1",
-    "18|left|1"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -18662,25 +18575,22 @@
    "elLo": 6.65,
    "elHi": 7.75,
    "boundaryCurveIds": [
-    "col18:u1",
+    "col18:lens0",
     "lens18",
     "lens19"
    ],
    "seedRefs": [
-    "col18:u1"
+    "col18:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b50-7f69-af85-2354e519bb43"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "17|right|1",
-    "18|left|1"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -18830,25 +18740,22 @@
    "elLo": 0.04,
    "elHi": 0.85,
    "boundaryCurveIds": [
-    "col19:u3",
+    "col19:lens0",
     "lens24",
     "lens25"
    ],
    "seedRefs": [
-    "col19:u3"
+    "col19:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "18|right|3",
-    "19|left|3"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -18949,25 +18856,22 @@
    "elLo": 0.04,
    "elHi": 0.85,
    "boundaryCurveIds": [
-    "col19:u3",
+    "col19:lens0",
     "lens22",
     "lens23"
    ],
    "seedRefs": [
-    "col19:u3"
+    "col19:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "18|right|3",
-    "19|left|3"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -19502,25 +19406,22 @@
    "elLo": 8.88,
    "elHi": 9.23,
    "boundaryCurveIds": [
-    "col21:u2",
+    "col21:lens0",
     "lens28",
     "lens29"
    ],
    "seedRefs": [
-    "col21:u2"
+    "col21:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b41-7e01-a763-ab030a38d1bc"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "20|right|2",
-    "21|left|2"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b41-7e01-a763-ab030a38d1bc",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 1",
@@ -19555,6 +19456,7 @@
    "elLo": 7.96,
    "elHi": 8.92,
    "boundaryCurveIds": [
+    "col21:lens0",
     "col21:u2",
     "flood23",
     "tie94:21"
@@ -19586,6 +19488,7 @@
    "boundaryCurveIds": [
     "bandc133",
     "bandc134",
+    "col21:lens0",
     "col21:u2",
     "col22:u3",
     "flood23"
@@ -20202,24 +20105,22 @@
    "elLo": -0.92,
    "elHi": 0.85,
    "boundaryCurveIds": [
-    "col0:u5",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u5"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|5"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -25178,25 +25079,22 @@
    "elLo": 2.44,
    "elHi": 2.86,
    "boundaryCurveIds": [
-    "col16:u4",
+    "col16:lens1",
     "lens8",
     "lens9"
    ],
    "seedRefs": [
-    "col16:u4"
+    "col16:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "15|right|4",
-    "16|left|4"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -25207,25 +25105,22 @@
    "elLo": 10.78,
    "elHi": 11.32,
    "boundaryCurveIds": [
-    "col16:u0",
+    "col16:lens0",
     "lens6",
     "lens7"
    ],
    "seedRefs": [
-    "col16:u0"
+    "col16:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "15|right|0",
-    "16|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -25636,25 +25531,22 @@
    "elLo": 2.44,
    "elHi": 2.86,
    "boundaryCurveIds": [
-    "col16:u4",
+    "col16:lens1",
     "lens4",
     "lens5"
    ],
    "seedRefs": [
-    "col16:u4"
+    "col16:lens1"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "15|right|4",
-    "16|left|4"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -25845,25 +25737,22 @@
    "elLo": 10.78,
    "elHi": 11.32,
    "boundaryCurveIds": [
-    "col16:u0",
+    "col16:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col16:u0"
+    "col16:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b4e-7806-aa41-5831b60f2e06"
+    "019e940a-4b50-7f69-af85-2354e519bb43"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "15|right|0",
-    "16|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b50-7f69-af85-2354e519bb43",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -25874,25 +25763,22 @@
    "elLo": -3.831,
    "elHi": -3.141,
    "boundaryCurveIds": [
-    "col17:u5",
+    "col17:lens0",
     "lens12",
     "lens13"
    ],
    "seedRefs": [
-    "col17:u5"
+    "col17:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "16|right|5",
-    "17|left|5"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -26161,25 +26047,22 @@
    "elLo": -3.831,
    "elHi": -3.141,
    "boundaryCurveIds": [
-    "col17:u5",
+    "col17:lens0",
     "lens10",
     "lens11"
    ],
    "seedRefs": [
-    "col17:u5"
+    "col17:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "16|right|5",
-    "17|left|5"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -26774,25 +26657,22 @@
    "elLo": -1.85,
    "elHi": -1.18,
    "boundaryCurveIds": [
-    "col19:u4",
+    "col19:lens0",
     "lens16",
     "lens17"
    ],
    "seedRefs": [
-    "col19:u4"
+    "col19:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "18|right|4",
-    "19|left|4"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -27002,25 +26882,22 @@
    "elLo": -1.85,
    "elHi": -1.18,
    "boundaryCurveIds": [
-    "col19:u4",
+    "col19:lens0",
     "lens14",
     "lens15"
    ],
    "seedRefs": [
-    "col19:u4"
+    "col19:lens0"
    ],
    "seedFormations": [
-    "019e940a-4b41-7e01-a763-ab030a38d1bc"
+    "019e940a-4b4e-7806-aa41-5831b60f2e06"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "18|right|4",
-    "19|left|4"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "019e940a-4b4e-7806-aa41-5831b60f2e06",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "Cross-section 2",
@@ -28334,6 +28211,7 @@
    "elHi": 5.3,
    "boundaryCurveIds": [
     "bandc2",
+    "col0:lens0",
     "col0:u1",
     "floodsw0",
     "lens0",
@@ -28489,24 +28367,22 @@
    "elLo": 4,
    "elHi": 10,
    "boundaryCurveIds": [
-    "col0:u0",
+    "col0:lens0",
     "lens0",
     "lens1"
    ],
    "seedRefs": [
-    "col0:u0"
+    "col0:lens0"
    ],
    "seedFormations": [
-    "clay"
+    "silt"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "silt",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "literalCorr (c)/(d)",
@@ -28517,25 +28393,22 @@
    "elLo": 4,
    "elHi": 6,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens1",
     "lens8",
     "lens9"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens1"
    ],
    "seedFormations": [
-    "clay"
+    "silt"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0",
-    "1|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "silt",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "literalCorr (c)/(d)",
@@ -28546,25 +28419,22 @@
    "elLo": 8,
    "elHi": 10,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens0",
     "lens6",
     "lens7"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "clay"
+    "silt"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0",
-    "1|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "silt",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "literalCorr (c)/(d)",
@@ -28615,25 +28485,22 @@
    "elLo": 4,
    "elHi": 6,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens1",
     "lens4",
     "lens5"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens1"
    ],
    "seedFormations": [
-    "clay"
+    "silt"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0",
-    "1|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "silt",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "literalCorr (c)/(d)",
@@ -28644,25 +28511,22 @@
    "elLo": 8,
    "elHi": 10,
    "boundaryCurveIds": [
-    "col1:u0",
+    "col1:lens0",
     "lens2",
     "lens3"
    ],
    "seedRefs": [
-    "col1:u0"
+    "col1:lens0"
    ],
    "seedFormations": [
-    "clay"
+    "silt"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "0|right|0",
-    "1|left|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "silt",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   },
   {
    "section": "literalCorr (c)/(d)",
@@ -28673,24 +28537,22 @@
    "elLo": 4,
    "elHi": 10,
    "boundaryCurveIds": [
-    "col2:u0",
+    "col2:lens0",
     "lens10",
     "lens11"
    ],
    "seedRefs": [
-    "col2:u0"
+    "col2:lens0"
    ],
    "seedFormations": [
-    "clay"
+    "silt"
    ],
    "classification": "single-seed",
    "zeroSeedFamily": null,
-   "planKeys": [
-    "1|right|0"
-   ],
+   "planKeys": [],
    "currentPaintFormation": "silt",
    "paintMismatch": false,
-   "mergedMinority": true
+   "mergedMinority": false
   }
  ]
 }
