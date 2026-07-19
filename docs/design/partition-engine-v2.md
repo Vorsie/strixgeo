@@ -385,6 +385,18 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8r. **LINES BEFORE THE MERGE — termination line art is emitted on the
+   RAW PICKED UNITS, never on merged hosts (owner, 2026-07-19, paint-
+   tool dogfeed on 23/125-S7's middle clay, verbatim): "the middle
+   clay should lens, i want the lines before the merge. (first fill
+   then merge remember)".** The enclosed-lens pre-merge
+   (extractEnclosedLenses collapsing same-formation sandwiches BEFORE
+   emission) violates the pipeline order: every picked unit — however
+   thin, however enclosed — gets its own 2/1/0 termination lines;
+   the fill paints; THEN the 8j merge welds touching same-litho
+   regions. The col18 middle-clay host-split (`literalCorr` (c)/(d))
+   is therefore NOT a separately-pinned limitation — it is mandated
+   Step-4 linework repair under SEED_FILL_MANDATE.
 8q. **THE FILL IS A SEEDED PAINT BUCKET — no label rule exists (owner,
    2026-07-19, rejecting the (a)/(b) continuation-rule preview,
    verbatim): "my rules are perfect, lens lines first left and right,
