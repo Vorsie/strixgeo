@@ -385,6 +385,27 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8p. **THE COMPLETE DOCTRINE — lithos, ties, no-ties, fill between the
+   lines; NEVER extrapolate (owner, 2026-07-19, confirming the B3
+   one-silt-body and B2 one-sand-body interpretation renders
+   letter-for-letter, verbatim): "thats it, only litho's ties no ties
+   and filling between lines, no extrapolating downward, upward
+   leftward or rightward follow the lines".** The engine's ONLY
+   inputs: picked lithos (columns are ground truth, 8k), drawn ties,
+   and the ABSENCE of ties (literal 2/1/0 → terminations); its only
+   operation: fill between the lines (8n face-fill + 8o
+   unterminated-litho hole-fill + 8j merge). No construction may
+   extrapolate in ANY direction — no downward column extension, no
+   matrix search, no facing sample, no formation-overlap authority.
+   Confirmed instance (the B2 sub-TD case): below B2's TD the hole is
+   bounded below by the deep clay-top jump tie (S8 −7.64 → S6 −5.87)
+   and above by B2's TD + the sand-top tie line (S8 3.20 → S10 4.09 →
+   B2 4.25 → S7-TD 4.23 → S6 7.03); SAND is the only unterminated
+   lithology in it → the hole fills sand and merges with B2's own
+   sand into ONE body — produced entirely by the tie geometry, "not a
+   fill down". Confirmed instance (the B3 case): the one-silt-body of
+   ruling 8o's example, terminations closing the clay lens and sand
+   onlaps inside it.
 8o. **HOLES FILL WITH THE UNTERMINATED LITHOLOGY — no matrix lookup,
    no facing sample (owner, 2026-07-19, answering the mixed-enclosure
    question on B3's 2nd silt, verbatim): "the sand below the second
