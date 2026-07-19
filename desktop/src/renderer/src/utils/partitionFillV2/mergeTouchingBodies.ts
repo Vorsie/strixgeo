@@ -18,34 +18,42 @@
  * ``bodyId``). The +197/+457/+666-hole history is an EMISSION risk (deleting the merge
  * suppression), owned by ``drawTermination``/``emitEnclosingFlood`` — NOT this relabel.
  *
- * CONNECT (two same-formation regions are one body when they TOUCH):
- *   - SAME GAP: their coverage footprints share or 4-neighbour a cell on that gap's own
- *     fraction×elevation raster (two pieces meeting along a shared seam light adjacent cells;
- *     two disjoint pieces separated by a vacant strip never do — the conformance classifier's
- *     proven adjacency proxy, generalised to the whole gap elevation range).
+ * CONNECT (two same-formation regions are one body when they TOUCH) — EXACT SNAPPED GEOMETRY,
+ * never a display raster (audit item 8, S37). Bodies are the product's commercial identity;
+ * two regions that do NOT touch must NEVER merge (the pre-S37 GX=200 raster false-merged a
+ * sub-cell gap: SAND f[0..0.499] + SAND f[0.501..1] are 0.002 fraction apart — real metres of
+ * separation on a wide gap — yet lit adjacent 0.005-wide cells and welded).
+ *   - SAME GAP: two same-formation regions weld iff their polygon boundaries share a point or a
+ *     segment at snap tolerance (a common vertex, a vertex on the other's edge, a proper
+ *     crossing, or a collinear overlap). The fraction tolerance is the width of ONE 1 mm snap
+ *     cell in this gap's fraction space (``SNAP_GRID_M / gapWidthM``); the elevation tolerance is
+ *     half the 1 mm grid. Point contact counts — two facing onlaps meeting at the 0.5 apex (the
+ *     emergent band, ruling 8l) share that apex vertex and MUST weld.
  *   - ACROSS A GAP BOUNDARY: region A in gap ``g`` reaching the RIGHT column edge (fraction ≈ 1)
- *     over an elevation interval that OVERLAPS region B in gap ``g+1`` reaching the LEFT edge
- *     (fraction ≈ 0) of the SAME shared column — same formation → one body (the fill band
- *     crosses the column continuously). This is the same connected-components operation the
+ *     over an elevation interval that OVERLAPS or TOUCHES region B in gap ``g+1`` reaching the
+ *     LEFT edge (fraction ≈ 0) of the SAME shared column — same formation → one body (the fill
+ *     band crosses the column continuously). This is the same connected-components operation the
  *     backend body resolver runs at the model scale, now at the 2D-section scale (8j staged
  *     body model). Stages 2-3 (cross-section, 3D) stay the backend's job — recorded, not here.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O. Deterministic (fixed iteration
  * order; the component representative is the smallest (gapIndex, minFraction, maxElev) region so
- * the assigned bodyId is stable across processes).
+ * the assigned bodyId is stable across processes; no Map/Set iteration-order dependence enters
+ * the union outcome — every union pair is decided by exact geometry, order-independent).
  */
 
 import { type ColumnGeom } from './sectionGeom'
-import { inPolygon } from '../partitionFillV2.parityCoverage'
+import { SNAP_GRID_M } from './types'
 import { type PartitionPoint, type SectionRegion } from '../partitionFill'
 
-/** Raster resolution for the same-gap adjacency pass (mirrors the conformance classifier). */
-const GX = 200
-const GY = 64
-/** Fraction within this of an edge counts as reaching it (mirrors the conformance FULL_EPS). */
-const EDGE_EPS = 0.02
-/** Elevation overlap (metres) above which two edge intervals are considered touching. */
-const ELEV_TOUCH_EPS = 1e-6
+/** Elevation touch tolerance (metres) — half the 1 mm arrangement grid, so two vertices/edges
+ *  snapped to the SAME 1 mm cell match, while a real vertical gap (≥ cm) never does. */
+const ELEV_TOUCH_EPS = SNAP_GRID_M * 0.5
+/** Fallback fraction tolerance when the gap width is unknown (test calls with ``columns = []``).
+ *  The output fraction snap grid (``slice.ts`` FRACTION_SNAP = 1e-6): exact shared vertices/edges
+ *  are byte-equal after snapping, so 1e-6 catches them; 0.002 (the sub-cell counterexample) is
+ *  2000× larger and never merges under it. */
+const FRACTION_SNAP = 1e-6
 
 /** Union-find root with path compression. */
 function ufFind(parent: number[], i: number): number {
@@ -80,16 +88,120 @@ function extent(poly: readonly PartitionPoint[]): {
 }
 
 /**
+ * Whether point ``p`` lies ON segment ``[a, b]`` within the axis-separate snap tolerance. Fraction
+ * and elevation have very different scales (fraction ∈ [0,1] vs elevation in metres), so the test
+ * normalises each axis by its own tolerance and checks (1) ``p`` is within the segment's tolerance-
+ * inflated bounding box and (2) its perpendicular deviation from the infinite line is within one
+ * tolerance unit. A shared vertex (p == a or p == b) trivially passes; a T-junction (p on the
+ * interior) passes via the perpendicular test.
+ */
+function pointOnSegment(
+  p: PartitionPoint,
+  a: PartitionPoint,
+  b: PartitionPoint,
+  fracTol: number,
+  elevTol: number,
+): boolean {
+  // (1) tolerance-inflated bounding box.
+  if (p.fraction < Math.min(a.fraction, b.fraction) - fracTol) return false
+  if (p.fraction > Math.max(a.fraction, b.fraction) + fracTol) return false
+  if (p.elevation < Math.min(a.elevation, b.elevation) - elevTol) return false
+  if (p.elevation > Math.max(a.elevation, b.elevation) + elevTol) return false
+  // (2) perpendicular deviation, in NORMALISED units (each axis divided by its own tolerance so
+  // the two scales are commensurable). The cross product of the normalised (b−a) and (p−a) is the
+  // signed area of the parallelogram; dividing by the normalised segment length gives the
+  // perpendicular distance in tolerance units. ≤ 1 ⇒ within one snap cell of the line.
+  const dfx = (b.fraction - a.fraction) / fracTol
+  const dfy = (b.elevation - a.elevation) / elevTol
+  const px = (p.fraction - a.fraction) / fracTol
+  const py = (p.elevation - a.elevation) / elevTol
+  const len = Math.hypot(dfx, dfy)
+  if (len < 1e-9) {
+    // Degenerate segment (a == b within tol): p must coincide with a.
+    return Math.hypot(px, py) <= 1
+  }
+  const perp = Math.abs(dfx * py - dfy * px) / len
+  return perp <= 1
+}
+
+/** Orientation sign of the ordered triple (a, b, c) in normalised axis units. */
+function orient(
+  a: PartitionPoint,
+  b: PartitionPoint,
+  c: PartitionPoint,
+  fracTol: number,
+  elevTol: number,
+): number {
+  const abx = (b.fraction - a.fraction) / fracTol
+  const aby = (b.elevation - a.elevation) / elevTol
+  const acx = (c.fraction - a.fraction) / fracTol
+  const acy = (c.elevation - a.elevation) / elevTol
+  const cross = abx * acy - aby * acx
+  return cross > 1e-6 ? 1 : cross < -1e-6 ? -1 : 0
+}
+
+/**
+ * Whether two segments ``[a1,a2]`` and ``[b1,b2]`` TOUCH (share a point or overlap) at tolerance.
+ * Covers shared endpoints, T-junctions (an endpoint of one on the other's interior), proper
+ * crossings, and collinear overlaps — every way two polygon boundaries can meet.
+ */
+function segmentsTouch(
+  a1: PartitionPoint,
+  a2: PartitionPoint,
+  b1: PartitionPoint,
+  b2: PartitionPoint,
+  fracTol: number,
+  elevTol: number,
+): boolean {
+  // Any endpoint lying on the other segment (shared vertex, T-junction, or collinear overlap end).
+  if (pointOnSegment(a1, b1, b2, fracTol, elevTol)) return true
+  if (pointOnSegment(a2, b1, b2, fracTol, elevTol)) return true
+  if (pointOnSegment(b1, a1, a2, fracTol, elevTol)) return true
+  if (pointOnSegment(b2, a1, a2, fracTol, elevTol)) return true
+  // Proper crossing: the endpoints of each segment straddle the other's supporting line.
+  const o1 = orient(a1, a2, b1, fracTol, elevTol)
+  const o2 = orient(a1, a2, b2, fracTol, elevTol)
+  const o3 = orient(b1, b2, a1, fracTol, elevTol)
+  const o4 = orient(b1, b2, a2, fracTol, elevTol)
+  return o1 !== o2 && o3 !== o4 && o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0
+}
+
+/**
+ * Whether two simple polygon rings TOUCH — their boundaries share a point or a segment at the
+ * snap tolerance. O(|A|·|B|) edge-pair scan; rings are small (a handful of vertices each).
+ */
+function polygonsTouch(
+  polyA: readonly PartitionPoint[],
+  polyB: readonly PartitionPoint[],
+  fracTol: number,
+  elevTol: number,
+): boolean {
+  const na = polyA.length
+  const nb = polyB.length
+  for (let i = 0; i < na; i++) {
+    const a1 = polyA[i]
+    const a2 = polyA[(i + 1) % na]
+    for (let j = 0; j < nb; j++) {
+      const b1 = polyB[j]
+      const b2 = polyB[(j + 1) % nb]
+      if (segmentsTouch(a1, a2, b1, b2, fracTol, elevTol)) return true
+    }
+  }
+  return false
+}
+
+/**
  * The elevation interval a region covers AT a column edge (fraction ``edgeFrac`` = 0 or 1). A
- * scanline at that fraction crosses the polygon at an even number of points; the min/max are the
- * covered interval. Returns ``null`` when the region does not reach that edge. Nudged just inside
- * the edge so a vertical polygon edge sitting exactly on the column is still sampled.
+ * scanline just inside that edge crosses the polygon at an even number of points; the min/max are
+ * the covered interval. Returns ``null`` when the region does not reach that edge. Sampled at the
+ * edge tolerance so a vertical polygon edge sitting exactly on the column is still crossed.
  */
 function edgeElevInterval(
   poly: readonly PartitionPoint[],
   edgeFrac: 0 | 1,
+  edgeFracTol: number,
 ): [number, number] | null {
-  const f = edgeFrac === 0 ? EDGE_EPS * 0.5 : 1 - EDGE_EPS * 0.5
+  const f = edgeFrac === 0 ? edgeFracTol : 1 - edgeFracTol
   const ys: number[] = []
   const n = poly.length
   for (let i = 0; i < n; i++) {
@@ -106,17 +218,20 @@ function edgeElevInterval(
 }
 
 /**
- * Merge same-formation SectionRegions that TOUCH (within-gap footprint adjacency + cross-gap
- * shared-column overlap) into one body, per ruling 8j. Returns a NEW array with ``bodyId``
- * reassigned on the touching regions; every other field is preserved verbatim.
+ * Merge same-formation SectionRegions that TOUCH (within-gap boundary contact + cross-gap
+ * shared-column coverage overlap) into one body, per ruling 8j — on EXACT snapped geometry, never
+ * a raster. Returns a NEW array with ``bodyId`` reassigned on the touching regions; every other
+ * field is preserved verbatim.
  *
  * Parameters
  * ----------
  * regions : readonly SectionRegion[]
  *     The sliced per-gap fill regions (the ``computeSectionFillV2`` output before the merge).
  * columns : readonly ColumnGeom[]
- *     Column geometry — unused for connectivity (fraction space is already gap-local) but
- *     accepted for signature symmetry with the pipeline and future x-aware refinements.
+ *     Column geometry — supplies each gap's REAL metres width (``columns[g+1].x − columns[g].x``)
+ *     so the fraction tolerance is a true 1 mm snap cell in fraction space, not a display epsilon.
+ *     When absent (unit tests), a tight fraction-snap floor (1e-6) is used — exact shared geometry
+ *     still welds; a real sub-cell gap still splits.
  *
  * Returns
  * -------
@@ -127,7 +242,6 @@ export function mergeTouchingBodies(
   regions: readonly SectionRegion[],
   columns: readonly ColumnGeom[],
 ): SectionRegion[] {
-  void columns
   const n = regions.length
   if (n < 2) return regions.slice()
   const parent = Array.from({ length: n }, (_, i) => i)
@@ -139,9 +253,22 @@ export function mergeTouchingBodies(
 
   const ext = regions.map((r) => extent(r.polygon))
 
-  // ---- (1) SAME-GAP footprint adjacency, per gap, per formation. ----
-  // Group same-formation regions of one gap and raster them onto that gap's own
-  // fraction×elevation grid; union any two whose covered cells share or 4-neighbour.
+  /** The fraction width of one 1 mm snap cell in gap ``g`` (real metres gap width) — the exact
+   *  same-gap contact tolerance. Falls back to the fraction-snap floor when the width is unknown
+   *  or degenerate. Bounded below by the snap floor so it never collapses to zero. */
+  const fracTolForGap = (g: number): number => {
+    const x0 = columns[g]?.x
+    const x1 = columns[g + 1]?.x
+    if (x0 == null || x1 == null) return FRACTION_SNAP
+    const w = x1 - x0
+    if (!(w > 0)) return FRACTION_SNAP
+    return Math.max(SNAP_GRID_M / w, FRACTION_SNAP)
+  }
+
+  // ---- (1) SAME-GAP boundary-contact adjacency, per gap, per formation. ----
+  // Group same-formation regions of one gap; union any pair whose polygon boundaries touch
+  // (share a point or a segment at the gap's snap tolerance). Point contact (the 0.5 emergent-band
+  // apex) welds; a real vacant strip (the 0.499|0.501 sub-cell gap) does not.
   const byGapForm = new Map<string, number[]>()
   for (let i = 0; i < n; i++) {
     const key = `${regions[i].gapIndex}|${regions[i].formationId}`
@@ -154,41 +281,26 @@ export function mergeTouchingBodies(
   }
   for (const idxs of byGapForm.values()) {
     if (idxs.length < 2) continue
-    // The gap-local elevation window spanning every member (the raster's Y extent).
-    let eLo = Infinity
-    let eHi = -Infinity
-    for (const i of idxs) {
-      if (ext[i].eLo < eLo) eLo = ext[i].eLo
-      if (ext[i].eHi > eHi) eHi = ext[i].eHi
-    }
-    if (eHi - eLo < 1e-6) continue
-    const cellOwner = new Int32Array(GX * GY).fill(-1)
-    for (const i of idxs) {
-      const poly = regions[i].polygon
-      for (let iy = 0; iy < GY; iy++) {
-        const py = eHi - ((iy + 0.5) / GY) * (eHi - eLo)
-        for (let ix = 0; ix < GX; ix++) {
-          const px = (ix + 0.5) / GX
-          if (!inPolygon(px, py, poly)) continue
-          const neigh: number[] = [ix + iy * GX]
-          if (ix - 1 >= 0) neigh.push(ix - 1 + iy * GX)
-          if (ix + 1 < GX) neigh.push(ix + 1 + iy * GX)
-          if (iy - 1 >= 0) neigh.push(ix + (iy - 1) * GX)
-          if (iy + 1 < GY) neigh.push(ix + (iy + 1) * GX)
-          for (const cell of neigh) {
-            const owner = cellOwner[cell]
-            if (owner >= 0 && owner !== i) union(i, owner)
-          }
-          if (cellOwner[ix + iy * GX] < 0) cellOwner[ix + iy * GX] = i
-        }
+    const fracTol = fracTolForGap(regions[idxs[0]].gapIndex)
+    for (let a = 0; a < idxs.length; a++) {
+      const ia = idxs[a]
+      for (let b = a + 1; b < idxs.length; b++) {
+        const ib = idxs[b]
+        if (ufFind(parent, ia) === ufFind(parent, ib)) continue
+        // Quick reject: tolerance-inflated bounding-box separation.
+        if (ext[ia].fHi < ext[ib].fLo - fracTol || ext[ib].fHi < ext[ia].fLo - fracTol) continue
+        if (ext[ia].eHi < ext[ib].eLo - ELEV_TOUCH_EPS || ext[ib].eHi < ext[ia].eLo - ELEV_TOUCH_EPS)
+          continue
+        if (polygonsTouch(regions[ia].polygon, regions[ib].polygon, fracTol, ELEV_TOUCH_EPS))
+          union(ia, ib)
       }
     }
   }
 
-  // ---- (2) CROSS-GAP shared-column overlap. ----
+  // ---- (2) CROSS-GAP shared-column coverage overlap. ----
   // Region A in gap g reaching the RIGHT column edge (shared column g+1) and region B in gap g+1
-  // reaching the LEFT edge of that SAME column, same formation, with overlapping edge-elevation
-  // intervals → one continuous body across the column. Index regions by gap for the O(n) sweep.
+  // reaching the LEFT edge of that SAME column, same formation, with overlapping/touching
+  // edge-elevation intervals → one continuous body across the column. Index regions by gap.
   const byGap = new Map<number, number[]>()
   for (let i = 0; i < n; i++) {
     const g = regions[i].gapIndex
@@ -202,19 +314,23 @@ export function mergeTouchingBodies(
   for (const [g, leftIdxs] of byGap) {
     const rightIdxs = byGap.get(g + 1)
     if (!rightIdxs) continue
-    // Precompute the right-edge interval of each region in gap g (shared column g+1) and the
-    // left-edge interval of each region in gap g+1 (same column) — only same-formation pairs.
+    // The shared column is g+1: A reaches its right edge (in gap g), B reaches its left edge (in
+    // gap g+1). Each gap's own fraction tolerance decides "reaches the edge".
+    const edgeTolL = fracTolForGap(g)
+    const edgeTolR = fracTolForGap(g + 1)
     for (const a of leftIdxs) {
-      if (ext[a].fHi < 1 - EDGE_EPS) continue // A does not reach the shared column
-      const ia = edgeElevInterval(regions[a].polygon, 1)
+      if (ext[a].fHi < 1 - edgeTolL) continue // A does not reach the shared column
+      const ia = edgeElevInterval(regions[a].polygon, 1, edgeTolL)
       if (!ia) continue
       for (const b of rightIdxs) {
         if (regions[b].formationId !== regions[a].formationId) continue
-        if (ext[b].fLo > EDGE_EPS) continue // B does not reach the shared column
-        const ib = edgeElevInterval(regions[b].polygon, 0)
+        if (ufFind(parent, a) === ufFind(parent, b)) continue
+        if (ext[b].fLo > edgeTolR) continue // B does not reach the shared column
+        const ib = edgeElevInterval(regions[b].polygon, 0, edgeTolR)
         if (!ib) continue
+        // Overlap OR touch (shared endpoint) within the elevation snap tolerance.
         const overlap = Math.min(ia[1], ib[1]) - Math.max(ia[0], ib[0])
-        if (overlap > ELEV_TOUCH_EPS) union(a, b)
+        if (overlap > -ELEV_TOUCH_EPS) union(a, b)
       }
     }
   }

@@ -230,7 +230,7 @@ describe('audit item 10 — the same-litho merge must connect on EXACT geometry,
   // raster cells and false-merges them), then ``it.skip`` citing S37 (exact-geometry merge). The
   // separated / different-litho cases go RED; the touching case is a lock (may already pass).
 
-  describe.skip('exact-geometry merge (RED verified S33: the GX=200 raster false-merges a sub-cell gap; un-skip in S37 (exact-geometry merge))', () => {
+  describe('exact-geometry merge (un-skipped S37 — the exact-geometry merge splits the sub-cell gap)', () => {
     it('two SAND regions with a sub-cell gap (0.499 | 0.501), NOT touching, stay TWO bodies', () => {
       // Same elevation band [0..4], same gap, same formation, but fraction ranges [0..0.499] and
       // [0.501..1]: a 0.002-wide vacant strip between them. A true partition never merges across a
