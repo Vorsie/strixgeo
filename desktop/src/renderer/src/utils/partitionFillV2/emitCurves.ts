@@ -244,10 +244,44 @@ export function emitCurves(section: SectionInput): EmittedCurves {
  * guarantees an arrangement vertex at every contact elevation (where ties /
  * closing curves attach). The stack is gap-free (normalised upstream), so the
  * per-unit verticals tile the whole column surface→TD.
+ *
+ * RULING 8r / STEP 4.1 — THE COLUMN-VERTICAL ID SPLIT (flag-ON only). When
+ * ``sectionGeom.extractEnclosedLenses`` merged an enclosed interbed's matrix
+ * above+below into one continuous band (so the interbed became an interior HOLE),
+ * the merged host unit's ``[topElev..baseElev]`` span COVERS the lens elevations.
+ * Emitting one ``col<ci>:u<ui>`` curve over that whole span makes the lens face's
+ * only column edge the enclosing MATRIX — the seed classifier then reads the matrix
+ * litho, not the interbed's (the ``merged-minority`` artifact, §48b/§49).
+ *
+ * The FIX is an IDENTITY split, not a geometry split: the arrangement already cuts
+ * the host vertical at the lens contacts (the lens flank curves attach vertices
+ * there), so the traced FACES are byte-identical. We only change which curve id the
+ * lens sub-segment CARRIES: emit the host pieces ABOVE and BELOW the lens as
+ * ``col<ci>:u<ui>`` (unchanged) and emit the lens interval itself as
+ * ``col<ci>:lens<j>`` — a seed vocabulary the classifier resolves to the RAW lens
+ * unit's own ``formationId`` (``seedClassifier.formationOfRef``). Stacked lenses
+ * inside one host produce multiple lens sub-segments; the host pieces between them
+ * keep the host id. Holes/overlaps are untouched BY CONSTRUCTION (the DCEL unions
+ * coincident-segment curve ids, and no host id is emitted over a lens interval, so
+ * that segment carries ONLY its ``col:lens`` id).
+ *
+ * Flag-OFF: emits exactly today's one curve per unit, byte-identical (no lens
+ * intervals consulted — the seam path never reads ``col:lens`` ids).
  */
 function emitColumnVerticals(columns: readonly ColumnGeom[], out: InputCurve[]): void {
+  const idSplit = twoSidedTerminationsEnabled()
   for (let ci = 0; ci < columns.length; ci++) {
     const col = columns[ci]
+    // Flag-ON: the enclosed-lens intervals on THIS column, each mapped to its index in
+    // ``col.enclosedLenses`` (the ``col:lens<j>`` seed vocabulary resolves by that index).
+    //
+    const lensCuts: { elLo: number; elHi: number; j: number }[] = idSplit
+      ? col.enclosedLenses.map((el, j) => ({
+          elLo: Math.min(el.lens.topElev, el.lens.baseElev),
+          elHi: Math.max(el.lens.topElev, el.lens.baseElev),
+          j,
+        }))
+      : []
     for (let ui = 0; ui < col.units.length; ui++) {
       const u = col.units[ui]
       // Ruling 5-REVISED (2026-07-14 evening): the FIRST unit's column vertical returns to
@@ -256,17 +290,47 @@ function emitColumnVerticals(columns: readonly ColumnGeom[], out: InputCurve[]):
       // top-band line and the ground stays EMPTY, no invented lithology above the first data
       // point. The top-band polyline (``emitSurfaceCurves`` → ``firstLithoTopElev``) rides this
       // first-litho boundary; ties/bands anchor at the drilled contact unchanged.
-      out.push({
-        id: `col${ci}:u${ui}`,
-        kind: 'column-vertical',
-        points: [
-          { x: col.x, y: u.topElev },
-          { x: col.x, y: u.baseElev },
-        ],
-      })
+      const uHi = Math.max(u.topElev, u.baseElev)
+      const uLo = Math.min(u.topElev, u.baseElev)
+      // Lens intervals that fall INSIDE this unit's span (a merged host covering them). Only a
+      // matrix band ever contains a lens interval; a non-host unit finds none and emits one curve.
+      const inside = lensCuts
+        .filter((c) => c.elLo > uLo - LENS_CUT_EPS && c.elHi < uHi + LENS_CUT_EPS && c.elHi - c.elLo > LENS_CUT_EPS)
+        .sort((a, b) => b.elHi - a.elHi) // shallow (higher elev) first for top→base emission
+      if (inside.length === 0) {
+        out.push({
+          id: `col${ci}:u${ui}`,
+          kind: 'column-vertical',
+          points: [
+            { x: col.x, y: u.topElev },
+            { x: col.x, y: u.baseElev },
+          ],
+        })
+        continue
+      }
+      // The host is split into host pieces + lens pieces, walking top→base. ``cursor`` is the
+      // current top elevation; each lens interval closes the host piece above it (host id), emits
+      // the lens interval (``col:lens`` id), and advances the cursor to the lens base.
+      const pushSeg = (yTop: number, yBase: number, id: string): void => {
+        if (yTop - yBase <= LENS_CUT_EPS) return // degenerate (host piece collapses at a contact)
+        out.push({ id, kind: 'column-vertical', points: [{ x: col.x, y: yTop }, { x: col.x, y: yBase }] })
+      }
+      let cursor = uHi
+      for (const cut of inside) {
+        pushSeg(cursor, cut.elHi, `col${ci}:u${ui}`) // host piece above the lens
+        pushSeg(cut.elHi, cut.elLo, `col${ci}:lens${cut.j}`) // the lens interval — its OWN litho seed
+        cursor = cut.elLo
+      }
+      pushSeg(cursor, uLo, `col${ci}:u${ui}`) // host piece below the deepest lens
     }
   }
 }
+
+/**
+ * Elevation tolerance (metres) for the enclosed-lens interval split — matches the 1 mm arrangement
+ * snap grid (``SNAP_GRID_M``). Below this a "piece" is a vertex touch, not a real sub-segment.
+ */
+const LENS_CUT_EPS = 0.001
 
 /**
  * Emit the TOP-BAND curve spanning each gap — from the left column's first-litho-top

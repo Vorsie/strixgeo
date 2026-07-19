@@ -192,28 +192,26 @@ const has = existsSync(INPUT)
 // ===========================================================================
 // (a) A single-seed face paints its column-seed formation, not the synthetic vote label.
 // ===========================================================================
-;(has ? describe : describe.skip)('(a) a genuine enclosed lens keeps its minority litho (ruling 8r)', () => {
+;(has ? describe : describe.skip)('(a) a genuine enclosed lens owns its minority litho as a real seed (ruling 8r + Step 4.1 id-split)', () => {
   // CS1#11 (x=23.45, el 6.84): MEASURED (S42.2b) — the raw picks here are SILT/KLEI/SILT, so
   // this face is the picked KLEI lens's OWN triangle (gap0 enclosed lens el [6.84..8.08]).
-  // Its sole column-edge "seed" is SILT only because the 8r-outlawed pre-merge erased the
-  // KLEI unit's own column segment — a MERGE-ARTIFACT seed, not a valid one. Owner rule 8r
-  // ("the middle clay should LENS ... lines before the merge"): the lens SURVIVES; the face
-  // keeps KLEI and classifies merged-minority until Step 4's raw-unit emission restores the
-  // true seed. (The original expectation "paint the SILT seed" was built on a wrong premise —
-  // it would have erased a picked lens.)
-  it('the CS1 gap0 enclosed KLEI lens keeps KLEI; its SILT seed is a merge artifact', () => {
+  // BEFORE Step 4.1: its sole column-edge "seed" read SILT (the merged matrix) — a MERGE-ARTIFACT
+  // seed, kept as merged-minority. AFTER Step 4.1 (the COLUMN-VERTICAL ID SPLIT): the merged host's
+  // vertical is emitted per RAW sub-segment, so the lens interval carries a ``col<ci>:lens<j>``
+  // curve id that resolves to the lens's OWN raw formation (KLEI). Owner rule 8r ("lines before
+  // the merge"): the picked KLEI unit's own line IS its seed now. The face is a GENUINE single-seed
+  // KLEI face — seed == paint == the minority, no merge-artifact keep.
+  it('the CS1 gap0 enclosed KLEI lens is a genuine single-seed KLEI face (seed == paint == KLEI)', () => {
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
     const cs1 = prepareRealSection(raw.sections.find((s) => s.name === 'Cross-section 1')!)
     const probes = probeSection(cs1)
     const face = findByBounds(probes, 23.45, 6.84)
     expect(face, 'the CS1 x=23.45 el=6.84 enclosed-lens face exists').toBeTruthy()
-    // The raw classifier reads the artifact seed (SILT — the matrix); the merge-artifact
-    // refinement fires at the LABEL layer (labelFaces + isMergeArtifactSeed), which is where
-    // the paint decision lives.
-    expect(face!.classification, 'the raw classifier sees a single (artifact) seed').toBe('single-seed')
-    expect(face!.seedFormations[0], 'the artifact seed reads SILT (the matrix)').toBe(SILT)
-    // THE OWNER RULE (8r): the picked lens survives — KLEI, never the matrix seed.
-    expect(face!.paint, 'the enclosed KLEI lens keeps KLEI').toBe(KLEI)
+    // The id-split gives the lens interval its own column edge -> the classifier reads KLEI directly.
+    expect(face!.classification, 'the lens owns a genuine single seed').toBe('single-seed')
+    expect(face!.seedFormations[0], 'the genuine seed reads KLEI (the picked lens litho)').toBe(KLEI)
+    // THE OWNER RULE (8r): the picked lens paints KLEI, now from its OWN seed (not a merge keep).
+    expect(face!.paint, 'the enclosed KLEI lens paints KLEI').toBe(KLEI)
   })
 })
 
@@ -256,21 +254,23 @@ const has = existsSync(INPUT)
 // ===========================================================================
 // (e) The literalCorr (c)/(d) clay faces seed CLAY, not the SILT the vote paints.
 // ===========================================================================
-describe('(e) literalCorr (c)/(d): an enclosed SILT interbed lens keeps SILT (ruling 8r)', () => {
+describe('(e) literalCorr (c)/(d): an enclosed SILT interbed lens owns SILT as a real seed (ruling 8r + Step 4.1 id-split)', () => {
   // MEASURED (S42.2b): the face at x[0..18] el[4..10] is a SILT interbed lens's own face inside
-  // the merged CLAY host (the fixture's silt-M-2 [el 4..6] family). Its sole column-edge "seed"
-  // is CLAY only because the 8r-outlawed pre-merge erased the silt's own column segment — a
-  // MERGE-ARTIFACT seed. Owner rule 8r: the picked lens survives; the face keeps SILT until
-  // Step 4's raw-unit emission restores the true seed. (The middle CLAY itself materialises as
-  // its own face at Step 4 — the host-split; that is linework, not labelling.)
-  it('an enclosed SILT interbed lens keeps SILT; its CLAY seed is a merge artifact', () => {
+  // the merged CLAY host (the fixture's silt-M-2 [el 4..6] family). BEFORE Step 4.1: its sole
+  // column-edge "seed" read CLAY (the merged matrix) — a MERGE-ARTIFACT. AFTER Step 4.1 (the
+  // COLUMN-VERTICAL ID SPLIT): the merged CLAY host's vertical is emitted per raw sub-segment, so
+  // the SILT lens interval carries a ``col<ci>:lens<j>`` id resolving to SILT. Owner rule 8r: the
+  // picked SILT interbed's own line IS its seed. The face is a GENUINE single-seed SILT face.
+  // (The middle CLAY materialising as its OWN face — the host-split — is a separate linework
+  // concern, Stage c; that is not what this lens face asserts.)
+  it('an enclosed SILT interbed lens is a genuine single-seed SILT face (seed == paint == SILT)', () => {
     const probes = probeSection(literalCorrCD())
     const face = findByBounds(probes, 0, 4)
     expect(face, 'the literalCorr x[0..18] el[4..10] enclosed-lens face exists').toBeTruthy()
-    expect(face!.classification, 'the raw classifier sees a single (artifact) seed').toBe('single-seed')
-    expect(face!.seedFormations[0], 'the artifact seed reads CLAY (the matrix)').toBe('clay')
-    // THE OWNER RULE (8r): the picked lens survives — SILT, never the matrix seed.
-    expect(face!.paint, 'the enclosed SILT interbed lens keeps SILT').toBe('silt')
+    expect(face!.classification, 'the lens owns a genuine single seed').toBe('single-seed')
+    expect(face!.seedFormations[0], 'the genuine seed reads SILT (the picked interbed litho)').toBe('silt')
+    // THE OWNER RULE (8r): the picked lens paints SILT, now from its OWN seed.
+    expect(face!.paint, 'the enclosed SILT interbed lens paints SILT').toBe('silt')
   })
 })
 

@@ -31,8 +31,22 @@
 import { type ColumnGeom } from './sectionGeom'
 import { SNAP_GRID_M, type Arrangement, type Face } from './types'
 
-/** ``col<ci>:u<ui>`` column-vertical curve id pattern — the seed vocabulary. */
+/** ``col<ci>:u<ui>`` column-vertical curve id pattern — the primary seed vocabulary. */
 export const COL_SEED_RE = /^col(\d+):u(\d+)$/
+
+/**
+ * ``col<ci>:lens<j>`` enclosed-lens sub-segment curve id pattern (ruling 8r / Step 4.1 — the
+ * COLUMN-VERTICAL ID SPLIT). Emitted flag-ON by ``emitColumnVerticals`` for the lens interval of
+ * a merged host's column vertical, so an enclosed interbed's OWN face carries its RAW litho as a
+ * genuine single seed instead of the enclosing matrix (the ``merged-minority`` artifact). Resolves
+ * to ``columns[ci].enclosedLenses[j].lens.formationId`` (``formationOfRef``).
+ */
+export const COL_LENS_SEED_RE = /^col(\d+):lens(\d+)$/
+
+/** Whether a curve id is ANY column-vertical seed (a real ``col:u`` face or a ``col:lens`` sub-segment). */
+export function isColumnSeedId(id: string): boolean {
+  return COL_SEED_RE.test(id) || COL_LENS_SEED_RE.test(id)
+}
 
 /**
  * A face-boundary column-edge must be at least this long (metres) to count as a SEED. Below
@@ -151,17 +165,51 @@ export function seedRefsOfFace(face: Face, segCurve: Map<string, string[]>): str
     if (edgeLen(a.x, a.y, b.x, b.y) <= MIN_SEED_EDGE_M) continue
     const ids = segCurve.get(segKey(ptKey(a.x, a.y), ptKey(b.x, b.y)))
     if (!ids) continue
-    for (const id of ids) if (COL_SEED_RE.test(id)) refs.add(id)
+    for (const id of ids) if (isColumnSeedId(id)) refs.add(id)
   }
-  return [...refs].sort()
+  return resolveNotchLensRefs([...refs]).sort()
 }
 
-/** Resolve a ``col<ci>:u<ui>`` ref to its unit's formationId (or null when out of range). */
+/**
+ * RULING 8r / STEP 4.1 — the NOTCH-vs-HOLE seed resolution. The enclosed-lens id split
+ * (``emitColumnVerticals``) gives the lens interval its own ``col<ci>:lens<j>`` column edge so an
+ * INTERIOR-HOLE lens's OWN face (bounded ONLY by that edge + its flanks) seeds its RAW interbed
+ * litho — the clean win (54 merged-minority artifacts → genuine single-seed interbed faces).
+ *
+ * A NOTCH lens (the merged matrix pinches before reaching the facing) rides its own column edge as a
+ * concave bite; the arrangement CANNOT separate the lens's own triangle from the enclosing matrix's
+ * host piece, so ONE face carries BOTH the ``col:lens`` edge AND a host ``col:u`` edge. On that face
+ * the ``col:lens`` edge is a shared notch boundary, NOT a seed: the matrix host owns the notch region
+ * (the pre-existing behaviour — the interbed was already absorbed into the matrix flood there, the
+ * §49 notch/annulus wall). So the rule is purely structural + geometric, no interior-hole/notch guess
+ * at emission: if a face carries ANY host ``col:u`` edge, its ``col:lens`` edges are dropped (matrix
+ * wins); a face carrying ONLY ``col:lens`` edges is the interior-hole lens's own face (interbed wins).
+ * This keeps interior holes single-seeded as their interbed AND notch faces single-seeded as their
+ * matrix — no multi-seed inflation, no merged-minority residual.
+ */
+export function resolveNotchLensRefs(refs: readonly string[]): string[] {
+  const hasHost = refs.some((r) => COL_SEED_RE.test(r))
+  if (!hasHost) return [...refs]
+  return refs.filter((r) => !COL_LENS_SEED_RE.test(r))
+}
+
+/**
+ * Resolve a column-vertical seed ref to its unit's formationId (or null when out of range). Two
+ * forms: ``col<ci>:u<ui>`` -> ``columns[ci].units[ui].formationId``; ``col<ci>:lens<j>`` (the
+ * ruling-8r id split) -> ``columns[ci].enclosedLenses[j].lens.formationId`` (the RAW interbed litho).
+ */
 export function formationOfRef(ref: string, columns: readonly ColumnGeom[]): string | null {
-  const m = COL_SEED_RE.exec(ref)
-  if (!m) return null
-  const u = columns[Number(m[1])]?.units[Number(m[2])]
-  return u ? u.formationId : null
+  const mu = COL_SEED_RE.exec(ref)
+  if (mu) {
+    const u = columns[Number(mu[1])]?.units[Number(mu[2])]
+    return u ? u.formationId : null
+  }
+  const ml = COL_LENS_SEED_RE.exec(ref)
+  if (ml) {
+    const el = columns[Number(ml[1])]?.enclosedLenses[Number(ml[2])]
+    return el ? el.lens.formationId : null
+  }
+  return null
 }
 
 /**
