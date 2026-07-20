@@ -6349,3 +6349,61 @@ WRONG here: own-side reads KLEI (suppress), facing-side reads ZAND (draw) — th
 - `REWRITE_STATE.md` — this §64 entry.
 - **CS1_FLIP regen NOT run (harness-denied prefix, §54/§63 precedent). The engine CHANGED (Stages A+C) →
   the orchestrator MUST regenerate `diag_cs1_flip_walkthrough.json` before the owner rerender.**
+
+## §65 — Session 59: RULING 8d — the mismatched-first-unit MIDPOINT SEAM re-roled `flood` → `bandseam` LINE ART (export/labelling only, geometry byte-identical)
+
+**PREMISE REPRODUCED FIRST-HAND (from the current `diag_cs1_flip_walkthrough.json`):** CS1 gap8 — the
+mismatched top-band pairs GEO-10/170-S8 (u0 ZAND) ↔ GEO-23/125-S10 (u0 KLEI) → `closeInterval` emits the
+no-auto-facies midpoint seam as **`flood9` (463.967,11.265)→(463.967,9.86)** with role `flood wedge
+(enclosing fill)` = **phase-3 SCAFFOLD**. The owner's paint tool draws phase-0/1/2 line art only, so it
+EXCLUDES this seam → paint leaks between the sand and clay top units. Owner ask (verbatim): "emit the
+horizontal split between the top sand on 10/170-s8 and 23/125-s10 as line in the render."
+
+**THE FIX (export/labelling only — NO geometry change):** the mismatched midpoint seam emitted by
+`emitEnclosingFlood.closeInterval` now carries its OWN id prefix **`bandseam`** (a fresh `nextBandSeamId`
+counter, so the seam no longer consumes the shared `flood` sequence). `phaseOf` in the walkthrough
+classifier maps `bandseam*` → **phase 0, role `mismatched-band midpoint seam (8d)`** (tagged like `bandc`,
+so the paint tool picks it up as line art). The seam's POSITION/EXTENT is untouched (`seamX/seamTop/
+seamBase` unchanged — only `id: nextFloodId()` → `id: nextBandSeamId()`).
+
+**BYTE-IDENTICAL GEOMETRY — the two consumers that key off the `flood` id prefix were updated to treat
+`bandseam` IDENTICALLY:**
+- `labelFaces.ts:320` — the seam carries NO label (`lensLabels.get` returns nothing), so the ONLY effect
+  of the `flood` branch on it is `nonLensBoundary=true; hasAnchorSpan=true; nTie++`. Added
+  `|| id.startsWith('bandseam')` to that exact branch → face classification is unchanged.
+- `seedClassifier.ts:409/416` (`resolveZeroSeedClass`) — added `bandseam` to the flood group; the seam's
+  `floodFormationOf` returns null exactly as the old label-less flood seam → zero-seed family unchanged.
+- `intersect.ts` (READ-ONLY, unchanged): `compareSegments` uses `curveId` only as the FINAL tie-break on
+  COINCIDENT-endpoint segments; the vertical seam is unique geometry (no coincident twin) → the id change
+  cannot alter the arrangement. The renumbering of `flood` floor curves (seam no longer consumes a `flood`
+  number) is likewise geometry-safe (floor curves are per-gap-unique horizontals, never coincident).
+
+**MODEL-WIDE SEAM INVENTORY (mismatched-pair midpoint seams = VERTICAL flood curves, both points same x).
+From the CS1 dump (only section dumped by CS1_FLIP; the mechanism is identical for all 14 — every
+mismatched-enclosing interval in `closeInterval`):**
+- CS1 gap7  x=439.398  el[11.32..9.29]  (was `flood7`)
+- CS1 gap8  x=463.967  el[11.265..9.86] (was `flood9` — the premise ZAND↔KLEI seam)
+- CS1 gap22 x=839.640  el[11.645..8.92] (was `flood24`)
+All three now emit as `bandseam*`. (Full model-wide list across the other 13 sections needs an
+allsections engine run — harness-denied here; the orchestrator regenerates the dumps.)
+
+**GATES — must hold EXACTLY (geometry byte-identical; NOT self-run, shells harness-denied this session):**
+holes 0/0 · overlaps 0 · flag-OFF byte-identical · seedGate 732/651/8/67/6 pm0 · CS1 gates 8/8 · full
+utils 823/0 · tsc clean. The change is id-string + role only; the arrangement/faces/seeds are provably
+invariant (label-less seam, same classification branch). The ONLY intended observable delta: the
+walkthrough dump now carries `bandseam*` (phase-0 line art) where it carried `flood*` (phase-3 scaffold)
+at each mismatched seam; some `flood` floor ids renumber (cosmetic, no gate asserts exact flood ids).
+
+**FILES (worktree, NOT committed — orchestrator commits + updates the paint tool + rerenders):**
+- `partitionFillV2/emitEnclosingFlood.ts` — `nextBandSeamId` counter; `closeInterval` emits the seam with
+  the `bandseam` prefix; docstrings updated (module note + `closeInterval` ruling-8d note).
+- `partitionFillV2/labelFaces.ts` — `bandseam` grouped with `flood` in the face-classification branch
+  (byte-identical; documented WHY).
+- `partitionFillV2/seedClassifier.ts` — `bandseam` grouped with `flood`/`floodsw` in `resolveZeroSeedClass`
+  (byte-identical zero-seed family).
+- `partitionFillV2.cs1flip_walkthrough.diag.test.ts` — `phaseOf` gains the `bandseam` → phase-0 line-art
+  case (role `mismatched-band midpoint seam (8d)`).
+- `REWRITE_STATE.md` — this §65 entry.
+- **`scripts/gen_paint_tool.mjs` LEFT UNTOUCHED (orchestrator adds the `bandseam` prefix to the tool).**
+- **CS1_FLIP regen NOT run (harness-denied). The seam id/role CHANGED → the orchestrator MUST regenerate
+  `diag_cs1_flip_walkthrough.json` before the owner rerender so the dump carries `bandseam*`.**
