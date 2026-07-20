@@ -385,6 +385,20 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8u. **MIXED TIES SAMPLE THE FAR COLUMN'S SAME-SIDE UNIT — 8m
+   confirmed on the base↔top shape (owner, 2026-07-20, ruled on the
+   mixed-tie visual, verbatim): "just follow the rule man, the clay
+   has one correlation to the right, follow the tie, oh hey there is
+   a clay there, nothing is drawn".** For a tie connecting a unit's
+   BASE to a far unit's TOP (or vice versa), the 8m same-litho check
+   follows the tie to the far column and reads the unit sitting on
+   the SAME side of that shared contact as the tied unit (the clay
+   above S6's sand top, not the sand below it). Same litho → the tie
+   is the boundary, no onlap line, fill flows, 8j merges. The
+   followTieOnlap/oneCorrActualTie locked tests encode this
+   correctly; the S58 far-side experiment (`tieRefFarSide`) stays
+   dormant/dead. The onlap-flank diamond-detour built alongside it
+   remains live machinery (8t: flanks detour around lens diamonds).
 8t. **COLLISION HALVES THE LENS — THE THICKNESS HUG IS RETIRED (owner,
    2026-07-20, paint-round on 23/125-S7's peat vs tie83, verbatim):
    "retire the thickness hug, just halve the length to 0.225".** When
