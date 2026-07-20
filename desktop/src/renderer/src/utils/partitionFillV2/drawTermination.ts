@@ -52,7 +52,7 @@
  */
 
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
-import { type Corr0Diamond } from './detourBandContour'
+import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
 import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
@@ -83,6 +83,22 @@ const MATCH_OFFSET = 1e-3
  */
 export function tieRefFarElev(tie: ResolvedTie, side: 'left' | 'right'): number {
   return side === 'left' ? tie.right.y : tie.left.y
+}
+
+/**
+ * The FACING endpoint's CONTACT SIDE (top / base) of a resolved tie for the look ``side`` (ruling
+ * 8m follow-the-tie correctness). The far endpoint is the FACING column's; a LEFT look faces RIGHT,
+ * a RIGHT look faces LEFT. The tie's own ``leftSide`` / ``rightSide`` name which of that facing
+ * unit's contacts the tie meets — which decides which facing unit CONTINUES the correlation (the
+ * matched unit): a facing ``top`` contact → the matched unit is the one BELOW it (whose top is the
+ * contact); a facing ``base`` contact → the unit ABOVE it. For a symmetric top↔top / base↔base tie
+ * this equals the unit's own tied side, so the historical fixed-side sampling was correct; for a
+ * MIXED base↔top (or top↔base) tie — e.g. CS1 col18 u6 KLEI-base ↔ S6 u3 ZAND-top (tie83) — the
+ * facing side DIFFERS from the unit's own side, and only this facing side lands the correct matched
+ * unit (ZAND below the 7.03 top contact, not the KLEI above it).
+ */
+export function tieRefFarSide(tie: ResolvedTie, side: 'left' | 'right'): 'top' | 'base' {
+  return side === 'left' ? tie.rightSide : tie.leftSide
 }
 
 /**
@@ -264,9 +280,16 @@ export function drawTermination(
   // enclosing flood flows through, the 8j merge welds the two same-litho regions into ONE body — the
   // flank would only be an interior seam of that identical final body). This is an INTENTIONAL
   // absence, not a missing termination: the space is bound by the tie + fill + merge, not left open.
+  // NOTE (S58 ASK-FIRST): the matched side here is the UNIT's OWN tied side (base tie → sample above),
+  // NOT the facing endpoint's contact side. For a MIXED base↔top tie (CS1 col18 u6 KLEI-base ↔ S6
+  // ZAND-top, tie83) these diverge — the own-side rule samples the KLEI ABOVE the 7.03 top contact
+  // and SUPPRESSES the u6 onlap the S58 premise mandates (facing = ZAND below). Switching to the
+  // facing-side rule fixes col18 but INVERTS the followTieOnlap / oneCorrActualTie regression locks
+  // (owner-locked own-side semantics on the identical mixed-tie shape). Left UNCHANGED pending the
+  // owner ruling — see REWRITE_STATE §64.
   if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) return false
   // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent).
-  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out)
+  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds)
 }
 
 /**
@@ -413,6 +436,7 @@ function emitOnlap(
   nextId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  diamonds?: Corr0Diamond[],
 ): boolean {
   void iu
   const apexFrac = INTERIOR_PINCH_FRACTION
@@ -445,7 +469,16 @@ function emitOnlap(
   // lens diamond in two → the lens never traces as its own face and is mis-painted the matrix
   // (convergingStack (a): the KLEI onlap flank slicing the VEEN 0.45 diamond).
   const flankPts = baseTied ? [topPt, apex] : [apex, basePt]
-  const detoured = detourFlankAroundEnclosedLenses(flankPts, u, colX, side, gapIndex, col, facing, activeTies)
+  const enclosedDetour = detourFlankAroundEnclosedLenses(flankPts, u, colX, side, gapIndex, col, facing, activeTies)
+  // RULING 8t (owner, 2026-07-20): "Onlap flanks crossing a lens diamond do not shorten the lens
+  // either — the flank detours around the diamond (the S51 mechanism)." A SIBLING corr-0 lens (not an
+  // enclosed lens of ``u`` — a separate interior minority above/below, e.g. CS1 col18 u5 VEEN sitting
+  // on u6 KLEI's top) that this onlap flank would cut through is rerouted crossIn→apex→crossOut around
+  // its emitted diamond, RIDING collinear with the lens's own flanks so the lens closes as a hole and
+  // the onlap face wraps it — never shortening the lens, never overlapping it. This reuses the SAME
+  // ``detourBandContourAroundLenses`` generaliser the band contours use (ruling 8s Stage B), applied
+  // to the onlap flank; the ``diamonds`` collection carries the exact emitted corr-0 apexes.
+  const detoured = diamonds ? detourBandContourAroundLenses(enclosedDetour, gapIndex, diamonds) : enclosedDetour
   pushOflank(detoured)
   // FLOOD the vacated width past the onlap tip with the facing enclosing formation. The TIED
   // side is closed by its own tie line, so its wedge is SKIPPED — for a base-tied onlap the
