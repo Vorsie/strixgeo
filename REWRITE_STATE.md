@@ -5963,3 +5963,88 @@ below the sand onlaps at its own top 5.19 riding tie0:5, below the sand diamond 
 (3) S8: the boundary lens closes as line art (`term20` riding the TD floor). §59's three "premise
 contradicted" STOPs are all corrected on evidence. Throwaway session gates kept for the
 orchestrator: `rawUnitTerm` / `lensCrushRelease` / `boundaryLensClosingLeg` (.diag.test.ts).
+
+## §61 — Session 55: ruling 8l band-base contour deletion — item 1 REAL (measured wall: opens a zero-seed face without the item-3 reshape); item 2 PREMISE ERROR (8m, not band machinery, suppresses B4-u6). Engine REVERTED to §60 green. ASK-FIRST.
+
+**PREMISES REPRODUCED VERBATIM from the current `diag_cs1_flip_walkthrough.json` (Jul 20, 341 KB):**
+- `bandc37 = (101.562,0.608)→(142.234,0.420)→(113.652,0.288)→(191.944,−1.790)`, role `matched-pair
+  band contour`, gapIndex 3 — EXACT MATCH (lines 12766-12787).
+- `bandc34 = (101.562,7.13)→(191.944,3.68)` = `tie55:3` (drawn tie, lines 9016-9028) — B4-u2-ZAND top
+  (7.13) ↔ S13-u3-ZAND top (3.68), SAME body ...9be2. Literal top-top tie. LEGIT.
+- `bandc35 = (101.562,−2.37)→(191.944,−1.79)` = `tie34:3` (drawn tie, lines 8700-8713) — B4-u5-ZAND
+  base (−2.37) ↔ S13-u3-ZAND base/S13-u4-KLEI top (−1.79). Literal base-base tie. LEGIT.
+- Column stacks (dump index 3 = B4 x=101.562; index 4 = S13 x=191.944) read verbatim; B4 raw units
+  SILT/KLEI/ZAND[7.13..0.608]/SILT/ZAND[0.232..−2.37]/KLEI, S13 ZAND/SILT/KLEI/ZAND[3.68..−1.79]/KLEI.
+
+**BASELINES RE-VERIFIED EXACT at session start (all match §60):** holes 0/0 overlaps 0 · conformance
+flag-ON 1/4/5=10 (byCorr 35/69/759, 8e-enclosure 35) · CS1 gates 8/8 · seedFill 5/5. Engine at §60 green.
+
+**ROOT, EXACT (traced through the code, not guessed):** `effectiveCorr.ts` ALREADY implements 8l —
+`effectiveCorrForUnit` `void bands` (line 278), corr = literal own-contact tie count; the SWEEP
+(`emitTerminationSweep`) deleted `isBandMember` suppression (S34). BUT `collectGapBands` still has TWO
+live geometry consumers the 8l cleanup never reached:
+  1. `emitEnclosingFlood.emitGapFlood` (flag-ON FILL path) — emits BOTH top+base `bandc` contours per
+     band + adds them to the interval brackets + `bandFids` seam suppression. `bandc37` is the BASE
+     contour of the band `collectGapBands` promotes from the SINGLE top-top tie55 (pairs B4-u2-ZAND ↔
+     S13-u3-ZAND); its endpoints (0.608 = B4-u2 base, an UNTIED interbed contact; −1.79 = S13-u3 base)
+     are NOT tied to each other → the exact "band promotion" 8l deletes.
+  2. `terminationRules.sameFormationEnclosedByTiedBand` — the 8e/8g(b) merge-suppression the sweep
+     reads from `collectGapBands` (the `8e-enclosure: 35` counter).
+
+**ITEM 1 (delete non-tied band contour) — REAL, but MEASURED WALL without item 3.** Built the surgical
+8l gate in `emitGapFlood`: emit a `bandc` contour ONLY when an active gap tie runs between its two
+endpoints (`contourIsTie(leftElev, rightElev)`). MEASURED:
+  - holes 0/0 overlaps 0 HELD (the non-tied contours were redundant for hole-closure — tie contours +
+    column verticals + fill brackets close those faces).
+  - CS1 gates 8/8 HELD.
+  - **conformance REGRESSED 10 → 12**: `1corr-not-onlap` 4→6, `8e-enclosure` 35→30. NEW violations are
+    exactly the units the promoted band's full-width fill was masking, now exposed as `band`/`absent`:
+    TS7 gap0 KLEI [left]/[right] `absent`, CS1 gap18 ZAND [right] + gap19 KLEI [left] `renders
+    full-width instead of onlapping`, CS2 gap13 SILT [right] `absent`, TS10 gap0 ZAND `band`.
+  - **seedFill test (b) went RED**: "a flood-bounded face with no column seed classifies
+    zero-seed-defect" — deleting the base contour opened a ZERO-SEED face (a labelling defect, sibling
+    to a hole). This is the mandate's own warning ("a construction that opens holes: revert").
+  → Item 1 alone is NOT standalone-viable. It requires the mandate's **item 3** (regions re-close from
+    literal lines + fill + merge; the emergent-band path must fill+merge the exposed corr-1 units) to
+    land TOGETHER. That is the substantial partition-construction work, not a one-liner. REVERTED the
+    experiment; engine back at §60 green (holes 0/0, conformance 1/4/5=10, seedFill 5/5 re-verified).
+
+**ITEM 2 (B4-u6's onlap must EMERGE) — PREMISE ERROR.** The mandate says u6's onlap is
+"MISSING… the matched-pair band machinery claims the region and suppresses the sweep there, the same
+authority 8l deletes." TRACED: the actual suppressor is **RULING 8m** (`drawTermination.ts:267`
+`if (matchedFacingSameLitho(...)) return false`), NOT the band machinery. B4-u6-ZAND base-ties tie34
+→ matched facing contact (above-for-bottom-tie on S13) = S13-u3-ZAND = **SAME litho** → 8m correctly
+skips the flank (the tie is the boundary, the fill flows, the 8j merge welds ONE ZAND body). This is
+the CORRECT, owner-mandated behaviour — and 8l's OWN text endorses it verbatim: "two facing
+same-formation onlaps riding the same tie meet at the 0.5 apex, the fill closes around them, and the
+8j post-fill merge welds them… Bands are what onlaps become after the merge." §60 already recorded u6
+as "corr-1 onlap (8a-tied, 8m-suppressed)" — i.e. already correctly suppressed. There is no missing
+curve to restore at (101.6,0.23)→(146.75,−2.08): 8m says that flank is an INTENTIONAL absence, and
+emitting it would be a redundant interior seam of the identical final ZAND body (which is exactly what
+8m/8j delete). **The item-2 mandated coordinate contradicts ruling 8m; do NOT emit it.**
+
+**⚠ ASK-FIRST — the rule gap the owner must close before item-1+item-3 lands:**
+> When ruling 8l deletes the phantom base contour `bandc37`, the region S13-u3-ZAND (a genuine
+> literal corr-2 band member on tie55+tie34) and B4-u2-ZAND (literal corr-1, top-tied only) must
+> RE-CLOSE and MERGE from the literal lines + fill + 8j merge. The measured wall shows the current
+> fill (`emitEnclosingFlood` full-width `bandFids` face) DEPENDED on the phantom contour to bound a
+> face that otherwise has no column seed. **Owner question (one, verbatim evidence above):** with
+> the band-PROMOTION contour deleted per 8l, what closes the ZAND mass between tie55 (top), tie34
+> (base), the released SILT-lens holes, and the B4 interbed corner (0.608)? The mandate's item-3
+> answer ("fill from column seeds + 8j merge into the emergent band") requires the emergent-band fill
+> to seed from the raw ZAND column pieces rather than the pair-edge face — an `emitEnclosingFlood`
+> reshape (seed the flood from column verticals, not the promoted band bracket). That is a
+> partition-construction increment, not a contour toggle. Confirm the reshape direction (seed-fill
+> the emergent band vs. keep a NARROWED tie-bounded band face) before building — the two produce
+> different region topologies and the measured wall proves the naive delete opens a zero-seed face.
+
+**FILES:** `emitEnclosingFlood.ts` edited then REVERTED (byte-identical to §60). No other engine change.
+No git ops. v1 + app + intersect.ts untouched. `CS1_FLIP=1` regen NOT run (engine unchanged from §60,
+so the existing dump is current; the orchestrator regenerates only after an engine change lands).
+
+**SESSION 55 END STATE — engine at §60 green, NO change shipped.** Item 1 (delete the `bandc37`-class
+promotion contour) is a REAL 8l residual in the FILL path but hits a measured zero-seed wall without
+the item-3 fill/merge reshape — they must land together as one increment. Item 2's premise is wrong
+(8m, an owner-mandated + 8l-endorsed suppression, correctly hides B4-u6's redundant flank; there is no
+curve to restore). Recommend the owner rule on the emergent-band re-closure direction (the ASK-FIRST
+above) before dispatching the combined item-1+item-3 build.
