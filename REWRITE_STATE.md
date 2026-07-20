@@ -6170,3 +6170,78 @@ changed, so the orchestrator must regenerate the dump before the owner rerender.
   `partitionFillV2.s56regions.diag.test.ts`, `partitionFillV2.s56cs1.diag.test.ts` (all SHAPE_AUDIT-gated,
   log-only, `expect(true)` — harmless if left; delete at commit).
 - `REWRITE_STATE.md` — this §62 entry.
+
+---
+
+## §63 — Session 57: the §62 TS7-g0 "drilled KLEI renders as SILT" premise DOES NOT REPRODUCE against `computeSectionFillV2` region output — STOP-AND-REPORT (no engine change made; 8m free-side refinement NOT built)
+
+**MANDATE.** S57's charge was the 8m free-side refinement (ruling-8k resolution, orchestrator-supplied,
+owner-veto-flagged): refine `drawTermination.ts:267 matchedFacingSameLitho` to suppress the corr-1 flank
+ONLY when the unit's FREE contact ALSO faces the same litho, so TS7-g0's drilled KLEI(u3) draws its
+SILT/KLEI separator instead of being swallowed by the surface SILT (§62's sole residual). Step 1 = a
+RED-first gate asserting TS7-g0 drilled KLEI paints KLEI (currently SILT per §62). **The RED gate came up
+GREEN on the unmodified S56 engine — the premise is stale.**
+
+**PREMISES REPRODUCED EXACT at session start (all match §62):** holes 0/0 overlaps 0 · conformance
+flag-ON 12 (expects 10; +2 = the TS7-g0 KLEI false positives) · CS1 gates 8/8 · seedGate faces 731
+single 650 void 8 zero-seed 67 **multi-seed 6** mismatches **pm=0** · tsc clean. Worktree IS at S56
+(multi-seed=6, mismatches=0 confirmed). No prior-session revert.
+
+**THE DIVERGENCE (measured first-hand, `partitionFillV2.ts7klei.diag.test.ts`, SHAPE_AUDIT-gated):**
+§62 recorded "RENDERED (computeSectionFillV2): it paints SILT (`2e06 frac[0..1] el[3.14..11.73]`) → the
+drilled KLEI(u3) renders as SILT." Against the CURRENT worktree engine, the RENDERED `SectionRegion[]`
+output is CORRECT:
+- **col0 vertical (f≈0.005), 0.25 m steps el[2.26..11.36]:** paints KLEI[3.26..6.30], 2af4-lens[6.51..7.26],
+  KLEI[7.51..10.30], SILT[10.51..11.36] — the drilled KLEI(u3) el[3.14..6.30] paints **KLEI**, exact ground truth.
+- **Full-width sweep of the KLEI band (41 fractions × interpolated el):** SILT-only cover inside the KLEI
+  band = **0 hits**. No SILT swallows the KLEI anywhere across the gap.
+- **§62 exact-claim check:** SILT regions spanning ~el[3.14..11.73] = **0**. The claimed swallowing region
+  DOES NOT EXIST. The gap-0 regions are a clean KLEI quad `bb43 el[3.14..10.30]` + SILT quads that TILE
+  (double-cover grid = 0, consistent with the held overlaps=0).
+
+**WHY §62's face-level defect ≠ a render defect.** The seedGate MULTI-SEED-DEFECT face f9 (TS7 x[0..62]
+el[3.14..11.73], `seedRefs=[col0:u0,col0:u3,col1:u0,col1:u1]`, seedFormations=[SILT,KLEI],
+`currentPaint=SILT`) is a **pre-slice ARRANGEMENT FACE** metric. Its boundary already carries the interior
+curves `term0..term3` + `bandc0/bandc1` (`boundaryCurveIds` dump) that SUBDIVIDE it during the region
+slice/annulus pass → the OUTPUT regions come out correctly separated (KLEI quad, SILT quads). seedGate
+aggregates at arrangement-face granularity, so it counts f9 as one multi-seed face; `computeSectionFillV2`
+slices it into correct regions. The "drilled KLEI renders SILT" reads the FACE label (SILT), not the
+sliced region (KLEI). Both the 2D overlay and the 3D voxel build consume the SLICED `SectionRegion[]` via
+`computeSectionFillActive` (§62 cutover wiring) — NOT the raw face label — so no consumer sees the SILT.
+
+**CONCLUSION — the 8m free-side refinement was NOT built.** Per the ask-first / stop-and-report directive
+(`feedback_opus_subagent_driven_workflow`, `feedback_ask_domain_questions_dont_bugfix`): implementing an
+engine behaviour change to "fix" a defect that does not manifest in the rendered output would (a) chase a
+phantom, (b) risk the held 0/0 holes/overlaps + pm0 + B4/S13 ZAND merge-equivalence for zero visible gain,
+(c) change the suppression condition (a geological/semantic call) with no observable payoff. The multi-seed
+FACE COUNT (6) is a seedGate accounting number, not a render defect. **NO engine file touched this session.**
+
+**OPEN QUESTION FOR THE ORCHESTRATOR/OWNER (the real decision, replacing the built-fix ask):**
+1. Is the residual purely a seedGate face-granularity artifact the orchestrator accepts (multi-seed=6 is a
+   pre-slice metric; the render is clean) — in which case S56 is cutover-ready on the TS7 front and the
+   remaining §62 "conformance flag-ON 12 vs 10" is the gate's own corr-1 `absent` false-positive tag (§62
+   already characterised: the gate lacks the 8m-suppression tag on its corr-1 `absent` branch; TRUE
+   conformance is 10)?
+2. OR did §62 measure a DIFFERENT engine state (e.g. before a slicing/labelling fix that landed between the
+   §62 measurement and the S56 commit this worktree sits on)? If the owner can still SEE the drilled KLEI
+   render as SILT in the dogfed app, the divergence is app-vs-test (the app may read a stale build, or a
+   render path other than `SectionRegion[]`) — that is an app-layer investigation, not an engine change,
+   and would need the owner to re-confirm the visual on a fresh build.
+
+Recommendation: DO NOT apply the 8m free-side refinement until the render defect is reproduced against
+`computeSectionFillV2` output (it is not, as of S57). If the seedGate multi-seed=6 metric is the only
+blocker, either accept it (pre-slice artifact) or teach seedGate to count POST-slice regions.
+
+**GATES (no engine change → all S56 baselines held byte-identical; re-verified where cheap):**
+holes 0/0 overlaps 0 · conformance flag-ON 12 (unchanged) · CS1 gates 8/8 · seedGate 731/650/8/67/6 pm0
+(unchanged) · tsc clean. The new `partitionFillV2.ts7klei.diag.test.ts` passes (no-op without SHAPE_AUDIT;
+GREEN with it — the premise-non-reproduction is the evidence). NO CS1_FLIP regen (engine unchanged; would
+be byte-identical). NO git ops.
+
+**FILES (worktree, NOT committed):**
+- `partitionFillV2.ts7klei.diag.test.ts` — NEW, the premise-reproduction gate (SHAPE_AUDIT-gated). Documents
+  that the §62 mislabel does NOT reproduce in `computeSectionFillV2` output: col0 KLEI paints KLEI, 0 SILT
+  intrusions into the KLEI band, 0 SILT regions spanning el[3.14..11.73]. Throwaway — delete at commit, OR
+  keep as a regression guard that TS7-g0 KLEI stays KLEI.
+- `emitEnclosingFlood.ts` / `drawTermination.ts` — UNTOUCHED. S56 state preserved.
+- `REWRITE_STATE.md` — this §63 entry.
