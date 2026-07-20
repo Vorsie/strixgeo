@@ -406,10 +406,14 @@ export function resolveZeroSeedClass(
   // FLOOD (ruling 8o): the hole fills with the UNTERMINATED lithology. Read every flood curve's
   // formation; EXACTLY ONE distinct formation → unambiguous ``unterminated-litho``. Zero or more
   // than one → ruling 8o's ask-clause → ``owner-ambiguous`` (listed, never guessed).
-  if (has('floodsw') || has('flood')) {
+  // ``bandseam`` (the ruling-8d mismatched midpoint seam) is grouped with the flood curves here so
+  // zero-seed resolution stays byte-identical to when the seam was ``flood``-prefixed. It carries no
+  // formation (``floodFormationOf`` returns null), matching the old label-less flood seam exactly —
+  // the 2026-07-20 re-role is export-only and must not shift the seedGate classification.
+  if (has('floodsw') || has('flood') || has('bandseam')) {
     const floodFids = new Set<string>()
     for (const id of boundaryCurveIds) {
-      if (id.startsWith('floodsw') || id.startsWith('flood')) {
+      if (id.startsWith('floodsw') || id.startsWith('flood') || id.startsWith('bandseam')) {
         const f = floodFormationOf(id)
         if (f != null) floodFids.add(f)
       }

@@ -317,7 +317,7 @@ function labelOneFace(
       const m = COL_RE.exec(id)
       if (m) {
         units.push({ ci: Number(m[1]), ui: Number(m[2]) })
-      } else if (id.startsWith('flood')) {
+      } else if (id.startsWith('flood') || id.startsWith('bandseam')) {
         // A lone-side FLOOD-closure curve (emitLonePinch): the vacated wedge beyond a
         // pinch apex, bounded only by these curves + the interval brackets + the
         // pinch's own ``close`` curves (never a full facing column vertical — the wedge
@@ -325,6 +325,13 @@ function labelOneFace(
         // matrix formation, so the wedge reads as a BAND. Same trick as the sub-TD
         // substrate wedge (btfloor/btcurtain) — a face with no column vertical is
         // stamped from the flood label below.
+        //
+        // ``bandseam`` is the RULING-8d mismatched-first-unit midpoint seam (emitEnclosingFlood).
+        // It was ``flood``-prefixed until 2026-07-20, when it was re-roled to LINE ART for the paint
+        // tool (its own prefix so ``phaseOf`` tags it phase-0, not phase-3 scaffold). It carries NO
+        // label (``lensLabels.get`` returns nothing), so its ONLY effect here — nonLensBoundary /
+        // hasAnchorSpan / nTie++ — is IDENTICAL to the old ``flood`` classification. Kept in this
+        // exact branch so face labelling stays byte-identical (the re-role is export-only).
         const l = lensLabels?.get(id)
         if (l) floodLabel = l
         nonLensBoundary = true

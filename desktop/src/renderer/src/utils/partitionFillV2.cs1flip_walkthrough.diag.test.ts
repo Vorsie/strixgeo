@@ -108,6 +108,11 @@ function phaseOf(id: string): { phase: 0 | 1 | 2 | 3; role: string } {
   if (id.startsWith('tie')) return { phase: 0, role: 'drawn tie' }
   if (id.startsWith('bridge')) return { phase: 0, role: 'jump-tie bridge' }
   if (id.startsWith('bandc')) return { phase: 0, role: 'matched-pair band contour' }
+  // RULING 8d (owner, 2026-07-20): the mismatched-first-unit MIDPOINT SEAM is ruled LINE ART, not
+  // fill scaffold — the visible horizontal split between two facing top units (the no-auto-facies
+  // divider, e.g. CS1 gap8 ZAND ↔ KLEI). Tagged phase 0 like ``bandc`` so the paint tool draws it;
+  // a ``flood`` prefix would classify it phase-3 scaffold and paint would leak across the boundary.
+  if (id.startsWith('bandseam')) return { phase: 0, role: 'mismatched-band midpoint seam (8d)' }
   // Phase 1 — 0-corr lens closings. The session-15/16 HOIST vocabulary: the unconditional
   // termination sweep emits ``term<n>`` (0-corr lens closings) and defers sub-TD minorities
   // to ``subtdlens<n>`` — both ARE the owner's generated lens ties (his list of "still not

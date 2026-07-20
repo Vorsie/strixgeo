@@ -90,11 +90,18 @@ export function emitEnclosingFlood(
   const nextFloodId = (): string => `flood${seq++}`
   let bseq = 0
   const nextBandId = (): string => `bandc${bseq++}`
+  // RULING 8d (owner, 2026-07-20): the mismatched-first-unit midpoint seam is RULED LINE ART,
+  // not fill scaffold — it is the visible horizontal split between two facing formations' top
+  // units (the no-auto-facies divider). Its own ``bandseam`` prefix routes it to a phase-0 line-art
+  // role (like ``bandc``) so the paint tool draws it; a ``flood`` prefix would classify it phase-3
+  // scaffold and the paint tool would exclude it → paint leaks across the sand/clay boundary.
+  let sseq = 0
+  const nextBandSeamId = (): string => `bandseam${sseq++}`
   for (let gi = 0; gi + 1 < columns.length; gi++) {
     const left = columns[gi]
     const right = columns[gi + 1]
     const bands = collectGapBands(gi, left, right, activeTies)
-    emitGapFlood(gi, left, right, activeTies, bands, nextFloodId, nextBandId, out, corr0Diamonds)
+    emitGapFlood(gi, left, right, activeTies, bands, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds)
   }
 }
 
@@ -107,6 +114,7 @@ function emitGapFlood(
   bands: readonly GapBand[],
   nextFloodId: () => string,
   nextBandId: () => string,
+  nextBandSeamId: () => string,
   out: InputCurve[],
   corr0Diamonds: readonly Corr0Diamond[],
 ): void {
@@ -187,7 +195,7 @@ function emitGapFlood(
     const top = uniq[bi]
     const base = uniq[bi + 1]
     if (mid(top) <= shallowTD + ELEV_EPS) continue // fully sub-TD — substrate owns it
-    closeInterval(left, right, top, base, bandFids, nextFloodId, out)
+    closeInterval(left, right, top, base, bandFids, nextBandSeamId, out)
   }
 
   // Close the flood from below at the shallow TD floor (sub-TD stays empty — substrate owns it).
@@ -231,12 +239,17 @@ function emitBandContourWithDetour(
 }
 
 /**
- * Close ONE interval [top .. base]. Emit the interval's TOP and BASE bracket carrier lines
- * (``flood`` ids — counted as neither tie nor closing by ``labelFaces``, like ``bandc``) so
- * the enclosing face(s) close in the arrangement; the column verticals stamp the litho. When
- * the two columns present DIFFERENT enclosing formations, ALSO emit a midpoint SEAM so each
- * side is a separate face labelled by its own column (the no-auto-facies rule). Same-formation
- * enclosing → one full-width face (no seam), the sweep's minority holes carve into it.
+ * Close ONE interval [top .. base]. When the two columns present DIFFERENT enclosing formations,
+ * emit the no-auto-facies MIDPOINT SEAM so each side is a separate face labelled by its own column.
+ * The interval's TOP/BASE bracket closure is owned elsewhere (``bandc`` contours + the shallow-TD
+ * floor); this function's sole output is the mismatched seam. Same-formation enclosing → one
+ * full-width face (no seam), the sweep's minority holes carve into it.
+ *
+ * RULING 8d (owner, 2026-07-20): the seam is RULED LINE ART, not fill scaffold — it is the visible
+ * horizontal split between the two facing top units (e.g. CS1 gap8 ZAND ↔ KLEI at x≈464). It carries
+ * a ``bandseam`` id (a phase-0 line-art role, mirrored on ``bandc``) so the paint tool draws it;
+ * a ``flood`` id would classify it phase-3 scaffold and the paint tool would exclude it, leaking
+ * paint across the boundary. Geometry is UNCHANGED — only the id prefix (and thus the role) changes.
  */
 function closeInterval(
   left: ColumnGeom,
@@ -244,7 +257,7 @@ function closeInterval(
   top: FloodBracket,
   base: FloodBracket,
   bandFids: ReadonlySet<string>,
-  nextFloodId: () => string,
+  nextBandSeamId: () => string,
   out: InputCurve[],
 ): void {
   const leftEncl = enclosingFormationAt(left, (top.leftElev + base.leftElev) / 2)
@@ -263,7 +276,7 @@ function closeInterval(
   const seamTop = top.leftElev + INTERIOR_PINCH_FRACTION * (top.rightElev - top.leftElev)
   const seamBase = base.leftElev + INTERIOR_PINCH_FRACTION * (base.rightElev - base.leftElev)
   out.push({
-    id: nextFloodId(),
+    id: nextBandSeamId(),
     kind: 'closing',
     points: [
       { x: seamX, y: seamTop },
