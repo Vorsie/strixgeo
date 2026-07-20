@@ -5366,3 +5366,83 @@ neither track was force-built.
 
 FILES TOUCHED: `partitionFillV2.lineStageDiff.diag.test.ts` (prefix-aware matcher, diagnostic only).
 v1 `utils/partitionFill/` + app READ-ONLY. NO git ops. Env used: SHAPE_AUDIT / HOLES_DIAG only (allowlisted).
+
+## §55 — Session 49: THE WALL FALLS — it was a FLOOD/LENS APEX DIVERGENCE, not the merge-annulus (SHIPPED; holes 64→0, overlaps 3→1)
+
+The "annulus wall" §49-§54 spent five sessions on (CS1-g3 + CS2-g17, 64 render holes + 3 overlap
+slivers) was MIS-DIAGNOSED as a nested-enclosure merge-annulus rebuild. The ACTUAL root, found by a
+throwaway curve/face/PIP probe on CS1-gap3 (now deleted), is a **FLOOD/LENS APEX DIVERGENCE**
+introduced by ruling 8b-rev's flat 0.45 reach:
+
+* An interior corr-0 lens emits its closing flanks (`emitLensClosing`) to the **0.45·gap apex**, and
+  its flood wedge (`emitFloodWedge`, the matrix past the apex) converged at the **gap MIDPOINT
+  (0.50·gap)**. Same elevation (lens mid), different x — CS1-g3: lens apex x=142.23 vs flood conv
+  x=146.75; CS2 col17: 457.03 vs 457.15. The flood flank (`topCorner→conv@0.50`) and the lens flank
+  (`topPt→apex@0.45`) start at the SAME corner and diverge by 0.05·gap → a razor-thin DOUBLE-COVERED
+  sliver at every interior corr-0 lens. That sliver is what the holes-diag counted as the 64 "holes"
+  (faces bounded by a MIX of `term*` + `floodsw*` at mismatched apexes: CS1 face40=`floodsw3,floodsw4,
+  term3`, face46=`floodsw4,floodsw5,term4`; CS2-g17 face237/244 identical structure). §54's trace
+  ("u5 SILT is the MISSING one-flank lens, its loop never closes") was WRONG — both lens flanks DO
+  emit and DO close; the flood over-reached them.
+* The "two opposing wedges meet at 0.5" assumption the midpoint conv rested on is STALE under 8b-rev:
+  each opposing lens now reaches its own 0.45 apex and the enclosing-matrix band between them is ONE
+  continuous face (already recording the lens as its hole), not two wedges. The flood past the apex is
+  REDUNDANT with that band face — its only effect was the sliver.
+
+**THE FIX (one line of geometry + a RED-first test).** In `emitFloodWedge`, for a corr-0 LENS
+(`convToFacingX === undefined`, `skipSide === null`) the convergence x is now the **lens apex**
+(`apexX`) instead of the gap midpoint (`(colX+facingX)/2`). The flood flanks then coincide with the
+lens closing flanks (the DCEL unions the coincident segments) and the `conv→apex` edge degenerates —
+so the enclosing-matrix band owns the space past the apex hole-free (ruling 8g/8q: "the matrix detours
+AROUND the wedge; fill between the lines"). The SKIPPED-SIDE ONLAP path (`convToFacingX` set) is
+untouched; flag-OFF is untouched (no tie scan, byte-identical). RED-first test:
+`emitFloodWedge.test.ts` ("a 0-corr lens flood does NOT reach past the lens apex") — RED `expected 50
+<= 45`, GREEN after.
+
+**MEASURED — all three stage gates cleared SIMULTANEOUSLY, plus two bonus wins:**
+* holes flag-ON **holesAboveTD 64 → 0** (CS1-g3 22→0, CS2-g17 42→0), **overlaps 3 → 1** (the two
+  lens-divergence slivers CS1-g5 ZAND×SILT 14.7cm + CS2-g13 ZAND×KLEI 2.8cm are GONE; the sole
+  survivor is CS2-g13 KLEI×ZAND 24.3cm, a BAND-INTERVAL quad×quad, unrelated to the flood). sub-TD 0.
+  flag-OFF **0/0/0 byte-identical**.
+* seedGate **faces 791→733, zeroDef 152→94** (−58: the redundant flood-wedge zero-seed faces
+  collapsed into the band faces), **single 623 UNCHANGED** (no real fill lost), void 8, multiDef 8,
+  mergedMinority 0, **paintMismatch 0**. The 58 dropped zero-seed faces were exactly the flood
+  wedge's own faces — a free partial down-payment on the §54 second-track (seed reclassification).
+* lineStageDiff **OK 838 / MISSING 8 / COLLAPSED 2 / DANGLING 10 / MERGED-AWAY 8 / PHANTOM 1** —
+  BYTE-IDENTICAL (the lens closing LINE ART is unchanged; only the flood wedge geometry moved). tie
+  **446/0/0/0**. CS1 gates **8/8**. computeSectionFillV2 13/13 (flag-OFF parity). tsc clean.
+* full utils **820 pass / 1 fail** = ONLY `convergingStack (a)` (the pre-existing §49 VEEN-notch
+  synthetic red — same assertion, same line, unchanged; my change touches only the flood conv x, not
+  the VEEN lens flanks). The +1 pass vs the 819 baseline is the new `emitFloodWedge.test.ts`.
+
+**On the §54 line-art counters (MERGED-AWAY 8 / MISSING 8) NOT moving.** These are `lineStageDiff`
+LINE-ART / merge-identity classifications (8r "lines before the merge" bookkeeping), NOT render
+defects. The RENDER arbiter is the holes gate (0 holes / 1 overlap = clean). §54 conflated the two;
+the merge-annulus geometry rebuild it (and §49) demanded was never needed — the render is hole-free
+with the merge fully intact. The MERGED-AWAY/MISSING counters describe the 8r merged-away interbeds'
+carrier-flank identity, a diagnostic layer, and are left as-is (a separate 8r bookkeeping thread, not
+a paintable defect).
+
+**RATCHETS UPDATED to the new reality (defect-preservation ratchets tightened, per the mandate):**
+`partitionFillV2.holes_overlaps.diag.test.ts` — the WALLS list (CS2-g17/CS1-g3/CS2-g21 "must have
+holes") DELETED, replaced by `aboveHoles.length === 0`; PINNED_OVERLAPS reduced from 3 to the 1
+surviving quad×quad. `partitionFillV2.seedFill.test.ts` (b) fixture coordinate followed the moved
+flood face (elLo −4.13 → −4.595; the flood-face RULE is unchanged, the coordinate follows the
+geometry). These are the only two behavioural-test edits; both encode the improvement, neither relaxes
+an invariant.
+
+**SECOND TRACK (§54 Q2 seed reclassification) — NOT force-landed (ruling 7).** The flood-apex fix
+already dropped zeroDef 152→94 for free. The remaining 94 zero-seed faces are still all correctly
+painted (paintMismatch 0, doctrine-resolved substrate/flood). Recording them as `carry-seed` (8n) /
+only-unterminated-litho (8o) is still the coordinated classifier+inline-gate change §54 scoped, WITH
+the per-face 8o ambiguity ask-clause — a dedicated session, not mixed into this geometry fix.
+
+FILES TOUCHED: `partitionFillV2/emitFloodWedge.ts` (LENS conv = apex, 1 branch + doc), new
+`partitionFillV2/emitFloodWedge.test.ts` (RED-first apex rule), `partitionFillV2.holes_overlaps.diag.test.ts`
+(ratchet tightened to 0 holes / 1 overlap), `partitionFillV2.seedFill.test.ts` (b) (fixture coord
+follows the moved flood face). Throwaway `partitionFillV2.annulusProbe.diag.test.ts` created +
+DELETED. v1 `utils/partitionFill/` + app READ-ONLY. `scripts/gen_paint_tool.mjs` untouched. NO git ops.
+Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowlisted). AFTER-STEP NOT DONE (env not allowlisted —
+DENIED twice, per §52/§53 precedent): `CS1_FLIP=1` regen of `scripts/diag_cs1_flip_walkthrough.json` —
+the ORCHESTRATOR must run
+`CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`.
