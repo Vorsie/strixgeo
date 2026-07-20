@@ -5689,3 +5689,101 @@ created + DELETED. ``drawTermination.ts`` / ``emitBands.ts`` restored byte-ident
 Baselines re-verified GREEN at session end: holes 0/0 overlaps 0, conformance 10, CS1 gates 8/8, full
 utils 821/0, tsc clean. NO git ops. v1 + app + intersect.ts READ-ONLY. Env used: SHAPE_AUDIT / HOLES_DIAG
 / CS1_GATE (allowlisted). ``scripts/gen_paint_tool.mjs`` untouched.
+
+## §59 — Session 53: all three conformance-fix premises are CONTRADICTED by the current data — STOP, engine unchanged at §57 green (measure-first, ask-first)
+
+The three-stage owner-dogfeed conformance mandate (Stage 1 kill derived-bracket corr / Stage 2
+boundary-lens closing leg / Stage 3 8s contour clip). Baseline VERIFIED EXACT at session start
+(holes 0/0, overlaps 0; flag-OFF path unchanged; conformance flag-ON 10; seedGate 745/635/8/97/5/0
+paintMismatch 0; lensAudit 32/32/0 MISSING; CS1 gates 8/8; full utils 821/0; tsc clean). Every stage
+was probed at CURVE + REGION level with a throwaway diag (created + DELETED); **each stage's premise
+does not hold on the current `diag_allsections_input.json` (regenerated Jul 19, commit dad1bb222 —
+AFTER the mandate's coordinates were measured).** NO engine geometry changed; NO git ops; v1 + app +
+intersect.ts READ-ONLY. This is the §58-class discipline (do not ship on a stale premise) applied to
+all three stages, plus the owner directive `feedback_ask_domain_questions_dont_bugfix` (STOP on rule
+gaps, never invent).
+
+**STAGE 1 — the S7-u2 "derived-bracket corr" is a LEGITIMATE 8a/8f shared-contact derivation; the
+mandated fix is a MEASURED NO-OP (0 units model-wide).** Probe (CS1, column located by x=385.7,
+matched exactly): the column at 385.7 has 6 units, and its SILT unit at el 6.37 is **u2-SILT
+[6.37..4.07]** (2.3 m), NOT the mandate's "[6.37..5.79]" (0.58 m — that thickness is an ENCLOSED
+sub-lens `col6:lens0` el[5.79..5.19] extracted from u2, the "sand diamond"). `oflankterm9` =
+(385.7,6.37)→(361.3,5.62)→(342.6,5.49)→(354.4,5.41)→(337.8,4.90) is emitted by **u2-SILT LEFTLOOK
+(gap5), corr=1** — and that corr-1 is CORRECT per §8: u2-SILT's BASE (el 4.07) is the shared physical
+contact of a **matched-pair KLEI-KLEI band** (`tie0:5` = col5.u2-KLEI.top(5.73) ↔ col6.u3-KLEI.top(4.07),
+same formation both facing columns). Ruling 8a ("a minority whose base rides a TIED shared contact is
+1-corr → ONLAP") and 8f (predicate = "direct + **shared-contact derived** + band membership + top band")
+BOTH make this base-tied. The mandate's own fix definition ("corr = drawn ties + **8a shared-contact
+resolutions** + resolved bridges") KEEPS exactly this. The §4-increment-2 mechanism (`tiedFlags.setTop`
+on the KLEI-below sets u2.base) IS the 8a derivation. MODEL-WIDE MEASUREMENT: units where corr-1 is
+driven ONLY by a derived tie (no real own-contact tie) = **0** — every derived-baseShared/topShared unit
+also has a real direct tie, so deleting the derived promotion changes NOTHING. The mandate's premise
+("mixed-bracket derivation between two DIFFERENT-litho neighbors, corr-1 by v1-legacy design") is FALSE:
+it is a SAME-litho (KLEI-KLEI) 8a band derivation, corr-1 per §8-as-written. `oflankterm9`'s non-monotone
+zigzag is already the S51 `detourEnclosedLens` 8g detour riding AROUND the enclosed sand lens (overlaps
+stay 0 — the mandate's "flank slices the diamond" second claim is already handled). **RULE GAP for the
+owner (the real question, ask-first): does a matched-pair KLEI-KLEI band's top tie DERIVE-TIE the
+DIFFERENT-litho SILT sitting directly on it (base = the band's top contact)? §8 (8a/8f) says YES (shared
+contact ties both); the owner's dogfeed ("S7 must lens left, its only tie is rightward") says NO. This is
+a same-vs-different-litho restriction on the 8a shared-contact derivation — a geological/semantic call
+§8 does not currently answer.** NOT force-built.
+
+**STAGE 2 — the S8 boundary-lens region is ALREADY a correct closed triangle; the "missing bottom leg"
+is a raw-CURVE diagnostic artifact, not a region/render defect.** Probe (CS1, S8 located by x=456.1,
+matched EXACTLY): u1-SILT [9.85..9.29] (bottom unit, base = TD 9.29), leftlook gap7 corr=0 (lens),
+rightlook gap8 corr=2 (band) — matches the mandate. Raw curves show only `term11` = (441.1,9.29)→
+(456.1,9.85) (the FREE/top flank) + `flood8` = (422.7,9.29)→(456.1,9.29) (the TD-floor scaffold, phase-3).
+BUT the SLICED REGION is **`SILT kind=quad poly=(f1.00,9.85)(f0.55,9.29)(f1.00,9.29)`** in gap7 — a
+proper triangle: top-corner (456.1,9.85) → apex (441.1,9.29) → base-corner (456.1,9.29), the **bottom
+closing leg (f1.00,9.29)→(f0.55,9.29) IS a polygon edge**. holes 0/0 confirms watertight. The overlay
+(`PartitionFillOverlay.tsx` L1592) strokes each region's polygon boundary in its own colour → the bottom
+leg IS drawn. `emitBoundaryLens` deliberately does NOT re-emit the tied/TD leg as a `term` curve (ruling
+8i(d): "a second leg riding the polyline duplicates given line art"), and the arrangement traces the leg
+from the flood scaffold + column into the region. So the region + render are correct; "lineStageDiff
+MISSING" counts the CURVE-level absence of a distinct bottom flank id, which is BY DESIGN. Whether the
+bottom leg should ALSO be a distinct SILT-coloured flank curve coincident with the TD floor is a
+render/visual question (does a lens leg riding the TD read as its own line?), NOT a topology fix — and
+building it re-introduces exactly the coincident-edge duplication 8i(d) forbids. NOT built.
+
+**STAGE 3 — the B4-u5 target coordinates DO NOT match the current data; the CS1-g3 SILT lenses are
+already at ~0.45, overlaps already 0.** Probe (x=142.2 → NEAREST column is x=101.6, invest `019e932e-9694`,
+a DIFFERENT investigation with units SILT/KLEI/ZAND/SILT/ZAND/KLEI — NOT "1411-GEO-23/126-B4"). The
+input stores only UUIDs (no `GEO-…/B4` names), so B4 could not be name-matched; by x it is absent at
+142.2. The CS1-g3 facing SILT lenses I DID find (gap2 `SILT lens (f0.55,4.38)(f1.00,4.06)(f1.00,4.71)`
++ gap3 `SILT lens (f0.00,4.71)(f0.00,4.06)(f0.45,4.38)`, el ~4.06..4.71) reach f0.55/f0.45 ≈ **0.45 —
+NOT crushed to 0.008/0.7 m**. Baseline overlaps = **0** (the CS2-g13 24.3 cm KLEI×ZAND overlap §58
+described is GONE at the current baseline — the S57 engine holds it at 0). So the §58 crush symptom
+(`bandc37` capping B4-u5, `bandc139` capping CS2-g13 KLEI) is NOT reproducible on the current data: the
+lenses are open and overlaps are 0. There is no live defect for the 8s contour-clip to fix here. Building
+the `detourEnclosedLens`-generalised-to-band-contours arrangement change (large, touches the trace core)
+against a symptom that is not present would be speculative. NOT built.
+
+**WHY STOP (not force-fix).** (1) All three stages reference geometry (S7-u2 thickness, B4 at x=142.2,
+crushed lenses, CS2-g13 overlap) that the current `diag_allsections_input.json` does not contain or that
+the §57 engine already resolves — the §58 stale-premise trap, now measured across all three. (2) Stage 1's
+literal mechanism is a 0-unit no-op; its real content is a same-vs-different-litho 8a rule gap = ask-first.
+(3) Stage 2's region + render are already correct. (4) Stage 3's crush + overlap are not present. Forcing
+edits onto a green engine (holes 0/0, overlaps 0, conformance 10, full utils 821/0) on coordinates that no
+longer match would REGRESS a proven partition to chase a defect the data does not show — precisely what
+§58 was reverted for.
+
+**FILES: NONE net (engine byte-identical to §57 — `git status` shows ZERO `desktop/src` changes).**
+Throwaway `partitionFillV2.s7probe.diag.test.ts` created + DELETED. Diag JSON outputs
+`scripts/diag_line_stage_diff.json` + `scripts/diag_seed_gate.json` were regenerated by SHAPE_AUDIT runs
+(harmless diag artifacts, no engine effect). `scripts/gen_paint_tool.mjs` shows Modified in `git status`
+but was **NOT touched this session** (pre-existing worktree dirt at session start — left untouched per
+mandate). AFTER-STEP `CS1_FLIP=1` regen NOT run (CS1 geometry did NOT change → the dump would be
+byte-identical; §57 precedent — no regen needed; the env-prefixed run was also harness-denied). Baselines
+re-verified GREEN at session end: full utils 821/0 (engine unchanged). NO git ops. v1 + app + intersect.ts
+READ-ONLY. Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowlisted).
+
+**OWNER, ONE QUESTION AT A TIME (per `feedback_ask_domain_questions_dont_bugfix`, with the S7 visual):**
+Does a matched-pair **KLEI-KLEI** correlation band's top tie count as tying the **SILT** that sits
+directly on top of it (the SILT's base = the KLEI band's tied top contact)? Today §8 (8a/8f shared-contact
+derivation) says the SILT's base IS tied → the SILT ONLAPS left (corr-1). Your S7 dogfeed says the SILT
+should LENS left (untied). If the answer is "a shared contact only derive-ties when the two units sharing
+it are the SAME litho," that is a bounded change to `derivedBandTies` / the §4-increment-2 derived-base
+rule (restrict the derivation to same-formation neighbours) — but it is a MODEL-WIDE geological rule, so
+it needs your call before anyone touches `effectiveCorr`. (Note: for THIS S7 instance the change may be a
+no-op anyway — the derived tie was measured redundant with the direct-flag path; the rule question is the
+real deliverable, not the S7 pixel.)
