@@ -5446,3 +5446,95 @@ Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowlisted). AFTER-STEP NOT DONE
 DENIED twice, per §52/§53 precedent): `CS1_FLIP=1` regen of `scripts/diag_cs1_flip_walkthrough.json` —
 the ORCHESTRATOR must run
 `CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`.
+
+## §56 — Session 50: THE LAST OVERLAP FALLS (0/0 TRUE PARTITION) + zero-seed recording; convergingStack (a) = a MEASURED nested-termination WALL, ask-first
+
+The cleanup triple, stage-gated 1→2→3. Baselines VERIFIED EXACT at session start (holes 0/0, overlaps 1
+= CS2-g13 KLEI(quad)×ZAND 24.3cm; seedGate 733/623/8/94/8/0 paintMismatch 0; lineStageDiff OK 838 /
+MISSING 8 / COLLAPSED 2 / DANGLING 10 / MERGED-AWAY 8 / PHANTOM 1; tie 446/0/0/0; CS1 8/8; full utils
+820 pass / 1 fail = convergingStack (a); tsc clean). NO engine geometry deleted; NO git ops. v1 READ-ONLY.
+
+**STAGE 1 SHIPPED — the last overlap is GONE, the engine is a TRUE PARTITION (holes 0/0, overlaps 0/0).**
+ROOT (throwaway curve/face/tie probe, created + deleted): CS2-g13's overlap is a corr-0 INTERIOR LENS vs
+a matched-pair BAND CONTOUR, NOT a tie. col13's KLEI interbed (el −3.845..−4.42, an ui-4 interior unit,
+0 enclosed on its own column but corr-0) emits its lens at the flat 0.45 reach. The ZAND above it is a
+top-tied MATCHED-PAIR BAND (tie72:13 = ZAND-top 3.35↔3.77); its BASE CONTOUR ``bandc139`` slopes from
+the near ZAND base (−3.845) to the FACING ZAND base (−5.429), diving BELOW the KLEI interbed's own base
+corner while the KLEI lens's 0.45 apex (−4.133) stayed ABOVE it → the KLEI diamond poked up into the ZAND
+band (the 24.3 cm quad×quad double-claim). ``interiorLensReachToTies`` only fitted the lens against
+resolved TIES (``activeTies``) — a matched-pair band's base is a ``bandc`` contour, NOT a tie, so the
+collision was invisible. FIX (ruling 8n / 8b-rev, NO new guard — a band contour IS a bracket exactly like
+a tie): ``drawTermination.emitLens`` now adds the gap's matched-pair band contours (new
+``gapBandContourBrackets``, from the SAME ``collectGapBands`` ``emitEnclosingFlood`` uses) to the lens
+collision brackets, so the diamond shortens (0.45 → 0.041 thickness rung) to fit strictly below the band
+base. Direct-probe confirmed the reach drops only when a band contour crosses the diamond. RESULT: overlaps
+1 → **0** (holes_overlaps ratchet tightened to 0 holes / 0 overlaps, PINNED_OVERLAPS list DELETED). flag-OFF
+byte-identical (``lensReachFraction``/``interiorLensReachToTies`` gate on the flag; computeSectionFillV2
+parity 13/13). tie 446/0/0/0 unchanged. CS1 8/8.
+
+**STAGE-1 BROADER EFFECT (all improvements, 0 regressions — RECORDED, owner should note).** The 8n clamp
+is the correct GENERAL rule, so it shortened FIVE band-crossing interior lenses (CS2-g13 KLEI + CS1-g11
+ZAND/SILT + CS2-g11 KLEI + CS2-g17 SILT), which restructured the enclosing-flood arrangement enough to:
+* conformance FLAG-ON **14 → 10**: FOUR pinned ``absent`` violations RESOLVED, ZERO new (TS7-g0 KLEI
+  left+right onlaps now render; the two S40 F5 flood-absorption instances CS1-g3 SILT + CS2-g21 SILT now
+  render their lens — the S40 pin said "closes with the termination-plan rebuild, never by re-shortening";
+  this closed them as a SIDE EFFECT of the 8n clamp, NOT a direct re-shorten). Ratchet updated 14→10 in the
+  same commit (the ratchet's own doctrine: a legitimate fix updates the pin). Owner call: accept, or is the
+  S40-wall closing-via-8n-side-effect a concern?
+* seedGate faces 733→**743**, single 623→633, zeroDef 94→**97**, multiDef 8→**5**, paintMismatch **0**
+  (fewer multi-seed defects — the overlap-causing faces are gone; +3 zeroDef are their split remnants).
+* lineStageDiff COLLAPSED 2→**6** (the 4 shortened lenses register shorter than expected — a DIAGNOSTIC
+  classification, not a render defect; OK 838→834, all other counters unchanged). The RENDER arbiter (holes
+  0/0, overlaps 0/0) is clean.
+The prompt's "everything else unchanged" was not literally met; every delta is a strict improvement with
+holes/overlaps at 0/0. Ratchets updated to the new reality.
+
+**STAGE 2 — convergingStack (a) is a MEASURED WALL (nested enclosed-lens-in-onlapping-minority topology),
+ask-first per the mandate. NOT force-fixed.** Diagnosis (throwaway probe, deleted): the synthetic fixture
+is SILT / KLEI / VEEN / KLEI / ZAND with the SILT-base tie + ZAND-top tie CONVERGING right. ``extractEnclosedLenses``
+correctly extracts VEEN (enclosed in KLEI above+below), emits its lens0/lens1 at 0.45 (apex 0.45,5.0) — the
+lens FLANKS ARE EMITTED (not the §49 "one flank missing"; that was superseded by S49's flood-apex fix). BUT
+the enclosing KLEI band is classified **corr-1** (``effectiveCorr``: its top is DERIVED-tied via SILT, base
+via ZAND — two DIFFERENT-formation derived ties = a MIXED-BRACKET MINORITY, corr-1 BY DESIGN per the
+effectiveCorr comment, NOT a bug), so KLEI draws an ONLAP flank ``oflankterm0`` = (0,6)→(0.5,4.5). That KLEI
+onlap flank CROSSES VEEN's top flank at (0.3,5.1) and SLICES the VEEN diamond — VEEN never traces as its own
+face; its lower part merges into the KLEI (seeded KLEI). Per 8s, only TIE/BAND art shortens a lens, and the
+real SILT-base/ZAND-top ties do NOT cross VEEN's 0.45 diamond (they're at el 6..5.55 / 4..4.45 within [0..0.45],
+clear of VEEN 4.7..5.3) — so VEEN's 0.45 is CORRECT per 8s. The obstruction is the KLEI ONLAP FLANK (a
+synthetic termination line, not tie/band). The render is HOLE-FREE (assertPartition passes; VEEN is
+mis-painted KLEI, not a hole). **The rule-gap:** how does an enclosed lens interact with its ENCLOSING
+MINORITY's own onlap flank? Candidate resolutions, NONE force-built (each needs an owner rule): (A) shorten
+VEEN to fit inside the KLEI onlap wedge (treat the KLEI onlap flank as a collision bracket — but 8s says only
+tie/band shorten a lens); (B) the KLEI onlap flank DETOURS around the enclosed VEEN lens (ruling 8g "a lens is
+a DETOUR in the enclosing band's contour" applied to an onlap flank — a real geometry change to ``emitOnlap``,
+regression risk); (C) pin as an accepted synthetic-fixture limitation (it's a hand-built TDD gate, not one of
+the 14 real sections; all real holes/overlaps are 0/0). **Owner: which rule for nested enclosed-lens-inside-
+onlapping-minority?** convergingStack (a) stays the 1 remaining full-utils red (unchanged from baseline). The
+test's flag restore is ALREADY in a try/finally (no leak to fix — the prompt's cs1frozen-leak concern is moot,
+the finally is present).
+
+**STAGE 3 SHIPPED — the zero-seed RESOLUTION RECORDING (SEED_FILL_MANDATE Step-4; ZERO render/paint impact).**
+New shared ``seedClassifier.resolveZeroSeedClass`` (pure, boundary-curve-ids + a flood-label resolver) maps
+each ``zero-seed-defect`` face to its owning fill doctrine, RECORDING ONLY (``labelFaces`` untouched — it still
+keeps the interim doctrine paint; this classifies the SAME face after the fact). The seedGate records
+``zeroSeedResolution`` per face + an ``unresolvedZeroDefect`` tally. The 97 zero-seed faces resolve to:
+**carry-seed 61** (ruling 8n — sub-TD substrate, the band∩column carry IS the seed, seedless by construction) +
+**unterminated-litho 27** (ruling 8o — a flood face whose boundary carries EXACTLY ONE flood litho) +
+**band-contour 1** + **owner-ambiguous 8** (ruling 8o's OWN ask-clause: the boundary carries >1 flood litho).
+UNRESOLVED (owner-ambiguous, genuinely undecided) = **8**, each LISTED BY IDENTITY for the owner, NEVER guessed:
+TS7#14 el[−7.11..−5.01] (flood SILT), TS8#18 el[3.51..11.74] (KLEI), CS3#33 el[9.62..10.69] (SILT),
+CS1#61 el[4.9..11.13] (ZAND), CS1#130 el[4.41..11.98] (SILT), CS2#99 el[−5.04..−3.51] (ZAND),
+CS2#127 el[−5.43..−3.84] (KLEI — the CS2-g13 region Stage 1 touched), CS2#142 el[−6.37..−5.52] (KLEI). Each is
+a flood face bounded by MULTIPLE ``floodsw`` curves of DIFFERENT lithos → ruling 8o says ASK, never pick. paint
+BYTE-IDENTICAL (seedGate counts 743/633/8/97/5/0 IDENTICAL pre/post; paintMismatch 0; holes 0/0). tsc clean.
+
+FILES TOUCHED: ``partitionFillV2/drawTermination.ts`` (Stage 1 — ``gapBandContourBrackets`` + band-contour
+brackets in ``emitLens``); ``partitionFillV2.holes_overlaps.diag.test.ts`` (ratchet 1→0 overlaps, PINNED
+deleted); ``partitionFillV2.conformance.diag.test.ts`` (FLAG_ON_BASELINE 14→10, the 4 resolved pins removed +
+recorded); ``partitionFillV2/seedClassifier.ts`` (Stage 3 — new ``resolveZeroSeedClass`` + ``ZeroSeedResolution``,
+additive); ``partitionFillV2.seedGate.diag.test.ts`` (Stage 3 — resolution recording, ``unresolvedZeroDefect``
+tally, owner-ambiguous list). v1 ``utils/partitionFill/`` + app READ-ONLY. ``scripts/gen_paint_tool.mjs``
+untouched. NO git ops. Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowlisted). AFTER-STEP NOT DONE (env
+DENIED, per §55 precedent): CS1 geometry CHANGED (CS1-g11 lenses shortened) → the ORCHESTRATOR must run
+``CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`` to
+regenerate ``scripts/diag_cs1_flip_walkthrough.json``.
