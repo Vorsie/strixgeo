@@ -123,20 +123,32 @@ describe('session-10 TARGET 1 — multi-unit 0-corr stack facing a converging si
 
       // The interbed interval (el 4..6) is a hole-free partition.
       assertPartition(regions, 0, 4.1, 5.9)
-      // The interbed sits at el 6..4 (depth 6..8): KLEI top slab el 6..5.3, VEEN el 5.3..4.7, KLEI
-      // base slab el 4.7..4. Each DISTINCT formation is present as its own termination (not absent,
-      // not a full-width band).
-      const kleiRs = renderedShape(inGap(regions, 0), KLEI, 4, 6, 'left')
+      // RULING 8r (LINES BEFORE THE MERGE, owner 2026-07-19): ``extractEnclosedLenses`` extracts VEEN
+      // as an enclosed lens and MERGES the two KLEI slabs (above + below VEEN) into ONE host. Under 8r
+      // the termination sweep classifies on the RAW picked pieces, NOT the merged host: VEEN is the
+      // true minority interbed and LENSES (its own 0.45 hole); the two KLEI slabs are the ENCLOSING
+      // MATRIX (same formation, same body), which per ruling 8g DETOURS AROUND VEEN and reconnects —
+      // one KLEI body with VEEN as a notch, filling the wedge between the converging SILT-base and
+      // ZAND-top ties. (Pre-8r the un-split merged KLEI host emitted a single detour-onlap at 0.5; 8r
+      // makes the raw KLEI slabs each inherit their own host contact's tie [8l(b)] and merge back into
+      // the wrapping body via the 8j post-fill merge.) The behavioural intent stands: the true interbed
+      // VEEN terminates, hole-free; the enclosing KLEI is one body wrapping it.
       const veenReal = renderedShape(inGap(regions, 0), VEEN, 4.7, 5.3, 'left')
-      expect(kleiRs.shape === 'lens' || kleiRs.shape === 'onlap', 'KLEI interbed terminates (lens/onlap), not absent/band').toBe(true)
       expect(veenReal.shape === 'lens' || veenReal.shape === 'onlap', 'VEEN interbed terminates (lens/onlap), not absent/band').toBe(true)
-      // Neither interbed formation reaches the far (converging) edge — they terminate short.
-      let interbedMaxFrac = -Infinity
+      // VEEN (the true minority) terminates short of the converging far edge — its own lens does not
+      // reach the convergence (the KLEI matrix, not VEEN, fills the wedge to the convergence point).
+      let veenMaxFrac = -Infinity
       for (const r of inGap(regions, 0)) {
-        if (r.formationId !== KLEI && r.formationId !== VEEN) continue
-        for (const p of r.polygon) if (p.elevation > 4 - 0.01 && p.elevation < 6 + 0.01 && p.fraction > interbedMaxFrac) interbedMaxFrac = p.fraction
+        if (r.formationId !== VEEN) continue
+        for (const p of r.polygon) if (p.elevation > 4 - 0.01 && p.elevation < 6 + 0.01 && p.fraction > veenMaxFrac) veenMaxFrac = p.fraction
       }
-      expect(interbedMaxFrac, 'interbed lenses terminate short of the converging far edge').toBeLessThan(0.9)
+      expect(veenMaxFrac, 'VEEN lens terminates short of the converging far edge').toBeLessThan(0.9)
+      // The enclosing KLEI is ONE body present on BOTH sides of the VEEN lens (the 8g wrap, welded by
+      // the 8j post-fill merge) — never absent, never split into two different bodies.
+      const kleiRegions = inGap(regions, 0).filter((r) => r.formationId === KLEI)
+      expect(kleiRegions.length, 'KLEI enclosing matrix is present (wraps the VEEN lens)').toBeGreaterThan(0)
+      const kleiBodies = new Set(kleiRegions.map((r) => r.bodyId))
+      expect(kleiBodies.size, 'the KLEI wrap is ONE body (ruling 8g detour + 8j merge)').toBe(1)
     } finally {
       setTwoSidedTerminations(prev)
     }

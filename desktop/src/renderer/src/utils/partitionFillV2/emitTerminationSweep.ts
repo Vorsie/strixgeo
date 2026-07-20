@@ -47,6 +47,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { type Corr0Diamond } from './detourBandContour'
 import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
 import { type ResolvedTie } from './emitCurves'
@@ -54,6 +55,7 @@ import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effective
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { type TerminationPlan } from './terminationPlan'
+import { splitHostIntoRawPieces } from './rawUnitSplit'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
 import { LENS_PINCH_FRACTION } from '../partitionFill'
@@ -97,6 +99,7 @@ export function emitTerminationSweep(
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
   plans: readonly TerminationPlan[] = [],
+  diamonds?: Corr0Diamond[],
 ): void {
   const { columns } = section
   if (columns.length < 2) return
@@ -131,11 +134,11 @@ export function emitTerminationSweep(
     // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
     // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
     if (ci + 1 < columns.length) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out)
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
     if (ci - 1 >= 0) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out)
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds)
     }
   }
 }
@@ -162,6 +165,7 @@ function emitSideSweep(
   nextId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  diamonds?: Corr0Diamond[],
 ): void {
   // ``colIndex`` is retained for signature parity / future per-column diagnostics; the
   // direction-blind bridge suppression that consumed it is deleted (Part B, ruling 8i(e)).
@@ -202,12 +206,31 @@ function emitSideSweep(
   const shallowTD = Math.max(colTD, facingTD)
 
   for (let ui = 0; ui < col.units.length; ui++) {
-    const eff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const, topTie: null, baseTie: null }
-    // RULING 8p: the PLAN is the dispatch authority. Its ``corr`` + ``geometry`` decide the
-    // termination shape; the ``EffectiveCorr`` (``eff``) supplies only the draw-time tie geometry
-    // (topTie/baseTie provenance) ``drawTermination`` needs. The plan is built from the SAME
-    // classifier, so ``plan.corr === eff.corr`` by construction — a mismatch is an invariant break.
-    const plan = planAt.get(`${gapIndex}|${side}|${ui}`)
+    const hostEff = corr[ui] ?? { topTied: false, baseTied: false, corr: 0 as const, topTie: null, baseTie: null }
+    const hostDf = flags[ui] ?? { top: false, base: false }
+    // RULING 8r — LINES BEFORE THE MERGE (owner, 2026-07-19, on 23/125-S7's middle clay: "i want
+    // the lines before the merge. first fill then merge remember"). ``extractEnclosedLenses`` merged
+    // a same-formation sandwich (SILT-ZAND-SILT) into ONE host BEFORE this sweep; classifying on the
+    // MERGED host emits its termination line on a host contact (the S7 6.37-rooted ``oflankterm9``),
+    // exactly what 8r forbids. ``splitHostIntoRawPieces`` restores the RAW picked pieces (host span
+    // MINUS the enclosed-lens intervals) so each piece classifies + roots on ITS OWN raw contacts.
+    // Per 8l(b) the tie state is INHERITED structurally (top piece = host top tie, bottom piece =
+    // host base tie, interbed-cut contacts untied) — no re-resolution against a raw stack needed.
+    // The enclosed lens sub-interval itself is NOT a piece here (``emitEnclosedLensCurves`` draws it).
+    // An UNSPLIT host (no enclosed lens) returns a SINGLE piece = the host, so its emission is
+    // byte-identical to the pre-8r per-``col.units`` sweep. The split is flag-ON only by construction
+    // (``col.enclosedLenses`` is populated only under the flag-ON extraction; flag-OFF never reaches
+    // the sweep). ``ui`` is the merged host index — geometry reads that index the merged stack
+    // (``lensEnclosingMatrix``, the boundary-polyline choice) use it via ``piece.hostUnitIndex``.
+    const pieces = splitHostIntoRawPieces(col.units[ui], ui, col, hostEff, hostDf.top, hostDf.base)
+    const nHost = col.units.length
+    for (const piece of pieces) {
+    const eff = piece.eff
+    // RULING 8p: the PLAN is the dispatch authority for an UNSPLIT host (its ``corr`` + ``geometry``);
+    // a SPLIT host's raw pieces are not in the (merged) plan, so their ``eff.corr`` (8l(b)-inherited)
+    // is the authority. For a single-piece host the plan and ``eff.corr`` agree by construction.
+    const isSplit = pieces.length > 1
+    const plan = isSplit ? undefined : planAt.get(`${gapIndex}|${side}|${ui}`)
     const c = plan ? plan.corr : eff.corr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
     // RULING 8l (CORR IS THE LITERAL COUNT — audit item 2, S34): the HIDDEN BAND PROMOTION
@@ -234,9 +257,19 @@ function emitSideSweep(
     // (same facing-TD test, computed once in ``planGeometry``); fall back to the inline test when no
     // plan exists (flag-OFF / test call without plans). ``emitSubTdLenses`` honours 8i(e) there —
     // and now also the F5 sub-TD corr-1 onlap (a corr-1 sub-TD unit the sweep no longer touches).
-    const isSubTd = plan ? plan.geometry === 'sub-td' : col.units[ui].topElev <= facingTD - ELEV_EPS
+    // Sub-TD deferral: a piece entirely below the facing TD is ``emitSubTdLenses``' job. For an
+    // UNSPLIT host the PLAN's ``geometry === 'sub-td'`` is the authority (byte-identical); a raw
+    // piece uses its OWN top elevation (a merged host is above the TD, so a raw sub-piece of it is
+    // too — this only ever fires for the single-piece path).
+    const isSubTd = plan ? plan.geometry === 'sub-td' : piece.unit.topElev <= facingTD - ELEV_EPS
     if (isSubTd) continue
-    const u = col.units[ui]
+    const u = piece.unit
+    // The piece's boundary role: a FIRST unit rides the top band, a LAST unit rides the shallow TD.
+    // For a SPLIT host only the TOP piece of the FIRST host is a surface unit, and only the BOTTOM
+    // piece of the LAST host is a TD unit; interior pieces are always interior. For an UNSPLIT host
+    // this reduces to the host's own index test (byte-identical).
+    const pieceIsFirst = ui === 0 && piece.isTopPiece
+    const pieceIsLast = ui + 1 >= nHost && piece.isBottomPiece
 
     if (c === 0) {
       // RULING 8i(e) "EVERYTHING MUST LENS" (audit items 3 + 5, S34): every corr-0 side emits its
@@ -251,13 +284,13 @@ function emitSideSweep(
       // unit now exposes is a FILL construction defect to repair (face ownership / closure riding
       // line art), never a reason to restore the guard.
       emitCorr0Termination(
-        u, ui, eff, col, facing, side, colX, facingX, gapIndex, shallowTD,
-        activeTies, lensLabels, nextId, nextFloodId, out,
+        u, piece.hostUnitIndex, eff, col, facing, side, colX, facingX, gapIndex, shallowTD,
+        activeTies, lensLabels, nextId, nextFloodId, out, false, pieceIsFirst, pieceIsLast, diamonds,
       )
       continue
     }
 
-    const df = flags[ui] ?? { top: false, base: false }
+    const df = { top: piece.directTop, base: piece.directBase }
 
     // RULING 8d-rev (owner, 2026-07-16 — "the top band counts as one correlation"; design §8
     // 8d-rev): a FIRST unit tied ONLY by the top band is now corr 1 and ONLAPS riding the SURFACE.
@@ -269,7 +302,7 @@ function emitSideSweep(
     // real tie via its ``TieRef``). Distinct from the generic ``emitOnlap``, whose ``top-band``/null
     // TieRef falls back to ``facingElevAt`` (NOT the top-band polyline) → a divergent tied leg → a
     // sliver hole; so a top-band-only first unit is routed HERE (to the surface-onlap polyline ride).
-    if (ui === 0 && c === 1 && eff.topTied && !eff.baseTied && !df.top && !df.base) {
+    if (pieceIsFirst && c === 1 && eff.topTied && !eff.baseTied && !df.top && !df.base) {
       // RULING 8m (owner, 2026-07-17): a surface onlap's "tie" is the TOP BAND, whose matched facing
       // contact (below the top band) is the facing FIRST unit. If that facing first unit is the SAME
       // litho, the two surface onlaps would meet at 0.5 and the 8j merge welds them into ONE body
@@ -286,9 +319,11 @@ function emitSideSweep(
 
     // RULING 8i DRAW: 0 → lens always (physical suppressions only); 1 → follow the tie
     // (same litho on the matched facing side → merge; different → onlap); 2 → handled above.
+    // ``piece.hostUnitIndex`` (not the piece) indexes the merged ``col.units`` for the corr-0
+    // ``lensEnclosingMatrix`` read; the corr-1 path ``void``s it.
     drawTermination(
       u,
-      ui,
+      piece.hostUnitIndex,
       c,
       eff.topTied,
       eff.baseTied,
@@ -307,7 +342,9 @@ function emitSideSweep(
       nextId,
       nextFloodId,
       out,
+      diamonds,
     )
+    }
   }
 }
 
@@ -368,6 +405,9 @@ export function emitCorr0Termination(
   nextFloodId: () => string,
   out: InputCurve[],
   subTd = false,
+  isFirstOverride?: boolean,
+  isLastOverride?: boolean,
+  diamonds?: Corr0Diamond[],
 ): void {
   if (subTd) {
     // SUB-TD: the deep-to-deep substrate is the flood. Emit ONLY the bare lens closing (no facing
@@ -381,8 +421,12 @@ export function emitCorr0Termination(
     for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)
     return
   }
-  const isFirst = ui === 0
-  const isLast = ui + 1 >= col.units.length
+  // RULING 8r: for a RAW SUB-PIECE the boundary role is the CALLER's (a top piece of a first host
+  // rides the surface; an interior piece never does), passed via ``isFirstOverride``/``isLastOverride``.
+  // For the sub-TD path / direct callers without an override, fall back to the host-index test
+  // (byte-identical to the pre-8r single-unit computation).
+  const isFirst = isFirstOverride ?? ui === 0
+  const isLast = isLastOverride ?? ui + 1 >= col.units.length
   // A multi-unit column's FIRST / LAST unit rides a boundary polyline (top band / shallow-TD floor) —
   // the watertight S20 boundary-lens triangle. GEOMETRY only: chosen from ui + extent, never litho.
   if ((isFirst || isLast) && !(isFirst && isLast)) {
@@ -394,6 +438,6 @@ export function emitCorr0Termination(
   // no-ops a sub-snap lens cleanly). Byte-identical to the pre-S34 ``isMinorityWide``-true path.
   drawTermination(
     u, ui, 0, eff.topTied, eff.baseTied, eff.topTie, eff.baseTie, false, false,
-    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out,
+    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out, diamonds,
   )
 }
