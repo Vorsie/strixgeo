@@ -5538,3 +5538,82 @@ untouched. NO git ops. Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowliste
 DENIED, per §55 precedent): CS1 geometry CHANGED (CS1-g11 lenses shortened) → the ORCHESTRATOR must run
 ``CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`` to
 regenerate ``scripts/diag_cs1_flip_walkthrough.json``.
+
+## §57 — Session 51: THE LAST RED FALLS — convergingStack (a) GREEN via the ruling-8g onlap-flank detour (full utils 821/0, true partition preserved)
+
+The §56 STAGE-2 wall (the ONLY remaining full-utils red, `convergingStack (a)`) is CLOSED, built as
+ruling 8g option (B) — **the enclosing minority's own onlap flank DETOURS around the enclosed lens**
+(orchestrator resolution via 8g, per the S51 prompt; NOT a new owner call). SHIPPED.
+
+**ROOT (throwaway curve/face/halfedge probe, created + DELETED — one file the shell could not `rm`,
+left as a `describe.skip` stub `partitionFillV2.convstackProbe.diag.test.ts` flagged DELETE-ME for the
+orchestrator).** The synthetic fixture is SILT / KLEI / VEEN / KLEI / ZAND on the left column facing a
+converging SILT-base + ZAND-top tie. `extractEnclosedLenses` correctly extracts VEEN (KLEI above+below),
+which emits its two flanks `lens0`/`lens1` at the flat 0.45 reach → apex at **(0.45, 5.0)**. The enclosing
+KLEI band is corr-1 (mixed-bracket minority, DERIVED-tied top via SILT / base via ZAND — corr-1 BY DESIGN)
+and draws an ONLAP flank `oflankterm0` = (0,6)→(0.5,4.5) **that slices the VEEN 0.45 diamond twice**
+(crosses `lens0` at 0.30,5.10 and `lens1` at 0.354,4.936). Measured facts that pinned the fix:
+* VEEN's apex (0.45,5.0) sits **ABOVE** the KLEI onlap flank (at x=0.45 the flank is y=4.65) — the 0.45
+  reach pokes the diamond PAST its own enclosing matrix's onlap boundary.
+* The arrangement (`intersect.ts`, UNTOUCHABLE — 613-hole trap) **MISSES the second crossing** on
+  `lens1`×`oflankterm0-lower` (no vertex at 0.354,4.936 — only `lens0`'s crossing split). So VEEN never
+  traces as its own face: its left part merges into KLEI (via `col0:lens0`), the apex tip absorbs into
+  SILT. This confirmed the face-trace-fix path the prompt hinted at is BLOCKED by an untouchable-module
+  miss → the geometric detour (B) is the correct construction, not (A) shorten-VEEN (contradicts 8s).
+* A SECOND straight cutter existed: the KLEI onlap's SILT FLOOD wedge flank `floodsw0` (the twin of the
+  onlap flank, same (0,6)→(0.5,4.5) line, SILT label) ALSO re-cut the diamond. Both had to detour.
+
+**THE FIX (ruling 8g — "a lens is a DETOUR in the enclosing band's contour, the matrix flows AROUND it
+and reconnects").** New pure module `partitionFillV2/detourEnclosedLens.ts`
+(`detourFlankAroundEnclosedLenses` + `segIntersect`): when an enclosing-minority onlap flank crosses BOTH
+outer flanks of an enclosed lens's diamond (it cuts through), the straight span between the two crossings
+is replaced by `crossIn → apex → crossOut`, RIDING the diamond's own emitted `lens0`/`lens1` art around the
+apex. The crossings sit ON the diamond flanks, so the inserted ride is COLLINEAR with the lens curves — the
+arrangement unions the coincident segments and the lens closes as a proper HOLE in the matrix onlap face
+(the matrix KLEI wraps over the VEEN apex; VEEN traces as its own face; SILT pushed back). Wired in
+`drawTermination.emitOnlap` (flag-ON sweep ONLY — flag-OFF never reaches the sweep, byte-identical BY
+CONSTRUCTION). The SAME detoured polyline is threaded to `emitFloodWedge` as a NEW optional
+`emittedFlankOverride` param so the SILT flood boundary rides the identical detour (twin half-edges — matrix
+one side, flood the other → the lens is a hole in both). Shared helper `enclosedLensDiamond` EXTRACTED from
+`emitLenses.emitOne` (second copy: the detour needs the EXACT emitted apex) — `emitOne` now calls it, and
+the detour calls it with a `null` section (skips the rare user-override lookup; the default diamond is what
+the emitted flanks use). RED→GREEN proven on the gate.
+
+**MEASURED — target hit EXACTLY, every real-section arbiter byte-identical to the §56 baseline:**
+* full utils **821 passed / 0 failed** (was 820/1 = convergingStack (a)); the +1 pass is the now-green
+  gate — no other test moved. tsc clean.
+* holes flag-ON **0/0**, overlaps **0** (true partition preserved on all 14 real sections). flag-OFF holes
+  **0/0/0** (the gate's own flag-OFF branch, green). computeSectionFillV2 parity **13/13**.
+* conformance flag-ON **10** (unchanged — no real-section shape moved). CS1 gates **8/8**. tie unchanged.
+* seedGate `745/635/8/97/5/0`, **paintMismatch 0** (was 743/633 — the **+2 faces/single are ENTIRELY the
+  synthetic `convergingStack (a)` fixture**: VEEN now traces as its OWN face + the KLEI apex-wrap split,
+  where before VEEN merged into KLEI. The 14 REAL sections are unmoved — conformance 10, holes 0/0,
+  lineStageDiff OK 834 all pin them identical). zeroDef 97, multi 5, band-contour 1, carry-seed 61,
+  unterminated-litho 27, owner-ambiguous 8 — all IDENTICAL to §56.
+* lineStageDiff **OK 834 / MISSING 8 / COLLAPSED 6 / DANGLING 10 / MERGED-AWAY 54 / MISROOTED 0** —
+  byte-identical to §56 (the detour touches no real-section line art).
+* The `convergingStack (a)` fixture's own zeroDef stays 1 (`#4 el[4.5..6]`, the converging-apex micro-face
+  — a pre-existing synthetic zero-seed, unchanged; the gate asserts VEEN TERMINATES + hole-free, both now
+  true). All 5 other convergingStack sub-gates ((b)/(d)/(e)/(g)/(c)) still green.
+
+**WHY the detour is coherent (the geometry that pinned B over A/C).** An enclosed lens CANNOT reach further
+laterally than its enclosing matrix's own termination at the same elevation — VEEN poking above the KLEI
+onlap flank was the incoherence. 8s forbids SHORTENING the lens (only tie/band art caps a lens, and the
+KLEI onlap flank is neither), so the resolution is the matrix WRAPPING the lens (8g): KLEI's contour bulges
+over VEEN's apex, VEEN becomes a hole inside KLEI, SILT is pushed back to the wrapped boundary. This is the
+same "detour, don't cap" doctrine as 8n(b)/8s/the §49 flood-apex fix, applied to the enclosing MINORITY's
+own onlap flank (the case 8s left open, now closed).
+
+FILES TOUCHED: NEW `partitionFillV2/detourEnclosedLens.ts` (the 8g detour + segIntersect); `emitLenses.ts`
+(EXTRACT `enclosedLensDiamond` from `emitOne`, additive `section: SectionInput | null`);
+`drawTermination.ts` (`emitOnlap` calls the detour + threads the override; +6 params on `emitOnlap`, from
+the sweep's already-available `col`/`side`/`gapIndex`/`activeTies`); `emitFloodWedge.ts` (additive
+`emittedFlankOverride?` param — all other callers get `undefined` → byte-identical). THROWAWAY probe stub
+`partitionFillV2.convstackProbe.diag.test.ts` = `describe.skip` (ORCHESTRATOR: DELETE — the shell could
+not `rm`; it adds 1 skipped test, no pass/fail). v1 `utils/partitionFill/` + `intersect.ts` + app READ-ONLY.
+NO git ops. Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowlisted).
+
+**AFTER-STEP: NONE required.** CS1 geometry did NOT change (conformance 10, CS1 gates 8/8, holes 0/0,
+lineStageDiff unchanged — the detour fires ONLY on the nested-enclosed-lens-in-onlapping-minority topology,
+which occurs on NO real section, only the synthetic gate) → no `CS1_FLIP` regen needed this session.
+Orchestrator: re-verify + commit; DELETE the `convstackProbe` stub.
