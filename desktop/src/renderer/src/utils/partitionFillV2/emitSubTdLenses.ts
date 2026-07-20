@@ -39,11 +39,12 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { effectiveCorrForSide } from './effectiveCorr'
+import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
 import { tieRefFarElev } from './drawTermination'
 import { type ResolvedTie } from './emitCurves'
 import { emitCorr0Termination } from './emitTerminationSweep'
 import { type LensLabel } from './emitLenses'
+import { splitHostIntoRawPieces } from './rawUnitSplit'
 import { type TerminationPlan } from './terminationPlan'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
@@ -225,29 +226,50 @@ function emitSideSubTd(
   // Ruling 8i(e): the SAME bridge-fed corr the sweep uses — a bridge-anchored deep unit reads
   // corr ≥ 1 (not a 0-corr sub-TD candidate), so it stays with the substrate (no double emit).
   const corr = effectiveCorrForSide(gapIndex, side, col, facing, left, right, activeTies, bridgeGapAnchored)
+  // RULING 8r (LINES BEFORE THE MERGE — owner, 2026-07-19, on 23/125-S7's middle clay): the direct
+  // tie flags feed ``splitHostIntoRawPieces`` (which contact carries the inherited tie) — same source
+  // the above-TD sweep uses. A merged host's raw pieces below the facing TD are the sub-TD lenses the
+  // per-``col.units`` loop MISSED (the merged KLEI host absorbs raw u3-KLEI [6.65..6.03] under
+  // col17's TD 10.42 → its sub-TD lens vanished before this pass; splitting restores it, ruling 8r).
+  const flags = tiedFlags(gapIndex, side, col.units.length, activeTies, bridgeGapAnchored)
   const colX = col.x
   const facingX = facing.x
   const units = col.units
   for (let ui = 0; ui < units.length; ui++) {
-    if (units[ui].topElev > facingTD - ELEV_EPS) continue // not sub-TD on this side
-    const eff = corr[ui]
-    if (!eff) continue
-    const plan = planAt.get(`${gapIndex}|${side}|${ui}`)
-    if (eff.corr === 0) {
-      // A sub-TD corr-0 side (ruling 8i(e) "everything must lens" — no formationId gate): the shared
-      // helper emits its lens in the sub-TD flood context (the substrate carves the hole around it).
-      emitCorr0Termination(
-        units[ui], ui, eff, col, facing, side, colX, facingX, gapIndex, Infinity,
-        activeTies, lensLabels, nextId, nextFloodId, out, true,
-      )
-      continue
-    }
-    // A sub-TD corr-1 side (F5, ruling 8p): the pre-plan pass DROPPED this (corr !== 0) → the unit
-    // rendered absent (swallowed by the substrate flood). The plan resolves its bridge tieRef, so
-    // it now ONLAPS its bridge tie (one 8i(d) line, no facing flood wedge — the substrate is the
-    // flood). corr-2 sub-TD units are band members (given substrate/bridge line art) — not drawn.
-    if (eff.corr === 1 && plan) {
-      emitSubTdOnlap(units[ui], plan, side, colX, facingX, lensLabels, nextOflankId, out)
+    const hostEff = corr[ui]
+    if (!hostEff) continue
+    const hostDf = flags[ui] ?? { top: false, base: false }
+    // RULING 8r: split the (possibly merged) host into its RAW picked pieces BEFORE classifying — the
+    // enclosed-lens pre-merge (``extractEnclosedLenses``) collapsed a same-formation sandwich into one
+    // host, and a raw sub-piece below the facing TD is exactly the sub-TD lens this pass owns. An
+    // UNSPLIT host returns a SINGLE piece = itself (byte-identical to the pre-8r per-``col.units`` loop).
+    const pieces = splitHostIntoRawPieces(units[ui], ui, col, hostEff, hostDf.top, hostDf.base)
+    const isSplit = pieces.length > 1
+    for (const piece of pieces) {
+      const pu = piece.unit
+      if (pu.topElev > facingTD - ELEV_EPS) continue // not sub-TD on this side
+      const eff = piece.eff
+      // A SPLIT host's raw pieces are not in the (merged) plan; the plan applies only to an unsplit host.
+      const plan = isSplit ? undefined : planAt.get(`${gapIndex}|${side}|${ui}`)
+      if (eff.corr === 0) {
+        // A sub-TD corr-0 side (ruling 8i(e) "everything must lens" — no formationId gate): the shared
+        // helper emits its lens in the sub-TD flood context (the substrate carves the hole around it).
+        // ``piece.hostUnitIndex`` indexes the merged stack for the geometry reads.
+        emitCorr0Termination(
+          pu, piece.hostUnitIndex, eff, col, facing, side, colX, facingX, gapIndex, Infinity,
+          activeTies, lensLabels, nextId, nextFloodId, out, true,
+        )
+        continue
+      }
+      // A sub-TD corr-1 side (F5, ruling 8p): the pre-plan pass DROPPED this (corr !== 0) → the unit
+      // rendered absent (swallowed by the substrate flood). The plan resolves its bridge tieRef, so
+      // it now ONLAPS its bridge tie (one 8i(d) line, no facing flood wedge — the substrate is the
+      // flood). corr-2 sub-TD units are band members (given substrate/bridge line art) — not drawn.
+      // A split piece has no plan → its inherited corr-1 onlap rides the host tie only when a plan
+      // exists for the unsplit host (the bridge case); an interbed-cut piece is corr-0 and lenses above.
+      if (eff.corr === 1 && plan) {
+        emitSubTdOnlap(pu, plan, side, colX, facingX, lensLabels, nextOflankId, out)
+      }
     }
   }
 }
