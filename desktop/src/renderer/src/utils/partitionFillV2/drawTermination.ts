@@ -57,6 +57,7 @@ import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { facingMatrixLabel } from './facingMatrix'
+import { detourFlankAroundEnclosedLenses } from './detourEnclosedLens'
 import { interiorLensReachToTies, type ReachTie } from './lensReach'
 import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
@@ -262,7 +263,7 @@ export function drawTermination(
   // absence, not a missing termination: the space is bound by the tie + fill + merge, not left open.
   if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) return false
   // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent).
-  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, facing, u, lensLabels, nextId, nextFloodId, out)
+  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out)
 }
 
 /**
@@ -421,7 +422,11 @@ function emitOnlap(
   tiedElev: number,
   colX: number,
   facingX: number,
+  side: 'left' | 'right',
+  gapIndex: number,
+  col: ColumnGeom,
   facing: ColumnGeom,
+  activeTies: readonly ResolvedTie[],
   u: UnitGeom,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
@@ -441,29 +446,54 @@ function emitOnlap(
   // own litho label (parity with the pre-8i(d) untied flank) so the onlap triangle reads it where
   // the column vertical is out-weighted; on the arrangement's normal path the column vertical wins.
   const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
-  const pushOflank = (points: Point[]): void => {
+  const pushOflank = (points: readonly Point[]): void => {
     const id = `oflank${nextId()}`
     lensLabels.set(id, label)
-    out.push({ id, kind: 'closing', points })
+    out.push({ id, kind: 'closing', points: [...points] })
   }
   // Degenerate guard: a sub-snap onlap (apex on the column) drops the flank (the enclosing flood
   // covers the slot — the ``emitLensClosing`` no-op parity). Guarding BOTH sub-segments keeps the
   // no-op condition byte-identical to the pre-8i(d) two-flank guard (no fill/hole perturbation).
   if (segmentDeg(topPt, apex) || segmentDeg(apex, basePt)) return false
-  if (baseTied) {
-    // Base rides the tied band below (given line art) — draw ONLY the free TOP flank to the apex.
-    pushOflank([topPt, apex])
-  } else {
-    // Top rides the tied band above (given line art) — draw ONLY the free BASE flank to the apex.
-    pushOflank([apex, basePt])
-  }
+  // RULING 8g — the ENCLOSING MINORITY's own onlap flank DETOURS around an enclosed lens it would
+  // cross (owner-resolved via 8g, S51). ``u`` is the enclosing matrix of one or more enclosed
+  // lenses on its OWN column (``extractEnclosedLenses`` merged ``u`` around them). If this onlap
+  // flank would slice such a lens's 0.45 diamond, the flank RIDES AROUND the diamond's apex (the
+  // lens is line art the matrix flows around — ruling 8g's "a lens is a DETOUR in the enclosing
+  // band's contour"), never crossing it. Without the detour the flank's straight segment cuts the
+  // lens diamond in two → the lens never traces as its own face and is mis-painted the matrix
+  // (convergingStack (a): the KLEI onlap flank slicing the VEEN 0.45 diamond).
+  const flankPts = baseTied ? [topPt, apex] : [apex, basePt]
+  const detoured = detourFlankAroundEnclosedLenses(flankPts, u, colX, side, gapIndex, col, facing, activeTies)
+  pushOflank(detoured)
   // FLOOD the vacated width past the onlap tip with the facing enclosing formation. The TIED
   // side is closed by its own tie line, so its wedge is SKIPPED — for a base-tied onlap the
   // UNTIED side is the TOP (skip 'base'); for a top-tied onlap the untied side is the BASE
   // (skip 'top'). The wedge anchors on the tie/apex, NOT on the removed flank, so removing the
   // duplicate tied flank leaves the flood geometry unchanged. Rides the sloping bracket (Front 2).
   const skip: 'top' | 'base' = baseTied ? 'base' : 'top'
-  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, skip, nextFloodId, lensLabels, out, facingX)
+  // The SILT flood boundary rides the SAME ruling-8g detour as the onlap flank (they are the same
+  // undirected segment — matrix on one side, flood on the other), so the enclosed lens closes as a
+  // hole in BOTH. A straight flood flank would re-cut the diamond the onlap flank detoured around.
+  // The override only kicks in when the flank actually detoured (else it is the plain corner→apex).
+  const floodFlankOverride = detoured.length > 2 ? detoured : undefined
+  emitFloodWedge(
+    colX,
+    facingX,
+    facing,
+    u.topElev,
+    u.baseElev,
+    apexX,
+    apexElev,
+    skip,
+    nextFloodId,
+    lensLabels,
+    out,
+    facingX,
+    undefined,
+    undefined,
+    floodFlankOverride,
+  )
   return true
 }
 

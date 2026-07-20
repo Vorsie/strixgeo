@@ -148,30 +148,7 @@ function emitOne(
     push([topPt, ...upper, ...lower, basePt])
     return
   }
-  // Ruling 8s (design partition-engine-v2.md §8, owner 2026-07-19, "0.45 stands, matrix detours"):
-  // the DEFAULT 0-corr reach is 0.45 and STAYS 0.45 even when the facing carries a THIRD lithology
-  // and the wedge opens into surrounding fill — the enclosing region detours AROUND the wedge (its
-  // lines split the surrounding region → fill-between-the-lines makes overlap impossible by
-  // construction). The facing-differs cap is DELETED; the SOLE shortener is a gap TIE crossing the
-  // diamond (``enclosedLensReach`` delegates to ``interiorLensReachToTies``). An overlap that
-  // survives (CS1 gap5 ZAND×SILT) is a region-construction defect ridden on the pinned holes-diag
-  // ratchet, not a reason to re-cap. Flag-OFF keeps the original ``min(0.45, 2t/gap)`` cap
-  // byte-identical (no tie scan). A USER apex override is NEVER capped.
-  const lensMid = (lens.topElev + lens.baseElev) / 2
-  const facingX = facing.x
-  const capFrac = enclosedLensReach(
-    lens.topElev - lens.baseElev,
-    colX,
-    facingX,
-    lensMid,
-    lens.topElev,
-    lens.baseElev,
-    gapTies,
-  )
-  const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
-  const apexFrac = ov?.fraction ?? defaultFrac
-  const apexElev = ov?.elevation ?? (lens.topElev + lens.baseElev) / 2
-  const apex: Point = { x: colX + dir * gapLocalToDist(apexFrac, side, gapWidth), y: apexElev }
+  const { apex } = enclosedLensDiamond(lens, col, facing, gapIndex, side, gapWidth, section, gapTies)
   // TARGET-2 degenerate-flank guard (session 10): in a sub-snap-width gap (CS1 col21/col22 gap21,
   // 0.17 m) the apex snaps onto the column, collapsing a flank to zero extent in BOTH axes (the
   // ``close72`` elev-8.92-to-8.92 class). Emit NEITHER flank so the loop is never left half-open
@@ -180,6 +157,79 @@ function emitOne(
   if (segmentDegenerate(topPt, apex) || segmentDegenerate(apex, basePt)) return
   push([topPt, apex])
   push([apex, basePt])
+}
+
+/**
+ * The diamond geometry (top corner, apex, base corner) of an ENCLOSED lens in one gap/side —
+ * the SAME apex ``emitOne`` emits, so a consumer that must reason about the lens's shape (the
+ * ruling-8g onlap-flank DETOUR in ``drawTermination``) rides the EXACT emitted lens flanks.
+ *
+ * Extracted from ``emitOne`` (the second copy: ``drawTermination`` needs the identical apex to
+ * detour around it). Honours a per-body apex override so the detour tracks a user-moved lens too.
+ *
+ * Parameters
+ * ----------
+ * lens : UnitGeom
+ *     The enclosed lens (its own top/base contacts are the diamond corners on the column).
+ * col : ColumnGeom
+ *     The lens's own column (its ``x`` is the diamond corner x).
+ * facing : ColumnGeom
+ *     The facing column (``facing.x`` + ``interiorLensReachToTies`` set the reach).
+ * gapIndex : number
+ *     The gap the lens is emitted into (for the override lookup).
+ * side : 'left' | 'right'
+ *     Which side of the gap the emitting column is (the apex pinches toward the facing column).
+ * gapWidth : number
+ *     The gap width in REAL alongM metres (|facing.x − col.x|).
+ * section : SectionInput
+ *     The section (for the per-body apex override lookup).
+ * gapTies : readonly ReachTie[]
+ *     The gap's ties (the sole 8s reach shortener).
+ *
+ * Returns
+ * -------
+ * { topPt, apex, basePt } : the diamond's three metres×elevation vertices.
+ */
+export function enclosedLensDiamond(
+  lens: UnitGeom,
+  col: ColumnGeom,
+  facing: ColumnGeom,
+  gapIndex: number,
+  side: 'left' | 'right',
+  gapWidth: number,
+  section: SectionInput | null,
+  gapTies: readonly ReachTie[],
+): { topPt: Point; apex: Point; basePt: Point } {
+  const colX = col.x
+  const dir = side === 'left' ? 1 : -1
+  const topPt: Point = { x: colX, y: lens.topElev }
+  const basePt: Point = { x: colX, y: lens.baseElev }
+  // Ruling 8s (design partition-engine-v2.md §8, owner 2026-07-19, "0.45 stands, matrix detours"):
+  // the DEFAULT 0-corr reach is 0.45 and STAYS 0.45 even when the facing carries a THIRD lithology
+  // and the wedge opens into surrounding fill — the enclosing region detours AROUND the wedge (its
+  // lines split the surrounding region → fill-between-the-lines makes overlap impossible by
+  // construction). The facing-differs cap is DELETED; the SOLE shortener is a gap TIE crossing the
+  // diamond (``enclosedLensReach`` delegates to ``interiorLensReachToTies``). Flag-OFF keeps the
+  // original ``min(0.45, 2t/gap)`` cap byte-identical (no tie scan). A USER apex override is NEVER
+  // capped. A ``null`` section skips the override lookup (the ruling-8g detour consumer, which needs
+  // only the default diamond — an overridden lens is user-drawn and rare; the detour tracks the
+  // default reach that the emitted lens flanks use when there is no override).
+  const ov = section === null ? undefined : lookupOverride(section, lens, gapIndex)
+  const lensMid = (lens.topElev + lens.baseElev) / 2
+  const capFrac = enclosedLensReach(
+    lens.topElev - lens.baseElev,
+    colX,
+    facing.x,
+    lensMid,
+    lens.topElev,
+    lens.baseElev,
+    gapTies,
+  )
+  const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
+  const apexFrac = ov?.fraction ?? defaultFrac
+  const apexElev = ov?.elevation ?? lensMid
+  const apex: Point = { x: colX + dir * gapLocalToDist(apexFrac, side, gapWidth), y: apexElev }
+  return { topPt, apex, basePt }
 }
 
 /**

@@ -97,6 +97,7 @@ export function emitFloodWedge(
   convToFacingX?: number,
   lensMatrixLabel?: LensLabel | null,
   gapTies?: readonly ResolvedTie[],
+  emittedFlankOverride?: readonly Point[],
 ): void {
   const midElev = (topElev + baseElev) / 2
   // RULING 8n (owner, 2026-07-18 — "stay inside the lines"): the flood wedge past a termination
@@ -171,19 +172,35 @@ export function emitFloodWedge(
   const clamped = doTieClamp
     ? clampConvToTies(conv, topCorner, baseCorner, gapTies!)
     : conv
+  // RULING 8g DETOUR (S51): for an ONLAP flood whose emitted flank rides the SAME line as the
+  // onlap flank (``convToFacingX`` set → conv == apex → the flank IS ``corner→apex``), the caller
+  // passes the detoured flank polyline as ``emittedFlankOverride`` so the SILT flood boundary rides
+  // the SAME detour around the enclosed lens the onlap flank took — the two coincide (twin
+  // half-edges, matrix on one side, flood on the other), so the enclosed lens closes as a hole in
+  // BOTH. A straight flood flank here would re-cut the lens diamond the onlap flank just detoured
+  // around (the convergingStack (a) ``floodsw0`` residual). The override already reaches the apex,
+  // so no separate ``conv→apex`` edge is emitted for that side.
   if (skipSide !== 'top' && !deg(topCorner, clamped)) {
-    const leg = doTieClamp
-      ? rideFlankToTie(topCorner, clamped, gapTies!, 'above')
-      : ridePolyline(topCorner, conv, facing, label, 'base', colX, facingX)
-    push(leg)
-    emitConvApexAt(clamped)
+    if (emittedFlankOverride !== undefined) {
+      push([...emittedFlankOverride])
+    } else {
+      const leg = doTieClamp
+        ? rideFlankToTie(topCorner, clamped, gapTies!, 'above')
+        : ridePolyline(topCorner, conv, facing, label, 'base', colX, facingX)
+      push(leg)
+      emitConvApexAt(clamped)
+    }
   }
   if (skipSide !== 'base' && !deg(baseCorner, clamped)) {
-    const leg = doTieClamp
-      ? rideFlankToTie(baseCorner, clamped, gapTies!, 'below')
-      : ridePolyline(baseCorner, conv, facing, label, 'top', colX, facingX)
-    push(leg)
-    emitConvApexAt(clamped)
+    if (emittedFlankOverride !== undefined) {
+      push([...emittedFlankOverride])
+    } else {
+      const leg = doTieClamp
+        ? rideFlankToTie(baseCorner, clamped, gapTies!, 'below')
+        : ridePolyline(baseCorner, conv, facing, label, 'top', colX, facingX)
+      push(leg)
+      emitConvApexAt(clamped)
+    }
   }
 
   // Shared conv→apex edge, using the (possibly tie-clamped) conv. Emitted once.
