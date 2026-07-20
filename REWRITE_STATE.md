@@ -5617,3 +5617,75 @@ NO git ops. Env used: SHAPE_AUDIT / HOLES_DIAG / CS1_GATE (allowlisted).
 lineStageDiff unchanged — the detour fires ONLY on the nested-enclosed-lens-in-onlapping-minority topology,
 which occurs on NO real section, only the synthetic gate) → no `CS1_FLIP` regen needed this session.
 Orchestrator: re-verify + commit; DELETE the `convstackProbe` stub.
+
+## §58 — Session 52: B4-u5 crush = band BASE contour bracket; the S50 clamp premise is WRONG (bandc139 is NOT tie-coincident) — ASK-FIRST rule gap, engine REVERTED to §57 green
+
+The mandate scoped the B4-u5 crush (CS1 gap3, 1411-GEO-23/126-B4 → GEO-23/125-S13) as: S50's
+``gapBandContourBrackets`` treats a DERIVED interval seam (``bandc37``) as a lens collision bracket;
+the fix = narrow the collision set to TIE-COINCIDENT band contours only (bandc37 excluded, ``bandc139``
+on CS2-g13 kept because "it coincides with tie72's line art"). I built that coincidence filter and it
+WORKS for the target — but the mandate's central premise is **empirically FALSE**, so the pure filter
+also reopens CS2-g13 and reverts 4 conformance wins. REVERTED to the §57 baseline; this is an
+ASK-FIRST rule gap (owner directive `feedback_ask_domain_questions_dont_bugfix`).
+
+**ROOT — reproduced at curve level (throwaway `bandcProbe.diag.test.ts`, created + DELETED).** On CS1
+gap3 the ZAND matched-pair band ``lu2 ru3`` (col3.u2-ZAND [7.13..0.608] ↔ col4.u3-ZAND [3.68..−1.79],
+TOP-tied via tie55) has TOP contour = tie55 (tie-coincident ✓) and BASE contour ``bandc37`` =
+(0.608 → −1.790) — the band's OWN base, NOT tie-coincident (no gap tie has both endpoints on it). u5-SILT
+[0.608..0.232] sits DIRECTLY BELOW that band (SILT top = ZAND base = 0.608). ``bandc37`` starts AT u5's
+own top corner and descends across the gap; ``interiorLensReachToTies`` classifies it a TOP bracket
+(atCol 0.608 ≥ midElev 0.42) and ``fitLensReach`` crushes u5's lens from frac 0.45 to ≈0.008 (apex
+x=102.32, the measured 0.7 m stub + phantom diagonal). The coincidence filter releases ``bandc37`` →
+term3/term4 reach x=142.23 (frac 0.45 ✓, matching the sibling u3-SILT lens6/7). **Target achieved.**
+
+**THE PREMISE IS WRONG — measured, not assumed.** The mandate said to KEEP CS2-g13 shortened because
+``bandc139`` "coincides with tie72's line art (re-verify)". I re-verified by direct geometry: CS2 gap3(sic
+gap13) band ``lu3 ru4`` (col13.u3-ZAND [3.35..−3.845] ↔ col14.u4-ZAND [3.77..−5.429], TOP-tied via
+tie72=3.350→3.770) has BASE contour ``bandc139`` = (−3.845 → −5.429) — the ZAND band's OWN base, which
+does NOT coincide with tie72 (a TOP tie) NOR any other gap tie NOR any 8a gap-spanning shared-contact
+(the CS2 8a shared-contacts are per-column HORIZONTAL segments −3.845/−5.429, not a spanning tie). So
+``bandc139`` and ``bandc37`` are the SAME geometric class: a top-tied ZAND band's non-tie-coincident
+BASE contour, starting at an interbed's own top corner and descending across the gap. They are NOT
+distinguishable by tie-coincidence. Neither is a "derived interval seam pairing sub-intervals" in the
+banned-derived-ties sense — both are genuine matched-pair BAND-BASE contours (the band's own bottom edge).
+
+**CONSEQUENCE of the pure coincidence filter (all measured, then REVERTED):**
+* B4-u5 opens to 0.45 (target ✓); CS1 CONFORMANCE 10 → 14 (the 4 §56-STAGE-1 side-effect resolutions
+  REVERT — CS1 gap20 ZAND absent + gap22 SILT/ZAND: §56 recorded the 8n clamp RESOLVED these as a side
+  effect, so releasing it reverts them).
+* holes flag-ON 0/0 UNCHANGED, but overlaps 0 → **1**: CS2-g13 KLEI(quad)×ZAND(quad) 24.3 cm RETURNS
+  (the exact overlap S50 STAGE-1 was built to kill). The KLEI interbed [−3.845..−4.42] lens opens to
+  frac 0.45 (apex x=382.48) and pokes up into the descending ZAND band base ``bandc139``.
+* flag-OFF 0/0/0 byte-identical (change is flag-ON-only by construction — ``emitEnclosingFlood`` /
+  ``emitLens`` reach only under ``twoSidedTerminationsEnabled``); tsc clean.
+
+**WHY this is a genuine rule gap, not a bugfix (ask-first).** Per ruling 8s the CS2-g13 overlap IS the
+sanctioned disposition — "an overlap that survives is a region-construction defect … the enclosing
+region's contour must clip around the lens wedge … until that lands they ride an explicit ratchet, they
+do not justify re-capping the lens". So 8s says: release BOTH lenses to 0.45, and CS2-g13's overlap
+rides an explicit ratchet (the 8s lensEnclosure contour-clip is the real fix, deferred). The MANDATE's
+acceptance ("overlaps 0 UNCHANGED; if un-bracketing opens anything the construction is wrong") DIRECTLY
+CONFLICTS with 8s's ratchet allowance. The only geometric discriminator between the CS1 (open) and
+CS2 (keep) outcomes is what lies BELOW the interbed (CS1: ZAND below → SILT sandwiched in one formation;
+CS2: SILT below → KLEI between ZAND-above/SILT-below) — an ENCLOSED-LENS / geological call (8g/8n(b)),
+exactly the class the owner directive says to ASK, never invent a heuristic for.
+
+**OWNER DECISION NEEDED (one of):**
+1. **8s ratchet path** — release the band-base bracket (both open to 0.45, B4-u5 fixed), pin CS2-g13's
+   24.3 cm KLEI×ZAND as an identity-pinned region-construction defect on an explicit overlaps ratchet
+   (0 → 1), accept conformance 10 → 14 (or re-pin the 4 as the correct absent-lens shapes they now are),
+   and schedule the 8s ``lensEnclosure`` contour-clip (the ZAND band base detours around the enclosed
+   lens apex — the S51 ``detourEnclosedLens`` mechanism generalised from onlap flanks to band-base
+   contours) as the real fix. This is the ruling-consistent path.
+2. **Contour-clip FIRST** — build the 8s band-base-contour detour-around-enclosed-lens in THIS session
+   (generalise ``detourEnclosedLens`` to band-base ``bandc`` contours) so releasing the bracket opens
+   B4-u5 AND the ZAND band wraps the KLEI lens hole-free → overlaps stay 0. Larger scope, touches the
+   arrangement construction; needs owner go-ahead (it is the "later build" 8s names).
+3. **Keep S50 as-is** — B4-u5 stays crushed (the dogfeed defect persists). Rejected by the dogfeed.
+
+FILES: NONE net (engine REVERTED to §57 exact). Throwaway ``partitionFillV2.bandcProbe.diag.test.ts``
+created + DELETED. ``drawTermination.ts`` / ``emitBands.ts`` restored byte-identical to §57. Committed
+``scripts/diag_cs1_flip_walkthrough.json`` UNTOUCHED (probe ran in-memory only; no CS1_FLIP write).
+Baselines re-verified GREEN at session end: holes 0/0 overlaps 0, conformance 10, CS1 gates 8/8, full
+utils 821/0, tsc clean. NO git ops. v1 + app + intersect.ts READ-ONLY. Env used: SHAPE_AUDIT / HOLES_DIAG
+/ CS1_GATE (allowlisted). ``scripts/gen_paint_tool.mjs`` untouched.
