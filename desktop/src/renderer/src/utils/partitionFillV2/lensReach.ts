@@ -112,15 +112,16 @@ export function lensReachFraction(unitThicknessM: number, gapWidthM: number): nu
  * itself is the 2026-07-16 ruling "shorten the lenses by half if there is conflict with a tie").
  *
  * A per-unit lens between two SLOPING brackets (a minority against a converging facing) can poke
- * PAST a bracket at its DEFAULT 8b-rev reach (0.45) — its apex point rising above the descending
- * top bracket (or dropping below the rising base bracket) at the apex x. The owner's ruled
- * mechanism is NOT to chase the sloping bracket with a seam (session 10 measured that NEGATIVE —
- * flat/sloped seams slivered) but to SHORTEN the lens. Under 8b-rev the shortening LADDER is:
- * start at 0.45; if that collides, drop to the ~2× THICKNESS reach (the thickness rule's real
- * home — the reach that hugs a thin unit); if THAT still collides, HALVE (f → f/2) until the
- * whole lens polygon (topCorner → apex → baseCorner) fits strictly INSIDE the wedge between the
- * two bracket lines. The seams never move; the lens shrinks toward its own column. When 0.45
- * already fits (the common wide-gap case, 8b-rev's whole point) NO shortening happens.
+ * PAST a bracket at its DEFAULT reach (0.45) — its apex point rising above the descending top
+ * bracket (or dropping below the rising base bracket) at the apex x. The owner's ruled mechanism is
+ * NOT to chase the sloping bracket with a seam (session 10 measured that NEGATIVE — flat/sloped
+ * seams slivered) but to SHORTEN the lens. RULING 8t (owner, 2026-07-20, "retire the thickness hug,
+ * just halve the length to 0.225"): on the flag-ON product path the shortening LADDER is start at
+ * 0.45; if that collides, HALVE (0.45 → 0.225 → 0.1125 → …) until the whole lens polygon (topCorner
+ * → apex → baseCorner) fits strictly INSIDE the wedge or the floor is hit — NO reach is ever derived
+ * from unit thickness. The seams never move; the lens shrinks toward its own column. When 0.45
+ * already fits (the common wide-gap case) NO shortening happens. Flag-OFF (frozen seam engine) keeps
+ * the original 8b-rev ladder (0.45 → ~2× thickness → halve) byte-identical until cut-over.
  *
  * The wedge at apex-x is bounded above by the TOP bracket line ``iTop → facingTop`` and below by
  * the BASE bracket line ``iBase → facingBase`` (both straight, interpolated in fraction). The
@@ -174,12 +175,24 @@ export function fitLensReach(
   const topAt = (f: number): number => (!Number.isFinite(iTop) && !Number.isFinite(facingTop) ? Infinity : iTop + f * (facingTop - iTop))
   const baseAt = (f: number): number => (!Number.isFinite(iBase) && !Number.isFinite(facingBase) ? -Infinity : iBase + f * (facingBase - iBase))
   const fits = (f: number): boolean => midElev < topAt(f) - MARGIN && midElev > baseAt(f) + MARGIN
-  // 8b-rev shortening LADDER, in order: (1) the default 0.45 reach — the flag-ON
-  // ``lensReachFraction`` (a NO-OP shorten when 0.45 already fits, 8b-rev's whole point);
-  // (2) the ~2× thickness reach (the old ruling-8b cap, the thickness rule's real home);
-  // then (3) HALVE from there until it fits or the floor is hit.
+  // RULING 8t (owner, 2026-07-20, paint-round on 23/125-S7's peat vs tie83, verbatim: "retire the
+  // thickness hug, just halve the length to 0.225"): on COLLISION the reach HALVES from 0.45 —
+  // 0.45 → 0.225 → 0.1125 → … → floor — and NO reach is ever derived from unit thickness. The
+  // ~2× thickness rung is DELETED on the flag-ON product path. Flag-OFF (the frozen seam engine)
+  // KEEPS the original 8b-rev ladder (0.45 → ~2× thickness → halve) byte-identical: the flag-OFF
+  // ``tileConvergingStack`` caller must not move until cut-over.
   const defaultReach = lensReachFraction(unitThicknessM, gapWidthM)
   if (fits(defaultReach)) return defaultReach
+  if (twoSidedTerminationsEnabled()) {
+    // 8t flag-ON ladder: HALVE from 0.45 with no thickness rung.
+    let f = defaultReach / 2
+    while (f >= MIN_REACH_FRACTION) {
+      if (fits(f)) return f
+      f /= 2
+    }
+    return 0
+  }
+  // Flag-OFF: the original 8b-rev ladder (thickness rung then halve), byte-identical.
   const width = Math.abs(gapWidthM)
   const thicknessReach =
     width < MIN_REACH_FRACTION
@@ -218,7 +231,8 @@ function reachTieElevAt(t: ReachTie, x: number): number {
  * Parameters
  * ----------
  * unitThicknessM : number
- *     The unit's own thickness in metres (the ``fitLensReach`` thickness rung).
+ *     The unit's own thickness in metres (flag-OFF ``fitLensReach`` thickness rung only; the
+ *     flag-ON 8t ladder ignores it).
  * colX, facingX : number
  *     The own column x and the facing column x (REAL alongM).
  * midElev : number
@@ -335,8 +349,8 @@ export function interiorLensReachToTies(
  * fill. The prior FACING-DIFFERS cap is DELETED — the enclosing region detours AROUND the wedge
  * (its lines split the surrounding region → fill-between-the-lines makes overlap impossible by
  * construction). The SOLE shortener is a genuine wedge-vs-correlation-art collision, so this
- * delegates to ``interiorLensReachToTies`` (a gap TIE crossing the diamond drops to the 8b-rev
- * thickness rung; nothing else caps).
+ * delegates to ``interiorLensReachToTies`` (a gap TIE crossing the diamond HALVES the reach per
+ * ruling 8t — 0.45 → 0.225 → …; nothing else caps).
  *
  * Flag-OFF ALWAYS returns the original ruling-8b ``lensReachFraction`` cap (``min(0.45, 2t/gap)``),
  * byte-identical to the pre-8b-rev seam engine — the delegate (and its tie-bracket search) is

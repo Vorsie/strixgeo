@@ -218,12 +218,14 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b) + 8s) — the owner-pinn
 
     // Ruling 8s reach: the SILT lens opens to the full 0.45 (no tie crosses it), so its KLEI wrap
     // begins PAST f=0.45 — sample it at f=0.5 (past the SILT apex, still BELOW the rising ZAND-top
-    // tie81:18, which reaches e=5.85 only at f≈0.58). The VEEN lens is crossed by tie81:18 and stays
-    // hugged (~0.011), so its KLEI wrap is present from f≈0.1 — sample at f=0.1/e=5.2 (below the tie,
-    // which reaches e=5.2 at f≈0.35). Both points are cleanly inside the KLEI wrap and clear of
-    // col19's ZAND triangle.
+    // tie81:18, which reaches e=5.85 only at f≈0.58). RULING 8t (owner, 2026-07-20, "retire the
+    // thickness hug, just halve the length to 0.225"): the VEEN lens is crossed by the tie and now
+    // HALVES to f≈0.225 (was the ~0.011 thickness hug), so its KLEI wrap begins PAST f≈0.225 —
+    // sample at f=0.3/e=5.25 (past the VEEN apex, ABOVE the rising tie81:18 which reaches e≈5.07 at
+    // f=0.3, so the point is in the KLEI matrix above the tie). Both points are cleanly inside the
+    // KLEI wrap and clear of col19's ZAND triangle.
     const SILT_WRAP_F = 0.5, SILT_WRAP_E = 5.85
-    const VEEN_WRAP_F = 0.1, VEEN_WRAP_E = 5.2
+    const VEEN_WRAP_F = 0.3, VEEN_WRAP_E = 5.25
 
     it('(a) NO ZAND covers the lens elevation band past the apexes (no sand adjacency)', () => {
       const zandInSiltBand = g18.some(
@@ -233,7 +235,7 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b) + 8s) — the owner-pinn
         (r) => r.formationId === ZAND && polyContains(r.polygon, VEEN_WRAP_F, VEEN_WRAP_E),
       )
       expect(zandInSiltBand, 'the far col19 ZAND must NOT fill the SILT-lens wrap (5.85 @ f=0.5)').toBe(false)
-      expect(zandInVeenBand, 'the far col19 ZAND must NOT fill the VEEN-lens wrap (5.2 @ f=0.1)').toBe(false)
+      expect(zandInVeenBand, 'the far col19 ZAND must NOT fill the VEEN-lens wrap (5.25 @ f=0.3, ruling 8t)').toBe(false)
     })
 
     it('(b) the wrap past both apexes reads KLEI (the enclosing matrix, ruling 8g)', () => {
@@ -244,7 +246,7 @@ describe('CS1 gap18 lens enclosing matrix (ruling 8n(b) + 8s) — the owner-pinn
         (r) => r.formationId === KLEI && polyContains(r.polygon, VEEN_WRAP_F, VEEN_WRAP_E),
       )
       expect(kleiSilt, 'KLEI wraps the SILT lens past its 0.45 apex (5.85 @ f=0.5)').toBe(true)
-      expect(kleiVeen, 'KLEI wraps the VEEN lens past its hugged apex (5.2 @ f=0.1)').toBe(true)
+      expect(kleiVeen, 'KLEI wraps the VEEN lens past its 8t-halved apex (5.25 @ f=0.3)').toBe(true)
     })
 
     it('(c) the lens interiors read SILT and VEEN to their apexes (own litho)', () => {
