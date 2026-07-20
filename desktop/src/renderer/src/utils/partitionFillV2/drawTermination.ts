@@ -52,11 +52,12 @@
  */
 
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { collectGapBands } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { facingMatrixLabel } from './facingMatrix'
-import { interiorLensReachToTies } from './lensReach'
+import { interiorLensReachToTies, type ReachTie } from './lensReach'
 import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
 import { lensEnclosingMatrix } from './lensEnclosure'
@@ -265,6 +266,41 @@ export function drawTermination(
 }
 
 /**
+ * The matched-pair BAND CONTOURS of a gap, expressed as ``ReachTie`` collision brackets (ruling
+ * 8n / 8b-rev). A matched-pair band (``collectGapBands``) is same-formation line art whose top +
+ * base contours (``emitBandContourCurve`` in ``emitEnclosingFlood``) bound the gap exactly like a
+ * tie. A corr-0 lens diamond must not cross them (the same "sloping correlation" collision that
+ * shortens a lens against a tie): the ZAND matched-pair band's BASE contour sloping from the near
+ * ZAND base to the FACING ZAND base cut the KLEI interbed lens at its 0.45 reach (CS2 gap13
+ * KLEI×ZAND overlap). ``activeTies`` alone missed it — a matched-pair band's base is a ``bandc``
+ * contour, NOT a resolved tie — so the reach must also fit inside these contours.
+ *
+ * The band contour endpoints are ordered LEFT→RIGHT by column x (the ``ReachTie`` convention;
+ * ``reachTieElevAt`` interpolates left→right). ``collectGapBands`` keys the band's own [top..base]
+ * span per side, so the two contours are (leftTop→rightTop) and (leftBase→rightBase).
+ */
+function gapBandContourBrackets(
+  gapIndex: number,
+  col: ColumnGeom,
+  facing: ColumnGeom,
+  activeTies: readonly ResolvedTie[],
+): ReachTie[] {
+  // Order the two columns LEFT→RIGHT by x (the gap's left column is ``columns[gapIndex]``; the
+  // sweep passes ``col`` = the terminating column, which may be the gap's right column on a
+  // 'right'-side look). ``collectGapBands`` reads left/right unit indices, so it needs the true
+  // gap order.
+  const left = col.x <= facing.x ? col : facing
+  const right = col.x <= facing.x ? facing : col
+  const bands = collectGapBands(gapIndex, left, right, activeTies)
+  const out: ReachTie[] = []
+  for (const b of bands) {
+    out.push({ left: { x: left.x, y: b.leftTop }, right: { x: right.x, y: b.rightTop } })
+    out.push({ left: { x: left.x, y: b.leftBase }, right: { x: right.x, y: b.rightBase } })
+  }
+  return out
+}
+
+/**
  * Emit a 0-corr LENS: the ``emitLensClosing`` pair (top→apex→base) at the unit's own
  * mid-elevation, apex 8b-capped + degenerate-guarded. Own-litho label so the traced hole
  * reads the unit. The FACING enclosing formation floods the vacated wedge PAST the apex
@@ -305,6 +341,19 @@ function emitLens(
   // correlation" collision), which ``interiorLensReachToTies`` applies. An overlap that survives is a
   // region-construction defect (the enclosing contour must clip the wedge — a later build), never a
   // reason to re-cap. The wrap PAST the apex is still handled by the flood wedge's own tie clamp.
+  //
+  // RULING 8n / 8b-rev band-contour collision (CS2 gap13, session 50): a matched-pair BAND contour is
+  // "sloping correlation" line art exactly like a tie (``emitEnclosingFlood`` emits it as ``bandc``),
+  // so the lens diamond must fit inside it too. ``activeTies`` alone missed it — the ZAND matched-pair
+  // band's BASE contour (near ZAND base → facing ZAND base) sloped BELOW the KLEI interbed's own base
+  // corner while its 0.45 apex stayed above → the KLEI diamond poked up into the ZAND band (the last
+  // quad×quad overlap). Add the gap's band contours to the collision brackets so the reach shortens
+  // to fit strictly inside them (the same tie-fit ladder, no new guard — a band contour is a bracket).
+  const gapTiesForReach = activeTies.filter((t) => t.gapIndex === gapIndex)
+  const reachBrackets: ReachTie[] = [
+    ...gapTiesForReach,
+    ...gapBandContourBrackets(gapIndex, col, facing, activeTies),
+  ]
   const apexFrac = Math.min(
     INTERIOR_PINCH_FRACTION,
     interiorLensReachToTies(
@@ -314,7 +363,7 @@ function emitLens(
       lensMid,
       u.topElev,
       u.baseElev,
-      activeTies.filter((t) => t.gapIndex === gapIndex),
+      reachBrackets,
     ),
   )
   const apexX = colX + apexFrac * (facingX - colX)
