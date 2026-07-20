@@ -124,10 +124,21 @@ export function emitFloodWedge(
   const label =
     skipSide === null && lensMatrixLabel != null ? lensMatrixLabel : facingMatrixLabel(facing, labelElev)
   if (label === null) return
-  const convX = (colX + facingX) / 2
-  // For a SKIPPED-SIDE ONLAP wedge the conv sits at the apex ELEVATION so the wedge flank closes
-  // DIRECTLY to the apex (topCorner→apex) with no mid-elevation dogleg. At apex elevation the
-  // conv→apex edge is degenerate (skipped), so the wedge is one clean triangle.
+  // RULING 8g/8q (owner 2026-07-19, "the matrix detours AROUND the wedge; fill between the lines"):
+  // a corr-0 LENS flood wedge fills the matrix vacated PAST the lens apex. Its convergence point
+  // must sit AT the lens apex (``apexX``), NOT the gap midpoint. Under ruling 8b-rev the lens apex
+  // reaches only 0.45·gap, while a midpoint conv sits at 0.50·gap — so a midpoint-conv flood flank
+  // (``topCorner → conv``) diverged from the lens closing flank (``topCorner → apex``) by 0.05·gap
+  // and left a razor-thin double-covered sliver (the CS1-g3 / CS2-g17 "hole" cluster: the flood at
+  // x=146.75 vs the lens apex at x=142.23, same elevation). Converging the flood AT the apex makes
+  // its flanks coincide with the lens closing flanks (the DCEL unions the coincident segments) and
+  // its ``conv→apex`` edge degenerate — so the enclosing-matrix BAND face (already continuous across
+  // the gap with the lens recorded as its hole) owns the space past the apex, hole-free. The old
+  // "two opposing wedges meet at 0.5" assumption is stale under 8b-rev: each opposing lens now
+  // reaches its own 0.45 apex and the matrix band between them is one continuous face, not two
+  // wedges. A SKIPPED-SIDE ONLAP wedge (``convToFacingX`` set) keeps the apex-ELEVATION conv so its
+  // single flank closes DIRECTLY to the apex — that path is unchanged.
+  const convX = convToFacingX !== undefined ? (colX + facingX) / 2 : apexX
   const convY = convToFacingX !== undefined ? apexElev : midElev
   const conv: Point = { x: convX, y: convY }
   const apex: Point = { x: apexX, y: apexElev }
