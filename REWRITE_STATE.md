@@ -5787,3 +5787,179 @@ rule (restrict the derivation to same-formation neighbours) — but it is a MODE
 it needs your call before anyone touches `effectiveCorr`. (Note: for THIS S7 instance the change may be a
 no-op anyway — the derived tie was measured redundant with the direct-flag path; the rule question is the
 real deliverable, not the S7 pixel.)
+
+## §60 — Session 54: ruling 8r — RAW-unit termination corr + roots (the S7 "lines before the merge"). Premises REPRODUCED, baselines GREEN, STAGE A dispatched
+
+**§59's STOP was an ERROR of premise, not of discipline — corrected here.** §59 evaluated S7's
+corr on the MERGED enclosed-lens host and concluded "the mandated fix is a 0-unit no-op / a
+same-vs-different-litho 8a rule gap". Ruling 8r ("i want the lines before the merge — first fill
+then merge") says the merged host is exactly the wrong stack to classify on. On the RAW picked
+units the S7 case is unambiguous and §8-grounded — no rule gap.
+
+**ALL THREE ⚠ PREMISES REPRODUCED VERBATIM from the current `diag_cs1_flip_walkthrough.json`
+(regenerated Jul 20, 341 KB):**
+1. **CS1 B4→S13 gap3:** `term3=(101.562,0.608)→(102.316,0.42)`, `term4=(102.316,0.42)→(101.562,0.232)`
+   — B4-u5-SILT's lens crushed to 0.7 m (apex x=102.316, NOT the 0.45 reach x≈142.2).
+   `bandc37=(101.562,0.608)→(191.944,−1.79)` = "matched-pair band contour" (the owner's weird diagonal).
+2. **CS1 S12→S7 gap5:** `oflankterm9=(385.729,6.37)→(337.792,4.9)` = "onlap flank (1-corr, 8i(d))",
+   rooted at 6.37 (the MERGED silt's top). Col6 (S7, x=385.729) in the dump is the POST-MERGE stack:
+   u3-SILT `[6.37..4.07]` (2.3 m merged) + `enclosedLenses:[ZAND 5.79..5.19, matrixLitho SILT]` (the
+   sand diamond). RAW = u2-SILT[6.37..5.79] · u3-ZAND[5.79..5.19] (the lens) · u4-SILT[5.19..4.07].
+   `tie0:5` (drawn) = (289.855,5.73)→(385.729,4.07): the tied contact at S7 is el 4.07 = raw u4-SILT's
+   BASE = the KLEI-below's top (KLEI-KLEI matched pair). So raw u4 base-tied → corr-1 → onlap rooted
+   at ITS OWN top 5.19 (8i(d)); raw u2 owns NO tied contact (6.37 = KLEI-above base, 5.79 = lens top)
+   → corr-0 → LENS. The merged host conflated them into one corr-1 onlap from 6.37. **§59's KLEI-KLEI
+   "rule gap" DISSOLVES under 8r — the SILT on the tied contact IS raw u4 (onlaps, correct); raw u2 is
+   a separate untied piece that lenses. No same-vs-different-litho question survives.**
+3. **CS1 S8 gap7:** `term11=(441.064,9.29)→(456.066,9.85)` = the ONLY lens-art curve for u1-SILT's
+   left free/top flank. `flood8=(422.73,9.29)→(456.066,9.29)` = the TD-floor SCAFFOLD (phase 3,
+   synthetic). The closing leg (456.1,9.29)→(441.1,9.29) exists only as a region edge + scaffold, NOT
+   as exported lens-family line art (ruling 8q: the line network must close every loop as ART).
+
+**KEY ARCHITECTURE FINDING (verified, de-risks STAGE A):** `emitColumnVerticals` (emitCurves.ts:274)
+ALREADY splits a merged host at its enclosed-lens intervals into `col<ci>:u<ui>` host pieces +
+`col<ci>:lens<j>` lens intervals, so S7's SILT/ZAND/SILT raw sub-segment column-edge SEEDS at
+6.37/5.79/5.19/4.07 already exist for the seed-fill paint bucket (8q). The 8r defect is purely in the
+TERMINATION LINE ART: `terminationPlan.ts` + `emitTerminationSweep.ts` classify + root per MERGED
+`col.units`, not per raw sub-segment. STAGE A is bounded to the plan/sweep raw-unit split, not an
+arrangement rewrite.
+
+**BASELINES RE-VERIFIED EXACT at session start (all match mandate):** holes 0/0, overlaps 0 ·
+conformance flag-ON 10 (0corr-not-lens 1 / 1corr-not-onlap 4 / 2corr-not-band 5) · seedGate
+745/635/8/97/5/0 pm0 · lineStageDiff OK 834 / MISSING 8 / MISROOTED 0 / COLLAPSED 6 / DANGLING 10 /
+MERGED-AWAY 8 / phantom 1 (rawUnits 501, surviving 447, mergedAway 54) · CS1 gates 8/8 · full utils
+821/0 · tsc clean. NO git ops; v1 + app + intersect.ts READ-ONLY.
+
+**STAGE DEPENDENCY MAP (verified — the A→B→C ordering is enforced by file overlaps, NOT optional):**
+- STAGE A (raw-unit term corr + roots): `emitTerminationSweep.ts`, `terminationPlan.ts`,
+  `effectiveCorr.ts` (reused verbatim on a raw section), `sectionGeom.ts` (a production
+  `buildRawSection` helper), `drawTermination.ts`. Approach VERIFIED SOUND: `emitColumnVerticals`
+  (emitCurves.ts:274) already splits merged hosts into `col:u`/`col:lens` raw seeds; the
+  lineStageDiff test already carries a `buildRawSection` + raw-corr oracle (lines 167/469-541).
+- STAGE B (release B4-u5 crush per 8s): reverts S50's `gapBandContourBrackets` in
+  `drawTermination.ts` (lines 283-302, 353-357) — band contours LEAVE the reach collision set,
+  so `interiorLensReachToTies` no longer crushes B4-u5 (opens to 0.45, apex x≈142.2). Then
+  generalises S51's `detourFlankAroundEnclosedLenses` (`detourEnclosedLens.ts`) so a `bandc`
+  band-base contour crossing a corr-0 lens diamond DETOURS around the apex (applied at band-contour
+  emission, `emitEnclosingFlood.ts:118-119`). **OVERLAPS `drawTermination.ts` with STAGE A → MUST
+  run after A.** If the detour cannot hold overlaps 0 → STOP with measured geometry, never re-cap.
+- STAGE C (S8 closing leg as art): `emitBoundaryLens.ts` — the TD boundary lens emits ONLY the free
+  flank (`term11`); the TD-riding tied leg is deliberately not re-emitted (8i(d)). STAGE C exports
+  that leg ((456.1,9.29)→(441.1,9.29)) as a real lens-family curve per 8q (close every loop as ART).
+  Coincident with the existing region edge → NO topology change. No file overlap with A; sequenced
+  after B.
+
+**DISPATCH:** STAGE A dispatched to a background Opus 4.8 agent (RED-first TDD, full gate table,
+STOP-on-wall). Orchestrator (this session) verifies A's curve-level S7 output before B/C.
+
+**STAGE A LANDED + ORCHESTRATOR-VERIFIED (all gates re-run first-hand, not trusted from the
+agent's report):**
+- FILES: NEW `partitionFillV2/rawUnitSplit.ts` (`splitHostIntoRawPieces` — splits a merged host
+  back into its raw picked pieces at the enclosed-lens cut points `emitColumnVerticals` already
+  uses; tie state inherited STRUCTURALLY per 8l(b): top piece inherits the host top contact+tie,
+  bottom piece the host base contact+tie, interbed-cut contacts UNTIED; unsplit host = single
+  piece byte-identical no-op; the lens interval itself stays `emitEnclosedLensCurves`' job) ·
+  `emitTerminationSweep.ts` (per-unit loop dispatches per raw piece; boundary role from
+  host+piece position; split hosts bypass the merged plan) · `convergingStack.test.ts` (the ONE
+  flag-ON synthetic fixture 8r legitimately changed — updated with 8r/8l(b)/8g/8j citations: VEEN
+  lenses, KLEI wraps as ONE body; verified more-literal). Throwaways: `rawUnitTerm.diag.test.ts`
+  KEPT (the RED→GREEN 8r gate; delete at commit if unwanted); `convstackProbe2` stub DELETED.
+- RED-first evidence: the 8r gate failed against the pre-change engine on exactly
+  `oflankterm9=(385.729,6.37)→(337.792,4.9)` — the verified defect.
+- S7 CURVE EVIDENCE (orchestrator ran the gate + read the dump): raw u2-SILT lens
+  `term15=(385.729,6.37)→(342.586,6.08)` + `term16=(342.586,6.08)→(385.729,5.79)` (apex matches
+  the mandated ≈(342.6,6.08)); raw u4-SILT onlap `oflankterm17=(385.729,5.19)→(337.792,4.9)`
+  rooted at its OWN top 5.19 riding tie0:5, BELOW the sand diamond (`lens12/13` apex
+  (342.586,5.49) unchanged); NO 6.37-rooted onlap remains. Owner complaint #2 dies at curve level.
+- B4 raw stack model-wide check: u2-ZAND corr-1 onlap (8m-suppressed same-litho facing),
+  u4-ZAND corr-0 lens, u6-ZAND corr-1 onlap (8a-tied, 8m-suppressed) — as mandated.
+- GATES AFTER (orchestrator-run): holes 0/0 overlaps 0 HELD · flag-OFF pinned conformance 5/5/0=10
+  UNCHANGED + flag-ON 863 units 1/4/5=10 IDENTICAL · CS1 gates 8/8 · seedGate 767/657/8/97/5/0
+  pm0 (+22 faces, ALL single-seed — the raw pieces trace their own faces pre-8j-merge) ·
+  lineStageDiff OK 841 / MISSING 2 (target ≤3 ✓) / COLLAPSED 6 / DANGLING 9 / MERGED-AWAY 8 /
+  phantom 5 · full utils 821/0 (30 skip) · tsc clean.
+- RESIDUAL CHARACTERISATION (why MERGED-AWAY stayed 8, not the mandate's ~0): the 8 remaining
+  byClass rows are the corr-0 ENCLOSED-LENS INTERBEDS themselves (e.g. B4 raw u4-ZAND
+  [4.059..0.608], note "1/2 lens-carrier flanks drawn — notch/annulus residual, §49"), whose line
+  art is `emitEnclosedLensCurves`' carrier (one-sided under `facingCarriesMatrix`), NOT the
+  merged-host misclassification 8r targeted (that class is now OK — S7 u4-SILT matches).
+  Identity-pinned pre-existing §49 residual; oracle rows are internally quirky (matchedFlanks 2/2
+  yet classed MERGED-AWAY) — an oracle-accounting artifact, not geometry (holes/overlaps prove
+  it). COLLAPSED 6 unchanged = pre-existing collision/sub-snap lenses. phantom 1→5 = the greedy
+  prefix matcher at shared contacts where a raw-piece flank AND an enclosed-lens carrier both
+  root — coincident line art the arrangement unions.
+
+**STAGE B LANDED + ORCHESTRATOR-VERIFIED (8s crush release + band-contour detour; all gates
+re-run first-hand):**
+- PREMISE RE-MEASURED post-A: the crush PERSISTED (ids shifted term3/4→term9/10 after the raw-unit
+  split; geometry identical — B4-u5-SILT apex (102.316,0.420)). The agent's first measurement
+  looked open — a measurement bug (TWO lenses share the (101.562,0.608) corner: the ZAND lens
+  above's base flank reaches 0.45); corrected by pairing flanks per own top+base. RED-first gate
+  failed on exactly apexX=102.316.
+- FILES: `drawTermination.ts` (S50 `gapBandContourBrackets` DELETED from `emitLens` reachBrackets
+  — the reach shortener is now real gap ties only, 8b-rev literal; file net SHRANK) · NEW
+  `detourBandContour.ts` (`detourBandContourAroundLenses`: reroutes a `bandc` contour
+  crossIn→apex→crossOut around any corr-0 lens diamond it cuts; KEY GEOMETRY: a band-base contour
+  EMANATES from the lens's own top corner — shared vertex, no interior crossing there — so the
+  detour treats a shared corner as a boundary meeting + the base-flank exit as the second; a naive
+  S51 both-flank-crossing test never fires) · `emitTerminationSweep.ts` (threads a
+  `Corr0Diamond[]` collector, trailing-optional) · `emitEnclosingFlood.ts`
+  (`emitBandContourWithDetour`) · `emitBands.ts` (`clipBandContourToTD` extracted,
+  behavior-preserving) · `detourEnclosedLens.ts` (`segIntersect` exported) · throwaway gate
+  `lensCrushRelease.diag.test.ts` KEPT (RED→GREEN 8s gate with bandc dumps).
+- CURVE EVIDENCE (orchestrator-run, crossing math re-derived by hand): B4-u5-SILT flanks now apex
+  **(142.234, 0.420)** = the 0.45 reach · CS2-g13 KLEI apex **(382.483, −4.133)** = 0.45 ·
+  `bandc37` = [(101.562,0.608) (142.234,0.420) (113.652,0.288) (191.944,−1.790)] — the owner's
+  "weird diagonal" SURVIVES as line art but now WRAPS the released SILT lens (out along the top
+  flank, back along the base flank, resume) instead of crushing it; STAGE A dissolved NO
+  matched-pair band feeding it · `bandc139` = [(369.906,−3.845) (382.483,−4.133) (377.135,−4.255)
+  (397.855,−5.429)] wraps the CS2-g13 KLEI lens → the §58 24.3 cm overlap does NOT return.
+- GATES AFTER (orchestrator-run): holes 0/0 overlaps 0 BOTH flags · conformance flag-ON 863u
+  1/4/5=10 IDENTICAL — **the §58-predicted CS1 gap20/gap22 reverts did NOT occur** (the detour
+  preserves the arrangement the §56 side-effects depended on; strictly cleaner than the §58
+  coincidence filter) · flag-OFF pinned 5/5/0=10 · CS1 gates 8/8 · seedGate 767/657/8/97/5/0 pm0
+  identical · lineStageDiff OK 846 / MISSING 2 / COLLAPSED **1** (6→1: the five §56
+  band-clamp-shortened lenses un-crush to 0.45 → OK; the intended effect) / DANGLING 9 /
+  MERGED-AWAY 8 / phantom 5 · 8r gate GREEN · full utils 821/0 (30 skip) · tsc clean. No walls,
+  no rule gaps.
+
+**STAGE C LANDED + ORCHESTRATOR-VERIFIED (8q boundary-lens closing leg as art; all gates re-run
+first-hand):**
+- FILE: `emitBoundaryLens.ts` — after the free flank, the boundary lens now ALSO emits its
+  TIED-leg segment (column corner on the boundary polyline → apex) as a second `term`-family
+  closing curve carrying the unit's own litho; `segmentDegenerate`-guarded; one uniform
+  construction for BOTH the 'td' (horizontal TD-floor ride) and 'surface' (top-band ride)
+  branches. Module docstring records the 8q override of the 8i(d) "don't re-emit the polyline
+  leg" note. `emitSurfaceOnlapFlank` untouched (corr-1, out of scope). Flag-ON only (sole call
+  chain: sweep → `emitCorr0Termination` → `emitBoundaryLens`, under `twoSidedTerminationsEnabled`).
+  Throwaway gate `boundaryLensClosingLeg.diag.test.ts` KEPT (RED→GREEN 8q gate).
+- RED evidence: the gate failed pre-change on "tied leg (base corner→apex): ABSENT".
+- CURVE EVIDENCE (orchestrator-run): S8 gap7 free flank `term19=(441.0644,9.29)→(456.0657,9.85)`
+  + NEW tied leg `term20=(456.0657,9.29)→(441.0644,9.29)` — exactly the mandated closing leg,
+  coincident with the shallow-TD floor; the lens loop closes as ART. Model-wide sweep: exactly
+  ONE boundary corr-0 lens exists (this one) and it fired; 0 boundary sides without a tied leg.
+- MISSING moved 2 → **1**, not the mandate's tentative 2→0 — HONEST CORRECTION: the second
+  baseline MISSING row (CS1 gap17 GEO-23/125-S7 u4-SILT [6.03..5.46]) is an INTERIOR corr-0 lens
+  (goes through `drawTermination`'s diamond, not `emitBoundaryLens`) — not a boundary-lens
+  instance, correctly untouched by STAGE C. Pre-existing residual, identity-pinned.
+- GATES AFTER (orchestrator-run): holes 0/0 overlaps 0 BOTH flags · conformance flag-ON 863u
+  1/4/5=10 + flag-OFF 5/5/0=10 IDENTICAL · CS1 gates 8/8 · seedGate 767/657/8/97/5/0 pm0
+  identical · lensAudit 32/0/0/0 identical · lineStageDiff OK 847 / MISSING 1 / COLLAPSED 1 /
+  DANGLING 9 / MERGED-AWAY 8 / phantom 5 · 8r gate GREEN · 8s gate GREEN 3/3 · full utils 821/0
+  (31 skip — +1 dormant throwaway) · tsc clean. No walls.
+
+**AFTER-STEP NOTE — `CS1_FLIP=1` regen HARNESS-DENIED (the §59 precedent):** the walkthrough
+test is hard-gated on `process.env.CS1_FLIP` and the harness allowlist admits only
+SHAPE_AUDIT/HOLES_DIAG/CS1_GATE prefixes (both Bash and PowerShell forms denied). The committed
+test was NOT modified to bypass its gate. CS1 geometry DID change this session (S7 raw-unit
+terminations, B4/CS2-g13 lens releases + bandc detours, S8 closing leg), so the dump MUST be
+regenerated by the orchestrator before the owner rerender:
+`cd desktop && CS1_FLIP=1 npx vitest run src/renderer/src/utils/partitionFillV2.cs1flip_walkthrough.diag.test.ts`
+
+**SESSION 54 END STATE — all three owner findings render per the rulings:** (1) B4→S13: the
+SILT lens opens to 0.45 (apex (142.234,0.420)); the "weird diagonal" `bandc37` now WRAPS the lens
+instead of crushing it. (2) S12→S7: the middle silt LENSES left (apex (342.586,6.08)); the silt
+below the sand onlaps at its own top 5.19 riding tie0:5, below the sand diamond — no crossing.
+(3) S8: the boundary lens closes as line art (`term20` riding the TD floor). §59's three "premise
+contradicted" STOPs are all corrected on evidence. Throwaway session gates kept for the
+orchestrator: `rawUnitTerm` / `lensCrushRelease` / `boundaryLensClosingLeg` (.diag.test.ts).

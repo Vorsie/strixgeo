@@ -5,16 +5,16 @@
   "rawUnits": 501,
   "survivingUnits": 447,
   "mergedAway": 54,
-  "emittedTerminations": 214,
-  "matchedTerminations": 213,
-  "phantomTerminations": 1,
+  "emittedTerminations": 256,
+  "matchedTerminations": 251,
+  "phantomTerminations": 5,
   "duplicateRootPairs": 0,
   "byClass": {
-   "OK": 837,
-   "MISSING": 8,
+   "OK": 847,
+   "MISSING": 1,
    "MISROOTED": 0,
-   "COLLAPSED": 2,
-   "DANGLING": 11,
+   "COLLAPSED": 1,
+   "DANGLING": 9,
    "WRONG-SIDE": 0,
    "INVISIBLE-SUPPORT": 0,
    "NOT-MISSING-TIED": 0,
@@ -29,14 +29,14 @@
   "btfloor": 69,
   "col": 601,
   "flood": 72,
-  "floodsw": 133,
+  "floodsw": 142,
   "lens": 98,
   "oflanksubtdo": 4,
-  "oflankterm": 49,
+  "oflankterm": 56,
   "subtdlens": 6,
   "surface": 69,
-  "term": 57,
-  "tie": 432
+  "term": 92,
+  "tie": 434
  },
  "terminationPrefixesMatched": [
   "term",
@@ -139,13 +139,13 @@
    "rawUnits": 7,
    "survivingUnits": 5,
    "mergedAway": 2,
-   "emittedTerminations": 8,
-   "matchedTerminations": 8,
+   "emittedTerminations": 11,
+   "matchedTerminations": 11,
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 8,
-    "MISSING": 1,
+    "OK": 9,
+    "MISSING": 0,
     "MISROOTED": 0,
     "COLLAPSED": 0,
     "DANGLING": 0,
@@ -255,13 +255,13 @@
    "rawUnits": 7,
    "survivingUnits": 5,
    "mergedAway": 2,
-   "emittedTerminations": 7,
-   "matchedTerminations": 7,
+   "emittedTerminations": 9,
+   "matchedTerminations": 9,
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 7,
-    "MISSING": 1,
+    "OK": 8,
+    "MISSING": 0,
     "MISROOTED": 0,
     "COLLAPSED": 0,
     "DANGLING": 1,
@@ -284,8 +284,8 @@
    "rawUnits": 9,
    "survivingUnits": 7,
    "mergedAway": 2,
-   "emittedTerminations": 3,
-   "matchedTerminations": 3,
+   "emittedTerminations": 4,
+   "matchedTerminations": 4,
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
@@ -313,13 +313,13 @@
    "rawUnits": 6,
    "survivingUnits": 4,
    "mergedAway": 2,
-   "emittedTerminations": 7,
-   "matchedTerminations": 7,
+   "emittedTerminations": 9,
+   "matchedTerminations": 9,
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 7,
-    "MISSING": 1,
+    "OK": 8,
+    "MISSING": 0,
     "MISROOTED": 0,
     "COLLAPSED": 0,
     "DANGLING": 1,
@@ -371,8 +371,8 @@
    "rawUnits": 85,
    "survivingUnits": 73,
    "mergedAway": 12,
-   "emittedTerminations": 29,
-   "matchedTerminations": 29,
+   "emittedTerminations": 38,
+   "matchedTerminations": 38,
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
@@ -400,15 +400,15 @@
    "rawUnits": 138,
    "survivingUnits": 120,
    "mergedAway": 18,
-   "emittedTerminations": 79,
-   "matchedTerminations": 78,
-   "phantomTerminations": 1,
+   "emittedTerminations": 99,
+   "matchedTerminations": 94,
+   "phantomTerminations": 5,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 208,
-    "MISSING": 4,
+    "OK": 212,
+    "MISSING": 1,
     "MISROOTED": 0,
-    "COLLAPSED": 2,
+    "COLLAPSED": 1,
     "DANGLING": 7,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
@@ -418,45 +418,8 @@
    },
    "tieConformance": {
     "rawEdges": 111,
-    "dropped": [
-     {
-      "aName": "GEO-23/125-S5",
-      "bName": "GEO-23/125-S5A",
-      "aSide": "base",
-      "bSide": "base",
-      "detail": "raw a=(801.4,7.96) b=(800.3,7.91) — no emitted tie/bridge"
-     },
-     {
-      "aName": "GEO-23/125-S5",
-      "bName": "GEO-23/125-S5B",
-      "aSide": "base",
-      "bSide": "base",
-      "detail": "raw a=(801.4,7.96) b=(801.6,8.92) — no emitted tie/bridge"
-     }
-    ],
-    "moved": [
-     {
-      "aName": "GEO-23/125-S5",
-      "bName": "GEO-23/125-S5A",
-      "aSide": "top",
-      "bSide": "top",
-      "detail": "moved ~180cm (tie76:20)"
-     },
-     {
-      "aName": "GEO-23/125-S5",
-      "bName": "GEO-23/125-S5B",
-      "aSide": "top",
-      "bSide": "top",
-      "detail": "moved ~60cm (tie74:21)"
-     },
-     {
-      "aName": "GEO-23/125-S5",
-      "bName": "GEO-23/125-S5B",
-      "aSide": "top",
-      "bSide": "top",
-      "detail": "moved ~145cm (tie94:21)"
-     }
-    ],
+    "dropped": [],
+    "moved": [],
     "invented": 0
    }
   },
@@ -466,16 +429,16 @@
    "rawUnits": 174,
    "survivingUnits": 164,
    "mergedAway": 10,
-   "emittedTerminations": 44,
-   "matchedTerminations": 44,
+   "emittedTerminations": 49,
+   "matchedTerminations": 49,
    "phantomTerminations": 0,
    "duplicateRootPairs": 0,
    "byClass": {
-    "OK": 314,
-    "MISSING": 1,
+    "OK": 317,
+    "MISSING": 0,
     "MISROOTED": 0,
     "COLLAPSED": 0,
-    "DANGLING": 2,
+    "DANGLING": 0,
     "WRONG-SIDE": 0,
     "INVISIBLE-SUPPORT": 0,
     "NOT-MISSING-TIED": 0,
@@ -568,9 +531,9 @@
     "baseTie": "none",
     "expectedKind": "lens",
     "expectedFlanks": 2,
-    "matchedFlanks": 1,
-    "matchClass": "MISSING",
-    "note": "expected 2 flank(s), matched 1",
+    "matchedFlanks": 2,
+    "matchClass": "OK",
+    "note": "",
     "collisionCouldShorten": true
    }
   ],
@@ -1259,9 +1222,9 @@
     "baseTie": "none",
     "expectedKind": "lens",
     "expectedFlanks": 2,
-    "matchedFlanks": 1,
-    "matchClass": "MISSING",
-    "note": "expected 2 flank(s), matched 1",
+    "matchedFlanks": 2,
+    "matchClass": "OK",
+    "note": "",
     "collisionCouldShorten": true
    },
    {
@@ -1380,7 +1343,7 @@
     "baseTie": "none",
     "expectedKind": "lens",
     "expectedFlanks": 2,
-    "matchedFlanks": 1,
+    "matchedFlanks": 2,
     "matchClass": "OK",
     "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
     "collisionCouldShorten": true,
@@ -1894,7 +1857,7 @@
     "expectedFlanks": 1,
     "matchedFlanks": 1,
     "matchClass": "DANGLING",
-    "note": "onlap apex not on its tie within snap (matched lens apexYerr=702.4cm)"
+    "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=184.0cm)"
    },
    {
     "section": "Cross-section 1",
@@ -2035,9 +1998,9 @@
     "baseTie": "none",
     "expectedKind": "onlap",
     "expectedFlanks": 1,
-    "matchedFlanks": 0,
-    "matchClass": "MISSING",
-    "note": "expected 1 flank(s), 0 emitted rooted at this unit's contacts"
+    "matchedFlanks": 1,
+    "matchClass": "DANGLING",
+    "note": "onlap apex not on its tie within snap (matched lens apexYerr=518.4cm)"
    },
    {
     "section": "Cross-section 1",
@@ -2344,7 +2307,7 @@
     "baseTie": "none",
     "expectedKind": "lens",
     "expectedFlanks": 2,
-    "matchedFlanks": 1,
+    "matchedFlanks": 2,
     "matchClass": "OK",
     "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
     "collisionCouldShorten": true,
@@ -2366,7 +2329,7 @@
     "baseTie": "resolved(tie0:5@base)",
     "expectedKind": "onlap",
     "expectedFlanks": 1,
-    "matchedFlanks": 0,
+    "matchedFlanks": 1,
     "matchClass": "OK",
     "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
     "mergedAway": true
@@ -3507,8 +3470,8 @@
   }
  ],
  "utilsDir": {
-  "fileCount": 199,
-  "diagTestCount": 16
+  "fileCount": 202,
+  "diagTestCount": 19
  },
  "rows": [
   {
@@ -4515,7 +4478,7 @@
    "baseTie": "resolved(tie2:0@base)",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
+   "matchedFlanks": 1,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -4658,7 +4621,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "MERGED-AWAY",
    "note": "merged-away interbed: 1/2 lens-carrier flanks drawn (notch/annulus residual, §49)",
    "collisionCouldShorten": true,
@@ -4680,9 +4643,9 @@
    "baseTie": "resolved(tie2:0@base)",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
-   "matchClass": "MISSING",
-   "note": "expected 1 flank(s), 0 emitted rooted at this unit's contacts"
+   "matchedFlanks": 1,
+   "matchClass": "OK",
+   "note": ""
   },
   {
    "section": "Tie-section 6",
@@ -5874,9 +5837,9 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
-   "matchClass": "MISSING",
-   "note": "expected 2 flank(s), matched 1",
+   "matchedFlanks": 2,
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -5895,7 +5858,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -6161,7 +6124,7 @@
    "baseTie": "resolved(tie4:0@base)",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
+   "matchedFlanks": 1,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -6484,7 +6447,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "MERGED-AWAY",
    "note": "merged-away interbed: 1/2 lens-carrier flanks drawn (notch/annulus residual, §49)",
    "collisionCouldShorten": true,
@@ -6506,9 +6469,9 @@
    "baseTie": "resolved(tie0:0@base)",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
-   "matchClass": "MISSING",
-   "note": "expected 1 flank(s), 0 emitted rooted at this unit's contacts"
+   "matchedFlanks": 1,
+   "matchClass": "OK",
+   "note": ""
   },
   {
    "section": "Tie-section 12",
@@ -8225,7 +8188,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -8247,7 +8210,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 0,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -8268,7 +8231,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -10444,7 +10407,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -10466,7 +10429,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 0,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -10487,7 +10450,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 0,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -11175,7 +11138,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -11196,7 +11159,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -11218,7 +11181,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -11239,7 +11202,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -12145,9 +12108,9 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
-   "matchClass": "MISSING",
-   "note": "expected 2 flank(s), matched 1",
+   "matchedFlanks": 2,
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -12266,7 +12229,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -12994,7 +12957,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -13016,7 +12979,7 @@
    "baseTie": "resolved(tie0:5@base)",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
+   "matchedFlanks": 1,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -13357,9 +13320,9 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
-   "matchClass": "MISSING",
-   "note": "expected 2 flank(s), matched 1",
+   "matchedFlanks": 2,
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -14782,8 +14745,8 @@
    "expectedKind": "onlap",
    "expectedFlanks": 1,
    "matchedFlanks": 1,
-   "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap (matched subtdlens apexYerr=199.0cm)"
+   "matchClass": "OK",
+   "note": ""
   },
   {
    "section": "Cross-section 1",
@@ -14923,7 +14886,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "MERGED-AWAY",
    "note": "merged-away interbed: 1/2 lens-carrier flanks drawn (notch/annulus residual, §49)",
    "mergedAway": true
@@ -15024,7 +14987,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -15046,7 +15009,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 0,
+   "matchedFlanks": 2,
    "matchClass": "MERGED-AWAY",
    "note": "merged-away interbed: 1/2 lens-carrier flanks drawn (notch/annulus residual, §49)",
    "mergedAway": true
@@ -15352,8 +15315,8 @@
    "expectedKind": "lens",
    "expectedFlanks": 2,
    "matchedFlanks": 2,
-   "matchClass": "COLLAPSED",
-   "note": "emitted flank lateral reach < 10% of expected",
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -15453,7 +15416,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 0,
+   "matchedFlanks": 1,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -15474,7 +15437,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 0,
+   "matchedFlanks": 1,
    "matchClass": "MERGED-AWAY",
    "note": "merged-away interbed: 1/2 lens-carrier flanks drawn (notch/annulus residual, §49)",
    "collisionCouldShorten": true,
@@ -15619,7 +15582,7 @@
    "expectedFlanks": 1,
    "matchedFlanks": 1,
    "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap (matched lens apexYerr=702.4cm)"
+   "note": "onlap apex not on its tie within snap (matched oflankterm apexYerr=184.0cm)"
   },
   {
    "section": "Cross-section 1",
@@ -15760,9 +15723,9 @@
    "baseTie": "none",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
-   "matchClass": "MISSING",
-   "note": "expected 1 flank(s), 0 emitted rooted at this unit's contacts"
+   "matchedFlanks": 1,
+   "matchClass": "DANGLING",
+   "note": "onlap apex not on its tie within snap (matched lens apexYerr=518.4cm)"
   },
   {
    "section": "Cross-section 1",
@@ -20744,8 +20707,8 @@
    "expectedKind": "onlap",
    "expectedFlanks": 1,
    "matchedFlanks": 1,
-   "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap (matched lens apexYerr=41.0cm)"
+   "matchClass": "OK",
+   "note": ""
   },
   {
    "section": "Cross-section 2",
@@ -20763,7 +20726,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -20784,7 +20747,7 @@
    "baseTie": "resolved(tie110:15@base)",
    "expectedKind": "onlap",
    "expectedFlanks": 1,
-   "matchedFlanks": 0,
+   "matchedFlanks": 1,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "mergedAway": true
@@ -20866,8 +20829,8 @@
    "expectedKind": "onlap",
    "expectedFlanks": 1,
    "matchedFlanks": 1,
-   "matchClass": "DANGLING",
-   "note": "onlap apex not on its tie within snap (matched lens apexYerr=104.5cm)"
+   "matchClass": "OK",
+   "note": ""
   },
   {
    "section": "Cross-section 2",
@@ -20885,7 +20848,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
@@ -21213,9 +21176,9 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
-   "matchClass": "MISSING",
-   "note": "expected 2 flank(s), matched 1",
+   "matchedFlanks": 2,
+   "matchClass": "OK",
+   "note": "",
    "collisionCouldShorten": true
   },
   {
@@ -21434,7 +21397,7 @@
    "baseTie": "none",
    "expectedKind": "lens",
    "expectedFlanks": 2,
-   "matchedFlanks": 1,
+   "matchedFlanks": 2,
    "matchClass": "OK",
    "note": "merged-away interbed — its lens carrier flanks are drawn (ruling 8r lines-before-the-merge)",
    "collisionCouldShorten": true,
