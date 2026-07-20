@@ -51,6 +51,14 @@ const ELEV_EPS = 1e-6
 interface FloodBracket {
   leftElev: number
   rightElev: number
+  /**
+   * Provenance of the bracket line — decides seam VISIBILITY in ``closeInterval`` (owner dogfeed
+   * 2026-07-20, "you drew on too many on the left of 10/170-s8"): only a top-band interval bounded
+   * below by a real TIE is the ruled-8d band pair whose midpoint seam is LINE ART; every other
+   * mismatched closure keeps the invisible ``flood`` scaffold id (the terminations own those
+   * boundaries — e.g. CS1 gap7's sand onlap).
+   */
+  kind: 'topband' | 'tie' | 'band' | 'td'
 }
 
 /**
@@ -157,20 +165,20 @@ function emitGapFlood(
   // Build the interval brackets: the top-band line, every tie line, every band contour, and the
   // shallow-TD floor. Between two consecutive brackets is one interval to close.
   const brackets: FloodBracket[] = []
-  brackets.push({ leftElev: firstLithoTopElev(left), rightElev: firstLithoTopElev(right) })
+  brackets.push({ leftElev: firstLithoTopElev(left), rightElev: firstLithoTopElev(right), kind: 'topband' })
   for (const t of activeTies) {
     if (t.gapIndex !== gapIndex) continue
-    brackets.push({ leftElev: t.left.y, rightElev: t.right.y })
+    brackets.push({ leftElev: t.left.y, rightElev: t.right.y, kind: 'tie' })
   }
   // The interval brackets close the fill faces (a fill scaffold, NOT a band-authority line): every
   // band's top+base bracket stays so each interval still closes hole-free (the 8l contour deletion
   // removes only the AUTHORITY line ``bandc``, never the fill closure). A 1-tied band's untied base
   // is still a real column contact elevation the fill must close against.
   for (const b of bands) {
-    brackets.push({ leftElev: b.leftTop, rightElev: b.rightTop })
-    brackets.push({ leftElev: b.leftBase, rightElev: b.rightBase })
+    brackets.push({ leftElev: b.leftTop, rightElev: b.rightTop, kind: 'band' })
+    brackets.push({ leftElev: b.leftBase, rightElev: b.rightBase, kind: 'band' })
   }
-  brackets.push({ leftElev: shallowTD, rightElev: shallowTD })
+  brackets.push({ leftElev: shallowTD, rightElev: shallowTD, kind: 'td' })
 
   const mid = (b: FloodBracket): number => (b.leftElev + b.rightElev) / 2
   brackets.sort((a, b) => mid(b) - mid(a))
@@ -195,7 +203,7 @@ function emitGapFlood(
     const top = uniq[bi]
     const base = uniq[bi + 1]
     if (mid(top) <= shallowTD + ELEV_EPS) continue // fully sub-TD — substrate owns it
-    closeInterval(left, right, top, base, bandFids, nextBandSeamId, out)
+    closeInterval(left, right, top, base, bandFids, nextBandSeamId, nextFloodId, out)
   }
 
   // Close the flood from below at the shallow TD floor (sub-TD stays empty — substrate owns it).
@@ -245,11 +253,14 @@ function emitBandContourWithDetour(
  * floor); this function's sole output is the mismatched seam. Same-formation enclosing → one
  * full-width face (no seam), the sweep's minority holes carve into it.
  *
- * RULING 8d (owner, 2026-07-20): the seam is RULED LINE ART, not fill scaffold — it is the visible
- * horizontal split between the two facing top units (e.g. CS1 gap8 ZAND ↔ KLEI at x≈464). It carries
- * a ``bandseam`` id (a phase-0 line-art role, mirrored on ``bandc``) so the paint tool draws it;
- * a ``flood`` id would classify it phase-3 scaffold and the paint tool would exclude it, leaking
- * paint across the boundary. Geometry is UNCHANGED — only the id prefix (and thus the role) changes.
+ * RULING 8d (owner, 2026-07-20): the seam is RULED LINE ART **only for the true top-band pair** —
+ * the interval bounded above by the top-band line and below by a REAL TIE (e.g. CS1 gap8
+ * ZAND ↔ KLEI at x≈464, base = the 9.85 silt-top tie). There it carries a ``bandseam`` id
+ * (a phase-0 line-art role, mirrored on ``bandc``) so the paint tool draws it. Every OTHER
+ * mismatched closure (interval ending at the TD floor or a band bracket — e.g. CS1 gap7, where
+ * the sand's corr-1 onlap flank is the real boundary) keeps the invisible ``flood`` scaffold id:
+ * owner dogfeed 2026-07-20, "you drew on too many on the left of 10/170-s8". Geometry is
+ * IDENTICAL in both cases — only the id prefix (and thus the role/visibility) differs.
  */
 function closeInterval(
   left: ColumnGeom,
@@ -258,6 +269,7 @@ function closeInterval(
   base: FloodBracket,
   bandFids: ReadonlySet<string>,
   nextBandSeamId: () => string,
+  nextFloodId: () => string,
   out: InputCurve[],
 ): void {
   const leftEncl = enclosingFormationAt(left, (top.leftElev + base.leftElev) / 2)
@@ -275,8 +287,11 @@ function closeInterval(
   const seamX = left.x + INTERIOR_PINCH_FRACTION * (right.x - left.x)
   const seamTop = top.leftElev + INTERIOR_PINCH_FRACTION * (top.rightElev - top.leftElev)
   const seamBase = base.leftElev + INTERIOR_PINCH_FRACTION * (base.rightElev - base.leftElev)
+  // Visibility: the ruled-8d band-pair seam (top-band above, real tie below) is line art;
+  // any other mismatched closure stays an invisible fill scaffold.
+  const isRuledBandPairSeam = top.kind === 'topband' && base.kind === 'tie'
   out.push({
-    id: nextBandSeamId(),
+    id: isRuledBandPairSeam ? nextBandSeamId() : nextFloodId(),
     kind: 'closing',
     points: [
       { x: seamX, y: seamTop },
