@@ -385,6 +385,18 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    `effectiveCorr`, `topBandTies` feeds `topTied`/`hasAnchor` instead of
    only the `firstUnitTopBandBand` 2-corr case. Model-wide effect: every
    untied first unit flips lens → surface-riding onlap.
+8t. **COLLISION HALVES THE LENS — THE THICKNESS HUG IS RETIRED (owner,
+   2026-07-20, paint-round on 23/125-S7's peat vs tie83, verbatim):
+   "retire the thickness hug, just halve the length to 0.225".** When
+   a corr-0 lens's wedge is crossed by REAL correlation art (drawn
+   tie / 8a shared-contact line / bridge), the reach HALVES: 0.45 →
+   0.225 of the gap, halving again while still blocked (0.1125, ...,
+   down to the snap floor). The ~2×thickness rung is DELETED
+   everywhere — no reach is ever derived from unit thickness. The
+   collision SET stays literal art only (8s: derived contours never
+   cap; they detour). Onlap flanks crossing a lens diamond do not
+   shorten the lens either — the flank detours around the diamond
+   (the S51 mechanism). Supersedes the 8b-rev ladder's thickness rung.
 8s. **MIXED-ENCLOSURE LENS KEEPS 0.45 — THE MATRIX DETOURS; an overlap
    is a region-construction defect, never a reason to cap (owner,
    2026-07-19, S46 ask-first on the real CS1 gap5 exemplar — S7's sand
