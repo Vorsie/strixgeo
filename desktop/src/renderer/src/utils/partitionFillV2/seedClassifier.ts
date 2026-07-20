@@ -346,3 +346,78 @@ export function classifyFaceSeed(
   else classification = isExplicitVoidGeometric(bounds, columns) ? 'explicit-void' : 'zero-seed-defect'
   return { classification, seedRefs, seedFormations, bounds }
 }
+
+/**
+ * The RESOLUTION CLASS of a ``zero-seed-defect`` face (SEED_FILL_MANDATE Step-4, session 50). A
+ * zero-seed face carries NO column-edge seed, so the ``single formation`` invariant cannot resolve
+ * it from a picked column — but it is NOT a render defect: it is a doctrine-scaffold face already
+ * correctly painted (``paintMismatch === 0`` on all 94 real ones) by ONE of the fill doctrines. This
+ * RECORDS which doctrine legitimately owns it, so the seed gate's "unresolved zero-seed" tally drops
+ * to the genuinely-undecided (owner-ambiguous) faces only. RECORDING ONLY — it changes no geometry,
+ * no ``SeedClass``, no paint: ``labelFaces`` still keeps the interim doctrine paint (this classifies
+ * the SAME face after the fact). The four classes:
+ *
+ *   - ``carry-seed`` (ruling 8n) — a SUBSTRATE face (``btfloor``/``btcurtain``): the deep-to-deep
+ *     band∩column intersect carried straight down IS the seed (no column reaches sub-TD by
+ *     construction, so a column-edge seed CANNOT exist there — the carry is the seed). Unambiguous.
+ *   - ``unterminated-litho`` (ruling 8o) — a FLOOD face (``floodsw``/``flood``) whose boundary
+ *     carries EXACTLY ONE unterminated lithology (the enclosing fill the hole fills with). The flood
+ *     curves on the boundary resolve to a single formation → that IS the 8o answer, unambiguous.
+ *   - ``band-contour`` — a matched-pair-band / top-band contour face (``bandc``/``surface`` only, no
+ *     column edge): the band's own contour owns it; traced + classified as the band litho.
+ *   - ``owner-ambiguous`` (ruling 8o's OWN ask-clause) — a flood face whose boundary carries ZERO or
+ *     MORE THAN ONE unterminated lithology, or a genuinely unlabelled (``empty``) hole. Ruling 8o:
+ *     "if a hole's boundary carries ZERO or MORE THAN ONE unterminated lithology, ASK the owner,
+ *     never pick." Listed by identity for the owner — never guessed.
+ */
+export type ZeroSeedResolution =
+  | 'carry-seed'
+  | 'unterminated-litho'
+  | 'band-contour'
+  | 'owner-ambiguous'
+
+/**
+ * Resolve the doctrine that legitimately owns a ``zero-seed-defect`` face (see
+ * ``ZeroSeedResolution``). Reads ONLY the face's boundary curve ids + a flood-label resolver — no
+ * geometry, no paint mutation.
+ *
+ * Parameters
+ * ----------
+ * boundaryCurveIds : readonly string[]
+ *     The face's ``Face.boundingCurveIds``.
+ * floodFormationOf : (curveId: string) => string | null
+ *     Resolves a ``floodsw``/``flood`` curve id to its enclosing-fill formation (the caller's
+ *     ``lensLabels`` lookup). ``null`` for a non-flood or unlabelled curve.
+ *
+ * Returns
+ * -------
+ * ZeroSeedResolution
+ *     The resolution class; ``owner-ambiguous`` when ruling 8o's ask-clause applies.
+ */
+export function resolveZeroSeedClass(
+  boundaryCurveIds: readonly string[],
+  floodFormationOf: (curveId: string) => string | null,
+): ZeroSeedResolution {
+  const has = (pfx: string): boolean => boundaryCurveIds.some((id) => id.startsWith(pfx))
+  // SUBSTRATE first (ruling 8n): a sub-TD substrate wedge is seedless by construction; the carry IS
+  // the seed. (A substrate face may ALSO carry a flood curve where a shallow lens holes into it, but
+  // the substrate carry is the authoritative sub-TD owner, so it wins the classification.)
+  if (has('btfloor') || has('btcurtain')) return 'carry-seed'
+  // FLOOD (ruling 8o): the hole fills with the UNTERMINATED lithology. Read every flood curve's
+  // formation; EXACTLY ONE distinct formation → unambiguous ``unterminated-litho``. Zero or more
+  // than one → ruling 8o's ask-clause → ``owner-ambiguous`` (listed, never guessed).
+  if (has('floodsw') || has('flood')) {
+    const floodFids = new Set<string>()
+    for (const id of boundaryCurveIds) {
+      if (id.startsWith('floodsw') || id.startsWith('flood')) {
+        const f = floodFormationOf(id)
+        if (f != null) floodFids.add(f)
+      }
+    }
+    return floodFids.size === 1 ? 'unterminated-litho' : 'owner-ambiguous'
+  }
+  // BAND CONTOUR: a matched-pair band / top-band contour face — the band's own contour owns it.
+  if (has('bandc') || has('surface')) return 'band-contour'
+  // EMPTY: a genuinely unlabelled hole — undecided, list for the owner (ruling 8o ask-clause).
+  return 'owner-ambiguous'
+}
