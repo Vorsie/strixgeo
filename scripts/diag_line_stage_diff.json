@@ -23,7 +23,7 @@
   }
  },
  "idVocabulary": {
-  "bandc": 653,
+  "bandc": 614,
   "bridge": 12,
   "btcurtain": 70,
   "btfloor": 69,
@@ -3470,8 +3470,8 @@
   }
  ],
  "utilsDir": {
-  "fileCount": 202,
-  "diagTestCount": 19
+  "fileCount": 204,
+  "diagTestCount": 21
  },
  "rows": [
   {

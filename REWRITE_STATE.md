@@ -6048,3 +6048,125 @@ the item-3 fill/merge reshape — they must land together as one increment. Item
 (8m, an owner-mandated + 8l-endorsed suppression, correctly hides B4-u6's redundant flank; there is no
 curve to restore). Recommend the owner rule on the emergent-band re-closure direction (the ASK-FIRST
 above) before dispatching the combined item-1+item-3 build.
+
+## §62 — Session 56: ruling 8l band-promotion deletion LANDED (per-contour `contourIsTie` gate); B4/S13 ZAND emergent band re-closes single-seed (mandate centrepiece WORKS, bandc37 GONE); ONE residual = the TS7-g0 SILT-over-KLEI multi-seed = a genuine 8m↔8q rule conflict → ASK-FIRST
+
+**PREMISES REPRODUCED EXACT at session start (all match §60/§61):** holes 0/0 overlaps 0 · conformance
+flag-ON 1/4/5=10 (byCorr 35/69/759, 8e-enclosure 35) · CS1 gates 8/8 · seedGate 767/657/8/97/5/0 pm0 ·
+seedFill 5/5 · lineStageDiff OK 847 / MISSING 1 / COLLAPSED 1 / DANGLING 9 / MERGED-AWAY 8 / phantom 5 ·
+tie 446/0/0/0 · full utils 821/0 · tsc clean. `bandc37=(101.562,0.608)→(142.234,0.420)→(113.652,0.288)→
+(191.944,−1.790)` present in the Jul-20 CS1 flip dump. Engine at §60 green.
+
+**THE 8l GATE — per-contour `contourIsTie`, NOT §61's per-band `tied2` (the correct level, MEASURED):**
+`effectiveCorr.ts` ALREADY implements 8l literally (`void bands`, `realCount` from own contacts) — the
+CLASSIFICATION is 8l-correct everywhere (the gate reads corr-1/corr-2 already). The 8l residual is ONLY
+in the FILL geometry (`emitEnclosingFlood.emitGapFlood` + `emitBands.collectGapBands`), which still
+emitted the phantom `bandc` band-authority contour. THE FIX (`emitEnclosingFlood.ts`):
+`collectGapBands` gained an additive `tied2` field; the FILL now emits each band's top/base `bandc`
+contour ONLY when an active gap tie actually runs between that contour's two endpoints
+(`contourIsTie(leftElev, rightElev)`). The interval BRACKETS + `bandFids` seam-suppression stay over ALL
+bands (they are fill scaffold / same-formation full-width closure, NOT band authority — removing them
+opened 74 holes at CS1 g18/g19 + CS2 g7, MEASURED then reverted; the contour is the only authority line).
+WHY per-contour and not per-band: a unit can be genuinely corr-2 (both own contacts tied) WITHOUT a
+symmetric matched-pair (CS1 gap16 SILT: top-top tie + a base-tie via a MIXED base-top tie to KLEI). The
+per-band `tied2` test (needs top-top AND base-base to the SAME pair) de-promoted CS1 g16 SILT → it went
+absent (conformance 10→13). The per-contour predicate keeps CS1 g16 SILT's tied base contour → conformance
+10→12 (matches §61 exactly). `tied2` left on the interface (additive, unused) — orchestrator may drop it.
+
+**bandc37 GONE (curve-level evidence, orchestrator-verifiable):** CS1 gap3 bandc/tie dump — the phantom
+diagonal `(101.6,0.61)→(191.9,−1.79)` no longer exists; remaining gap3 bandc all ride real ties
+(bandc33=tie55 ZAND top-top; bandc34/35=tie34 ZAND base-base). NO promotion contour survives.
+
+**THE MANDATE CENTREPIECE WORKS — B4/S13 ZAND emergent band re-closes SINGLE-SEED (8q):** the ZAND mass
+x[101.56..191.94] between tie55 (top), tie34 (base), the released SILT-lens holes + the raw B4-u2/u4-ZAND
++ S13-u3-ZAND column verticals traces as a SINGLE-SEED ZAND face and paints ZAND from the raw column
+pieces (the ONLY non-single faces in that x-range are two PRE-EXISTING sub-TD substrate zero-seed voids
+el[−9.69..−3.87], the CS1-g3 known residual). The orchestrator's 8q resolution ("seed the emergent band
+from the raw column pieces, not a narrowed tie-bounded face") is CONFIRMED for the SAME-litho case. §61's
+zero-seed WALL does NOT recur: the per-contour gate REDUCES zero-seed 97→67 (deleting phantom contours
+removes the phantom flood faces they bounded).
+
+**GATES AFTER (all orchestrator-re-runnable, measured first-hand):**
+- holes **0/0** overlaps **0** HELD (both flags) · flag-OFF byte-identical (seedFill (d) green).
+- CS1 gates **8/8** · lineStageDiff **IDENTICAL** to §60 (OK 847 / MISSING 1 / COLLAPSED 1 / DANGLING 9 /
+  MERGED-AWAY 8 / phantom 5 / SUPPRESSED-8M 120) · tie **446/0/0/0** — the SWEEP LINE ART is byte-identical
+  (my change touched only FILL contours; terminations unchanged). tsc clean. full utils 820 pass / **1 fail**
+  (only seedFill (b), below).
+- seedGate: faces 767→**731**, single 657→**650**, void 8, **zero-seed 97→67** (−30, IMPROVEMENT),
+  **multi-seed 5→6 (+1 = TS7-g0, the residual)**, merged-min 0, **mismatches pm=0** HELD, owner-ambiguous 8→1.
+- conformance flag-ON **10→12** (1corr-not-onlap 4→**6**, 8e-enclosure 35→**30**). The +2 are TS7-g0 KLEI
+  [left]+[right] rendering `absent` — 8m-SUPPRESSED (base-tie facing = same-litho KLEI, the B4-u6 pattern
+  §61 endorsed). The gate FALSE-POSITIVES them (its corr-1 `absent` branch has no 8m-suppression tag, unlike
+  its 8e-enclosure tagging) → TRUE conformance is 10. The other 4 (TS10 g0, CS1 g18/g19, CS2 g13) are
+  PRE-EXISTING baseline violations, unchanged. 2corr-not-band stays 5 (no genuine band de-promoted).
+- seedFill (b) **RED** — NOT a new zero-seed (the §61 wall); the OPPOSITE: the pinned Tie-6 flood face at
+  (0,−4.595) RESOLVED to single-seed (my contour deletion changed that gap's flood geometry). The test's
+  own comment says "the fixture coordinate follows the geometry" — its RULE ("a flood face with no column
+  seed → zero-seed-defect") is intact but that instance is gone (Tie-6 now has only 1 zero-seed, a
+  legitimate substrate curtain). Fixture-coordinate update deferred to the orchestrator pending the ASK
+  ruling (do NOT weaken the invariant).
+
+**THE ONE RESIDUAL — TS7-g0 SILT-over-KLEI multi-seed = a genuine 8m↔8q CONFLICT (rule gap, ASK-FIRST):**
+TS7 g0 stack: col0 = SILT(u0, top-band) / KLEI(u1) / 2af4(u2) / **KLEI(u3, el 6.30..3.14)** / SILT(u4)…;
+col1 = **SILT(u0, el 11.73..4.84, huge)** / KLEI(u1, el 4.84..3.80)… The two vertically-stacked bands are
+each a SAME-LITHO base-tied pair: the SURFACE SILT (col0-u0 ↔ col1-u0, top-tied, 8m-suppressed) OVER the
+KLEI (col0-u3 ↔ col1-u1, base-tied via `bandc1`/kept, 8m-suppressed). BOTH pairs' separating onlap flanks
+are 8m-SUPPRESSED (each pair is same-litho → the flank would be an interior seam of its OWN body). Before
+8l, the KLEI band's PROMOTED TOP contour (untied → deleted per 8l) was the SILT/KLEI separator. With it
+gone AND both flanks 8m-suppressed, NO line separates SILT from KLEI → ONE multi-seed face x[0..62]
+el[3.14..11.73] carrying col0:u0(SILT)+col0:u3(KLEI). RENDERED (computeSectionFillV2): it paints SILT
+(`2e06 frac[0..1] el[3.14..11.73]`) → the drilled **KLEI(u3) renders as SILT** — a real render defect.
+
+  THE CONFLICT (both owner-mandated, both cited verbatim in §8):
+  - **8m** ("just add a lithology check before drawing"): FOLLOW the base tie → matched facing (above) =
+    col1-u1-KLEI = SAME litho → SKIP the flank ("the tie is the boundary, the fill flows, the 8j merge
+    welds ONE body"). This is the EXACT B4-u6 suppression §61 endorsed — 8m checks ONLY the TIED-side facing.
+  - **8q / SEED_FILL_MANDATE** ("two or more formations → fail the gate; repair the linework, never
+    vote/select a label"): the resulting SILT+KLEI multi-seed face is a LINE-ART DEFECT that must be fixed
+    by adding the missing separator, never painted from a vote.
+  8m suppresses the very line 8q demands. For the SAME-litho case (B4/S13 ZAND) there is NO conflict (the
+  merge makes it single-seed ZAND). The conflict is SPECIFIC to a corr-1 same-litho-tied unit whose FREE
+  contact borders a DIFFERENT litho (TS7-u3-KLEI: base-tie facing KLEI [8m-suppress] but FREE top facing
+  SILT [8q wants a separator]). §61's ASK answered only the same-litho ZAND direction; this different-litho
+  direction is NOT covered by §8.
+
+  THE CANDIDATE FIX (NOT built — a merge/exemption decision, owner territory per the ask-first directive):
+  refine 8m's `matchedFacingSameLitho` to suppress ONLY when the flank is a genuine interior seam — i.e.
+  when the FREE contact ALSO faces the same litho (so the terminating unit + everything around it is one
+  body). B4-u6-ZAND's free top faces ZAND → STILL suppressed (correct). TS7-u3-KLEI's free top faces SILT
+  → DRAW the onlap (separator exists, then 8j merges the two KLEIs). This is faithful to 8m's OWN text
+  ("the flank would be an interior seam of the identical final body") — but it CHANGES the suppression
+  condition, a geological/semantic call (memory `feedback_ask_domain_questions_dont_bugfix`: never invent a
+  merge-condition heuristic; ask). Not built pending the owner.
+
+**⚠ ASK-FIRST (one question, verbatim evidence above):**
+> When a corr-1 same-litho-TIED unit is 8m-suppressed on its tied side (its tie faces the same litho →
+> "the tie is the boundary, the fill flows, the 8j merge welds one body") BUT its FREE contact borders a
+> DIFFERENT litho on its own column (TS7-g0: KLEI(u3) base-ties KLEI [suppress], but SILT sits directly
+> above it), the 8l deletion of the phantom SILT/KLEI separator contour leaves the SILT face swallowing
+> the KLEI (drilled KLEI renders SILT — one multi-seed face). Should 8m draw the free-contact onlap flank
+> in this case (separating KLEI from SILT, then the 8j merge welds the two same-litho KLEIs) — i.e. suppress
+> ONLY when the FREE side also faces the same litho — OR is the SILT-swallows-KLEI render acceptable (the
+> KLEI is a thin base-tied lobe the SILT overlaps)? This is the different-litho-neighbour case §61's
+> same-litho-ZAND answer did not cover; it is the SOLE residual (holes 0/0, pm0, B4/S13 ZAND correct).
+
+**ENGINE STATE — item-1 LANDED in the worktree (NOT reverted).** Unlike §61 (reverted to §60 because its
+per-band form hit a zero-seed wall), §56's per-contour gate holds ALL hard gates (holes/overlaps/pm0/
+flag-OFF/CS1/lineStageDiff/tie), deletes bandc37, and re-closes the B4/S13 ZAND emergent band single-seed
+— a real net improvement (zero-seed −30). The SOLE blocker to a clean cutover is the TS7 8m↔8q ruling
+above. Orchestrator: re-verify the gate table, get the owner ruling, then either (fix) apply the 8m
+free-side refinement + update the seedFill (b) fixture coordinate, or (revert) drop to §60 if the owner
+prefers the promotion. `CS1_FLIP=1` regen NOT run (harness-denied prefix, §54 precedent) — the engine
+changed, so the orchestrator must regenerate the dump before the owner rerender.
+
+**FILES (worktree, NOT committed — orchestrator commits):**
+- `partitionFillV2/emitEnclosingFlood.ts` — the SOLE engine change: `contourIsTie(leftElev,rightElev)`
+  per-contour 8l gate on the `bandc` emission (a `bandc` contour emits ONLY when an active gap tie runs
+  between its two endpoints). Interval brackets + `bandFids` seam-suppression KEPT over all bands (fill
+  scaffold, not band authority). `emitBands.ts` UNCHANGED (a per-band `tied2` field was built + measured
+  then REMOVED — the per-contour predicate is the correct level; per-band de-promoted the genuinely-2-tied
+  CS1 g16 SILT). tsc clean.
+- THROWAWAYS to `rm` (bash rm denied here): `partitionFillV2.s56probe.diag.test.ts`,
+  `partitionFillV2.s56regions.diag.test.ts`, `partitionFillV2.s56cs1.diag.test.ts` (all SHAPE_AUDIT-gated,
+  log-only, `expect(true)` — harmless if left; delete at commit).
+- `REWRITE_STATE.md` — this §62 entry.
