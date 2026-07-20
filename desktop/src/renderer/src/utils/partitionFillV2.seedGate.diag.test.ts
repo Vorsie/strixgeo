@@ -61,6 +61,7 @@ import { labelFaces } from './partitionFillV2/labelFaces'
 import { buildSectionInput, type ColumnGeom } from './partitionFillV2/sectionGeom'
 import { buildTerminationPlans, type TerminationPlan } from './partitionFillV2/terminationPlan'
 import { detectCrossingConflicts, edgeKey } from './partitionFillV2/crossingConflicts'
+import { resolveZeroSeedClass, type ZeroSeedResolution } from './partitionFillV2/seedClassifier'
 import { twoSidedTerminationsEnabled, setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 import { SNAP_GRID_M, type Arrangement, type Face } from './partitionFillV2/types'
 
@@ -125,6 +126,11 @@ interface SeedFaceRecord {
   classification: SeedClass
   /** For a zero-seed face: which label path owns it today (substrate/flood/band-contour/empty). */
   zeroSeedFamily: string | null
+  /** For a zero-seed face: its RESOLUTION CLASS (session 50 — SEED_FILL_MANDATE Step-4 recording).
+   *  ``carry-seed`` (8n substrate) / ``unterminated-litho`` (8o single-litho flood) / ``band-contour``
+   *  / ``owner-ambiguous`` (8o ask-clause: 0 or >1 unterminated litho, or an empty hole). Only
+   *  ``owner-ambiguous`` counts as an UNRESOLVED zero-seed defect; the rest are doctrine-owned. */
+  zeroSeedResolution: ZeroSeedResolution | null
   /** Termination-plan keys ``gap|side|unit`` when a plan's unit-side seeds this face. */
   planKeys: string[]
   /** The CURRENT flag-ON ``labelFaces`` painted formation for this face (or null if dropped). */
@@ -145,6 +151,11 @@ interface SectionCounts {
   /** Ruling-8r merged-minority keeps: a genuine enclosed lens whose single "seed" is a
    *  merge artifact — the lens litho is kept; its own ratchet class, → 0 at Step 4. */
   mergedMinority: number
+  /** UNRESOLVED zero-seed faces (session 50): zero-seed faces whose resolution class is
+   *  ``owner-ambiguous`` (ruling 8o ask-clause) — the only ones NOT owned by a fill doctrine. The
+   *  carry-seed (8n) / unterminated-litho (8o single) / band-contour classes are RESOLVED and drop
+   *  out of this tally, so ``unresolvedZeroDefect`` is what the Step-4 ratchet drives to 0. */
+  unresolvedZeroDefect: number
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +382,7 @@ function scanSection(
     zeroDefect: 0,
     multiDefect: 0,
     mergedMinority: 0,
+    unresolvedZeroDefect: 0,
   }
   const records: SeedFaceRecord[] = []
   if (section.columns.length < 2) return { counts, records }
@@ -434,12 +446,22 @@ function scanSection(
       currentPaintFormation != null &&
       currentPaintFormation !== seedFormations[0]
 
+    // SESSION 50 (SEED_FILL_MANDATE Step-4 recording): resolve which fill DOCTRINE owns a zero-seed
+    // face — RECORDING ONLY (no geometry / paint change; ``labelFaces`` still keeps its interim
+    // doctrine paint). ``owner-ambiguous`` (ruling 8o's ask-clause) is the ONLY unresolved class.
+    const zeroSeedResolution: ZeroSeedResolution | null =
+      classification === 'zero-seed-defect'
+        ? resolveZeroSeedClass(face.boundingCurveIds, (id) => lensLabels.get(id)?.formationId ?? null)
+        : null
+
     counts.faces++
     if (mergedMinority) counts.mergedMinority++
     else if (classification === 'single-seed') counts.single++
     else if (classification === 'explicit-void') counts.explicitVoid++
-    else if (classification === 'zero-seed-defect') counts.zeroDefect++
-    else counts.multiDefect++
+    else if (classification === 'zero-seed-defect') {
+      counts.zeroDefect++
+      if (zeroSeedResolution === 'owner-ambiguous') counts.unresolvedZeroDefect++
+    } else counts.multiDefect++
 
     records.push({
       section: sectionName,
@@ -454,6 +476,7 @@ function scanSection(
       seedFormations,
       classification,
       zeroSeedFamily: classification === 'zero-seed-defect' ? zeroSeedFamily(face.boundingCurveIds) : null,
+      zeroSeedResolution,
       planKeys: planKeysForFace(seedRefs, plans),
       currentPaintFormation,
       paintMismatch,
@@ -646,6 +669,26 @@ describe('partition-v2 MEASURED SEED GATE (mandate Step 1)', () => {
       )
     }
 
+    // ---- SESSION 50: zero-seed RESOLUTION CLASS histogram + the owner-ambiguous (8o ask-clause) list ----
+    const resHist = new Map<string, number>()
+    for (const r of zeros) resHist.set(r.zeroSeedResolution ?? 'null', (resHist.get(r.zeroSeedResolution ?? 'null') ?? 0) + 1)
+    const gUnresolved = allCounts.reduce((s, c) => s + c.unresolvedZeroDefect, 0)
+    console.log(`\n########## ZERO-SEED RESOLUTION CLASS (session 50; UNRESOLVED = owner-ambiguous = ${gUnresolved}) ##########`)
+    for (const [cls, n] of [...resHist.entries()].sort((a, b) => b[1] - a[1])) {
+      console.log(`   ${cls.padEnd(20)} ${n}`)
+    }
+    // The ruling-8o ask-clause list: every owner-ambiguous face by identity + its candidate flood lithos,
+    // for the owner to decide — NEVER guessed.
+    const ambiguous = zeros.filter((r) => r.zeroSeedResolution === 'owner-ambiguous')
+    console.log(`\n########## OWNER-AMBIGUOUS zero-seed faces (ruling 8o ask-clause): ${ambiguous.length} ##########`)
+    for (const r of ambiguous) {
+      const floodFids = r.boundaryCurveIds
+        .filter((id) => id.startsWith('floodsw') || id.startsWith('flood'))
+      console.log(
+        `  ${r.diagId}\n     family=${r.zeroSeedFamily} currentPaint=${r.currentPaintFormation ? fname(r.currentPaintFormation) : '(none)'}\n     floodCurves=[${floodFids.join(',')}]\n     bounding=[${r.boundaryCurveIds.join(',')}]`,
+      )
+    }
+
     // ---- multi-seed-defect identity list ----
     const multis = allRecords.filter((r) => r.classification === 'multi-seed-defect')
     console.log(`\n########## MULTI-SEED-DEFECT faces: ${multis.length} ##########`)
@@ -677,7 +720,8 @@ describe('partition-v2 MEASURED SEED GATE (mandate Step 1)', () => {
         'partition-v2 measured seed gate — flag-ON pre-slice faces, all 14 real sections + convergingStack(a) + literalCorr(c)/(d)',
       minSeedEdgeM: MIN_SEED_EDGE_M,
       perSection: allCounts,
-      grandTotals: { faces: gFaces, single: gSingle, explicitVoid: gVoid, zeroSeedDefect: gZero, multiSeedDefect: gMulti, mergedMinority: gMergedMin },
+      grandTotals: { faces: gFaces, single: gSingle, explicitVoid: gVoid, zeroSeedDefect: gZero, multiSeedDefect: gMulti, mergedMinority: gMergedMin, unresolvedZeroDefect: allCounts.reduce((s, c) => s + c.unresolvedZeroDefect, 0) },
+      zeroSeedResolution: Object.fromEntries([...resHist.entries()]),
       zeroSeedDefects: zeros,
       multiSeedDefects: multis,
       paintMismatches: mismatches,
