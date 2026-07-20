@@ -268,46 +268,33 @@ describe('v2 holes + different-litho overlaps HARD GATE (S38)', () => {
     } finally {
       setTwoSidedTerminations(prev)
     }
-    // Every above-TD hole must sit at an accepted, identity-pinned wall — no hole elsewhere.
-    // WALLS (each closes with the termination-plan rebuild, REWRITE_STATE §44/§45):
-    //   CS2 gap 17 — the sloping-enclosure wall (pre-8b-rev baseline).
-    //   CS1 gap 3 + CS2 gap 21 — the F5 flood-absorption wall EXPOSED by ruling 8b-rev's
-    //   correct 0.45 reach (S40): a thin SILT interbed in ZAND facing ZAND keeps 0.45 per
-    //   8n(b); the enclosing flood fragments around the longer lens. The reach is right,
-    //   the fill is the defect — repaired by the plan rebuild, never by re-shortening.
-    const WALLS = [
-      { section: 'Cross-section 2', gapIndex: 17 },
-      { section: 'Cross-section 1', gapIndex: 3 },
-      { section: 'Cross-section 2', gapIndex: 21 },
-    ]
-    const onWall = (h: { section: string; gapIndex: number }): boolean =>
-      WALLS.some((w) => w.section === h.section && w.gapIndex === h.gapIndex)
-    const offBaseline = res.aboveHoles.filter((h) => !onWall(h))
-    const offMsg = offBaseline.map((h) => `${h.section} ${h.detail}`).join('; ')
+    // ZERO above-TD holes on the product path (session 49). The CS1-g3 / CS2-g17 / CS2-g21
+    // annulus "walls" are CLOSED: they were never the merge-annulus rebuild §49 feared but a
+    // FLOOD/LENS APEX DIVERGENCE — under ruling 8b-rev the corr-0 lens apex reaches 0.45·gap while
+    // the corr-0 flood wedge converged at the gap MIDPOINT (0.50·gap), leaving a razor-thin
+    // double-covered sliver at every interior corr-0 lens. Converging the flood AT the lens apex
+    // (``emitFloodWedge``, ruling 8g/8q — "the matrix detours around the wedge") makes the
+    // enclosing-matrix band own the space past the apex hole-free. So the invariant is now
+    // absolute: no above-TD hole anywhere.
+    const offMsg = res.aboveHoles.map((h) => `${h.section} ${h.detail}`).join('; ')
     expect(
-      offBaseline.length,
-      `flag-ON above-TD holes must live ONLY at the identity-pinned walls (CS2-g17, CS1-g3, CS2-g21). New off-baseline holes: ${offMsg || '(none)'}`,
+      res.aboveHoles.length,
+      `flag-ON above-TD holes must be ZERO (session 49 flood-apex fix). Holes found: ${offMsg || '(none)'}`,
     ).toBe(0)
-    // The baseline holes MUST exist (a total DROP to 0 with the wall unfixed = mis-measurement).
-    const cs2g17 = res.aboveHoles.filter((h) => h.section === 'Cross-section 2' && h.gapIndex === 17)
-    expect(
-      cs2g17.length,
-      'flag-ON: the Cross-section 2 gap 17 wall must still be present (>0 sampled holes); a drop to 0 means the input/engine moved',
-    ).toBeGreaterThan(0)
     // Sub-TD holes must be 0 on the product path.
     expect(res.totalSubTD, 'flag-ON sub-TD holes must be 0').toBe(0)
     // RULING 8s (owner, 2026-07-19, "0.45 stands, matrix detours"): deleting the facing-sample
-    // reach cap opens 3 different-litho cm-slivers where a corr-0 lens whose 0.45 wedge crosses NO
-    // correlation line art reaches into surrounding fill. These are identity-pinned ENGINE DEFECTS
-    // (the enclosing region's contour must clip around the lens wedge — the lensEnclosure contour
-    // clip, a LATER build); until that lands they ride THIS explicit ratchet. They do NOT justify
-    // re-capping the lens. The ratchet fails on any FOURTH overlap (a NEW off-baseline pair) or on
-    // growth of these 3 beyond a small tolerance — so a regression that widens or multiplies the
-    // slivers is caught, while the 3 ruled slivers pass.
+    // reach cap could open different-litho cm-slivers where a corr-0 lens whose 0.45 wedge crosses
+    // NO correlation line art reaches into surrounding fill. The session-49 flood-apex fix (the
+    // flood converges AT the lens apex) resolved TWO of the three original slivers (CS1-g5
+    // ZAND(lens)×SILT 14.7cm and CS2-g13 ZAND(quad)×KLEI 2.8cm — both were the flood/lens apex
+    // divergence). The remaining sliver is a BAND-INTERVAL quad×quad overlap (NOT a lens/flood
+    // divergence) — an identity-pinned ENGINE DEFECT (the enclosing region's contour must clip;
+    // the lensEnclosure contour clip is a LATER build). It rides THIS explicit ratchet; it does
+    // NOT justify re-capping. The ratchet fails on any SECOND overlap (a NEW pair) or growth
+    // beyond a small tolerance.
     const PINNED_OVERLAPS = [
-      { section: 'Cross-section 1', gapIndex: 5, litho: 'ZAND(lens)×SILT', maxVcm: 14.7 },
       { section: 'Cross-section 2', gapIndex: 13, litho: 'KLEI(quad)×ZAND', maxVcm: 24.3 },
-      { section: 'Cross-section 2', gapIndex: 13, litho: 'ZAND(quad)×KLEI', maxVcm: 2.8 },
     ]
     // Growth tolerance (cm) — a rounding/geometry wiggle on the pinned slivers is allowed; a real
     // regression that widens one is not.
