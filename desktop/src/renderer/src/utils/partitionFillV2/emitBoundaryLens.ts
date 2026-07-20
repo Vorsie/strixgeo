@@ -26,8 +26,12 @@
  *     (``emitEnclosingFlood`` emits it across every gap). The apex sits ON that polyline
  *     (``apexElev`` = the polyline interpolated at the apex x), so the tied leg is
  *     EXISTING line art — never a synthesized horizontal that diverges from it (the
- *     session-19 +65-hole root). The tied leg is NOT re-emitted (a second leg riding the
- *     polyline duplicates given line art — ruling 8i(d)).
+ *     session-19 +65-hole root). RULING 8q (owner 2026-07-19, session 54): the tied leg is
+ *     ALSO emitted as a second ``term``-family curve coincident with that polyline sub-segment
+ *     — the paint tool paints ON line art, so the lens loop must CLOSE as real lens-family art,
+ *     not merely via the phase-3 flood scaffold + the region edge. Coincident with the existing
+ *     polyline → the arrangement unions it, NO topology change. This SUPERSEDES the 8i(d)
+ *     "don't duplicate the polyline" withholding for the boundary lens's OWN closing loop.
  *
  * NO SEPARATE FLOOD WEDGE. Unlike the interior ``emitLens`` (which emits an ``floodsw``
  * wedge to claim the width past the apex), the boundary lens draws ONLY its free flank.
@@ -150,9 +154,30 @@ export function emitBoundaryLens(
   // to the FREE contact corner, carrying the unit's OWN litho. Audit-visible (``isLensFlankId``
   // counts ``term`` at the unit's contact) so the boundary lens reads PRESENT. The lens face
   // closes as: column vertical + this free flank + the boundary polyline sub-segment.
+  const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
   const flankId = nextId()
-  lensLabels.set(flankId, { formationId: u.formationId, bodyId: u.bodyId })
+  lensLabels.set(flankId, label)
   out.push({ id: flankId, kind: 'closing', points: [apex, freeCorner] })
+
+  // The TIED closing leg — RULING 8q (owner 2026-07-19, session 54; supersedes the 8i(d)
+  // "don't re-emit a leg riding the polyline" note above for the LENS case). The paint tool
+  // PAINTS ON LINE ART, so every termination loop must close as REAL lens-family art: the paint
+  // bucket sees a CLOSED lens, not a loop that only closes via a phase-3 flood scaffold + the
+  // region edge. This second ``term``-family curve runs from the near-column corner ON the
+  // boundary polyline (``(colX, nearBandElev)`` — the shallow-TD floor for ``td``, the top band
+  // for ``surface``) to the SAME apex, carrying the unit's OWN litho. It is EXACTLY coincident
+  // with the boundary-polyline sub-segment the arrangement already traces (TD floor / top band),
+  // so the planar arrangement UNIONS it → NO topology change (holes/overlaps stay 0/0), while the
+  // lens now reads as a fully-closed loop of lens-family line art.
+  const tiedCornerElev = nearBandElev
+  const tiedCorner: Point = { x: colX, y: tiedCornerElev }
+  // Guard: a degenerate tied leg (the apex snapped onto the tied corner) adds nothing — the free
+  // flank already closed the lens against the polyline. Only emit a real, non-degenerate segment.
+  if (!segmentDegenerate(tiedCorner, apex)) {
+    const tiedId = nextId()
+    lensLabels.set(tiedId, label)
+    out.push({ id: tiedId, kind: 'closing', points: [tiedCorner, apex] })
+  }
   return true
 }
 
