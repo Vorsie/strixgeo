@@ -219,20 +219,20 @@ const has = existsSync(INPUT)
 // (b) A zero-seed fillable face is a topology-defect, never painted from a synthetic label.
 // ===========================================================================
 ;(has ? describe : describe.skip)('(b) a zero-seed fillable face is a topology-defect, never invented', () => {
-  // Tie-section 6 (x=0, elLo=-4.595): a flood face bounded by floodsw0/floodsw1/floodsw2 — no
-  // column edge. Owner rule: "zero formations -> never invent a lithology; classify explicitly and
-  // fail the gate if it lies in the fillable domain." The seed classifier must call it
-  // zero-seed-defect. (The face's exact elLo shifted from -4.13 to -4.595 in session 49 when the
-  // corr-0 flood wedge began converging AT the lens apex instead of the gap midpoint — the flood
-  // geometry moved, but a flood-bounded no-column-seed face still exists here and still classifies
-  // as a defect: the RULE is unchanged, the fixture coordinate follows the geometry.)
-  it('a flood-bounded face with no column seed classifies zero-seed-defect', () => {
+  // Tie-section 6 (x=0, elLo=-10.45): a sub-TD substrate face bounded by btcurtain0R/btfloor0/tie3
+  // — no column edge. Owner rule: "zero formations -> never invent a lithology; classify explicitly
+  // and fail the gate if it lies in the fillable domain." The seed classifier must call it
+  // zero-seed-defect (its 8n carry-seed RESOLUTION is a separate, recorded layer). Fixture history:
+  // the original -4.13 flood face moved to -4.595 in S49 (flood apex fix) and RESOLVED to
+  // single-seed in S56 (the 8l band-promotion delete reconnected it to a real column seed — an
+  // improvement, so the rule-pin moves to this still-zero-seed substrate face; the RULE never moved).
+  it('a substrate-bounded face with no column seed classifies zero-seed-defect', () => {
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
     const tie6 = prepareRealSection(raw.sections.find((s) => s.name === 'Tie-section 6')!)
     const probes = probeSection(tie6)
-    const face = findByBounds(probes, 0, -4.595)
-    expect(face, 'the Tie-6 x=0 el=-4.595 flood face exists').toBeTruthy()
-    expect(face!.classification, 'a flood face has no column seed -> zero-seed-defect').toBe('zero-seed-defect')
+    const face = findByBounds(probes, 0, -10.45)
+    expect(face, 'the Tie-6 x=0 el=-10.45 substrate face exists').toBeTruthy()
+    expect(face!.classification, 'a substrate face has no column seed -> zero-seed-defect').toBe('zero-seed-defect')
     expect(face!.seedFormations.length, 'it has ZERO column-seed formations').toBe(0)
   })
 })
