@@ -194,13 +194,33 @@ export function emitBandContourCurve(
   nextId: () => string,
   out: InputCurve[],
 ): void {
+  const clipped = clipBandContourToTD(leftX, rightX, leftElev, rightElev, shallowTD)
+  if (clipped === null) return
+  out.push({ id: nextId(), kind: 'closing', points: clipped })
+}
+
+/**
+ * Clip a straight band contour ``(leftX,leftElev)→(rightX,rightElev)`` to the portion ABOVE
+ * ``shallowTD`` and return its two endpoints (left→right), or ``null`` when it is wholly at/below
+ * the TD (substrate owns it) or degenerate (sub-1e-9 width). Extracted from
+ * ``emitBandContourCurve`` (second copy: the ruling-8s band-contour detour needs the SAME clipped
+ * line to reroute around a corr-0 lens diamond). Returns a fresh 2-point array — safe to hand to
+ * the detour without mutating the source.
+ */
+export function clipBandContourToTD(
+  leftX: number,
+  rightX: number,
+  leftElev: number,
+  rightElev: number,
+  shallowTD: number,
+): [{ x: number; y: number }, { x: number; y: number }] | null {
   let lx = leftX
   let ly = leftElev
   let rx = rightX
   let ry = rightElev
   const lBelow = ly <= shallowTD + ELEV_EPS
   const rBelow = ry <= shallowTD + ELEV_EPS
-  if (lBelow && rBelow) return // wholly sub-TD — substrate owns it
+  if (lBelow && rBelow) return null // wholly sub-TD — substrate owns it
   if (lBelow || rBelow) {
     // Clip to the shallowTD crossing so only the above-TD portion is emitted.
     const t = (shallowTD - ly) / (ry - ly) // fraction along the line to the crossing
@@ -213,8 +233,8 @@ export function emitBandContourCurve(
       ry = shallowTD
     }
   }
-  if (Math.abs(rx - lx) < 1e-9) return
-  out.push({ id: nextId(), kind: 'closing', points: [{ x: lx, y: ly }, { x: rx, y: ry }] })
+  if (Math.abs(rx - lx) < 1e-9) return null
+  return [{ x: lx, y: ly }, { x: rx, y: ry }]
 }
 
 /**

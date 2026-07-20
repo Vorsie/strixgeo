@@ -34,6 +34,7 @@
  */
 
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
+import { collectEnclosedLensDiamonds, type Corr0Diamond } from './detourBandContour'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosingFlood } from './emitEnclosingFlood'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
@@ -194,8 +195,16 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   const jumpTies = twoSided ? resolveJumpTies(survivingSection) : []
   const plans = twoSided ? buildTerminationPlans(survivingSection, ties, jumpTies, bridgeGapAnchored) : []
   if (twoSided) {
-    emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans)
-    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves)
+    // RULING 8s STAGE B: collect every corr-0 lens diamond the sweep + the enclosed-lens emitter
+    // draw, so ``emitEnclosingFlood`` can DETOUR a crossing ``bandc`` band-base contour around them
+    // (the band wraps the lens as a hole instead of the S50 crush — "0.45 stands, matrix detours").
+    // The sweep records its interior lenses as it emits them (exact apex). Enclosed-lens diamonds
+    // are computed here from the SAME ``enclosedLensDiamond`` call ``emitEnclosedLensCurves`` makes
+    // (which runs AFTER the flood), so the flood sees them without a reorder.
+    const corr0Diamonds: Corr0Diamond[] = []
+    emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans, corr0Diamonds)
+    collectEnclosedLensDiamonds(survivingSection, ties, corr0Diamonds)
+    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves, corr0Diamonds)
     // S41.c (ruling 8p / finding F1): the asymmetric ``emitRuledBands`` pass is DELETED. It
     // invented same-formation band contours from formation-OVERLAP authority (a unit's own
     // contact ↔ HALF a facing same-formation run), NOT from the two actual bracket ties bounding

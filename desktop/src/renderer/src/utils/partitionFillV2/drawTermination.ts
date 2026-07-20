@@ -52,13 +52,13 @@
  */
 
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
-import { collectGapBands } from './emitBands'
+import { type Corr0Diamond } from './detourBandContour'
 import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { facingMatrixLabel } from './facingMatrix'
 import { detourFlankAroundEnclosedLenses } from './detourEnclosedLens'
-import { interiorLensReachToTies, type ReachTie } from './lensReach'
+import { interiorLensReachToTies } from './lensReach'
 import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
 import { lensEnclosingMatrix } from './lensEnclosure'
@@ -206,13 +206,16 @@ export function drawTermination(
   nextId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  diamonds?: Corr0Diamond[],
 ): boolean {
   if (corr === 2) return false // band member / first-unit band — given line art (bandc)
   const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
   if (corr === 0) {
     // RULING 8i: 0 correlations → draw the lens lines ALWAYS. No merge exemption; the only
     // suppressions are PHYSICAL (degenerate / sub-snap), applied inside ``emitLensClosing``.
-    return emitLens(iu, ui, colX, facingX, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out)
+    // ``diamonds`` (ruling 8s STAGE B) collects the emitted interior-lens diamond so a crossing
+    // ``bandc`` band contour can detour around it in ``emitEnclosingFlood``.
+    return emitLens(iu, ui, colX, facingX, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds)
   }
   // corr === 1: RULING 8m (owner, 2026-07-17 — "restore it, just add a lithology check before
   // drawing"). The same-litho onlap suppression is RESTORED in follow-the-tie form (below),
@@ -267,41 +270,6 @@ export function drawTermination(
 }
 
 /**
- * The matched-pair BAND CONTOURS of a gap, expressed as ``ReachTie`` collision brackets (ruling
- * 8n / 8b-rev). A matched-pair band (``collectGapBands``) is same-formation line art whose top +
- * base contours (``emitBandContourCurve`` in ``emitEnclosingFlood``) bound the gap exactly like a
- * tie. A corr-0 lens diamond must not cross them (the same "sloping correlation" collision that
- * shortens a lens against a tie): the ZAND matched-pair band's BASE contour sloping from the near
- * ZAND base to the FACING ZAND base cut the KLEI interbed lens at its 0.45 reach (CS2 gap13
- * KLEI×ZAND overlap). ``activeTies`` alone missed it — a matched-pair band's base is a ``bandc``
- * contour, NOT a resolved tie — so the reach must also fit inside these contours.
- *
- * The band contour endpoints are ordered LEFT→RIGHT by column x (the ``ReachTie`` convention;
- * ``reachTieElevAt`` interpolates left→right). ``collectGapBands`` keys the band's own [top..base]
- * span per side, so the two contours are (leftTop→rightTop) and (leftBase→rightBase).
- */
-function gapBandContourBrackets(
-  gapIndex: number,
-  col: ColumnGeom,
-  facing: ColumnGeom,
-  activeTies: readonly ResolvedTie[],
-): ReachTie[] {
-  // Order the two columns LEFT→RIGHT by x (the gap's left column is ``columns[gapIndex]``; the
-  // sweep passes ``col`` = the terminating column, which may be the gap's right column on a
-  // 'right'-side look). ``collectGapBands`` reads left/right unit indices, so it needs the true
-  // gap order.
-  const left = col.x <= facing.x ? col : facing
-  const right = col.x <= facing.x ? facing : col
-  const bands = collectGapBands(gapIndex, left, right, activeTies)
-  const out: ReachTie[] = []
-  for (const b of bands) {
-    out.push({ left: { x: left.x, y: b.leftTop }, right: { x: right.x, y: b.rightTop } })
-    out.push({ left: { x: left.x, y: b.leftBase }, right: { x: right.x, y: b.rightBase } })
-  }
-  return out
-}
-
-/**
  * Emit a 0-corr LENS: the ``emitLensClosing`` pair (top→apex→base) at the unit's own
  * mid-elevation, apex 8b-capped + degenerate-guarded. Own-litho label so the traced hole
  * reads the unit. The FACING enclosing formation floods the vacated wedge PAST the apex
@@ -323,6 +291,7 @@ function emitLens(
   nextId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  diamonds?: Corr0Diamond[],
 ): boolean {
   // RULING 8b-rev (owner, 2026-07-19): the DEFAULT interior-lens reach is 0.45; the ~2× thickness
   // cap applies ONLY on COLLISION with a gap tie ("shorten lenses that collide with a sloping
@@ -343,18 +312,20 @@ function emitLens(
   // region-construction defect (the enclosing contour must clip the wedge — a later build), never a
   // reason to re-cap. The wrap PAST the apex is still handled by the flood wedge's own tie clamp.
   //
-  // RULING 8n / 8b-rev band-contour collision (CS2 gap13, session 50): a matched-pair BAND contour is
-  // "sloping correlation" line art exactly like a tie (``emitEnclosingFlood`` emits it as ``bandc``),
-  // so the lens diamond must fit inside it too. ``activeTies`` alone missed it — the ZAND matched-pair
-  // band's BASE contour (near ZAND base → facing ZAND base) sloped BELOW the KLEI interbed's own base
-  // corner while its 0.45 apex stayed above → the KLEI diamond poked up into the ZAND band (the last
-  // quad×quad overlap). Add the gap's band contours to the collision brackets so the reach shortens
-  // to fit strictly inside them (the same tie-fit ladder, no new guard — a band contour is a bracket).
+  // RULING 8s STAGE B (owner, 2026-07-19/session 54 mandate, "release the B4-u5 lens crush"): band
+  // contours LEAVE the lens reach-collision set. S50 added the gap's matched-pair band contours to
+  // the brackets so a corr-0 lens diamond shortened to fit strictly BELOW the descending ZAND
+  // band-base contour — but that CRUSHES the lens (B4-u5-SILT at CS1 gap3: the ZAND band-base
+  // ``bandc37`` sloping from the SILT's own top corner (0.608) crushed the 0.45 lens to a 0.7 m
+  // stub, apex x≈102.3 instead of the 0.45 reach x≈142.2 — and the same class crushed the CS2-g13
+  // KLEI interbed via ``bandc139``). Ruling 8s: "0.45 stands, the MATRIX detours" — a corr-0 lens
+  // keeps its full 0.45 reach even where a matched-pair band's base contour descends past it; the
+  // BAND CONTOUR detours AROUND the lens diamond (``detourBandContourAroundLenses`` in
+  // ``emitEnclosingFlood``, generalising S51's ``detourFlankAroundEnclosedLenses`` from onlap
+  // flanks to ``bandc`` curves), so the band wraps the lens as a hole and overlap is impossible BY
+  // CONSTRUCTION. The SOLE reach shortener is a genuine wedge-vs-DRAWN-tie collision, which
+  // ``interiorLensReachToTies`` applies (gap ties only — no band contours).
   const gapTiesForReach = activeTies.filter((t) => t.gapIndex === gapIndex)
-  const reachBrackets: ReachTie[] = [
-    ...gapTiesForReach,
-    ...gapBandContourBrackets(gapIndex, col, facing, activeTies),
-  ]
   const apexFrac = Math.min(
     INTERIOR_PINCH_FRACTION,
     interiorLensReachToTies(
@@ -364,7 +335,7 @@ function emitLens(
       lensMid,
       u.topElev,
       u.baseElev,
-      reachBrackets,
+      gapTiesForReach,
     ),
   )
   const apexX = colX + apexFrac * (facingX - colX)
@@ -375,6 +346,16 @@ function emitLens(
   const emitted = out.length > before // ``emitLensClosing`` may no-op (degenerate) — skip the wedge too
   for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)
   if (!emitted) return false
+  // RULING 8s STAGE B: record the EXACT emitted diamond so ``emitEnclosingFlood`` can detour a
+  // crossing ``bandc`` band contour around it (collinear with the flanks just emitted). Only the
+  // interior corr-0 lens (this path) can be crossed by a descending band base contour; boundary/
+  // sub-TD lenses ride a boundary polyline, never a band contour.
+  diamonds?.push({
+    gapIndex,
+    topPt: { x: colX, y: u.topElev },
+    apex: { x: apexX, y: apexElev },
+    basePt: { x: colX, y: u.baseElev },
+  })
   // 0-corr LENS: both sides enclosing → both flood wedges (skipSide null). RULING 8n(b) (owner,
   // 2026-07-18, x=646.74): the wrap past the apex is the ENCLOSING MATRIX read from the lens's OWN
   // column (``lensEnclosingMatrix`` — the litho that wraps the pinch, walking past sibling

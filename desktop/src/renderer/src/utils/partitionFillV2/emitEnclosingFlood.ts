@@ -37,7 +37,8 @@
  */
 
 import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
-import { collectGapBands, emitBandContourCurve, type GapBand } from './emitBands'
+import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
+import { clipBandContourToTD, collectGapBands, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { type LensLabel } from './emitLenses'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
@@ -79,6 +80,7 @@ export function emitEnclosingFlood(
   bridgeAnchored: ReadonlySet<string>,
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
+  corr0Diamonds: readonly Corr0Diamond[] = [],
 ): void {
   void bridgeAnchored
   void lensLabels
@@ -92,7 +94,7 @@ export function emitEnclosingFlood(
     const left = columns[gi]
     const right = columns[gi + 1]
     const bands = collectGapBands(gi, left, right, activeTies)
-    emitGapFlood(gi, left, right, activeTies, bands, nextFloodId, nextBandId, out)
+    emitGapFlood(gi, left, right, activeTies, bands, nextFloodId, nextBandId, out, corr0Diamonds)
   }
 }
 
@@ -106,6 +108,7 @@ function emitGapFlood(
   nextFloodId: () => string,
   nextBandId: () => string,
   out: InputCurve[],
+  corr0Diamonds: readonly Corr0Diamond[],
 ): void {
   const leftTD = left.units[left.units.length - 1].baseElev
   const rightTD = right.units[right.units.length - 1].baseElev
@@ -113,10 +116,12 @@ function emitGapFlood(
 
   // Band contours (band-authority line art): each matched-pair band's own top/base contour so
   // its face closes and the flood does not overrun it. Clamped above the shallow TD (the
-  // substrate owns the deep zone — a duplicate contour there slivers the deep band).
+  // substrate owns the deep zone — a duplicate contour there slivers the deep band). RULING 8s
+  // STAGE B: each contour DETOURS around any corr-0 lens diamond in this gap it would cross —
+  // the band wraps the lens as a hole rather than crushing it (``emitBandContourWithDetour``).
   for (const b of bands) {
-    emitBandContourCurve(left.x, right.x, b.leftTop, b.rightTop, shallowTD, nextBandId, out)
-    emitBandContourCurve(left.x, right.x, b.leftBase, b.rightBase, shallowTD, nextBandId, out)
+    emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftTop, b.rightTop, shallowTD, corr0Diamonds, nextBandId, out)
+    emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftBase, b.rightBase, shallowTD, corr0Diamonds, nextBandId, out)
   }
 
   // Build the interval brackets: the top-band line, every tie line, every band contour, and the
@@ -164,6 +169,35 @@ function emitGapFlood(
       { x: right.x, y: shallowTD },
     ],
   })
+}
+
+/**
+ * Emit ONE matched-pair band contour (top or base), clipped above the shallow TD, DETOURED around
+ * any corr-0 lens diamond in ``gapIndex`` it would cross (ruling 8s STAGE B).
+ *
+ * The band-base contour of a top-tied ZAND band descends from the near base corner across the gap;
+ * a corr-0 interbed lens sitting directly below that corner (SILT/KLEI) pokes its 0.45 diamond into
+ * the descending line. Rather than CRUSH the lens (the S50 ``gapBandContourBrackets`` reach cap, now
+ * reverted), the contour reroutes ``crossIn → apex → crossOut`` around the diamond apex — collinear
+ * with the emitted lens flanks, so the arrangement unions them and the lens closes as a hole in the
+ * band face while the band wraps it (overlap impossible by construction). The contour keeps its
+ * ``bandc`` id (``labelFaces`` counts it as neither a tie nor a closing — unchanged semantics).
+ */
+function emitBandContourWithDetour(
+  gapIndex: number,
+  leftX: number,
+  rightX: number,
+  leftElev: number,
+  rightElev: number,
+  shallowTD: number,
+  corr0Diamonds: readonly Corr0Diamond[],
+  nextBandId: () => string,
+  out: InputCurve[],
+): void {
+  const clipped = clipBandContourToTD(leftX, rightX, leftElev, rightElev, shallowTD)
+  if (clipped === null) return
+  const detoured = detourBandContourAroundLenses(clipped, gapIndex, corr0Diamonds)
+  out.push({ id: nextBandId(), kind: 'closing', points: detoured })
 }
 
 /**

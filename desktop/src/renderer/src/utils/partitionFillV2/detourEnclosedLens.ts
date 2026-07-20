@@ -114,8 +114,12 @@ export function detourFlankAroundEnclosedLenses(
  * Segment intersection of ``[p1,p2]`` (the flank) with ``[p3,p4]`` (a diamond flank). Returns the
  * intersection point + its parameter ``t`` along the FLANK ([p1,p2]) when they properly cross (both
  * parameters strictly inside [0,1] by a small epsilon), else ``null``. Pure 2D line-line solve.
+ *
+ * Exported for the ruling-8s band-contour detour (``detourBandContour``), which rides the SAME
+ * crossIn→apex→crossOut geometry around a corr-0 lens diamond that this module rides around an
+ * enclosed lens for the 8g onlap-flank detour — one solver, one convention.
  */
-function segIntersect(p1: Point, p2: Point, p3: Point, p4: Point): { pt: Point; t: number } | null {
+export function segIntersect(p1: Point, p2: Point, p3: Point, p4: Point): { pt: Point; t: number } | null {
   const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x)
   if (Math.abs(d) < 1e-12) return null
   const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d
