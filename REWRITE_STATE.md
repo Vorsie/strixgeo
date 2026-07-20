@@ -6245,3 +6245,107 @@ be byte-identical). NO git ops.
   keep as a regression guard that TS7-g0 KLEI stays KLEI.
 - `emitEnclosingFlood.ts` / `drawTermination.ts` — UNTOUCHED. S56 state preserved.
 - `REWRITE_STATE.md` — this §63 entry.
+
+---
+
+## §64 — Session 58: the 23/125-S7 (CS1 col18) trio — RULING 8t (collision halves the lens) LANDED + the missing sub-TD left lens (8r split) LANDED; the missing u6 onlap is an 8m MATCHED-SIDE rule gap → STOP-AND-ASK (2 of 3 shipped, DEFECT2 deferred)
+
+**PREMISES REPRODUCED EXACT (orchestrator-measured, first-hand):** col18 (kept#18, x=646.74) raw
+u0 SILT[11.89..10.11] u1 KLEI[10.11..7.75] u2 SILT[7.75..6.65] u3 KLEI[6.65..6.03] u4 SILT[6.03..5.46]
+u5 VEEN[5.46..5.05] u6 KLEI[5.05..4.23](TD). LEFT kept#17 S7A x=645.57 single SILT[11.46..10.42] TD 10.42.
+RIGHT kept#19 S6 x=724.83 u3=ZAND[7.03..0.85]. **tie83 = edge#92 `0583d7b3/top ↔ 84fe5e5a/base`** =
+S6-u3-ZAND-TOP(724.8,7.03) ↔ col18-u6-KLEI-BASE(646.7,4.23), a MIXED base↔top tie. (u6 also base-tied
+LEFT via bridge8:16-18 to kept#16 ZAND-top x=577.8.) The enclosed-lens PRE-MERGE collapses col18 to 5
+normalized units: u0 SILT / **u1 KLEI[10.11..6.03] (merged u1+u3 around the SILT lens[7.75..6.65])** /
+u2 SILT[6.03..5.46] / u3 VEEN / u4 KLEI[5.05..4.23]. Baselines all match §62/§63: holes 0/0 overlaps 0 ·
+seedGate 731/650/8/67/6 pm0 · conformance flag-ON 12 (pins 10; the +2 TS7-g0 false positives, SHAPE_AUDIT-
+gated RED pre-existing) · CS1 gates 8/8 · full utils (pre-existing) green · tsc clean.
+
+**DEFECT ROOT CAUSES (all three reproduced first-hand, `partitionFillV2.s58col18.diag.test.ts`):**
+- **(3) u5-VEEN right hugged 0.9 m (`term42/43` apex (647.6,5.25)):** the OLD ~2× thickness rung firing
+  on the genuine tie83 collision (VEEN mid 5.255; tie83 crosses its diamond → `fitLensReach` dropped to
+  min(0.45, 2t/gap)=0.0105).
+- **(1) u3-KLEI left sub-TD lens MISSING:** `emitSubTdLenses.emitSideSubTd` iterated the MERGED
+  `col.units` WITHOUT the ruling-8r `splitHostIntoRawPieces` the above-TD sweep already applies. The raw
+  u3-KLEI[6.65..6.03] (a bottom sub-piece of the merged KLEI host, below S7A's TD 10.42) was never a
+  candidate → its left lens vanished. (The RIGHT lens exists — gap18 above-TD, `term38/39`.)
+- **(2) u6-KLEI right onlap MISSING:** NOT a crossing guard (the orchestrator's suspicion) — it is the
+  **8m `matchedFacingSameLitho` suppression**. PROVEN first-hand: `matchedFacingSameLitho(KLEI,'base',
+  7.03,S6)=true`. u6-KLEI base-ties (tie83) to S6-ZAND-**TOP** (7.03); 8m samples the UNIT'S OWN side
+  (base tie → ABOVE the far endpoint → S6-u2-KLEI at 7.031) → reads KLEI (same) → SUPPRESSES. The
+  geometrically-correct matched unit is S6-u3-ZAND (BELOW the top contact the tie meets) → different →
+  the onlap SHOULD draw (the premise + ruling 8t "the onlap is never suppressed").
+
+**SHIPPED (worktree, NOT committed — orchestrator commits):**
+- **STAGE A — ruling 8t in `lensReach.ts` `fitLensReach`.** Flag-ON ladder is now 0.45 → HALVE (0.225 →
+  0.1125 → … → floor); the ~2× thickness rung is DELETED on the flag-ON path. Flag-OFF (frozen seam
+  engine) keeps the original 0.45 → thickness → halve ladder BYTE-IDENTICAL (gated on
+  `twoSidedTerminationsEnabled()`). Docstrings updated (module header + `interiorLensReachToTies` +
+  `enclosedLensReach`). **RE-DERIVATION INVENTORY (reachScan, CS1-scoped flag-ON):** the ONLY shortened
+  lenses model-wide are both col18/gap18 — **VEEN(u5) 0.0105→0.225 (apex 647.6→664.3, 17.6 m out, clear
+  of tie83's ~28 m crossing)** and **KLEI(u6-piece) 0.021→0.113 (0.45→0.225→0.113, halved twice to fit
+  under tie83)**. Every other CS1 lens was already 0.45 (no collision). Fixture updated MORE LITERAL per
+  8t: `partitionFillV2.faceLabel8n.test.ts` VEEN-wrap sample moved f=0.1→0.3 (past the new 0.225 apex,
+  cited 8t).
+- **STAGE C — ruling 8r split in `emitSubTdLenses.ts`.** `emitSideSubTd` now calls
+  `splitHostIntoRawPieces` per host (same as the above-TD sweep) BEFORE the sub-TD dispatch; a raw
+  sub-piece below the facing TD reading corr-0 emits its lens. u3-KLEI[6.65..6.03] now emits
+  `subtdlens`-class closing apex ~646.2 (curve `f[0.55..1.0] el[6.03..6.65]`). Unsplit hosts return a
+  single piece = byte-identical to the pre-8r loop; split-only fires flag-ON (`col.enclosedLenses` is
+  flag-ON only).
+
+**GATES AFTER A+C (all re-verified first-hand):** holes **0/0** overlaps **0** HELD (both flags) ·
+flag-OFF byte-identical (seedFill 5/5, Stage A flag-gated + Stage C flag-ON-only) · CS1 gates **8/8** ·
+seedGate faces **731→732** single **650→651** (the +1 = the new u3-KLEI single-seeded lens — a clean
+improvement, NOT a defect) void 8 zero-seed 67 multi **6** **pm=0 HELD** · conformance flag-ON **12**
+(UNCHANGED — no new violation; the added lens is correctly a lens not flagged) · lineStageDiff green ·
+tie 446/… (SWEEP line art unchanged for A; C adds sub-TD closings only) · **full utils green (0 fail;
+the followTieOnlap/oneCorrActualTie 8m locks GREEN after the DEFECT2 revert; faceLabel8n GREEN after the
+8t fixture update)** · tsc clean. NOTE: the conformance `0corr-reach-exceeds-cap` ADVISORY rose 2→6 —
+EXPECTED (it measures against the retired 8b thickness cap; 8t supersedes it). It is an advisory, not a
+gate; the advisory logic is now stale for 8t and should be dropped/rescoped (orchestrator call).
+
+**⚠ DEFECT2 = STOP-AND-ASK (8m matched-side rule gap — the sole unshipped piece).** I BUILT the
+facing-side fix (`tieRefFarSide` + `matchedFacingSameLitho(facingSide,…)` sampling the facing endpoint's
+OWN contact side, `MATCH_MARGIN`=5cm to clear the ELEV_EPS boundary band) + generalised the S51 diamond
+detour to onlap flanks (`detourBandContourAroundLenses` on the flank, ruling 8t "the flank detours around
+the diamond"). It PRODUCED the mandated result: distinct u6 onlap `(0,5.05)(0,4.23)(0.5,5.63)` drawing +
+detouring the VEEN diamond, holes 0/0 overlaps 0. **BUT it INVERTED 3 owner-locked regression tests** —
+`followTieOnlap` (a)/(b) + `oneCorrActualTie` (b)/(c) — which encode the OPPOSITE (own-side) interpretation
+of 8m on the IDENTICAL mixed base↔top shape. Traced: oneCorrActualTie (b) [L-CLAY-base ↔ R-SILT-top] and
+(c) [L-CLAY-base ↔ R-CLAY-top] are PERFECTLY inverted by the two interpretations (own-side samples ABOVE
+the far endpoint regardless of the tie's actual connection; facing-side follows the tie to the unit it
+connects to). This is a geological/semantic call (memory `feedback_ask_domain_questions_dont_bugfix`:
+never reinterpret a merge/suppression condition unilaterally) that reverses committed owner-locked tests.
+**I REVERTED the `matchedFacingSameLitho` change + call site to the own-side rule (green locks restored);
+kept `tieRefFarSide` (dormant utility) + the onlap-flank diamond-detour (dormant, holes 0/0 — ready the
+moment the owner approves).** The premise's "8m does NOT suppress under either predicate" is FACTUALLY
+WRONG here: own-side reads KLEI (suppress), facing-side reads ZAND (draw) — they diverge.
+
+  **THE OWNER QUESTION (verbatim evidence above):**
+  > Ruling 8m says "FOLLOW the actual tie to the MATCHED facing contact (below-for-top-tie /
+  > above-for-bottom-tie)". For a MIXED base↔top tie (col18 u6 KLEI-base ↔ S6 ZAND-TOP, tie83), does
+  > "below-for-top-tie / above-for-bottom-tie" mean (A) the UNIT'S OWN tied contact side — base tie →
+  > sample ABOVE the facing endpoint (reads S6-KLEI above the 7.03 contact → SUPPRESS, the current shipped
+  > behaviour + the followTieOnlap/oneCorrActualTie locks), OR (B) the FACING endpoint's OWN contact side
+  > — the tie meets S6-ZAND's TOP → sample BELOW it → S6-ZAND (different) → DRAW the onlap (the S58 premise
+  > + ruling 8t "never suppressed")? (B) is geometrically "follow the tie to the unit it connects to" and
+  > draws the mandated u6 onlap, but it INVERTS the 3 owner-locked regression tests (their fixtures encode
+  > (A) on the identical shape). This is the ONLY blocker to DEFECT2; DEFECTs 1+3 shipped clean.
+
+**FILES (worktree, NOT committed):**
+- `partitionFillV2/lensReach.ts` — STAGE A: `fitLensReach` 8t flag-ON halving ladder (thickness rung
+  flag-OFF only, byte-identical); docstrings for 8t.
+- `partitionFillV2/emitSubTdLenses.ts` — STAGE C: ruling-8r `splitHostIntoRawPieces` in `emitSideSubTd`.
+- `partitionFillV2/drawTermination.ts` — DEFECT2: `matchedFacingSameLitho` REVERTED to own-side (ASK note
+  added at the call site); `tieRefFarSide` KEPT (dormant, exported); `emitOnlap` takes `diamonds` + applies
+  `detourBandContourAroundLenses` to the onlap flank (ruling 8t onlap-detour, dormant while u6 stays
+  suppressed, holes 0/0). File is 535 lines (> 500 god-component warning, debt #201 — the added helper is a
+  candidate to extract when the 8m ruling lands).
+- `partitionFillV2.faceLabel8n.test.ts` — STAGE A fixture: VEEN-wrap sample f=0.1→0.3 past the 0.225 apex.
+- THROWAWAYS to `rm` at commit (bash rm denied): `partitionFillV2.s58col18.diag.test.ts` (the trio gate —
+  KEEP-CANDIDATE as a DEFECT1/3 regression guard, DEFECT2 assert currently loose-passes on the merged KLEI
+  band), `partitionFillV2.s58probe.diag.test.ts` (corr/curve/8m probe, pure log).
+- `REWRITE_STATE.md` — this §64 entry.
+- **CS1_FLIP regen NOT run (harness-denied prefix, §54/§63 precedent). The engine CHANGED (Stages A+C) →
+  the orchestrator MUST regenerate `diag_cs1_flip_walkthrough.json` before the owner rerender.**
