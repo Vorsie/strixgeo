@@ -534,16 +534,22 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
     assertRatchet('FLAG-OFF', rows, FLAG_OFF_BASELINE)
   })
 
-  // FLAG-ON conformance — the literal-8l product path. Measured 12 instances on the 14 real
-  // sections; pinned BY IDENTITY as a RATCHET (fail on ANY new instance AND on any silent
-  // disappearance — a legitimate fix updates this list in the same commit). NOT an aspirational
-  // 0. These are the known walls: the shape=absent rows are conformance-classifier artefacts at
-  // legitimate voids on the flag-ON render; the shape=band rows are 8l emergent bands (a corr-1
-  // onlap that merges full-width by the 8j post-fill merge). AUDIT_PROMPT Known Issues:
-  // CS1-g18/g19 (annulus wall), CS2-g21 (sub-TD ZAND), the converging-stack family.
+  // FLAG-ON conformance — the literal-8l product path. Pinned BY IDENTITY as a RATCHET (fail on ANY
+  // new instance AND on any silent disappearance — a legitimate fix updates this list in the same
+  // commit). NOT an aspirational 0. These are the known walls: the shape=absent rows are
+  // conformance-classifier artefacts at legitimate voids on the flag-ON render; the shape=band rows
+  // are 8l emergent bands (a corr-1 onlap that merges full-width by the 8j post-fill merge).
+  //
+  // SESSION 50 (ruling 8n band-contour lens clamp): the CS2-g13 KLEI×ZAND overlap fix — adding the
+  // gap's matched-pair band CONTOURS to the interior-lens collision brackets
+  // (``gapBandContourBrackets``) — shortened FIVE band-crossing interior lenses (CS2-g13 KLEI,
+  // CS1-g11 ZAND/SILT, CS2-g11 KLEI, CS2-g17 SILT). That restructured the enclosing-flood arrangement
+  // enough to RESOLVE FOUR pinned ``absent`` violations with NO new violation (holes/overlaps stayed
+  // 0/0): the two S40 F5 flood-absorption instances (CS1-g3 SILT + CS2-g21 SILT, previously
+  // "closes with the termination-plan rebuild") now render their lens, and the TS7-g0 KLEI onlaps
+  // (left+right) now render. The clamp is the correct 8n application (a band contour is a bracket
+  // exactly like a tie), so those four closed as a side effect — the ratchet drops 14 → 10.
   const FLAG_ON_BASELINE: Pin[] = [
-    { section: 'Tie-section 7', gap: 0, formation: 'KLEI', side: 'left', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
-    { section: 'Tie-section 7', gap: 0, formation: 'KLEI', side: 'right', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
     { section: 'Tie-section 10', gap: 0, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
     { section: 'Tie-section 11', gap: 0, formation: 'ZAND', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
     { section: 'Cross-section 3', gap: 6, formation: 'KLEI', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
@@ -554,15 +560,9 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
     { section: 'Cross-section 1', gap: 22, formation: 'SILT', side: 'left', corr: 0, shape: 'band', violation: '0corr-not-lens' },
     { section: 'Cross-section 2', gap: 13, formation: 'SILT', side: 'right', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
     { section: 'Cross-section 2', gap: 21, formation: 'ZAND', side: 'right', corr: 2, shape: 'absent', violation: '2corr-not-band' },
-    // S40 (ruling 8b-rev): the correct 0.45 reach EXPOSED the F5 flood-absorption wall on
-    // these two thin SILT-in-ZAND interbeds (their enclosing flood fragments around the
-    // longer lens and the SILT face is absorbed). Same wall as the holes gate's CS1-g3 /
-    // CS2-g21 pins; closes with the termination-plan rebuild — never by re-shortening.
-    { section: 'Cross-section 1', gap: 3, formation: 'SILT', side: 'left', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
-    { section: 'Cross-section 2', gap: 21, formation: 'SILT', side: 'left', corr: 0, shape: 'absent', violation: '0corr-not-lens' },
   ]
 
-  it('FLAG-ON: literal-8l conformance == the pinned 14-instance ratchet', () => {
+  it('FLAG-ON: literal-8l conformance == the pinned 10-instance ratchet', () => {
     console.log('\n===== CONFORMANCE FLAG-ON (literal-8l product path) =====')
     const prev = setTwoSidedTerminations(true)
     let rows: ConfRow[]
@@ -573,7 +573,7 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
       setTwoSidedTerminations(prev)
     }
     const total = grand['0corr-not-lens'] + grand['1corr-not-onlap'] + grand['2corr-not-band']
-    expect(total, 'flag-ON total conformance instances must equal the pinned 14').toBe(14)
+    expect(total, 'flag-ON total conformance instances must equal the pinned 10').toBe(10)
     assertRatchet('FLAG-ON', rows, FLAG_ON_BASELINE)
   })
 })
