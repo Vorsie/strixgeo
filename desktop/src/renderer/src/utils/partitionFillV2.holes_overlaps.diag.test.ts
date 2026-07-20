@@ -283,47 +283,21 @@ describe('v2 holes + different-litho overlaps HARD GATE (S38)', () => {
     ).toBe(0)
     // Sub-TD holes must be 0 on the product path.
     expect(res.totalSubTD, 'flag-ON sub-TD holes must be 0').toBe(0)
-    // RULING 8s (owner, 2026-07-19, "0.45 stands, matrix detours"): deleting the facing-sample
-    // reach cap could open different-litho cm-slivers where a corr-0 lens whose 0.45 wedge crosses
-    // NO correlation line art reaches into surrounding fill. The session-49 flood-apex fix (the
-    // flood converges AT the lens apex) resolved TWO of the three original slivers (CS1-g5
-    // ZAND(lens)×SILT 14.7cm and CS2-g13 ZAND(quad)×KLEI 2.8cm — both were the flood/lens apex
-    // divergence). The remaining sliver is a BAND-INTERVAL quad×quad overlap (NOT a lens/flood
-    // divergence) — an identity-pinned ENGINE DEFECT (the enclosing region's contour must clip;
-    // the lensEnclosure contour clip is a LATER build). It rides THIS explicit ratchet; it does
-    // NOT justify re-capping. The ratchet fails on any SECOND overlap (a NEW pair) or growth
-    // beyond a small tolerance.
-    const PINNED_OVERLAPS = [
-      { section: 'Cross-section 2', gapIndex: 13, litho: 'KLEI(quad)×ZAND', maxVcm: 24.3 },
-    ]
-    // Growth tolerance (cm) — a rounding/geometry wiggle on the pinned slivers is allowed; a real
-    // regression that widens one is not.
-    const GROWTH_TOL_CM = 1.0
-    const matchesPinned = (o: OverlapPair): (typeof PINNED_OVERLAPS)[number] | undefined =>
-      PINNED_OVERLAPS.find(
-        (p) => p.section === o.section && p.gapIndex === o.gapIndex && o.key.includes(p.litho),
-      )
-    const offRatchet = res.overlaps.filter((o) => matchesPinned(o) === undefined)
-    const offMsgO = offRatchet.map((o) => `${o.section} ${o.key} ${o.maxVcm.toFixed(1)}cm`).join('; ')
+    // RULING 8n / 8b-rev (owner, "0.45 stands, matrix detours" + "the wrap may not cross a given
+    // tie/band line"): the last different-litho overlap is GONE. History: the session-49 flood-apex
+    // fix (flood converges AT the lens apex) killed two of the three original slivers (CS1-g5
+    // ZAND×SILT 14.7cm, CS2-g13 ZAND×KLEI 2.8cm); the last (CS2-g13 KLEI(quad)×ZAND 24.3cm) was a
+    // BAND-INTERVAL collision: the ZAND matched-pair band's BASE contour (``bandc``, a sloping
+    // correlation line) crossed the KLEI interbed lens's 0.45 diamond, but ``interiorLensReachToTies``
+    // only fitted against resolved TIES, not band contours. Session 50 added the gap's matched-pair
+    // band contours to the lens collision brackets (``gapBandContourBrackets`` in ``drawTermination``)
+    // so the diamond shortens to fit strictly inside them — the SAME tie-fit ladder, a band contour
+    // IS a bracket, no new guard. The engine is now a TRUE partition: holes 0/0, overlaps 0/0. Any
+    // NEW different-litho overlap ANYWHERE is a regression and fails this gate.
+    const offMsgO = res.overlaps.map((o) => `${o.section} ${o.key} ${o.maxVcm.toFixed(1)}cm`).join('; ')
     expect(
-      offRatchet.length,
-      `flag-ON different-litho overlaps must live ONLY at the ruling-8s identity-pinned slivers (CS1-g5 ZAND×SILT, CS2-g13 KLEI×ZAND + ZAND×KLEI). New off-ratchet overlaps: ${offMsgO || '(none)'}`,
+      res.overlaps.length,
+      `flag-ON different-litho overlaps must be ZERO (session 50 band-contour lens clamp). Overlaps found: ${offMsgO || '(none)'}`,
     ).toBe(0)
-    // Each pinned sliver must still be present (a drop to 0 means the input/engine moved) and must
-    // NOT have grown beyond tolerance.
-    for (const p of PINNED_OVERLAPS) {
-      const found = res.overlaps.filter(
-        (o) => o.section === p.section && o.gapIndex === p.gapIndex && o.key.includes(p.litho),
-      )
-      expect(
-        found.length,
-        `ruling-8s pinned sliver ${p.section} gap${p.gapIndex} ${p.litho} must still exist`,
-      ).toBeGreaterThan(0)
-      const worst = Math.max(...found.map((o) => o.maxVcm))
-      expect(
-        worst,
-        `ruling-8s pinned sliver ${p.section} gap${p.gapIndex} ${p.litho} must not grow past ${(p.maxVcm + GROWTH_TOL_CM).toFixed(1)}cm (was ${worst.toFixed(1)}cm)`,
-      ).toBeLessThanOrEqual(p.maxVcm + GROWTH_TOL_CM)
-    }
   })
 })
