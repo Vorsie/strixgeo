@@ -114,14 +114,36 @@ function emitGapFlood(
   const rightTD = right.units[right.units.length - 1].baseElev
   const shallowTD = Math.max(leftTD, rightTD)
 
-  // Band contours (band-authority line art): each matched-pair band's own top/base contour so
-  // its face closes and the flood does not overrun it. Clamped above the shallow TD (the
-  // substrate owns the deep zone — a duplicate contour there slivers the deep band). RULING 8s
-  // STAGE B: each contour DETOURS around any corr-0 lens diamond in this gap it would cross —
-  // the band wraps the lens as a hole rather than crushing it (``emitBandContourWithDetour``).
+  // RULING 8l (CORR IS THE LITERAL COUNT — the matched-pair band PROMOTION is deleted): a
+  // ``collectGapBands`` band built from a SINGLE same-side tie is NOT authoritative on the contact
+  // that tie does NOT cover. Its band-authority ``bandc`` CONTOUR is emitted PER CONTACT only when
+  // an active gap tie actually runs between that contour's two endpoints — the literal-line rule
+  // (design §8 8l / 8q: a band-authority line must be a real correlation, never a promotion). The
+  // CS1 gap3 ``bandc37`` base contour connects B4-u2-ZAND's UNTIED interbed base (0.608) to
+  // S13-u3-ZAND's base — no tie runs between those endpoints → it is the exact "band promotion" 8l
+  // deletes. A genuinely 2-tied band (CS1 gap16 SILT: top-top tie + a base-tie whose contour rides
+  // a real tie) keeps BOTH contours. Dropping a promotion contour lets the sweep's corr-1 onlap
+  // terminations + the raw ZAND column verticals close + seed the emergent band (8q paint bucket).
+  const contourIsTie = (leftElev: number, rightElev: number): boolean =>
+    activeTies.some(
+      (t) =>
+        t.gapIndex === gapIndex &&
+        Math.abs(t.left.y - leftElev) < ELEV_EPS &&
+        Math.abs(t.right.y - rightElev) < ELEV_EPS,
+    )
+
+  // Band contours (band-authority line art): each band's own top/base contour so its face closes
+  // and the flood does not overrun it — but ONLY the contour(s) a real gap tie rides (ruling 8l).
+  // Clamped above the shallow TD (the substrate owns the deep zone — a duplicate contour there
+  // slivers the deep band). RULING 8s STAGE B: each contour DETOURS around any corr-0 lens diamond
+  // in this gap it would cross — the band wraps the lens as a hole (``emitBandContourWithDetour``).
   for (const b of bands) {
-    emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftTop, b.rightTop, shallowTD, corr0Diamonds, nextBandId, out)
-    emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftBase, b.rightBase, shallowTD, corr0Diamonds, nextBandId, out)
+    if (contourIsTie(b.leftTop, b.rightTop)) {
+      emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftTop, b.rightTop, shallowTD, corr0Diamonds, nextBandId, out)
+    }
+    if (contourIsTie(b.leftBase, b.rightBase)) {
+      emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftBase, b.rightBase, shallowTD, corr0Diamonds, nextBandId, out)
+    }
   }
 
   // Build the interval brackets: the top-band line, every tie line, every band contour, and the
@@ -132,6 +154,10 @@ function emitGapFlood(
     if (t.gapIndex !== gapIndex) continue
     brackets.push({ leftElev: t.left.y, rightElev: t.right.y })
   }
+  // The interval brackets close the fill faces (a fill scaffold, NOT a band-authority line): every
+  // band's top+base bracket stays so each interval still closes hole-free (the 8l contour deletion
+  // removes only the AUTHORITY line ``bandc``, never the fill closure). A 1-tied band's untied base
+  // is still a real column contact elevation the fill must close against.
   for (const b of bands) {
     brackets.push({ leftElev: b.leftTop, rightElev: b.rightTop })
     brackets.push({ leftElev: b.leftBase, rightElev: b.rightBase })
@@ -150,7 +176,11 @@ function emitGapFlood(
   }
 
   // Formations carrying a matched-pair band (their band contour + tie own their face; a flood
-  // seam inside a band would slice it).
+  // seam inside a band would slice it). Kept over ALL bands (not just ``promoted``): a same-
+  // formation emergent band still floods full-width (its two sides are the SAME litho, so
+  // ``closeInterval`` never seams it regardless), and suppressing the seam over the 1-tied band's
+  // formation matches the pre-8l fill topology — the contour deletion changes only the AUTHORITY
+  // anchor, not the flood's full-width closure.
   const bandFids = new Set(bands.map((b) => b.formationId))
 
   for (let bi = 0; bi + 1 < uniq.length; bi++) {
