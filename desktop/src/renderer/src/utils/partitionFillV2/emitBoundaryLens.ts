@@ -48,7 +48,8 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
+import { terminationApexOverride } from './apexOverride'
 import { emitFloodWedge } from './emitFloodWedge'
 import { facingMatrixLabel } from './facingMatrix'
 import { lensReachFraction } from './lensReach'
@@ -215,6 +216,8 @@ export function emitSurfaceOnlapFlank(
   nextOflankId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  gapIndex = -1,
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): boolean {
   // The top-band polyline the TIED leg rides: near = u.topElev (the first-litho boundary), facing
   // = firstLithoTop(facing). The FREE contact (the flank the onlap draws) is the BASE.
@@ -231,7 +234,12 @@ export function emitSurfaceOnlapFlank(
   // the onlap into the enclosing fill) — a 0.5-gap onlap on a first unit does so by construction
   // (the apex elevation is the top band, well above the unit's base); the degenerate guard below
   // catches the pathological sub-snap case.
-  const f = INTERIOR_PINCH_FRACTION
+  // ITEM B (free-draw onlap reshape): a per-body override MOVES the tip's REACH (fraction); the apex
+  // ELEVATION always rides the top-band polyline at that fraction (an onlap laps its tie — letting
+  // the elevation float off the band would separate the flank from the tie and open a sliver, the
+  // S64 emitOnlap lesson). No override → the fixed 0.5 tip (byte-identical no-override path).
+  const ov = terminationApexOverride(overrides, u.bodyId, gapIndex)
+  const f = ov ? ov.fraction : INTERIOR_PINCH_FRACTION
   const apexX = colX + f * (facingX - colX)
   const apexElev = nearBandElev + f * (facingBandElev - nearBandElev)
   const apex: Point = { x: apexX, y: apexElev }

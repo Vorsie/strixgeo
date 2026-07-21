@@ -318,7 +318,9 @@ function emitSideSweep(
       // the tie (below the top band = ui 0).
       const facingFirst = facing.units[0]
       if (facingFirst && facingFirst.formationId === u.formationId) continue
-      emitSurfaceOnlapFlank(u, colX, facingX, facing, lensLabels, nextId, nextFloodId, out)
+      // Item B: a per-body free-draw override MOVES this surface-onlap tip's reach (byte-identical
+      // no-override → the fixed 0.5 tip).
+      emitSurfaceOnlapFlank(u, colX, facingX, facing, lensLabels, nextId, nextFloodId, out, gapIndex, overrides)
       continue
     }
 
