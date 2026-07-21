@@ -1174,6 +1174,105 @@ describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
     expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
   })
 
+  // V2P4 — the DRAG actually RESHAPES the engine-produced fill (not merely calls
+  // onSaveBoundary) AND the rendered partition stays valid at every drag position
+  // — the owner's rule in test form ("drag the point anywhere; the body reshapes,
+  // neighbours follow, never a gap or overlap").
+  //
+  // Fixture: an ENCLOSED silt lens in a sand matrix on L, continuous sand on R —
+  // the S64-wired shapeable face whose apex the v2 engine consumes via emitLenses.
+  // The live preview drives the SAME partition path (the sectionFillData memo
+  // re-runs on lensDrag, injecting the live cursor into the apex override before
+  // re-partitioning), so the on-screen fill during a drag == the engine result.
+  //
+  // Gap x-extent: L col x=0 w40 → right edge 20; R col x=100 w40 → left edge 80.
+  // So the gap is [20, 80]; a valid partition never places a fill vertex OUTSIDE
+  // that band (a vertex past 80 would spill into the right column — the overlap
+  // the owner forbids).
+  const v2LensLayers = [
+    layer('vl1', 'L', 'sand', 'fSand', 0, 4),
+    layer('vl2', 'L', 'silt', 'fSilt', 4, 6),
+    layer('vl3', 'L', 'sand2', 'fSand', 6, 10),
+    layer('vr1', 'R', 'sand', 'fSand', 0, 10),
+  ]
+  const GAP_LEFT_X = 20
+  const GAP_RIGHT_X = 80
+
+  function siltApexX(getByTestId: (id: string) => HTMLElement): number {
+    // The silt lens fill polygon's max x = the apex reach (the taper tip).
+    const d = getByTestId('partition-region-silt').getAttribute('d') ?? ''
+    let maxX = -Infinity
+    for (const m of d.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)) {
+      const x = parseFloat(m[1])
+      if (x > maxX) maxX = x
+    }
+    return maxX
+  }
+
+  /** Assert EVERY rendered partition-region fill stays inside the gap band —
+   *  the never-overlap-past-the-neighbour envelope. */
+  function assertNoSpill(container: HTMLElement): void {
+    const paths = container.querySelectorAll('[data-testid^="partition-region-"]')
+    for (const p of Array.from(paths)) {
+      const d = p.getAttribute('d') ?? ''
+      for (const m of d.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)) {
+        const x = parseFloat(m[1])
+        // 0.5 px slack for the fraction→pixel round-trip; a genuine spill is metres wide.
+        expect(x).toBeGreaterThanOrEqual(GAP_LEFT_X - 0.5)
+        expect(x).toBeLessThanOrEqual(GAP_RIGHT_X + 0.5)
+      }
+    }
+  }
+
+  it('V2P4 — dragging the lens apex RESHAPES the fill + keeps a valid partition at every position', () => {
+    const onSaveBoundary = vi.fn()
+    const { getByTestId, container } = renderOverlay({
+      lithoLayers: v2LensLayers,
+      ...transforms,
+      onSaveBoundary,
+      // A stored apex node at along 40 (x=40) → an override the engine consumes.
+      boundariesByBodyId: new Map([
+        [
+          'silt',
+          {
+            upper_nodes: [{ along_m: 40, elevation_m: 5 }],
+            lower_nodes: [],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+
+    // At rest: the apex reach is at the stored node (x≈40) and nothing spills.
+    const restX = siltApexX(getByTestId)
+    expect(restX).toBeCloseTo(40, 0)
+    assertNoSpill(container as HTMLElement)
+
+    // Start the drag and move the apex DEEP into the gap (x=75). jsdom's svg
+    // getBoundingClientRect is 0,0, so clientX maps 1:1 to the svg x.
+    fireEvent.mouseDown(getByTestId('partition-lens-hit-silt-upper-0'))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 75, clientY: 55 }))
+    })
+    // The fill FOLLOWED the cursor — a real engine re-partition, not a no-op.
+    const midX = siltApexX(getByTestId)
+    expect(midX).toBeGreaterThan(restX + 20)
+    assertNoSpill(container as HTMLElement)
+
+    // Now drag WAY past the far column (clientX=200). The move handler clamps x to
+    // the gap and the engine clamps the apex fraction to the [0.02, 0.98] interior
+    // envelope — the fill must NEVER cross into the right column.
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 55 }))
+    })
+    assertNoSpill(container as HTMLElement)
+
+    // Release persists the shaped node.
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalled()
+    expect(onSaveBoundary.mock.calls[onSaveBoundary.mock.calls.length - 1][0]).toBe('silt')
+  })
 })
 
 // Direct predicate contract: the shape signal that decides whether a region
