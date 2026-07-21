@@ -1275,6 +1275,189 @@ describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
   })
 })
 
+// CW — the CONTACT-WIRING gesture on engine v2: shaping a horizontal contact
+// between two full-width bands must re-partition BOTH bands through the engine
+// (the shared edge moves together, never a gap). Owner dogfeed (CS1, v2):
+// "clicking targets the top and creates a gap." Root (S66/§71): the app routed
+// the contact node to an OFF-ENGINE single-body reshape that grew the upper band's
+// base while the lower band's top stayed put → a gap at the contact. The fix
+// (S67 engine consumer + S68 app wiring): feed the engine a
+// ``contact:U|L@g`` override so both incident bands re-derive from the ONE bent
+// shared boundary.
+//
+// Fixture: the ``base`` two-band matched stack (L sand 0-5 / clay 5-10; R sand
+// 0-6 / clay 6-10). Both sand and clay span the gap; their shared contact is the
+// matched two-band boundary. A stored ``lower_nodes`` node on the UPPER (sand)
+// body is the shaped contact control point.
+describe('PartitionFillOverlay — contact wiring on engine v2 (CW)', () => {
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  // Matched TWO-BAND fixture: sand top-tied + clay top-tied so BOTH bands span
+  // the gap full-width (the base fixture has no edges, so v2 floods sand + pinches
+  // clay — not a two-band contact). Their shared contact is sand-base == clay-top.
+  function cwEdge(a: string, b: string): LithoContactCorrelationEdge {
+    return {
+      id: `e-${a}-${b}`,
+      layer_a_id: a,
+      layer_b_id: b,
+      layer_a_side: 'top',
+      layer_b_side: 'top',
+      model_id: 'm1',
+      section_id: 's1',
+      source: 'manual',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    } as LithoContactCorrelationEdge
+  }
+  const cwLayers = [
+    layer('a1', 'L', 'sand', 'fSand', 0, 5),
+    layer('a2', 'L', 'clay', 'fClay', 5, 10),
+    layer('b1', 'R', 'sand', 'fSand', 0, 5),
+    layer('b2', 'R', 'clay', 'fClay', 5, 10),
+  ]
+  const cwProps = { lithoLayers: cwLayers, contactEdges: [cwEdge('a1', 'b1'), cwEdge('a2', 'b2')] }
+
+  // Coverage span (min/max y) of a region path at a given screen x, from the
+  // rendered SVG ``d`` attribute (M/L commands). Returns null if x is outside.
+  function spanAtX(d: string, x: number): { top: number; base: number } | null {
+    const pts: { x: number; y: number }[] = []
+    for (const m of d.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)) {
+      pts.push({ x: parseFloat(m[1]), y: parseFloat(m[2]) })
+    }
+    if (pts.length < 3) return null
+    const ys: number[] = []
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]
+      const b = pts[(i + 1) % pts.length]
+      if ((a.x <= x && b.x > x) || (b.x <= x && a.x > x)) {
+        const t = (x - a.x) / (b.x - a.x)
+        ys.push(a.y + t * (b.y - a.y))
+      }
+    }
+    if (ys.length < 2) return null
+    return { top: Math.min(...ys), base: Math.max(...ys) }
+  }
+
+  // The covering span at x among ALL region paths for a body (v2 may emit more
+  // than one region per body — pick the one whose polygon covers x).
+  function bodySpanAtX(
+    paths: HTMLElement[],
+    x: number,
+  ): { top: number; base: number } | null {
+    for (const p of paths) {
+      const span = spanAtX(p.getAttribute('d') ?? '', x)
+      if (span) return span
+    }
+    return null
+  }
+
+  it('CW1 — a stored contact node bends BOTH bands together (shared edge coincident, no gap)', () => {
+    // Node at along 50 (mid-gap x=50), elevation 3 (well below the natural
+    // contact ~5-6 mTAW, i.e. dragged DOWN into the clay).
+    const { queryAllByTestId } = renderOverlay({
+      ...cwProps,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        [
+          'sand',
+          {
+            upper_nodes: [],
+            lower_nodes: [{ along_m: 50, elevation_m: 3 }],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    // levelToScreen: y = 100 - elev*10, so elev 3 → y=70.
+    const sandSpan = bodySpanAtX(queryAllByTestId('partition-region-sand'), 50)
+    const claySpan = bodySpanAtX(queryAllByTestId('partition-region-clay'), 50)
+    expect(sandSpan).toBeTruthy()
+    expect(claySpan).toBeTruthy()
+    // The owner's rule: the shared boundary (sand BASE == clay TOP) is coincident.
+    // No gap → sand's base y == clay's top y at the node x.
+    expect(Math.abs(sandSpan!.base - claySpan!.top)).toBeLessThan(1.0)
+    // And the boundary actually MOVED toward the node (y=70 for elev 3), not the
+    // natural ~y=45-50 contact — proving the engine consumed the override.
+    expect(sandSpan!.base).toBeGreaterThan(60)
+  })
+
+  it('CW2 — with NO stored contact node the two bands still share a coincident edge (no regression)', () => {
+    const { queryAllByTestId } = renderOverlay({
+      ...cwProps,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    const sandSpan = bodySpanAtX(queryAllByTestId('partition-region-sand'), 50)
+    const claySpan = bodySpanAtX(queryAllByTestId('partition-region-clay'), 50)
+    expect(sandSpan).toBeTruthy()
+    expect(claySpan).toBeTruthy()
+    expect(Math.abs(sandSpan!.base - claySpan!.top)).toBeLessThan(1.0)
+  })
+
+  it('CW3 — targets-top fix: the add-strip pairs the GEOMETRIC upper (sand) over the lower (clay)', () => {
+    // §71 "targets the top": v2 does not emit regions strictly top→bottom, so the
+    // shared boundary was keyed by emission order — clay (the LOWER band) became
+    // ``upper``. The add-strip testid encodes [upper]-[lower]; after the geometry
+    // fix it MUST be ``sand-clay`` (sand is higher on screen), never ``clay-sand``.
+    const { queryByTestId } = renderOverlay({
+      ...cwProps,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    expect(queryByTestId('partition-boundary-addstrip-sand-clay')).toBeTruthy()
+    expect(queryByTestId('partition-boundary-addstrip-clay-sand')).toBeNull()
+  })
+
+  it('CW4 — dragging the shared contact re-partitions BOTH bands live (follows cursor, no gap)', () => {
+    // The owner's rule in drag form: grab the contact handle, drag it DOWN; both
+    // bands follow together, never a gap. The live preview re-partitions through
+    // the engine (sectionFillData re-runs on boundaryDrag → the contact override
+    // carries the live cursor), so the on-screen fill == the engine result.
+    const onSaveBoundary = vi.fn()
+    const { getByTestId, queryAllByTestId } = renderOverlay({
+      ...cwProps,
+      ...transforms,
+      onSaveBoundary,
+      // A stored contact node at along 50, elev 5 (the natural contact) so a handle
+      // renders; the drag then moves it.
+      boundariesByBodyId: new Map([
+        [
+          'sand',
+          {
+            upper_nodes: [],
+            lower_nodes: [{ along_m: 50, elevation_m: 5 }],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    // Start the drag on the (geometry-correct) sand-over-clay boundary handle.
+    fireEvent.mouseDown(getByTestId('partition-boundary-hit-sand-clay-0'))
+    // Drag DOWN to y=75 (elev 2.5). jsdom svg rect is 0,0 → clientY maps 1:1.
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 50, clientY: 75 }))
+    })
+    const sandSpan = bodySpanAtX(queryAllByTestId('partition-region-sand'), 50)
+    const claySpan = bodySpanAtX(queryAllByTestId('partition-region-clay'), 50)
+    expect(sandSpan).toBeTruthy()
+    expect(claySpan).toBeTruthy()
+    // The fill FOLLOWED the cursor (sand base near y=75, moved from natural y=50).
+    expect(sandSpan!.base).toBeGreaterThan(65)
+    // BOTH bands share the moved edge — no gap between sand base and clay top.
+    expect(Math.abs(sandSpan!.base - claySpan!.top)).toBeLessThan(1.0)
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary).toHaveBeenCalled()
+    expect(onSaveBoundary.mock.calls[onSaveBoundary.mock.calls.length - 1][0]).toBe('sand')
+  })
+})
+
 // Direct predicate contract: the shape signal that decides whether a region
 // exposes the apex freedraw gesture, independent of either engine.
 describe('isApexShapeable — the engine-agnostic tip predicate', () => {
