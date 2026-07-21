@@ -33,6 +33,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { applyContactBend, collectContactBends, type ContactBend } from './contactOverride'
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { collectEnclosedLensDiamonds, type Corr0Diamond } from './detourBandContour'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
@@ -142,11 +143,26 @@ export function emitCurves(section: SectionInput): EmittedCurves {
         }
 
   const ties = resolveTies(survivingSection)
+  // Item A (matched-contact free-draw): a control point on the shared boundary two bands ride BENDS
+  // that ONE tie curve (design §8 line 88 — the freedraw curve is inserted into the arrangement, so
+  // both incident faces re-trace around it). Computed per gap from the SAME ties + overrides the
+  // enclosing flood uses (deterministic → the tie curve and its coincident ``bandc`` contour bend
+  // identically). Empty when no override targets a shared contact → the tie is emitted straight
+  // (byte-identical no-override path).
+  const contactBendsByGap = new Map<number, ContactBend[]>()
+  if (survivingSection.lensApexOverrides && survivingSection.lensApexOverrides.size > 0) {
+    for (let gi = 0; gi + 1 < survivingSection.columns.length; gi++) {
+      const bends = collectContactBends(gi, survivingSection.columns[gi], survivingSection.columns[gi + 1], ties, survivingSection.lensApexOverrides)
+      if (bends.length > 0) contactBendsByGap.set(gi, bends)
+    }
+  }
   for (const t of ties) {
+    const gapBends = contactBendsByGap.get(t.gapIndex)
+    const bent = gapBends ? applyContactBend([t.left, t.right], t.left.y, t.right.y, gapBends) : [t.left, t.right]
     curves.push({
       id: t.id,
       kind: 'tie',
-      points: [t.left, t.right],
+      points: bent,
     })
   }
 

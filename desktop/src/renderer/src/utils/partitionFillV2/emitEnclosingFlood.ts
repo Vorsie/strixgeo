@@ -36,7 +36,9 @@
  * UNTOUCHED. Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
+import { terminationApexOverride } from './apexOverride'
+import { applyContactBend, collectContactBends, type ContactBend } from './contactOverride'
 import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
 import { clipBandContourToTD, collectGapBands, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
@@ -109,7 +111,11 @@ export function emitEnclosingFlood(
     const left = columns[gi]
     const right = columns[gi + 1]
     const bands = collectGapBands(gi, left, right, activeTies)
-    emitGapFlood(gi, left, right, activeTies, bands, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds)
+    // Matched-contact free-draw bends (Item A): a control point on the boundary two full-width bands
+    // SHARE bends that ONE shared ``bandc`` contour so both bands follow (design §8 line 88). Empty
+    // when no override targets a shared contact → the no-override contour is byte-identical.
+    const contactBends = collectContactBends(gi, left, right, activeTies, section.lensApexOverrides)
+    emitGapFlood(gi, left, right, activeTies, bands, contactBends, section.lensApexOverrides, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds)
   }
 }
 
@@ -120,6 +126,8 @@ function emitGapFlood(
   right: ColumnGeom,
   activeTies: readonly ResolvedTie[],
   bands: readonly GapBand[],
+  contactBends: readonly ContactBend[],
+  overrides: ReadonlyMap<string, LensApexOverride> | undefined,
   nextFloodId: () => string,
   nextBandId: () => string,
   nextBandSeamId: () => string,
@@ -155,10 +163,10 @@ function emitGapFlood(
   // in this gap it would cross — the band wraps the lens as a hole (``emitBandContourWithDetour``).
   for (const b of bands) {
     if (contourIsTie(b.leftTop, b.rightTop)) {
-      emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftTop, b.rightTop, shallowTD, corr0Diamonds, nextBandId, out)
+      emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftTop, b.rightTop, shallowTD, corr0Diamonds, contactBends, nextBandId, out)
     }
     if (contourIsTie(b.leftBase, b.rightBase)) {
-      emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftBase, b.rightBase, shallowTD, corr0Diamonds, nextBandId, out)
+      emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftBase, b.rightBase, shallowTD, corr0Diamonds, contactBends, nextBandId, out)
     }
   }
 
@@ -203,7 +211,7 @@ function emitGapFlood(
     const top = uniq[bi]
     const base = uniq[bi + 1]
     if (mid(top) <= shallowTD + ELEV_EPS) continue // fully sub-TD — substrate owns it
-    closeInterval(left, right, top, base, bandFids, nextBandSeamId, nextFloodId, out)
+    closeInterval(left, right, top, base, bandFids, nextBandSeamId, nextFloodId, out, gapIndex, overrides)
   }
 
   // Close the flood from below at the shallow TD floor (sub-TD stays empty — substrate owns it).
@@ -237,13 +245,20 @@ function emitBandContourWithDetour(
   rightElev: number,
   shallowTD: number,
   corr0Diamonds: readonly Corr0Diamond[],
+  contactBends: readonly ContactBend[],
   nextBandId: () => string,
   out: InputCurve[],
 ): void {
   const clipped = clipBandContourToTD(leftX, rightX, leftElev, rightElev, shallowTD)
   if (clipped === null) return
-  const detoured = detourBandContourAroundLenses(clipped, gapIndex, corr0Diamonds)
-  out.push({ id: nextBandId(), kind: 'closing', points: detoured })
+  // Item A — a matched-contact free-draw bend takes precedence over the lens detour on the same
+  // contour (the two never target the same shared contact in practice: a bend is the user's explicit
+  // reshape of a band-band boundary; a detour wraps a corr-0 lens diamond). No bend → the contour is
+  // handed to the detour byte-identical (empty ``contactBends`` on the no-override path).
+  const bent = applyContactBend(clipped, leftElev, rightElev, contactBends)
+  const isBent = bent.length !== clipped.length
+  const points = isBent ? bent : detourBandContourAroundLenses(clipped, gapIndex, corr0Diamonds)
+  out.push({ id: nextBandId(), kind: 'closing', points })
 }
 
 /**
@@ -271,6 +286,8 @@ function closeInterval(
   nextBandSeamId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
+  gapIndex = -1,
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): void {
   const leftEncl = enclosingFormationAt(left, (top.leftElev + base.leftElev) / 2)
   const rightEncl = enclosingFormationAt(right, (top.rightElev + base.rightElev) / 2)
@@ -284,9 +301,18 @@ function closeInterval(
   // MISMATCHED enclosing → the no-auto-facies MIDPOINT SEAM separates the two sides. Each half's
   // face is bounded by its own column vertical (its enclosing litho) + the seam + the brackets,
   // so ``labelFaces`` stamps each half from its own column.
-  const seamX = left.x + INTERIOR_PINCH_FRACTION * (right.x - left.x)
-  const seamTop = top.leftElev + INTERIOR_PINCH_FRACTION * (top.rightElev - top.leftElev)
-  const seamBase = base.leftElev + INTERIOR_PINCH_FRACTION * (base.rightElev - base.leftElev)
+  // ITEM B (free-draw onlap reshape): this mismatched-interval seam IS the onlap tip's reach cap (a
+  // band-flooded 1-corr onlap the sweep routes to this closure, not ``emitOnlap`` — the S65 Q1 no-op
+  // class). A per-body override on either enclosing body MOVES the seam fraction so that body's onlap
+  // extends to the drawn reach. The LEFT body pinching → the seam rides toward the RIGHT (its own
+  // override fraction); the RIGHT body pinching → the seam is at ``1 − fraction`` (the mirror, since
+  // fraction is measured 0 = pinching column). No override → the fixed 0.5 midpoint (byte-identical).
+  const leftOv = terminationApexOverride(overrides, leftEncl.bodyId, gapIndex)
+  const rightOv = terminationApexOverride(overrides, rightEncl.bodyId, gapIndex)
+  const f = leftOv ? leftOv.fraction : rightOv ? 1 - rightOv.fraction : INTERIOR_PINCH_FRACTION
+  const seamX = left.x + f * (right.x - left.x)
+  const seamTop = top.leftElev + f * (top.rightElev - top.leftElev)
+  const seamBase = base.leftElev + f * (base.rightElev - base.leftElev)
   // Visibility: the ruled-8d band-pair seam (top-band above, real tie below) is line art;
   // any other mismatched closure stays an invisible fill scaffold.
   const isRuledBandPairSeam = top.kind === 'topband' && base.kind === 'tie'
