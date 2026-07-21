@@ -867,30 +867,40 @@ describe('PartitionFillOverlay', () => {
   // close the seam. strokeWidth is a small 0.75; strokeLinejoin="round" avoids
   // miter spikes on sharp pinch tips.
   //
-  //   SEAM1  every region-fill polygon carries stroke === its fill colour,
-  //          strokeWidth 0.75, strokeLinejoin round, and strokeOpacity equal to
-  //          the polygon's fillOpacity (the S1-fade variable, not the 0.45
-  //          STROKE_OPACITY that would read as a darker outline).
+  //   SEAM1  the seam stroke lives on a sibling stroke path (S60 Stage B —
+  //          owner clause 5: a line renders ONLY where the two sides differ in
+  //          lithology or border unfilled space). The fill polygon itself
+  //          carries NO stroke; the stroke path uses the region's own fill
+  //          colour, strokeWidth 0.75, strokeLinejoin round, and strokeOpacity
+  //          equal to the fill's fillOpacity (the S1-fade variable — a stroke
+  //          above the fill opacity would read as a darker outline).
   //   SEAM2  the open-end stub rects (which tile the section's open ends) carry
   //          the same self-colour seam stroke at the fill opacity.
   // --------------------------------------------------------------------------
-  it('SEAM1 — every region fill carries a self-colour seam stroke at the fill opacity', () => {
+  it('SEAM1 — a region closes its cross-litho/outer seams via a self-colour stroke path at the fill opacity', () => {
     const { queryAllByTestId } = renderOverlay()
-    const regions = [
-      ...queryAllByTestId('partition-region-sand'),
-      ...queryAllByTestId('partition-region-clay'),
-    ]
-    expect(regions.length).toBeGreaterThanOrEqual(2)
-    for (const el of regions) {
-      const fill = el.getAttribute('fill')
-      // Stroke must equal the region's own fill colour so the seam closes without
-      // painting a foreign colour across the boundary.
-      expect(el.getAttribute('stroke')).toBe(fill)
-      expect(el.getAttribute('stroke-width')).toBe('0.75')
-      expect(el.getAttribute('stroke-linejoin')).toBe('round')
-      // strokeOpacity must match fillOpacity exactly — a stroke ABOVE the 0.62
-      // fill opacity would read as a darker outline (wrong).
-      expect(el.getAttribute('stroke-opacity')).toBe(el.getAttribute('fill-opacity'))
+    // Base fixture: sand over clay — every boundary is cross-litho or borders
+    // unfilled space, so both bodies keep a stroke path.
+    for (const bodyId of ['sand', 'clay']) {
+      const fills = queryAllByTestId(`partition-region-${bodyId}`)
+      const strokes = queryAllByTestId(`partition-region-stroke-${bodyId}`)
+      expect(fills.length).toBeGreaterThanOrEqual(1)
+      expect(strokes.length).toBeGreaterThanOrEqual(1)
+      // The fill polygon no longer strokes itself (the doubled self-stroke on a
+      // same-litho seam was the visible "helper line" inside a merged body).
+      for (const el of fills) expect(el.getAttribute('stroke')).toBeNull()
+      const fillColor = fills[0].getAttribute('fill')
+      const fillOpacity = fills[0].getAttribute('fill-opacity')
+      for (const el of strokes) {
+        // Stroke equals the region's own fill colour so the seam closes without
+        // painting a foreign colour across the boundary.
+        expect(el.getAttribute('stroke')).toBe(fillColor)
+        expect(el.getAttribute('stroke-width')).toBe('0.75')
+        expect(el.getAttribute('stroke-linejoin')).toBe('round')
+        // strokeOpacity must match fillOpacity exactly — a stroke ABOVE the 0.62
+        // fill opacity would read as a darker outline (wrong).
+        expect(el.getAttribute('stroke-opacity')).toBe(fillOpacity)
+      }
     }
   })
 
@@ -900,11 +910,79 @@ describe('PartitionFillOverlay', () => {
     // stays bright while the fill dims.
     const { queryAllByTestId } = renderOverlay({ selectedBodyId: 'sand' })
     const clay = queryAllByTestId('partition-region-clay')
+    const clayStrokes = queryAllByTestId('partition-region-stroke-clay')
     expect(clay.length).toBeGreaterThanOrEqual(1)
-    for (const el of clay) {
-      expect(el.getAttribute('fill-opacity')).toBe('0.25')
+    expect(clayStrokes.length).toBeGreaterThanOrEqual(1)
+    for (const el of clay) expect(el.getAttribute('fill-opacity')).toBe('0.25')
+    for (const el of clayStrokes) {
       expect(el.getAttribute('stroke-opacity')).toBe('0.25')
-      expect(el.getAttribute('stroke')).toBe(el.getAttribute('fill'))
+      expect(el.getAttribute('stroke')).toBe(clay[0].getAttribute('fill'))
+    }
+  })
+
+  it('SEAM3 — an interior same-litho boundary carries no stroke; a cross-litho one does (S60 Stage B)', () => {
+    // Two clay bodies abut mid-gap (interrupted-body fixture shape): the clay↔clay
+    // shared edge is interior to ONE merged clay mass → no stroke segment on it.
+    // The clay↔silt boundaries keep their strokes. Assert at the path-data level:
+    // no stroke segment midpoint may lie ON a shared same-litho edge.
+    const { container } = renderOverlay({
+      lithoLayers: [
+        layer('l1', 'L', 'clayA', 'fClay', 0, 4),
+        layer('l2', 'L', 'silt', 'fSilt', 4, 6),
+        layer('l3', 'L', 'clayB', 'fClay', 6, 10),
+        layer('r1', 'R', 'clayA', 'fClay', 0, 10),
+      ],
+    })
+    // The right column is ALL clay: where the silt pinches out mid-gap, clayA
+    // (above) and clayB (below) meet along the silt termination — a same-litho
+    // interior seam. Collect every clay stroke segment and every clay↔clay
+    // shared edge from the fill polygons, then assert no stroke rides one.
+    const clayFills = Array.from(
+      container.querySelectorAll('[data-testid^="partition-region-clay"]'),
+    ).filter((el) => el.getAttribute('d'))
+    const strokePaths = Array.from(
+      container.querySelectorAll('[data-testid^="partition-region-stroke-clay"]'),
+    )
+    // Sanity: the fixture produced at least two clay regions + some strokes.
+    expect(clayFills.length).toBeGreaterThanOrEqual(2)
+    expect(strokePaths.length).toBeGreaterThanOrEqual(1)
+    // Every clay stroke segment's midpoint must NOT be covered by ANOTHER clay
+    // fill polygon (i.e. no stroke interior to the merged clay mass).
+    const rings = clayFills.map((el) =>
+      Array.from((el.getAttribute('d') ?? '').matchAll(/([ML]) ([\d.-]+),([\d.-]+)/g)).map((m) => ({
+        x: Number(m[2]),
+        y: Number(m[3]),
+      })),
+    )
+    const inRing = (ring: { x: number; y: number }[], x: number, y: number): boolean => {
+      let inside = false
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i].x
+        const yi = ring[i].y
+        const xj = ring[j].x
+        const yj = ring[j].y
+        const hit = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+        if (hit) inside = !inside
+      }
+      return inside
+    }
+    for (const sp of strokePaths) {
+      const d = sp.getAttribute('d') ?? ''
+      for (const m of d.matchAll(/M ([\d.-]+),([\d.-]+) L ([\d.-]+),([\d.-]+)/g)) {
+        const mx = (Number(m[1]) + Number(m[3])) / 2
+        const my = (Number(m[2]) + Number(m[4])) / 2
+        // Sample both sides of the segment; if BOTH sides land in clay fills,
+        // the stroke is interior to the merged clay mass — forbidden.
+        const dx = Number(m[3]) - Number(m[1])
+        const dy = Number(m[4]) - Number(m[2])
+        const len = Math.hypot(dx, dy)
+        if (len < 0.05) continue
+        const nx = (-dy / len) * 0.6
+        const ny = (dx / len) * 0.6
+        const side1Clay = rings.some((r) => inRing(r, mx + nx, my + ny))
+        const side2Clay = rings.some((r) => inRing(r, mx - nx, my - ny))
+        expect(side1Clay && side2Clay).toBe(false)
+      }
     }
   })
 

@@ -62,6 +62,8 @@ import {
   LENS_PINCH_FRACTION,
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
+import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
+import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
 import {
   computeSectionFillActiveWithDiagnostics,
   usePartitionEngineV2,
@@ -992,7 +994,15 @@ export default function PartitionFillOverlay({
   // them contiguously from TD downward — closing any vertical gap (a lens spot) by
   // extending the region below it upward, so the result is gapless by construction.
   const underColumnFills = useMemo(() => {
-    type Fill = { key: string; points: string; color: string; formationId: string }
+    // ``pts`` carries the ring corners for the seam-aware stroke pass (S60
+    // Stage B) — ``points`` stays the prebuilt fill path data.
+    type Fill = {
+      key: string
+      points: string
+      color: string
+      formationId: string
+      pts: { x: number; y: number }[]
+    }
     // Fill the strip directly UNDER a shallow test's own column footprint, below its
     // TD — the gap regions run edge→edge between columns, so a shallow test's own
     // width carries no fill and the correlated bands that continue across it leave a
@@ -1007,9 +1017,17 @@ export default function PartitionFillOverlay({
     // edge flat on the silt base, so the under-column clay now sits correctly below it.
     const { sectionRegions, orderedColumns } = sectionFillData
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
-    // The pure domain pass (regression-tested in partitionFill.test.ts) returns
-    // sloped below-TD quads per column; here we only project them to screen.
-    const fills = computeUnderColumnSubstrate(orderedColumns, sectionRegions)
+    // The pure domain pass returns sloped below-TD quads per column; here we
+    // only project them to screen. ENGINE-GATED (S60 Stage A): v2 emits a
+    // column's own bottom unit as ONE region running continuously through the
+    // TD, which the frozen v1 helper's straddle guard rejects — painting the
+    // deeper clay from the TD straight down (the B2 phantom gray block). The
+    // component-side fork clips straddling slices to the below-TD band instead
+    // (owner rule: the partition owns the sub-TD space). v1 keeps the frozen
+    // helper so the fallback engine's render is byte-identical.
+    const fills = partitionEngineV2
+      ? computeUnderColumnSubstrateForRender(orderedColumns, sectionRegions)
+      : computeUnderColumnSubstrate(orderedColumns, sectionRegions)
     const out: Fill[] = []
     for (const f of fills) {
       const sc = screenByInv.get(valid[f.columnIndex])
@@ -1027,12 +1045,18 @@ export default function PartitionFillOverlay({
         // Skip a quad with no visible height on either edge.
         if (yBL - yTL <= 0.5 && yBR - yTR <= 0.5) continue
         // Ring: topL → topR → baseR → baseL.
+        const pts = [
+          { x: leftX, y: yTL },
+          { x: rightX, y: yTR },
+          { x: rightX, y: yBR },
+          { x: leftX, y: yBL },
+        ]
         const points =
           `M ${leftX.toFixed(2)},${yTL.toFixed(2)} ` +
           `L ${rightX.toFixed(2)},${yTR.toFixed(2)} ` +
           `L ${rightX.toFixed(2)},${yBR.toFixed(2)} ` +
           `L ${leftX.toFixed(2)},${yBL.toFixed(2)} Z`
-        out.push({ key: `uc-${f.columnIndex}-${qi}`, points, color, formationId: q.formationId })
+        out.push({ key: `uc-${f.columnIndex}-${qi}`, points, color, formationId: q.formationId, pts })
       }
     }
     return out
@@ -1045,7 +1069,32 @@ export default function PartitionFillOverlay({
     plotTop,
     plotBottom,
     formationColorById,
+    partitionEngineV2,
   ])
+
+  // ---- SEAM-AWARE STROKES (S60 Stage B — owner clause 5, merged view). ------
+  //
+  // The translucent fills carry a self-colour 0.75 px hairline-closing stroke;
+  // on an edge SHARED by two same-litho regions both strokes painted, and the
+  // doubled stroke read as a diagonal "helper line" inside a merged same-litho
+  // body (lens/onlap termination seams in the sand mass). This pass classifies
+  // every fill edge (under-column quads + gap regions together, so the sub-TD
+  // strip merges seamlessly into same-litho gap regions) and keeps the stroke
+  // ONLY where the neighbour differs in lithology or the edge borders unfilled
+  // space. Index-aligned: undercol strokes first, then region strokes.
+  const seamStrokes = useMemo((): { undercol: string[]; regions: string[] } => {
+    if (refinement || screenRegions.length + underColumnFills.length === 0)
+      return { undercol: [], regions: [] }
+    const elements: SeamStrokeElement[] = [
+      ...underColumnFills.map((f) => ({ points: f.pts, formationId: f.formationId })),
+      ...screenRegions.map((sr) => ({ points: sr.points, formationId: sr.region.formationId })),
+    ]
+    const ds = computeSeamStrokePaths(elements)
+    return {
+      undercol: ds.slice(0, underColumnFills.length),
+      regions: ds.slice(underColumnFills.length),
+    }
+  }, [refinement, underColumnFills, screenRegions])
 
   // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
   //
@@ -1143,8 +1192,11 @@ export default function PartitionFillOverlay({
 
     // Refined under-TD substrate: class-extrapolated donor slices, strips
     // clipped to the midpoints toward neighbours (rule 6 — coincident-cluster
-    // strips otherwise overlap visibly).
-    const fills = computeUnderColumnSubstrate(orderedColumns, sectionRegions)
+    // strips otherwise overlap visibly). Engine-gated like the litho path
+    // (S60 Stage A) — the geotech axis inherits the corrected sub-TD stack.
+    const fills = partitionEngineV2
+      ? computeUnderColumnSubstrateForRender(orderedColumns, sectionRegions)
+      : computeUnderColumnSubstrate(orderedColumns, sectionRegions)
     const subSlices = refineSubstrateQuads(
       fills,
       columnOrder,
@@ -1221,6 +1273,7 @@ export default function PartitionFillOverlay({
     plotTop,
     plotBottom,
     formationColorById,
+    partitionEngineV2,
   ])
 
   // One label per BODY, zoom-adaptive sizing and fit-based visibility.
@@ -1638,27 +1691,37 @@ export default function PartitionFillOverlay({
         const selFormId = selectedBodyId
           ? (screenRegions.find(sr => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
           : null
-        return underColumnFills.map((f) => {
+        return underColumnFills.map((f, fi) => {
           // Fade non-matching under-column fills when a body is selected.
           const ucOpacity = (selectedBodyId && selFormId !== null && f.formationId !== selFormId)
             ? 0.25
             : FILL_OPACITY
+          // Seam-aware self-colour stroke (S60 Stage B): only the edges NOT
+          // shared with a same-litho fill keep the hairline-closing stroke —
+          // a same-litho seam (e.g. the sub-TD sand strip meeting the sand gap
+          // region) carries no line, so the merged body reads as one mass.
+          const strokeD = seamStrokes.undercol[fi]
           return (
-            <path
-              key={f.key}
-              data-testid="partition-undercol"
-              d={f.points}
-              fill={f.color}
-              fillOpacity={ucOpacity}
-              // Self-colour seam stroke at the fill opacity (2026-07-13) — closes
-              // the antialiasing hairline against the gap regions above without
-              // reading as a darker outline (matches fillOpacity, incl. the 0.25
-              // S1-fade). See the region-fill note above.
-              stroke={f.color}
-              strokeOpacity={ucOpacity}
-              strokeWidth={0.75}
-              strokeLinejoin="round"
-            />
+            <g key={f.key}>
+              <path
+                data-testid="partition-undercol"
+                d={f.points}
+                fill={f.color}
+                fillOpacity={ucOpacity}
+              />
+              {strokeD && (
+                <path
+                  data-testid="partition-undercol-stroke"
+                  d={strokeD}
+                  fill="none"
+                  stroke={f.color}
+                  strokeOpacity={ucOpacity}
+                  strokeWidth={0.75}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              )}
+            </g>
           )
         })
       })()}
@@ -1675,49 +1738,58 @@ export default function PartitionFillOverlay({
         const regionOpacity = (selectedBodyId && sr.region.bodyId !== selectedBodyId)
           ? 0.25
           : naturalOpacity
+        // Seam-aware self-colour stroke (S60 Stage B — owner clause 5): the
+        // 2026-07-13 hairline-closing stroke is kept ONLY on edges that border
+        // a DIFFERENT lithology or unfilled space. On an edge shared by two
+        // same-litho regions (lens/onlap termination seams) both regions used
+        // to stroke it, and the doubled self-colour stroke over the translucent
+        // fill read as a diagonal "helper line" inside the merged body — those
+        // edges now carry no stroke (two identical fills meeting on shared
+        // vertices need no hairline closure). Stroke styling notes unchanged:
+        // strokeOpacity matches the fill (incl. the 0.25 S1-fade) so it never
+        // reads darker; round linejoin avoids miter spikes on pinch tips.
+        const strokeD = seamStrokes.regions[i]
         return (
-          <path
-            key={`pf-${i}`}
-            data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
-            d={d}
-            fill={color}
-            // A lens (one-test body enclosed in a matrix) renders a touch more
-            // solid so it reads as a unit cut out of the continuous matrix. Same
-            // convention on both axes — the geotech bodies connect now (backend
-            // Tasks 1+2), so no axis-specific opacity override is needed.
-            fillOpacity={regionOpacity}
-            // Self-colour seam stroke at the SAME opacity as the fill (2026-07-13):
-            // adjacent translucent fills leave an antialiased hairline at their
-            // shared edge (neither polygon covers the boundary pixels fully → the
-            // dark background bleeds through). A stroke of the region's OWN fill
-            // colour closes the seam. The earlier stroke="none" was chosen because a
-            // stroke at a HIGHER opacity than the fill (0.45 over a 0.62 fill) read as
-            // a darker outline and "spilled" the colour over neighbours (dogfeed
-            // 2026-07-10) — matching strokeOpacity to fillOpacity (regionOpacity,
-            // incl. the 0.25 S1-fade) makes the stroke read no darker than the fill
-            // it hems, so it only fills the seam it never covered. round linejoin
-            // avoids miter spikes on sharp pinch tips; crispEdges is NOT used (the
-            // bands are slanted — it would stair-step them).
-            stroke={color}
-            strokeOpacity={regionOpacity}
-            strokeWidth={0.75}
-            strokeLinejoin="round"
-            style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : undefined}
-            onContextMenu={
-              interactive
-                ? (e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                    onBodyContextMenu?.(
-                      body as BodyListItem,
-                      e.clientX - (rect?.left ?? 0),
-                      e.clientY - (rect?.top ?? 0),
-                    )
-                  }
-                : undefined
-            }
-          />
+          <g key={`pf-${i}`}>
+            <path
+              data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
+              d={d}
+              fill={color}
+              // A lens (one-test body enclosed in a matrix) renders a touch more
+              // solid so it reads as a unit cut out of the continuous matrix. Same
+              // convention on both axes — the geotech bodies connect now (backend
+              // Tasks 1+2), so no axis-specific opacity override is needed.
+              fillOpacity={regionOpacity}
+              style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : undefined}
+              onContextMenu={
+                interactive
+                  ? (e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
+                      onBodyContextMenu?.(
+                        body as BodyListItem,
+                        e.clientX - (rect?.left ?? 0),
+                        e.clientY - (rect?.top ?? 0),
+                      )
+                    }
+                  : undefined
+              }
+            />
+            {strokeD && (
+              <path
+                data-testid={`partition-region-stroke-${sr.region.bodyId ?? 'nobody'}`}
+                d={strokeD}
+                fill="none"
+                stroke={color}
+                strokeOpacity={regionOpacity}
+                strokeWidth={0.75}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                style={{ pointerEvents: 'none' }}
+              />
+            )}
+          </g>
         )
       })}
 
