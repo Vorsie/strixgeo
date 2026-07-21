@@ -6407,3 +6407,102 @@ at each mismatched seam; some `flood` floor ids renumber (cosmetic, no gate asse
 - **`scripts/gen_paint_tool.mjs` LEFT UNTOUCHED (orchestrator adds the `bandseam` prefix to the tool).**
 - **CS1_FLIP regen NOT run (harness-denied). The seam id/role CHANGED → the orchestrator MUST regenerate
   `diag_cs1_flip_walkthrough.json` before the owner rerender so the dump carries `bandseam*`.**
+
+---
+
+## §66 — Session 60: APP-SIDE (owner-sanctioned) — the B2 phantom gray block FIXED (Stage A) + helper lines die after merge (Stage B). ENGINE UNTOUCHED.
+
+Both stages are RENDER-layer fixes in `desktop/src/renderer/src/components/sections/`; every engine
+file (`utils/partitionFillV2/`, v1 `utils/partitionFill/`, `intersect.ts`) is byte-untouched — the
+engine gates were re-run and hold exactly (holes 0/0/0 all 14, seedGate **732/651/8/67/6/0**).
+
+### Stage A — the phantom gray block below B2's TD (painter identified + fixed)
+
+**PAINTER:** `computeUnderColumnSubstrate` (v1 READ-ONLY `utils/partitionFill/sectionResolve.ts`),
+rendered as `<path data-testid="partition-undercol">` by `PartitionFillOverlay.tsx`. NOT the geology
+backdrop (lines only; `showFormationFill=false` on litho) and NOT `ModelFillOverlay` (0 solids).
+
+**ROOT (measured first-hand, real CS1 via a throwaway probe on BOTH engines):** the `stackAtEdge`
+guard `if (hi > tdElev + EPS) continue` (sectionResolve.ts:143, the 2026-07-08 "floating silt strip"
+patch) rejects any edge slice whose TOP is above the column's TD. v1 splits regions at the TD, so
+B2's sand slice `[−7.547..−4.448]` survives → substrate ZAND then KLEI (correct). **v2 emits B2's own
+bottom sand as ONE region running continuously THROUGH the TD** (edge slices ZAND `[−7.547..−1.170]`
+L / `[−7.546..4.250]` R, TD −4.450) → the guard threw the whole sand away → only KLEI survived and
+was extended up to the TD → **one KLEI quad `[−4.450..−10.187]` = the owner's flat-gray block**.
+
+**FIX (component-side per the session rules — v1 stays READ-ONLY):** NEW
+`components/sections/underColumnSubstrate.ts` — `computeUnderColumnSubstrateForRender`, a verbatim
+fork of the v1 helper with EXACTLY ONE delta implementing the owner rule ("below a column's TD the
+space belongs to the PARTITION"): straddling slices are CLIPPED to the below-TD band
+(`top = min(hi, tdElev)`, which the kept-slice path already did) instead of rejected.
+**ENGINE-GATED in the overlay:** v2 active → the fork; v1 fallback → the frozen v1 helper, so the
+v1 render is byte-identical. Wired at BOTH call sites (litho `underColumnFills` + geotech
+`refinedScreen` substrate — the geotech axis inherits).
+
+**Blast radius (measured model-wide, old-vs-fork on both engines):** v2 = **exactly 2 columns**, CS1
+col#15 + col#16(B2), both the intended fix (sand `[TD..−7.55]` restored above the clay, matching the
+engine regions g15/g16); every other v2 column identical. v1-if-it-had-been-unggated = 44 columns
+would change (the 2026-07-08 band-spill class the guard protects) — WHY the fix is engine-gated.
+
+### Stage B — helper lines die after merge (owner verbatim; clause 5)
+
+**MECHANISM (code-confirmed + agent-verified):** the visible diagonal lines inside a merged
+same-litho mass are NOT a dark line element. Every region fill carried a self-colour 0.75px
+hairline-closing stroke (2026-07-13); two same-litho regions abutting along a termination seam
+(lens/onlap flank, carve seam) EACH stroked the shared edge → doubled self-colour stroke over the
+0.62-opacity fill ≈ 0.945 vs 0.62 → a visible diagonal. The 8j body-merge relabels bodyIds but
+never merges polygons, so the seams stayed.
+
+**FIX:** NEW pure helper `components/sections/sectionSeamStrokes.ts` — `computeSeamStrokePaths`
+classifies every fill edge by midpoint-normal sampling + PIP (T-junction/collinear-safe): stroke
+KEPT only where the outward side is a DIFFERENT lithology or unfilled space; a same-litho neighbour
+→ NO stroke (two identical translucent fills on shared vertices need no hairline closure).
+`PartitionFillOverlay` litho path: fill polygons no longer stroke themselves; a sibling kept-edges
+stroke path per element (`partition-region-stroke-<bodyId>` / `partition-undercol-stroke`) renders
+at the same z, same self-colour + fill-tracking opacity (incl. S1-fade). Under-column quads join
+the element set, so the sub-TD sand strip merges seamlessly into the sand gap regions (completes
+Stage A visually). Sub-offset slivers keep the stroke (safe default). Geotech REFINEMENT path
+untouched (NAD outlines are a separately-ruled surface; refinement tests green). Ties/correlation
+edges (CorrelationEdgesOverlay) untouched. Engine-agnostic (a general render rule, no geometry
+change; v1 fallback gets the same clean look).
+
+### Verification (all first-hand)
+
+- tsc clean · **full desktop suite 2367 pass / 3 failed = EXACTLY the pre-existing V2P1-3** (re-measured:
+  unrelated to Stage B — the v2 pinch-tip apex-gesture reds; left + reported per the brief).
+- NEW gates: `underColumnSubstrate.test.ts` **6/6** (UCS-B2 owner-rule case, UCS-EPS, + the four
+  frozen v1 parity cases verbatim) · `sectionSeamStrokes.test.ts` **3/3** (SS1 interior same-litho
+  edge unstroked / SS2 cross-litho stroked both sides / SS3 lone region all stroked) ·
+  `PartitionFillOverlay.undercol.test.tsx` **2/2** (UC-V2 sand runs under the glyph below TD +
+  UC-V1 fallback byte-identical — proves the engine gate discriminates).
+- SEAM1/SEAM1-fade REWRITTEN to the S60 stroke policy (they pinned the superseded always-on
+  per-path stroke — Stage B's exact subject matter); NEW SEAM3 asserts no stroke segment interior
+  to a merged clay mass while cross-litho boundaries keep theirs. SEAM2 (open-end stubs) untouched.
+- Engine gates: HOLES_DIAG 0/0/0 all 14 sections · seedGate TOTAL 732/651/8/67/6/0 · sections
+  component suite 546 pass.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+
+- `components/sections/underColumnSubstrate.ts` (NEW — Stage A fork, reconciliation trigger in doc).
+- `components/sections/underColumnSubstrate.test.ts` (NEW).
+- `components/sections/sectionSeamStrokes.ts` (NEW — Stage B seam-aware stroke pass).
+- `components/sections/sectionSeamStrokes.test.ts` (NEW).
+- `components/sections/PartitionFillOverlay.tsx` (EDITED — engine-gated substrate at 2 call sites;
+  seamStrokes memo; fills lose self-stroke, sibling kept-edge stroke paths; undercol quads carry pts).
+- `components/sections/PartitionFillOverlay.undercol.test.tsx` (NEW — component regression).
+- `components/sections/PartitionFillOverlay.test.tsx` (EDITED — SEAM1/SEAM1-fade re-pinned to the
+  S60 policy + NEW SEAM3).
+- STUBS to delete (orchestrator `rm`): `utils/throwaway_b2_substrate.diag.test.ts` (S60 measurement
+  of record, SHAPE_AUDIT-gated) + `components/sections/throwaway_cs1_sand_seams.diag.test.tsx`
+  (a diagnostic agent's inert leftover).
+
+### Owner dogfeed notes (what changed where)
+
+1. CS1 litho axis, under B2 (along≈577.8) and its left neighbour: the flat-gray block is gone —
+   the strip below the TD now shows the partition's SAND down to ≈−7.5, gray KLEI only below.
+2. The sand mass interior: the diagonal lens/onlap seam lines are gone (a merged same-litho body
+   reads as one mass); boundaries between DIFFERENT lithologies and outer edges keep their hairline
+   strokes. Ties (his own drawn art) unchanged. Geotech axis: NAD boundary lines unchanged;
+   sub-TD strips there now also follow the corrected stack when v2 is active.
+3. The Settings v2 toggle still flips engines live; on v1 fallback the sub-TD strip renders the
+   OLD frozen shape by design (engine-gated), while the seam-stroke cleanup applies on both.
