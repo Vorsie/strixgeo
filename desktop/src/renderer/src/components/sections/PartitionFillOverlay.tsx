@@ -63,6 +63,7 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
+import { collectContactOverridesForGap } from './contactOverrideWiring'
 import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -558,17 +559,34 @@ export default function PartitionFillOverlay({
     gapXs: Array<{ leftX: number; rightX: number }>
     // Keyed lens apex overrides so the screen memo can skip the legacy path.
     apexOverrides: Map<string, LensApexOverride>
+    // ``gapIndex:upperBodyId`` set whose shared contact the engine re-partitioned
+    // (S68) — the POST-BEND off-engine reshape is skipped for these.
+    contactOverriddenBodies: Set<string>
     // v2 crossing-tie conflicts (owner §8 Q4) — drives the amber warning chip.
     conflicts: TieConflict[]
   } => {
     if (!showBands)
-      return { sectionRegions: [], orderedColumns: [], gapXs: [], apexOverrides: new Map(), conflicts: [] }
+      return {
+        sectionRegions: [],
+        orderedColumns: [],
+        gapXs: [],
+        apexOverrides: new Map(),
+        contactOverriddenBodies: new Set(),
+        conflicts: [],
+      }
 
     // Valid columns in along-section order (have both unit data + screen edges).
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     const orderedColumns = valid.map((id) => colByInv.get(id) as PartitionColumn)
     if (orderedColumns.length < 2)
-      return { sectionRegions: [], orderedColumns, gapXs: [], apexOverrides: new Map(), conflicts: [] }
+      return {
+        sectionRegions: [],
+        orderedColumns,
+        gapXs: [],
+        apexOverrides: new Map(),
+        contactOverriddenBodies: new Set(),
+        conflicts: [],
+      }
 
     // Pre-compute gap x-extents from screenByInv so both memos share the same
     // values without re-reading the map independently.
@@ -586,6 +604,11 @@ export default function PartitionFillOverlay({
     // a straddle lens cross into the neighbour). Per-gap keys keep a two-gap
     // lens's apexes independent.
     const apexOverrides = new Map<string, LensApexOverride>()
+    // ``gapIndex:upperBodyId`` set whose shared contact the ENGINE re-partitions
+    // via a ``contact:U|L@g`` override (S68). The POST-BEND off-engine reshape is
+    // SKIPPED for these (else it double-reshapes one band → the gap the engine
+    // consumer removes). Empty on v1 / no contact node → today's path unchanged.
+    const contactOverriddenBodies = new Set<string>()
     for (let i = 0; i < orderedColumns.length - 1; i += 1) {
       const { leftX, rightX } = gapXs[i]
       if (rightX <= leftX || !alongToScreenX) continue
@@ -638,6 +661,28 @@ export default function PartitionFillOverlay({
       }
       for (const id of leftIds) if (!rightIds.has(id)) setShape(id)
       for (const id of rightIds) if (!leftIds.has(id)) setShape(id)
+
+      // Matched TWO-BAND CONTACT free-draw (S68): a node stored on a full-width
+      // (two-sided) band's ``lower_nodes`` shapes the shared contact between it
+      // and the band directly below. v2 re-partitions BOTH bands from ONE
+      // ``contact:U|L@g`` override (partitionFillV2/contactOverride.ts) so the
+      // boundary moves together, never a gap. Only the v2 engine consumes it —
+      // under v1 (no consumer) the legacy off-engine POST-BEND path still runs.
+      if (partitionEngineV2) {
+        const gapOverridden = collectContactOverridesForGap(
+          i,
+          left,
+          right,
+          leftX,
+          rightX,
+          boundariesByBodyId,
+          alongToScreenX,
+          screenToLevel,
+          boundaryDrag,
+          apexOverrides,
+        )
+        for (const id of gapOverridden) contactOverriddenBodies.add(`${i}:${id}`)
+      }
     }
 
     // Bands come from the APPROVED correlation edges (layer-id pairs) — the
@@ -682,7 +727,7 @@ export default function PartitionFillOverlay({
         (conflicts.length ? `, ${conflicts.length} crossing-tie conflicts` : ''),
     )
 
-    return { sectionRegions, orderedColumns, gapXs, apexOverrides, conflicts }
+    return { sectionRegions, orderedColumns, gapXs, apexOverrides, contactOverriddenBodies, conflicts }
   }, [
     orderedInvs,
     colByInv,
@@ -693,6 +738,8 @@ export default function PartitionFillOverlay({
     alongToScreenX,
     screenToLevel,
     lensDrag,
+    // Live contact-bend preview: re-partition while dragging a matched contact.
+    boundaryDrag,
     // Recompute the partition when the active engine flips (Settings toggle).
     partitionEngineV2,
   ])
@@ -739,7 +786,8 @@ export default function PartitionFillOverlay({
   // edge as polygon[0] → polygon[1].  Inserting control points BETWEEN those
   // two verts (in sorted-by-x order) keeps the winding order correct.
   const screenRegions = useMemo(() => {
-    const { sectionRegions, orderedColumns, gapXs, apexOverrides } = sectionFillData
+    const { sectionRegions, orderedColumns, gapXs, apexOverrides, contactOverriddenBodies } =
+      sectionFillData
     if (orderedColumns.length < 2) return [] as ScreenRegion[]
     const out: ScreenRegion[] = []
 
@@ -791,6 +839,13 @@ export default function PartitionFillOverlay({
 
         const uId = upper.region.bodyId
         const lId = lower.region.bodyId
+
+        // ENGINE consumed this contact (S68): the ``contact:U|L@g`` override
+        // already re-partitioned BOTH bands. Running the off-engine POST-BEND
+        // reshape too would double-move ONE band's edge (the §71 root of the
+        // "targets top + gap" dogfeed). Skip it — the engine output is truthful.
+        if (contactOverriddenBodies.has(`${i}:${uId}`) || contactOverriddenBodies.has(`${i}:${lId}`))
+          continue
 
         // Clamp bounds: upper's top y (minY) and lower's base y (maxY).
         const clampMinY = upper.minY + 1
@@ -1405,8 +1460,17 @@ export default function PartitionFillOverlay({
       const gapKey = `${sr.leftX}:${sr.rightX}`
       const prevIdx = lastMainByGap.get(gapKey)
       if (prevIdx !== undefined) {
-        const upper = screenRegions[prevIdx]
-        const lower = sr
+        // Order the pair by GEOMETRY, not emission order: the UPPER band is the
+        // one higher on screen (smaller minY). v2 does not emit main regions
+        // strictly top→bottom, so the raw ``prevIdx``/``sr`` order put the lower
+        // band as ``upper`` — the "targets the top" dogfeed (§71): the add-strip
+        // + node then keyed the wrong body and the contact node never matched.
+        const prev = screenRegions[prevIdx]
+        const upperIsPrev = prev.minY <= sr.minY
+        const upper = upperIsPrev ? prev : sr
+        const lower = upperIsPrev ? sr : prev
+        const upperIdx = upperIsPrev ? prevIdx : idx
+        const lowerIdx = upperIsPrev ? idx : prevIdx
         const uId = upper.region.bodyId!
         const lId = lower.region.bodyId!
 
@@ -1451,8 +1515,9 @@ export default function PartitionFillOverlay({
         out.push({
           upperBodyId: uId,
           lowerBodyId: lId,
-          upperIdx: prevIdx,
-          lowerIdx: idx,
+          upperIdx,
+          lowerIdx,
+          gapIndex: upper.region.gapIndex,
           nodes,
           minY,
           maxY,

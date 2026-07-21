@@ -6,7 +6,11 @@
  * builder, and the screen-space interfaces the overlay's drag gestures and
  * render passes share. No React.
  */
-import { LENS_PINCH_FRACTION, type PartitionRegion } from '../../utils/partitionFill'
+import {
+  LENS_PINCH_FRACTION,
+  type PartitionRegion,
+  type SectionRegion,
+} from '../../utils/partitionFill'
 
 // ---------------------------------------------------------------------------
 // Label placement helpers (module-level, pure — no I/O)
@@ -183,7 +187,7 @@ export interface LensDrag {
 
 /** A region already mapped to screen polygon points, tagged with its gap edges. */
 export interface ScreenRegion {
-  region: PartitionRegion
+  region: SectionRegion
   points: { x: number; y: number }[]
   leftX: number
   rightX: number
@@ -206,6 +210,8 @@ export interface SharedBoundary {
   lowerBodyId: string
   upperIdx: number
   lowerIdx: number
+  /** The gap the shared contact spans (for the engine ``contact:U|L@g`` key). */
+  gapIndex: number
   /** Resolved handle positions, sorted left→right. Empty = natural straight edge. */
   nodes: { x: number; y: number; nodeIndex: number }[]
   /** Screen-y clamp bounds (upper body top y and lower body base y). */
