@@ -6506,3 +6506,91 @@ change; v1 fallback gets the same clean look).
    sub-TD strips there now also follow the corrected stack when v2 is active.
 3. The Settings v2 toggle still flips engines live; on v1 fallback the sub-TD strip renders the
    OLD frozen shape by design (engine-gated), while the seam-stroke cleanup applies on both.
+
+---
+
+## §67 — Session 61: APP-RENDER — the fine same-litho hairlines DISSOLVED (owner clause 5, render half). ENGINE UNTOUCHED.
+
+**THE SYMPTOM (owner dogfeed 2026-07-19, unmasked by S60b):** after S60b stopped stroking same-litho
+interior seams, a FINE hairline appeared BETWEEN adjacent same-litho fills — the SVG antialiasing
+sub-pixel gap between two SEPARATE translucent (0.62) `<path>` elements (the app background bleeds at
+their shared edge). NOT an engine hole (HOLES_DIAG 0/0/0, verified) — a pure render artefact.
+
+**WHY re-stroking / epsilon-overlap were rejected (both re-create a line):** a self-colour stroke at
+0.62 over the two adjacent 0.62 fills STACKS darker (the S60b "helper line"); an epsilon overlap of
+two SEPARATE 0.62 elements composites the overlap to `1−(1−0.62)² ≈ 0.855` — a DARKER seam band.
+Same knob, opposite pull.
+
+**THE FIX — one paint op per merged body (clause 5 rendered literally).** NEW pure helper
+`components/sections/sectionFillGroups.ts` — `buildFillGroups` dissolves the litho-axis fills (gap
+regions + under-column substrate quads) into ONE `<path>` per `(formationId, opacityBucket)`, every
+constituent ring a subpath of the one `d`. A single translucent element composites its WHOLE coverage
+once → NO inter-element AA hairline AND NO darkening even where subpaths meet/overlap (the alpha
+applies to the union coverage, once — the exact property `scripts/owner_merged_view.html` shows opaque,
+now preserved translucent). All subpaths are normalised to one winding sign so the default
+`fill-rule: nonzero` fills the union (an opposite-wound subpath would punch an overlap hole).
+
+**Construction chosen — single-element union (no epsilon).** Measured (jsdom + reasoning): a single
+SVG element renders its coverage as one rasterised mask, so a shared internal edge is interior to that
+mask — no seam, without needing an epsilon dilation. Epsilon was NOT added (it would only matter if
+subpaths were separate elements, which they no longer are). Winding-normalisation is the only shaping
+step.
+
+**Semi-transparency + S1 fade preserved.** The 0.62 (lens 0.85) fill opacity is unchanged — the plots
+show through. S1 selection-fade still works PER BODY: a selected body paints natural while same-litho
+siblings demote to 0.25, so they land in DIFFERENT opacity buckets → different elements (each still one
+uniform opacity). No-selection = one bucket → full dissolve. A lens (0.85) and same-litho quad (0.62)
+never merge (different buckets). Under-column substrate strips join their body's group (the sub-TD sand
+strip dissolves into the sand mass — S60a completed visually).
+
+**Interactivity intact — the fill split from the hit target.** The visible fill is now the merged group
+(`partition-fill-group-<key>`, `pointer-events: none`). The per-region `partition-region-<bodyId>` path
+stays as the INTERACTIVE HIT target (body context menu + testid + `pointer-events` toggle for
+correlate mode), painted `fillOpacity 0` — `fill` is the real colour (paint ≠ `none`) so it is
+hit-testable under `visiblePainted` in the browser while contributing NO visible paint (so no per-region
+stacking). The seam-aware STROKE pass (S60b `sectionSeamStrokes.ts`) is UNCHANGED — cross-litho +
+outer edges keep their hairline-closing stroke; same-litho interior seams carry none.
+
+**GEOTECH axis (refinement path):** left AS-IS this session (out of scope — the owner dogfed the LITHO
+axis). The refined-fill / substrate self-colour strokes (lines ~1636-1665) still use the old per-path
+approach; the same dissolve should be applied there in a follow-up if the geotech axis shows the same
+hairline. REPORTED, not done.
+
+### Verification (all first-hand)
+
+- tsc clean (`tsconfig.web.json`).
+- Full desktop suite: **2374 pass / 3 failed = EXACTLY the pre-existing V2P1-3** (re-measured — the v2
+  pinch-tip apex-gesture reds, unrelated to this render change; left + reported per the brief). Baseline
+  before this session was also 3 failed = V2P1-3, so ZERO new reds.
+- NEW gate `sectionFillGroups.test.ts` **6/6**: FG1 two adjacent same-litho regions → ONE group (both
+  rings as subpaths) · FG2 cross-litho pair stays TWO groups · FG3 S1 fade splits litho into
+  natural+demoted buckets · FG4 all subpaths share one winding (nonzero fills the union) · FG5 lens 0.85
+  vs quad 0.62 don't merge · FG6 degenerate rings skipped.
+- NEW overlay gate `FG-O1`: an interrupted same-litho body (two clay pieces) → ONE dissolved clay group
+  (≥2 subpaths); the silt stays its own group; no group strokes itself.
+- SEAM1/SEAM1-fade REWRITTEN to the S61 structure (they pinned the superseded per-region colored fill;
+  now assert the merged group carries the visible paint at 0.62 / faded 0.25, the hit path is
+  transparent, strokes unchanged). SEAM2/SEAM3 untouched + green. `PartitionFillOverlay.undercol.test.tsx`
+  updated (reads the sub-TD strip subpath out of the merged group by its M-column x-extent) — 2/2 green.
+- Engine spot-check: HOLES_DIAG **0/0/0** all 14 sections (no engine file touched).
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+
+- `components/sections/sectionFillGroups.ts` (NEW — the dissolve helper).
+- `components/sections/sectionFillGroups.test.ts` (NEW — 6 gates).
+- `components/sections/PartitionFillOverlay.tsx` (EDITED — import + `fillGroups` memo + render:
+  merged fill layer, per-region hit paths at fillOpacity 0, under-column reduced to stroke-only).
+- `components/sections/PartitionFillOverlay.test.tsx` (EDITED — SEAM1/SEAM1-fade re-pinned to S61 +
+  NEW FG-O1).
+- `components/sections/PartitionFillOverlay.undercol.test.tsx` (EDITED — read strip from the group).
+
+### Owner dogfeed notes (what to look at)
+
+1. CS1 litho axis, under B2 and across the sand mass: the fine hairlines between adjacent same-litho
+   fills should be GONE, with NO darkened seam band where they were — the fill stays translucent over
+   the CPT/borehole plots (verify the plots still read through). A merged body is now one flat wash.
+2. Cross-litho boundaries + outer/open-end edges keep their thin hairline stroke (real litho changes).
+   Ties (owner's drawn art), NAD boundary lines, correlation edges unchanged.
+3. S1: click a sample dot → the selected body stays bright, same-litho siblings dim to 0.25 (still
+   works per body). Right-click a region → body context menu still fires (hit target intact).
+4. Geotech axis NOT changed this session — if the same hairline shows there, it's the follow-up.
