@@ -283,11 +283,16 @@ const TIP_FRACTION_EPS = 0.02
  */
 export function isApexShapeable(region: PartitionRegion): boolean {
   if (region.kind === 'lens') return true
-  if (region.kind !== 'pinch') return false
-  // A pinch is shapeable only when it has an interior tip. Two facts must hold:
+  // A non-lens region (``pinch`` OR ``quad``) is shapeable only when it has an
+  // interior tip. The two engines label the SAME onlap wedge differently — v2
+  // stamps a lone onlap tip ``kind:'quad'`` (its arrangement flood-fills the tip
+  // as a band-class face; measured on the V2P onlap fixture the silt tip is
+  // ``kind:'quad'`` verts ``0.00 > 0.00 > 0.50``), while v1 emits it ``kind:'pinch'``.
+  // So the shapeable signal is the SHAPE, read identically for pinch and quad, not
+  // the ``kind`` string. Two facts must hold:
   //   (1) at least one vertex sits strictly inside the gap (a mid-gap apex), and
-  //   (2) the region does NOT already span the whole gap width (a full-width pinch
-  //       touches BOTH columns and has no free tip).
+  //   (2) the region does NOT already span the whole gap width (a full-width band /
+  //       mixed-tie rising triangle touches BOTH columns and has no free tip).
   let fMin = Infinity
   let fMax = -Infinity
   let hasInteriorVertex = false
