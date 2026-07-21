@@ -6594,3 +6594,111 @@ hairline. REPORTED, not done.
 3. S1: click a sample dot → the selected body stays bright, same-litho siblings dim to 0.25 (still
    works per body). Right-click a region → body context menu still fires (hit target intact).
 4. Geotech axis NOT changed this session — if the same hairline shows there, it's the follow-up.
+
+---
+
+## §68 — Session 63: free-draw body-shaping tool. STAGE 1 SHIPPED (the apex gesture RENDERS on v2 onlap tips — V2P1-3 GREEN). STAGE 2 (never-gap/overlap coupling) BLOCKED on an ENGINE/design fork — STOP-AND-ASK. ENGINE UNTOUCHED.
+
+Owner requirement (2026-07-21): "fix the free drawing tool to shape bodies by hand, it can never
+create gaps or overlaps … you click a body somewhere, you drag the point and both or all 3 bodies
+change." Confirmed broken on BOTH engines by the owner.
+
+### STAGE 1 — the apex gesture RENDERS (V2P1-3 GREEN, one-line predicate fix)
+
+**MEASURED ROOT (throwaway diag on the exact V2P fixture, both engines):** the "alt-click gesture
+is gone" drop is in the app-side predicate `isApexShapeable` (`partitionFillOverlayHelpers.ts:284`).
+The V2P onlap fixture (L: clay/silt/sand, R: clay/sand, silt-top tied to sand-top) emits the silt
+onlap tip as:
+- **v2:** `kind='quad' body='silt'  verts 0.000@7 > 0.000@6 > 0.500@7` (a triangle anchored on the
+  LEFT column face, apex at f=0.5 mid-gap). The engine flood-labels the lone onlap tip as a
+  BAND-class face → `kind='quad'` (slice.ts: band→quad). NOT `pinch` as the test premise assumed.
+- **v1:** `kind='pinch' body='silt'  verts 0.000@7 > 1.000@7 > 0.000@6` (anchored left, pinches to a
+  zero-thickness point at f=1) — **spans f=0..1, so the old predicate's `spansFullWidth` guard
+  ALSO excluded it** → this is WHY the owner saw it broken on v1 too.
+
+Old predicate: `if (region.kind !== 'pinch') return false` — dropped every `quad` outright, so the
+v2 onlap tip never reached the `screenLenses` builder / add-strip render (`PartitionFillOverlay.tsx`
+~1474-1560 / ~1995-2060). The interior-tip geometry test that follows already accepts the silt
+triangle; it was just gated behind the wrong `kind`.
+
+**FIX (1 line, engine-agnostic):** drop the `kind!=='pinch'` early return; apply the SAME
+interior-tip geometry (`hasInteriorVertex && !spansFullWidth`) to pinch AND quad. A `lens` is still
+always shapeable. Verified against ALL four `isApexShapeable` unit cases (full-width quad `[0,1,1,0]`
++ mixed-tie rising pinch `[1,0,1,1,0.55]` still excluded via `spansFullWidth`) and V2P1-3.
+
+- V2P1-3 **GREEN** (were the only 3 reds in the whole desktop suite). `isApexShapeable` block 4/4.
+- `PartitionFillOverlay.test.tsx` **40/40**; sections component suite **556 pass / 4 skip (36 files)**.
+- tsc clean; HOLES_DIAG **0/0/0** all 14 (engine byte-untouched — only the app helper changed).
+
+**v1 coverage:** the v1 onlap silt (`kind='pinch'` spanning f=0..1) is STILL excluded by
+`spansFullWidth` — the S1 fix does NOT cover the v1 case the owner reported. Fixing it would require
+relaxing `spansFullWidth` for a single-anchor pinch that reaches the far column at ONE zero-thickness
+vertex, which is geometrically indistinguishable (by the region polygon alone) from the mixed-tie
+rising-triangle the unit test insists must be EXCLUDED (`[1,0,1,1,0.55]`). That ambiguity is part of
+the Stage-2 fork below — deferred to the owner, NOT guessed.
+
+### STAGE 2 — "the drag can never gap/overlap" — DIAGNOSED, BLOCKED on an engine/design fork
+
+**Diagnosis (evidence, not assumption): the persisted drag path is engine-authoritative BUT the v2
+engine does not consume the override for the shapes the gesture now exposes.**
+
+The drag persists per-body NODES via `onSaveBoundary(bodyId, upper, lower)` → `boundariesByBodyId`
+→ `apexOverrides` (`sectionFillData` memo) → `computeSectionFillActiveWithDiagnostics`. That IS the
+engine-authority path (a full re-partition → 0/0 by construction; design §8 "the freedraw curve is
+inserted into the arrangement and intersected like any curve — it CANNOT cross into a neighbour face
+silently"). So a persisted drag that the engine CONSUMES cannot gap/overlap. The screenshot spike is
+therefore a live-preview / non-consumption artifact, not a persistable overlap.
+
+BUT (measured): in v2, `lensApexOverrides` is read ONLY by `emitLenses.ts` + `detourBandContour.ts`,
+and BOTH require `lens.bodyId != null`. Two consequences:
+1. **v2 enclosed lenses carry `bodyId=NULL`** (measured: the lens fixture's v2 silt lens is
+   `kind='lens' body=NULL`, whereas v1 gives `body='silt'`). `getOverride` bails at
+   `lens.bodyId == null` (emitLenses.ts:290) → a lens drag persists but the engine ignores it.
+   The `screenLenses` builder ALSO drops it earlier (`if (!bodyId) continue`,
+   PartitionFillOverlay.tsx:1485).
+2. **v2 onlap/band faces** (the V2P1 silt, now shapeable) are emitted by `emitSurfaceOnlap` /
+   `emitIntervals`, which read NO override at all. A drag on an onlap tip persists nodes the engine
+   never reads → geometric no-op (or, if the app reshaped the polygon itself, an un-partitioned
+   overlap — the screenshot).
+
+**So the owner's "grab any point, all incident bodies follow, never gap/overlap" is NOT achievable
+purely app-side without one of:**
+- (A) the ENGINE consuming freedraw overrides for onlap/band faces too, AND stamping a non-null
+  bodyId on v2 lens faces (both are engine changes — engine is READ-ONLY this campaign), or
+- (B) an app-side SHARED-VERTEX coupling that reshapes multiple incident body polygons directly —
+  which bypasses the partition and is exactly the overlap risk the owner forbids, unless it re-runs
+  the engine, which loops back to (A)'s bodyId/override gaps.
+
+This is a genuine interaction-model + engine fork, past the app-render boundary the campaign fences
+off. STOP-AND-ASK rather than invent a coupling heuristic or edit the engine.
+
+### QUESTIONS FOR THE OWNER (one fork, evidence above)
+
+1. The shared-vertex coupling needs the ENGINE to (a) consume freedraw overrides for onlap/band
+   faces and (b) stamp a real bodyId on v2 lens faces. The engine is READ-ONLY this campaign — do
+   you want to LIFT that for these two targeted, gated changes, or defer Stage 2 until after cutover?
+2. Which regions are owner-shapeable? Stage-1's geometry now also exposes add-strips on the ONLAP's
+   facing-sand companion wedges (`0.5@7 > 1.0@2 > 1.0@7` etc. in the same gap). Under "drag a point,
+   all 3 bodies move" that may be correct (they share the tie apex) — but the current per-body
+   override can only move ONE, so it would let them drag apart (gap/overlap). Confirm the intended
+   model: one shared handle per junction that moves all incident bodies (needs (A)), vs. per-body.
+3. v1 onlap tips (spanning f=0..1 to a single far-column pinch point) are geometrically
+   indistinguishable from the mixed-tie rising triangle the unit test excludes. If v1 onlap tips must
+   be shapeable too, we need a NON-geometric signal (column-presence / engine klass) — again an
+   engine surface. Keep v1 as-is (it's the fallback), or extend?
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+
+- `components/sections/partitionFillOverlayHelpers.ts` (EDITED — `isApexShapeable`: quad+pinch share
+  the interior-tip geometry; comment records the two-engine label mismatch). ONLY file changed.
+- `REWRITE_STATE.md` — this §68 entry.
+- (throwaway diag `throwaway_v2p1_diag.diag.test.ts` created + REMOVED — measurement of record above.)
+
+### Owner dogfeed notes (Stage 1 only)
+
+- CS1, engine v2, an onlap tip (a lens/wedge that tapers to a mid-gap point, e.g. a single-column
+  silt tied on top to the neighbour): the alt-click add-strips + apex handle are BACK — you can add
+  and drag an apex node. NOTE the drag currently does NOT reshape the fill on v2 (Stage 2 / engine
+  gap above) — verify the HANDLE appears; the geometry response is the open item.
+- v1 fallback: an onlap tip that reaches all the way to the far column is still NOT shapeable
+  (Question 3). Enclosed lenses on v2 are also still handle-less (bodyId=NULL, Question 1).
