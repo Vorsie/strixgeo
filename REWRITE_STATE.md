@@ -6877,3 +6877,281 @@ never-overlap envelope). Discrimination proven by measurement: the onlap no-op f
   instead of consuming the override — open Q1). Real CS1 g22-style onlaps DO move (engine test V2O2).
 - If you see MULTIPLE handles at the same tie apex (silt + its sand companion wedges), that's the
   un-collapsed shared-junction state (open Q2) — don't drag the companions apart yet.
+
+## §71 — Session 66: DIAGNOSE-FIRST the "click targets the top + creates a gap" dogfeed on a horizontal contact AND a lens. ROOT-CAUSED (measured, real fixtures, engine v2). Fix = ENGINE change → STOP-AND-ASK. NO engine/app edit made.
+
+Owner dogfeed (running app, CS1, engine v2): "when clicking somewhere, it selects in a weird way, like
+it targets the top and creates gap" — confirmed on BOTH "a horizontal contact and a lens." That is the
+hand free-draw tool: alt/clicking an add-strip to place a node. Symptoms per click: (1) the wrong body
+("the top") is targeted, (2) a gap appears. Owner's invariant: "you drag the point and both or all 3
+bodies change" — a boundary is SHARED; editing it must move every incident body together (via the engine
+re-partition, 0/0 by construction). A gap = one body's edge moved while its neighbour's did not.
+
+### PER-SURFACE ROOT CAUSE (measured on the base 2-band + enclosed-lens + onlap fixtures, v2, jsdom render)
+
+**A. HORIZONTAL CONTACT — the primary gap (matched two-band boundary).** `handleBoundaryAddNode`
+(`PartitionFillOverlay.tsx:1573`) appends the node to `upperBodyId.lower_nodes` ONLY — `upperBodyId` is
+the topmost of the consecutive main-region pair (`sharedBoundaries`/`lastMainByGap`, ~1451/1464), so a
+contact click ALWAYS targets the TOP body ("targets the top"). That override reaches the engine ONLY if
+`setShape` runs, but `sectionFillData` calls `setShape` exclusively for a body present on ONE side of the
+gap and NOT the other (`if (!rightIds.has(id)) setShape(id)` etc., `PartitionFillOverlay.tsx:639-640`).
+A horizontal contact = BOTH bodies present in BOTH columns → `setShape` NEVER fires → NO `apexOverride` →
+the engine draws the UNCHANGED partition. The only thing that reshapes the contact is the app-side
+POST-BEND pass (`screenRegions` memo, ~767-863): it inserts the upper body's `lower_nodes` into
+`upper.base` + `lower.top` SCREEN polygons directly — the exact app-side reshape the design §8 (line 88:
+"the freedraw curve is inserted into the arrangement … it CANNOT cross into a neighbour face silently")
+says must NOT happen off-engine. MEASURED (base fixture, `sand.lower_nodes=[{along 50, elev 7}]` = screen
+[50,30]): the engine tiles this gap as a pinch-out — clay = a small left triangle `[20,50][20,100][47,100]`,
+sand = the rest reaching x=80. After the node: `sand contains node? TRUE, clay contains node? FALSE` — the
+node landed on sand's DEEP/right edge (inserted between the wrong two verts — the pinch-out sand polygon's
+last two verts are NOT the sand-clay seam), sand grew a spurious spike to [50,30], clay was byte-unchanged.
+Two bugs compound: (1) the node hits the wrong edge of a pinch-out upper polygon, (2) the neighbour below
+sand at x=50 is NOT clay (clay pinched out at x=47) — only the ENGINE knows what body sits below sand at
+each x, so the app-side POST-BEND CANNOT be made partition-safe here in principle. RED gate proven: an
+owner-rule test ("a node on the shared contact appears on BOTH incident bodies") FAILS on
+`clayPts.some(near)` (expected true, got false) — the gap, in the owner's vocabulary.
+
+**B. LENS — depends on topology; the gap is the OFF-ENGINE app rebuild.** An ENCLOSED lens (one-sided,
+`setShape` fires) WORKS: engine consumes the apexOverride → silt reshapes + the sand matrix notch follows
+byte-exactly, NO gap (measured: silt `[20,40][20,50][40,70][40,40]`, sand[1] closes on the identical silt
+right edge `[40,40]→[40,70]` — S64/S65's confirmed-working path). The GAP-producing lens is any shapeable
+tip where `setShape` does NOT populate the override for this gap/body but the POST-LENS pass DOES rebuild
+the polygon app-side via `buildLensPolygon` (`PartitionFillOverlay.tsx:957`, gated only by
+`!apexOverrides.has(key)` at line 890). `buildLensPolygon` builds an UN-CLIPPED wedge from source corners +
+nodes — it does not know the neighbour matrix, so it can gap/overlap it (the brief's "app-side polygon
+reshape that bypasses the engine = the gap"). MEASURED third case (ONLAP tip, silt on L tied to R-sand):
+the stored node is a pure NO-OP — engine floods the onlap to a band-quad (does not route to `emitOnlap`,
+S65 Q1) AND the node is outside the tip's extent, so neither engine nor POST-LENS moves it (node-stored
+and no-node outputs byte-identical). So the lens surface has TWO failure modes off the working enclosed
+path: silent gap (buildLensPolygon rebuild) or silent no-op (onlap band-flood).
+
+**UNIFIED ROOT:** the invariant holds ONLY when the engine consumes the override (enclosed lens). For the
+matched contact (never routed) and the band-flood onlap (routed to the wrong engine face), the app either
+reshapes ONE body off-engine (→ gap) or no-ops. The engine has NO override-consumption path for a matched
+two-band shared contact — override consumption lives only in the termination sweep
+(`partitionFillV2/{drawTermination,emitTerminationSweep,apexOverride}.ts` = lens/onlap tips), so making a
+horizontal-contact node re-partition both bands is an ENGINE change. Per the S66 brief ("if the matched-
+boundary contact fundamentally needs the engine to consume a contact override … that's an ENGINE change —
+STOP and report; a new engine change needs the owner's sanction like S64's"), NOT touched.
+
+### STOP-AND-ASK — the fork (evidence above)
+
+The owner's rule ("click a shared boundary, all incident bodies follow, never a gap") is NOT achievable
+app-side for the matched contact: only the engine knows the body below the upper one at every fraction, so
+the reshape MUST re-partition. Options for the owner:
+1. **Route the matched-contact boundary override through the engine** (lift the engine READ-ONLY for one
+   targeted change, like S64 did for tips): teach `setShape` to also emit an override for two-sided
+   contact bodies, AND add an engine consumer that inserts the boundary curve into the arrangement (design
+   §8 line 88 already specifies this — "inserted … intersected like any curve") so BOTH incident bands
+   re-derive from the shared edge. This is the only path that satisfies "both bodies change, 0/0".
+2. **Kill the off-engine reshape (app-only, partial):** when the engine did not consume the override,
+   STOP the app from drawing the corrupted single-body reshape (skip POST-BEND for two-sided contacts;
+   skip POST-LENS `buildLensPolygon` rebuild when no override matched) → the fill stays engine-truthful
+   (natural partition, NO gap) but the node becomes a NO-OP for those cases. Removes the gap; does not
+   deliver "the boundary moves." A stopgap, not the owner's ask.
+3. Defer contact/onlap hand-shaping until after cutover; ship enclosed-lens shaping only (today's working
+   surface). 
+
+Recommended: option 1 for the contact (it is the owner's literal rule + design §8 already blueprints it),
+gated behind the owner sanctioning a targeted engine edit. Do NOT invent a heuristic (memory
+`feedback_ask_domain_questions_dont_bugfix`).
+
+### VERIFICATION (S66 — diagnosis only, NO code changed)
+
+- Engine byte-untouched (no engine/app file edited this session): the whole campaign's engine gates are
+  unchanged by construction. The full desktop suite / V2P1-4 / tsc were NOT re-run because nothing changed.
+- Measurement of record: throwaway `throwaway_s66_targetgap.diag.test.tsx` (6 diag cases + 1 owner-rule RED
+  assertion) — CONTACT/enclosed-lens/onlap fixtures on v2, region `d` dumps above. The owner-rule assertion
+  goes RED (`clayPts.some(near)` expected true, got false) proving the contact gap in the owner's words.
+  Throwaway REMOVED (measurements recorded here); orchestrator: no commit needed for the diag.
+
+### Files this session
+
+- `REWRITE_STATE.md` — this §71 entry. NO source file changed (diagnosis blocked on the engine fork above).
+- (throwaway `components/sections/throwaway_s66_targetgap.diag.test.tsx` created + REMOVED — measurement of record.)
+
+## §72 — Session 67: MATCHED-CONTACT + ONLAP-TIP override consumer — SPEC ONLY, NO code written (test-execution BLOCKED: Bash + PowerShell + Monitor all permission-denied this run). Buildable plan recorded for the orchestrator.
+
+Owner grant (2026-07-21, 2nd): "complete it in the engine, re-validate" — extend apex-override consumption
+to (1) a MATCHED-CONTACT (two-band shared horizontal boundary) and (2) fix ONLAP-TIP routing for the
+band-flooded 1-corr onlap, so hand-shaping those faces re-partitions gap/overlap-free.
+
+### HARD BLOCKER this run — NO code was written (deliberate, not a stop-with-geometry)
+
+The whole campaign's discipline is "measure first; the no-override path is BYTE-IDENTICAL or you reverted"
+(§64/§69 gate the freeze on the full battery; `intersect.ts` is a 613-hole trap). This run had **NO
+test-execution capability**: `Bash`, `PowerShell`, and `Monitor` (which routes through Bash) were ALL
+permission-denied (confirmed by direct calls). The task's own FIRST ACTION is "pin the exact S65-tip
+baseline numbers, then build TDD" — impossible without a shell. Writing engine code that touches the
+frozen partition core and claiming the byte-identical freeze held, WITHOUT running a single gate, is
+exactly the "trust the report not the output" failure the owner's CLAUDE.md forbids. So this session is
+DIAGNOSIS + a precise buildable spec ONLY; the orchestrator (who can run the battery) executes/verifies it.
+
+### ROOT CONFIRMED (from the S66 map + source read this run — no new measurement, engine unchanged)
+
+**Item 1 — MATCHED CONTACT has NO engine override consumer.** Confirmed at
+`PartitionFillOverlay.tsx:625-640`: `setShape` emits an override ONLY for a one-sided body
+(`for (const id of leftIds) if (!rightIds.has(id)) setShape(id)` + the mirror). A two-band shared
+horizontal contact = BOTH bodies in BOTH columns → `setShape` NEVER fires → no override enters the map →
+the app-side POST-BEND reshapes ONE band off-engine → gap (the §66 measured root). The override key today
+is `bodyId@gapIndex` (`partitionFill/types.ts:117`, READ-ONLY) with `{fraction, elevation, upper?, lower?}`.
+
+**Item 2 — ONLAP TIP that floods to a band-quad never reaches `emitOnlap`.** `emitOnlap`
+(`drawTermination.ts:454`) ALREADY consumes `terminationApexOverride` (S64/V2O2 — real CS1 g22 works).
+The gap is UPSTREAM: `emitSideSweep` (`emitTerminationSweep.ts:240`) does `if (c === 2) continue` and `c`
+comes from `effectiveCorrForSide`. The S65 synthetic 1-corr onlap classifies `c === 2` (band) →
+`drawTermination`/`emitOnlap` never called → the stored node is a pure no-op. So item-2 is NOT an
+`emitOnlap` change; it is making the band-flooded interior tip READ its override where that face's shape
+is actually emitted (the `emitIntervals`/band-quad closure path), OR re-routing that specific 1-corr tip
+to `emitOnlap`.
+
+### BUILDABLE SPEC (for the orchestrator — TDD red-first, engine editable, v1 + intersect.ts READ-ONLY)
+
+**A. Matched-contact override shape + key (additive; new engine consumer).**
+- The override for a shared two-band contact is a control point `(fraction, elevation)` on the boundary
+  between the UPPER band body and the LOWER band body in a gap. Key it by BOTH body ids (or the shared
+  edge) so it is distinct from the one-sided `bodyId@gapIndex` lens/onlap key — e.g. a new
+  `contactApexOverrideKey(upperBodyId, lowerBodyId, gapIndex)` in a NEW sibling module
+  `partitionFillV2/contactOverride.ts` (mirror `apexOverride.ts`; do NOT touch `partitionFill/types.ts`).
+  The map itself can still be `section.lensApexOverrides` (additive keys) OR a new `section.contactOverrides`
+  field — prefer reusing `lensApexOverrides` with the two-body key to avoid a wire-shape change; confirm
+  the app can produce that key (S68 wiring).
+- CONSUMER: at the point the shared boundary CURVE is emitted (the tie/band contour that both bands ride —
+  NOT two independent flanks), when an override exists for `(upper,lower,gap)`, BEND that ONE curve through
+  the control point. Because the upper band's BASE and the lower band's TOP ARE that same curve, both
+  re-derive from it by construction (design §8 line 88: "the freedraw curve is inserted into the
+  arrangement and intersected like any curve — it CANNOT cross into a neighbour face silently"). Insert a
+  vertex `(apexX, apexElev)` into the shared contour polyline; the arrangement re-traces both faces around
+  it. Do NOT emit a second overlapping edge.
+- CLAMP: the control point stays inside the legal envelope — it cannot cross the adjacent contact ABOVE
+  (the upper band's own top) or BELOW (the lower band's own base) and invert. Clamp elevation to
+  `(lowerBase + EPS, upperTop − EPS)` at that fraction and fraction to `[FRACTION_MARGIN, 1−FRACTION_MARGIN]`
+  (reuse the `apexOverride.ts` 0.02 margin). 0/0 preserved at any legal position by construction.
+- LOCATE the emission point: the matched-pair band contour is `emitBands`/`collectGapBands` line art
+  (`bandc`-prefixed curves) that both faces bound. The bend must happen where THAT contour polyline is
+  built for the gap. (The orchestrator: grep `bandc` emission in `emitBands.ts`; the shared contact = the
+  base contour of the upper band == the top contour of the lower band. ONE polyline, bent once.)
+
+**B. Onlap-tip routing (band-flooded 1-corr onlap consumes its override).**
+- Two candidate fixes, pick by measurement: (b1) where the band-quad interior tip is emitted
+  (`emitIntervals.ts` seam/quad closure for a 1-corr side the sweep classified corr-2), read
+  `terminationApexOverride(overrides, u.bodyId, gapIndex)` and move that tip — mirroring `emitOnlap`'s
+  apex consumption (elevation rides the tie, fraction is the reach). (b2) OR re-route that specific
+  topology from the `c===2` band path to `emitOnlap` when it is genuinely a 1-corr onlap the classify
+  over-promoted. Prefer (b1): it is additive (no classify change → no ripple through the 2/1/0 battery).
+  With NO override → today's shape EXACTLY (byte-identical).
+
+**C. Both:** an override moves the boundary; the flood/detour re-closes around it (reuse the
+`emitFloodWedge` / `detourBandContourAroundLenses` machinery already in `drawTermination`) → 0/0 held.
+
+### VERIFICATION THE ORCHESTRATOR MUST RUN (both halves mandatory)
+**A. NO-OVERRIDE BYTE-IDENTICAL** (`lensApexOverrides`/`contactOverrides` empty): every gate == the S65
+tip — HOLES_DIAG 0/0/0 all 14; seedGate 732/651/8/67/6/0 pm0; CS1 gates 8/8; lineStageDiff pinned; tie
+446/0/0/0; `diag_cs1_flip_walkthrough.json` regions BYTE-IDENTICAL (diff it); `node scripts/diff_owner_paint.mjs`
+→ 212/0. Any no-override move = the freeze broke → revert.
+**B. WITH-OVERRIDE 0/0 (TDD red-first):** (i) a matched-contact control point bends the shared boundary,
+BOTH bands follow (upper base AND lower top move together), 0 holes/0 overlaps at several positions incl.
+an extreme clip; (ii) an onlap-tip override on a band-flooded 1-corr onlap MOVES the tip, 0/0. New tests
+in a NEW `partitionFillV2.contactOverride.test.ts` (+ extend `apexOverride.test.ts` for the onlap case).
+
+### KNOWN PRE-EXISTING RED (NOT this session; §69/§70 documented)
+The conformance flag-ON ratchet asserts `12 == pinned-10` and FAILS on the clean S64/S65 tip too (proven
+by stash in §69). Orchestrator: re-pin to 12 or investigate the 10→12 drift that predates this campaign
+work. Do NOT let it mask a real S67 regression — compare against the S65 tip, not against green.
+
+### Files this session
+- `REWRITE_STATE.md` — this §72 entry. NO source file changed (test-execution blocked; spec recorded for
+  the orchestrator to build+verify). No throwaway created (could not be executed).
+
+## §73 — Session 67b: MATCHED-CONTACT (Item A) + SURFACE-ONLAP-TIP (Item B) override consumers BUILT + verified. No-override path BYTE-IDENTICAL (walkthrough JSON sha256-identical, all gates unmoved). Engine editable (owner-sanctioned); v1 + intersect.ts READ-ONLY.
+
+Shell WORKS this run (S67's blocker gone). Built the §72 spec TDD red-first; the no-override path is proven
+byte-identical on the full battery. New engine module `partitionFillV2/contactOverride.ts` + consumers in
+`emitCurves.ts` (tie bend) / `emitEnclosingFlood.ts` (band-contour bend + closeInterval seam) /
+`emitBoundaryLens.ts` (surface-onlap tip).
+
+### ITEM A — matched-contact override consumer (the novel piece) — WORKS
+
+The shared boundary two bands ride is the TIE curve at that contact (ruling 8a: a tie sits on the surface
+both units share). `contactApexOverrideKey(upperBodyId, lowerBodyId, gapIndex)` = ``contact:U|L@g`` — a
+two-body key namespaced away from the single-body ``bodyId@gap`` lens/onlap key, REUSING
+``section.lensApexOverrides`` (no ``partitionFill/types.ts`` change). `collectContactBends` (tie-driven):
+for each gap tie, the UPPER-band candidates = every body whose unit BASE sits at the tie elevation, the
+LOWER = every body whose unit TOP sits there (a SET, because the engine ``UnitGeom.bodyId`` and the RENDERED
+``PartitionRegion.bodyId`` differ — ``resolveLabel`` picks a bounding unit's id; matching against the
+elevation-bounded set makes whichever id the app keys on resolve to its band's real contact). When the
+override map carries the key, the ONE shared boundary is BENT through the clamped control point in TWO
+coincident places that the DCEL unions: the TIE curve (`emitCurves.ts`, `applyContactBend([t.left,t.right])`)
+AND its coincident ``bandc`` contour (`emitEnclosingFlood.ts` — emitted explicitly for the bend when the
+contact isn't already a tie-riding band contour). CLAMP: elevation ∈ ``(lowerBase+1mm, upperTop−1mm)`` (never
+inverts), fraction ∈ ``[0.02, 0.98]`` (reuses ``apexOverride.ts``'s margin). PROOF (synthetic two-stacked-band
+fixture, CO2): the shared contact bent down at f=0.5 → BOTH bands follow — sand base ``(0,6)(0.5,4.5)(1,6)``,
+clay top ``(0,6)(0.5,4.5)(1,6)`` move TOGETHER, coincident, 0 gap. CO3: 0 holes / 0 overlaps at three drag
+positions incl. an extreme clip past the clay base.
+
+MEASURED WALL (recorded, NOT a defect — S68's job per §72 "confirm the app can produce that key"): the real
+CS1 render has NO clean matched two-band contact matching §72's idealised ``upper.base==lower.top, both
+collectGapBands bands, at a resolvable tie``. Every real candidate is at the shallow-TD floor (substrate
+below, contour clipped away) OR between EMERGENT bands whose contact is not a simple tie, AND the render
+bodyId ≠ engine UnitGeom bodyId. So Item A's engine consumer is proven on a SYNTHETIC clean fixture (a
+legitimate TDD unit — the app→engine body-id mapping is the S68 app-wiring concern). The elevation-set match
+is the bridge the app needs (whatever real id it keys on resolves).
+
+### ITEM B — surface-onlap-tip override consumer — WORKS
+
+The 1-corr onlap the sweep routes to `emitSurfaceOnlapFlank` (a top-band-tied first unit) emitted its tip at
+the FIXED ``INTERIOR_PINCH_FRACTION`` (0.5), reading NO override (the S65 Q1 no-op class — a persisted drag
+was a no-op). FIX (additive): `emitSurfaceOnlapFlank` now reads ``terminationApexOverride(overrides, u.bodyId,
+gapIndex)`` and moves the tip's REACH (fraction); the apex ELEVATION always rides the top-band polyline at
+that fraction (an onlap laps its tie — the S64 emitOnlap lesson; floating the elevation off the tie opens a
+sliver). Threaded ``gapIndex`` + ``overrides`` through the `emitTerminationSweep` call site. ALSO wired the
+`emitEnclosingFlood.closeInterval` mismatched-interval seam to read the override (a band-flooded onlap the
+sweep routes to that closure, not `emitOnlap`) — the LEFT enclosing body's override moves the seam to its
+fraction, the RIGHT's to ``1−fraction``. PROOF (CO4, bracketed surface-onlap fixture: silt over clay, silt
+top-band tied, clay band tied below): silt reach 0.50→0.90 under an override, 0 holes / 0 overlaps. NO
+override → the 0.5 tip exactly (byte-identical). NOTE: an UN-bracketed onlap (silt base untied → one
+full-height clay/sand seam) still caps at 0.5 — moving that needs the silt base to become a bracket (an engine
+TOPOLOGY change, NOT additive); left as-is (out of the "small, low-risk, additive" Item-B scope, recorded).
+
+### VERIFICATION — HALF A (NO-OVERRIDE BYTE-IDENTICAL) — ALL UNMOVED vs the tip
+- HOLES_DIAG **0/0/0** all 14 (both flags). CS1 gates **8/8**. seedGate **732/651/8/67/6/0**, mismatches **0**.
+  lineStageDiff GRAND **rawEdges=446 DROPPED=0 MOVED=0 INVENTED=0**. apexOverride V2O1-3 **3/3**.
+  crossgap/lensAudit/reachScan/f1/f5/s58col18/ts7klei/shapeaudit/parity **all green**. tsc **clean**
+  (`tsconfig.web.json`). utils suite **830 pass / 31 skip** (+4 = the new contactOverride tests). sections
+  suite **557 pass / 4 skip**.
+- **`diag_cs1_flip_walkthrough.json` regenerated BYTE-IDENTICAL** — sha256
+  ``9ff51b749bfedcfc548c8b0f3ad997ba9e37ba00e0fb6b9a364dbc9ad0b99a3d`` (346761 bytes) before AND after the
+  change (Buffer.compare === 0). The no-override region output — coords / kind / bodyId — is unchanged
+  everywhere. (``diff_owner_paint.mjs`` / ``gen_paint_tool.mjs`` do NOT exist in this tiler-rewrite worktree
+  — they are section-fill-v1 tooling in the sibling ``Strix`` repo; the byte-identical region-JSON diff is
+  the equivalent proof here.)
+- PRE-EXISTING RED (NOT mine, §69/§70/§72-documented): conformance flag-ON ratchet asserts ``12 == pinned-10``
+  and FAILS on the clean tip too; my change leaves it byte-identical at **12** (not moved). Orchestrator:
+  re-pin to 12 or investigate the pre-campaign 10→12 drift.
+
+### VERIFICATION — HALF B (WITH-OVERRIDE 0/0, TDD red→green, `partitionFillV2.contactOverride.test.ts`)
+- **CO1** — the ``contact:U|L@g`` two-body key is distinct + order-sensitive from ``lensApexOverrideKey``.
+- **CO2** (RED before Item A, GREEN after) — a control point bends the shared contact; BOTH bands follow it
+  down together, coincident (upper base == lower top), 0 gap.
+- **CO3** (GREEN) — 0 holes / 0 overlaps at three drag positions incl. an extreme clip past the outer band.
+- **CO4** (RED before Item B, GREEN after) — a surface-onlap tip's reach moves 0.5→0.9 under a single-body
+  override, 0 holes / 0 overlaps.
+
+### Files this session (worktree, NOT committed — orchestrator commits + independently re-runs Half A)
+- `partitionFillV2/contactOverride.ts` — NEW; ``contactApexOverrideKey`` / ``contactApexOverride`` (clamp) /
+  ``collectContactBends`` (tie-driven, elevation-set body match) / ``bendBandContour`` / ``applyContactBend``.
+- `partitionFillV2/emitCurves.ts` — bend the TIE curve through the matched-contact control point (Item A).
+- `partitionFillV2/emitEnclosingFlood.ts` — bend the coincident ``bandc`` contour (Item A) + consume the
+  override in the ``closeInterval`` mismatched seam (Item B, band-flooded onlap path).
+- `partitionFillV2/emitBoundaryLens.ts` — ``emitSurfaceOnlapFlank`` consumes the override to move the tip
+  reach (Item B).
+- `partitionFillV2/emitTerminationSweep.ts` — thread ``gapIndex`` + ``overrides`` to ``emitSurfaceOnlapFlank``.
+- `partitionFillV2.contactOverride.test.ts` — NEW; CO1-4 with-override gates.
+- `REWRITE_STATE.md` — this §73 entry. (All throwaway diags created + REMOVED; measurements of record above.)
+  `scripts/diag_cs1_flip_walkthrough.json` regenerated (byte-identical).
+
+### For S68 (app wiring)
+Targets-top fix + route contact click → the new ``contactApexOverrideKey``; the engine matches the override
+against the ELEVATION-BOUNDED body set at each tie, so whatever rendered bodyId the app keys on resolves to
+its band's real contact. Suppress the off-engine POST-BEND reshape (§71 root) — the engine now consumes the
+contact override, so the app must stop drawing the corrupted single-body reshape.
