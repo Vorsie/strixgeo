@@ -877,46 +877,73 @@ describe('PartitionFillOverlay', () => {
   //   SEAM2  the open-end stub rects (which tile the section's open ends) carry
   //          the same self-colour seam stroke at the fill opacity.
   // --------------------------------------------------------------------------
-  it('SEAM1 — a region closes its cross-litho/outer seams via a self-colour stroke path at the fill opacity', () => {
-    const { queryAllByTestId } = renderOverlay()
-    // Base fixture: sand over clay — every boundary is cross-litho or borders
-    // unfilled space, so both bodies keep a stroke path.
+  it('SEAM1 — the visible fill is a dissolved merged-body group; per-region hit paths are transparent; strokes hem cross-litho/outer seams at the fill opacity', () => {
+    // S61 (owner clause 5, app-render half): the visible litho fill is now ONE
+    // translucent <path> per merged same-litho body (partition-fill-group-*), so
+    // adjacent same-litho regions no longer stack a darker seam / show an
+    // antialiasing hairline. The per-body partition-region-* path stays as the
+    // interactive HIT target only (fillOpacity 0 — no visible paint, so no
+    // per-region stacking). The seam-aware stroke path is unchanged.
+    const { queryAllByTestId, container } = renderOverlay()
+
+    // The dissolved fill groups carry the visible paint at the 0.62 fill opacity
+    // and NO stroke (the group is painted once — a stroke would re-introduce a
+    // line). Both lithologies (sand, clay) produce a group.
+    const groups = Array.from(
+      container.querySelectorAll('[data-testid^="partition-fill-group-"]'),
+    )
+    expect(groups.length).toBeGreaterThanOrEqual(2)
+    const groupColors = new Set(groups.map((g) => g.getAttribute('fill')))
+    expect(groupColors.has('#fbbf24')).toBe(true) // sand colour
+    expect(groupColors.has('#6b7280')).toBe(true) // clay colour
+    for (const g of groups) {
+      expect(g.getAttribute('fill-opacity')).toBe('0.62')
+      expect(g.getAttribute('stroke')).toBeNull()
+    }
+
     for (const bodyId of ['sand', 'clay']) {
-      const fills = queryAllByTestId(`partition-region-${bodyId}`)
+      const hits = queryAllByTestId(`partition-region-${bodyId}`)
       const strokes = queryAllByTestId(`partition-region-stroke-${bodyId}`)
-      expect(fills.length).toBeGreaterThanOrEqual(1)
+      expect(hits.length).toBeGreaterThanOrEqual(1)
       expect(strokes.length).toBeGreaterThanOrEqual(1)
-      // The fill polygon no longer strokes itself (the doubled self-stroke on a
-      // same-litho seam was the visible "helper line" inside a merged body).
-      for (const el of fills) expect(el.getAttribute('stroke')).toBeNull()
-      const fillColor = fills[0].getAttribute('fill')
-      const fillOpacity = fills[0].getAttribute('fill-opacity')
+      // The per-region hit path paints nothing (fillOpacity 0) and never strokes
+      // itself — the visible paint is the dissolved group above.
+      for (const el of hits) {
+        expect(el.getAttribute('stroke')).toBeNull()
+        expect(el.getAttribute('fill-opacity')).toBe('0')
+      }
+      const hitColor = hits[0].getAttribute('fill')
       for (const el of strokes) {
         // Stroke equals the region's own fill colour so the seam closes without
-        // painting a foreign colour across the boundary.
-        expect(el.getAttribute('stroke')).toBe(fillColor)
+        // painting a foreign colour across the boundary; at the natural (0.62)
+        // fill opacity so it never reads as a darker outline.
+        expect(el.getAttribute('stroke')).toBe(hitColor)
         expect(el.getAttribute('stroke-width')).toBe('0.75')
         expect(el.getAttribute('stroke-linejoin')).toBe('round')
-        // strokeOpacity must match fillOpacity exactly — a stroke ABOVE the 0.62
-        // fill opacity would read as a darker outline (wrong).
-        expect(el.getAttribute('stroke-opacity')).toBe(fillOpacity)
+        expect(el.getAttribute('stroke-opacity')).toBe('0.62')
       }
     }
   })
 
-  it('SEAM1-fade — a demoted (S1-faded) region strokes at its FADED opacity, not the natural one', () => {
-    // With a body selected, non-matching regions fade to 0.25. The seam stroke
-    // must track that faded fillOpacity (the same variable), else the outline
-    // stays bright while the fill dims.
-    const { queryAllByTestId } = renderOverlay({ selectedBodyId: 'sand' })
-    const clay = queryAllByTestId('partition-region-clay')
+  it('SEAM1-fade — an S1-selected body splits its litho into natural + faded groups; the demoted stroke fades too', () => {
+    // With a body selected, non-matching regions fade to 0.25. The dissolved fill
+    // now splits on the opacity bucket: the clay group paints at 0.25 (demoted),
+    // and the clay seam stroke tracks that faded opacity — the outline must not
+    // stay bright while the fill dims.
+    const { queryAllByTestId, container } = renderOverlay({ selectedBodyId: 'sand' })
+    const groups = Array.from(
+      container.querySelectorAll('[data-testid^="partition-fill-group-"]'),
+    )
+    // The clay group (non-selected litho) paints at the demoted 0.25 opacity.
+    const clayGroups = groups.filter((g) => g.getAttribute('fill') === '#6b7280')
+    expect(clayGroups.length).toBeGreaterThanOrEqual(1)
+    for (const g of clayGroups) expect(g.getAttribute('fill-opacity')).toBe('0.25')
+
     const clayStrokes = queryAllByTestId('partition-region-stroke-clay')
-    expect(clay.length).toBeGreaterThanOrEqual(1)
     expect(clayStrokes.length).toBeGreaterThanOrEqual(1)
-    for (const el of clay) expect(el.getAttribute('fill-opacity')).toBe('0.25')
     for (const el of clayStrokes) {
       expect(el.getAttribute('stroke-opacity')).toBe('0.25')
-      expect(el.getAttribute('stroke')).toBe(clay[0].getAttribute('fill'))
+      expect(el.getAttribute('stroke')).toBe('#6b7280')
     }
   })
 
@@ -1001,6 +1028,41 @@ describe('PartitionFillOverlay', () => {
       expect(el.getAttribute('stroke-linejoin')).toBe('round')
       expect(el.getAttribute('stroke-opacity')).toBe(el.getAttribute('fill-opacity'))
     }
+  })
+
+  // --------------------------------------------------------------------------
+  // FG-OVERLAY — the dissolved fill wired end-to-end (S61, owner clause 5).
+  //
+  //   FG-O1  an interrupted body (two clay regions abutting mid-gap along the
+  //          silt termination) renders ONE clay fill GROUP — the merged body is
+  //          a single paint op, so no antialiasing hairline between the two clay
+  //          pieces. The silt (different litho) stays its own group.
+  // --------------------------------------------------------------------------
+  it('FG-O1 — an interrupted same-litho body renders ONE dissolved fill group; the different litho stays separate', () => {
+    // Right column ALL clay; left column clay / silt / clay. The silt pinches out
+    // mid-gap, so clayA (above) and clayB (below) meet along the silt termination
+    // — a same-litho interior seam that must dissolve into ONE clay paint op.
+    const { container } = renderOverlay({
+      lithoLayers: [
+        layer('l1', 'L', 'clayA', 'fClay', 0, 4),
+        layer('l2', 'L', 'silt', 'fSilt', 4, 6),
+        layer('l3', 'L', 'clayB', 'fClay', 6, 10),
+        layer('r1', 'R', 'clayA', 'fClay', 0, 10),
+      ],
+    })
+    const groups = Array.from(
+      container.querySelectorAll('[data-testid^="partition-fill-group-"]'),
+    )
+    // Exactly ONE clay group (both clay pieces dissolved) and ONE silt group.
+    const clayGroups = groups.filter((g) => g.getAttribute('fill') === '#6b7280')
+    const siltGroups = groups.filter((g) => g.getAttribute('fill') === '#84cc16')
+    expect(clayGroups).toHaveLength(1)
+    expect(siltGroups.length).toBeGreaterThanOrEqual(1)
+    // The single clay group carries BOTH clay rings as subpaths (≥2 Z commands).
+    const clayZ = (clayGroups[0].getAttribute('d') ?? '').match(/Z/g)?.length ?? 0
+    expect(clayZ).toBeGreaterThanOrEqual(2)
+    // The dissolved fill group never strokes itself (a stroke would re-add a line).
+    for (const g of groups) expect(g.getAttribute('stroke')).toBeNull()
   })
 })
 

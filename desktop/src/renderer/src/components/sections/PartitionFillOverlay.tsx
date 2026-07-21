@@ -64,6 +64,7 @@ import {
 } from '../../utils/partitionFill'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
 import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
+import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActiveWithDiagnostics,
   usePartitionEngineV2,
@@ -1096,6 +1097,55 @@ export default function PartitionFillOverlay({
     }
   }, [refinement, underColumnFills, screenRegions])
 
+  // ---- DISSOLVED FILL GROUPS (S61 — owner clause 5, app-render half). --------
+  //
+  // The visible litho fill is emitted as ONE ``<path>`` per merged same-litho
+  // body — every adjacent same-lithology region (gap regions + under-column
+  // substrate quads) that paints at the SAME opacity dissolves into a single
+  // element. A single translucent element composites its whole coverage once,
+  // so a merged body shows NO inter-element antialiasing hairline (the S60b
+  // seam-strokes unmasked it) and NO darkened seam (separate 0.62 elements
+  // overlapping would stack to ~0.855). The per-region interactive HIT paths
+  // (below) and the seam-aware STROKE pass stay per-region — only the fill
+  // paint is dissolved. See ``sectionFillGroups.ts``.
+  //
+  // The opacity BUCKET keeps the S1 selection-fade working per body: a selected
+  // body paints at its natural opacity while same-litho siblings demote to 0.25,
+  // so they land in different buckets → different elements (each still uniform).
+  const fillGroups = useMemo(() => {
+    if (refinement || screenRegions.length + underColumnFills.length === 0) return []
+    // The selected body's lithology — under-column fills carry formationId (not
+    // bodyId), so S1 fades them by matching lithology (mirrors the render below).
+    const selFormId = selectedBodyId
+      ? (screenRegions.find((sr) => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
+      : null
+    const elements: FillGroupElement[] = []
+    for (const f of underColumnFills) {
+      const opacity =
+        selectedBodyId && selFormId !== null && f.formationId !== selFormId ? 0.25 : FILL_OPACITY
+      elements.push({
+        points: f.pts,
+        formationId: f.formationId,
+        color: f.color,
+        opacityBucket: String(opacity),
+        opacity,
+      })
+    }
+    for (const sr of screenRegions) {
+      const naturalOpacity = sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY
+      const opacity =
+        selectedBodyId && sr.region.bodyId !== selectedBodyId ? 0.25 : naturalOpacity
+      elements.push({
+        points: sr.points,
+        formationId: sr.region.formationId,
+        color: formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR,
+        opacityBucket: String(opacity),
+        opacity,
+      })
+    }
+    return buildFillGroups(elements)
+  }, [refinement, underColumnFills, screenRegions, selectedBodyId, formationColorById])
+
   // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
   //
   // When `refinement` is set (the geotech axis), the litho partition
@@ -1675,56 +1725,58 @@ export default function PartitionFillOverlay({
           ))}
         </g>
       )}
-      {/* Under-column substrate fill: closes the gap exactly below each test's TD
-          (the column-width sliver the edge-to-edge gap partition never covered),
-          sloped to continue the straight deep-test→deep-test bridge line.
+      {/* DISSOLVED FILL LAYER (S61 — owner clause 5, app-render half): one
+          translucent ``<path>`` per merged same-litho body (adjacent gap regions
+          + under-column substrate quads at the same opacity, dissolved into one
+          element). A single element composites its coverage once, so a merged
+          body shows NO inter-element antialiasing hairline (the S60b seam-strokes
+          unmasked it) and NO darkened seam (two separate 0.62 elements would
+          stack to ~0.855 where they overlap). Painted FIRST (beneath the
+          interactive hit paths + seam strokes below); ``pointer-events: none`` —
+          the fill is display-only, hit-testing lives on the per-region paths. */}
+      {!refinement &&
+        fillGroups.map((g) => (
+          <path
+            key={`pf-group-${g.key}`}
+            data-testid={`partition-fill-group-${g.key}`}
+            d={g.d}
+            fill={g.color}
+            fillOpacity={g.opacity}
+            style={{ pointerEvents: 'none' }}
+          />
+        ))}
 
-          Rendered BEFORE (beneath) the gap partition regions so that a gap region
-          (e.g. a silt lens from a deeper test) which overlaps a co-located shallow
-          test's column strip paints OVER that column's under-column matrix sliver
-          instead of being hidden by it. For non-overlapping columns the two groups
-          occupy disjoint x-ranges, so the order is visually inert there. */}
-      {/* S1: when a geotech body is selected via a sample dot, derive the
-          matching formationId from screenRegions so under-column fills (which
-          carry formationId but not bodyId) can fade non-matching bodies too. */}
-      {!refinement && (() => {
-        const selFormId = selectedBodyId
-          ? (screenRegions.find(sr => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
-          : null
-        return underColumnFills.map((f, fi) => {
-          // Fade non-matching under-column fills when a body is selected.
-          const ucOpacity = (selectedBodyId && selFormId !== null && f.formationId !== selFormId)
-            ? 0.25
-            : FILL_OPACITY
-          // Seam-aware self-colour stroke (S60 Stage B): only the edges NOT
-          // shared with a same-litho fill keep the hairline-closing stroke —
-          // a same-litho seam (e.g. the sub-TD sand strip meeting the sand gap
-          // region) carries no line, so the merged body reads as one mass.
+      {/* Under-column substrate seam strokes: the FILL is now dissolved into the
+          groups above; only the seam-aware hairline-closing stroke stays
+          per-quad (kept ONLY on edges NOT shared with a same-litho fill, S60
+          Stage B — a same-litho seam carries no line). */}
+      {!refinement &&
+        underColumnFills.map((f, fi) => {
+          // Fade the stroke with the same S1 rule the fill group uses (match by
+          // lithology, since under-column fills carry formationId not bodyId).
+          const selFormId = selectedBodyId
+            ? (screenRegions.find((sr) => sr.region.bodyId === selectedBodyId)?.region.formationId ??
+              null)
+            : null
+          const ucOpacity =
+            selectedBodyId && selFormId !== null && f.formationId !== selFormId ? 0.25 : FILL_OPACITY
           const strokeD = seamStrokes.undercol[fi]
+          if (!strokeD) return null
           return (
-            <g key={f.key}>
-              <path
-                data-testid="partition-undercol"
-                d={f.points}
-                fill={f.color}
-                fillOpacity={ucOpacity}
-              />
-              {strokeD && (
-                <path
-                  data-testid="partition-undercol-stroke"
-                  d={strokeD}
-                  fill="none"
-                  stroke={f.color}
-                  strokeOpacity={ucOpacity}
-                  strokeWidth={0.75}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              )}
-            </g>
+            <path
+              key={f.key}
+              data-testid="partition-undercol-stroke"
+              d={strokeD}
+              fill="none"
+              stroke={f.color}
+              strokeOpacity={ucOpacity}
+              strokeWidth={0.75}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              style={{ pointerEvents: 'none' }}
+            />
           )
-        })
-      })()}
+        })}
 
       {!refinement && screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
@@ -1751,16 +1803,19 @@ export default function PartitionFillOverlay({
         const strokeD = seamStrokes.regions[i]
         return (
           <g key={`pf-${i}`}>
+            {/* Per-region INTERACTIVE HIT path (S61): the visible fill is now the
+                dissolved group above; this transparent path keeps the region's
+                own body context menu + testid + pointer-events. ``fill`` carries
+                the group colour (readable for the S1 fade bucket) but paints
+                transparently via ``fillOpacity`` 0 — the visible paint is the
+                merged group, so per-region translucent stacking (the seam) is
+                gone. */}
             <path
               data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
               d={d}
               fill={color}
-              // A lens (one-test body enclosed in a matrix) renders a touch more
-              // solid so it reads as a unit cut out of the continuous matrix. Same
-              // convention on both axes — the geotech bodies connect now (backend
-              // Tasks 1+2), so no axis-specific opacity override is needed.
-              fillOpacity={regionOpacity}
-              style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : undefined}
+              fillOpacity={0}
+              style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : { pointerEvents: 'none' }}
               onContextMenu={
                 interactive
                   ? (e) => {

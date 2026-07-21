@@ -140,17 +140,52 @@ const straddlingRegions: SectionRegion[] = [
   reg(1, 'fClay', -7.5, -10.2),
 ]
 
-/** Top screen-y of an undercol path (first y in its "M x,y L ..." ring). */
-function topY(d: string): number {
-  const m = d.match(/M [\d.]+,([\d.]+)/)
-  return m ? Number(m[1]) : NaN
+// S61 (owner clause 5): the sub-TD substrate FILL is dissolved into the
+// per-lithology merged group (``partition-fill-group-*``) — its own coloured
+// ``partition-undercol`` path is gone (a single translucent element removes the
+// antialiasing hairline). The under-glyph strip is still an independent SUBPATH
+// (M-column x-range 80..120) inside its lithology's group; the tests parse those
+// subpaths back out. Behaviour under test (which litho paints where below the TD)
+// is unchanged — only the DOM host of the fill moved.
+
+/** Split a group ``d`` into its ``M … Z`` subpaths' vertex lists. */
+function subpaths(d: string): { x: number; y: number }[][] {
+  return d
+    .split('Z')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) =>
+      Array.from(s.matchAll(/[ML] ([\d.-]+),([\d.-]+)/g)).map((m) => ({
+        x: Number(m[1]),
+        y: Number(m[2]),
+      })),
+    )
 }
 
-/** Undercol paths covering the M glyph strip (x 80..120). */
-function mStripPaths(container: HTMLElement): { fill: string; d: string }[] {
-  return Array.from(container.querySelectorAll('[data-testid="partition-undercol"]'))
-    .map((p) => ({ fill: p.getAttribute('fill') ?? '', d: p.getAttribute('d') ?? '' }))
-    .filter((p) => p.d.startsWith('M 80.00'))
+/**
+ * Under-glyph strip fills over the M column (x ≈ 80..120), one entry per
+ * lithology group that has such a subpath. ``top`` is the highest point (min y)
+ * of the M-strip subpath — the strip's top elevation on screen.
+ */
+function mStripPaths(container: HTMLElement): { fill: string; top: number }[] {
+  const out: { fill: string; top: number }[] = []
+  for (const g of Array.from(
+    container.querySelectorAll('[data-testid^="partition-fill-group-"]'),
+  )) {
+    const fill = g.getAttribute('fill') ?? ''
+    for (const ring of subpaths(g.getAttribute('d') ?? '')) {
+      const xs = ring.map((p) => p.x)
+      const minX = Math.min(...xs)
+      const maxX = Math.max(...xs)
+      // The M-glyph strip spans exactly the column footprint [80,120]; gap
+      // regions span the inter-column gaps (e.g. 20..80 or 120..180), so this
+      // x-extent uniquely selects the under-glyph substrate subpath.
+      if (Math.abs(minX - 80) < 0.5 && Math.abs(maxX - 120) < 0.5) {
+        out.push({ fill, top: Math.min(...ring.map((p) => p.y)) })
+      }
+    }
+  }
+  return out
 }
 
 describe('PartitionFillOverlay — sub-TD strip under the glyph (S60 Stage A)', () => {
@@ -168,11 +203,11 @@ describe('PartitionFillOverlay — sub-TD strip under the glyph (S60 Stage A)', 
     const sand = strips.find((p) => p.fill === SAND)
     const clay = strips.find((p) => p.fill === CLAY)
     expect(sand).toBeDefined()
-    expect(topY(sand!.d)).toBeCloseTo(140, 0)
+    expect(sand!.top).toBeCloseTo(140, 0)
     expect(clay).toBeDefined()
-    expect(topY(clay!.d)).toBeCloseTo(175, 0)
+    expect(clay!.top).toBeCloseTo(175, 0)
     // The defect shape — clay directly under the sand base/TD — must be gone.
-    expect(topY(clay!.d)).not.toBeCloseTo(140, 0)
+    expect(clay!.top).not.toBeCloseTo(140, 0)
   })
 
   it('UC-V1: v1 fallback — the frozen helper behaviour is preserved (straddling sand rejected, clay up to the TD)', () => {
@@ -188,6 +223,6 @@ describe('PartitionFillOverlay — sub-TD strip under the glyph (S60 Stage A)', 
     expect(strips.find((p) => p.fill === SAND)).toBeUndefined()
     const clay = strips.find((p) => p.fill === CLAY)
     expect(clay).toBeDefined()
-    expect(topY(clay!.d)).toBeCloseTo(140, 0)
+    expect(clay!.top).toBeCloseTo(140, 0)
   })
 })
