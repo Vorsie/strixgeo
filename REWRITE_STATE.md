@@ -6781,3 +6781,99 @@ override (real CS1 g22 SILT) moves the tip + 0 holes / 0 overlaps (RED before Ga
 - REMAINING for S65 (app): the SHARED-HANDLE coupling — one handle per junction that writes the per-body
   override for ALL incident bodies at once (today each body's override is independent; the engine now
   consumes them correctly, so the app half is purely the gesture→multi-write wiring).
+
+## §70 — Session 65: APP round-trip CONFIRMED for enclosed lenses (approach a, engine-truthful live preview); V2P4 partition-validity gate added. Onlap reshape + shared-handle collapse BLOCKED (engine routing + interaction fork) — STOP-AND-ASK. App render layer only; engine byte-untouched.
+
+Owner target (S65): wire the drag→override→re-partition loop so hand-shaping reshapes bodies gap/overlap-free
+with a TRUTHFUL live preview; ONE shared handle per junction moves all incident bodies.
+
+### CONFIRMED (measured, not assumed) — the app round-trip is already approach (a) and WORKS for lenses
+
+The persisted-node drag path is ALREADY engine-authoritative AND the live preview is ALREADY truthful:
+`lensDrag` is a dep of the `sectionFillData` memo (`PartitionFillOverlay.tsx:695`), so every mousemove
+re-runs the memo, the `chain` helper (line 599) injects the LIVE cursor into `apexOverrides`, and
+`computeSectionFillActiveWithDiagnostics` re-partitions on each frame — the on-screen fill during a drag
+IS the engine result (design §8: the freedraw curve is inserted into the arrangement, cannot cross a
+neighbour silently). MEASURED on an enclosed-lens fixture through the FULL app render:
+- drag → override map updates with the live cursor fraction (0.333 → 0.9667 as the handle moves x40→x78);
+- the rendered `partition-region-silt` `d` FOLLOWS (apex reach maxX 40 → 75 → clamped ~78), a real
+  engine re-partition, NOT a screen-space no-op (line 890 `apexOverrides.has(...) continue` skips the
+  legacy screen rebuild, so the ENGINE draws it);
+- the [0.02,0.98] fraction clamp (`emitLenses` / `apexOverride.ts`) + the move-handler's x-clamp to
+  `[leftX,rightX]` keep the fill strictly inside the gap → NO spill past the neighbour at ANY drag
+  position, incl. an extreme clientX=200 drag. **No spike.**
+
+### GATE ADDED — V2P4 (the owner's rule in test form; PartitionFillOverlay.test.tsx, +1 → 41/41)
+
+`V2P4 — dragging the lens apex RESHAPES the fill + keeps a valid partition at every position`:
+enclosed-lens fixture on engine v2; asserts (a) the fill apex FOLLOWS the cursor (midX > restX+20 — a
+real reshape, superseding V2P3 which only asserted onSaveBoundary was called), and (b) EVERY rendered
+`partition-region-*` vertex stays inside the gap band [20,80] at rest + mid-drag + extreme-drag (the
+never-overlap envelope). Discrimination proven by measurement: the onlap no-op froze the fill at 47
+(RED signature); the lens reshape moved it (GREEN). Behavior-shaped (owner vocabulary), not impl-shaped.
+
+### BLOCKED — two forks past the app-render fence (evidence, not guess)
+
+1. **Onlap-tip reshape is ENGINE-ROUTING-gated, not app-gated.** The app writes the onlap override
+   correctly (measured: `silt@0` fraction 0.333→1.0 during a drag), but the ENGINE does NOT move the
+   synthetic L/R onlap tip (silt reach stays 0.5 regardless of override). Direct `computeSectionFillV2`
+   on the exact synthetic fixture with `setTwoSidedTerminations(true)` + override fraction 0.9 →
+   silt reach UNCHANGED at 0.5, kind `quad`. That silt onlap floods to a BAND-class quad
+   (`emitIntervals`/interval closure) instead of routing through `emitOnlap` — so `terminationApexOverride`
+   is never read for it. The S64 `emitOnlap` consumption is REAL but fires only for the topologies the
+   sweep routes to `emitOnlap` (V2O2's real CS1 g22 SILT moves; this synthetic does not). Which onlap
+   topologies route to the band-flood vs `emitOnlap` is engine-internal (READ-ONLY this campaign). The
+   app half is correct; the reshape gap for THIS class is engine-side. **Cannot build a buildable app
+   regression test for onlap reshape without an engine change or the real CS1 diag data driving the app.**
+2. **Shared-handle-per-junction collapse is a genuine INTERACTION + GEOLOGICAL fork.** MEASURED on the
+   onlap fixture: THREE bodies (silt onlap + the two sand flood-wedge companions + a clay quad) each
+   expose independent add-strips/handles at the shared tie apex — the decouple hazard. Collapsing them
+   to one shared handle requires deciding (a) which body OWNS the junction, (b) whether companion-wedge
+   handles are SUPPRESSED (engine re-partition already moves them from the owner's override) or MERGED,
+   and (c) the override key for a companion — writing `sand@gap` when sand is ALSO a band body elsewhere
+   in the gap would CORRUPT its band shape. These are semantic/geological decisions (memory
+   `feedback_ask_domain_questions_dont_bugfix`: never invent a heuristic — each one failed the owner's
+   dogfeed within hours). Compounded by fork #1: on the fixtures buildable in-suite the onlap override
+   is a no-op, so a shared handle cannot even be VERIFIED to produce a valid result. **Not built — a
+   heuristic here is exactly the class that failed the round-2 dogfeed parade.**
+
+### QUESTIONS FOR THE OWNER (both evidence-backed above)
+
+1. Onlap reshape: the app round-trip is wired + truthful, but the v2 engine floods the synthetic
+   1-corr onlap to a band-quad (no `emitOnlap` override consumption). Is the fix (a) an ENGINE routing
+   change so every interior onlap tip routes through `emitOnlap` (lift READ-ONLY for one targeted change),
+   or (b) defer onlap hand-shaping until after cutover and ship lens-shaping only for now? (Enclosed-lens
+   shaping is fully working today.)
+2. Shared-handle collapse: which body owns a shared tie junction, and should companion flood-wedge
+   handles be SUPPRESSED (rely on the engine re-partition to move them from the owner's single override)
+   or MERGED into one handle writing all incident overrides? The companion-override key touches band
+   bodies (corruption risk), so this needs your rule before I wire it.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+
+- `components/sections/PartitionFillOverlay.test.tsx` — +V2P4 (reshape + partition-validity gate).
+  ONLY file changed. (Throwaway diags created + REMOVED; measurements of record above.)
+- `REWRITE_STATE.md` — this §70 entry.
+
+### VERIFICATION (S65)
+
+- PartitionFillOverlay.test.tsx **41/41** (was 40; +V2P4). V2P1-3 still green.
+- Sections component suite **557 pass / 4 skip (36 files)** (was 556/4; +V2P4). tsc clean
+  (`tsconfig.web.json`). utils suite **826 pass / 31 skip**.
+- Engine byte-untouched: HOLES_DIAG **0/0/0** all 14; V2O1-3 **3/3**; CS1 gates **8/8**.
+- PRE-EXISTING RED (NOT mine, §69-documented): `conformance.diag` FLAG-ON ratchet asserts 12 == pinned-10
+  (`expected 12 to be 10`) — SHAPE_AUDIT-gated, fails on the clean S64 tip too (§69 proved by stash);
+  my app-render-only change leaves the engine byte-identical → still 12. Orchestrator: re-pin to 12 or
+  investigate the 10→12 drift that predates S65.
+
+### Owner dogfeed notes (S65)
+
+- v2, an ENCLOSED LENS (a unit sandwiched by the same formation above+below, e.g. a silt lens in sand):
+  alt-click an edge add-strip to add an apex node, then DRAG it — the lens fill reshapes LIVE and follows
+  your cursor, the surrounding matrix re-closes, and it NEVER crosses into the neighbour column (an
+  extreme drag clips to the gap edge). This is the confirmed-working shape.
+- v2, an ONLAP TIP (a single-column unit tied on one contact to a neighbour): the handle appears and the
+  drag persists, but the FILL may not follow on some onlap topologies (the engine floods them to a band
+  instead of consuming the override — open Q1). Real CS1 g22-style onlaps DO move (engine test V2O2).
+- If you see MULTIPLE handles at the same tie apex (silt + its sand companion wedges), that's the
+  un-collapsed shared-junction state (open Q2) — don't drag the companions apart yet.
