@@ -26,6 +26,7 @@ import { type ColumnGeom } from './sectionGeom'
 import {
   buildSegCurveMap,
   classifyFaceSeed,
+  COL_LENS_SEED_RE,
   COL_SEED_RE,
   isMergeArtifactSeed,
   type SeedClass,
@@ -249,9 +250,16 @@ export function labelFaces(
 }
 
 /**
- * The bodyId of the seed formation on a single-seed face: the ``bodyId`` of the smallest
- * ``col<ci>:u<ui>`` seed ref whose unit carries the winning formation. Deterministic (seed refs
- * are sorted) and matches the region's own drilled unit — never invented.
+ * The bodyId of the seed formation on a single-seed face: the ``bodyId`` of the smallest seed ref
+ * whose unit carries the winning formation. Resolves BOTH seed-ref forms so a face seeded by an
+ * enclosed-lens sub-segment gets the lens's own drilled body, never null:
+ *   - ``col<ci>:u<ui>``   -> ``columns[ci].units[ui].bodyId``          (a picked column unit)
+ *   - ``col<ci>:lens<j>`` -> ``columns[ci].enclosedLenses[j].lens.bodyId`` (the raw interbed the
+ *     ruling-8r id-split gave its own column edge; ``extractEnclosedLenses`` spliced the minority
+ *     unit out of ``units``, so ONLY this form carries its body — a ``col:u`` lookup would miss it
+ *     and return null, dropping the freedraw/apex override key ``bodyId@gap`` for that lens).
+ * Deterministic (seed refs are sorted); matches the region's own drilled unit — never invented,
+ * and body ownership stays separate from formation authority (SEED_FILL_MANDATE §B).
  */
 function seedBody(
   seedRefs: readonly string[],
@@ -259,10 +267,17 @@ function seedBody(
   columns: readonly ColumnGeom[],
 ): { bodyId: string | null } {
   for (const ref of seedRefs) {
-    const m = COL_SEED_RE.exec(ref)
-    if (!m) continue
-    const u = columns[Number(m[1])]?.units[Number(m[2])]
-    if (u && u.formationId === formationId) return { bodyId: u.bodyId }
+    const mu = COL_SEED_RE.exec(ref)
+    if (mu) {
+      const u = columns[Number(mu[1])]?.units[Number(mu[2])]
+      if (u && u.formationId === formationId) return { bodyId: u.bodyId }
+      continue
+    }
+    const ml = COL_LENS_SEED_RE.exec(ref)
+    if (ml) {
+      const el = columns[Number(ml[1])]?.enclosedLenses[Number(ml[2])]
+      if (el && el.lens.formationId === formationId) return { bodyId: el.lens.bodyId }
+    }
   }
   return { bodyId: null }
 }
