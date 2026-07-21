@@ -51,7 +51,8 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
+import { terminationApexOverride } from './apexOverride'
 import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
 import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
@@ -223,6 +224,7 @@ export function drawTermination(
   nextFloodId: () => string,
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): boolean {
   if (corr === 2) return false // band member / first-unit band — given line art (bandc)
   const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
@@ -288,8 +290,9 @@ export function drawTermination(
   // (owner-locked own-side semantics on the identical mixed-tie shape). Left UNCHANGED pending the
   // owner ruling — see REWRITE_STATE §64.
   if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) return false
-  // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent).
-  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds)
+  // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent). A
+  // free-draw override (``overrides``) moves that tip to the drawn apex; the arrangement re-closes.
+  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
 }
 
 /**
@@ -437,10 +440,27 @@ function emitOnlap(
   nextFloodId: () => string,
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): boolean {
   void iu
-  const apexFrac = INTERIOR_PINCH_FRACTION
+  // FREE-DRAW APEX OVERRIDE (owner 2026-07-21): a persisted per-body node moves the onlap TIP to
+  // the drawn (fraction, elevation); the arrangement then re-traces BOTH this onlap face AND its
+  // flood wedge around the moved apex (they share it), so the partition stays gap/overlap-free by
+  // construction. NO override → the byte-identical default apex (INTERIOR_PINCH_FRACTION on the tie
+  // line). ``terminationApexOverride`` clamps the fraction strictly interior so an extreme drag past
+  // the far column clips to the envelope, never overlapping. The override fraction is gap-local
+  // (0 = left column, 1 = right column); convert to the own-column apex-x the same way ``emitLenses``
+  // does — a left look uses ``f`` directly, a right look mirrors it (``1 − f``).
+  const ov = terminationApexOverride(overrides, u.bodyId, gapIndex)
+  const apexFrac = ov ? (side === 'left' ? ov.fraction : 1 - ov.fraction) : INTERIOR_PINCH_FRACTION
   const apexX = colX + apexFrac * (facingX - colX)
+  // The apex elevation ALWAYS rides the TIE line interpolated at the apex fraction — an onlap laps
+  // its tie BY DEFINITION (the tied side of the onlap face is bounded by that exact tie line art).
+  // A free-draw override moves only the REACH (fraction: how far the tip laps into the gap); the
+  // elevation is pinned to the tie so the flank meets the tie at the apex and the face closes
+  // cleanly against it. Letting the drawn elevation float OFF the tie would separate the flank from
+  // the tie sub-segment that bounds the tied side → a gap/overlap against the facing fill (the
+  // "never overlap" envelope). This mirrors the default tip, which also sits on the tie line.
   const apexElev = tiedElev + apexFrac * (facingTiedElev - tiedElev)
   const apex: Point = { x: apexX, y: apexElev }
   const topPt: Point = { x: colX, y: u.topElev }

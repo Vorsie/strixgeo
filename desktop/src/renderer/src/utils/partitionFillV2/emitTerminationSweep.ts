@@ -58,7 +58,7 @@ import { type TerminationPlan } from './terminationPlan'
 import { splitHostIntoRawPieces } from './rawUnitSplit'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
-import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { LENS_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
@@ -103,6 +103,10 @@ export function emitTerminationSweep(
 ): void {
   const { columns } = section
   if (columns.length < 2) return
+  // FREE-DRAW APEX OVERRIDES (owner 2026-07-21) — the per-body node saves the sweep's onlap tips
+  // consume so a dragged apex reshapes the onlap face + its flood wedge together. Undefined → the
+  // byte-identical default apex on every tip (the whole no-override battery is invariant).
+  const overrides = section.lensApexOverrides
   // Index the termination plans by (gap, side, unit) — the sweep CONSUMES the plan's authority
   // (ruling 8p) for the dispatch (its ``corr`` + ``geometry``) rather than re-deriving it. The plan
   // is built from the SAME ``effectiveCorrForSide`` + geometry context, so the dispatch is identical
@@ -134,11 +138,11 @@ export function emitTerminationSweep(
     // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
     // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
     if (ci + 1 < columns.length) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds)
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
     if (ci - 1 >= 0) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds)
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
     }
   }
 }
@@ -166,6 +170,7 @@ function emitSideSweep(
   nextFloodId: () => string,
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): void {
   // ``colIndex`` is retained for signature parity / future per-column diagnostics; the
   // direction-blind bridge suppression that consumed it is deleted (Part B, ruling 8i(e)).
@@ -343,6 +348,7 @@ function emitSideSweep(
       nextFloodId,
       out,
       diamonds,
+      overrides,
     )
     }
   }
