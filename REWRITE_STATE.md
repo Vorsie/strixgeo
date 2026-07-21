@@ -7155,3 +7155,75 @@ Targets-top fix + route contact click → the new ``contactApexOverrideKey``; th
 against the ELEVATION-BOUNDED body set at each tie, so whatever rendered bodyId the app keys on resolves to
 its band's real contact. Suppress the off-engine POST-BEND reshape (§71 root) — the engine now consumes the
 contact override, so the app must stop drawing the corrupted single-body reshape.
+
+## §74 — Session 68: APP WIRING — matched-contact + onlap hand-shaping now re-partitions through the engine. THE WALL S67 FLAGGED IS CLEARED (real CS1 contact consumed). Targets-top FIXED, off-engine reshape SUPPRESSED, both bands follow, 0/0. App-layer only; engine + v1 + intersect.ts byte-untouched (git shows no engine source change).
+
+Shell WORKS this run. Built S68 TDD red-first; the load-bearing REAL-CS1 test proves the render-id→engine-id
+bridge resolves on real data (S67's exact open risk).
+
+### THE WALL — CLEARED (real CS1 matched two-band contact IS consumable)
+Throwaway diag `partitionFillV2.s68realcontact.diag.test.ts` (env-gated ``S68_REAL=1``, KEPT dormant like the
+other real-data diags) runs the v2 engine on the REAL CS1 columns from ``scripts/diag_allsections_input.json``,
+enumerates matched two-band contacts (an upper full-width band whose BASE == a lower full-width band's TOP,
+both spanning), and applies the exact ``contactApexOverrideKey(upper, lower, gap)`` the app builds. RESULT:
+**19 matched two-band contacts in CS1**; applying the override on gap1's contact (elev 5.02, both bands bodyId
+``019ea170`` — the resolver over-lumps, upper==lower id, and the engine's ELEVATION-SET match STILL resolves it)
+BENT the shared boundary (upperBaseMid 5.02→4.35), **BOTH bands followed coincidentally** (upper base == lower
+top at 4.35), **holes=0 overlaps=0**. So the render-bodyId≠engine-bodyId bridge S67 flagged works on real data —
+whatever id the app keys on lands in the elevation-bounded set. NOT a synthetic-only fix.
+
+### TARGETS-TOP — ROOT WAS REGION-EMISSION ORDER (fixed in ``sharedBoundaries``)
+Measured (synthetic tied 2-band fixture, v2): the add-strip rendered as ``clay-sand`` — clay (the LOWER band on
+screen) was keyed as ``upper`` because ``sharedBoundaries`` paired consecutive main regions by EMISSION order
+(``lastMainByGap``/``prevIdx``), and v2 does not emit top→bottom. So the node stored on the geometric-upper
+body's ``lower_nodes`` never matched the emission-``upper``. FIX (``PartitionFillOverlay.tsx`` ~1462): order each
+pair by GEOMETRY — ``upper`` = smaller ``minY`` (higher on screen). Now the add-strip is ``sand-clay`` (CW3
+asserts ``sand-clay`` present + ``clay-sand`` absent). ``SharedBoundary`` gained a ``gapIndex`` field;
+``ScreenRegion.region`` widened ``PartitionRegion``→``SectionRegion`` (carries ``gapIndex``).
+
+### ENGINE ROUTE + OFF-ENGINE SUPPRESSION
+NEW pure app helper ``components/sections/contactOverrideWiring.ts`` — ``collectContactOverridesForGap``: for a
+gap, every body present on BOTH columns (a full-width band → two-sided contact) with an in-gap ``lower_nodes``
+node emits ``contact:upper|lower@gap`` into the SAME ``apexOverrides`` map fed to
+``computeSectionFillActiveWithDiagnostics`` (→ ``section.lensApexOverrides`` → S67's ``collectContactBends``).
+Lower body = the band whose TOP sits at the upper's natural base. Live ``boundaryDrag`` cursor threaded in
+(the ``sectionFillData`` memo now deps on ``boundaryDrag``) so the preview re-partitions per frame. Gated on
+``partitionEngineV2`` (v1 has no consumer → old POST-BEND still runs). SUPPRESSION (``screenRegions`` POST-BEND,
+~838): skip the off-engine node-insert reshape for a pair when either body is in ``contactOverriddenBodies``
+(``gap:bodyId``) — the §71 double-reshape (upper grows, lower stays → gap) is gone; the engine output is truthful.
+NO override / v1 → today's path byte-identical (CW2 no-regression, MB/FD all green).
+
+### VERIFICATION
+- **RED→GREEN**: CW1 (RED before wiring: gap of 30px between sand base + clay top; GREEN after: coincident + moved
+  to node), CW2 (no-node no-regression), CW3 (targets-top: add-strip ``sand-clay`` not ``clay-sand``), CW4 (live
+  drag re-partitions BOTH bands, follows cursor, no gap, persists). New block ``PartitionFillOverlay (CW)``.
+- **V2P1-4 + lens drag**: 4/4 green (unchanged). MB 5/5, FD 4/4 green (v1 boundary path unaffected).
+- **PartitionFillOverlay suite**: 45/45. **Sections dir**: 559 pass / 5 skip. **Utils dir**: 831 pass / 31 skip.
+- **FULL desktop suite**: **2389 pass / 0 fail / 38 skip** — ZERO new reds (the conformance flag-ON ratchet stays
+  env-gated in the 38 skipped, per §69/§72). **tsc clean** (``tsconfig.web.json``, 0 errors).
+- **Engine byte-identical BY CONSTRUCTION**: ``git status`` shows NO ``partitionFillV2/`` / ``partitionFill/`` /
+  ``intersect.ts`` source change — only app files (``PartitionFillOverlay.tsx``, ``partitionFillOverlayHelpers.ts``,
+  the test) + the NEW ``contactOverrideWiring.ts`` + gated diag. Real-CS1 v2 run in the diag = holes 0 / overlaps 0.
+
+### Files this session (worktree, NOT committed — orchestrator commits + owner dogfeeds the running app)
+- `components/sections/contactOverrideWiring.ts` — NEW; ``collectContactOverridesForGap`` (app→engine bridge).
+- `components/sections/PartitionFillOverlay.tsx` — geometry-order the shared-boundary pair (targets-top fix);
+  collect ``contact:U|L@g`` overrides per gap under v2; suppress the POST-BEND reshape for overridden contacts;
+  ``sectionFillData`` deps + return gain ``contactOverriddenBodies`` + ``boundaryDrag`` dep.
+- `components/sections/partitionFillOverlayHelpers.ts` — ``SharedBoundary.gapIndex``; ``ScreenRegion.region``
+  → ``SectionRegion``.
+- `components/sections/PartitionFillOverlay.test.tsx` — NEW CW1-4 (contact-wiring gates).
+- `partitionFillV2.s68realcontact.diag.test.ts` — NEW, env-gated ``S68_REAL=1``; the real-CS1 WALL proof.
+- `REWRITE_STATE.md` — this §74. (Throwaway ``cwdbg.test.tsx`` created + REMOVED.)
+
+### OWNER DOGFEED (running app, CS1, engine v2)
+Click a matched horizontal contact between two full-width bands → BOTH bands bend together, no gap, the band
+UNDER the cursor is targeted (not the top). Click/drag a lens or onlap tip → reshapes, neighbours follow
+(unchanged). If a real contact ever fails to bend, the fallback is the old per-node handle (no crash); report
+the specific contact.
+
+### KNOWN LIMIT (recorded, not a defect)
+Multi-node contact freedraw + a 3+ band gap keep the existing emission-order pairing topology (only the
+upper/lower LABEL direction was corrected). The single-control-point contact bend (the dogfeed) is complete;
+multi-node contact chains still route through the per-node handles. UN-bracketed onlap tips still cap at 0.5
+(the engine TOPOLOGY limit S67 recorded — needs the silt base to become a bracket, not additive).
