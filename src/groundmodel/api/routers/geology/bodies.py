@@ -50,6 +50,7 @@ from groundmodel.api.schemas.project.body import (
     BodyBoundaryResponse,
     BodyBoundaryWriteRequest,
     BodyListItem,
+    ClearBoundariesResponse,
     MergeEnclosedLensResponse,
     NameBodyRequest,
     NameBodyResponse,
@@ -67,6 +68,7 @@ from groundmodel.application.body_boundary import (
     GetBodyBoundary,
     SaveBodyBoundary,
 )
+from groundmodel.application.clear_body_boundaries import ClearBodyBoundaries
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.get_body_geo_labels import GetBodyGeoLabels
@@ -488,6 +490,65 @@ async def put_body_boundary(
             detail={"code": "no_primary_section", "message": str(exc)},
         ) from exc
     return _boundary_response(state)
+
+
+# ---------------------------------------------------------------------------
+# Bulk clear — reset all user-authored boundary shapes for a model
+# ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/models/{model_id}/boundaries",
+    response_model=ClearBoundariesResponse,
+)
+async def clear_body_boundaries(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ClearBoundariesResponse:
+    """Reset every user-authored body boundary shape for a model.
+
+    The "Reset manual points" bulk action. Deletes all
+    ``body_boundary_shape`` rows (+ their cascade-deleted control nodes) for
+    the model, so every body returns to its engine-computed partition shape.
+    Left-over hand-drawn overrides can bend boundaries off the engine default
+    and produce visible gap wedges; clearing them restores the validated fill.
+
+    Idempotent — a model with no stored shapes returns ``shapes_deleted=0``.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The lithostratigraphic model whose hand-drawn boundaries are cleared.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    ClearBoundariesResponse
+        The number of boundary shapes deleted.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not lithostratigraphic.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    require_model_kind(model, MODEL_KIND_LITHOSTRATIGRAPHIC, "clear-boundaries")
+    result = await ClearBodyBoundaries(session).execute(model_id=model_id)
+    logger.success(
+        f"clear_body_boundaries: project={project_id} model={model_id} "
+        f"shapes_deleted={result.shapes_deleted}"
+    )
+    return ClearBoundariesResponse(shapes_deleted=result.shapes_deleted)
 
 
 # ---------------------------------------------------------------------------
