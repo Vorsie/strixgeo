@@ -73,6 +73,10 @@ import {
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
+  routeNearestAddStrip,
+  type AddStripCandidate,
+} from './partitionAddStripRouter'
+import {
   assembleSectionPartitionInput,
   type FenceLayerInput,
   type FenceProjectedColumn,
@@ -1731,6 +1735,84 @@ export default function PartitionFillOverlay({
     onSaveBoundary(bodyId, upperArr, lowerArr, 'straight')
   }
 
+  // ---- Global add-strip click router (S70) ---------------------------------
+  //
+  // Where thin stacked pinch lenses converge (the GEO-10/170-S7 gap5 dogfeed),
+  // several bodies' 14px add-strips overlap at one click point. With each strip
+  // firing its own onClick, the winner was pure SVG paint order — a click on the
+  // sand/silt interface silently grabbed a DISTANT silt lens painted on top, then
+  // moving it opened a gap. ``nearerLensEdge`` only arbitrates ONE lens's two
+  // edges. This builds ONE candidate list across ALL add-strips (matched-contact
+  // boundaries + lens edges) so every click routes to the boundary physically
+  // NEAREST the cursor, regardless of which strip element the browser delivered
+  // the event to.
+  //
+  // ``dispatch`` is a thunk closing over the resolved handler args so the router
+  // stays a pure geometry pick — it never needs to know boundary vs lens.
+  //
+  // The cursor position of the in-flight add-strip click, captured before the
+  // router runs so the dispatch thunks read the true click (a ref, not state —
+  // it must be current synchronously inside the same onClick, with no re-render).
+  const lastClick = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+
+  const addStripCandidates = useMemo((): AddStripCandidate<() => void>[] => {
+    if (!onSaveBoundary) return []
+    const cands: AddStripCandidate<() => void>[] = []
+    // Matched-contact boundary strips: the natural base edge of the upper region.
+    for (const sb of sharedBoundaries) {
+      const [ne0, ne1] = sb.naturalEdge
+      cands.push({
+        segments: [[ne0, ne1]],
+        dispatch: () =>
+          handleBoundaryAddNode(sb.upperBodyId, sb.leftX, sb.rightX, lastClick.current.x, lastClick.current.y),
+      })
+    }
+    // Lens strips: BOTH the upper and the lower edge of each lens are candidates.
+    // The winning lens then routes its own node to nearerLensEdge (upper vs lower).
+    for (const sl of screenLenses) {
+      const sr = screenRegions[sl.regionIdx]
+      if (!sr) continue
+      const pts = sr.points
+      const n = pts.length
+      const upperEnd = n >= 2 ? pts[1] : pts[0]
+      const lowerStart = n >= 2 ? pts[n - 2] : pts[n - 1]
+      const upperSeg: [{ x: number; y: number }, { x: number; y: number }] = [sl.sourceTopPt, upperEnd]
+      const lowerSeg: [{ x: number; y: number }, { x: number; y: number }] = [lowerStart, sl.sourceBasePt]
+      cands.push({
+        segments: [upperSeg, lowerSeg],
+        dispatch: () => {
+          const edge = nearerLensEdge({ x: lastClick.current.x, y: lastClick.current.y }, upperSeg, lowerSeg)
+          handleLensAddNode(sl.bodyId, edge, lastClick.current.x, lastClick.current.y)
+        },
+      })
+    }
+    return cands
+  }, [
+    sharedBoundaries,
+    screenLenses,
+    screenRegions,
+    onSaveBoundary,
+    // handleBoundaryAddNode / handleLensAddNode close over the same deps the
+    // dispatch thunks need; they are stable within a render, so re-deriving the
+    // candidate list on each of these inputs keeps the thunks fresh.
+    boundariesByBodyId,
+    alongToScreenX,
+    screenXToAlong,
+    screenToLevel,
+  ])
+
+  /**
+   * Route an add-strip click to the boundary nearest the cursor across ALL bodies.
+   *
+   * @param cx Cursor x in SVG coordinates.
+   * @param cy Cursor y in SVG coordinates.
+   */
+  const routeAddStripClick = (cx: number, cy: number): void => {
+    lastClick.current = { x: cx, y: cy }
+    const dispatch = routeNearestAddStrip({ x: cx, y: cy }, addStripCandidates)
+    if (dispatch) dispatch()
+  }
+
   return (
     <g ref={rootRef} data-testid="partition-fill-overlay" style={{ pointerEvents: 'none' }}>
       {/* Crossing-tie HARD-CONFLICT warning (owner §8 Q4): when approved
@@ -1974,13 +2056,10 @@ export default function PartitionFillOverlay({
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                handleBoundaryAddNode(
-                  sb.upperBodyId,
-                  sb.leftX,
-                  sb.rightX,
-                  e.clientX - (rect?.left ?? 0),
-                  e.clientY - (rect?.top ?? 0),
-                )
+                // Global nearest-boundary router (S70): where stacked strips
+                // overlap, the click routes to the body whose edge is physically
+                // nearest the cursor, NOT this strip by z-order.
+                routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
               }}
             />
             {/* Per-node draggable handles */}
@@ -2096,18 +2175,11 @@ export default function PartitionFillOverlay({
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                const cx = e.clientX - (rect?.left ?? 0)
-                const cy = e.clientY - (rect?.top ?? 0)
-                // The two add-strips overlap on a thin wedge, so the click could be
-                // physically nearer the lower edge even though it landed on the upper
-                // strip. Route to the nearest edge instead of trusting which strip the
-                // click hit — that is what "grabs the pinchout at both sides" was.
-                const edge = nearerLensEdge(
-                  { x: cx, y: cy },
-                  [sl.sourceTopPt, upperStripEnd],
-                  [lowerStripStart, sl.sourceBasePt],
-                )
-                handleLensAddNode(sl.bodyId, edge, cx, cy)
+                // Global nearest-boundary router (S70): where stacked lenses' strips
+                // overlap, the click routes to the body (and within a lens, the edge)
+                // physically nearest the cursor — not this strip by z-order. The old
+                // per-strip nearerLensEdge only arbitrated ONE lens's two edges.
+                routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
               }}
             />
             {/* Lower-edge add-strip. Hover shows a preview dot at the cursor. */}
@@ -2129,16 +2201,8 @@ export default function PartitionFillOverlay({
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                const cx = e.clientX - (rect?.left ?? 0)
-                const cy = e.clientY - (rect?.top ?? 0)
-                // See the upper strip's note: route to the nearest edge so an overlap
-                // on a thin wedge doesn't force the node onto the lower edge by z-order.
-                const edge = nearerLensEdge(
-                  { x: cx, y: cy },
-                  [sl.sourceTopPt, upperStripEnd],
-                  [lowerStripStart, sl.sourceBasePt],
-                )
-                handleLensAddNode(sl.bodyId, edge, cx, cy)
+                // Global nearest-boundary router (S70): see the upper strip's note.
+                routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
               }}
             />
             {/* Upper-edge node handles */}

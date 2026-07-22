@@ -1458,6 +1458,91 @@ describe('PartitionFillOverlay — contact wiring on engine v2 (CW)', () => {
   })
 })
 
+// ST — the STACKED-LENS TARGETING gesture on engine v2. Owner dogfeed
+// (GEO-10/170-S7, CS1, v2, 2026-07-22): "i click the sand silt interface at
+// around 4.7 mTAW and it seems to grab the silt lens above the sand" — then
+// moving that wrong body opens a gap. Root (S70): where thin stacked pinch
+// lenses converge, several bodies' 14px add-strips overlap at one click point;
+// each strip fires its OWN onClick, so the winner is SVG paint order (the
+// last-painted lens strip), NOT the boundary the engineer visually aimed at.
+// ``nearerLensEdge`` only arbitrates ONE lens's two edges, never across bodies.
+// The fix: a GLOBAL nearest-boundary router — every add-strip click picks the
+// candidate whose segment is physically nearest the cursor across ALL bodies.
+describe('PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)', () => {
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  // Three thin silt lenses stacked in a sand matrix, each separated by a thin
+  // sand layer, so all three extract as enclosed lenses (the gap5 shape). Stored
+  // apex nodes push each lens's edges to mid-gap so their strips SPAN the gap the
+  // way the real wide pinch tips do (a column-hugging synthetic lens never
+  // overlaps the click). L = the stack; R = full sand.
+  const stackLayers = [
+    layer('s0', 'L', 'sand', 'fSand', 0, 3.5),
+    layer('u2', 'L', 'silt2', 'fSilt', 3.5, 4.1), // upper silt lens
+    layer('sa', 'L', 'sand', 'fSand', 4.1, 4.3),
+    layer('u3', 'L', 'silt3', 'fSilt', 4.3, 4.9), // middle silt lens
+    layer('sb', 'L', 'sand', 'fSand', 4.9, 5.1),
+    layer('u4', 'L', 'silt4', 'fSilt', 5.1, 6.2), // lower silt lens
+    layer('s5', 'L', 'sand', 'fSand', 6.2, 10),
+    layer('r1', 'R', 'sand', 'fSand', 0, 10),
+  ]
+  // Give each lens a mid-gap apex so its add-strips span the gap (overlapping
+  // region near the click). levelToScreen: y = 100 - elev*10.
+  const stackBoundaries = new Map<string, BodyBoundaryResponse>([
+    ['silt2', { upper_nodes: [{ along_m: 55, elevation_m: 6.3 }], lower_nodes: [{ along_m: 55, elevation_m: 5.85 }] } as unknown as BodyBoundaryResponse],
+    ['silt3', { upper_nodes: [{ along_m: 55, elevation_m: 5.6 }], lower_nodes: [{ along_m: 55, elevation_m: 5.15 }] } as unknown as BodyBoundaryResponse],
+    ['silt4', { upper_nodes: [{ along_m: 55, elevation_m: 4.85 }], lower_nodes: [{ along_m: 55, elevation_m: 3.9 }] } as unknown as BodyBoundaryResponse],
+  ])
+
+  it('ST1 — a click on a distant lens strip routes to the NEAREST boundary, not the lens under the cursor by z-order', () => {
+    // The owner's rule: click the sand/silt interface → grab THAT interface, even
+    // if a farther silt lens strip is painted on top of the click point. We fire
+    // the click on the u2 (upper) silt lens strip — the element SVG z-order would
+    // deliver the event to — but at cursor coords (x=50, y=53) that sit NEAREST
+    // the u3/u4 sand interface (y≈48-49), ~1 m BELOW the u2 lens (y≈41). After the
+    // global-nearest router, onSaveBoundary must fire for the NEAREST body
+    // (sand / silt3 / silt4 region at that y), NOT silt2 (the lens above).
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      lithoLayers: stackLayers,
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: stackBoundaries,
+    })
+    // Fire on the u2 (silt2) lens strip — the "grabbed the lens above" element —
+    // at coords nearest the interface below it. jsdom svg rect is 0,0 → client 1:1.
+    const wrongStrip = getByTestId('partition-lens-addstrip-silt2-lower')
+    fireEvent.click(wrongStrip, { clientX: 50, clientY: 53 })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    // The nearest boundary at (50,53) is NOT silt2 (the lens ~1 m above). The bug:
+    // the click routed to silt2. The fix: it routes to whatever body's edge is
+    // nearest — anything but silt2.
+    const grabbedBody = onSaveBoundary.mock.calls[0][0]
+    expect(grabbedBody).not.toBe('silt2')
+  })
+
+  it('ST2 — a click clearly nearest the u2 lens still routes to u2 (no over-correction)', () => {
+    // Symmetry guard: when the cursor IS nearest the u2 lens edge, the router must
+    // still grab u2 — the fix routes to nearest, it does not blanket-suppress lenses.
+    // u2 lower edge ~y=41 (base 5.9). Click at y=41, mid-gap x=50.
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      lithoLayers: stackLayers,
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: stackBoundaries,
+    })
+    const strip = getByTestId('partition-lens-addstrip-silt2-lower')
+    fireEvent.click(strip, { clientX: 50, clientY: 41 })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt2')
+  })
+})
+
 // Direct predicate contract: the shape signal that decides whether a region
 // exposes the apex freedraw gesture, independent of either engine.
 describe('isApexShapeable — the engine-agnostic tip predicate', () => {
