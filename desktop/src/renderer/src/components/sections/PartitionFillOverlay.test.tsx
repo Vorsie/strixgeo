@@ -45,7 +45,7 @@
 //   ZAL4  Label x,y is inside the region bounding box — regression guard for
 //         the bbox-centre "sand label on clay" placement bug.
 
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
@@ -1827,7 +1827,7 @@ describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine 
     layer('r1', 'R', 'sand', 'fSand', 0, 10),
   ]
 
-  it('GH1 — a ghost same-litho convergence tip renders NO grab handle, a live lens keeps its handle', () => {
+  it('GH1 — a ghost same-litho convergence tip renders NO grab handle, a live lens keeps its handle', async () => {
     // RED-first behaviour: the sand matrix's ghost convergence tip must NOT offer an
     // add-strip (a dead grab), while at least one enclosed silt lens MUST — the owner
     // ruling in test form: no handle on a modelling artefact, a handle where reshape
@@ -1838,9 +1838,17 @@ describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine 
       onSaveBoundary: vi.fn(),
       boundariesByBodyId: new Map(),
     })
-    // The continuous sand band is a ghost → NO grab handle (upper or lower add-strip).
-    expect(queryAllByTestId('partition-lens-addstrip-sand-upper')).toHaveLength(0)
-    expect(queryAllByTestId('partition-lens-addstrip-sand-lower')).toHaveLength(0)
+    // S78: the ghost probe is now DEFERRED off the paint path (it re-partitions the
+    // section per shapeable region — a 2.6 s stall on a real CS1 that used to block
+    // paint and re-fire on every pan). The handles render live for the first beat,
+    // then the ghosts drop once the idle-chunked probe resolves. So the suppression
+    // is asserted after the deferred set lands — this WAITS for it (jsdom has no
+    // requestIdleCallback, so the hook's setTimeout(0) chunks resolve here).
+    await waitFor(() => {
+      // The continuous sand band is a ghost → NO grab handle (upper or lower add-strip).
+      expect(queryAllByTestId('partition-lens-addstrip-sand-upper')).toHaveLength(0)
+      expect(queryAllByTestId('partition-lens-addstrip-sand-lower')).toHaveLength(0)
+    })
     // At least one enclosed silt lens keeps its handle — a live, reshapeable tip.
     const liveHandles = ['silt2', 'silt3', 'silt4'].flatMap((b) => [
       ...queryAllByTestId(`partition-lens-addstrip-${b}-upper`),
@@ -1849,7 +1857,7 @@ describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine 
     expect(liveHandles.length).toBeGreaterThan(0)
   })
 
-  it('GH2 — a click inside the ghost band is a NO-OP (no dead grab of a distant lens)', () => {
+  it('GH2 — a click inside the ghost band is a NO-OP (no dead grab of a distant lens)', async () => {
     // With the sand handle suppressed, a click inside the sand region must grab
     // NOTHING — never fall back to a distant silt lens (that was the S71 "grabbed a
     // body the cursor is not inside" bug, which suppression would otherwise re-expose).
@@ -1859,6 +1867,12 @@ describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine 
       ...transforms,
       onSaveBoundary,
       boundariesByBodyId: new Map(),
+    })
+    // S78: the ghost barrier is DEFERRED (see GH1) — wait for the sand handle to be
+    // suppressed before clicking, otherwise the barrier region set is still empty and
+    // the router has nothing to absorb the click against.
+    await waitFor(() => {
+      expect(queryAllByTestId('partition-lens-addstrip-sand-upper')).toHaveLength(0)
     })
     // A sand region ring + a point provably inside it.
     const sandRing = queryAllByTestId(/partition-region-sand/)

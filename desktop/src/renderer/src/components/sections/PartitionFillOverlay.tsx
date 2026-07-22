@@ -71,7 +71,7 @@ import {
   computeSectionFillActiveWithDiagnostics,
   usePartitionEngineV2,
 } from '../../utils/partitionEngineSelect'
-import { detectDeadHandleBodies } from './partitionGhostHandles'
+import { usePartitionGhostHandles } from './usePartitionGhostHandles'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
@@ -287,6 +287,11 @@ const HANDLE_MIN_SCALE = 0.5
 const NODE_OWN_EPS = 0.5
 // Width (px) of the transparent add-strip polyline hit area along each boundary.
 const ADDSTRIP_HIT_W = 14
+
+// Shared frozen empty partition — a STABLE reference for the deferred ghost probe's
+// base when v1 / < 2 columns (a fresh ``[]`` each render would defeat the hook's
+// content-key memoisation). Never mutated.
+const EMPTY_REGIONS: readonly SectionRegion[] = Object.freeze([])
 
 // Minimum VISIBLE apex reach (fraction of the gap) a lens override may request
 // (S72). The engine only clamps the apex fraction to its geometric-legality bound
@@ -881,46 +886,51 @@ export default function PartitionFillOverlay({
     )
   }, [conflicts])
 
-  // ---- GHOST-CONTACT handle suppression (§83, v2 only). -------------------
+  // ---- GHOST-CONTACT handle suppression (§83, v2 only; S78 DEFERRED). ------
   //
   // Owner ruling (2026-07-22): the residual DEAD apex handles (S76 measured 24
   // across all 14 sections) are GHOST CONTACTS — interior convergence tips of a
   // CONTINUOUS same-litho band (merge-welded then engine-suppressed by ruling 8m).
   // They have no geological meaning; every handle the tool renders MUST reshape.
   //
-  // §77's ``unroutableBodies`` only catches bodies with a STORED node at rest
-  // (it reads ``apexOverrides.keys()``), so a FRESH first-grab — the owner's case
-  // — always rendered every handle, the dead ones included. The correct detection
-  // is a PER-TOPOLOGY PROBE: for every apex-shapeable region, feed a moderate test
-  // override the way ``setShape`` does and re-partition; a ghost tip's footprint is
-  // byte-static → suppress its handle. MEMOISED on ``partitionTopology`` (columns /
-  // edges / along-metres — the drag-independent inputs), NOT on ``sectionFillData``
-  // (which re-runs per drag frame). The probe builds its OWN no-override base so
-  // its input is the topology, never the live-drag partition. Off on v1 (no engine
-  // consumer) and when the section isn't rendering bands.
-  const deadHandleBodies = useMemo((): Set<string> => {
-    const { orderedColumns, edges, alongM } = partitionTopology
-    if (!partitionEngineV2 || orderedColumns.length < 2) return new Set<string>()
-    // The base is the NO-OVERRIDE active-engine partition — the topology the owner
-    // sees at rest, the same regions the handles render for. A ghost tip is byte-
-    // static under its own single-body override; a live tip reshapes.
-    const base = computeSectionFillActive(orderedColumns, edges, undefined, alongM)
-    if (base.length === 0) return new Set<string>()
-    const dead = detectDeadHandleBodies(base, orderedColumns, edges, alongM, computeSectionFillActive)
-    if (dead.size > 0) {
-      // INFO (survives the default DevTools level filter) so a dogfeed sees the
-      // ghost class + count without a debugger.
-      log.info(
-        'partition',
-        `${dead.size} ghost-contact apex tip(s) — same-litho band-interior convergence, ` +
-          `override not consumed by the engine (ruling 8m); grab handle suppressed on v2: ` +
-          Array.from(dead).join(', '),
-      )
-    }
-    return dead
-    // ``partitionTopology`` (not ``sectionFillData``) + ``partitionEngineV2`` only —
-    // ``lensDrag`` is deliberately EXCLUDED so the probe never re-runs per frame.
-  }, [partitionTopology, partitionEngineV2])
+  // The DETECTION is the same S77 oracle (``detectDeadHandleBodies``): for every
+  // apex-shapeable region, feed a moderate single-body override the way ``setShape``
+  // does and re-partition; a ghost tip's footprint is byte-static → suppress its
+  // handle. §77's ``unroutableBodies`` only caught bodies with a STORED node at rest
+  // (it reads ``apexOverrides.keys()``); this probe covers the common fresh first-grab.
+  //
+  // S78 PERF (owner dogfeed 2026-07-23 — "the app rubberbands after clicking fill
+  // bands"): the S77 probe ran that re-partition-per-region (CS1: 69 × ~38 ms ≈
+  // 2.6 s) inside a plain ``useMemo`` on the RENDER path, memoised on
+  // ``partitionTopology`` — whose object identity churns on every pan/zoom
+  // (``screenByInv`` rebuilds each column's ``nudgedX``). So a pan re-ran the 2.6 s
+  // probe on the main thread → the repeated ``[Violation] handler took 5024 ms`` →
+  // rubberbanding. ``usePartitionGhostHandles`` fixes BOTH faults: it re-runs the
+  // probe ONLY when a CONTENT KEY over the drag-independent topology (unit stacks /
+  // edges / along-metres / engine) changes — a pan/zoom keeps the key, so the cached
+  // DEAD set is reused with zero recompute — and it runs the probe OFF the paint path
+  // in small idle chunks (empty set for the first beat, then the ghosts drop), so no
+  // frame is ever held. The resolved set is byte-identical to the S77 oracle.
+  const ghostBase = useMemo(
+    () =>
+      partitionTopology.orderedColumns.length >= 2 && partitionEngineV2
+        ? computeSectionFillActive(
+            partitionTopology.orderedColumns,
+            partitionTopology.edges,
+            undefined,
+            partitionTopology.alongM,
+          )
+        : EMPTY_REGIONS,
+    [partitionTopology, partitionEngineV2],
+  )
+  const deadHandleBodies = usePartitionGhostHandles(
+    ghostBase,
+    partitionTopology.orderedColumns,
+    partitionTopology.edges,
+    partitionTopology.alongM,
+    computeSectionFillActive,
+    partitionEngineV2,
+  )
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
   //
