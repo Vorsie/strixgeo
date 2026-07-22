@@ -8046,3 +8046,37 @@ The unsafe-drag UI behaviour is NOT decided here (the brief forbids unilaterally
 - `freeDrawRepair.phase0.diag.test.ts` — NEW Phase-0 reproduction (CS1_GATE=1, records the 12 data points; historical Fact-A repro).
 - `freeDrawRepair.rules.test.ts` — NEW Phase-1 rule tests (Rule 1 pure/normal-suite; Rules 2–4 CS1_GATE=1).
 - `REWRITE_STATE.md` — this §85.
+
+## §86 — Session 80: UNSAFE-DRAG UX — owner picked "RED HANDLE and SNAPBACK" (S85 §STOP-FOR-DIRECTION option a+b). The S79 `rejected-unsafe` outcome is now CONSUMED by the overlay: a live drag into a refused reach reddens the dragged handle, and releasing there discards the unsafe node (snap back to the last applied geometry). App-render layer only; engine (`computeSectionFillV2.ts`, `intersect.ts`, v1) UNTOUCHED — the outcome S79 exposed is read, no extra engine run.
+
+### THE OWNER DECISION (verbatim)
+"red handle and snapback." Rejected reach → RED handle (clear "spot refused" feedback); mouse RELEASE at a rejected position → snap back to the last APPLIED (safe) shape, the unsafe node is NOT persisted. A SAFE (`applied`) drag persists + stays normal colour (unchanged from S79).
+
+### HOW THE LIVE OUTCOME IS SURFACED (no extra engine run)
+`computeSectionFillActiveWithDiagnostics` (`partitionEngineSelect.ts`) now returns `overrideStatus: OverrideOutcome['status']` alongside `regions`/`conflicts`. On v2 it calls `classifyOverrideOutcome` DIRECTLY (the same single call `computeSectionFillV2WithConflicts` already delegated to internally — so NO extra pass), threading the tri-state through; v1 → `'unsupported'`. `sectionFillData` (PartitionFillOverlay memo) reads it from the SAME per-frame engine pass and derives `rejectedDragBody = (lensDrag?.bodyId ?? boundaryDrag?.upperBodyId)` when `overrideStatus === 'rejected-unsafe'`, else `null`. The memo already re-partitions per drag frame (lensDrag/boundaryDrag in its deps), so the outcome is live.
+
+### THE BUILD (files:where)
+- `unsafeDragUX.ts` — NEW pure helper module (god-component kept surgical): `REJECT_COLOR` (`#dc2626` red-600, the section overlays' established danger hue), `isDragRejected(status)`, `handleFillColor(bodyId, rejectedDragBody, normalColor)` (red ONLY for the actively-dragged rejected body), `shouldPersistDrag(status)` (false ONLY for `rejected-unsafe`).
+- `partitionEngineSelect.ts` — diagnostics variant returns `overrideStatus`; consumes `classifyOverrideOutcome` directly (v1 → `'unsupported'`).
+- `partitionFillV2/index.ts` — re-export `classifyOverrideOutcome` + `OverrideOutcome`.
+- `PartitionFillOverlay.tsx` — `sectionFillData` carries `rejectedDragBody`; a `rejectedDragBodyRef` (synced via effect) lets the once-captured drag `up` closures read the CURRENT rejection at release; RED handle at all 3 handle render sites (boundary + lens upper/lower) via `handleFillColor`; snap-back in the lens + boundary `up` handlers via `shouldPersistDrag` (a rejected release skips `onSaveBoundary` → `setLensDrag/setBoundaryDrag(null)` snaps the handle onto the base fill S79 already renders).
+
+### RED-FIRST TESTS (real CS1, campaign hard rule)
+- `unsafeDragUX.rules.test.ts` — pure primitives (isDragRejected / handleFillColor / shouldPersistDrag) + a REAL CS1 `rejected-unsafe` outcome (aggressive multi-tip reach, mirrors S79 Rule 3, CS1_GATE=1) driving the red-handle + no-persist decisions. Proven RED (module absent) → GREEN.
+- `PartitionFillOverlay.unsafeDrag.test.tsx` — UD1 rejected drag reddens THAT handle; UD2 rejected release does NOT call `onSaveBoundary` (snap back); UD3 safe drag stays amber + persists. Outcome stubbed at the `computeSectionFillActiveWithDiagnostics` boundary (real-CS1 status production covered by the rules test). Proven RED (UD1/UD2 failed pre-wiring, UD3 passed) → all GREEN.
+
+### VERIFICATION GATE (all green)
+unsafeDragUX.rules 5/5 (CS1_GATE); unsafeDrag component 3/3; freeDrawRepair.rules 6/6; PartitionFillOverlay 63/63; partitionAddStripRouter 21/21; partitionGhostHandles reshapeMap oracle CS1 69/56/11 UNCHANGED; seedGate (SHAPE_AUDIT) pass; HOLES_DIAG **0/0/0** all 14; v1+v2 utils 273 pass. **Engine byte-identical — zero engine files touched.** `partitionEngineSelect.test.ts` updated (it pinned the OLD internal `computeSectionFillV2WithConflicts` wiring → now mocks `classifyOverrideOutcome` + asserts `overrideStatus` threads through; a legitimate wiring-change test update, NOT a behaviour regression). Full desktop suite **2445 pass / 0 fail** (was 2444+1fail = the pinned test, now fixed). tsc `tsconfig.web.json` CLEAN. Hook order safe (new useRef/useEffect sit with the existing conflicts effect, no component-body early return precedes them; ref read only in post-render `up` closures). Gap-proof invariant HOLDS: a rejected drag never persists → never a stored gap.
+
+### OWNER DOGFEED
+Drag a lens/contact handle into an unsafe reach → handle turns RED, body stays at its last safe shape; release → handle snaps back, nothing unsafe saved. A safe drag → normal amber/blue, reshapes, persists.
+
+### Files this session (worktree, NOT committed — orchestrator commits + re-verifies)
+- `unsafeDragUX.ts` — NEW pure decision primitives (REJECT_COLOR / isDragRejected / handleFillColor / shouldPersistDrag).
+- `partitionEngineSelect.ts` — `computeSectionFillActiveWithDiagnostics` returns `overrideStatus` (via `classifyOverrideOutcome` direct, no extra run).
+- `partitionFillV2/index.ts` — re-export `classifyOverrideOutcome` + `OverrideOutcome`.
+- `PartitionFillOverlay.tsx` — `rejectedDragBody` threaded (memo + ref); red handle (3 sites) + snap-back (lens + boundary `up`).
+- `partitionEngineSelect.test.ts` — updated for the new wiring + `overrideStatus`.
+- `unsafeDragUX.rules.test.ts` — NEW pure + real-CS1 rejected-outcome tests.
+- `PartitionFillOverlay.unsafeDrag.test.tsx` — NEW UD1–3 component red-handle + snap-back tests.
+- `REWRITE_STATE.md` — this §86.
