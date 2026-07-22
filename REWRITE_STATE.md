@@ -7750,3 +7750,88 @@ vanish (only the 19 reshapeable handles remain), and pan works normally where no
   measurement of record (gated ``CS1_GATE=1``, skips in the suite). **ORCHESTRATOR: DELETE** (Bash ``rm``
   denied this run).
 - `REWRITE_STATE.md` — this §80.
+
+## §81 — Session 75: ENGINE UNFROZEN (THIRD grant) — route the 40 INVARIANT tips through the override consumer. CONSUMED 19→56 of 69 (real CS1, moderate drag); no-override BYTE-IDENTICAL; a defect guard makes "never a gap/overlap" a HARD invariant by construction. Engine editable; v1 + intersect.ts READ-ONLY.
+
+Owner grant (2026-07-22, THIRD): "Engine: make every handle reshape." Route the remaining emit paths
+(corr-0 non-enclosed interior lens + default-apex sweep/boundary tips) through the same override consumer
+S64/S67 built, gap/overlap-free.
+
+### THE 3 DEAD EMIT PATHS (traced, not guessed — real CS1 measurement)
+S74's "40 dead" were re-measured this run (my map: **69 shapeable, 19 consumed, 40+ dead** by a per-body
+footprint metric). Root-caused to THREE un-wired paths + ONE key-mismatch wall:
+1. **`emitBoundaryLens` (surface + td)** — the FIRST/LAST-unit 0-corr boundary triangles (apex 0.45/0.26,
+   ``[0,0,0.45]`` etc.) read NO override → dead. THE DOMINANT CLASS. FIX: consume ``terminationApexOverride``
+   (apex rides the boundary polyline at the override fraction; elevation stays ON the polyline so the
+   watertight tied-leg closure holds; un-capped by 8b). `emitBoundaryLens.ts` +gapIndex/+overrides.
+2. **`drawTermination.emitLens` (SWEEP interior corr-0 lens)** — read NO override. FIX: new focused module
+   `emitLensOverride.ts` (``sweepLensOverrideApex`` gap-local→from-col fraction + ``emitOverriddenLensClosing``
+   emits the flanks direct at the moved apex, bypassing the 8b re-cap). `drawTermination.ts` consumes it.
+3. **`emitCorr0Termination`** did not THREAD ``overrides`` to its interior ``drawTermination`` call NOR to
+   ``emitBoundaryLens``. FIX: threaded ``overrides`` through `emitTerminationSweep.ts`.
+
+### THE KEY-MISMATCH WALL (S67's wall, at scale) — the render-bodyId ≠ emit-bodyId problem
+The app keys a handle on the RENDERED (post-``mergeTouchingBodies``) bodyId; the engine emits per RAW unit
+and consumes the raw bodyId. In a SINGLE-LITHOLOGY section (all CS1 = formation 019e940a) the merge unions
+MANY raw bodies under one representative id, so the app's key ``019ea170-5cef@9`` (a col-0 body) NEVER
+matches the gap-9 emitting raw body → dead. Measured decisively: the rendered ``019ea170-5cef`` first appears
+on geom col 0, but its region renders at gap 9 (a merged component). FIX (new module
+`expandOverrideAliases.ts`): a no-override BASE PASS reveals the EXACT render→raw equivalence (the merge only
+relabels — never moves a vertex — so a raw↔merged polygon match by ``gapIndex#polygonKey`` is authoritative),
+then ALIAS each incoming override to every raw body in its rendered component. Wired in
+`computeSectionFillV2.ts` (2nd pass, override-only; no-override is single-pass byte-identical).
+
+### THE DEFECT GUARD — "never a gap or overlap" made a HARD invariant BY CONSTRUCTION
+Aliasing + drawing more tips exposed that an AGGRESSIVE reach on a SHARED-JUNCTION surface tip (two bodies
+meeting at 0.5, partner not following) can open a hole/overlap (measured: gap-7 019ea3e1 → 2.05 m at 0.7).
+Rather than ship a leak, `computeSectionFillV2WithConflicts` now SELF-VALIDATES on a live drag: compute the
+no-override BASE defect area, then pick the FIRST override variant (aliased → direct → none) whose defect
+area (``sectionDefectArea`` = holes + diff-formation overlaps, coarse fraction scan) does NOT exceed the base.
+An unsafe drag DEGRADES to the un-reshaped base fill — it can never tear the partition. 3 fill passes on a
+drag frame only (rare); no-override stays ONE pass. The same-litho MERGE-SKIP override exceptions I first
+tried (drawing the flank for a same-litho pair) were REVERTED — they pinch a continuous band the flood does
+not re-cover, and the guard/analysis showed they are un-routable FLOOD-convergence tips (an S76 app-suppression
+concern, not a safe engine reshape).
+
+### VERIFICATION — HALF A (no-override BYTE-IDENTICAL, the crown-jewel net) — ALL UNMOVED
+- `diag_cs1_flip_walkthrough.json` regenerated (CS1_FLIP=1) **sha256 ``9ff51b749bfedcfc`` / 346761 bytes —
+  IDENTICAL before AND after** (the S73 sha). The no-override region output is unchanged everywhere.
+- HOLES_DIAG **0/0/0** all 14 (both flags). CS1 gates **8/8**. seedGate **732/651/8/67/6/0** mismatches 0.
+  lineStageDiff **rawEdges=446 DROPPED=0 MOVED=0 INVENTED=0**. apexOverride V2O1-3 + contactOverride CO1-4
+  **7/7**. computeSectionFillV2 unit **13/13**. FULL utils+sections **1418 pass / 38 skip / 0 fail**. tsc clean.
+- PRE-EXISTING RED (NOT mine, §69/§70/§72/§73/§74-documented): the conformance flag-ON ratchet asserts
+  ``12 == pinned-10`` and FAILS on the clean tip too; my change leaves it **12** (byte-identical, not masking
+  a regression — the mandate's required state). Orchestrator: re-pin to 12 or investigate the pre-campaign drift.
+- ORCHESTRATOR re-runs Half A incl. ``node scripts/diff_owner_paint.mjs`` (212/0) — not run this session
+  (that mjs is v1 tooling in the sibling Strix repo per §73; the byte-identical walkthrough JSON is the
+  equivalent proof here).
+
+### VERIFICATION — HALF B (the previously-dead classes now RESHAPE, gap/overlap-free)
+- KEPT gate `partitionFillV2.reshapeMap.diag.test.ts` (CS1_GATE=1): **shapeable=69, CONSUMED=56, INVARIANT=13**
+  at a moderate drag (S74 was 19). The consumed rose from 19 toward 69 via the 3 emit-path consumers + the
+  alias. Test 1 asserts ``consumed ≥ 50`` (no regression); test 2 asserts **0 holes / 0 overlaps** across the
+  single-tip NON-enclosed-lens reshapes at an OUTWARD (0.7) and an EXTREME-clip (1.6) position — GREEN.
+- The residual **13 dead** are same-litho **FLOOD-convergence tips** (a continuous band's interior vertex,
+  no lateral termination to reshape — named in the diag ``[DEAD]`` dump). Their gap-safe reshape needs the
+  SHARED-JUNCTION coupling (write the override for BOTH incident bodies) — that is the S76 APP work (the
+  handle is un-routable by a single-body engine override without tearing the partition; the guard proves it).
+- The owner's GEO-23/125-S10 silt lens (an enclosed lens, ``kind:'lens'``) reshapes via the S64
+  ``emitLenses`` path (part of the base consumed set), now ALSO reachable through the alias when the app keys
+  the merged bodyId.
+
+### Files this session (worktree, NOT committed — orchestrator commits + independently re-runs Half A)
+- `partitionFillV2/emitBoundaryLens.ts` — surface/td boundary lens consumes the apex override (+gapIndex/+overrides).
+- `partitionFillV2/emitLensOverride.ts` — NEW; sweep corr-0 lens override apex + direct flank emit (8b-uncapped).
+- `partitionFillV2/drawTermination.ts` — ``emitLens`` consumes the override via ``emitLensOverride``; threads it.
+- `partitionFillV2/emitTerminationSweep.ts` — threads ``overrides`` to ``emitCorr0Termination`` → boundary/interior.
+- `partitionFillV2/expandOverrideAliases.ts` — NEW; base-pass render→raw alias (``expandOverrideAliasesFromBase``).
+- `partitionFillV2/computeSectionFillV2.ts` — override alias 2nd pass + the ``sectionDefectArea`` self-guard.
+- `partitionFillV2/apexOverride.ts` — refactor: ``clampApex`` helper (behaviour unchanged).
+- `partitionFillV2.reshapeMap.diag.test.ts` — NEW kept gate (CS1_GATE=1): consumed count + the-40-reshape 0/0.
+- `scripts/diag_cs1_flip_walkthrough.json` — regenerated (byte-identical).
+- `REWRITE_STATE.md` — this §81. (All throwaway probes removed; measurements of record above.)
+
+### For S76 (app)
+Grab-radius + pan-suppression (S74's coupled item) are now UNBLOCKED — the handles are live. The 13 residual
+dead handles are the SHARED-JUNCTION class: the app should write the override for BOTH incident bodies at a
+junction (the engine consumes both; the defect guard keeps it safe), OR suppress the un-routable ones per §77.
