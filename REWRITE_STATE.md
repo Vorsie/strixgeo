@@ -7227,3 +7227,66 @@ Multi-node contact freedraw + a 3+ band gap keep the existing emission-order pai
 upper/lower LABEL direction was corrected). The single-control-point contact bend (the dogfeed) is complete;
 multi-node contact chains still route through the per-node handles. UN-bracketed onlap tips still cap at 0.5
 (the engine TOPOLOGY limit S67 recorded — needs the silt base to become a bracket, not additive).
+
+## §75 — Session 69: "RESET MANUAL POINTS" bulk clear (full-stack). Owner saw persistent dark wedge GAPS near GEO-10/170-S7 and asked for "a reset button for all manual points". DIAGNOSIS (orchestrator-measured): the litho model has 7 stored ``body_boundary_node`` overrides (SILT/KLEI/ZAND, along 202-750) left from dogfeeding the previously-broken free-draw tool; they bend boundaries off the engine default → the visible gap wedges. A model-wide clear returns every body to the validated no-override partition. ENGINE UNTOUCHED (this clears OVERRIDES; the engine already handles no-override).
+
+### BACKEND (layer model: API → application; no schema change, additive)
+- NEW use-case `application/clear_body_boundaries.py` — ``ClearBodyBoundaries`` (inherits ``GroundModelLogger``,
+  one-class-per-file, numpy docstrings). One bulk ``delete(BodyBoundaryShapeOrm).where(model_id == …)`` +
+  commit; nodes cascade at the DB level (``body_boundary_node.shape_id`` ON DELETE CASCADE). Returns
+  ``ClearBodyBoundariesResult(shapes_deleted=rowcount)``; INFO entry + SUCCESS exit log.
+- NEW endpoint `DELETE /projects/{pid}/geology/models/{model_id}/boundaries` in
+  ``api/routers/geology/bodies.py`` — ``get_in_project_or_404`` (404) + ``require_model_kind`` litho (422),
+  same guard shape as the router's siblings. Route registration verified (``/models/{model_id}/boundaries``,
+  no collision with ``…/bodies/{bid}/boundary``). Response schema
+  ``api/schemas/project/body/clear_boundaries_response.py`` (``shapes_deleted``) + exported from the body pkg __init__.
+
+### FRONTEND (goes through the api client; irreversible → ConfirmDialog MANDATORY)
+- NEW `shared.ts::delReturning<T>` (typed DELETE that parses the JSON body — the existing ``del`` discards it).
+- `geology.ts::resetManualBoundaries(projectId, modelId)` → ``ClearBoundariesResponse`` (new type in geology.types.ts).
+- `SectionsToolbar.tsx` — "Reset manual points" item added to the litho-axis **Bodies** dropdown (where body/lens
+  actions live), testid ``litho-reset-manual-points``. Click → generic ``ConfirmDialog`` (default-focus Cancel,
+  danger button labelled "Reset points" NOT "OK", copy "Every hand-drawn boundary point on this model will be
+  cleared and the bodies will return to their computed shape. This cannot be undone."). On confirm →
+  ``api.geology.resetManualBoundaries`` → ``requestCorrelationEdgesRefetch()``. That nonce bump ALSO re-runs
+  SectionsCanvas's ``refetchLensData`` effect (its deps include ``correlationEdgesRefetchNonce``), so the boundary
+  map (``boundariesByBodyId`` / ``lensBoundaries``) refetches and the overlay re-renders from the engine default
+  — no manual reselect. Success/empty/error toasts.
+
+### GAP-CLEARS REASONING
+No override → the section renders the engine's validated 0/0 partition (holes/overlaps clean on v2, per §74).
+The owner's 7 overrides are exactly what bends the boundaries; deleting them removes the bend, so the wedge gaps
+clear IF they were override-induced (the diagnosis says they are). If a gap persists with ZERO manual points
+after reset, it is a separate engine/render issue → flag for a follow-up, do NOT chase in this session.
+
+### VERIFICATION
+- **Backend unit**: NEW ``tests/unit/application/test_clear_body_boundaries.py`` (3: returns rowcount+commits,
+  idempotent on empty, None-rowcount→0) GREEN. **Full unit suite 1428 pass.** Router+use-case+schema import OK,
+  route registered. ruff clean on all changed files (also removed 2 pre-existing dead imports in the integration test).
+- **Backend integration**: 2 NEW tests in ``tests/integration/application/test_body_boundary.py``
+  (removes-all-shapes-and-nodes + body survives with straight default; idempotent). COLLECT-only verified here;
+  **must be run via ``scripts/run-integration-tests.ps1`` by the orchestrator** (this session lacks the Docker-DB
+  permission — never the dev DB).
+- **Frontend**: NEW ``geology.resetManualBoundaries.test.ts`` (DELETE call-shape) + NEW
+  ``SectionsToolbar.resetManualPoints.test.tsx`` (BR1-6: item on litho axis / absent on geology / opens dialog no-API /
+  Cancel no-API / confirm→API+refetch / Cancel default-focus) — all GREEN. Sibling toolbar+api-client suites 66 pass,
+  **tsc clean** (``tsconfig.web.json``).
+
+### OWNER DOGFEED SCRIPT
+Open CS1 → Litho axis → Bodies dropdown → "Reset manual points" → confirm dialog (Cancel is default-focused) →
+click "Reset points". The 7 manual bends vanish, bodies return to computed shape, the dark wedge gaps near
+GEO-10/170-S7 clear. If a gap remains with no manual points left → separate engine issue, report it.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `src/groundmodel/application/clear_body_boundaries.py` — NEW use-case.
+- `src/groundmodel/api/schemas/project/body/clear_boundaries_response.py` — NEW; + body pkg ``__init__.py`` export.
+- `src/groundmodel/api/routers/geology/bodies.py` — NEW ``DELETE …/boundaries`` endpoint + imports.
+- `tests/unit/application/test_clear_body_boundaries.py` — NEW (3).
+- `tests/integration/application/test_body_boundary.py` — +2 clear tests; dropped 2 dead imports.
+- `desktop/src/renderer/src/api/clients/shared.ts` — NEW ``delReturning``.
+- `desktop/src/renderer/src/api/clients/geology.ts` — ``resetManualBoundaries`` client method + imports.
+- `desktop/src/renderer/src/api/clients/geology.types.ts` — ``ClearBoundariesResponse`` type.
+- `desktop/src/renderer/src/shell/stages/sections/SectionsToolbar.tsx` — Bodies-dropdown item + handler + ConfirmDialog.
+- `desktop/src/renderer/src/api/clients/geology.resetManualBoundaries.test.ts` — NEW.
+- `desktop/src/renderer/src/shell/stages/sections/SectionsToolbar.resetManualPoints.test.tsx` — NEW (BR1-6).
+- `REWRITE_STATE.md` — this §75.
