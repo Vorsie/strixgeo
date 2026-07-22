@@ -37,6 +37,41 @@ export interface ContactDragState {
   rightX: number
 }
 
+/**
+ * Classify a free-draw click target as a two-sided CONTACT or a one-sided APEX (lens/onlap).
+ *
+ * The protocol distinction the free-draw tool must honour (owner brief): a shared contact
+ * between two full-width bands is shaped by a ``contact:U|L@g`` override; a one-sided lens/
+ * onlap tip is shaped by a ``bodyId@gap`` apex override. Merging them via a hit-test heuristic
+ * is what the repair forbids — so the click target is CLASSIFIED before an override is generated.
+ *
+ * The geometric signal (already used inline by ``collectContactOverridesForGap`` and the lens
+ * ``setShape`` path): a body present in BOTH gap columns is a full-width band → its base is a
+ * two-sided shared contact → ``'contact'``. A body present in only ONE column terminates inside
+ * the gap → its tip is a one-sided apex → ``'apex'``.
+ *
+ * Parameters
+ * ----------
+ * bodyId : string
+ *     The clicked body's id.
+ * left, right : PartitionColumn
+ *     The gap's two litho columns.
+ *
+ * Returns
+ * -------
+ * 'contact' | 'apex'
+ *     ``'contact'`` when the body spans both columns (two-sided), else ``'apex'`` (one-sided).
+ */
+export function classifyFreeDrawTarget(
+  bodyId: string,
+  left: PartitionColumn,
+  right: PartitionColumn,
+): 'contact' | 'apex' {
+  const onLeft = left.units.some((u) => u.bodyId === bodyId)
+  const onRight = right.units.some((u) => u.bodyId === bodyId)
+  return onLeft && onRight ? 'contact' : 'apex'
+}
+
 /** The absolute elevation (mTAW) of a unit's TOP contact. */
 function unitTopElev(col: PartitionColumn, u: PartitionUnit): number {
   return col.surfaceElevM - u.topDepthM

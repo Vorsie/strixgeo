@@ -75,6 +75,7 @@ import { usePartitionGhostHandles } from './usePartitionGhostHandles'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
+  applyReachFloorOnSegment,
   projectClickToCandidate,
   routeAddStripByContainment,
   type AddStripCandidate,
@@ -2093,13 +2094,17 @@ export default function PartitionFillOverlay({
           // to at least MIN_VISIBLE_APEX_FRACTION of the gap away from the source
           // column so a click can never pinch the lens to nothing. Left-anchored: reach
           // grows with x → floor x; right-anchored: reach grows as x shrinks → cap x.
+          //
+          // Fact-A REPAIR (owner 2026-07-23): clamp the along-x AND re-read the segment
+          // y at the clamped x so the stored node stays ON the (possibly sloping) edge —
+          // the old code kept the projected y after moving x, which on a slope dropped
+          // the node in free space (the floating blue handle). ``applyReachFloorOnSegment``
+          // never returns raw cursor coords: an out-of-span clamp snaps to the nearest
+          // segment endpoint, still on the boundary.
           const gapW = sl.rightX - sl.leftX
           const floorPx = MIN_VISIBLE_APEX_FRACTION * gapW
-          const nodeX =
-            sl.side === 'left'
-              ? Math.max(sl.leftX + floorPx, p.x)
-              : Math.min(sl.rightX - floorPx, p.x)
-          handleLensAddNode(sl.bodyId, edge, nodeX, p.y)
+          const node = applyReachFloorOnSegment(p, seg, sl.side, sl.leftX, sl.rightX, floorPx)
+          handleLensAddNode(sl.bodyId, edge, node.x, node.y)
         },
       })
     }
