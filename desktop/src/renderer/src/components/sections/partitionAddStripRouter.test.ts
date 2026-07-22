@@ -16,6 +16,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   candidateDistSq,
+  pointInPolygon,
+  routeAddStripByContainment,
   routeNearestAddStrip,
   type AddStripCandidate,
 } from './partitionAddStripRouter'
@@ -74,5 +76,114 @@ describe('partitionAddStripRouter — global nearest-boundary pick (S70)', () =>
     // List order puts the lens LAST (as it paints last) — nearest must still win.
     const winner = routeNearestAddStrip({ x: 50, y: 53 }, [interfaceStrip, siltLensAbove])
     expect(winner).toBe('contact:u3|u4')
+  })
+})
+
+describe('partitionAddStripRouter — region-containment pick (S71)', () => {
+  // The nearest-SEGMENT metric fails when a distant lens's long diagonal flank
+  // passes nearer in perpendicular distance than the band the owner clicked ON
+  // (owner dogfeed 2026-07-22). Containment is robust: grab the region under the
+  // cursor. These cases pin the invariant in isolation.
+  it('C1 — point-in-polygon: inside a rectangle', () => {
+    const rect = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ]
+    expect(pointInPolygon({ x: 5, y: 5 }, rect)).toBe(true)
+    expect(pointInPolygon({ x: 15, y: 5 }, rect)).toBe(false)
+    expect(pointInPolygon({ x: 5, y: 15 }, rect)).toBe(false)
+  })
+
+  it('C2 — a click INSIDE the sand region grabs sand, even though a diagonal lens edge passes NEARER', () => {
+    // The exact owner failure the nearest-segment metric could not solve: the
+    // click is inside the SAND band (a wide low region). A DISTANT silt lens above
+    // has a long diagonal LOWER edge that sweeps down THROUGH a point only 2px from
+    // the click — so nearest-segment would grab the silt lens. Containment grabs
+    // the region the click is actually inside (sand).
+    const click = { x: 50, y: 60 }
+    const sand: AddStripCandidate<string> = {
+      // Sand's region ring contains (50,60); its base edge is far below the click.
+      regionPolygon: [
+        { x: 20, y: 50 },
+        { x: 80, y: 50 },
+        { x: 80, y: 90 },
+        { x: 20, y: 90 },
+      ],
+      segments: [[{ x: 20, y: 90 }, { x: 80, y: 90 }]], // sand base edge ~30px below click
+      dispatch: 'sand',
+    }
+    const siltLensAbove: AddStripCandidate<string> = {
+      // A long diagonal lens edge that dips through (48,58) — 2px from the click —
+      // yet the click is NOT inside the lens's (thin, high) region.
+      regionPolygon: [
+        { x: 20, y: 30 },
+        { x: 80, y: 30 },
+        { x: 20, y: 40 },
+      ],
+      segments: [[{ x: 20, y: 30 }, { x: 80, y: 62 }]], // diagonal passing ~2px from click
+      dispatch: 'silt-lens',
+    }
+    // Nearest-segment (the OLD metric) would grab the silt lens (2px vs 30px):
+    expect(routeNearestAddStrip(click, [sand, siltLensAbove])).toBe('silt-lens')
+    // Containment (the invariant) grabs sand — the region under the cursor:
+    expect(routeAddStripByContainment(click, [sand, siltLensAbove])).toBe('sand')
+  })
+
+  it('C3 — click outside every region falls back to nearest-segment', () => {
+    const click = { x: 50, y: 5 }
+    const a: AddStripCandidate<string> = {
+      regionPolygon: [
+        { x: 20, y: 50 },
+        { x: 80, y: 50 },
+        { x: 80, y: 90 },
+        { x: 20, y: 90 },
+      ],
+      segments: [[{ x: 20, y: 8 }, { x: 80, y: 8 }]], // 3px from the click, outside the region
+      dispatch: 'a',
+    }
+    const b: AddStripCandidate<string> = {
+      regionPolygon: [
+        { x: 20, y: 90 },
+        { x: 80, y: 90 },
+        { x: 80, y: 99 },
+        { x: 20, y: 99 },
+      ],
+      segments: [[{ x: 20, y: 40 }, { x: 80, y: 40 }]], // 35px from the click
+      dispatch: 'b',
+    }
+    // Neither region contains (50,5) → nearest-segment wins → 'a'.
+    expect(routeAddStripByContainment(click, [a, b])).toBe('a')
+  })
+
+  it('C4 — a shared contact click (inside BOTH incident bands) resolves to the nearer edge', () => {
+    const click = { x: 50, y: 50 }
+    const upper: AddStripCandidate<string> = {
+      regionPolygon: [
+        { x: 20, y: 20 },
+        { x: 80, y: 20 },
+        { x: 80, y: 52 },
+        { x: 20, y: 52 },
+      ], // contains the click; its base edge (y=52) is 2px below
+      segments: [[{ x: 20, y: 52 }, { x: 80, y: 52 }]],
+      dispatch: 'upper',
+    }
+    const lower: AddStripCandidate<string> = {
+      regionPolygon: [
+        { x: 20, y: 40 },
+        { x: 80, y: 40 },
+        { x: 80, y: 90 },
+        { x: 20, y: 90 },
+      ], // ALSO contains the click; its top edge (y=40) is 10px above
+      segments: [[{ x: 20, y: 40 }, { x: 80, y: 40 }]],
+      dispatch: 'lower',
+    }
+    // Both contain the click; the nearer edge (upper base, 2px) wins.
+    expect(routeAddStripByContainment(click, [upper, lower])).toBe('upper')
+  })
+
+  it('C5 — empty list routes to null', () => {
+    expect(routeAddStripByContainment({ x: 0, y: 0 }, [])).toBeNull()
   })
 })
