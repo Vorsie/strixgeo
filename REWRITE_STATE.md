@@ -7387,3 +7387,97 @@ override consumer (out of scope — no such gesture ships).
 - `desktop/src/renderer/src/components/sections/throwaway_s70_stackedlens.diag.test.tsx` —
   measurement of record, neutered to a placeholder; ORCHESTRATOR: delete (Bash rm was denied).
 - `REWRITE_STATE.md` — this §76.
+
+## §77 — Session 71: GAP-PROOF BY CONSTRUCTION — region-containment targeting REPLACES S70's nearest-segment metric (fooled by a distant lens's diagonal flank), and the off-engine reshape is RETIRED on v2 (the engine is the sole geometry source → no gap can render). An INVARIANT, not a per-location patch. App-layer only; engine + v1 + intersect.ts byte-untouched (no engine source edited).
+
+Owner dogfeed (2026-07-22, GEO-10/170-S7, CS1, engine v2): "still not quite good, i clicked
+the sand lens on top" but it grabbed the silt band above — a long diagonal silt flank passed
+NEARER in perpendicular distance, so S70's nearest-SEGMENT router picked it. And the mandate:
+"doesn't matter where, this needs to work ALWAYS, no gapwise bug fixing." Two invariants built:
+(a) a click grabs the body UNDER the cursor; (b) NO drag can ever open a gap.
+
+### INVARIANT 1 — REGION-CONTAINMENT targeting (replaces nearest-segment)
+`partitionAddStripRouter.ts`: NEW ``pointInPolygon`` (even-odd ray cast) + ``routeAddStripByContainment``.
+``AddStripCandidate`` gained ``regionPolygon`` (the body's screen ring). The router now: (1) keep
+candidates whose ``regionPolygon`` CONTAINS the click; (2) among those, nearest-EDGE tiebreak
+(within-body / shared-contact edge pick — ``nearerLensEdge`` still resolves upper-vs-lower for the
+winning lens); (3) NONE contain → nearest-segment FALLBACK (click just outside every ring, e.g. a
+strip's overhang). Robust by construction: you grab what you clicked ON — a diagonal edge merely
+PASSING near the cursor can no longer steal the grab from the region under it. S70's nearest-segment
+pick is retained ONLY as the within-region tiebreak + the outside-all-regions fallback.
+In `PartitionFillOverlay.tsx` ``addStripCandidates`` (~1770): each boundary candidate carries the
+UPPER band's region ring; each lens candidate carries its OWN region ring (``screenRegions[idx].points``).
+``routeAddStripClick`` (~1830) calls ``routeAddStripByContainment``.
+
+### INVARIANT 2 — ENGINE-ONLY RESHAPE on v2 (gap impossible by construction)
+The SOLE gap source (§66/§71) is the off-engine reshape that moves ONE body's edge without the
+neighbour: the POST-BEND contact mutation (``screenRegions`` ~819) and the POST-LENS
+``buildLensPolygon`` rebuild (~948). Both are now GATED FULLY OFF on v2 (``if (!partitionEngineV2)``).
+On v2 the engine consumes matched-contact + lens overrides (S64/S67/S68) and the live preview re-runs
+the engine per frame (S65), so the engine is the ONLY geometry source needed. A contact/lens the
+engine did NOT consume renders its truthful (unbent) 0/0 partition — a visual NO-OP, never a gap.
+v1 (no engine consumer) keeps both passes → BYTE-IDENTICAL. ``screenRegions`` gained ``partitionEngineV2``
+in its deps.
+
+### INVARIANT 3 — UN-ROUTABLE handle suppression
+`sectionFillData` (~734) builds ``unroutableBodies`` (``gap:bodyId``): on v2, a shapeable tip the app
+fed an ``apexOverrides`` entry for but whose RESULTING region is no longer apex-shapeable (flooded to
+a full-width band — the §71/S65-Q1 residual class, e.g. an un-bracketed onlap tip) = un-routable.
+``screenLenses`` (~1634) skips its grab handle for these (better no handle than a dead grab). Detection
+needs NO engine probe — it reads the region the engine already produced vs the override the app fed.
+Logged at INFO (survives DevTools default filter) with the class + count. NOTE: the flooded-tip case
+ALSO self-suppresses via ``isApexShapeable`` returning false post-flood; ``unroutableBodies`` catches the
+transient where an override was fed but not consumed.
+
+### VERIFICATION — the invariant in TEST form (TDD, real rendered geometry)
+- **RED→GREEN (the load-bearing invariant, ``RC`` block, engine v2)**: RC1 (RED-repro: a click PROVABLY
+  inside a sand region, fired on a SILT lens strip, must NOT grab silt — reproduces "clicked the sand
+  lens, grabbed the silt band above"); RC2 (ALWAYS: for the WHOLE set of rendered regions, a click at a
+  point provably inside each region grabs a body whose region CONTAINS that point — asserted across many
+  boundaries, not one spot — the owner's "work ALWAYS"); RC3 (off-engine reshape retired on v2: the
+  rendered silt-lens ``d`` DIFFERS between v1 and v2 for the same stored node — v2 uses the engine, not
+  the off-engine rebuild). Tests read the ACTUAL rendered region polygons (``d`` attr) + compute an
+  interior point independently → behaviour-shaped (paraphrases "grabs the body under the cursor"), not
+  impl-shaped. **RED PROOF**: swapping the component back to ``routeNearestAddStrip`` turned RC1 AND RC2
+  RED (RC3 stayed green, independent of the router); the containment router turns both GREEN.
+- **Router unit (pure, TDD)**: C1 (point-in-polygon), C2 (THE key case — a click INSIDE sand where a
+  distant lens's diagonal edge passes 2px away: nearest-segment grabs the lens, containment grabs sand),
+  C3 (outside-all → nearest fallback), C4 (shared-contact click inside both bands → nearer edge), C5
+  (empty→null). R1-R4 (S70 nearest-segment) unchanged. ``partitionAddStripRouter.test.ts`` 9/9.
+- **No regressions**: PartitionFillOverlay suite **50 pass** (47→50; +RC1/2/3 — CW1-4, FD1-4, MB, ST1/2,
+  lens-drag, HP3 all green). Sections dir **576 pass / 4 skip** (was 568). partitionFillV2 engine suite
+  **171 pass** (byte-intact). **tsc clean** (``tsconfig.web.json``). **FULL desktop suite 2411 pass / 0
+  fail / 37 skip** (JSON reporter clean run) — ZERO new reds. (One InspectLensBodyPanel.stylePicker flake
+  surfaced in ONE parallel run, passed in isolation + on the clean JSON re-run — the §76-documented
+  parallel-worker isolation flake, NOT from this change; my diff is confined to add-strip routing +
+  off-engine gating.)
+- **Engine byte-identical BY CONSTRUCTION**: NO ``partitionFillV2/`` / ``partitionFill/`` / ``intersect.ts``
+  / v1 source touched — only `PartitionFillOverlay.tsx` (router + off-engine gate + unroutable wiring),
+  `partitionAddStripRouter.ts` (containment), + the two test files. (Env-gated HOLES_DIAG/seedGate diags
+  NOT runnable — Bash restricted to the canonical ``npx vitest run <file>`` shape; unnecessary since no
+  engine file changed and the 171-pass engine suite confirms it intact.)
+
+### OWNER DOGFEED SCRIPT
+Open CS1 → Litho axis → engine v2 → GEO-10/170-S7. Click ANYWHERE — the thin sand lens on top, a silt
+band, a contact. The click now grabs the body whose region the cursor is INSIDE (region-containment),
+NEVER a distant lens whose diagonal edge passes near the cursor. Drag it anywhere: the reshape routes
+ONLY through the engine (0/0 partition), so no drag can open a gap. An un-routable tip (override the
+engine floods) shows NO grab handle (console INFO logs the class + count). If a click EVER grabs a body
+the cursor is NOT inside, or any drag opens a gap, report the exact elevation + which body was grabbed.
+
+### KNOWN LIMIT (recorded, not a defect)
+An un-routable tip is a VISUAL NO-OP on v2 (its override floods the engine to a band); the handle is
+suppressed so the owner isn't offered a dead grab. Making such a tip actually routable is a SANCTIONED
+engine change (the §71 onlap-override consumer), out of scope here — this session only ensures it can't
+gap and doesn't offer a broken grab. The fallback nearest-segment pick still applies when a click lands
+just OUTSIDE every region ring (a strip overhang) — deterministic, and the engineer can nudge the cursor.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `desktop/src/renderer/src/components/sections/partitionAddStripRouter.ts` — ``pointInPolygon`` +
+  ``routeAddStripByContainment``; ``AddStripCandidate.regionPolygon``.
+- `desktop/src/renderer/src/components/sections/partitionAddStripRouter.test.ts` — NEW C1-C5.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.tsx` — containment router wiring
+  (candidates carry ``regionPolygon``); POST-BEND + POST-LENS gated OFF on v2; ``unroutableBodies`` in
+  ``sectionFillData`` + handle suppression in ``screenLenses``.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.test.tsx` — NEW RC1-RC3 block.
+- `REWRITE_STATE.md` — this §77.
