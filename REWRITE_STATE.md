@@ -7481,3 +7481,97 @@ just OUTSIDE every region ring (a strip overhang) — deterministic, and the eng
   ``sectionFillData`` + handle suppression in ``screenLenses``.
 - `desktop/src/renderer/src/components/sections/PartitionFillOverlay.test.tsx` — NEW RC1-RC3 block.
 - `REWRITE_STATE.md` — this §77.
+
+## §78 — Session 72: THREE S71-CONTAINMENT REGRESSIONS FIXED — a new node now rides the boundary it grabbed (no floating dots), a click near a lens source can't pinch it to nothing (visible-reach floor), and a tie-bounded base contact is grabbable (the natural-edge derivation picked the wrong polygon edge for full-width bands). App-layer only; engine + v1 + intersect.ts byte-untouched (no engine source edited; engine suite 171 pass intact).
+
+Owner dogfeed (2026-07-22, GEO-23/125-S10, CS1, engine v2): "i clicked the apex of the silt lens
+and it disappeared, i also managed to get a point without grabbing a boundary, can't resize units
+bounded by a base tie, can't grab it." Screenshot = three blue control dots floating in the gap
+INTERIOR. Root (confirmed): S71's containment router grabs the correct BODY even for an interior
+click, but the new node was STORED at the RAW cursor point — off the boundary. Three fixes, all
+app-layer; S71's invariants (containment targeting, engine-only reshape, un-routable suppression) HOLD.
+
+### FIX 1 — NODE PROJECTS ONTO THE BOUNDARY (kills floating dots + free-space points)
+`partitionAddStripRouter.ts`: NEW ``projectClickToCandidate`` — VERTICAL projection (keep the click's
+along-x, read the edge's y at that x) onto the candidate's nearest segment; fallback to the nearest
+segment ENDPOINT when the click's x is past a tapering tip (still ON the boundary, never free space).
+In `PartitionFillOverlay.tsx` the boundary + lens dispatch thunks now store the PROJECTED point, not
+``lastClick.current`` raw. So a click deep in a band's interior drops the node ON the shared contact at
+the cursor x (the "point without grabbing a boundary" gone); a lens click rides the picked lens edge.
+
+### FIX 2 — VISIBLE-REACH FLOOR (a click can't pinch a lens to nothing)
+The engine emits a 0-corr lens with its apex AT the app-fed node, and only clamps the apex fraction to
+its GEOMETRIC bound [0.02, 0.98] — a 2% reach is a hairline that reads as "the lens disappeared". NEW
+``MIN_VISIBLE_APEX_FRACTION = 0.08`` + ``clampVisibleApex`` (symmetric [0.08, 0.92]). Applied at the
+lens ADD gesture: the projected node's along-x is floored ≥ 8% of the gap from the ANCHORED source
+column (left-anchored → floor x; right-anchored → cap x), so a click near the column face can never
+collapse the lens. Also floored on the apex-override fraction in ``setShape``. A deliberate drag past
+the floor is untouched (the floor only bites a near-column click). "Clicked the apex → disappeared"
+becomes "the lens keeps a visible reach".
+
+### FIX 3 — TIE-BOUNDED BASE IS GRABBABLE (diagnosed a real app-layer bug, fixed — NOT a correlation edit)
+DIAGNOSIS (the §Behavior-3 fork): a unit whose base is a matched (tie/correlated) contact IS a
+FILL-SHAPE edit (S67/S68 contact-bend), NOT a correlation-tie move — reshaping it bends the shared
+boundary through the engine (both bands follow, 0/0). So it SHOULD be grabbable. Why it wasn't: for a
+v2 FULL-WIDTH band the region polygon winds ``topL → baseL → baseR → topR``, and ``sharedBoundaries``
+derived the add-strip's natural edge as the polygon's LAST TWO vertices (``uPts[nu-2..nu-1]``) = the
+RIGHT COLUMN edge. The base-contact add-strip therefore rendered as a vertical stub ON the column, so
+a click on the base couldn't grab it ("can't resize units bounded by a base tie / can't grab it").
+FIX: NEW ``baseContactEdge`` (partitionFillOverlayHelpers.ts) picks the region's deepest horizontal
+span (the true base contact, left→right) as the natural edge; ``sharedBoundaries`` uses it (falls back
+to the old last-two-vertices for a lens/pinch whose ring genuinely ends at its base). The base strip
+now runs horizontally along the contact, and FIX-1's projection lands the click's node ON it. NO engine
+change needed — the S68 contact-override consumer already re-partitions both bands gap-free.
+
+### VERIFICATION (TDD, real rendered geometry + pure router units)
+- **Router units (pure, TDD, ``partitionAddStripRouter.test.ts`` 13/13)**: P1 (interior click projects onto
+  a horizontal base edge — node ON the edge at the click x, not the interior y); P2 (projects onto a
+  SLOPING edge at the click x); P3 (projected point lies ON a candidate segment, dist ≈ 0); P4 (no
+  segments → null). C1-C5 + R1-R4 (S70/S71) unchanged.
+- **Overlay behaviour (TDD, engine v2, real rendered ``d``)**: N1 (interior click on a full-width band's base
+  add-strip stores the node ON the ~5 m contact, NOT the raw cursor elevation); N2 (in-lens click stores
+  the node on a lens EDGE within the lens extent, grabs silt not the sand matrix); A1 (a click hugging the
+  lens source column is floored to along ≥ visible-floor — the lens can't collapse); T1 (a correlated
+  full-width band's base contact renders a HORIZONTAL grabbable add-strip x1≈20→x2≈80, not a column stub);
+  T2 (clicking the tie-bounded base stores a contact node on the UPPER band, riding the ~5 m contact —
+  the S68 contact-bend path). RED-first confirmed per behaviour (router P-tests RED on missing export;
+  N1/T1/T2 RED on the wrong natural edge / raw-cursor store; A1 RED at 2px collapse).
+- **S71 INVARIANTS HOLD**: RC1/RC2/RC3 GREEN (region-containment targeting + engine-only reshape unchanged);
+  no drag opens a gap (engine is the sole geometry source on v2).
+- **No regressions**: PartitionFillOverlay suite + router **68 pass** (RC/CW/ST/FD/MB/HP + NEW S72 N1/N2/A1/
+  T1/T2 + P1-P4). Sections dir **586 pass / 4 skip** (was 576/4; +10 S72/router). partitionFillV2 engine
+  **171 pass** (BYTE-INTACT — no engine file touched). v1 partitionFill + lensEdgePick **91 pass**. **tsc
+  clean** (tsconfig.web.json). **FULL desktop suite 2421 pass / 0 fail / 37 skip** (clean re-run; one
+  transient parallel-worker flake on the first run passed on the JSON-reporter + clean re-run — the
+  §76/§77-documented isolation flake, NOT this change; my diff is confined to add-strip routing + node
+  projection + the base-edge derivation + the reach floor).
+
+### OWNER DOGFEED SCRIPT
+Open CS1 → Litho axis → engine v2 → GEO-23/125-S10. (1) Click the APEX of the silt lens → it keeps a
+visible reach (no vanish); the node lands on the tip. (2) Click a band INTERIOR → the node snaps to the
+nearest boundary at your cursor x (no floating dot). (3) Grab a unit whose BASE is a tie → the base
+contact add-strip runs along the contact and the click bends it (both bands follow, no gap). If a click
+EVER drops a floating dot, collapses a lens, or a base-tie unit still can't be grabbed, report the exact
+elevation + body.
+
+### NOTE (recorded, not a defect)
+``baseContactEdge`` uses the region's deepest-y span as the base contact — exact for flat + gently-bent
+bases (the common case). A strongly SLOPED base (a large pre-stored contact bend) would use the two
+extreme-x deepest vertices as endpoints; a click still projects onto that representative segment. If a
+heavily-bent base ever mis-projects on dogfeed, the follow-up is to derive the natural edge as the exact
+upper∩lower shared polyline rather than the deepest span. TIE-BOUNDED FORK RESOLVED as fill-shape (not a
+correlation edit) — no engine change, no tie repurposed.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `desktop/src/renderer/src/components/sections/partitionAddStripRouter.ts` — NEW ``projectClickToCandidate``
+  + ``edgePointAtX``.
+- `desktop/src/renderer/src/components/sections/partitionAddStripRouter.test.ts` — NEW P1-P4.
+- `desktop/src/renderer/src/components/sections/partitionFillOverlayHelpers.ts` — NEW ``baseContactEdge``.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.tsx` — projected-node dispatch thunks
+  (boundary + lens); ``MIN_VISIBLE_APEX_FRACTION`` + ``clampVisibleApex`` (reach floor in ``setShape`` +
+  the lens add gesture); ``sharedBoundaries`` uses ``baseContactEdge`` for the natural edge.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.test.tsx` — NEW S72 blocks (N1/N2/A1
+  node-on-boundary + apex-floor; T1/T2 tie-bounded base grab).
+- `desktop/src/renderer/src/components/sections/zzprobe.test.tsx` — THROWAWAY probe, emptied to a skipped
+  no-op (bash rm / PowerShell Remove-Item were permission-denied this run). **Orchestrator: DELETE this file.**
+- `REWRITE_STATE.md` — this §78.
