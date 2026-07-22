@@ -1751,6 +1751,237 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
   })
 })
 
+// ===========================================================================
+// S72 — the three dogfeed regressions from S71's containment (owner 2026-07-22,
+// GEO-23/125-S10): a stored node must sit ON its boundary (no floating dots /
+// free-space points), an apex click must not pinch the lens to nothing, and a
+// tie-bounded base contact must be grabbable. Behaviour-shaped: read the ACTUAL
+// stored node / rendered add-strip, paraphrasing the owner's words.
+// ===========================================================================
+describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)', () => {
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  // A CORRELATED three-band stack (top-tied → every band spans the gap full-width):
+  // a clean sand/silt/clay column with matched contacts, the GEO-23/125-S10 shape.
+  function nEdge(a: string, b: string): LithoContactCorrelationEdge {
+    return {
+      id: `e-${a}-${b}`,
+      layer_a_id: a,
+      layer_b_id: b,
+      layer_a_side: 'top',
+      layer_b_side: 'top',
+      model_id: 'm1',
+      section_id: 's1',
+      source: 'manual',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    } as LithoContactCorrelationEdge
+  }
+  const matchedStackN = [
+    layer('a1', 'L', 'sand', 'fSand', 0, 3),
+    layer('a2', 'L', 'silt', 'fSilt', 3, 5),
+    layer('a3', 'L', 'clay', 'fClay', 5, 10),
+    layer('b1', 'R', 'sand', 'fSand', 0, 3),
+    layer('b2', 'R', 'silt', 'fSilt', 3, 5),
+    layer('b3', 'R', 'clay', 'fClay', 5, 10),
+  ]
+  const matchedEdgesN = [nEdge('a1', 'b1'), nEdge('a2', 'b2'), nEdge('a3', 'b3')]
+
+  /** The interior-gap add-strip (its left endpoint sits at the gap-left x≈20),
+   *  never the x=80 open-end stub that shares the same testid. */
+  function interiorStrip(strips: HTMLElement[]): HTMLElement | undefined {
+    return strips.find((el) => Number(el.getAttribute('x1')) < 40)
+  }
+
+  it('N1 — a click deep inside a band stores the node ON the shared contact, not floating at the cursor y', () => {
+    // The owner's "i managed to get a point without grabbing a boundary": S71's
+    // containment router grabs the right band even for an interior click, but the
+    // node was stored at the raw cursor elevation → a dot floating in free space.
+    // The silt band sits above clay with a matched contact at 5 m (y=50). A click
+    // deep inside the SILT interior at (50, y for elevation 4 → y=60), BELOW the
+    // contact, must store the node ON the ~5 m contact, NOT at the raw cursor y.
+    const onSaveBoundary = vi.fn()
+    const { queryAllByTestId } = renderOverlay({
+      lithoLayers: matchedStackN,
+      contactEdges: matchedEdgesN,
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
+    expect(strip).toBeTruthy()
+    fireEvent.click(strip!, { clientX: 50, clientY: 60 })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    const lower = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
+    expect(lower).toHaveLength(1)
+    // The node rides the contact (~5 m), NOT the raw cursor elevation (4 m).
+    expect(lower[0].along_m).toBeCloseTo(50, 0)
+    expect(lower[0].elevation_m).toBeGreaterThan(4.4)
+    expect(lower[0].elevation_m).toBeLessThan(5.6)
+    expect(lower[0].elevation_m).not.toBeCloseTo(4, 1) // NOT the interior cursor y
+  })
+
+  it('N2 — a lens add-strip click stores the node ON the lens edge, not floating in the lens interior', () => {
+    // A click provably INSIDE the silt lens must land the node on the picked lens
+    // edge, never in the lens interior (the floating-dot class for lenses). The v2
+    // silt lens (silt depth 4..5 → elevation 5..6 m) renders as the triangle
+    // (20,40)-(20,50)-(47,45): top-left 6 m, base-left 5 m, apex 5.5 m mid-gap. A
+    // click at (30, 45)=elevation 5.5 is inside the lens; the node must ride a lens
+    // edge (elevation within the lens extent [5,6] m), NOT float in free space.
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      lithoLayers: lensLayers, // silt lens (elevation 5..6) in sand on L; sand on R
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    // Fire on the (possibly wrong, z-order) upper strip; containment + projection
+    // must still land the node on the silt lens edge for an in-lens click.
+    fireEvent.click(getByTestId('partition-lens-addstrip-silt-upper'), {
+      clientX: 30,
+      clientY: 45,
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    // The click was inside the silt lens → it grabbed silt (not the sand matrix).
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
+    const upper = onSaveBoundary.mock.calls[0][1] as { along_m: number; elevation_m: number }[]
+    const lowerN = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
+    const stored = [...upper, ...lowerN]
+    expect(stored.length).toBeGreaterThanOrEqual(1)
+    for (const n of stored) {
+      // On a lens edge → within the lens elevation extent [5,6] m, NOT floating.
+      expect(n.elevation_m).toBeGreaterThanOrEqual(4.9)
+      expect(n.elevation_m).toBeLessThanOrEqual(6.1)
+    }
+  })
+
+  it('A1 — a click near the lens source column cannot collapse the lens (visible-reach floor)', () => {
+    // The owner's "i clicked the apex of the silt lens and it disappeared": the engine
+    // emits the lens with its apex AT the stored node, so a click that drops a node
+    // near the anchored column face pinches the lens to a hairline. The add gesture
+    // must FLOOR the node's reach to a visible fraction of the gap. Fire a lens click
+    // at the column-face side (x≈22, just inside the 20..80 gap) and assert the stored
+    // node's along sits at least the visible floor (8% of 60px = 4.8 → x≥24.8) from
+    // the source column — never collapsed onto it.
+    const onSaveBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      lithoLayers: lensLayers, // silt lens anchored on the LEFT column (x=20)
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    // A click hugging the left column face at x=22 (fraction ≈ 0.03) — the collapse
+    // trigger. The lens is left-anchored, so the floored node must land at x ≥ ~24.8.
+    fireEvent.click(getByTestId('partition-lens-addstrip-silt-upper'), {
+      clientX: 22,
+      clientY: 47,
+    })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    const upper = onSaveBoundary.mock.calls[0][1] as { along_m: number; elevation_m: number }[]
+    const lowerN = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
+    const stored = [...upper, ...lowerN]
+    expect(stored.length).toBeGreaterThanOrEqual(1)
+    // Every stored node sits at least the visible floor away from the left column
+    // face (x=20) — reach ≥ 8% of the 60px gap → along ≥ ~24.8 (identity transform).
+    for (const n of stored) {
+      expect(n.along_m).toBeGreaterThanOrEqual(24.5)
+    }
+  })
+})
+
+// ===========================================================================
+// S72 — a tie-bounded base contact is grabbable (fill-shape / contact-bend path,
+// S67/S68). The owner's "can't resize units bounded by a base tie": the base of
+// a stacked full-width band renders a boundary add-strip, and clicking it stores
+// a contact node that the engine re-partitions (both bands follow, 0/0). This is
+// a FILL-SHAPE edit, NOT a correlation-tie move — see the S72 report note.
+// ===========================================================================
+describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () => {
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  // A CORRELATED three-band stack (top-tied → every band spans the gap full-width),
+  // the GEO-23/125-S10 shape: a full stratigraphic column where each contact is a
+  // matched tie. The SILT band's base is a tie-bounded contact directly above CLAY.
+  // Reshaping it is a FILL-SHAPE edit (S67/S68 contact-bend) — the base add-strip is
+  // grabbable and both bands re-partition together, gap-free.
+  function tEdge(a: string, b: string): LithoContactCorrelationEdge {
+    return {
+      id: `e-${a}-${b}`,
+      layer_a_id: a,
+      layer_b_id: b,
+      layer_a_side: 'top',
+      layer_b_side: 'top',
+      model_id: 'm1',
+      section_id: 's1',
+      source: 'manual',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    } as LithoContactCorrelationEdge
+  }
+  const matchedStack = [
+    layer('a1', 'L', 'sand', 'fSand', 0, 3),
+    layer('a2', 'L', 'silt', 'fSilt', 3, 5),
+    layer('a3', 'L', 'clay', 'fClay', 5, 10),
+    layer('b1', 'R', 'sand', 'fSand', 0, 3),
+    layer('b2', 'R', 'silt', 'fSilt', 3, 5),
+    layer('b3', 'R', 'clay', 'fClay', 5, 10),
+  ]
+  const matchedEdges = [tEdge('a1', 'b1'), tEdge('a2', 'b2'), tEdge('a3', 'b3')]
+
+  /** The interior-gap add-strip (left endpoint at gap-left x≈20), not the open-end. */
+  function interiorStrip(strips: HTMLElement[]): HTMLElement | undefined {
+    return strips.find((el) => Number(el.getAttribute('x1')) < 40)
+  }
+
+  it('T1 — a stacked band whose base is a two-band contact renders a grabbable boundary add-strip', () => {
+    const { queryAllByTestId } = renderOverlay({
+      lithoLayers: matchedStack,
+      contactEdges: matchedEdges,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    // The SILT band's base contact (silt over clay) is a grabbable add-strip that
+    // runs HORIZONTALLY along the base (x1≈20, x2≈80), not a vertical column stub.
+    const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
+    expect(strip).toBeTruthy()
+    expect(Number(strip!.getAttribute('x1'))).toBeLessThan(40) // gap-left
+    expect(Number(strip!.getAttribute('x2'))).toBeGreaterThan(60) // gap-right span
+  })
+
+  it('T2 — clicking a tie-bounded base add-strip stores a contact node on the upper band (contact-bend, both bands follow)', () => {
+    const onSaveBoundary = vi.fn()
+    const { queryAllByTestId } = renderOverlay({
+      lithoLayers: matchedStack,
+      contactEdges: matchedEdges,
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    // Click deep inside the SILT band (elevation ~4 → y=60) on its base add-strip;
+    // the contact is at 5 m (y=50), so a raw-cursor store would float at y=60.
+    const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
+    expect(strip).toBeTruthy()
+    fireEvent.click(strip!, { clientX: 50, clientY: 60 })
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    // The node is stored on the UPPER band (silt) lower_nodes (S68 contact-bend),
+    // ON the base contact (~5 m), NOT the interior cursor elevation (4 m).
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
+    const lower = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
+    expect(lower).toHaveLength(1)
+    expect(lower[0].elevation_m).toBeGreaterThan(4.4) // rides the ~5 m contact
+    expect(lower[0].elevation_m).toBeLessThan(5.6)
+  })
+})
+
 // Direct predicate contract: the shape signal that decides whether a region
 // exposes the apex freedraw gesture, independent of either engine.
 describe('isApexShapeable — the engine-agnostic tip predicate', () => {

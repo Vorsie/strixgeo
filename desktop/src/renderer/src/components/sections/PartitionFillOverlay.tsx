@@ -73,6 +73,7 @@ import {
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
+  projectClickToCandidate,
   routeAddStripByContainment,
   type AddStripCandidate,
 } from './partitionAddStripRouter'
@@ -91,6 +92,7 @@ import {
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
 import {
+  baseContactEdge,
   buildLensPolygon,
   isApexShapeable,
   labelAnchor,
@@ -276,7 +278,22 @@ const NODE_OWN_EPS = 0.5
 // Width (px) of the transparent add-strip polyline hit area along each boundary.
 const ADDSTRIP_HIT_W = 14
 
+// Minimum VISIBLE apex reach (fraction of the gap) a lens override may request
+// (S72). The engine only clamps the apex fraction to its geometric-legality bound
+// [0.02, 0.98] — a 2% reach is a hairline sliver that reads as "the lens
+// disappeared" (owner 2026-07-22, "i clicked the apex of the silt lens and it
+// disappeared"). Clamping the apex fraction symmetrically to [FLOOR, 1−FLOOR]
+// keeps a left-anchored lens (reach = fraction) AND a right-anchored lens
+// (reach = 1 − fraction) at ≥ FLOOR of the gap, so a click near the source column
+// can never pinch the lens to nothing. 0.08 (8 %) is comfortably visible yet well
+// below any real shaped lens, so it never fights a deliberate shape.
+const MIN_VISIBLE_APEX_FRACTION = 0.08
+
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
+
+/** Clamp an apex fraction to the VISIBLE reach floor (symmetric, both sides). */
+const clampVisibleApex = (f: number): number =>
+  Math.max(MIN_VISIBLE_APEX_FRACTION, Math.min(1 - MIN_VISIBLE_APEX_FRACTION, f))
 
 
 /** Render the partition fill (+ labels, open-end stubs, context menu). */
@@ -662,7 +679,12 @@ export default function PartitionFillOverlay({
         if (upper.length + lower.length === 0) return // no owned node → domain default apex
         const apex0 = upper[0] ?? lower[0]
         apexOverrides.set(lensApexOverrideKey(bodyId, i), {
-          fraction: apex0.fraction,
+          // Floor the apex reach to a VISIBLE fraction (S72): a click near the source
+          // column face drove the apex toward the column → the engine's 2%-legality
+          // clamp left a hairline sliver that read as "the lens disappeared". The
+          // symmetric visible floor keeps the reach ≥ 8 % of the gap from EITHER
+          // anchored side, so a click can never pinch the lens to nothing.
+          fraction: clampVisibleApex(apex0.fraction),
           elevation: apex0.elevation,
           upper,
           lower,
@@ -1562,10 +1584,17 @@ export default function PartitionFillOverlay({
         const minY = upper.minY + 1
         const maxY = lower.maxY - 1
 
-        // Natural edge endpoints (upper polygon's last two vertices = base edge).
+        // Natural edge = the upper region's BASE contact (its deepest horizontal
+        // span). NOT the polygon's last two vertices: a v2 full-width band winds
+        // topL→baseL→baseR→topR, so its last two vertices are the RIGHT COLUMN edge
+        // — the add-strip then rendered as a vertical stub on the column and the
+        // base contact could not be grabbed (owner "can't grab a base-tie-bounded
+        // unit", GEO-23/125-S10). ``baseContactEdge`` picks the true base span so
+        // the add-strip sits ON the contact and a click projects onto it (S72).
         const uPts = upper.points
         const nu = uPts.length
-        const naturalEdge: SharedBoundary['naturalEdge'] = [
+        const baseEdge = baseContactEdge(uPts)
+        const naturalEdge: SharedBoundary['naturalEdge'] = baseEdge ?? [
           { x: uPts[nu - 2].x, y: uPts[nu - 2].y },
           { x: uPts[nu - 1].x, y: uPts[nu - 1].y },
         ]
@@ -1854,11 +1883,23 @@ export default function PartitionFillOverlay({
     for (const sb of sharedBoundaries) {
       const [ne0, ne1] = sb.naturalEdge
       const upperRegion = screenRegions[sb.upperIdx]
+      const segs: [{ x: number; y: number }, { x: number; y: number }][] = [[ne0, ne1]]
       cands.push({
-        segments: [[ne0, ne1]],
+        segments: segs,
         regionPolygon: upperRegion?.points,
-        dispatch: () =>
-          handleBoundaryAddNode(sb.upperBodyId, sb.leftX, sb.rightX, lastClick.current.x, lastClick.current.y),
+        // PROJECT the click onto the contact edge (S72): a click deep inside the
+        // upper band must drop the node ON the shared contact at the cursor x, not
+        // float at the raw interior y (the "point without grabbing a boundary" +
+        // the tie-bounded-base "can't grab it" dogfeed). ``handleBoundaryAddNode``
+        // then stores the on-edge (along, elevation); S68's contact-override
+        // re-partitions BOTH bands through the engine, so a tie-bounded base bends
+        // gap/overlap-free.
+        dispatch: () => {
+          const p =
+            projectClickToCandidate(lastClick.current, { segments: segs, dispatch: null }) ??
+            lastClick.current
+          handleBoundaryAddNode(sb.upperBodyId, sb.leftX, sb.rightX, p.x, p.y)
+        },
       })
     }
     // Lens strips: BOTH the upper and the lower edge of each lens are candidates.
@@ -1880,7 +1921,26 @@ export default function PartitionFillOverlay({
         regionPolygon: sr.points,
         dispatch: () => {
           const edge = nearerLensEdge({ x: lastClick.current.x, y: lastClick.current.y }, upperSeg, lowerSeg)
-          handleLensAddNode(sl.bodyId, edge, lastClick.current.x, lastClick.current.y)
+          // PROJECT onto the CHOSEN edge (S72): the node rides that lens edge at the
+          // cursor x, never floating in the lens interior. Projecting onto the picked
+          // edge (not both) keeps the node on the same edge ``nearerLensEdge`` selected.
+          const seg = edge === 'upper' ? upperSeg : lowerSeg
+          const p =
+            projectClickToCandidate(lastClick.current, { segments: [seg], dispatch: null }) ??
+            lastClick.current
+          // VISIBLE-REACH FLOOR (S72): the engine emits the lens with its apex AT this
+          // node, so a node dropped near the anchored column face collapses the lens to
+          // a hairline ("clicked the apex → it disappeared"). Push the node's along-x
+          // to at least MIN_VISIBLE_APEX_FRACTION of the gap away from the source
+          // column so a click can never pinch the lens to nothing. Left-anchored: reach
+          // grows with x → floor x; right-anchored: reach grows as x shrinks → cap x.
+          const gapW = sl.rightX - sl.leftX
+          const floorPx = MIN_VISIBLE_APEX_FRACTION * gapW
+          const nodeX =
+            sl.side === 'left'
+              ? Math.max(sl.leftX + floorPx, p.x)
+              : Math.min(sl.rightX - floorPx, p.x)
+          handleLensAddNode(sl.bodyId, edge, nodeX, p.y)
         },
       })
     }
