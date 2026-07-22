@@ -7904,3 +7904,89 @@ a same-litho interior seam. Do NOT ship #1's neighbour-mangle silently.
 - `partitionFillV2.allSectionsReshape.diag.test.ts` — NEW KEPT gate (CS1_GATE=1): all-14 CONSUMED/DEAD + DEAD classify.
 - `throwaway_s76_junction.diag.test.ts` — inert placeholder (probe promoted to the kept gate). **ORCHESTRATOR: DELETE** (`rm` denied).
 - `REWRITE_STATE.md` — this §82.
+
+## §83 — Session 77: GHOST-CONTACT handle suppression SHIPPED (owner ruling #2 — SUPPRESS). The 24 residual dead handles (S76) are ghost contacts (merge-then-delete same-litho band-interior seams, no geological meaning) → a per-topology probe suppresses their grab handle so EVERY rendered handle reshapes. §71's dead-handle detection failed on the fresh-grab path (it only read `apexOverrides.keys()` = stored nodes); the new probe covers the common first-grab. App-layer only; engine + v1 + intersect.ts byte-untouched (no engine source edited; reshapeMap 69/56/13 + allSectionsReshape 143/24 UNMOVED, HOLES_DIAG 0/0/0, CS1 gates 8/8).
+
+Owner ruling (2026-07-22, verbatim): "hide them, if they were merged into one body and
+deleted afterwards then they are GHOST CONTACTS, modelling artefacts with no real meaning."
+Option #2 (SUPPRESS) of the S82 fork. RESULT: every handle the tool shows reshapes.
+
+### THE GHOST-DETECTION PROBE (new pure module `partitionGhostHandles.ts`)
+`detectDeadHandleBodies(base, columns, edges, alongM, compute, regionsToProbe?)`: for EVERY
+apex-shapeable region (the exact set `screenLenses` renders a handle for), feed a MODERATE
+single-body `LensApexOverride` the way `setShape` does (apex nudged 0.15 toward mid-gap at the
+region's mid-elevation, key `lensApexOverrideKey(bodyId, gap)`), re-run `compute`, and compare
+the body's footprint signature (`bodyFootprintSig` — the body's polygon(s) for that gap, vertex-
+order-independent, 1e-4 rounded) BEFORE vs AFTER. Byte-static → GHOST (returned in the `gap:bodyId`
+DEAD set). Engine-agnostic: `compute` is injected (`computeSectionFillV2` in tests,
+`computeSectionFillActive` in the overlay). The `regionsToProbe` subset param (default = base's
+shapeable regions) lets a caller re-probe ONE rendered handle while STILL comparing against the
+FULL-partition footprint — the before-sig is always read from `base`, never the subset (a body
+with several regions in one gap would false-flag otherwise; this bit the first gate draft, fixed).
+
+### THE MEMOISATION (perf — probe runs once per TOPOLOGY, never per drag frame)
+NEW `partitionTopology` memo (`PartitionFillOverlay.tsx` ~569): the drag-INDEPENDENT partition
+inputs (orderedColumns / approved edges / alongM), deps `[orderedInvs, colByInv, screenByInv,
+contactEdges, showBands]` — NO `lensDrag`. NEW `deadHandleBodies` memo (~889): builds its OWN
+no-override base via `computeSectionFillActive`, runs the probe, memoised on `[partitionTopology,
+partitionEngineV2]`. Because `partitionTopology`'s reference is stable across a drag, the probe
+does NOT re-run on drag/hover — only on a real model/section change. (`sectionFillData` re-runs
+per drag frame; deliberately NOT a dep.) Off on v1 (empty set → no suppression) and < 2 cols.
+Logged at INFO with the ghost class + count.
+
+### THE SUPPRESSION (surgical, one `.has()` + a router barrier)
+`screenLenses` (~1780): `if (deadHandleBodies.has(gap:bodyId)) continue` — next to the §77
+`unroutableBodies` skip. Drops the add-strip + node handle for every ghost tip. Because the lens
+add-strip CANDIDATES (`addStripCandidates` ~2059) iterate `screenLenses`, a suppressed ghost is
+ALSO not a click target — suppression propagates to both the visible affordance AND the router.
+
+### THE ROUTER BARRIER (the one real interaction consequence — RC2 caught it)
+Suppressing a ghost region's candidate re-exposed the S71 bug: a click INSIDE the ghost region
+(no candidate) fell through to the nearest-segment FALLBACK → grabbed a DISTANT live lens (RC2:
+"click in sand grabbed silt4 whose region does not contain it"). FIX (`partitionAddStripRouter.ts`):
+`routeAddStripByContainment` gained an optional `barrierRegions` param — the GHOST region rings.
+A click inside a barrier but outside every candidate returns `null` (a NO-OP: no reshape there,
+never a distant grab). Only GHOST rings are barriers (not all regions — that broke N1/T2's
+below-a-matched-contact clicks, which must still route to the contact). `routeAddStripClick`
+(~2117) passes `screenRegions.filter(dead).map(points)`.
+
+### VERIFICATION (real data, TDD)
+- **Load-bearing gate** `partitionGhostHandles.diag.test.ts` (CS1_GATE=1, all 14 real sections):
+  **shapeable=167 RENDERED=141 suppressed=20 DEAD-among-rendered=0**. Of the handles ACTUALLY
+  RENDERED after suppression (`shapeable − dead`), EVERY one reshapes (re-probed independently per
+  rendered handle — the gate can't pass by bookkeeping). CS1: shapeable=69 rendered=56 suppressed=11.
+  (The 20 vs S76's 24: the probe counts tips byte-static under the EXACT single-body override the app
+  feeds on a fresh grab — the right set to suppress; the ruling-aligned invariant DEAD-among-rendered=0
+  is what matters.) + a ghost-is-dead/live-is-not micro-gate on CS1.
+- **RED→GREEN component gate** (PartitionFillOverlay `GH` block, v2): GH1 (a same-litho continuous
+  sand matrix's ghost convergence tip renders NO `partition-lens-addstrip-sand-*`, while ≥1 enclosed
+  silt lens keeps its handle) — **RED PROOF**: gating the suppression line to `false` made the sand
+  ghost render 3 add-strips; the guard turns it 0. GH2 (a click inside the ghost band is a no-op,
+  never grabs a distant silt). **Router unit** C6 (barrier no-op vs outside-barrier fallback).
+- **No regressions**: PartitionFillOverlay suite **63 pass** (was 61; +GH1/GH2). Router unit
+  **14 pass** (+C6). Full sections+utils **1423 pass / 42 skip / 0 fail** (was 1420; +GH1/GH2/C6),
+  ZERO new reds. **tsc clean** (`tsconfig.web.json`). RC/CW/N/T/ST/A/PP/reshapeMap all green.
+- **Engine byte-intact BY CONSTRUCTION** (no `partitionFillV2/` / `partitionFill/` / `intersect.ts`
+  / v1 source touched): reshapeMap **69/56/13** + allSectionsReshape **143/24** UNMOVED, HOLES_DIAG
+  **0/0/0** (all 14), CS1 gates **8/8**. Pre-existing conformance ratchet (flag-ON, §81) untouched.
+- **Perf**: the probe is memoised on the topology (`partitionTopology`, no `lensDrag` dep) — it does
+  NOT re-run on a drag/hover, only on a model change. CS1 full detection ≈15 s (69 shapeable × a
+  re-partition each) — acceptable once per topology; the gate times out at 120 s only because it
+  re-probes every rendered handle a second time for the independent DEAD-among-rendered assertion.
+
+### OWNER DOGFEED SCRIPT
+Open CS1 → Litho axis → engine v2. On any section, the ghost band-convergence tips (interior seams
+of a continuous same-litho band) show NO grab handle; every handle that IS shown reshapes live (no
+gap), and a click inside a ghost band is a no-op (never grabs a distant lens). Pan doesn't fight
+(S76 floor intact). Console INFO logs the ghost class + count per topology.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `partitionGhostHandles.ts` — NEW pure module: `detectDeadHandleBodies` + `bodyFootprintSig`.
+- `partitionGhostHandles.diag.test.ts` — NEW KEPT gate (CS1_GATE=1): all-14 DEAD-among-rendered=0 + micro-gate.
+- `PartitionFillOverlay.tsx` — `partitionTopology` + `deadHandleBodies` memos; `screenLenses` ghost skip; router barrier wiring.
+- `PartitionFillOverlay.test.tsx` — NEW `GH` block (GH1 RED→GREEN ghost-no-handle, GH2 no-op-in-ghost).
+- `partitionAddStripRouter.ts` — `routeAddStripByContainment` `barrierRegions` param (ghost no-op).
+- `partitionAddStripRouter.test.ts` — NEW C6 (barrier no-op vs fallback).
+- `REWRITE_STATE.md` — this §83.
+- **ORCHESTRATOR: DELETE** the superseded throwaway (`rm` denied to the session):
+  `utils/throwaway_s76_junction.diag.test.ts` (S76 inert; the S74 throwaway was already removed).
