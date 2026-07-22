@@ -55,9 +55,14 @@ export function terminationApexOverride(
   if (!overrides || bodyId == null) return null
   const ov = overrides.get(lensApexOverrideKey(bodyId, gapIndex))
   if (!ov) return null
+  return clampApex(ov.fraction, ov.elevation)
+}
+
+/** Clamp an override apex fraction to the strictly-interior envelope; elevation passes through. */
+function clampApex(fraction: number, elevation: number): { fraction: number; elevation: number } {
   // A strictly-interior fraction: a dragged apex ON/PAST a column vertical would make the flank
   // collinear with (or cross) that column — the clamp is the "never overlap" legality bound.
   const FRACTION_MARGIN = 0.02
-  const fraction = Math.min(1 - FRACTION_MARGIN, Math.max(FRACTION_MARGIN, ov.fraction))
-  return { fraction, elevation: ov.elevation }
+  const clamped = Math.min(1 - FRACTION_MARGIN, Math.max(FRACTION_MARGIN, fraction))
+  return { fraction: clamped, elevation }
 }

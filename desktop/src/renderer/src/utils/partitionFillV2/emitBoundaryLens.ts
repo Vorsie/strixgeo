@@ -112,6 +112,8 @@ export function emitBoundaryLens(
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
   out: InputCurve[],
+  gapIndex = -1,
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): boolean {
   // The boundary polyline the TIED leg rides, per side:
   //   surface → the TOP band (first-litho boundary): near = u.topElev, facing = firstLithoTop(facing).
@@ -120,6 +122,15 @@ export function emitBoundaryLens(
   const facingBandElev = boundary === 'surface' ? firstLithoTopElev(facing) : shallowTD
   // The FREE contact corner (the flank the lens draws) is the OTHER contact.
   const freeElev = boundary === 'surface' ? u.baseElev : u.topElev
+  // FREE-DRAW APEX OVERRIDE (owner 2026-07-22, THIRD engine grant — "make every handle reshape"):
+  // a per-body node MOVES this boundary lens's tip REACH (fraction). The apex ELEVATION always rides
+  // the boundary polyline at that fraction (the top band for a surface lens, the flat TD floor for a
+  // td lens) — the tied leg is that existing line art, so keeping the apex ON the polyline preserves
+  // the watertight closure (letting it float off would separate the tied leg from the polyline and
+  // open a sliver). NO override → the 8b-halved default reach, byte-identical. The override passes
+  // UN-capped by the 8b halving (an overridden apex is the user's explicit reach, design §8 line 795),
+  // clamped only to the strictly-interior envelope so it never sits ON/PAST the far column.
+  const ov = terminationApexOverride(overrides, u.bodyId, gapIndex)
 
   // RULING 8i(e) "EVERYTHING MUST LENS" (audit item 5, S34): the ``facingMatrixLabel === null`` reach
   // guard is DELETED. A boundary corr-0 unit lenses regardless of whether the facing sample finds a
@@ -133,21 +144,31 @@ export function emitBoundaryLens(
   // The apex rides the boundary polyline at fraction f; the free flank runs from the apex to
   // the free corner. The apex must clear the free corner by the margin (a zero-height flank
   // merges the lens into the enclosing fill) and not collapse to a 1 mm grid cell.
-  let f = lensReachFraction(u.topElev - u.baseElev, facingX - colX)
   const freeCorner: Point = { x: colX, y: freeElev }
   let apex: Point | null = null
-  while (f >= MIN_REACH_FRACTION) {
-    const apexX = colX + f * (facingX - colX)
-    // The boundary polyline elevation at the apex x (straight interpolation between the
-    // near-column corner and the facing endpoint — RIDES the real polyline; a true horizontal
-    // for the TD floor, a sloping ride for the surface top band).
-    const apexElev = nearBandElev + f * (facingBandElev - nearBandElev)
+  if (ov) {
+    // OVERRIDE: the user's explicit reach — no 8b halving. The apex rides the boundary polyline at
+    // the override fraction; only a genuine degenerate (apex on the free corner) is a no-op.
+    const apexX = colX + ov.fraction * (facingX - colX)
+    const apexElev = nearBandElev + ov.fraction * (facingBandElev - nearBandElev)
     const cand: Point = { x: apexX, y: apexElev }
-    if (!segmentDegenerate(cand, freeCorner) && Math.abs(apexElev - freeElev) > APEX_MARGIN) {
-      apex = cand
-      break
+    if (!segmentDegenerate(cand, freeCorner) && Math.abs(apexElev - freeElev) > APEX_MARGIN) apex = cand
+  } else {
+    // Ruling 8b reach: start at the ~2× thickness cap, HALVE on conflict until the free flank fits.
+    let f = lensReachFraction(u.topElev - u.baseElev, facingX - colX)
+    while (f >= MIN_REACH_FRACTION) {
+      const apexX = colX + f * (facingX - colX)
+      // The boundary polyline elevation at the apex x (straight interpolation between the
+      // near-column corner and the facing endpoint — RIDES the real polyline; a true horizontal
+      // for the TD floor, a sloping ride for the surface top band).
+      const apexElev = nearBandElev + f * (facingBandElev - nearBandElev)
+      const cand: Point = { x: apexX, y: apexElev }
+      if (!segmentDegenerate(cand, freeCorner) && Math.abs(apexElev - freeElev) > APEX_MARGIN) {
+        apex = cand
+        break
+      }
+      f /= 2
     }
-    f /= 2
   }
   if (apex === null) return false // no reach fits — physical no-op (the enclosing flood covers it)
 

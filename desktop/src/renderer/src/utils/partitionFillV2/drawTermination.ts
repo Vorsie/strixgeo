@@ -57,6 +57,7 @@ import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandCo
 import { type ResolvedTie } from './emitCurves'
 import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
+import { emitOverriddenLensClosing, sweepLensOverrideApex } from './emitLensOverride'
 import { facingMatrixLabel } from './facingMatrix'
 import { detourFlankAroundEnclosedLenses } from './detourEnclosedLens'
 import { interiorLensReachToTies } from './lensReach'
@@ -233,7 +234,7 @@ export function drawTermination(
     // suppressions are PHYSICAL (degenerate / sub-snap), applied inside ``emitLensClosing``.
     // ``diamonds`` (ruling 8s STAGE B) collects the emitted interior-lens diamond so a crossing
     // ``bandc`` band contour can detour around it in ``emitEnclosingFlood``.
-    return emitLens(iu, ui, colX, facingX, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds)
+    return emitLens(iu, ui, colX, facingX, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
   }
   // corr === 1: RULING 8m (owner, 2026-07-17 — "restore it, just add a lithology check before
   // drawing"). The same-litho onlap suppression is RESTORED in follow-the-tie form (below),
@@ -289,6 +290,13 @@ export function drawTermination(
   // facing-side rule fixes col18 but INVERTS the followTieOnlap / oneCorrActualTie regression locks
   // (owner-locked own-side semantics on the identical mixed-tie shape). Left UNCHANGED pending the
   // owner ruling — see REWRITE_STATE §64.
+  // SAME-LITHO MERGE SKIP (ruling 8m): a corr-1 onlap whose matched facing is the SAME litho is
+  // suppressed (the tie bounds the space, the 8j merge welds ONE body — the flank would be an
+  // interior seam). This stays UNCONDITIONAL: drawing the flank for a same-litho pair pinches a body
+  // that the enclosing flood does not re-cover behind (it is one continuous same-litho band), opening
+  // a hole — measured on real CS1 (gap-0 019ea170 dragged to 0.3 → 1.98 m hole). The user's handle on
+  // such a tip is a FLOOD-convergence vertex of a continuous band, not a real lateral termination;
+  // reshaping it is an APP-suppression concern (S76 un-routable cleanup), NOT a safe engine reshape.
   if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) return false
   // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent). A
   // free-draw override (``overrides``) moves that tip to the drawn apex; the arrangement re-closes.
@@ -318,7 +326,17 @@ function emitLens(
   nextFloodId: () => string,
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): boolean {
+  // FREE-DRAW APEX OVERRIDE (owner 2026-07-22, THIRD engine grant — "make every handle reshape"):
+  // a persisted per-body node moves the SWEEP's corr-0 lens apex to the drawn (fraction, elevation),
+  // exactly the way ``emitLenses``' enclosed-lens path already does. A lens apex takes BOTH the
+  // fraction (reach) AND the elevation (a lens is a free 2D shape, unlike an onlap tip whose
+  // elevation rides its tie). The moved apex feeds BOTH the lens closing flanks AND the flood wedge
+  // (they share it), so the partition re-closes gap/overlap-free by construction. The override is
+  // clamped to the strictly-interior envelope (never ON/PAST the far column) and passes UN-capped by
+  // the 8b reach cap (design §8 line 795). NO override → the default 8b-capped apex, byte-identical.
+  const lensOv = terminationApexOverride(overrides, u.bodyId, gapIndex)
   // RULING 8b-rev (owner, 2026-07-19): the DEFAULT interior-lens reach is 0.45; the ~2× thickness
   // cap applies ONLY on COLLISION with a gap tie ("shorten lenses that collide with a sloping
   // correlation"). ``interiorLensReachToTies`` returns 0.45 when no tie brackets the unit, else
@@ -352,7 +370,7 @@ function emitLens(
   // CONSTRUCTION. The SOLE reach shortener is a genuine wedge-vs-DRAWN-tie collision, which
   // ``interiorLensReachToTies`` applies (gap ties only — no band contours).
   const gapTiesForReach = activeTies.filter((t) => t.gapIndex === gapIndex)
-  const apexFrac = Math.min(
+  const defaultFrac = Math.min(
     INTERIOR_PINCH_FRACTION,
     interiorLensReachToTies(
       u.topElev - u.baseElev,
@@ -364,13 +382,24 @@ function emitLens(
       gapTiesForReach,
     ),
   )
-  const apexX = colX + apexFrac * (facingX - colX)
-  const apexElev = lensMid
-  const before = out.length
-  emitLensClosing(iu, colX, facingX, apexFrac, nextId, out)
+  // FREE-DRAW OVERRIDE (owner 2026-07-22): a per-body node moves the apex (fraction + elevation),
+  // bypassing the 8b cap. ``sweepLensOverrideApex`` resolves the moved apex (and its gap-local
+  // fraction); ``emitOverriddenLensClosing`` emits the flanks directly at it (no 8b re-cap). NO
+  // override → the default 8b-capped path (``emitLensClosing``), byte-identical.
+  const ovApex = sweepLensOverrideApex(overrides, u, gapIndex, colX, facingX)
+  const apexFrac = ovApex ? ovApex.fracFromCol : defaultFrac
+  const apexX = ovApex ? ovApex.apexX : colX + apexFrac * (facingX - colX)
+  const apexElev = ovApex ? ovApex.apexElev : lensMid
   const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
-  const emitted = out.length > before // ``emitLensClosing`` may no-op (degenerate) — skip the wedge too
-  for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)
+  let emitted: boolean
+  if (ovApex) {
+    emitted = emitOverriddenLensClosing(iu, colX, { x: apexX, y: apexElev }, label, nextId, out, lensLabels)
+  } else {
+    const before = out.length
+    emitLensClosing(iu, colX, facingX, apexFrac, nextId, out)
+    emitted = out.length > before // ``emitLensClosing`` may no-op (degenerate) — skip the wedge too
+    for (let ci = before; ci < out.length; ci++) lensLabels.set(out[ci].id, label)
+  }
   if (!emitted) return false
   // RULING 8s STAGE B: record the EXACT emitted diamond so ``emitEnclosingFlood`` can detour a
   // crossing ``bandc`` band contour around it (collinear with the flanks just emitted). Only the

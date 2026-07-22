@@ -290,7 +290,7 @@ function emitSideSweep(
       // line art), never a reason to restore the guard.
       emitCorr0Termination(
         u, piece.hostUnitIndex, eff, col, facing, side, colX, facingX, gapIndex, shallowTD,
-        activeTies, lensLabels, nextId, nextFloodId, out, false, pieceIsFirst, pieceIsLast, diamonds,
+        activeTies, lensLabels, nextId, nextFloodId, out, false, pieceIsFirst, pieceIsLast, diamonds, overrides,
       )
       continue
     }
@@ -317,6 +317,11 @@ function emitSideSweep(
       // generic corr-1 8m check in ``drawTermination``: the matched facing is the unit on OUR side of
       // the tie (below the top band = ui 0).
       const facingFirst = facing.units[0]
+      // SAME-LITHO MERGE SKIP — the two surface onlaps meet at 0.5 and the 8j merge welds them into
+      // ONE body, so the flank is SUPPRESSED (a redundant interior seam). This stays UNCONDITIONAL:
+      // drawing it for a same-litho pair pinches a continuous band the flood does not re-cover behind,
+      // opening a hole. Such a tip is a flood-convergence vertex of a continuous band, not a real
+      // lateral termination — reshaping it is an APP-suppression concern (S76), not a safe engine reshape.
       if (facingFirst && facingFirst.formationId === u.formationId) continue
       // Item B: a per-body free-draw override MOVES this surface-onlap tip's reach (byte-identical
       // no-override → the fixed 0.5 tip).
@@ -416,6 +421,7 @@ export function emitCorr0Termination(
   isFirstOverride?: boolean,
   isLastOverride?: boolean,
   diamonds?: Corr0Diamond[],
+  overrides?: ReadonlyMap<string, LensApexOverride>,
 ): void {
   if (subTd) {
     // SUB-TD: the deep-to-deep substrate is the flood. Emit ONLY the bare lens closing (no facing
@@ -438,7 +444,7 @@ export function emitCorr0Termination(
   // A multi-unit column's FIRST / LAST unit rides a boundary polyline (top band / shallow-TD floor) —
   // the watertight S20 boundary-lens triangle. GEOMETRY only: chosen from ui + extent, never litho.
   if ((isFirst || isLast) && !(isFirst && isLast)) {
-    emitBoundaryLens(u, isFirst ? 'surface' : 'td', colX, facingX, facing, shallowTD, lensLabels, nextId, out)
+    emitBoundaryLens(u, isFirst ? 'surface' : 'td', colX, facingX, facing, shallowTD, lensLabels, nextId, out, gapIndex, overrides)
     return
   }
   // INTERIOR unit (both neighbours) or a degenerate single-unit column (no boundary polyline) — the
@@ -446,6 +452,6 @@ export function emitCorr0Termination(
   // no-ops a sub-snap lens cleanly). Byte-identical to the pre-S34 ``isMinorityWide``-true path.
   drawTermination(
     u, ui, 0, eff.topTied, eff.baseTied, eff.topTie, eff.baseTie, false, false,
-    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out, diamonds,
+    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out, diamonds, overrides,
   )
 }
