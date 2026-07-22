@@ -82,6 +82,48 @@ export function computeSectionFillV2WithConflicts(
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
   alongM?: readonly number[],
 ): { regions: SectionRegion[]; conflicts: TieConflict[] } {
+  const outcome = classifyOverrideOutcome(columns, edges, lensApexOverrides, alongM)
+  return { regions: outcome.regions, conflicts: outcome.conflicts }
+}
+
+/**
+ * A STRUCTURED result for a free-draw override pass (owner free-draw repair, Fact C).
+ *
+ * The engine keeps the "never a gap or overlap" invariant BY CONSTRUCTION: an unsafe drag
+ * degrades to the un-reshaped base fill. Before this repair that degradation was SILENT —
+ * the handle moved while the body was unchanged and nothing recorded why. This tri-state
+ * makes every override pass traceable:
+ *
+ *   - ``applied``        — a variant (aliased or direct) reshaped gap/overlap-safe; ``regions``
+ *                          carry the reshaped fill.
+ *   - ``rejected-unsafe``— every variant exceeded the no-override base defect area; ``regions``
+ *                          fall back to the un-reshaped base and the defect areas are reported
+ *                          so the caller can prove the rejection (never a silent success).
+ *   - ``unsupported``    — no override was present (or the section was degenerate); ``regions``
+ *                          are the plain no-override fill.
+ */
+export type OverrideOutcome =
+  | { status: 'applied'; source: 'aliased' | 'direct'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
+  | { status: 'rejected-unsafe'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
+  | { status: 'unsupported'; reason: string; regions: SectionRegion[]; conflicts: TieConflict[] }
+
+/**
+ * Compute the v2 fill AND report a structured outcome for the override pass.
+ *
+ * The no-override path is BYTE-IDENTICAL to the pre-repair engine: a single ``runFill`` with
+ * the (undefined/empty) override map, returned as an ``unsupported`` outcome (nothing to apply).
+ * The with-override path aliases the override across the merge component, self-validates each
+ * variant against the no-override base defect area, and returns ``applied`` / ``rejected-unsafe``
+ * with the measured defect areas — never a silent base fallback.
+ *
+ * Parameters mirror ``computeSectionFillV2``.
+ */
+export function classifyOverrideOutcome(
+  columns: readonly PartitionColumn[],
+  edges: readonly CorrelationEdge[] = [],
+  lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+  alongM?: readonly number[],
+): OverrideOutcome {
   // ONE fill pass for a given override map: normalise → emit → arrange → label → slice → merge.
   const runFill = (
     ov: ReadonlyMap<string, LensApexOverride> | undefined,
@@ -102,6 +144,12 @@ export function computeSectionFillV2WithConflicts(
     return { sliced, merged, conflicts }
   }
 
+  // No override → the byte-identical single-pass fill, reported as ``unsupported`` (nothing to apply).
+  if (!lensApexOverrides || lensApexOverrides.size === 0) {
+    const { merged, conflicts } = runFill(lensApexOverrides)
+    return { status: 'unsupported', reason: 'no override present', regions: merged, conflicts }
+  }
+
   // FREE-DRAW OVERRIDE ALIASING (owner 2026-07-22, THIRD engine grant "make every handle reshape").
   // The app keys an override on the RENDERED (post-``mergeTouchingBodies``) bodyId; the engine emits
   // per RAW unit and consumes the raw bodyId. In a single-lithology section the merge unions many raw
@@ -109,35 +157,43 @@ export function computeSectionFillV2WithConflicts(
   // handle is DEAD (S67 wall, measured on real CS1). We resolve it with a no-override BASE PASS that
   // reveals the exact render→raw equivalence (the merge only relabels, so the base pass's raw↔merged
   // polygon match is authoritative), then ALIAS each incoming override to every raw body in its
-  // component so the emitting unit finds it. This SECOND pass runs ONLY when overrides are present (a
-  // live drag — rare); the no-override path runs ``runFill`` ONCE, byte-identical. The base pass
-  // carries UNDEFINED overrides, so it never recurses.
-  if (!lensApexOverrides || lensApexOverrides.size === 0) {
-    const { merged, conflicts } = runFill(lensApexOverrides)
-    return { regions: merged, conflicts }
-  }
-
+  // component so the emitting unit finds it.
+  //
   // A live drag: alias the override across the merge component, then SELF-VALIDATE against the
   // no-override BASE. The aliasing makes many more handles reshape (S67 wall), and the direct
-  // override drives this session's additive consumers; but routing an override to a body whose emit
-  // path does not re-close cleanly under an AGGRESSIVE reach (a shared-junction surface tip whose
-  // partner does not follow) can open a hole/overlap. So we compute the no-override BASE hole area
-  // and pick the FIRST override variant — aliased (most handles live), else direct, else none — whose
-  // hole area does NOT exceed the base. This makes "never a gap or overlap" a HARD invariant BY
-  // CONSTRUCTION: an unsafe drag degrades to the un-reshaped (base) fill rather than tearing a hole.
+  // override drives the additive consumers; but routing an override to a body whose emit path does
+  // not re-close cleanly under an AGGRESSIVE reach can open a hole/overlap. So we compute the
+  // no-override BASE defect area and pick the FIRST variant — aliased (most handles live), else
+  // direct — whose defect area does NOT exceed the base. "Never a gap or overlap" stays a HARD
+  // invariant BY CONSTRUCTION; an unsafe drag degrades to the un-reshaped base fill — but now the
+  // degradation is EXPLICIT (``rejected-unsafe`` with the measured defect areas), never silent.
   const base = runFill(undefined)
   const baseDefect = sectionDefectArea(base.merged)
   const aliased = expandOverrideAliasesFromBase(lensApexOverrides, () => ({ sliced: base.sliced, merged: base.merged }))
-  for (const ov of [aliased, lensApexOverrides]) {
+  // Track the BEST (smallest) candidate defect so a rejection reports the closest attempt —
+  // still > base + EPS, which is exactly why it was rejected.
+  let bestCandidateDefect = Infinity
+  for (const [ov, source] of [
+    [aliased, 'aliased'],
+    [lensApexOverrides, 'direct'],
+  ] as const) {
     const fill = runFill(ov)
-    if (sectionDefectArea(fill.merged) <= baseDefect + HOLE_AREA_EPS) {
-      return { regions: fill.merged, conflicts: fill.conflicts }
+    const candidateDefect = sectionDefectArea(fill.merged)
+    if (candidateDefect < bestCandidateDefect) bestCandidateDefect = candidateDefect
+    if (candidateDefect <= baseDefect + HOLE_AREA_EPS) {
+      return { status: 'applied', source, regions: fill.merged, conflicts: fill.conflicts, baseDefect, candidateDefect }
     }
   }
   // Every override variant opened a hole vs the no-override base → the drag is not gap-safe at this
-  // position; keep the base (un-reshaped) fill so the partition invariant holds (the app's drag
-  // envelope + the S76 grab-radius work keep the user inside the safe reach).
-  return { regions: base.merged, conflicts: base.conflicts }
+  // position; keep the base (un-reshaped) fill so the partition invariant holds. The status is
+  // EXPLICIT so the caller never mistakes the fallback for a successful reshape.
+  return {
+    status: 'rejected-unsafe',
+    regions: base.merged,
+    conflicts: base.conflicts,
+    baseDefect,
+    candidateDefect: bestCandidateDefect,
+  }
 }
 
 /** Hole-area tolerance (m²) — a variant must not exceed the no-override base hole area by more. */
