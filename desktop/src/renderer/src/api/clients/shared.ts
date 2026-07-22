@@ -164,6 +164,32 @@ export async function del(path: string): Promise<void> {
 }
 
 /**
+ * Typed DELETE helper that parses the JSON response body.
+ *
+ * For DELETE endpoints that return a result (e.g. a deleted-count summary)
+ * rather than 204 No Content.
+ *
+ * Parameters
+ * ----------
+ * path : string
+ *   URL path relative to `_base`, including leading slash.
+ *
+ * Returns
+ * -------
+ * Promise<T>
+ *   Parsed JSON response body.
+ *
+ * Throws
+ * ------
+ * Error
+ *   On non-2xx HTTP status; includes server `detail` when parseable.
+ */
+export async function delReturning<T>(path: string): Promise<T> {
+  const res = await request('DELETE', path)
+  return res.json()
+}
+
+/**
  * Typed PATCH helper.
  *
  * Parameters
