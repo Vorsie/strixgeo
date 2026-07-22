@@ -187,6 +187,35 @@ describe('partitionAddStripRouter — region-containment pick (S71)', () => {
   it('C5 — empty list routes to null', () => {
     expect(routeAddStripByContainment({ x: 0, y: 0 }, [])).toBeNull()
   })
+
+  it('C6 — a click inside a GHOST barrier region (no candidate) is a NO-OP, not a distant grab (§83)', () => {
+    // The ghost-suppression case: the sand band is a GHOST (its handle suppressed →
+    // no candidate for it). A click deep inside sand must NOT fall back to grabbing a
+    // distant silt lens — that region absorbs the click as a no-op. Without the
+    // barrier, the nearest-segment fallback would grab the silt lens (the S71 bug).
+    const click = { x: 50, y: 70 }
+    const sandGhostRing = [
+      { x: 20, y: 50 },
+      { x: 80, y: 50 },
+      { x: 80, y: 90 },
+      { x: 20, y: 90 },
+    ]
+    const siltLensAbove: AddStripCandidate<string> = {
+      regionPolygon: [
+        { x: 20, y: 30 },
+        { x: 80, y: 30 },
+        { x: 20, y: 40 },
+      ],
+      segments: [[{ x: 20, y: 30 }, { x: 80, y: 40 }]], // the ONLY candidate (silt lens)
+      dispatch: 'silt-lens',
+    }
+    // WITHOUT the barrier: click outside the silt lens region → nearest-segment grabs it.
+    expect(routeAddStripByContainment(click, [siltLensAbove])).toBe('silt-lens')
+    // WITH the ghost ring as a barrier: the click is inside the ghost → no-op (null).
+    expect(routeAddStripByContainment(click, [siltLensAbove], [sandGhostRing])).toBeNull()
+    // A click OUTSIDE the ghost barrier still falls back (strip-overhang case).
+    expect(routeAddStripByContainment({ x: 50, y: 20 }, [siltLensAbove], [sandGhostRing])).toBe('silt-lens')
+  })
 })
 
 // ===========================================================================

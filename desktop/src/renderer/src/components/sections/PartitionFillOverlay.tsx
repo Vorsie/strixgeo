@@ -67,9 +67,11 @@ import { collectContactOverridesForGap } from './contactOverrideWiring'
 import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
+  computeSectionFillActive,
   computeSectionFillActiveWithDiagnostics,
   usePartitionEngineV2,
 } from '../../utils/partitionEngineSelect'
+import { detectDeadHandleBodies } from './partitionGhostHandles'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
@@ -565,6 +567,30 @@ export default function PartitionFillOverlay({
   // handle into the pan handler, even on a compressed section where ``handleScale`` is at its min.
   const lensHitR = Math.max(LENS_HIT_MIN_PX, LENS_HIT_R * handleScale)
 
+  // ---- PARTITION TOPOLOGY: the drag-independent partition inputs. ----------
+  //
+  // The ordered columns, approved edges, and true along-metres a partition is
+  // built from. These change ONLY on a model / section change — NOT on a live
+  // drag (``lensDrag`` is deliberately absent). Both the ``sectionFillData`` memo
+  // (which layers the drag overrides on top) and the ghost-handle probe (§83,
+  // which must NOT re-run per drag frame) consume this so the topology is derived
+  // once, referentially stable across drags. Empty when bands are off / < 2 cols.
+  const partitionTopology = useMemo((): {
+    orderedColumns: PartitionColumn[]
+    edges: CorrelationEdge[]
+    alongM: number[]
+  } => {
+    if (!showBands) return { orderedColumns: [], edges: [], alongM: [] }
+    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
+    const orderedColumns = valid.map((id) => colByInv.get(id) as PartitionColumn)
+    if (orderedColumns.length < 2) return { orderedColumns, edges: [], alongM: [] }
+    const edges: CorrelationEdge[] = (contactEdges ?? [])
+      .filter((e) => e.user_approved)
+      .map((e) => ({ a: e.layer_a_id, b: e.layer_b_id, aSide: e.layer_a_side, bSide: e.layer_b_side }))
+    const alongM = valid.map((id) => (screenByInv.get(id) as ColumnScreen).along)
+    return { orderedColumns, edges, alongM }
+  }, [orderedInvs, colByInv, screenByInv, contactEdges, showBands])
+
   // ---- DATA MEMO: call computeSectionFill only when partition inputs change. --
   //
   // Split from the screen-projection memo (below) so that pan/zoom events that
@@ -854,6 +880,47 @@ export default function PartitionFillOverlay({
         conflicts.map((c) => `gap${c.gapIndex}[${c.tieIds.join(' × ')}]`).join(', '),
     )
   }, [conflicts])
+
+  // ---- GHOST-CONTACT handle suppression (§83, v2 only). -------------------
+  //
+  // Owner ruling (2026-07-22): the residual DEAD apex handles (S76 measured 24
+  // across all 14 sections) are GHOST CONTACTS — interior convergence tips of a
+  // CONTINUOUS same-litho band (merge-welded then engine-suppressed by ruling 8m).
+  // They have no geological meaning; every handle the tool renders MUST reshape.
+  //
+  // §77's ``unroutableBodies`` only catches bodies with a STORED node at rest
+  // (it reads ``apexOverrides.keys()``), so a FRESH first-grab — the owner's case
+  // — always rendered every handle, the dead ones included. The correct detection
+  // is a PER-TOPOLOGY PROBE: for every apex-shapeable region, feed a moderate test
+  // override the way ``setShape`` does and re-partition; a ghost tip's footprint is
+  // byte-static → suppress its handle. MEMOISED on ``partitionTopology`` (columns /
+  // edges / along-metres — the drag-independent inputs), NOT on ``sectionFillData``
+  // (which re-runs per drag frame). The probe builds its OWN no-override base so
+  // its input is the topology, never the live-drag partition. Off on v1 (no engine
+  // consumer) and when the section isn't rendering bands.
+  const deadHandleBodies = useMemo((): Set<string> => {
+    const { orderedColumns, edges, alongM } = partitionTopology
+    if (!partitionEngineV2 || orderedColumns.length < 2) return new Set<string>()
+    // The base is the NO-OVERRIDE active-engine partition — the topology the owner
+    // sees at rest, the same regions the handles render for. A ghost tip is byte-
+    // static under its own single-body override; a live tip reshapes.
+    const base = computeSectionFillActive(orderedColumns, edges, undefined, alongM)
+    if (base.length === 0) return new Set<string>()
+    const dead = detectDeadHandleBodies(base, orderedColumns, edges, alongM, computeSectionFillActive)
+    if (dead.size > 0) {
+      // INFO (survives the default DevTools level filter) so a dogfeed sees the
+      // ghost class + count without a debugger.
+      log.info(
+        'partition',
+        `${dead.size} ghost-contact apex tip(s) — same-litho band-interior convergence, ` +
+          `override not consumed by the engine (ruling 8m); grab handle suppressed on v2: ` +
+          Array.from(dead).join(', '),
+      )
+    }
+    return dead
+    // ``partitionTopology`` (not ``sectionFillData``) + ``partitionEngineV2`` only —
+    // ``lensDrag`` is deliberately EXCLUDED so the probe never re-runs per frame.
+  }, [partitionTopology, partitionEngineV2])
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
   //
@@ -1709,6 +1776,14 @@ export default function PartitionFillOverlay({
       // override); with off-engine reshape retired it can't gap, but a dead handle is
       // still confusing, so suppress it.
       if (sectionFillData.unroutableBodies.has(`${sr.region.gapIndex}:${bodyId}`)) continue
+      // GHOST-CONTACT tip (§83): a shapeable tip on a fresh grab (no stored node)
+      // whose single-body override the engine does NOT consume — the residual DEAD
+      // handles S76 measured (interior convergence seams of a CONTINUOUS same-litho
+      // band, ruling-8m-suppressed). Owner ruling: these are modelling artefacts
+      // (merge-then-delete ghost contacts) with no geological meaning → NO grab
+      // handle. Unlike ``unroutableBodies`` (stored-node only), this per-topology
+      // probe covers the common first-grab path. Every handle that survives reshapes.
+      if (deadHandleBodies.has(`${sr.region.gapIndex}:${bodyId}`)) continue
 
       // Derive the anchored side + source corners from the polygon EXTENT, not from
       // ``polygon[0]``: v2 pinch polygons may START at the mid-gap tip (observed
@@ -1794,6 +1869,8 @@ export default function PartitionFillOverlay({
     plotBottom,
     // Suppress the grab handle for un-routable tips (§77).
     sectionFillData.unroutableBodies,
+    // Suppress the grab handle for ghost-contact tips (§83, fresh-grab path).
+    deadHandleBodies,
   ])
 
   // ---- SINGLE-SURFACE dedup: one stored node → one draggable dot (S73). --------
@@ -2042,7 +2119,15 @@ export default function PartitionFillOverlay({
     // Region-containment first (grab the body the click is inside), nearest-segment
     // fallback when the click is outside every region ring (§77). Robust where the
     // plain nearest-segment pick was fooled by a distant lens's diagonal flank.
-    const dispatch = routeAddStripByContainment({ x: cx, y: cy }, addStripCandidates)
+    // The BARRIER regions = the GHOST regions whose handle §83 suppressed. A click
+    // inside a ghost region is a NO-OP (there is no reshape there), never a fallback
+    // grab of a DISTANT body (else suppressing a ghost re-exposes the S71 "grabbed a
+    // body the cursor isn't inside" bug). Only ghost rings are barriers — a click in
+    // a normal band (e.g. just below a matched contact) still routes as before.
+    const barrierRegions = screenRegions
+      .filter((sr) => sr.region.bodyId && deadHandleBodies.has(`${sr.region.gapIndex}:${sr.region.bodyId}`))
+      .map((sr) => sr.points)
+    const dispatch = routeAddStripByContainment({ x: cx, y: cy }, addStripCandidates, barrierRegions)
     if (dispatch) dispatch()
   }
 

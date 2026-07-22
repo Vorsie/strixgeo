@@ -251,24 +251,37 @@ export function routeNearestAddStrip<T>(
  *      is the within-body / shared-contact tiebreak (a shared contact click sits
  *      inside both incident bands; the nearer edge wins). ``nearerLensEdge`` in
  *      the caller then resolves upper-vs-lower for the winning lens.
- *   3. If NONE contain the click (it fell just outside all region rings, e.g. on
- *      a strip's overhang past its region), fall back to the global
- *      nearest-segment pick so an edge click still lands.
+ *   3. If NONE contain the click but it sits inside a ``barrierRegion`` (a rendered
+ *      region with NO candidate — a GHOST tip whose handle was suppressed, §83),
+ *      return ``null``: the body under the cursor offers no reshape, so the click
+ *      must be a NO-OP, never a fallback grab of a DISTANT body (that was the S71
+ *      "grabbed a body the cursor isn't inside" bug, re-exposed by suppression).
+ *   4. If NONE contain the click AND it is outside every barrier (it fell just
+ *      outside all region rings, e.g. on a strip's overhang past its region), fall
+ *      back to the global nearest-segment pick so an edge click still lands.
  *
- * @param click      The cursor position in SVG coordinates.
- * @param candidates All add-strip candidates whose hit areas may contain the click.
- * @returns          The chosen candidate's ``dispatch`` payload, or ``null`` when
- *                   the list is empty.
+ * @param click         The cursor position in SVG coordinates.
+ * @param candidates    All add-strip candidates whose hit areas may contain the click.
+ * @param barrierRegions Optional rings of EVERY rendered region (incl. ghost regions
+ *                       with no candidate). A click inside one of these but outside
+ *                       every candidate is a no-op — not a distant fallback grab.
+ * @returns             The chosen candidate's ``dispatch`` payload, or ``null`` when
+ *                      the list is empty / the click is inside a candidate-less region.
  */
 export function routeAddStripByContainment<T>(
   click: RouterPoint,
   candidates: readonly AddStripCandidate<T>[],
+  barrierRegions?: readonly (readonly RouterPoint[])[],
 ): T | null {
   if (candidates.length === 0) return null
   const containing = candidates.filter(
     (c) => c.regionPolygon !== undefined && pointInPolygon(click, c.regionPolygon),
   )
   if (containing.length > 0) return routeNearestAddStrip(click, containing)
-  // No region contains the click → nearest-segment fallback across ALL candidates.
+  // No candidate contains the click. If it sits inside a rendered region that has
+  // no candidate (a suppressed ghost tip), grabbing anything would grab a DISTANT
+  // body — a no-op is the correct behaviour (owner ruling §83: no dead grab).
+  if (barrierRegions?.some((ring) => pointInPolygon(click, ring))) return null
+  // Truly outside every region → nearest-segment fallback (strip-overhang click).
   return routeNearestAddStrip(click, candidates)
 }

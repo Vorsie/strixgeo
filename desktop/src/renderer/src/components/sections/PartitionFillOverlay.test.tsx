@@ -1798,6 +1798,94 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
 })
 
 // ===========================================================================
+// S77 / §83 — GHOST-CONTACT handle suppression. The owner ruling (2026-07-22):
+// "hide them, if they were merged into one body and deleted afterwards then they
+// are GHOST CONTACTS, modelling artefacts with no real meaning." A shapeable tip
+// whose single-body override the engine does NOT consume (byte-static footprint —
+// the interior convergence seam of a CONTINUOUS same-litho band, ruling-8m-
+// suppressed) must render NO grab handle. Every handle the tool shows reshapes.
+// ===========================================================================
+describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine v2)', () => {
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  // A continuous SAND matrix (s0/sa/sb/s5 + R's sand) with three enclosed SILT
+  // lenses. The sand's shapeable convergence tip is a GHOST (a same-litho band
+  // interior seam the engine floods back); each silt lens is a LIVE enclosed lens
+  // the engine consumes. So: sand handle SUPPRESSED, silt handles PRESENT.
+  const ghostStack = [
+    layer('s0', 'L', 'sand', 'fSand', 0, 3.5),
+    layer('u2', 'L', 'silt2', 'fSilt', 3.5, 4.1),
+    layer('sa', 'L', 'sand', 'fSand', 4.1, 4.3),
+    layer('u3', 'L', 'silt3', 'fSilt', 4.3, 4.9),
+    layer('sb', 'L', 'sand', 'fSand', 4.9, 5.1),
+    layer('u4', 'L', 'silt4', 'fSilt', 5.1, 6.2),
+    layer('s5', 'L', 'sand', 'fSand', 6.2, 10),
+    layer('r1', 'R', 'sand', 'fSand', 0, 10),
+  ]
+
+  it('GH1 — a ghost same-litho convergence tip renders NO grab handle, a live lens keeps its handle', () => {
+    // RED-first behaviour: the sand matrix's ghost convergence tip must NOT offer an
+    // add-strip (a dead grab), while at least one enclosed silt lens MUST — the owner
+    // ruling in test form: no handle on a modelling artefact, a handle where reshape
+    // is real. Reading the rendered add-strip testids is behaviour-shaped.
+    const { queryAllByTestId } = renderOverlay({
+      lithoLayers: ghostStack,
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map(),
+    })
+    // The continuous sand band is a ghost → NO grab handle (upper or lower add-strip).
+    expect(queryAllByTestId('partition-lens-addstrip-sand-upper')).toHaveLength(0)
+    expect(queryAllByTestId('partition-lens-addstrip-sand-lower')).toHaveLength(0)
+    // At least one enclosed silt lens keeps its handle — a live, reshapeable tip.
+    const liveHandles = ['silt2', 'silt3', 'silt4'].flatMap((b) => [
+      ...queryAllByTestId(`partition-lens-addstrip-${b}-upper`),
+      ...queryAllByTestId(`partition-lens-addstrip-${b}-lower`),
+    ])
+    expect(liveHandles.length).toBeGreaterThan(0)
+  })
+
+  it('GH2 — a click inside the ghost band is a NO-OP (no dead grab of a distant lens)', () => {
+    // With the sand handle suppressed, a click inside the sand region must grab
+    // NOTHING — never fall back to a distant silt lens (that was the S71 "grabbed a
+    // body the cursor is not inside" bug, which suppression would otherwise re-expose).
+    const onSaveBoundary = vi.fn()
+    const { queryAllByTestId } = renderOverlay({
+      lithoLayers: ghostStack,
+      ...transforms,
+      onSaveBoundary,
+      boundariesByBodyId: new Map(),
+    })
+    // A sand region ring + a point provably inside it.
+    const sandRing = queryAllByTestId(/partition-region-sand/)
+      .map((el) => (el.getAttribute('d') ?? '').replace(/[MLZ]/g, ' ').trim().split(/\s+/).filter(Boolean).map((pr) => {
+        const [x, y] = pr.split(',').map(Number)
+        return { x, y }
+      }))
+      .filter((r) => r.length >= 3)
+      .reduce((a, b) => (b.length > a.length ? b : a), [] as { x: number; y: number }[])
+    expect(sandRing.length).toBeGreaterThanOrEqual(3)
+    const xs = sandRing.map((p) => p.x)
+    const ys = sandRing.map((p) => p.y)
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+    // Fire on an arbitrary (silt) add-strip at the sand-interior coords: the router
+    // must NOT grab a distant silt lens — the ghost region absorbs the click.
+    const anyStrip = queryAllByTestId(/partition-lens-addstrip-/)[0]
+    expect(anyStrip).toBeTruthy()
+    fireEvent.click(anyStrip, { clientX: cx, clientY: cy })
+    if (onSaveBoundary.mock.calls.length > 0) {
+      // If anything was grabbed, it must be sand (containment) — never a distant silt.
+      expect((onSaveBoundary.mock.calls[0][0] as string).startsWith('silt')).toBe(false)
+    }
+  })
+})
+
+// ===========================================================================
 // S72 — the three dogfeed regressions from S71's containment (owner 2026-07-22,
 // GEO-23/125-S10): a stored node must sit ON its boundary (no floating dots /
 // free-space points), an apex click must not pinch the lens to nothing, and a
