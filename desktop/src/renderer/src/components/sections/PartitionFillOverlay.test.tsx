@@ -1273,6 +1273,52 @@ describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
     expect(onSaveBoundary).toHaveBeenCalled()
     expect(onSaveBoundary.mock.calls[onSaveBoundary.mock.calls.length - 1][0]).toBe('silt')
   })
+
+  // PP — GRAB-RADIUS FLOOR (S76). The owner's dogfeed: "the pan handler is fighting the
+  // gesture." Root: at a low column spacing the lens handle's HIT halo shrank with
+  // ``handleScale`` to ~5.5 px, so a near-miss click slipped past the handle and the SVG-root
+  // pan handler fired instead. The fix floors the hit radius at ``LENS_HIT_MIN_PX`` (9 px). The
+  // ``transforms`` fixture uses ``alongToScreenX = a => a`` (1 px/m → handleScale at its 0.5
+  // min), the exact compressed case — so the rendered hit radius must equal the floor, not the
+  // scaled-down 5.5.
+  it('PP1 — the lens grab HIT radius floors at a grabbable size on a compressed section', () => {
+    const { getByTestId } = renderOverlay({
+      lithoLayers: onlapLayers,
+      contactEdges: [onlapEdge('l-silt', 'r-sand')],
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        ['silt', { upper_nodes: [{ along_m: 50, elevation_m: 6 }], lower_nodes: [] } as unknown as BodyBoundaryResponse],
+      ]),
+    })
+    const hit = getByTestId('partition-lens-hit-silt-upper-0')
+    const r = Number(hit.getAttribute('r'))
+    // 11 × handleScale(0.5) = 5.5 without the floor; the floor lifts it to 9.
+    expect(r).toBeGreaterThanOrEqual(9)
+  })
+
+  // PP2 — a grab on the handle does NOT reach the SVG-root pan handler (its mousedown stops
+  // propagation), so the pan never starts on a precise grab. The behavioural contract behind
+  // "pan doesn't fight the gesture": the handle owns the mousedown.
+  it('PP2 — a mousedown on the lens handle stops propagation (no pan on a grab)', () => {
+    const { getByTestId } = renderOverlay({
+      lithoLayers: onlapLayers,
+      contactEdges: [onlapEdge('l-silt', 'r-sand')],
+      ...transforms,
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: new Map([
+        ['silt', { upper_nodes: [{ along_m: 50, elevation_m: 6 }], lower_nodes: [] } as unknown as BodyBoundaryResponse],
+      ]),
+    })
+    const hit = getByTestId('partition-lens-hit-silt-upper-0')
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    const stop = vi.spyOn(ev, 'stopPropagation')
+    hit.dispatchEvent(ev)
+    expect(stop).toHaveBeenCalled()
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+  })
 })
 
 // CW — the CONTACT-WIRING gesture on engine v2: shaping a horizontal contact

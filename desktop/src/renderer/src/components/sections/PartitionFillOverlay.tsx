@@ -265,6 +265,14 @@ const BOUNDARY_COLOR = '#38bdf8' // sky-400 (slate/blue)
 // Lens-edge node handle radius + hit halo (amber, same family as old apex).
 const LENS_R = 5
 const LENS_HIT_R = 11
+// Minimum GRAB radius in raw px (S76). The visible dot (``lensR``) is allowed to shrink with
+// ``handleScale`` so a compressed section is not crowded, but the INVISIBLE hit target must never
+// drop below a comfortably grabbable size — otherwise a near-miss click slips past the handle and
+// the SVG-root pan handler fires instead ("the pan fights the gesture", owner dogfeed 2026-07-22).
+// 9 px keeps the grab target ≥ the ~8 px Fitts-law floor even at ``HANDLE_MIN_SCALE`` (which would
+// otherwise floor the hit radius at 11×0.5 = 5.5 px). Safe now that the handles are live (S75) — a
+// larger radius no longer risks making a DEAD grab easier to hit.
+const LENS_HIT_MIN_PX = 9
 const LENS_COLOR = '#f59e0b' // amber-400
 // Zoom reference: at/above this horizontal scale (px per along-metre) the
 // handle is FULL size (its zoomed-in size); zooming OUT (fewer px/m) shrinks it
@@ -553,7 +561,9 @@ export default function PartitionFillOverlay({
       )
     : 1
   const lensR = LENS_R * handleScale
-  const lensHitR = LENS_HIT_R * handleScale
+  // The HIT radius floors at ``LENS_HIT_MIN_PX`` (S76) so a near-miss click never slips past the
+  // handle into the pan handler, even on a compressed section where ``handleScale`` is at its min.
+  const lensHitR = Math.max(LENS_HIT_MIN_PX, LENS_HIT_R * handleScale)
 
   // ---- DATA MEMO: call computeSectionFill only when partition inputs change. --
   //
