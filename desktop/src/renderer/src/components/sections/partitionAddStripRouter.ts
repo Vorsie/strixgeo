@@ -122,6 +122,91 @@ export function candidateDistSq<T>(click: RouterPoint, candidate: AddStripCandid
 }
 
 /**
+ * The point ON a segment at the click's ALONG-x — a VERTICAL projection: keep the
+ * user's chosen x (the along position they aimed at) and read the edge's y there.
+ *
+ * Returns null when the segment does not span the click's x (the vertical through
+ * the click misses this segment entirely) so the caller can prefer a segment the
+ * click actually sits above/below. A vertical (constant-x) segment is treated as
+ * spanning only its own x.
+ *
+ * @param p    The click position.
+ * @param a, b The segment endpoints.
+ * @returns    The on-edge point at ``p.x``, or ``null`` when ``p.x`` is outside
+ *             the segment's x-span.
+ */
+function edgePointAtX(p: RouterPoint, a: RouterPoint, b: RouterPoint): RouterPoint | null {
+  const dx = b.x - a.x
+  // Vertical segment: the along-x projection is defined only exactly at its x.
+  if (Math.abs(dx) < 1e-9) {
+    if (Math.abs(p.x - a.x) > 1e-6) return null
+    // Clamp y into the segment's y-range so the node stays on the strip.
+    const yMin = Math.min(a.y, b.y)
+    const yMax = Math.max(a.y, b.y)
+    return { x: a.x, y: Math.max(yMin, Math.min(yMax, p.y)) }
+  }
+  const t = (p.x - a.x) / dx
+  if (t < 0 || t > 1) return null
+  return { x: p.x, y: a.y + t * (b.y - a.y) }
+}
+
+/**
+ * Project a click onto a candidate's boundary — the point where a new node must
+ * be STORED so it rides the boundary line at the user's chosen x, never floating
+ * in the region interior (S72, owner dogfeed 2026-07-22 — "i managed to get a
+ * point without grabbing a boundary").
+ *
+ * S71's containment router correctly grabs the body a click is INSIDE, but a
+ * click deep in the interior is far from the target edge. Storing the raw cursor
+ * ``(x, y)`` dropped the node in free space (the three floating blue dots). This
+ * projects VERTICALLY onto the candidate's edge: the node keeps the click's x (the
+ * along position the engineer aimed at) and takes its ELEVATION from the boundary
+ * at that x — so the node sits exactly on a horizontal contact at the cursor x, or
+ * on a sloping contact at the corresponding elevation. Among a candidate's several
+ * segments (a lens's upper + lower edges), the one whose edge-y is NEAREST the
+ * click wins (the edge the user aimed at); if no segment spans the click's x
+ * (a click past the tip), fall back to the nearest point on any segment.
+ *
+ * @param click     The cursor position in SVG coordinates.
+ * @param candidate The winning add-strip candidate (whose edge the node lands on).
+ * @returns         The on-edge point, or ``null`` when the candidate has no segments.
+ */
+export function projectClickToCandidate<T>(
+  click: RouterPoint,
+  candidate: AddStripCandidate<T>,
+): RouterPoint | null {
+  let best: RouterPoint | null = null
+  let bestDy = Infinity
+  // Prefer the segment the click sits above/below (its vertical hits the edge),
+  // choosing the one whose y is nearest the click (the edge the cursor aimed at).
+  for (const [a, b] of candidate.segments) {
+    const q = edgePointAtX(click, a, b)
+    if (!q) continue
+    const dy = Math.abs(click.y - q.y)
+    if (dy < bestDy) {
+      bestDy = dy
+      best = q
+    }
+  }
+  if (best) return best
+  // No segment spans the click's x (past a tapering tip) → nearest endpoint on any
+  // segment, so the node still lands ON the boundary rather than in free space.
+  let bestDist = Infinity
+  for (const [a, b] of candidate.segments) {
+    for (const end of [a, b]) {
+      const ex = click.x - end.x
+      const ey = click.y - end.y
+      const d = ex * ex + ey * ey
+      if (d < bestDist) {
+        bestDist = d
+        best = end
+      }
+    }
+  }
+  return best
+}
+
+/**
  * Pick the add-strip candidate whose segment is nearest a click.
  *
  * This is the global arbitration that fixes the stacked-lens mis-targeting: with

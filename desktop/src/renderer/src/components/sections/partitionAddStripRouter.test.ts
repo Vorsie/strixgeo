@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import {
   candidateDistSq,
   pointInPolygon,
+  projectClickToCandidate,
   routeAddStripByContainment,
   routeNearestAddStrip,
   type AddStripCandidate,
@@ -185,5 +186,71 @@ describe('partitionAddStripRouter — region-containment pick (S71)', () => {
 
   it('C5 — empty list routes to null', () => {
     expect(routeAddStripByContainment({ x: 0, y: 0 }, [])).toBeNull()
+  })
+})
+
+// ===========================================================================
+// S72 — a new node must sit ON its target boundary, never float in the region
+// interior. S71's containment router grabs the right BODY even for a click deep
+// in the interior, but the click's raw y was stored verbatim → three floating
+// blue dots in the gap interior (owner dogfeed 2026-07-22, GEO-23/125-S10 —
+// "i managed to get a point without grabbing a boundary"). The node's y must be
+// PROJECTED onto the candidate's nearest edge at the click's x.
+// ===========================================================================
+describe('partitionAddStripRouter — project click onto the target boundary (S72)', () => {
+  it('P1 — a click in the region interior projects onto the candidate edge at the click x', () => {
+    // Sand band: base edge is the horizontal line y=90 from x20→x80. The click is
+    // deep in the interior at (50, 60). The stored node must land ON the base edge
+    // (y=90) at x=50 — NOT float at the raw cursor y=60.
+    const sand: AddStripCandidate<string> = {
+      regionPolygon: [
+        { x: 20, y: 50 },
+        { x: 80, y: 50 },
+        { x: 80, y: 90 },
+        { x: 20, y: 90 },
+      ],
+      segments: [[{ x: 20, y: 90 }, { x: 80, y: 90 }]],
+      dispatch: 'sand',
+    }
+    const projected = projectClickToCandidate({ x: 50, y: 60 }, sand)
+    expect(projected).not.toBeNull()
+    expect(projected!.x).toBeCloseTo(50, 3)
+    expect(projected!.y).toBeCloseTo(90, 3) // ON the base edge, not the interior y=60
+  })
+
+  it('P2 — a click near a sloping edge projects onto that sloping edge (rides the boundary line)', () => {
+    // A dipping contact from (20,40) to (80,70). A click at (50, 62) projects to the
+    // point on the line at x=50 → y=55 (mid-slope), NEVER the raw cursor y=62.
+    const cand: AddStripCandidate<string> = {
+      segments: [[{ x: 20, y: 40 }, { x: 80, y: 70 }]],
+      dispatch: 'contact',
+    }
+    const projected = projectClickToCandidate({ x: 50, y: 62 }, cand)
+    expect(projected).not.toBeNull()
+    expect(projected!.x).toBeCloseTo(50, 3)
+    expect(projected!.y).toBeCloseTo(55, 3)
+  })
+
+  it('P3 — the projected point lies ON one of the candidate segments (distance ≈ 0)', () => {
+    // Invariant form: whatever the click, the projection is on the strip. A lens
+    // with two edges — project onto whichever is nearer, distance-to-edge ≈ 0.
+    const lens: AddStripCandidate<string> = {
+      segments: [
+        [{ x: 20, y: 40 }, { x: 50, y: 55 }], // upper edge
+        [{ x: 20, y: 70 }, { x: 50, y: 55 }], // lower edge
+      ],
+      dispatch: 'lens',
+    }
+    const projected = projectClickToCandidate({ x: 35, y: 48 }, lens)
+    expect(projected).not.toBeNull()
+    const d = Math.min(
+      candidateDistSq(projected!, { segments: [lens.segments[0]], dispatch: 'x' }),
+      candidateDistSq(projected!, { segments: [lens.segments[1]], dispatch: 'x' }),
+    )
+    expect(d).toBeLessThan(1e-6) // exactly on an edge
+  })
+
+  it('P4 — a candidate with no segments projects to null', () => {
+    expect(projectClickToCandidate({ x: 0, y: 0 }, { segments: [], dispatch: 'x' })).toBeNull()
   })
 })
