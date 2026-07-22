@@ -73,7 +73,7 @@ import {
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
-  routeNearestAddStrip,
+  routeAddStripByContainment,
   type AddStripCandidate,
 } from './partitionAddStripRouter'
 import {
@@ -566,6 +566,9 @@ export default function PartitionFillOverlay({
     // ``gapIndex:upperBodyId`` set whose shared contact the engine re-partitioned
     // (S68) — the POST-BEND off-engine reshape is skipped for these.
     contactOverriddenBodies: Set<string>
+    // ``gapIndex:bodyId`` set whose tip override the engine did NOT consume
+    // (flooded to a band) — the un-routable class (§77); grab handle suppressed.
+    unroutableBodies: Set<string>
     // v2 crossing-tie conflicts (owner §8 Q4) — drives the amber warning chip.
     conflicts: TieConflict[]
   } => {
@@ -576,6 +579,7 @@ export default function PartitionFillOverlay({
         gapXs: [],
         apexOverrides: new Map(),
         contactOverriddenBodies: new Set(),
+        unroutableBodies: new Set(),
         conflicts: [],
       }
 
@@ -589,6 +593,7 @@ export default function PartitionFillOverlay({
         gapXs: [],
         apexOverrides: new Map(),
         contactOverriddenBodies: new Set(),
+        unroutableBodies: new Set(),
         conflicts: [],
       }
 
@@ -731,7 +736,58 @@ export default function PartitionFillOverlay({
         (conflicts.length ? `, ${conflicts.length} crossing-tie conflicts` : ''),
     )
 
-    return { sectionRegions, orderedColumns, gapXs, apexOverrides, contactOverriddenBodies, conflicts }
+    // ---- UN-ROUTABLE tip detection (§77, v2 only). --------------------------
+    // A shapeable tip whose stored override the engine does NOT consume (it floods
+    // the tip to a full-width band-quad — the §71 / S65-Q1 residual class, e.g. an
+    // un-bracketed onlap tip) is un-routable: shaping it re-partitions nothing. With
+    // the off-engine reshape retired on v2, such a click is a silent no-op — never a
+    // gap — but we still SUPPRESS its grab handle (better no handle than a dead grab)
+    // and count the class. Signal WITHOUT an engine probe: the app fed an override
+    // for (body, gap) yet the resulting region for that body in that gap is NOT
+    // apex-shapeable (flooded to a band spanning both columns). Keyed ``gap:bodyId``.
+    const unroutableBodies = new Set<string>()
+    if (partitionEngineV2) {
+      // Region per (gap, bodyId): the shape the engine actually produced.
+      const regionByKey = new Map<string, SectionRegion>()
+      for (const r of sectionRegions) {
+        if (r.bodyId) regionByKey.set(`${r.gapIndex}:${r.bodyId}`, r)
+      }
+      for (const key of apexOverrides.keys()) {
+        // ``lensApexOverrideKey`` is ``<bodyId>@<gapIndex>`` — split on the LAST
+        // ``@`` so a bodyId containing ``@`` is still recovered correctly.
+        const at = key.lastIndexOf('@')
+        if (at < 0) continue
+        const bodyId = key.slice(0, at)
+        const gapIndex = Number(key.slice(at + 1))
+        if (!Number.isFinite(gapIndex)) continue
+        const region = regionByKey.get(`${gapIndex}:${bodyId}`)
+        // No region, or a region that is no longer a shapeable tip (flooded to a
+        // full-width band) → the override was not consumed as a tip reshape.
+        if (!region || !isApexShapeable(region)) {
+          unroutableBodies.add(`${gapIndex}:${bodyId}`)
+        }
+      }
+      if (unroutableBodies.size > 0) {
+        // INFO (survives the default DevTools level filter) so a dogfeed sees the
+        // un-routable class + count without a debugger.
+        log.info(
+          'partition',
+          `${unroutableBodies.size} un-routable shapeable tip(s) — override not consumed by the ` +
+            `engine (flooded to band); grab handle suppressed on v2: ` +
+            Array.from(unroutableBodies).join(', '),
+        )
+      }
+    }
+
+    return {
+      sectionRegions,
+      orderedColumns,
+      gapXs,
+      apexOverrides,
+      contactOverriddenBodies,
+      unroutableBodies,
+      conflicts,
+    }
   }, [
     orderedInvs,
     colByInv,
@@ -828,13 +884,23 @@ export default function PartitionFillOverlay({
       //   • Insert ALL control points into the BASE edge of the upper polygon
       //     AND the TOP edge of the lower polygon (same points in both → partition
       //     invariant preserved: the shared edge is identical in both polygons).
-      const mainIdxInGap: number[] = []
-      for (let k = out.length - 1; k >= 0; k--) {
-        if (out[k].leftX !== leftX || out[k].rightX !== rightX) break
-        if (out[k].region.kind !== 'lens') mainIdxInGap.unshift(k)
-      }
+      //
+      // ENGINE-ONLY RESHAPE ON V2 (§77): this off-engine pass reshapes ONE band's
+      // edge from stored nodes without re-partitioning the neighbour — the SOLE gap
+      // source (§66/§71). On v2 the engine consumes matched-contact overrides
+      // (``contact:U|L@g``, S68) and the live preview re-runs the engine per frame
+      // (S65), so the engine is the only geometry source needed. Skipping this pass
+      // entirely on v2 makes a gap IMPOSSIBLE BY CONSTRUCTION: a contact the engine
+      // did NOT consume renders its truthful (unbent) 0/0 partition — a visual no-op,
+      // never a gap. v1 (no engine consumer) keeps the pass → byte-identical.
+      if (!partitionEngineV2) {
+        const mainIdxInGap: number[] = []
+        for (let k = out.length - 1; k >= 0; k--) {
+          if (out[k].leftX !== leftX || out[k].rightX !== rightX) break
+          if (out[k].region.kind !== 'lens') mainIdxInGap.unshift(k)
+        }
 
-      for (let mi = 0; mi + 1 < mainIdxInGap.length; mi += 1) {
+        for (let mi = 0; mi + 1 < mainIdxInGap.length; mi += 1) {
         const upperIdx = mainIdxInGap[mi]
         const lowerIdx = mainIdxInGap[mi + 1]
         const upper = out[upperIdx]
@@ -919,7 +985,8 @@ export default function PartitionFillOverlay({
           sr.minY = myn
           sr.maxY = myx
         }
-      }
+        }
+      } // end !partitionEngineV2 POST-BEND guard (§77)
 
       // ----- POST-LENS PASS: rebuild lens polygons from multi-node edges. -----
       // For each lens region in this gap, if the body has stored upper_nodes or
@@ -934,6 +1001,18 @@ export default function PartitionFillOverlay({
       // have independent shapes (unlike a matched boundary where both adjacent
       // regions consume the SAME set of nodes). Separating them preserves
       // per-edge freedom without entangling the two regions.
+      //
+      // ENGINE-ONLY RESHAPE ON V2 (§77): ``buildLensPolygon`` rebuilds a lens
+      // wedge OFF-ENGINE from source corners + nodes without knowing the neighbour
+      // matrix — so it can gap/overlap it (§66/§71 root). On v2 the engine consumes
+      // the lens override (``lensApex@gap``) and the domain builds the clipped +
+      // notched shape; a lens the engine consumed was ALREADY skipped by the
+      // ``apexOverrides.has`` guard below, so the ONLY lenses reaching this rebuild
+      // on v2 are UN-consumed ones — exactly the gap source. Skipping the whole
+      // pass on v2 leaves the engine as the sole geometry source → no gap can render
+      // (an un-consumed override becomes a visual no-op, not a gap). v1 keeps the
+      // rebuild → byte-identical.
+      if (!partitionEngineV2)
       for (let k = out.length - 1; k >= 0; k--) {
         if (out[k].leftX !== leftX || out[k].rightX !== rightX) break
         const sr = out[k]
@@ -1029,6 +1108,7 @@ export default function PartitionFillOverlay({
     return out
   }, [
     sectionFillData,
+    partitionEngineV2,
     levelToScreen,
     plotTop,
     plotBottom,
@@ -1552,6 +1632,12 @@ export default function PartitionFillOverlay({
       if (!isApexShapeable(sr.region)) continue
       const bodyId = sr.region.bodyId
       if (!bodyId) continue
+      // UN-ROUTABLE tip (§77): a shapeable tip whose override the engine floods to a
+      // band (does not consume) exposes NO grab handle on v2 — better no handle than
+      // a dead grab. Detected in ``sectionFillData`` (region flooded despite the
+      // override); with off-engine reshape retired it can't gap, but a dead handle is
+      // still confusing, so suppress it.
+      if (sectionFillData.unroutableBodies.has(`${sr.region.gapIndex}:${bodyId}`)) continue
 
       // Derive the anchored side + source corners from the polygon EXTENT, not from
       // ``polygon[0]``: v2 pinch polygons may START at the mid-gap tip (observed
@@ -1630,6 +1716,8 @@ export default function PartitionFillOverlay({
     lensDrag,
     plotTop,
     plotBottom,
+    // Suppress the grab handle for un-routable tips (§77).
+    sectionFillData.unroutableBodies,
   ])
 
   // ---- Add-node handlers ---------------------------------------------------
@@ -1759,16 +1847,25 @@ export default function PartitionFillOverlay({
     if (!onSaveBoundary) return []
     const cands: AddStripCandidate<() => void>[] = []
     // Matched-contact boundary strips: the natural base edge of the upper region.
+    // ``regionPolygon`` = the UPPER band's region ring so a click INSIDE that band
+    // targets its base contact (region-containment; §77). A shared-contact click
+    // sits inside both incident bands — the router's nearest-edge tiebreak then
+    // resolves which one, matching the geometric-upper labelling in the pair.
     for (const sb of sharedBoundaries) {
       const [ne0, ne1] = sb.naturalEdge
+      const upperRegion = screenRegions[sb.upperIdx]
       cands.push({
         segments: [[ne0, ne1]],
+        regionPolygon: upperRegion?.points,
         dispatch: () =>
           handleBoundaryAddNode(sb.upperBodyId, sb.leftX, sb.rightX, lastClick.current.x, lastClick.current.y),
       })
     }
     // Lens strips: BOTH the upper and the lower edge of each lens are candidates.
     // The winning lens then routes its own node to nearerLensEdge (upper vs lower).
+    // ``regionPolygon`` = the lens's OWN region ring: a click inside the thin lens
+    // grabs the lens; a click in the sand band below can no longer be stolen by the
+    // lens's long diagonal flank passing near the cursor (the owner's 2026-07-22 bug).
     for (const sl of screenLenses) {
       const sr = screenRegions[sl.regionIdx]
       if (!sr) continue
@@ -1780,6 +1877,7 @@ export default function PartitionFillOverlay({
       const lowerSeg: [{ x: number; y: number }, { x: number; y: number }] = [lowerStart, sl.sourceBasePt]
       cands.push({
         segments: [upperSeg, lowerSeg],
+        regionPolygon: sr.points,
         dispatch: () => {
           const edge = nearerLensEdge({ x: lastClick.current.x, y: lastClick.current.y }, upperSeg, lowerSeg)
           handleLensAddNode(sl.bodyId, edge, lastClick.current.x, lastClick.current.y)
@@ -1809,7 +1907,10 @@ export default function PartitionFillOverlay({
    */
   const routeAddStripClick = (cx: number, cy: number): void => {
     lastClick.current = { x: cx, y: cy }
-    const dispatch = routeNearestAddStrip({ x: cx, y: cy }, addStripCandidates)
+    // Region-containment first (grab the body the click is inside), nearest-segment
+    // fallback when the click is outside every region ring (§77). Robust where the
+    // plain nearest-segment pick was fooled by a distant lens's diagonal flank.
+    const dispatch = routeAddStripByContainment({ x: cx, y: cy }, addStripCandidates)
     if (dispatch) dispatch()
   }
 
