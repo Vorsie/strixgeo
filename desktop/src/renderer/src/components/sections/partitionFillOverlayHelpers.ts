@@ -124,6 +124,50 @@ export interface ColumnScreen {
   along: number
 }
 
+/**
+ * The BASE-contact edge endpoints of an upper region's screen polygon — the
+ * segment the boundary add-strip must sit on so a click on the contact between
+ * two stacked bands lands ON that contact (S72).
+ *
+ * The previous derivation took the polygon's last two vertices, assuming they
+ * were the base edge. That holds for a lens/pinch whose ring ends at its base,
+ * but a v2 FULL-WIDTH band rectangle winds ``topL → baseL → baseR → topR`` — its
+ * last two vertices are the RIGHT COLUMN edge, so the add-strip rendered as a
+ * vertical stub on the column instead of the base contact, and a click on the
+ * base could not grab it (the owner's "can't resize units bounded by a base tie /
+ * can't grab it", GEO-23/125-S10). The robust base edge is the region's deepest
+ * horizontal span: the two vertices at (near) the maximum screen-y (lowest
+ * elevation), ordered left→right. That segment IS the shared contact with the band
+ * directly below, so projecting a click onto it lands the node on the contact.
+ *
+ * @param pts The upper region's screen polygon vertices (>= 3).
+ * @returns   ``[left, right]`` endpoints of the base edge, or ``null`` when the
+ *            polygon is degenerate (< 3 vertices).
+ */
+export function baseContactEdge(
+  pts: readonly { x: number; y: number }[],
+): [{ x: number; y: number }, { x: number; y: number }] | null {
+  if (pts.length < 3) return null
+  // Deepest band = largest y. Collect vertices within a small y-slack of maxY so a
+  // near-horizontal (slightly bent) base still yields its full left→right span.
+  let maxY = -Infinity
+  for (const p of pts) if (p.y > maxY) maxY = p.y
+  const Y_SLACK = 1 // px — a base contact stored to mm is flat to well under 1 px.
+  const onBase = pts.filter((p) => p.y >= maxY - Y_SLACK)
+  const pool = onBase.length >= 2 ? onBase : pts
+  // Left = smallest x on the base, right = largest x — the contact's screen span.
+  let left = pool[0]
+  let right = pool[0]
+  for (const p of pool) {
+    if (p.x < left.x) left = p
+    if (p.x > right.x) right = p
+  }
+  return [
+    { x: left.x, y: left.y },
+    { x: right.x, y: right.y },
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // Drag state types
 // ---------------------------------------------------------------------------
