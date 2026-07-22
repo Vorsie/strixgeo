@@ -38,8 +38,9 @@ import type {
   SectionRegion,
 } from './partitionFill'
 import {
+  classifyOverrideOutcome,
   computeSectionFillV2,
-  computeSectionFillV2WithConflicts,
+  type OverrideOutcome,
   type TieConflict,
 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
@@ -250,26 +251,35 @@ export function computeSectionFillActive(
  *
  * Returns
  * -------
- * { regions: SectionRegion[]; conflicts: TieConflict[] }
- *     The partition regions (identical to ``computeSectionFillActive``) plus the
- *     detected crossing-tie conflicts (``[]`` on the v1 engine).
+ * { regions: SectionRegion[]; conflicts: TieConflict[]; overrideStatus: OverrideOutcome['status'] }
+ *     The partition regions (identical to ``computeSectionFillActive``), the detected crossing-tie
+ *     conflicts (``[]`` on the v1 engine), AND the free-draw override outcome status
+ *     (``applied`` | ``rejected-unsafe`` | ``unsupported``). The status is the load-bearing signal
+ *     for the owner's "red handle + snap-back" UX: on a live drag, ``rejected-unsafe`` means the
+ *     engine refused the reach (it rendered the un-reshaped base fill), so the overlay reddens the
+ *     dragged handle and snaps it back on release. The v1 engine has no override-rejection model, so
+ *     its status is always ``unsupported`` (persist / no red — today's behaviour).
  */
 export function computeSectionFillActiveWithDiagnostics(
   columns: readonly PartitionColumn[],
   edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
   alongM?: readonly number[],
-): { regions: SectionRegion[]; conflicts: TieConflict[] } {
+): { regions: SectionRegion[]; conflicts: TieConflict[]; overrideStatus: OverrideOutcome['status'] } {
   const useV2 = isPartitionEngineV2Active()
   if (useV2 !== lastLoggedV2) {
     lastLoggedV2 = useV2
     log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (stable)'}`)
   }
   if (useV2) {
-    // Same flag-ON wiring as computeSectionFillActive — see the comment there.
+    // Same flag-ON wiring as computeSectionFillActive — see the comment there. Consume
+    // ``classifyOverrideOutcome`` DIRECTLY (not ``computeSectionFillV2WithConflicts``, which discards
+    // the status) so the override outcome is surfaced with NO extra engine pass — this is the same
+    // single call ``computeSectionFillV2WithConflicts`` already delegated to internally.
     const prev = setTwoSidedTerminations(true)
     try {
-      return computeSectionFillV2WithConflicts(columns, edges, lensApexOverrides, alongM)
+      const outcome = classifyOverrideOutcome(columns, edges, lensApexOverrides, alongM)
+      return { regions: outcome.regions, conflicts: outcome.conflicts, overrideStatus: outcome.status }
     } finally {
       setTwoSidedTerminations(prev)
     }
@@ -277,5 +287,6 @@ export function computeSectionFillActiveWithDiagnostics(
   return {
     regions: computeSectionFill(columns, edges, lensApexOverrides, alongM),
     conflicts: [],
+    overrideStatus: 'unsupported',
   }
 }

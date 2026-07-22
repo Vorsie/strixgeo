@@ -14,14 +14,20 @@ vi.mock('./partitionFill', () => ({
 }))
 vi.mock('./partitionFillV2', () => ({
   computeSectionFillV2: vi.fn(() => V2_SENTINEL),
-  computeSectionFillV2WithConflicts: vi.fn(() => ({
+  // The diagnostics variant consumes ``classifyOverrideOutcome`` DIRECTLY (S80) so it can surface the
+  // free-draw override status alongside regions + conflicts with no extra engine pass. Sentinel a
+  // ``rejected-unsafe`` status so the test proves the status threads through.
+  classifyOverrideOutcome: vi.fn(() => ({
+    status: 'rejected-unsafe',
     regions: V2_SENTINEL,
     conflicts: V2_CONFLICTS,
+    baseDefect: 0,
+    candidateDefect: 1,
   })),
 }))
 
 import { computeSectionFill } from './partitionFill'
-import { computeSectionFillV2, computeSectionFillV2WithConflicts } from './partitionFillV2'
+import { classifyOverrideOutcome, computeSectionFillV2 } from './partitionFillV2'
 import {
   computeSectionFillActive,
   computeSectionFillActiveWithDiagnostics,
@@ -102,21 +108,24 @@ describe('computeSectionFillActive — engine selection', () => {
     expect(computeSectionFill).toHaveBeenCalledWith(COLUMNS, edges, overrides, along)
   })
 
-  it('diagnostics variant returns v2 conflicts when v2 is active (§8 Q4 warning surface)', () => {
+  it('diagnostics variant returns v2 conflicts + override status when v2 is active (§8 Q4 + S80)', () => {
     process.env.STRIX_PARTITION_V2 = '1'
-    const { regions, conflicts } = computeSectionFillActiveWithDiagnostics(COLUMNS)
-    expect(computeSectionFillV2WithConflicts).toHaveBeenCalledTimes(1)
+    const { regions, conflicts, overrideStatus } = computeSectionFillActiveWithDiagnostics(COLUMNS)
+    expect(classifyOverrideOutcome).toHaveBeenCalledTimes(1)
     expect(regions).toBe(V2_SENTINEL)
     expect(conflicts).toBe(V2_CONFLICTS)
+    // The free-draw override status threads through for the red-handle / snap-back UX (S80).
+    expect(overrideStatus).toBe('rejected-unsafe')
   })
 
-  it('diagnostics variant returns EMPTY conflicts on the v1 engine (no crossing model)', () => {
-    // env + pref unset → v1.
-    const { regions, conflicts } = computeSectionFillActiveWithDiagnostics(COLUMNS)
+  it('diagnostics variant returns EMPTY conflicts + unsupported status on the v1 engine', () => {
+    // env + pref unset → v1. v1 has no override-rejection model → status is always ``unsupported``.
+    const { regions, conflicts, overrideStatus } = computeSectionFillActiveWithDiagnostics(COLUMNS)
     expect(computeSectionFill).toHaveBeenCalledTimes(1)
-    expect(computeSectionFillV2WithConflicts).not.toHaveBeenCalled()
+    expect(classifyOverrideOutcome).not.toHaveBeenCalled()
     expect(regions).toBe(V1_SENTINEL)
     expect(conflicts).toEqual([])
+    expect(overrideStatus).toBe('unsupported')
   })
 })
 

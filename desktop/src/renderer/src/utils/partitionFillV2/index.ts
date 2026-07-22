@@ -33,8 +33,10 @@ export { buildArrangement } from './arrangement'
 
 // Increment 2: curve emission -> face labelling -> slicing -> the domain entry.
 export {
+  classifyOverrideOutcome,
   computeSectionFillV2,
   computeSectionFillV2WithConflicts,
+  type OverrideOutcome,
 } from './computeSectionFillV2'
 export { type TieConflict, type ResolvedTie } from './emitCurves'
 export {
