@@ -7290,3 +7290,100 @@ GEO-10/170-S7 clear. If a gap remains with no manual points left → separate en
 - `desktop/src/renderer/src/api/clients/geology.resetManualBoundaries.test.ts` — NEW.
 - `desktop/src/renderer/src/shell/stages/sections/SectionsToolbar.resetManualPoints.test.tsx` — NEW (BR1-6).
 - `REWRITE_STATE.md` — this §75.
+
+## §76 — Session 70: STACKED-LENS MIS-TARGETING fixed — a click now grabs the boundary NEAREST the cursor across ALL bodies, not whichever overlapping add-strip is on top by SVG paint order. DIAGNOSED (measured, real gap5-like geometry) then FIXED (global nearest-boundary router). App-layer only; engine + v1 + intersect.ts byte-untouched.
+
+Owner dogfeed (2026-07-22, GEO-10/170-S7, CS1, engine v2): "reset works, but i can still
+make gaps ;) i click the sand silt interface at around 4.7 mTAW and it seems to grab the
+silt lens above the sand." A DIFFERENT bug from §75's reset (which is confirmed working) —
+this is MIS-TARGETING: the click grabs a distant lens ~1 m away, then moving it opens a gap.
+
+### ROOT CAUSE — MEASURED (throwaway `throwaway_s70_stackedlens.diag.test.tsx`, v2, jsdom)
+
+Three thin stacked pinch lenses (u2/u3/u4) converge at gap5. Each lens renders its OWN two
+14px transparent add-strips (`partition-lens-addstrip-<body>-<upper|lower>`,
+`PartitionFillOverlay.tsx` ~2160-2222); matched contacts render their own strips
+(`partition-boundary-addstrip-*`, ~2040). MEASURED at a click (x=50, y=53 ≈ el 4.7): THREE
+bodies' strips' 7px hit areas contain that ONE point (two `boundary` strips + a lens strip).
+Each strip fires its OWN ``onClick`` → **the winner is pure SVG paint order** (the last-
+painted `<line>` under the cursor). DOM order: boundary strips paint FIRST (domOrder 0-2),
+lens strips AFTER (3-14) → **a lens strip ALWAYS beats a coincident contact strip** = "click
+the sand/silt interface → grab the silt lens." Among lens strips, order is `screenLenses`
+(region) order, so a DISTANT lens whose long diagonal strip sweeps through the click can win
+over the nearer target. ``nearerLensEdge`` (`utils/lensEdgePick.ts`) disambiguates ONLY ONE
+lens's two edges (top vs base) — it NEVER arbitrates ACROSS bodies. That cross-body gap is
+the whole bug.
+
+**The gap (second half):** once the WRONG body (u2, a pinch tip that does NOT route its
+override to the engine — the §71 non-enclosed class) is grabbed, ``handleLensAddNode`` writes
+to u2's ``lower_nodes`` and the POST-LENS ``buildLensPolygon`` rebuild (`PartitionFillOverlay.tsx`
+~933-1012, skipped ONLY when the engine consumed the override at line 945) reshapes u2's wedge
+OFF-ENGINE without the neighbour following → gap. So the gap is a DOWNSTREAM symptom of mis-
+targeting: fix targeting → the click lands on the intended boundary, which routes through a
+re-partitioning path (enclosed-lens override S64, or contact override S68) → no gap. NO
+independent gap bug; NO engine change needed.
+
+### FIX — global nearest-boundary router (app-layer, pure helper + surgical wiring)
+
+NEW pure module `components/sections/partitionAddStripRouter.ts` — ``routeNearestAddStrip``
+picks the candidate whose SCREEN segment is physically nearest the cursor across ALL
+candidates (min perpendicular-clamped dist; ties → earlier in list). ``AddStripCandidate``
+carries a list of segments (a multi-node edge reports the min to any sub-segment) + an opaque
+``dispatch`` thunk. In `PartitionFillOverlay.tsx`: NEW memo ``addStripCandidates`` builds ONE
+list from `sharedBoundaries` (natural-edge segment → ``handleBoundaryAddNode`` thunk) +
+`screenLenses` (BOTH upper+lower edge segments → ``handleLensAddNode`` via the winning lens's
+own ``nearerLensEdge``). NEW ``routeAddStripClick(cx,cy)`` stores the cursor in a ``lastClick``
+ref (read synchronously by the thunks) and dispatches the nearest. All THREE add-strip
+onClick handlers (1 boundary + 2 lens) now call ``routeAddStripClick`` instead of dispatching
+their own strip — so whichever `<line>` the browser delivers the event to, the click re-routes
+to the NEAREST body. `nearerLensEdge` lifted to a GLOBAL pick; the old per-strip dispatch (and
+its duplicated cx/cy/nearerLensEdge blocks) deleted.
+
+### VERIFICATION
+- **RED→GREEN (component, TDD)**: ST1 (RED before wiring: firing onClick on the u2 lens strip
+  at coords nearest the interface below routed to ``silt2`` — the "grabbed the lens above" bug,
+  `expected 'silt2' not to be 'silt2'`; GREEN after: routes to the nearest body, not silt2),
+  ST2 (symmetry guard: a click actually nearest the u2 edge STILL grabs u2 — no over-
+  correction). New block ``PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)``.
+- **Router unit (pure, TDD)**: R1 (nearest wins even when a farther candidate is LATER in the
+  list = the z-order-beats-nearest bug), R2 (multi-segment min-dist), R3 (empty→null), R4
+  (gap5 repro: click at u3/u4 interface grabs the interface, not the silt lens above). New
+  `partitionAddStripRouter.test.ts`, 4/4 GREEN.
+- **No regressions**: PartitionFillOverlay suite **47 pass** (was 45; +ST1/ST2 — CW1-4, FD1-4,
+  MB, lens-drag, HP3 all green). Sections dir **568 pass / 4 skip**. **tsc clean**
+  (`tsconfig.web.json`). **FULL desktop suite 2403 pass / 0 fail / 37 skip** — ZERO new reds.
+  (One InspectLensBodyPanel.stylePicker flake appeared in ONE full-suite run, passed in
+  isolation 3/3 AND passed on a clean full re-run — a pre-existing parallel-worker isolation
+  flake, NOT from this change; my diff is confined to add-strip click routing.)
+- **Engine byte-identical BY CONSTRUCTION**: NO ``partitionFillV2/`` / ``partitionFill/`` /
+  ``intersect.ts`` / v1 source touched — only `PartitionFillOverlay.tsx` (router wiring) + the
+  NEW `partitionAddStripRouter.ts` + tests. partitionFillV2 suite **171 pass** confirms the
+  engine intact. (Env-gated HOLES_DIAG/CS1_GATE/seedGate diags NOT runnable this session — Bash
+  restricted to the canonical ``npx vitest run <file> --disableConsoleIntercept`` shape, env-
+  prefix + PowerShell both permission-denied; unnecessary since no engine file changed.)
+
+### OWNER DOGFEED SCRIPT
+Open CS1 → Litho axis → engine v2 → GEO-10/170-S7. Click the sand/silt interface at ~el 4.7 in
+gap5 (the thin stacked pinch lenses). The click now grabs THAT interface (the boundary nearest
+the cursor), NOT the silt lens ~1 m above; the drag re-partitions the grabbed boundary, no gap.
+If a click ever still grabs a farther body, report the exact elevation + which body was grabbed.
+
+### KNOWN LIMIT (recorded, not a defect)
+The router arbitrates by nearest SCREEN distance to each strip's segment. If two boundaries are
+genuinely EQUIDISTANT (< pixel), the tie resolves to the earlier candidate (boundaries before
+lenses) — deterministic, and the engineer can nudge the cursor. The gap half is fixed only via
+correct targeting (the grabbed boundary routes through its re-partition path); a hypothetical
+future gesture that shapes a non-routing pinch tip directly would still need the §71 engine
+override consumer (out of scope — no such gesture ships).
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `desktop/src/renderer/src/components/sections/partitionAddStripRouter.ts` — NEW; the pure
+  global nearest-boundary router (``routeNearestAddStrip`` / ``candidateDistSq`` / types).
+- `desktop/src/renderer/src/components/sections/partitionAddStripRouter.test.ts` — NEW; R1-4.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.tsx` — ``addStripCandidates``
+  memo + ``lastClick`` ref + ``routeAddStripClick``; all 3 add-strip onClicks re-routed; old
+  per-strip nearerLensEdge dispatch deleted.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.test.tsx` — NEW ST1/ST2.
+- `desktop/src/renderer/src/components/sections/throwaway_s70_stackedlens.diag.test.tsx` —
+  measurement of record, neutered to a placeholder; ORCHESTRATOR: delete (Bash rm was denied).
+- `REWRITE_STATE.md` — this §76.
