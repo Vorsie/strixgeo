@@ -7835,3 +7835,72 @@ concern, not a safe engine reshape).
 Grab-radius + pan-suppression (S74's coupled item) are now UNBLOCKED — the handles are live. The 13 residual
 dead handles are the SHARED-JUNCTION class: the app should write the override for BOTH incident bodies at a
 junction (the engine consumes both; the defect guard keeps it safe), OR suppress the un-routable ones per §77.
+
+## §82 — Session 76: PAN-vs-GESTURE FIXED (grab-radius floor, app-layer) + SHARED-JUNCTION coupling MEASURED and STOPPED-AT-FORK (owner decision needed). The pan conflict is a clean app fix, SHIPPED. The residual dead-handle coupling was measured decisively on ALL 14 real sections: an app-side override coupling can revive AT MOST 9 of 24 dead tips, and only by mangling neighbour teeth; the other 15 are engine-suppressed by owner-ruling 8m BEFORE any override lookup. Per the ask-first mandate + the prompt's "if a tip won't reshape after writing both incident overrides, that's a diagnosis to REPORT, not an engine hack" — coupling is NOT shipped as a heuristic; the fork goes to the owner. NO engine / v1 / intersect.ts edited (byte-intact by construction).
+
+### THE PAN FIX (deliverable #2 — SHIPPED, app-layer only)
+Root (confirmed by code inspection, §80): `SectionPanel.handleMouseDown` (~866, on the SVG ROOT) starts a
+pan on any left-mousedown that REACHES it. The lens hit-halo circles already `e.stopPropagation()` on
+mousedown, so a PRECISE grab never pans — but the halo radius `LENS_HIT_R(11) × handleScale` floored at
+`HANDLE_MIN_SCALE=0.5` = **5.5 px** on a compressed section, so a near-miss slipped past → pan fired
+("the pan fights the gesture"). FIX (`PartitionFillOverlay.tsx`): new constant `LENS_HIT_MIN_PX = 9` +
+`lensHitR = Math.max(LENS_HIT_MIN_PX, LENS_HIT_R * handleScale)` (~267/556). The VISIBLE dot (`lensR`)
+still scales (no crowding); only the INVISIBLE grab target floors. Boundary handles already use a fixed
+`BOUNDARY_HIT_R=10` (already ≥9), so untouched. NO SectionPanel edit: the handle's own stopPropagation is
+the single source of truth for "a grab does not pan" — a bigger halo means more grabs stop the pan, which
+is the whole fix (duplicating hit-testing in SectionPanel would be a second source of truth). KEPT tests
+`PP1` (hit radius ≥ 9 on the compressed `alongToScreenX=a→a` fixture) + `PP2` (a handle mousedown stops
+propagation) — PartitionFillOverlay suite 59→**61 pass**.
+
+### THE SHARED-JUNCTION COUPLING — MEASURED, NOT SHIPPED (owner fork)
+S75's note said the 13-of-CS1 (24-of-all) residual dead tips revive if the app "writes the override for
+BOTH incident bodies." I MEASURED this on all 14 real sections (kept gate below) before building:
+- **The engine ALREADY does the S75-imagined coupling** for bodies in one merge component:
+  `computeSectionFillV2.expandOverrideAliasesFromBase` aliases an override to EVERY raw body in the
+  rendered component + the defect guard keeps it gap-safe. So "both incident bodies in the same component"
+  is handled — that is HOW the CONSUMED count is already 143/167.
+- **The 24 residual are same-litho FLOOD-convergence teeth of a CONTINUOUS band** (all CS1 = one formation
+  019e940a — the S67 single-lithology wall). Probe result (feed the override to EVERY body in the tip's
+  gap = the MAXIMAL super-set of "both incident"): **9 of 24 revive, 15 do NOT** — even a 0.04 nudge with
+  every gap body overridden moves them 0 (they hit ruling 8m `matchedFacingSameLitho → return false` in
+  `drawTermination.ts` ~300, which short-circuits BEFORE any `terminationApexOverride` lookup; owner-approved
+  8m — "the tie bounds the space, the flood flows, the 8j merge welds ONE body, the flank is an interior
+  seam"). The 8m comment itself already names this "an APP-suppression concern (S76), NOT a safe engine reshape."
+- **The 9 revivable ones revive ONLY by moving the vertically-BRACKETING teeth to the SAME (fraction,
+  elevation)** — a flood-zigzag's interleaved teeth share the tooth's column-face endpoints. The narrow
+  geometric "share-any-vertex" set (tip + 2 bracketing teeth) DOES revive all of them (measured). BUT that
+  gesture DRAGS THE NEIGHBOURS' apexes onto the grabbed point — it collapses three interleaved teeth onto
+  one vertex. That is not a coherent "reshape this lens" gesture; it mangles the neighbours.
+
+### ⛔ THE FORK — OWNER QUESTION (STOPPED, per ask-first + the prompt's report-not-hack rule)
+Making the residual 24 reshape requires ONE of (owner to pick):
+1. **Couple the bracketing teeth** (revives 9/24) — but dragging one tooth moves its vertical neighbours to
+   the same apex (measured neighbour-mangle). Wrong gesture unless the owner wants the whole zigzag to move
+   as a rigid chain.
+2. **Suppress these handles** (§77 honest "better no handle than a dead grab") — the owner never gets a dead
+   grab; the 24 become un-shapeable (a visual no-op on the interior seams of one continuous same-litho band —
+   which is what they geometrically ARE). Cheapest, no engine risk, matches ruling 8m's intent. NOTE: the
+   existing `unroutableBodies` suppression (PartitionFillOverlay ~770) only fires for bodies with a STORED
+   node at rest (§80) — extending it to these fresh-grab teeth needs a per-topology probe (memoised on
+   `[orderedColumns, edges, alongM]`, NOT per drag frame).
+3. **Overturn ruling 8m** — draw a reshapeable flank for same-litho onlaps. An OWNER-APPROVED ruling; needs
+   an explicit 4th engine grant + a re-run of the followTieOnlap / coherentLoneStack / 8j-merge locks.
+The prompt's own escape hatch: "if a tip STILL won't reshape after writing both incident overrides, that's a
+diagnosis to REPORT." That is the 15 engine-suppressed. RECOMMEND the owner picks #2 (suppress) for a clean
+"no dead grab anywhere" — it is what the geometry says these teeth are — OR #3 if they truly want to reshape
+a same-litho interior seam. Do NOT ship #1's neighbour-mangle silently.
+
+### VERIFICATION (this session)
+- KEPT gate `partitionFillV2.allSectionsReshape.diag.test.ts` (CS1_GATE=1): **CONSUMED=143 DEAD=24**
+  (revivableByMaximalCoupling=9, engineSuppressed(8m)=15). Asserts CONSUMED ≥ 140 (S75 consumers stay wired).
+- S75 `reshapeMap` gate UNMOVED: CS1 shapeable=69 CONSUMED=56 INVARIANT=13 (byte-identical, I touched no engine).
+- Engine byte-intact spot-checks (no engine file edited): HOLES_DIAG **0/0/0**; CS1 gates **8/8**.
+- PartitionFillOverlay suite **61 pass** (was 59; +PP1/PP2). Full utils+sections **1420 pass / 40 skip / 0 fail**
+  (was 1418). tsc `tsconfig.web.json` CLEAN. Pre-existing conformance ratchet (flag-ON, §81) untouched (skips flag-OFF).
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `PartitionFillOverlay.tsx` — `LENS_HIT_MIN_PX=9` const + `lensHitR` floor (the pan-vs-gesture fix, ~267/556).
+- `PartitionFillOverlay.test.tsx` — KEPT tests `PP1` (grab-radius floor) + `PP2` (grab stops propagation).
+- `partitionFillV2.allSectionsReshape.diag.test.ts` — NEW KEPT gate (CS1_GATE=1): all-14 CONSUMED/DEAD + DEAD classify.
+- `throwaway_s76_junction.diag.test.ts` — inert placeholder (probe promoted to the kept gate). **ORCHESTRATOR: DELETE** (`rm` denied).
+- `REWRITE_STATE.md` — this §82.
