@@ -7650,3 +7650,103 @@ dedup direction in ``sharedBoundariesForRender``. The three dedups are independe
 - `desktop/src/renderer/src/components/sections/PartitionFillOverlay.test.tsx` — NEW SC1-SC4 block (replaced the
   S73 throwaway diagnostics).
 - `REWRITE_STATE.md` — this §79.
+
+## §80 — Session 74: DIAGNOSE-FIRST on REAL CS1 — "the marker drags but the fill doesn't reshape" ROOT-CAUSED (measured, not guessed): 40 of 59 grabbable handles in real CS1 are DEAD — the engine does not consume their override → the region polygon is BYTE-STATIC under the drag. This is Suspect 1 (§77 un-routable class) at scale. Making them reshape is a SANCTIONED ENGINE change (S64/S67-class) → STOP-AND-REPORT with evidence + the owner question. The pan conflict is COUPLED to the engine decision (enlarging dead handles makes it worse), so it is NOT fixed in isolation this session. NO engine / v1 / intersect.ts / app-render source edited — only a throwaway CS1 diag test added (gated, skips in the suite).
+
+Owner dogfeed (2026-07-22, live app CS1 GEO-23/125-S10, engine v2): "it actually renders a
+little marker which i can drag but it isn't reshaping jack shit, and the drag handler is
+indeed annoying" + "i think the pan handler is fighting the gesture too."
+
+### THE REAL-CS1 MEASUREMENT (decisive — env-prefixed vitest DID execute this run)
+Throwaway diag `throwaway_s74_reshape.diag.test.ts` (v2, gated ``CS1_GATE=1``, real
+``scripts/throwaway_cs1_input.json``). For EVERY apex-shapeable region (``isApexShapeable`` +
+has bodyId = exactly the set that renders a grab handle in ``screenLenses``), it feeds a
+live-drag ``LensApexOverride`` EXACTLY the way ``PartitionFillOverlay.setShape`` does
+(``{fraction, elevation, upper:[apex], lower:[apex]}``, key ``lensApexOverrideKey(bodyId, gap)``),
+re-runs ``computeSectionFillV2``, and measures the vertex-L2 delta of that body's region
+polygon (the rendered ``d``) before vs after.
+
+**RESULT (CS1): shapeable regions = 59 | CONSUMED (reshaped) = 19 | INVARIANT (NO reshape) = 40.**
+- The 19 CONSUMED move (delta 0.9–2.8, some topology-change=Infinity) — the enclosed-lens
+  (``emitLenses``) + some onlap (``emitOnlap``) paths honour the override. The S64/S67/S68/S73
+  round-trip WORKS for these.
+- The 40 INVARIANT are BYTE-STATIC: ``delta = 0.00e+0``. A second measurement (does the override
+  move ANYTHING ELSE in the gap, i.e. a bodyId mis-attribution?) came back **0 GAP-MOVED / 40
+  GAP-STATIC** — the override moves nothing anywhere in the gap. So it is NOT an app-side keying
+  bug; the engine genuinely does not consume the override for these 40 bodies.
+- Dominant INVARIANT classes (tally): **15× pinch@frac0.50 + 11× lens@frac0.50** (26 of 40 sit at
+  the DEFAULT ``INTERIOR_PINCH_FRACTION`` apex — corr-0 lenses + sweep onlap/pinch tips) + 9×
+  lens@interior + 3× quad@interior + 2 misc. Same kind+frac can be CONSUMED in one gap and
+  INVARIANT in another → it is a per-body EMIT-PATH routing property, not a clean kind gate.
+
+### WHY §77's un-routable SUPPRESSION does NOT hide these 40 (the owner still gets a dead handle)
+``sectionFillData.unroutableBodies`` (PartitionFillOverlay ~770) is built ONLY from
+``apexOverrides.keys()`` — i.e. bodies that ALREADY have a STORED node at rest. On a fresh grab
+(the owner's case: no prior node on that body) ``apexOverrides`` is EMPTY → the detection loop
+never runs → ``unroutableBodies`` is empty → ZERO of the 59 handles are suppressed → all 59 render,
+40 are dead. §77's invariant ("better no handle than a dead grab") silently does nothing for the
+common first-grab path. Confirmed by code inspection + the 40-dead measurement.
+
+### THE ENGINE CLASS (named for the owner question)
+The override is PLUMBED to every relevant emit path — ``drawTermination``→``emitOnlap``,
+``emitTerminationSweep``→``emitSurfaceOnlapFlank``, ``emitBoundaryLens``, ``emitEnclosingFlood``
+all import ``terminationApexOverride`` and thread ``section.lensApexOverrides``. Yet the 40 stay
+static. So for these the override is either (a) consumed at the tip emit but then OVERWRITTEN by
+the enclosing-flood band that re-covers the same interval, or (b) collapsed back by the
+``segmentDegenerate`` / reach-halving legality guard, or (c) routed through a corr-0 lens path that
+reads the DEFAULT apex (``enclosedLensDiamond``/``INTERIOR_PINCH_FRACTION``) without the
+``lookupOverride`` branch the ENCLOSED lens has. Only the ENCLOSED-lens (``emitLenses.lookupOverride``)
+and the bracketed-ONLAP (``emitOnlap``) tips reliably consume it (the 19). The un-consumed 40 are
+predominantly **corr-0 NON-enclosed interior lenses + default-apex sweep tips.**
+
+### ⛔ THE FORK — OWNER QUESTION (STOP, do not build)
+Making the 40 reshape = adding the free-draw override CONSUMER to the remaining emit paths
+(corr-0 non-enclosed lens + surface/sweep default-apex tip + guarding it against the enclosing-flood
+overwrite) — a genuine ENGINE change on ``partitionFillV2/`` of the S64/S67 class. The owner sanctioned
+engine work twice for exactly this; a 3rd needs the same nod. **Two candidate resolutions, owner to pick:**
+1. **ENGINE (full reshape):** make every shapeable tip the app offers a handle for actually consume
+   the override (route corr-0 lenses + default-0.5 tips through the same ``lookupOverride`` +
+   flood-overwrite guard the enclosed lens uses). Large but the "reshape works ALWAYS" the owner wants.
+2. **APP (honest suppression, matches §77 intent):** probe each shapeable region ONCE per topology
+   (memoised on ``[orderedColumns, edges, alongM]``, NOT per drag frame) — feed a test override, and
+   if the region is byte-static, SUPPRESS its handle. The owner is never offered a dead grab, but the
+   40 bodies become un-reshapeable (a visual no-op, per §77's KNOWN LIMIT). Cheaper, no engine risk,
+   but does NOT grant the reshape.
+
+The owner's mandate ("this needs to work ALWAYS", and they WANT to reshape the silt lens) points at
+#1; #2 is the scoped no-engine fallback. **Recommend the owner picks before any code** — the pan fix
+depends on it (see below).
+
+### THE PAN CONFLICT (diagnosed; COUPLED to the fork, so not fixed in isolation)
+``SectionPanel.handleMouseDown`` (~866) starts a pan on ANY left mousedown on the SVG root that
+reaches it. The lens/boundary handle circles DO ``e.stopPropagation()`` on mousedown (verified
+~2443/2488/2302), so a PRECISE grab does not pan — ``panStart`` stays null. The "pan fights the
+gesture" is a NEAR-MISS problem: the lens hit radius is ``LENS_HIT_R=11`` × ``handleScale`` where
+``handleScale = min(1, |xScale|/2.5)`` (~552) SHRINKS at low column spacing → the grab target is
+sub-11px → an off-by-a-few-px click misses the handle and starts a pan instead. **Fix candidates
+(app-layer, deferred):** (a) floor ``handleScale`` so the hit radius never drops below a grabbable
+size; (b) suppress pan-init while the cursor is within grab range of any shapeable handle. **NOT done
+this session because it is coupled to the fork:** enlarging the grab radius NOW makes the 40 DEAD
+handles EASIER to grab → actively worse UX until the reshape works (or the dead handles are
+suppressed). Sequence: resolve the fork (#1 or #2) → THEN tune grab radius + pan-suppression for the
+handles that survive.
+
+### VERIFICATION
+- The load-bearing real-CS1 measurement is the diag above (19 consumed / 40 GAP-STATIC dead) — it
+  REPRODUCES the owner's "isn't reshaping jack shit" on real data (the prior campaign patched this
+  blind on synthetic-only fixtures 4×; this is the first real-CS1 reproduction).
+- NO production code changed → all named blocks stay green: PartitionFillOverlay suite **59 pass**
+  (unchanged), **tsc clean** (``tsconfig.web.json``). Engine BYTE-INTACT by construction (no engine /
+  v1 / intersect.ts / app-render source edited — only the gated throwaway diag added).
+- The env-gated ``CS1_GATE=1`` diag ran (env-prefixed vitest executed this session, unlike S67/S72).
+
+### OWNER DOGFEED SCRIPT (after the fork is resolved)
+If #1 (engine): open CS1 → Litho → v2 → GEO-23/125-S10, grab the silt lens, drag → the fill reshapes
+live and follows, no gap, pan doesn't fight; release persists. If #2 (suppress): the dead handles
+vanish (only the 19 reshapeable handles remain), and pan works normally where no handle sits.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `desktop/src/renderer/src/utils/throwaway_s74_reshape.diag.test.ts` — the real-CS1 reshape-consumption
+  measurement of record (gated ``CS1_GATE=1``, skips in the suite). **ORCHESTRATOR: DELETE** (Bash ``rm``
+  denied this run).
+- `REWRITE_STATE.md` — this §80.
