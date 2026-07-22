@@ -7575,3 +7575,78 @@ correlation edit) — no engine change, no tie repurposed.
 - `desktop/src/renderer/src/components/sections/zzprobe.test.tsx` — THROWAWAY probe, emptied to a skipped
   no-op (bash rm / PowerShell Remove-Item were permission-denied this run). **Orchestrator: DELETE this file.**
 - `REWRITE_STATE.md` — this §78.
+
+## §79 — Session 73: "THREE POINTS PER CLICK" + "CAN'T DRAG RESHAPE" ROOT-CAUSED (measured, jsdom-reproducible) and FIXED — one stored node was claimed by 3-4 overlapping handle-derivation passes (each clamping it to a different band's y → dots scattered across the gap); the drag was blocked because the click path scattered nodes onto the wrong body/surface, and duplicate handles hid the grabbable one. SINGLE-SURFACE-PER-STORED-NODE invariant restored. App-layer only; engine + v1 + intersect.ts byte-untouched (no engine source edited; engine 273 partitionFill + 91 v1 pass intact).
+
+Owner dogfeed (2026-07-22, GEO-23/125-S10, CS1, engine v2, screenshot 2 orange + 2+2 blue dots):
+"why do three points appear when i click? why can't i drag and drop reshape anymore?" REGRESSIONS
+from the S70→S72 dispatch stack piling onto the click/drag path.
+
+### ROOT #1 — MEASURED, NOT the orchestrator's "3 onClicks from overlapping siblings"
+A single physical click fires ``onClick`` on only the TOPMOST add-strip (browser + React
+semantics; ``routeAddStripClick`` dispatches ONCE — confirmed: ONE click = ONE ``onSaveBoundary``).
+The real cause (throwaway diag, v2 onlap fixture, jsdom): ONE stored ``lower_nodes`` node on a body
+rendered FOUR handle dots because the body was claimed by MULTIPLE handle-derivation passes at once —
+``sharedBoundaries`` drew it as a boundary handle on TWO pairs the body topped (``sand-sand`` +
+``sand-silt``), AND ``screenLenses`` drew it as a lens-lower handle TWICE (the onlap splits sand into
+two shapeable pinch pieces in the same gap). Each pass clamps the node to a different band's y-range →
+2-4 dots scattered across the gap = the owner's "three points". A body that is a shapeable pinch tip in
+one place and a band elsewhere is BOTH a lens surface AND a contact-bend surface simultaneously.
+
+### ROOT #2 — the drag machinery was intact; drag-INIT was blocked by ROOT #1
+CW4/V2P4/PFO7 prove the live reshape round-trip (lensDrag/boundaryDrag → sectionFillData re-runs →
+engine re-partition → screenRegions follows, S65) is fully wired on v2. The drag needs a grabbable
+handle to START; the scattered/duplicated handles + wrong-body containment routing meant the owner
+couldn't grab the intended body's single handle. Fix ROOT #1 → one node, one surface, one grabbable
+handle → drag-init restored. (No engine change; no §77 gap-proofing reverted — the owner's "no gapwise
+bug" mandate held.)
+
+### FIX — SINGLE-SURFACE PER STORED NODE (three dedups, all app-render, `PartitionFillOverlay.tsx`)
+1. **``sharedBoundaries`` cross-pair dedup** (~1568/1619): ``nodesEmittedFor`` set (``gapKey:upperBodyId``)
+   — a body's contact nodes render for the FIRST pair it tops in a gap, not every pair. Add-strips still
+   render on every pair (a click on either lands on the contact); only the stored-node HANDLES dedup.
+2. **``screenLenses`` cross-region dedup** (~1686/1740): ``claimedLensNodes`` set (``bodyId:edge:nodeIndex``)
+   — a body split into several shapeable pieces in one gap renders each stored node's handle ONCE.
+3. **cross-surface dedup** (``sharedBoundariesForRender`` memo ~1800): drops from the boundary pass exactly
+   the ``lower_nodes`` nodes ``screenLenses`` actually rendered (``screenLenses`` is the authoritative owner —
+   its gate already resolves shapeability + corners + un-routable suppression). The render pass (~2254) uses
+   ``sharedBoundariesForRender``. Nothing reverted; the S70/S71/S72 router + projection + reach-floor UNCHANGED.
+
+### VERIFICATION (TDD, real rendered geometry)
+- **RED-first (SC block, engine v2, ``PartitionFillOverlay.test.tsx``)**: SC1 (RED: ONE stored node → 4 dots;
+  GREEN: exactly 1) — the owner's "three points"; SC2 (a shapeable-tip node is a LENS handle, never also a
+  boundary handle); SC3 (a full-width band contact node stays a boundary handle — no regression, RED at 2
+  identical dots → GREEN at 1); SC4 (the ROOT-#2 round-trip: click adds ONE node on silt → exactly ONE
+  grabbable hit-target → drag reshapes the fill reach past rest+10 → release persists). RED confirmed per
+  case (SC1 4→1, SC3 2→1) before the fix; all GREEN after. Behaviour-shaped (owner vocabulary: "one point
+  per click", "drag and drop reshape").
+- **No regressions**: PartitionFillOverlay suite **59 pass** (55→59; +SC1-4). partitionAddStripRouter **13 pass**
+  (unchanged — router untouched). Sections dir **589 pass / 4 skip** (was 586/4). partitionFill glob **273 pass**
+  + v1/lensEdgePick **91 pass** (engine BYTE-INTACT — no engine file touched). **tsc clean** (tsconfig.web.json).
+  **FULL desktop suite 2424 pass / 0 fail / 37 skip** — ZERO new reds. (Env-gated HOLES_DIAG/seedGate NOT
+  runnable — Bash restricted to the canonical ``npx vitest run <file>`` shape; unnecessary since no engine file
+  changed and the 273+91 engine tests confirm it intact.)
+- **S71/S72 GOOD PARTS STILL GREEN**: RC1/2/3 (containment targeting + engine-only reshape), N1/N2/A1
+  (node-on-boundary + apex-floor), T1/T2 (tie-bounded base grab), ST1/2 (stacked-lens routing), CW1-4
+  (contact wiring), V2P1-4 all pass — the fix ADDS handle dedup, changes none of the routing/projection.
+
+### OWNER DOGFEED SCRIPT
+Open CS1 → Litho axis → engine v2 → GEO-23/125-S10. (1) Click once on a unit → EXACTLY ONE control point
+appears on the boundary (no more 2-3 scattered dots). (2) Grab that point and drag → the fill reshapes live
+and follows the cursor, no gap; release persists. (3) Works on the enclosed-lens, onlap-tip, and full-width
+band cases alike. If a single click EVER drops more than one dot, or a dragged handle doesn't reshape,
+report the exact elevation + body.
+
+### NOTE (recorded)
+``screenLenses`` is the authoritative owner when a node is claimed by both surfaces (its gate is stricter).
+If a future topology needs the boundary surface to win for a node ``screenLenses`` also draws, invert the
+dedup direction in ``sharedBoundariesForRender``. The three dedups are independent (cross-pair / cross-region
+/ cross-surface) — each closes one observed duplication class measured on the onlap + base fixtures.
+
+### Files this session (worktree, NOT committed — orchestrator commits)
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.tsx` — ``nodesEmittedFor`` (sharedBoundaries
+  cross-pair dedup), ``claimedLensNodes`` (screenLenses cross-region dedup), ``sharedBoundariesForRender`` memo
+  (cross-surface dedup) + render pass switched to it.
+- `desktop/src/renderer/src/components/sections/PartitionFillOverlay.test.tsx` — NEW SC1-SC4 block (replaced the
+  S73 throwaway diagnostics).
+- `REWRITE_STATE.md` — this §79.
