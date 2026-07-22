@@ -17,7 +17,7 @@
  *
  * @module clients/geology
  */
-import { _base, del, get, getBytes, patch, post, put } from './shared'
+import { _base, del, delReturning, get, getBytes, patch, post, put } from './shared'
 import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
 import type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
@@ -75,6 +75,7 @@ import type {
   BodyBoundaryNode,
   BodyRenderStyle,
   BodyBoundaryResponse,
+  ClearBoundariesResponse,
   SubdivideAllBodiesResponse,
   DivideBoreholeResponse,
 } from './geology.types'
@@ -643,6 +644,20 @@ export const geologyClient = {
 
   deleteBody: (projectId: string, modelId: string, bodyId: string): Promise<void> =>
     del(`/projects/${projectId}/geology/models/${modelId}/bodies/${bodyId}`),
+
+  /**
+   * DELETE /models/{mid}/boundaries — reset all hand-drawn body boundaries.
+   *
+   * The "Reset manual points" bulk action: clears every user-authored
+   * boundary shape (+ its control nodes) for the litho model, so all bodies
+   * return to their engine-computed shape. Returns the number of shapes
+   * cleared.
+   */
+  resetManualBoundaries: (
+    projectId: string,
+    modelId: string,
+  ): Promise<ClearBoundariesResponse> =>
+    delReturning(`/projects/${projectId}/geology/models/${modelId}/boundaries`),
 
   listFormationAbsences: (
     projectId: string,

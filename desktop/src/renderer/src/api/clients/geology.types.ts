@@ -859,6 +859,12 @@ export interface BodyBoundaryResponse {
   lower_nodes: BodyBoundaryNode[]
 }
 
+/** Response from ``DELETE .../models/{mid}/boundaries`` (Reset manual points). */
+export interface ClearBoundariesResponse {
+  /** Number of hand-drawn boundary shapes removed (one per hand-shaped body). */
+  shapes_deleted: number
+}
+
 
 // ---------------------------------------------------------------------------
 // Geotech subdivision types
