@@ -16,8 +16,6 @@ Verifies:
 
 from __future__ import annotations
 
-from uuid import UUID
-
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
@@ -25,14 +23,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.body_boundary import (
-    BodyBoundaryState,
     BodyNoPrimarySectionError,
     BodyNotFoundError,
     BoundaryNode,
     GetBodyBoundary,
     SaveBodyBoundary,
 )
+from groundmodel.application.clear_body_boundaries import ClearBodyBoundaries
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -252,3 +251,48 @@ async def test_nodes_cascade_delete_with_shape(db_session: AsyncSession, scene: 
     await db_session.commit()
     n_after = len((await db_session.execute(select(BodyBoundaryNodeOrm))).scalars().all())
     assert n_after == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_body_boundaries_removes_all_shapes_and_nodes(
+    db_session: AsyncSession, scene: dict
+) -> None:
+    """ClearBodyBoundaries deletes every shape (+ cascade nodes) for the model.
+
+    The "Reset manual points" bulk action: a hand-shaped body's stored override
+    is removed so it returns to the engine-computed shape. Reports the shape
+    count and cascades node deletion at the DB level.
+    """
+    proj, litho, body = scene["project"], scene["litho"], scene["body"]
+    await SaveBodyBoundary(db_session).execute(
+        project_id=proj.id,
+        model_id=litho.id,
+        body_id=body.id,
+        upper_nodes=[BoundaryNode(1.0, 1.0), BoundaryNode(2.0, 2.0)],
+        lower_nodes=[BoundaryNode(3.0, 3.0)],
+        render_style="blocky",
+    )
+    assert len((await db_session.execute(select(BodyBoundaryShapeOrm))).scalars().all()) == 1
+    assert len((await db_session.execute(select(BodyBoundaryNodeOrm))).scalars().all()) == 3
+
+    result = await ClearBodyBoundaries(db_session).execute(model_id=litho.id)
+
+    assert result.shapes_deleted == 1
+    # Both the shape row and its cascade-deleted nodes are gone.
+    assert len((await db_session.execute(select(BodyBoundaryShapeOrm))).scalars().all()) == 0
+    assert len((await db_session.execute(select(BodyBoundaryNodeOrm))).scalars().all()) == 0
+    # The body row itself survives — only its user-authored shape was cleared.
+    surviving = await GetBodyBoundary(db_session).execute(
+        project_id=proj.id, model_id=litho.id, body_id=body.id
+    )
+    assert surviving.upper_nodes == []
+    assert surviving.lower_nodes == []
+    assert surviving.render_style == "straight"
+
+
+@pytest.mark.asyncio
+async def test_clear_body_boundaries_is_idempotent(db_session: AsyncSession, scene: dict) -> None:
+    """Clearing a model with no stored shapes returns 0 (idempotent re-run)."""
+    litho = scene["litho"]
+    result = await ClearBodyBoundaries(db_session).execute(model_id=litho.id)
+    assert result.shapes_deleted == 0
