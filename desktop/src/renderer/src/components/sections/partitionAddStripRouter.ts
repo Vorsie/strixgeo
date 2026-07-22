@@ -207,6 +207,64 @@ export function projectClickToCandidate<T>(
 }
 
 /**
+ * Apply the S72 visible-reach floor to an already-projected on-segment point WITHOUT
+ * knocking it off the boundary (owner free-draw repair, Fact A).
+ *
+ * The reach floor keeps a lens's apex ≥ ``floorPx`` (a fraction of the gap) away from
+ * its anchored source column so a click near the column face cannot pinch the lens to a
+ * hairline. The pre-repair code clamped the along-x but KEPT the projected y — on a
+ * SLOPING edge that puts the stored node OFF the segment (the floating blue handle).
+ *
+ * The fix: clamp the along-x to the floor, then RE-READ the segment's y at the clamped
+ * x (``edgePointAtX``) so the node stays ON the boundary. When the clamped x still falls
+ * within the segment's x-span this is exact; when the floor pushes x PAST the segment's
+ * interior tip (a near-degenerate lens whose whole edge sits inside the floor band), snap
+ * to the INTERIOR tip — the endpoint FARTHEST from the anchored source column — so the
+ * reach stays maximised (never collapsed back onto the source, which the floor exists to
+ * prevent) and the node stays ON the boundary, never at free cursor coords.
+ *
+ * @param projected The on-segment projected click (from ``projectClickToCandidate``).
+ * @param seg       The selected boundary segment ``[a, b]`` (screen coords).
+ * @param side      Which column the lens anchors on: ``'left'`` floors x up from
+ *                  ``leftX + floorPx``; ``'right'`` caps x down from ``rightX − floorPx``.
+ * @param leftX     The gap's left screen-x edge.
+ * @param rightX    The gap's right screen-x edge.
+ * @param floorPx   The minimum-visible-reach floor in screen px.
+ * @returns         The reach-constrained point, still lying ON ``seg``.
+ */
+export function applyReachFloorOnSegment(
+  projected: RouterPoint,
+  seg: [RouterPoint, RouterPoint],
+  side: 'left' | 'right',
+  leftX: number,
+  rightX: number,
+  floorPx: number,
+): RouterPoint {
+  const clampedX = side === 'left' ? Math.max(leftX + floorPx, projected.x) : Math.min(rightX - floorPx, projected.x)
+  // No clamp needed → the projected point is already on-segment; return it unchanged.
+  if (Math.abs(clampedX - projected.x) < 1e-9) return projected
+  // Re-read the segment's y AT the clamped x so the node rides the (possibly sloped) edge.
+  const onSeg = edgePointAtX({ x: clampedX, y: projected.y }, seg[0], seg[1])
+  if (onSeg) return onSeg
+  // ``edgePointAtX`` returned null → the clamped x is outside the segment's x-span. Two cases:
+  //
+  //  (a) VERTICAL / near-vertical segment (the projection landed on the anchored COLUMN FACE,
+  //      not on a lens flank). Here the reach floor's whole job is to push the apex OFF that
+  //      face INTO the gap — the node is MEANT to leave the vertical line. Keep the projected
+  //      elevation and move x to the floor (the pre-repair reach behaviour, which was correct
+  //      for the column-face case). This preserves the "a click near the column can't collapse
+  //      the lens" contract (A1).
+  //
+  //  (b) SLOPING segment whose interior tip is INSIDE the floor band (a near-degenerate lens):
+  //      snap to the tip — the endpoint FARTHEST from the source — so the reach stays maximised
+  //      and the node stays ON the sloped edge, never collapsed back onto the source corner.
+  const dx = Math.abs(seg[1].x - seg[0].x)
+  if (dx < 1e-6) return { x: clampedX, y: projected.y } // (a) column-face reach into the gap
+  const tip = side === 'left' ? (seg[0].x >= seg[1].x ? seg[0] : seg[1]) : seg[0].x <= seg[1].x ? seg[0] : seg[1]
+  return { x: tip.x, y: tip.y } // (b) sloped-edge tip
+}
+
+/**
  * Pick the add-strip candidate whose segment is nearest a click.
  *
  * This is the global arbitration that fixes the stacked-lens mis-targeting: with
