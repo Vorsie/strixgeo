@@ -108,6 +108,7 @@ import {
   type ScreenRegion,
   type SharedBoundary,
 } from './partitionFillOverlayHelpers'
+import { handleFillColor, shouldPersistDrag } from './unsafeDragUX'
 
 /**
  * Geotech fraction-space refinement inputs (owner-locked 2026-07-06). When
@@ -397,7 +398,16 @@ export default function PartitionFillOverlay({
       })
     }
     const up = (): void => {
-      if (onSaveBoundary && screenXToAlong && screenToLevel) {
+      // SNAP BACK (owner S80): a boundary drag that ended on a REFUSED reach (this body's live outcome
+      // is ``rejected-unsafe`` at release) is discarded — do NOT persist. Clearing ``boundaryDrag``
+      // returns the handle to the last safe contact the base fill already renders. See the lens ``up``.
+      const rejected = rejectedDragBodyRef.current === boundaryDrag.upperBodyId
+      if (
+        shouldPersistDrag(rejected ? 'rejected-unsafe' : 'applied') &&
+        onSaveBoundary &&
+        screenXToAlong &&
+        screenToLevel
+      ) {
         const existing = boundariesByBodyId?.get(boundaryDrag.upperBodyId)
         // All existing nodes in OTHER gaps (outside this gap's along range).
         const otherGapNodes = (existing?.lower_nodes ?? []).filter((n) => {
@@ -466,7 +476,13 @@ export default function PartitionFillOverlay({
       setLensDrag({ ...lensDrag, x: cx, y: cy })
     }
     const up = (): void => {
-      if (onSaveBoundary && screenXToAlong && screenToLevel) {
+      // SNAP BACK (owner S80): if the drag ended on a reach the engine REFUSED (this body's live
+      // outcome is ``rejected-unsafe`` at release), discard the unsafe node — do NOT persist. The
+      // base fill already renders the last SAFE shape, so clearing ``lensDrag`` snaps the handle back
+      // onto it. A safe release persists as before. Read the CURRENT rejection via the ref (the
+      // outcome is recomputed per drag frame; this closure was captured once at drag start).
+      const rejected = rejectedDragBodyRef.current === lensDrag.bodyId
+      if (shouldPersistDrag(rejected ? 'rejected-unsafe' : 'applied') && onSaveBoundary && screenXToAlong && screenToLevel) {
         const existing = boundariesByBodyId?.get(lensDrag.bodyId)
         const newNode: BodyBoundaryNode = {
           along_m: screenXToAlong(lensDrag.x),
@@ -630,6 +646,11 @@ export default function PartitionFillOverlay({
     unroutableBodies: Set<string>
     // v2 crossing-tie conflicts (owner §8 Q4) — drives the amber warning chip.
     conflicts: TieConflict[]
+    // The bodyId currently being dragged whose live override outcome this frame is
+    // ``rejected-unsafe`` (the engine refused the reach → rendered the un-reshaped base fill).
+    // ``null`` when the drag is safe / absent. Drives the RED handle + the snap-back-on-release
+    // (owner S80 "red handle and snapback"). Read from the SAME engine pass — no extra run.
+    rejectedDragBody: string | null
   } => {
     if (!showBands)
       return {
@@ -640,6 +661,7 @@ export default function PartitionFillOverlay({
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
         conflicts: [],
+        rejectedDragBody: null,
       }
 
     // Valid columns in along-section order (have both unit data + screen edges).
@@ -654,6 +676,7 @@ export default function PartitionFillOverlay({
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
         conflicts: [],
+        rejectedDragBody: null,
       }
 
     // Pre-compute gap x-extents from screenByInv so both memos share the same
@@ -788,12 +811,22 @@ export default function PartitionFillOverlay({
     // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
     // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
     // ``sectionRegions`` here stay the litho partition.
-    const { regions: sectionRegions, conflicts } = computeSectionFillActiveWithDiagnostics(
-      orderedColumns,
-      edges,
-      apexOverrides,
-      alongM,
-    )
+    const {
+      regions: sectionRegions,
+      conflicts,
+      overrideStatus,
+    } = computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
+
+    // ---- UNSAFE-DRAG outcome (owner S80 "red handle and snapback"). ----------
+    // The engine keeps "never a gap or overlap" by rendering the un-reshaped base fill on a
+    // rejected frame (S79); ``overrideStatus === 'rejected-unsafe'`` is the explicit signal that the
+    // in-progress drag reached a refused position. Tie it to the body being dragged this frame so the
+    // render can redden ONLY that handle and the release can snap it back. Read from the SAME engine
+    // pass above (no extra run). A boundary drag reshapes the shared contact of its upper body, so its
+    // dragged body is ``upperBodyId``.
+    const draggedBodyId = lensDrag?.bodyId ?? boundaryDrag?.upperBodyId ?? null
+    const rejectedDragBody =
+      draggedBodyId != null && overrideStatus === 'rejected-unsafe' ? draggedBodyId : null
     log.debug(
       'partition',
       `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions` +
@@ -851,6 +884,7 @@ export default function PartitionFillOverlay({
       contactOverriddenBodies,
       unroutableBodies,
       conflicts,
+      rejectedDragBody,
     }
   }, [
     orderedInvs,
@@ -873,6 +907,18 @@ export default function PartitionFillOverlay({
   // one. Surfaced as a small persistent, non-blocking amber warning chip below
   // (never a dialog / focus steal). v1 always reports none.
   const conflicts = sectionFillData.conflicts
+
+  // ---- UNSAFE-DRAG UX (owner S80 "red handle and snapback"). ---------------
+  // The bodyId whose in-progress drag reached a REFUSED reach this frame (engine ``rejected-unsafe``).
+  // Drives the RED handle in the render. A ref mirrors it so the drag ``mouseup`` closures (which are
+  // captured once per drag, not per frame) can read the CURRENT rejection state at release without a
+  // stale closure — a rejected release snaps back (skips ``onSaveBoundary``) instead of persisting the
+  // unsafe node. The gap-proof invariant holds: a rejected drag never persists → never a stored gap.
+  const rejectedDragBody = sectionFillData.rejectedDragBody
+  const rejectedDragBodyRef = useRef<string | null>(null)
+  useEffect(() => {
+    rejectedDragBodyRef.current = rejectedDragBody
+  }, [rejectedDragBody])
 
   // Log the conflict list ONCE per change so a dogfeed DevTools console shows the
   // suspended ties without a dialog. console.info (not .debug) so it survives the
@@ -2439,7 +2485,8 @@ export default function PartitionFillOverlay({
                   cx={x}
                   cy={y}
                   r={BOUNDARY_R}
-                  fill={BOUNDARY_COLOR}
+                  // RED while THIS boundary drag is refused (owner S80); normal sky-blue otherwise.
+                  fill={handleFillColor(sb.upperBodyId, rejectedDragBody, BOUNDARY_COLOR)}
                   stroke="#0f172a"
                   strokeWidth={1}
                   style={{ pointerEvents: 'none' }}
@@ -2576,7 +2623,8 @@ export default function PartitionFillOverlay({
                   cx={x}
                   cy={y}
                   r={lensR}
-                  fill={LENS_COLOR}
+                  // RED while THIS lens drag is refused (owner S80); normal amber otherwise.
+                  fill={handleFillColor(sl.bodyId, rejectedDragBody, LENS_COLOR)}
                   stroke="#0f172a"
                   strokeWidth={1}
                   style={{ pointerEvents: 'none' }}
@@ -2621,7 +2669,8 @@ export default function PartitionFillOverlay({
                   cx={x}
                   cy={y}
                   r={lensR}
-                  fill={LENS_COLOR}
+                  // RED while THIS lens drag is refused (owner S80); normal amber otherwise.
+                  fill={handleFillColor(sl.bodyId, rejectedDragBody, LENS_COLOR)}
                   stroke="#0f172a"
                   strokeWidth={1}
                   style={{ pointerEvents: 'none' }}
