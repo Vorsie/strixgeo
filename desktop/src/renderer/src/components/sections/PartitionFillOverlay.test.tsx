@@ -2015,3 +2015,218 @@ describe('isApexShapeable — the engine-agnostic tip predicate', () => {
     expect(isApexShapeable(region('quad', [0, 1, 1, 0]))).toBe(false)
   })
 })
+
+// SC — SINGLE-SURFACE PER STORED NODE (engine v2). Owner dogfeed (2026-07-22,
+// GEO-23/125-S10): "why do three points appear when i click? why can't i drag and
+// drop reshape anymore?" ROOT (S73, measured): a body whose fill region is a
+// shapeable pinch tip in one place but a full-width band elsewhere is claimed by
+// BOTH the ``sharedBoundaries`` (contact-bend) pass AND the ``screenLenses``
+// (lens-edge) pass — and by MULTIPLE boundary pairs where it is the upper body.
+// So ONE stored ``lower_nodes`` node renders 3-4 handle dots (each clamped to a
+// different band's y-range → dots scattered across the gap), and the drag can't be
+// initiated on the intended body because the wrong surface owns the click. The
+// rule the owner expects: a stored node belongs to EXACTLY ONE gesture surface —
+// a lens/tip body's node is a LENS-edge node (screenLenses owns it); a full-width
+// band's node is a CONTACT-bend node (sharedBoundaries owns it). Never both.
+describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2)', () => {
+  beforeEach(() => setPartitionEngineV2(true))
+  afterEach(() => {
+    setPartitionEngineV2(false)
+    cleanup()
+  })
+
+  function onlapEdge(a: string, b: string): LithoContactCorrelationEdge {
+    return {
+      id: `e-${a}-${b}`,
+      layer_a_id: a,
+      layer_b_id: b,
+      layer_a_side: 'top',
+      layer_b_side: 'top',
+      model_id: 'm1',
+      section_id: 's1',
+      source: 'manual',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    } as LithoContactCorrelationEdge
+  }
+  // L: clay / silt / sand ; R: clay / sand. Silt (L only) top-tied to R sand → a v2
+  // ONLAP tip. The onlap carves SAND into a shapeable pinch in the gap while sand is
+  // also a full-width band elsewhere — the exact SC1 collision.
+  const onlapLayers = [
+    layer('l-clay', 'L', 'clay', 'fClay', 0, 3),
+    layer('l-silt', 'L', 'silt', 'fSilt', 3, 4),
+    layer('l-sand', 'L', 'sand', 'fSand', 4, 8),
+    layer('r-clay', 'R', 'clay', 'fClay', 0, 3),
+    layer('r-sand', 'R', 'sand', 'fSand', 3, 8),
+  ]
+
+  function allHandleDots(container: HTMLElement): Element[] {
+    return Array.from(
+      container.querySelectorAll(
+        '[data-testid^="partition-lens-handle-"],[data-testid^="partition-boundary-handle-"]',
+      ),
+    )
+  }
+
+  it('SC1 — ONE stored node on a body renders EXACTLY ONE draggable handle dot, not three', () => {
+    // The owner's "why do three points appear when i click?": a single stored node
+    // must render as a single control dot. Store ONE node on sand's lower_nodes (the
+    // shape a click produces) and count the visible handle dots for ALL bodies.
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...base}
+          lithoLayers={onlapLayers}
+          contactEdges={[onlapEdge('l-silt', 'r-sand')]}
+          {...transforms}
+          onSaveBoundary={vi.fn()}
+          boundariesByBodyId={
+            new Map([
+              [
+                'sand',
+                {
+                  upper_nodes: [],
+                  lower_nodes: [{ along_m: 50, elevation_m: 2 }],
+                } as unknown as BodyBoundaryResponse,
+              ],
+            ])
+          }
+        />
+      </svg>,
+    )
+    // Before the fix this was 4 (sand-sand, sand-silt boundary handles + sand-lower
+    // lens handle ×2), scattered across the gap. Exactly one node → exactly one dot.
+    expect(allHandleDots(container as HTMLElement)).toHaveLength(1)
+  })
+
+  it('SC2 — a shapeable-tip body node is a LENS handle, not ALSO a contact-bend handle', () => {
+    // Store the node on silt (the onlap tip itself) — its handle must live on the
+    // lens surface only, never duplicated onto a boundary pair.
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...base}
+          lithoLayers={onlapLayers}
+          contactEdges={[onlapEdge('l-silt', 'r-sand')]}
+          {...transforms}
+          onSaveBoundary={vi.fn()}
+          boundariesByBodyId={
+            new Map([
+              [
+                'silt',
+                {
+                  upper_nodes: [{ along_m: 40, elevation_m: 5 }],
+                  lower_nodes: [],
+                } as unknown as BodyBoundaryResponse,
+              ],
+            ])
+          }
+        />
+      </svg>,
+    )
+    const dots = allHandleDots(container as HTMLElement)
+    expect(dots).toHaveLength(1)
+    // The one dot is a LENS handle (silt is a shapeable tip), never a boundary handle.
+    expect(dots[0].getAttribute('data-testid')).toMatch(/^partition-lens-handle-silt-/)
+  })
+
+  it('SC3 — a full-width band contact node stays a boundary handle (no regression)', () => {
+    // The matched two-band stack (base fixture): sand + clay both span the gap →
+    // full-width bands. A stored contact node on sand is a CONTACT-bend node and must
+    // still render exactly one boundary handle (the S68 contact-bend path unbroken).
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...base}
+          {...transforms}
+          onSaveBoundary={vi.fn()}
+          boundariesByBodyId={
+            new Map([
+              [
+                'sand',
+                {
+                  upper_nodes: [],
+                  lower_nodes: [{ along_m: 50, elevation_m: 5 }],
+                } as unknown as BodyBoundaryResponse,
+              ],
+            ])
+          }
+        />
+      </svg>,
+    )
+    const dots = allHandleDots(container as HTMLElement)
+    expect(dots).toHaveLength(1)
+    expect(dots[0].getAttribute('data-testid')).toMatch(/^partition-boundary-handle-sand-/)
+  })
+
+  // An ENCLOSED silt lens in a sand matrix on L; continuous sand on R — the engine-
+  // consumed shapeable face (S64). Gap [20,80].
+  const enclosedLensLayers = [
+    layer('vl1', 'L', 'sand', 'fSand', 0, 4),
+    layer('vl2', 'L', 'silt', 'fSilt', 4, 6),
+    layer('vl3', 'L', 'sand2', 'fSand', 6, 10),
+    layer('vr1', 'R', 'sand', 'fSand', 0, 10),
+  ]
+
+  function siltApexReach(el: HTMLElement): number {
+    const d = el.getAttribute('d') ?? ''
+    let maxX = -Infinity
+    for (const m of d.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)) {
+      const x = parseFloat(m[1])
+      if (x > maxX) maxX = x
+    }
+    return maxX
+  }
+
+  it('SC4 — drag-and-drop reshape: click adds ONE node, its handle is grabbable, the drag reshapes the fill', () => {
+    // The owner's "why can't i drag and drop reshape anymore?": with the click path
+    // fixed (one node, one surface) the added node must render a GRABBABLE handle and
+    // dragging it must reshape the engine fill live. Full round-trip through the real
+    // click → store → re-render → grab → drag path (not a pre-seeded node).
+    const onSaveBoundary = vi.fn<(id: string, u: unknown[], l: unknown[], k: string) => void>()
+    let stored = new Map<string, BodyBoundaryResponse>()
+    const draw = (): ReturnType<typeof render> =>
+      render(
+        <svg>
+          <PartitionFillOverlay
+            {...base}
+            lithoLayers={enclosedLensLayers}
+            {...transforms}
+            onSaveBoundary={onSaveBoundary}
+            boundariesByBodyId={stored}
+          />
+        </svg>,
+      )
+    // 1. Click the silt lens upper add-strip at a point INSIDE the silt lens so the
+    //    node lands on silt. The lens spans elevation 4..6 (y 40..60); apex mid-gap.
+    const r1 = draw()
+    fireEvent.click(r1.getByTestId('partition-lens-addstrip-silt-upper'), {
+      clientX: 35,
+      clientY: 47,
+    })
+    // Exactly one node stored, on silt.
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
+    const [id, u, l] = onSaveBoundary.mock.calls[0]
+    stored = new Map([[id, { upper_nodes: u, lower_nodes: l } as unknown as BodyBoundaryResponse]])
+    r1.unmount()
+    // 2. Re-render with the node stored: exactly one grabbable handle + hit target.
+    const r2 = draw()
+    const hits = r2.container.querySelectorAll('[data-testid^="partition-lens-hit-silt-"]')
+    expect(hits).toHaveLength(1)
+    const restReach = siltApexReach(r2.getByTestId('partition-region-silt'))
+    // 3. Grab the handle and drag it deep into the gap → the fill FOLLOWS (reshape).
+    fireEvent.mouseDown(hits[0])
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 72, clientY: 50 }))
+    })
+    const draggedReach = siltApexReach(r2.getByTestId('partition-region-silt'))
+    expect(draggedReach).toBeGreaterThan(restReach + 10) // the fill reshaped toward the cursor
+    // 4. Release persists the shaped node.
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(onSaveBoundary.mock.calls[onSaveBoundary.mock.calls.length - 1][0]).toBe('silt')
+    r2.unmount()
+  })
+})

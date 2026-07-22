@@ -1557,6 +1557,16 @@ export default function PartitionFillOverlay({
     if (!onSaveBoundary) return []
     const out: SharedBoundary[] = []
     const lastMainByGap = new Map<string, number>()
+    // SINGLE-SURFACE PER STORED NODE (S73): a stored node belongs to EXACTLY ONE
+    // gesture surface. A body whose region is an apex-shapeable tip (lens / onlap
+    // pinch) here owns its nodes on the LENS surface (``screenLenses``); it must NOT
+    // also render them as contact-bend handles, or ONE stored node draws 3-4 dots
+    // scattered across the gap (the owner's "three points appear when i click",
+    // GEO-23/125-S10). And a body's contact nodes must render for only ONE boundary
+    // pair per gap, never once per every pair the body tops (``sand-sand`` +
+    // ``sand-silt`` for the same node). This set dedups the node-emitting pairs by
+    // ``gapKey:upperBodyId`` so the same body's contact nodes are drawn once.
+    const nodesEmittedFor = new Set<string>()
 
     for (let idx = 0; idx < screenRegions.length; idx += 1) {
       const sr = screenRegions[idx]
@@ -1599,9 +1609,17 @@ export default function PartitionFillOverlay({
           { x: uPts[nu - 1].x, y: uPts[nu - 1].y },
         ]
 
-        // Resolve per-node handle positions.
+        // Resolve per-node handle positions. Emit a body's stored contact nodes for
+        // only the FIRST pair it tops in this gap (S73): the same body can top two
+        // pairs (``sand-sand`` + ``sand-silt``), and rendering the node in both drew
+        // one stored node as several scattered dots. The natural-edge add-strip still
+        // renders on every pair (a click on either lands on the contact); only the
+        // stored-node HANDLES are drawn once.
+        const nodesKey = `${gapKey}:${uId}`
+        const emitNodes = !nodesEmittedFor.has(nodesKey)
         const nodes: SharedBoundary['nodes'] = []
-        if (boundariesByBodyId && alongToScreenX && levelToScreen) {
+        if (emitNodes && boundariesByBodyId && alongToScreenX && levelToScreen) {
+          nodesEmittedFor.add(nodesKey)
           const storedBnd = boundariesByBodyId.get(uId)
           const inGap = (storedBnd?.lower_nodes ?? []).filter((n) => {
             const nx = alongToScreenX(n.along_m)
@@ -1642,7 +1660,14 @@ export default function PartitionFillOverlay({
       lastMainByGap.set(gapKey, idx)
     }
     return out
-  }, [screenRegions, boundaryDrag, boundariesByBodyId, alongToScreenX, levelToScreen, onSaveBoundary])
+  }, [
+    screenRegions,
+    boundaryDrag,
+    boundariesByBodyId,
+    alongToScreenX,
+    levelToScreen,
+    onSaveBoundary,
+  ])
 
   // ---- Collect lens freedraw handle arrays. ---------------------------------
   //
@@ -1652,6 +1677,13 @@ export default function PartitionFillOverlay({
   const screenLenses = useMemo((): ScreenLens[] => {
     if (!onSaveBoundary) return []
     const out: ScreenLens[] = []
+    // A shapeable body can be split into several regions in the SAME gap (e.g. an
+    // onlap carves the sand matrix into two pinch pieces). Each piece owns the same
+    // stored node by along-x, so ONE stored node drew TWO lens handles — part of the
+    // owner's "three points appear when i click" (S73). Claim each stored node
+    // (``bodyId:edge:nodeIndex``) for the FIRST region that renders it so it draws a
+    // single handle. The un-claimed pieces still render their fill + add-strips.
+    const claimedLensNodes = new Set<string>()
     for (let ri = 0; ri < screenRegions.length; ri += 1) {
       const sr = screenRegions[ri]
       // Shapeable termination = v2 lens AND lone pinch/onlap tip (engine-agnostic
@@ -1702,6 +1734,11 @@ export default function PartitionFillOverlay({
           // so a two-gap lens's other apex is not cloned + clamped in here.
           const ux = alongToScreenX!(n.along_m)
           if (ux < sr.leftX - NODE_OWN_EPS || ux > sr.rightX + NODE_OWN_EPS) return
+          // One stored node → one handle: if an earlier region already claimed this
+          // node (same body split into multiple pieces in the gap), skip it here.
+          const claimKey = `${bodyId}:${edge}:${ni}`
+          if (claimedLensNodes.has(claimKey)) return
+          claimedLensNodes.add(claimKey)
           if (
             lensDrag &&
             lensDrag.regionIdx === ri &&
@@ -1748,6 +1785,31 @@ export default function PartitionFillOverlay({
     // Suppress the grab handle for un-routable tips (§77).
     sectionFillData.unroutableBodies,
   ])
+
+  // ---- SINGLE-SURFACE dedup: one stored node → one draggable dot (S73). --------
+  //
+  // A body's ``lower_nodes`` node can be BOTH a contact-bend node (``sharedBoundaries``
+  // renders it as a boundary handle) AND a lens base-edge node (``screenLenses``
+  // renders it as a lens handle) when that body is a shapeable pinch tip in the gap.
+  // Rendering both drew ONE stored node as several scattered dots — the owner's
+  // "three points appear when i click" (GEO-23/125-S10). ``screenLenses`` is the
+  // AUTHORITATIVE owner for any node it actually renders (its gate already resolves
+  // shapeability + source corners + un-routable suppression), so drop from the
+  // boundary pass exactly those nodes ``screenLenses`` drew. Keyed by the stored
+  // ``bodyId:nodeIndex`` on the LOWER edge (the edge ``sharedBoundaries`` reads).
+  const sharedBoundariesForRender = useMemo((): SharedBoundary[] => {
+    const lensLowerNodeKeys = new Set<string>()
+    for (const sl of screenLenses) {
+      for (const n of sl.lowerNodes) lensLowerNodeKeys.add(`${sl.bodyId}:${n.nodeIndex}`)
+    }
+    if (lensLowerNodeKeys.size === 0) return sharedBoundaries
+    return sharedBoundaries.map((sb) => {
+      const kept = sb.nodes.filter(
+        (n) => !lensLowerNodeKeys.has(`${sb.upperBodyId}:${n.nodeIndex}`),
+      )
+      return kept.length === sb.nodes.length ? sb : { ...sb, nodes: kept }
+    })
+  }, [sharedBoundaries, screenLenses])
 
   // ---- Add-node handlers ---------------------------------------------------
 
@@ -2189,7 +2251,7 @@ export default function PartitionFillOverlay({
 
           Each handle's testid encodes [upperBodyId]-[lowerBodyId]-[i] so tests
           can assert N handles independently. */}
-      {!refinement && sharedBoundaries.map((sb) => {
+      {!refinement && sharedBoundariesForRender.map((sb) => {
         const [ne0, ne1] = sb.naturalEdge
         return (
           // Key by per-gap-unique region indices, NOT the body-pair: the same
