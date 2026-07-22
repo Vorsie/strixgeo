@@ -8016,3 +8016,33 @@ Open CS1 → Litho axis → engine v2 → click "fill bands". The bands + handle
 - `PartitionFillOverlay.test.tsx` — GH1/GH2 now `async` + `await waitFor` the deferred suppression (import `waitFor`).
 - `REWRITE_STATE.md` — this §84.
 - Throwaways created + DELETED this session (measurements of record are above): `throwaway_ghost_batch.diag.test.ts`, `throwaway_ghost_twostage.diag.test.ts`, `throwaway_ghost_timing.diag.test.ts`.
+
+## §85 — Session 79: FREE-DRAW REPAIR — Fact A (floating node) FIXED + Fact C (silent fallback) made EXPLICIT. Owner-authored repair brief, executed in strict phases (reproduce → RED tests → minimal fixes → verification gate). App-layer geometry + one additive engine outcome-classifier; the no-override engine path stays BYTE-IDENTICAL.
+
+### PHASE 0 — reproduced on real CS1 (NOT synthetic)
+`freeDrawRepair.phase0.diag.test.ts` (CS1_GATE=1) replays the EXACT overlay lens-add math against `scripts/diag_allsections_input.json` and records the 12 data points. **Target = CS1 gap-17 body `019ea3e1`, right-anchored lens, upper edge slope 1.749.** A click near the anchored column (inside the reach-floor band): projected point ON segment (0.0000px) → after the x-only reach floor kept the projected y → stored node **0.5827px OFF the segment** = the floating blue handle. Fact A confirmed. (For this target the engine DID reshape — area 0.247→0.044 — so Fact C's silent fallback did not fire here; it is the reshapeMap DEAD class, made explicit anyway.) The diag test is the historical Fact-A reproduction of the ORIGINAL inline math and stays RED-by-design (documents the bug).
+
+### PHASE 1 — 4 RED rules (`freeDrawRepair.rules.test.ts`), all proven RED on unmodified code
+(1) reach-floor-clamped node stays ON the sloped boundary (3 cases: right-anchored / left-anchored / no-clamp) — RED: `applyReachFloorOnSegment` absent. (2) supported one-sided lens drag reshapes + reports `applied` — RED: `classifyOverrideOutcome` absent. (3) unsafe override reports `rejected-unsafe`, never silent base success — RED: same. (4) two-sided shared contact classifies as the CONTACT protocol, one-sided lens as APEX — RED: `classifyFreeDrawTarget` absent.
+
+### PHASE 2 — minimal fixes
+- **Fix A** (`partitionAddStripRouter.ts` NEW `applyReachFloorOnSegment` + wired in `PartitionFillOverlay.tsx` lens dispatch): clamp along-x to the reach floor, then RE-READ the segment y at the clamped x (`edgePointAtX`) so the node rides the sloped edge. Two out-of-span cases: a VERTICAL column-face segment (the projection landed on the source face) keeps the pre-repair reach-into-gap behaviour (the floor's job — preserves A1 "a near-column click can't collapse the lens"); a SLOPING edge whose tip sits inside the floor band snaps to the interior TIP (max reach, on-segment). NEVER falls back to raw cursor coords.
+- **Fix B** (`computeSectionFillV2.ts` NEW exported `OverrideOutcome` + `classifyOverrideOutcome`): the tri-state `applied{source:aliased|direct} | rejected-unsafe{baseDefect,candidateDefect} | unsupported{reason}`. The safety guard + no-gap/no-overlap invariant are UNTOUCHED — the silent base fallback is now an EXPLICIT `rejected-unsafe` with measured defect areas. `computeSectionFillV2WithConflicts` delegates to it; the no-override path is a single `runFill` = byte-identical.
+- **Classifier** (`contactOverrideWiring.ts` NEW `classifyFreeDrawTarget`): body on BOTH gap columns → `'contact'`, else `'apex'` (extracts the existing inline signal; the protocol was already split at the wiring level — this makes it a testable primitive per the brief's "classify BEFORE generating an override").
+
+### VERIFICATION GATE (real CS1, all green)
+- Rules 1–4: 6/6 GREEN (CS1_GATE=1). PartitionFillOverlay 63/63 (incl. A1 reach-floor + SC4 drag-reshape — the two that a naive on-segment fix REGRESSED; caught by the full suite, fixed via the vertical-vs-sloping split). partitionAddStripRouter 21/21.
+- Byte-identical no-override guards ALL hold: paint `diff_owner_paint.mjs` **AGREE 212 / DISAGREE 0**; HOLES_DIAG **0/0/0** (all 14); seedGate **732/651/8/67/6/0**; CS1 gates **8/8** (sandbody foreign: none); reshapeMap **69 shapeable / 56 CONSUMED / 13 INVARIANT** (≥50 gate holds, unchanged); cs1flip walkthrough pass; full partitionFillV2 non-diag **171 pass**; v1 pure-geometry **273 pass**. tsc `tsconfig.web.json` clean.
+- Pre-existing conformance ratchet (flag-ON 12 vs pinned 10) UNTOUCHED — proven pre-existing by stashing all 4 source edits and re-running (still 12 vs 10). Intermediate-RED, unrelated to this repair.
+
+### STOP-FOR-DIRECTION (owner call, per the brief's Fix B clause)
+The unsafe-drag UI behaviour is NOT decided here (the brief forbids unilaterally choosing clamp / snap-back / reject-state). The engine now reports `rejected-unsafe` truthfully; **the OVERLAY currently still renders the base fill silently on rejection** (the handle moves, the body doesn't). Options to surface it (owner picks one): (a) snap the handle back to its pre-drag apex on release when the outcome is `rejected-unsafe`; (b) tint the handle red + a "can't place here" cursor during an unsafe reach; (c) clamp the drag envelope so an unsafe fraction is unreachable. All are additive on top of the now-explicit outcome. No overlay consumer of `classifyOverrideOutcome`'s status was wired (Fix B is engine-truthful; the UX response is the owner's call).
+
+### Files this session (worktree, NOT committed — orchestrator commits + re-verifies)
+- `partitionAddStripRouter.ts` — NEW `applyReachFloorOnSegment` (Fix A pure helper).
+- `PartitionFillOverlay.tsx` — lens dispatch uses `applyReachFloorOnSegment` (replaced the inline `nodeX`/`p.y` off-segment construction) + import.
+- `computeSectionFillV2.ts` — NEW `OverrideOutcome` type + `classifyOverrideOutcome` (Fix B); `computeSectionFillV2WithConflicts` delegates (no-override byte-identical).
+- `contactOverrideWiring.ts` — NEW `classifyFreeDrawTarget` (protocol classifier).
+- `freeDrawRepair.phase0.diag.test.ts` — NEW Phase-0 reproduction (CS1_GATE=1, records the 12 data points; historical Fact-A repro).
+- `freeDrawRepair.rules.test.ts` — NEW Phase-1 rule tests (Rule 1 pure/normal-suite; Rules 2–4 CS1_GATE=1).
+- `REWRITE_STATE.md` — this §85.
