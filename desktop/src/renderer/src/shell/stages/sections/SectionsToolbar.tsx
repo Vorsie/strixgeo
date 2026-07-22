@@ -10,6 +10,7 @@ import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Un
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 import ReSubdivideConfirmDialog from '../../../components/ReSubdivideConfirmDialog'
+import ConfirmDialog from '../../../components/ui/ConfirmDialog'
 
 import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
@@ -152,6 +153,11 @@ export default function SectionsToolbar(): JSX.Element {
   // C1 (connecting-geotech-units §7) — confirm before a RE-subdivide, which
   // wipes + regenerates all geotech packing connections (manual ones lost).
   const [reSubdivideConfirmOpen, setReSubdivideConfirmOpen] = useState(false)
+  // "Reset manual points" — confirm before clearing ALL hand-drawn body
+  // boundary overrides for the litho model (irreversible DB delete → the
+  // ConfirmDialog is the only protection, per docs/ux.md).
+  const [resetBoundariesConfirmOpen, setResetBoundariesConfirmOpen] = useState(false)
+  const [resettingBoundaries, setResettingBoundaries] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -363,6 +369,38 @@ export default function SectionsToolbar(): JSX.Element {
     toast,
     requestCorrelationEdgesRefetch,
   ])
+
+  // "Reset manual points" — clear every hand-drawn body boundary override for
+  // the litho model, so all bodies return to their engine-computed shape.
+  // Irreversible (DB delete): the ConfirmDialog gates it (default-focus Cancel,
+  // action-named button). On success the correlation-edges refetch nonce is
+  // bumped, which also re-runs SectionsCanvas's boundary refetch (its effect
+  // deps on that nonce), so the overlay re-renders from the engine default
+  // without a manual section reselect.
+  const handleResetManualBoundaries = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || resettingBoundaries) return
+    setResetBoundariesConfirmOpen(false)
+    setResettingBoundaries(true)
+    log.info('sections', `resetManualBoundaries: model=${activeLithoModel.id}`)
+    try {
+      const result = await api.geology.resetManualBoundaries(project.id, activeLithoModel.id)
+      log.success('sections', `resetManualBoundaries: cleared ${result.shapes_deleted} shape(s)`)
+      // Force the canvas to re-GET body boundaries so the overlay drops the
+      // now-deleted overrides and re-renders the clean engine partition.
+      requestCorrelationEdgesRefetch?.()
+      toast(
+        'success',
+        result.shapes_deleted > 0
+          ? `Reset ${result.shapes_deleted} hand-drawn boundary${result.shapes_deleted === 1 ? '' : 's'} — bodies returned to their computed shape.`
+          : 'No hand-drawn boundaries to reset.',
+      )
+    } catch (err) {
+      log.error('sections', 'resetManualBoundaries: failed', err)
+      toast('error', 'Reset manual points failed — see console.')
+    } finally {
+      setResettingBoundaries(false)
+    }
+  }, [activeLithoModel, resettingBoundaries, project.id, requestCorrelationEdgesRefetch, toast])
 
   async function handleExportDxf(): Promise<void> {
     // Axis-aware: use the active model for the chosen axis.
@@ -1039,6 +1077,19 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Show or hide the cross-section fill sampled from the built 3-D solids. Toggles on / off.',
               },
+              {
+                // Reset manual points — clear every hand-drawn body boundary
+                // override so all bodies return to their engine-computed shape.
+                // Irreversible (DB delete): opens a ConfirmDialog first.
+                label: resettingBoundaries ? 'Resetting…' : 'Reset manual points',
+                icon: <Eraser size={12} />,
+                onClick: () => setResetBoundariesConfirmOpen(true),
+                disabled: !activeLithoModel || resettingBoundaries,
+                testid: 'litho-reset-manual-points',
+                title: !activeLithoModel
+                  ? 'Create a lithostratigraphic model first'
+                  : 'Clear every hand-drawn body boundary point on this model. Bodies return to their computed shape. Cannot be undone.',
+              },
             ]}
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
@@ -1513,6 +1564,35 @@ export default function SectionsToolbar(): JSX.Element {
         onCancel={handleReSubdivideCancel}
         onConfirm={handleReSubdivideConfirm}
         busy={subdividingBodies}
+      />
+
+      {/* Reset manual points confirmation — clearing every hand-drawn body
+          boundary is an irreversible DB delete, so per docs/ux.md the gesture
+          confirms first: Cancel (default focus) + an action-named danger
+          button ("Reset points", never "OK"). */}
+      <ConfirmDialog
+        open={resetBoundariesConfirmOpen}
+        labelledBy="reset-manual-points-title"
+        testid="reset-manual-points-dialog"
+        cardClassName="w-[28rem]"
+        cancelTestid="reset-manual-points-cancel"
+        onCancel={() => setResetBoundariesConfirmOpen(false)}
+        busy={resettingBoundaries}
+        title="Reset all manual points?"
+        body={
+          <p>
+            Every hand-drawn boundary point on this model will be cleared and the bodies will
+            return to their computed shape. This cannot be undone.
+          </p>
+        }
+        confirm={{
+          label: 'Reset points',
+          onClick: () => {
+            void handleResetManualBoundaries()
+          },
+          variant: 'danger',
+          testid: 'reset-manual-points-confirm',
+        }}
       />
     </div>
   )
