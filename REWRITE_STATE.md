@@ -8346,3 +8346,27 @@ For `029c52@4/@5` the edited tip's LITHO (`d1bc`) is REPLACED by a different lit
 - `desktop/.../throwaway_s96_probe8.diag.test.ts` — new-tip-at-apex discriminator (3 relabel+gap7 right, 4 moderate wrong). **DELETE.**
 - `desktop/.../throwaway_s96_probe9.diag.test.ts` — own-body discriminator (S95 wall proof: 6/8, fails the 2 vanishing relabel cases). **DELETE.**
 - `REWRITE_STATE.md` — this §96.
+
+## §97 — Session 97: BUILD the "collapse → invalid → snapback" rule with the OWNER-LOCKED over-reach discriminator (2026-07-23, "only over-reach snaps back"). SHIPPED on the worktree (NOT committed — orchestrator commits/cleans).
+
+### THE RULE (owner-locked): a tip edit is `rejected-collapse` (INVALID → snapback, handle ALIVE) IFF BOTH (1) OVER-REACH — the drag pushed the apex PAST a column edge (raw apex fraction outside [0,1]) AND (2) FULL-WIDTH FLOOD — the edited tip's own body became a non-shapeable full-width band. EITHER false → `applied`. A tip that VANISHES within the gap (raw still in [0,1], neighbour litho fills its place — CS1 `029c52@4/@5` class) is a VALID reshape and stays `applied`. This is §96's owner option 2 (measured to get all 8 named CS1 cases right).
+
+### THE BUILD (file:line)
+1. **`rawApexFraction` on the override** — `LensApexOverride` (`partitionFill/types.ts`) gains an optional `rawApexFraction`: the RAW pre-clamp cursor reach. `apexOverrideWiring.setShape` (`apexOverrideWiring.ts` ~245) sets it as `(lensDrag.x - leftX) / gapW` ONLY when THIS body is the live drag target (`draggingThisBody`); absent on the non-drag/persisted-render path. The visible `fraction` stays `clampVisibleApex`-clamped (which DISCARDS over-reach) — `rawApexFraction` is the sole carrier. Survives the `expandOverrideAliases` merge-component aliasing (same object spread).
+2. **`rejected-collapse` status** — added to `OverrideOutcome`/`OverrideStatus` (`computeSectionFillV2.ts` + `unsafeDragUX.ts`). `classifyOverrideOutcome` runs `isCollapseOverReach(candidate, ov)` on a gap-safe variant BEFORE returning `applied`: over-reach (raw outside [0,1]) AND own-body full-width flood (own regions exist and ALL non-shapeable via the util-layer `isApexShapeableRegion` copy) → return `rejected-collapse` with the BASE (last-safe) regions. A VANISHED tip (no own region) is NOT a flood → stays applied.
+3. **Overlay** — `isDragRejected`/`shouldPersistDrag` treat `rejected-collapse` == `rejected-unsafe` (red handle + snapback, handle alive). `rejectedDragTarget` gate uses `isDragRejected(overrideStatus)`. RELEASE trace prints `persist=rejected-collapse` on the collapse snapback (new `overrideStatusRef`); DRAG trace surfaces `raw…(over-reach)`.
+
+### BYTE-IDENTICAL: the region OUTPUT is untouched — the collapse is a STATUS the classifier returns alongside the (unchanged) candidate/base regions, and on collapse it returns BASE regions. `reshapeMap`/`allSectionsReshape` call `computeSectionFillV2` directly (not the classifier) so they are unaffected by the status.
+
+### VERIFY (all GREEN)
+- **reshapeMap 69/56/13 UNMOVED**; **allSectionsReshape CONSUMED=143 UNMOVED**; seed **732/651/8/67/6/0**; holes **0/0/0**; cs1gates **8/8**. Conformance = the SAME pre-existing ratchet (`expected 12 to be 10`, §90) — no new red.
+- **RED→GREEN**: `collapseSnapback.rules.test.ts` (un-skipped, 3 cases) — over-reach flood → `rejected-collapse` (base regions returned, snapback region shapeable = handle alive); flood WITHOUT over-reach → not collapse; within-gap vanish → applied. RED proven by disabling the classifier branch (`if (false && …)`) → the over-reach case reverts to `applied`; the 2 "stay applied" cases pass in both states. Reverted.
+- KEEP-GREEN: apexOverrideWiring.rules (**8/8**, +3 new S97 raw-fraction wiring tests: in-gap raw in [0,1]; over-reach raw>1 with fraction clamped; non-drag → absent), lensPersistRouting/pressToGrabAddNode/unsafeDragUX/freeDrawRepair/contactOverride/partitionAddStripRouter/unsafeDrag all green; PartitionFillOverlay component **76/76**; v1 partitionFill **349** green. **Full suite 2456 passed / 0 failed / 58 skipped.** `tsc -p tsconfig.web.json` CLEAN.
+
+### THROWAWAY (orchestrator: DELETE)
+- `desktop/src/renderer/src/components/sections/throwaway_s97_locate.diag.test.ts` — locator probe.
+- `desktop/src/renderer/src/components/sections/throwaway_s97_probe.diag.test.ts` — over-reach-vs-moderate flood counts (measured floodOnOverreach=8, floodOnModerate=0, vanishOnModerate=2 — grounds the discriminator).
+
+### PARKED-TEST DISPOSITION: `collapseSnapback.rules.test.ts` — the §95 placeholder (`describe.skip`) is REPLACED by the real 3-case CS1_GATE gate (un-skipped).
+
+### FILES (worktree, NOT committed): `partitionFill/types.ts`, `apexOverrideWiring.ts`, `computeSectionFillV2.ts`, `unsafeDragUX.ts`, `PartitionFillOverlay.tsx`, `collapseSnapback.rules.test.ts`, `apexOverrideWiring.rules.test.ts`, `unsafeDragUX.rules.test.ts`, `docs/design/freedraw-onlap-lens-edit-model.md`, `REWRITE_STATE.md` (this §97). WALLS: none — the discriminator matched §96's measured option 2 exactly; no ambiguity hit, no guard invented.

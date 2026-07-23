@@ -91,6 +91,20 @@ to tie.
   This is engine-agnostic — no onlap-vs-lens adjudication needed — and
   REPLACES the flood-to-band + handle-suppression escape hatch for the edited
   tip.
+  - **SHIPPED S97 (worktree).** The over-reach signal is carried additively on
+    the override as `LensApexOverride.rawApexFraction` (the RAW pre-clamp cursor
+    reach, built in `apexOverrideWiring.setShape` only when THIS body is the live
+    drag target; absent on the non-drag/persisted-render path). The classifier
+    `classifyOverrideOutcome` (`computeSectionFillV2.ts`) returns a new
+    `rejected-collapse` status when `isCollapseOverReach` finds an override whose
+    `rawApexFraction` is outside [0,1] AND whose own body flooded to a full-width
+    band in the candidate; it returns the BASE (last-safe) regions so the region
+    OUTPUT that `reshapeMap`/`allSectionsReshape`/seed/holes read stays
+    byte-identical (those gates call `computeSectionFillV2` directly, not the
+    classifier — only the STATUS changed). The overlay treats `rejected-collapse`
+    identically to `rejected-unsafe` (`unsafeDragUX.isDragRejected`/
+    `shouldPersistDrag`) → red handle + snapback, handle ALIVE. Gate:
+    `collapseSnapback.rules.test.ts` (CS1_GATE, un-skipped).
 - Persist routes the node by KIND (onlap → contact/tied path; lens → lens
   path) — see §85 `detectPersistedLensBodies`; a persisted node must rebuild
   through the SAME routable mechanism the live drag used (no snapback).
