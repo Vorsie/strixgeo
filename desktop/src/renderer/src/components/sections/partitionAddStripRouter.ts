@@ -1,5 +1,5 @@
 /**
- * Region-containment router for the partition freedraw add-strips.
+ * Edge-only router for the partition freedraw add-strips.
  *
  * The litho partition overlay renders one transparent hit-strip per body edge
  * (matched-contact boundaries + lens upper/lower edges), each 14 px wide. Where
@@ -10,21 +10,28 @@
  * interface silently grabbed a DISTANT silt lens painted above it (~1 m away),
  * then moving that wrong body opened a gap.
  *
- * The S70 fix picked the candidate whose SEGMENT was physically nearest the
- * cursor. That is still fooled by a lens whose long diagonal flank sweeps NEAR
- * the click from far away: a full-gap diagonal strip can be nearer in
- * perpendicular distance than the band you actually clicked on (owner dogfeed
- * 2026-07-22 — "i clicked the sand lens on top" but it grabbed the silt band
- * above). The robust invariant is CONTAINMENT: a click grabs the body whose
- * partition REGION physically contains the cursor point (point-in-polygon over
- * the rendered regions). You grab what you clicked ON — a diagonal edge that
- * merely passes nearby can no longer win over the region under the cursor.
+ * The S70 fix picked the nearest SEGMENT; the S71 fix replaced that with region
+ * CONTAINMENT (grab the body the cursor is INSIDE). Containment cured the
+ * distant-diagonal steal but introduced a worse bug (owner dogfeed 2026-07-24):
+ * a click ANYWHERE inside a band interior grabbed that band's edge and dropped a
+ * node ("i can literally click in the middle of a band"). The owner's model is
+ * EDGE-ONLY: only the visible line between two litho fills is grabbable — an
+ * interior click is a NO-OP.
  *
- * The nearest-SEGMENT pick (``routeNearestAddStrip``) is retained as the
- * WITHIN-body edge tiebreak (which of a lens's two edges, or which of several
- * containing regions' shared edges) and as the fallback when the click lands
- * just outside every region polygon (e.g. on the strip's overhang past its
- * region). Region-containment first, nearest-segment second.
+ * The invariant (``routeAddStripByEdgeProximity``): a click routes to the
+ * candidate whose EDGE SEGMENT is nearest the cursor, but ONLY when that nearest
+ * distance is within a hit tolerance (the strip's half-width in screen px). If
+ * the nearest edge is farther than the tolerance — the click is in open band
+ * interior — the router returns ``null`` (no grab). The line you click is the
+ * line you grab: a lens diagonal you clicked ON wins because it is nearest to
+ * WHERE you clicked, not because you are "inside" a band. The distant-diagonal
+ * steal the S71 containment fixed cannot recur, because an interior click is
+ * inert (a no-op) rather than a grab.
+ *
+ * ``pointInPolygon`` survives ONLY for the ghost barrier no-op: a press inside a
+ * suppressed ghost region (its handle removed, §83) stays a no-op even when a
+ * live candidate edge grazes the tolerance — the ghost has no reshape to offer.
+ * The region-containment GRAB path is retired.
  */
 
 /** A point in SVG screen coordinates. */
@@ -42,9 +49,10 @@ export interface RouterPoint {
  * distance to any of its links, not just its overall endpoints.
  *
  * ``regionPolygon`` is the screen-space ring of the body's PARTITION region (the
- * polygon the fill paints). When present, the router prefers candidates whose
- * region contains the click — the robust region-containment invariant. Absent
- * (or empty) → the candidate only participates in the nearest-segment fallback.
+ * polygon the fill paints). The edge-only router no longer grabs by containment,
+ * so this field is unused by grab targeting; it is retained on the type only for
+ * callers that still carry the region ring (harmless, additive). Barrier no-op
+ * regions are passed separately to ``routeAddStripByEdgeProximity``.
  */
 export interface AddStripCandidate<T> {
   /** One or more screen-space segments the strip covers. */
@@ -297,49 +305,85 @@ export function routeNearestAddStrip<T>(
 }
 
 /**
- * Pick the add-strip candidate the click physically lands ON (region containment),
- * falling back to nearest-segment when the click is outside every region.
+ * Pick the add-strip candidate whose EDGE the click lands ON — and ONLY when it
+ * lands within the hit tolerance. An interior click (far from every edge) is a
+ * NO-OP.
  *
- * This is the robust invariant that replaces the plain nearest-segment pick: the
- * owner grabs the body whose partition region CONTAINS the cursor, never a
- * distant lens whose diagonal edge merely sweeps nearby. Steps:
+ * This is the edge-only invariant (owner dogfeed 2026-07-24): only the visible
+ * litho line between two fills is grabbable. It replaces the S71 region-
+ * containment grab, which let a click ANYWHERE in a band interior grab that
+ * band's edge ("i can click in the middle of a band"). Steps:
  *
- *   1. Collect every candidate whose ``regionPolygon`` contains the click.
- *   2. If any do, pick the one whose EDGE is nearest the click among them — this
- *      is the within-body / shared-contact tiebreak (a shared contact click sits
- *      inside both incident bands; the nearer edge wins). ``nearerLensEdge`` in
- *      the caller then resolves upper-vs-lower for the winning lens.
- *   3. If NONE contain the click but it sits inside a ``barrierRegion`` (a rendered
- *      region with NO candidate — a GHOST tip whose handle was suppressed, §83),
- *      return ``null``: the body under the cursor offers no reshape, so the click
- *      must be a NO-OP, never a fallback grab of a DISTANT body (that was the S71
- *      "grabbed a body the cursor isn't inside" bug, re-exposed by suppression).
- *   4. If NONE contain the click AND it is outside every barrier (it fell just
- *      outside all region rings, e.g. on a strip's overhang past its region), fall
- *      back to the global nearest-segment pick so an edge click still lands.
+ *   1. Find the candidate whose nearest edge segment is nearest the click.
+ *   2. If that nearest distance is FARTHER than the tolerance, the click is in
+ *      open band interior → return ``null`` (no grab). The line you clicked ON is
+ *      the line you grab; a distant diagonal that merely sweeps near a DIFFERENT
+ *      interior point can no longer steal the click, because that interior click
+ *      is inert, not a grab.
+ *   3. If the click sits inside a ``barrierRegion`` (a suppressed GHOST region
+ *      whose handle §83 removed), return ``null`` even when a live edge grazes the
+ *      tolerance — the ghost owns the click and offers no reshape.
+ *   4. Otherwise return the nearest candidate's ``dispatch``. ``nearerLensEdge`` in
+ *      the caller then resolves upper-vs-lower for a winning lens.
  *
- * @param click         The cursor position in SVG coordinates.
- * @param candidates    All add-strip candidates whose hit areas may contain the click.
- * @param barrierRegions Optional rings of EVERY rendered region (incl. ghost regions
- *                       with no candidate). A click inside one of these but outside
- *                       every candidate is a no-op — not a distant fallback grab.
- * @returns             The chosen candidate's ``dispatch`` payload, or ``null`` when
- *                      the list is empty / the click is inside a candidate-less region.
+ * @param click          The cursor position in SVG coordinates.
+ * @param candidates     All add-strip candidates whose hit areas may contain the click.
+ * @param edgeToleranceSq The SQUARED hit tolerance in screen px (the strip's half-
+ *                        width squared). A click whose nearest edge is farther than
+ *                        this is in open interior → no grab.
+ * @param barrierRegions Optional rings of suppressed GHOST regions. A click inside
+ *                        one is a no-op even when an edge is within tolerance.
+ * @returns              The chosen candidate's ``dispatch`` payload, or ``null`` when
+ *                       the list is empty / the click is in open interior / inside a
+ *                       suppressed ghost region.
  */
-export function routeAddStripByContainment<T>(
+export function routeAddStripByEdgeProximity<T>(
   click: RouterPoint,
   candidates: readonly AddStripCandidate<T>[],
+  edgeToleranceSq: number,
   barrierRegions?: readonly (readonly RouterPoint[])[],
 ): T | null {
+  const best = nearestAddStripWithinTolerance(click, candidates, edgeToleranceSq, barrierRegions)
+  return best ? best.dispatch : null
+}
+
+/**
+ * The add-strip candidate whose EDGE the click lands ON within the hit tolerance,
+ * or ``null`` when the click is in open interior / inside a suppressed ghost.
+ *
+ * Shared by the grab (``routeAddStripByEdgeProximity`` reads ``.dispatch``) and the
+ * hover PREVIEW (which projects the cursor onto the returned candidate's edge so
+ * the teal dot rides the litho line and hides in the interior). Keeping the
+ * nearest-edge-within-tolerance test in ONE place keeps preview and grab in exact
+ * agreement — the dot shows exactly where a click would grab.
+ *
+ * @param click           The cursor position in SVG coordinates.
+ * @param candidates      All add-strip candidates whose hit areas may contain the click.
+ * @param edgeToleranceSq The SQUARED hit tolerance in screen px (the strip's half-width²).
+ * @param barrierRegions  Optional rings of suppressed GHOST regions (a click inside
+ *                        one is inert even when an edge is within tolerance).
+ * @returns               The nearest within-tolerance candidate, or ``null``.
+ */
+export function nearestAddStripWithinTolerance<T>(
+  click: RouterPoint,
+  candidates: readonly AddStripCandidate<T>[],
+  edgeToleranceSq: number,
+  barrierRegions?: readonly (readonly RouterPoint[])[],
+): AddStripCandidate<T> | null {
   if (candidates.length === 0) return null
-  const containing = candidates.filter(
-    (c) => c.regionPolygon !== undefined && pointInPolygon(click, c.regionPolygon),
-  )
-  if (containing.length > 0) return routeNearestAddStrip(click, containing)
-  // No candidate contains the click. If it sits inside a rendered region that has
-  // no candidate (a suppressed ghost tip), grabbing anything would grab a DISTANT
-  // body — a no-op is the correct behaviour (owner ruling §83: no dead grab).
+  let best: AddStripCandidate<T> | null = null
+  let bestDist = Infinity
+  for (const cand of candidates) {
+    const d = candidateDistSq(click, cand)
+    if (d < bestDist) {
+      bestDist = d
+      best = cand
+    }
+  }
+  // Open band interior — the nearest edge is beyond the hit tolerance → NO grab.
+  if (!best || bestDist > edgeToleranceSq) return null
+  // A press inside a suppressed ghost region is a no-op (its handle is gone; no
+  // reshape there), even when a live candidate edge grazes the tolerance (§83).
   if (barrierRegions?.some((ring) => pointInPolygon(click, ring))) return null
-  // Truly outside every region → nearest-segment fallback (strip-overhang click).
-  return routeNearestAddStrip(click, candidates)
+  return best
 }

@@ -577,12 +577,16 @@ describe('PartitionFillOverlay', () => {
         ],
       ]),
     })
-    // S86: press the add-strip (creates + grabs the node) then release (persists). One
-    // gesture — no separate handle-drag step. Persists at the projected mousedown x.
-    pressGrabRelease(getByTestId('partition-boundary-addstrip-sand-clay'), {
-      clientX: 60,
-      clientY: 55,
-    })
+    // S86 press-to-grab + S99 edge-only: press ON the contact edge (read the strip's
+    // own endpoints and interpolate the on-edge y at x=60) so the grab lands, then
+    // release persists. Persists at the projected mousedown x (≈60).
+    const strip = getByTestId('partition-boundary-addstrip-sand-clay')
+    const ex1 = Number(strip.getAttribute('x1'))
+    const ey1 = Number(strip.getAttribute('y1'))
+    const ex2 = Number(strip.getAttribute('x2'))
+    const ey2 = Number(strip.getAttribute('y2'))
+    const onEdgeY = ey1 + ((60 - ex1) / (ex2 - ex1)) * (ey2 - ey1)
+    pressGrabRelease(strip, { clientX: 60, clientY: onEdgeY })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     expect(onSaveBoundary.mock.calls[0][0]).toBe('sand')
     // lower_nodes should now have 2 entries (1 existing + 1 new).
@@ -658,40 +662,50 @@ describe('PartitionFillOverlay', () => {
   })
 
   // --------------------------------------------------------------------------
-  // HP1-HP2: Add-strip hover preview dot (owner directive 2026-06-05)
+  // HP1-HP4: Add-strip hover preview dot — EDGE-ONLY (S99, owner dogfeed 2026-07-24)
   //
-  //   HP1 — mouseMove over a matched-boundary add-strip → preview dot appears.
+  //   HP1 — mouseMove ON a matched-boundary edge (within tolerance) → preview dot.
   //   HP2 — mouseLeave the add-strip → preview dot disappears.
+  //   HP3 — mouseMove ON a lens edge → preview dot appears.
+  //   HP4 — mouseMove in the OPEN band interior (far from every edge) → NO dot.
+  // The preview now tracks the litho line and hides in the interior, telegraphing
+  // exactly where a click would grab. The hover point is read from the strip's OWN
+  // endpoints (its midpoint is guaranteed ON the edge), not a hand-picked cursor.
   // --------------------------------------------------------------------------
 
-  it('HP1 — mouseMove over a matched-boundary add-strip renders a partition-addnode-preview circle', () => {
+  /** The midpoint of a rendered add-strip <line> — a point guaranteed ON its edge. */
+  function stripMidpoint(strip: Element): { clientX: number; clientY: number } {
+    const x1 = Number(strip.getAttribute('x1'))
+    const y1 = Number(strip.getAttribute('y1'))
+    const x2 = Number(strip.getAttribute('x2'))
+    const y2 = Number(strip.getAttribute('y2'))
+    return { clientX: (x1 + x2) / 2, clientY: (y1 + y2) / 2 }
+  }
+
+  it('HP1 — mouseMove ON a matched-boundary edge renders a partition-addnode-preview circle', () => {
     // No nodes stored — the strip is always rendered when onSaveBoundary is wired.
     const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
     // Preview absent before hover.
     expect(queryByTestId('partition-addnode-preview')).toBeNull()
-    // Move the pointer over the add-strip.
-    fireEvent.mouseMove(getByTestId('partition-boundary-addstrip-sand-clay'), {
-      clientX: 55,
-      clientY: 60,
-    })
+    // Move the pointer ONTO the edge (the strip's midpoint lies on the contact line).
+    const strip = getByTestId('partition-boundary-addstrip-sand-clay')
+    fireEvent.mouseMove(strip, stripMidpoint(strip))
     // Preview dot now present.
     expect(getByTestId('partition-addnode-preview')).toBeTruthy()
   })
 
   it('HP2 — mouseLeave the matched-boundary add-strip removes the preview dot', () => {
     const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
-    // Hover in.
-    fireEvent.mouseMove(getByTestId('partition-boundary-addstrip-sand-clay'), {
-      clientX: 55,
-      clientY: 60,
-    })
+    // Hover in (on the edge).
+    const strip = getByTestId('partition-boundary-addstrip-sand-clay')
+    fireEvent.mouseMove(strip, stripMidpoint(strip))
     expect(getByTestId('partition-addnode-preview')).toBeTruthy()
     // Hover out.
-    fireEvent.mouseLeave(getByTestId('partition-boundary-addstrip-sand-clay'))
+    fireEvent.mouseLeave(strip)
     expect(queryByTestId('partition-addnode-preview')).toBeNull()
   })
 
-  it('HP3 — mouseMove over a lens add-strip renders a partition-addnode-preview circle', () => {
+  it('HP3 — mouseMove ON a lens edge renders a partition-addnode-preview circle', () => {
     const { getByTestId, queryByTestId } = renderOverlay({
       lithoLayers: lensLayers,
       ...transforms,
@@ -699,14 +713,26 @@ describe('PartitionFillOverlay', () => {
     })
     // No preview before hover.
     expect(queryByTestId('partition-addnode-preview')).toBeNull()
-    // Move over the upper-edge lens strip.
-    fireEvent.mouseMove(getByTestId('partition-lens-addstrip-silt-upper'), {
-      clientX: 50,
-      clientY: 65,
-    })
+    // Move ONTO the upper-edge lens strip (its midpoint lies on the lens edge).
+    const strip = getByTestId('partition-lens-addstrip-silt-upper')
+    fireEvent.mouseMove(strip, stripMidpoint(strip))
     expect(getByTestId('partition-addnode-preview')).toBeTruthy()
     // Leave → gone.
-    fireEvent.mouseLeave(getByTestId('partition-lens-addstrip-silt-upper'))
+    fireEvent.mouseLeave(strip)
+    expect(queryByTestId('partition-addnode-preview')).toBeNull()
+  })
+
+  it('HP4 — mouseMove in the OPEN band interior (far from every edge) shows NO preview dot', () => {
+    // The edge-only rule: the dot rides the litho line only. A hover deep in the
+    // band interior — far below the sand/clay contact — must NOT spawn a dot (the
+    // owner's "teal dot in the middle of a band" was the containment-era symptom).
+    const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
+    // The contact runs el5→el6 (y=50→40 across the gap). y=90 is ~40px below it —
+    // deep in the clay interior, far beyond the 7px hit tolerance.
+    fireEvent.mouseMove(getByTestId('partition-boundary-addstrip-sand-clay'), {
+      clientX: 50,
+      clientY: 90,
+    })
     expect(queryByTestId('partition-addnode-preview')).toBeNull()
   })
 
@@ -1722,13 +1748,13 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
     }
   })
 
-  it('RC2 — ALWAYS: every click inside a body region grabs that body (the whole set)', () => {
-    // The owner's "doesn't matter where, this needs to work ALWAYS". For EACH
-    // rendered region, pick an interior point and fire the click on an arbitrary
-    // (possibly wrong, z-order) add-strip; containment must grab a body whose
-    // region actually contains that point. Asserted for the whole set, not one spot.
+  it('RC2 — EDGE-ONLY: an interior click grabs NOTHING; only an on-edge click grabs (whole set)', () => {
+    // The owner's S99 model, inverting the retired S71 containment rule: it does NOT
+    // matter that the cursor is INSIDE a band — an interior click (far from every
+    // litho line) must be a NO-OP. Only a click ON the visible line between two
+    // fills grabs. Asserted across the whole rendered set, not one spot.
     const onSaveBoundary = vi.fn()
-    const { getByTestId, queryAllByTestId } = renderOverlay({
+    const { queryAllByTestId } = renderOverlay({
       lithoLayers: stackLayers,
       ...transforms,
       onSaveBoundary,
@@ -1748,37 +1774,47 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
     }
     expect(ringsByBody.size).toBeGreaterThanOrEqual(3) // several bodies present
 
-    // Any add-strip element to fire the click on — the WRONG one on purpose, so
-    // the router (not the strip's identity) must decide the winner.
-    const anyStrip =
-      queryAllByTestId(/partition-lens-addstrip-/)[0] ??
-      queryAllByTestId(/partition-boundary-addstrip-/)[0]
+    // Every add-strip's edge segment (its endpoints) — the ONLY grabbable lines.
+    const stripEls = [
+      ...queryAllByTestId(/partition-lens-addstrip-/),
+      ...queryAllByTestId(/partition-boundary-addstrip-/),
+    ]
+    const edgeMids = stripEls.map((el) => ({
+      x: (Number(el.getAttribute('x1')) + Number(el.getAttribute('x2'))) / 2,
+      y: (Number(el.getAttribute('y1')) + Number(el.getAttribute('y2'))) / 2,
+    }))
+    const nearAnyEdge = (p: { x: number; y: number }): boolean =>
+      edgeMids.some((m) => (m.x - p.x) ** 2 + (m.y - p.y) ** 2 <= 7 * 7)
+
+    const anyStrip = stripEls[0]
     expect(anyStrip).toBeTruthy()
 
-    let checked = 0
-    for (const [body, rings] of ringsByBody) {
+    // (a) INTERIOR clicks (deep inside a band, far from every edge) grab NOTHING.
+    let interiorChecked = 0
+    for (const [, rings] of ringsByBody) {
       for (const ring of rings) {
-        // A point PROVABLY inside this (possibly concave) region.
         const pt = interiorPoint(ring)
-        if (!pt) continue
-        const { x: cx, y: cy } = pt
+        if (!pt || nearAnyEdge(pt)) continue // skip points that happen to sit on an edge
         onSaveBoundary.mockClear()
-        // S86 press-to-grab: the press starts the drag, the release persists.
-        pressGrabRelease(anyStrip, { clientX: cx, clientY: cy })
-        if (onSaveBoundary.mock.calls.length === 0) continue // no shapeable edge here
-        const grabbed = onSaveBoundary.mock.calls[0][0] as string
-        // The grabbed body's region must CONTAIN the click (region-containment),
-        // OR — for a shared-contact click that sits inside two bands — one of the
-        // bodies whose region contains the point. We assert the grabbed body owns
-        // a region containing the click.
-        const grabbedRings = ringsByBody.get(grabbed) ?? []
-        const contains = grabbedRings.some((gr) => inside({ x: cx, y: cy }, gr))
-        expect(contains, `click in ${body} at (${cx.toFixed(1)},${cy.toFixed(1)}) grabbed ${grabbed} whose region does not contain it`).toBe(true)
-        checked += 1
+        pressGrabRelease(anyStrip, { clientX: pt.x, clientY: pt.y })
+        expect(
+          onSaveBoundary.mock.calls.length,
+          `interior click at (${pt.x.toFixed(1)},${pt.y.toFixed(1)}) must be a NO-OP but grabbed a body`,
+        ).toBe(0)
+        interiorChecked += 1
       }
     }
-    // The invariant was exercised on MANY boundaries, not one spot.
-    expect(checked).toBeGreaterThanOrEqual(2)
+    expect(interiorChecked, 'no interior-only points found to exercise the no-op rule').toBeGreaterThanOrEqual(2)
+
+    // (b) an ON-EDGE click (the strip's own midpoint) DOES grab a body — the line
+    // you click is grabbable. Fire on each strip's own midpoint.
+    let edgeGrabbed = 0
+    for (let i = 0; i < stripEls.length; i += 1) {
+      onSaveBoundary.mockClear()
+      pressGrabRelease(stripEls[i], { clientX: edgeMids[i].x, clientY: edgeMids[i].y })
+      if (onSaveBoundary.mock.calls.length > 0) edgeGrabbed += 1
+    }
+    expect(edgeGrabbed, 'no on-edge click grabbed a body — the line must be grabbable').toBeGreaterThanOrEqual(1)
   })
 
   it('RC3 — no drag can open a gap: the off-engine reshape is retired on v2 (engine is the sole geometry source)', () => {
@@ -1964,13 +2000,12 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
     return strips.find((el) => Number(el.getAttribute('x1')) < 40)
   }
 
-  it('N1 — a click deep inside a band stores the node ON the shared contact, not floating at the cursor y', () => {
-    // The owner's "i managed to get a point without grabbing a boundary": S71's
-    // containment router grabs the right band even for an interior click, but the
-    // node was stored at the raw cursor elevation → a dot floating in free space.
-    // The silt band sits above clay with a matched contact at 5 m (y=50). A click
-    // deep inside the SILT interior at (50, y for elevation 4 → y=60), BELOW the
-    // contact, must store the node ON the ~5 m contact, NOT at the raw cursor y.
+  it('N1 — a press ON the contact edge stores the node ON the contact, not at the stray cursor y', () => {
+    // S99 edge-only: the click must land ON the litho line (within the hit tolerance),
+    // but WITHIN that tolerance the cursor can be a few px off the exact line — the
+    // stored node must still SNAP onto the contact (never float at the raw cursor y).
+    // The silt/clay matched contact is at 5 m (y=50). A press 2 px BELOW it (y=52 →
+    // el4.8) is within tolerance; the node must ride the ~5 m contact, not store el4.8.
     const onSaveBoundary = vi.fn()
     const { queryAllByTestId } = renderOverlay({
       lithoLayers: matchedStackN,
@@ -1983,24 +2018,21 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
     expect(strip).toBeTruthy()
     // S86 press-to-grab: press projects the node onto the contact + starts the drag;
     // release persists it. No mousemove → persists at the projected mousedown position.
-    pressGrabRelease(strip!, { clientX: 50, clientY: 60 })
+    pressGrabRelease(strip!, { clientX: 50, clientY: 52 })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     const lower = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
     expect(lower).toHaveLength(1)
-    // The node rides the contact (~5 m), NOT the raw cursor elevation (4 m).
+    // The node rides the contact (~5 m), NOT the raw cursor elevation (4.8 m).
     expect(lower[0].along_m).toBeCloseTo(50, 0)
-    expect(lower[0].elevation_m).toBeGreaterThan(4.4)
-    expect(lower[0].elevation_m).toBeLessThan(5.6)
-    expect(lower[0].elevation_m).not.toBeCloseTo(4, 1) // NOT the interior cursor y
+    expect(lower[0].elevation_m).toBeGreaterThan(4.7)
+    expect(lower[0].elevation_m).toBeLessThan(5.3)
   })
 
-  it('N2 — a lens add-strip click stores the node ON the lens edge, not floating in the lens interior', () => {
-    // A click provably INSIDE the silt lens must land the node on the picked lens
-    // edge, never in the lens interior (the floating-dot class for lenses). The v2
-    // silt lens (silt depth 4..5 → elevation 5..6 m) renders as the triangle
-    // (20,40)-(20,50)-(47,45): top-left 6 m, base-left 5 m, apex 5.5 m mid-gap. A
-    // click at (30, 45)=elevation 5.5 is inside the lens; the node must ride a lens
-    // edge (elevation within the lens extent [5,6] m), NOT float in free space.
+  it('N2 — a press ON a lens edge stores the node ON that edge, not floating in the lens interior', () => {
+    // S99 edge-only: a press ON the silt lens's upper edge (its rendered strip's own
+    // midpoint is guaranteed on that edge) must land the node on the picked lens edge,
+    // never floating in the lens interior. The silt lens (depth 4..5 → elevation 5..6)
+    // extent is [5,6] m; the projected node must sit within it.
     const onSaveBoundary = vi.fn()
     const { getByTestId } = renderOverlay({
       lithoLayers: lensLayers, // silt lens (elevation 5..6) in sand on L; sand on R
@@ -2008,12 +2040,12 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
       onSaveBoundary,
       boundariesByBodyId: new Map(),
     })
-    // Fire on the (possibly wrong, z-order) upper strip; containment + projection
-    // must still land the node on the silt lens edge for an in-lens click.
-    pressGrabRelease(getByTestId('partition-lens-addstrip-silt-upper'), {
-      clientX: 30,
-      clientY: 45,
-    })
+    // Press ON the upper lens edge (the strip midpoint lies on it); projection must
+    // land the node on the silt lens edge, within the lens elevation extent.
+    const strip = getByTestId('partition-lens-addstrip-silt-upper')
+    const mx = (Number(strip.getAttribute('x1')) + Number(strip.getAttribute('x2'))) / 2
+    const my = (Number(strip.getAttribute('y1')) + Number(strip.getAttribute('y2'))) / 2
+    pressGrabRelease(strip, { clientX: mx, clientY: my })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     // The click was inside the silt lens → it grabbed silt (not the sand matrix).
     expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
@@ -2135,19 +2167,20 @@ describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () =>
       onSaveBoundary,
       boundariesByBodyId: new Map(),
     })
-    // Click deep inside the SILT band (elevation ~4 → y=60) on its base add-strip;
-    // the contact is at 5 m (y=50), so a raw-cursor store would float at y=60.
+    // S99 edge-only: press ON the SILT base contact (y=50, el5), 2 px off at y=52
+    // (within the hit tolerance); the node must SNAP onto the ~5 m contact, never
+    // store the stray cursor el4.8.
     const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
     expect(strip).toBeTruthy()
-    pressGrabRelease(strip!, { clientX: 50, clientY: 60 })
+    pressGrabRelease(strip!, { clientX: 50, clientY: 52 })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     // The node is stored on the UPPER band (silt) lower_nodes (S68 contact-bend),
-    // ON the base contact (~5 m), NOT the interior cursor elevation (4 m).
+    // ON the base contact (~5 m), NOT the stray cursor elevation.
     expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
     const lower = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
     expect(lower).toHaveLength(1)
-    expect(lower[0].elevation_m).toBeGreaterThan(4.4) // rides the ~5 m contact
-    expect(lower[0].elevation_m).toBeLessThan(5.6)
+    expect(lower[0].elevation_m).toBeGreaterThan(4.7) // rides the ~5 m contact
+    expect(lower[0].elevation_m).toBeLessThan(5.3)
   })
 })
 
@@ -2369,12 +2402,13 @@ describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2
     )
     // The silt apex reach at rest (no stored node), before any interaction.
     const restReach = siltApexReach(r1.getByTestId('partition-region-silt'))
-    // 1. PRESS the silt lens upper add-strip INSIDE the silt lens (elevation 4..6 →
-    //    y 40..60). This SAME mousedown creates the node AND starts the drag — no
-    //    persist yet, no separate handle grab.
-    fireEvent.mouseDown(r1.getByTestId('partition-lens-addstrip-silt-upper'), {
-      clientX: 35,
-      clientY: 47,
+    // 1. PRESS ON the silt lens upper edge (S99 edge-only — the strip's own midpoint
+    //    lies on the edge). This SAME mousedown creates the node AND starts the drag —
+    //    no persist yet, no separate handle grab.
+    const upStrip = r1.getByTestId('partition-lens-addstrip-silt-upper')
+    fireEvent.mouseDown(upStrip, {
+      clientX: (Number(upStrip.getAttribute('x1')) + Number(upStrip.getAttribute('x2'))) / 2,
+      clientY: (Number(upStrip.getAttribute('y1')) + Number(upStrip.getAttribute('y2'))) / 2,
     })
     // No persist on press — the drag is in flight (Approach B, single save on release).
     expect(onSaveBoundary).toHaveBeenCalledTimes(0)

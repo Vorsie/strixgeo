@@ -76,8 +76,9 @@ import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
   applyReachFloorOnSegment,
+  nearestAddStripWithinTolerance,
   projectClickToCandidate,
-  routeAddStripByContainment,
+  routeAddStripByEdgeProximity,
   type AddStripCandidate,
 } from './partitionAddStripRouter'
 import {
@@ -2239,27 +2240,72 @@ export default function PartitionFillOverlay({
     screenToLevel,
   ])
 
+  // The GHOST barrier regions + the squared hit tolerance shared by the grab and
+  // the hover preview (both must use the SAME edge-within-tolerance test so the
+  // teal dot shows exactly where a click would grab). Barriers = the suppressed
+  // ghost regions (§83); a press/hover inside one is inert. Tolerance = the strip's
+  // half-width in px, squared (``candidateDistSq`` returns squared distance).
+  const edgeToleranceSq = (ADDSTRIP_HIT_W / 2) * (ADDSTRIP_HIT_W / 2)
+  const ghostBarrierRegions = useMemo(
+    () =>
+      screenRegions
+        .filter(
+          (sr) => sr.region.bodyId && deadHandleBodies.has(`${sr.region.gapIndex}:${sr.region.bodyId}`),
+        )
+        .map((sr) => sr.points),
+    [screenRegions, deadHandleBodies],
+  )
+
   /**
-   * Route an add-strip click to the boundary nearest the cursor across ALL bodies.
+   * Route an add-strip click to the litho edge nearest the cursor — EDGE-ONLY (S99):
+   * an interior click (far from every edge) is a NO-OP.
    *
    * @param cx Cursor x in SVG coordinates.
    * @param cy Cursor y in SVG coordinates.
    */
   const routeAddStripClick = (cx: number, cy: number): void => {
     lastClick.current = { x: cx, y: cy }
-    // Region-containment first (grab the body the click is inside), nearest-segment
-    // fallback when the click is outside every region ring (§77). Robust where the
-    // plain nearest-segment pick was fooled by a distant lens's diagonal flank.
-    // The BARRIER regions = the GHOST regions whose handle §83 suppressed. A click
-    // inside a ghost region is a NO-OP (there is no reshape there), never a fallback
-    // grab of a DISTANT body (else suppressing a ghost re-exposes the S71 "grabbed a
-    // body the cursor isn't inside" bug). Only ghost rings are barriers — a click in
-    // a normal band (e.g. just below a matched contact) still routes as before.
-    const barrierRegions = screenRegions
-      .filter((sr) => sr.region.bodyId && deadHandleBodies.has(`${sr.region.gapIndex}:${sr.region.bodyId}`))
-      .map((sr) => sr.points)
-    const dispatch = routeAddStripByContainment({ x: cx, y: cy }, addStripCandidates, barrierRegions)
+    // EDGE-ONLY targeting (S99, owner dogfeed 2026-07-24): only the visible litho
+    // line between two fills is grabbable. The click routes to the candidate whose
+    // EDGE is nearest the cursor, but ONLY when that edge is within the strip's
+    // half-width (``ADDSTRIP_HIT_W / 2``) — a click in open band INTERIOR (farther
+    // than the tolerance from every edge) is a NO-OP, never a grab. This retires the
+    // S71 region-containment grab, which let a click in the middle of a band drop a
+    // node. The distant-diagonal steal S71 fixed cannot recur: an interior click is
+    // now inert, not a grab of the region it's inside.
+    const dispatch = routeAddStripByEdgeProximity(
+      { x: cx, y: cy },
+      addStripCandidates,
+      edgeToleranceSq,
+      ghostBarrierRegions,
+    )
     if (dispatch) dispatch()
+  }
+
+  /**
+   * Show the teal add-node preview dot ON the nearest litho edge — but ONLY when the
+   * cursor is within the hit tolerance of one (S99). In the open band interior the
+   * dot HIDES (``setAddNodePreview(null)``), so the preview telegraphs exactly where
+   * a click would grab: the visible line, never free interior space. The dot is
+   * placed at the PROJECTED on-edge point (``projectClickToCandidate``), not the raw
+   * cursor, so it rides the boundary line the same way a stored node would.
+   *
+   * @param cx Cursor x in SVG coordinates.
+   * @param cy Cursor y in SVG coordinates.
+   */
+  const previewAddNode = (cx: number, cy: number): void => {
+    const cand = nearestAddStripWithinTolerance(
+      { x: cx, y: cy },
+      addStripCandidates,
+      edgeToleranceSq,
+      ghostBarrierRegions,
+    )
+    if (!cand) {
+      setAddNodePreview(null)
+      return
+    }
+    const p = projectClickToCandidate({ x: cx, y: cy }, cand) ?? { x: cx, y: cy }
+    setAddNodePreview({ x: p.x, y: p.y, color: BOUNDARY_COLOR })
   }
 
   return (
@@ -2485,8 +2531,8 @@ export default function PartitionFillOverlay({
           // span, so a `${upper}-${lower}` key collides across gaps (debt #2).
           <g key={`pf-bnd-${sb.upperIdx}-${sb.lowerIdx}`}>
             {/* Add-strip: transparent line along the boundary edge.
-                Hover shows a preview dot at the cursor (owner directive
-                2026-06-05 litho declutter, Task 2). */}
+                Hover shows a preview dot ON the nearest litho edge — hidden in the
+                open interior (S99 edge-only; owner directive 2026-06-05 declutter). */}
             <line
               data-testid={`partition-boundary-addstrip-${sb.upperBodyId}-${sb.lowerBodyId}`}
               x1={ne0.x}
@@ -2497,8 +2543,11 @@ export default function PartitionFillOverlay({
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
+                // EDGE-ONLY preview (S99): drive the dot from the SAME nearest-edge-
+                // within-tolerance test as the grab, so it rides the litho line and
+                // hides in the interior — telegraphing exactly where a click grabs.
                 const { x, y } = svgCoordsFromEvent(e)
-                setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
+                previewAddNode(x, y)
               }}
               onMouseLeave={() => setAddNodePreview(null)}
               // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
@@ -2634,10 +2683,11 @@ export default function PartitionFillOverlay({
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
+                // UNIFIED HANDLE (S98): the preview dot on a lens edge is the SAME teal
+                // as a contact edge. EDGE-ONLY (S99): drive it from the nearest-edge-
+                // within-tolerance test so it rides the line and hides in the interior.
                 const { x, y } = svgCoordsFromEvent(e)
-                // UNIFIED HANDLE (S98): the add-node preview dot on a lens edge is the SAME
-                // teal as a contact edge — the user can't tell a lens edge from a contact.
-                setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
+                previewAddNode(x, y)
               }}
               onMouseLeave={() => setAddNodePreview(null)}
               // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
@@ -2659,7 +2709,7 @@ export default function PartitionFillOverlay({
                 routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
               }}
             />
-            {/* Lower-edge add-strip. Hover shows a preview dot at the cursor. */}
+            {/* Lower-edge add-strip. Hover shows a preview dot ON the nearest edge. */}
             <line
               data-testid={`partition-lens-addstrip-${sl.bodyId}-lower`}
               x1={lowerStripStart.x}
@@ -2670,10 +2720,11 @@ export default function PartitionFillOverlay({
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
+                // UNIFIED HANDLE (S98): the preview dot on a lens edge is the SAME teal
+                // as a contact edge. EDGE-ONLY (S99): drive it from the nearest-edge-
+                // within-tolerance test so it rides the line and hides in the interior.
                 const { x, y } = svgCoordsFromEvent(e)
-                // UNIFIED HANDLE (S98): the add-node preview dot on a lens edge is the SAME
-                // teal as a contact edge — the user can't tell a lens edge from a contact.
-                setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
+                previewAddNode(x, y)
               }}
               onMouseLeave={() => setAddNodePreview(null)}
               // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
