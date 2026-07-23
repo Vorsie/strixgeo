@@ -284,7 +284,10 @@ const LENS_HIT_R = 11
 // otherwise floor the hit radius at 11×0.5 = 5.5 px). Safe now that the handles are live (S75) — a
 // larger radius no longer risks making a DEAD grab easier to hit.
 const LENS_HIT_MIN_PX = 9
-const LENS_COLOR = '#f59e0b' // amber-400
+// UNIFIED HANDLE (S98): ``LENS_COLOR`` (amber-400) is RETIRED. Every litho-transition
+// edge — contact AND lens alike — renders the ONE ``BOUNDARY_COLOR`` teal handle so the
+// user can't tell a lens edge from a contact. The rejected-drag frame still reddens via
+// ``REJECT_COLOR`` (``handleColorForTarget``).
 // Zoom reference: at/above this horizontal scale (px per along-metre) the
 // handle is FULL size (its zoomed-in size); zooming OUT (fewer px/m) shrinks it
 // toward HANDLE_MIN_SCALE so the markers don't crowd a compressed section.
@@ -1763,6 +1766,25 @@ export default function PartitionFillOverlay({
     // ``gapKey:upperBodyId`` so the same body's contact nodes are drawn once.
     const nodesEmittedFor = new Set<string>()
 
+    // UNIFIED HANDLE — SINGLE SURFACE BY CONSTRUCTION (S98): the retired
+    // ``sharedBoundariesForRender`` referee post-filtered nodes that ``screenLenses``
+    // also drew. Instead of a second pass, this pass NEVER emits a contact-bend node
+    // for a body that owns an apex-shapeable (lens / pinch) tip in the same gap — that
+    // body's nodes belong to the LENS surface. The gate mirrors ``screenLenses`` exactly
+    // (``isApexShapeable`` minus the un-routable / dead-handle suppressions) so a node is
+    // drawn by exactly ONE surface with no referee. Keyed ``gapKey:bodyId``.
+    const lensOwningBodyByGap = new Set<string>()
+    for (const sr of screenRegions) {
+      const bId = sr.region.bodyId
+      if (!bId) continue
+      if (!isApexShapeable(sr.region)) continue
+      const gk = `${sr.region.gapIndex}:${bId}`
+      if (sectionFillData.unroutableBodies.has(gk)) continue
+      if (deadHandleBodies.has(gk)) continue
+      if (!resolveSourceCorners(sr.region.polygon)) continue
+      lensOwningBodyByGap.add(`${sr.leftX}:${sr.rightX}:${bId}`)
+    }
+
     for (let idx = 0; idx < screenRegions.length; idx += 1) {
       const sr = screenRegions[idx]
       if (sr.region.kind === 'lens') continue
@@ -1811,7 +1833,11 @@ export default function PartitionFillOverlay({
         // renders on every pair (a click on either lands on the contact); only the
         // stored-node HANDLES are drawn once.
         const nodesKey = `${gapKey}:${uId}`
-        const emitNodes = !nodesEmittedFor.has(nodesKey)
+        // BY-CONSTRUCTION SINGLE SURFACE (S98): if THIS upper body owns a lens/pinch tip
+        // in this gap, the LENS surface renders its nodes — the contact pass emits none,
+        // so no node is drawn twice (the retired referee's job, done here at the source).
+        const emitNodes =
+          !nodesEmittedFor.has(nodesKey) && !lensOwningBodyByGap.has(`${gapKey}:${uId}`)
         const nodes: SharedBoundary['nodes'] = []
         if (emitNodes && boundariesByBodyId && alongToScreenX && levelToScreen) {
           nodesEmittedFor.add(nodesKey)
@@ -1862,6 +1888,10 @@ export default function PartitionFillOverlay({
     alongToScreenX,
     levelToScreen,
     onSaveBoundary,
+    // S98 single-surface gate: the same suppression sets ``screenLenses`` reads, so the
+    // contact pass and the lens pass agree on which bodies own a lens tip.
+    sectionFillData.unroutableBodies,
+    deadHandleBodies,
   ])
 
   // ---- Collect lens freedraw handle arrays. ---------------------------------
@@ -1992,30 +2022,11 @@ export default function PartitionFillOverlay({
     deadHandleBodies,
   ])
 
-  // ---- SINGLE-SURFACE dedup: one stored node → one draggable dot (S73). --------
-  //
-  // A body's ``lower_nodes`` node can be BOTH a contact-bend node (``sharedBoundaries``
-  // renders it as a boundary handle) AND a lens base-edge node (``screenLenses``
-  // renders it as a lens handle) when that body is a shapeable pinch tip in the gap.
-  // Rendering both drew ONE stored node as several scattered dots — the owner's
-  // "three points appear when i click" (GEO-23/125-S10). ``screenLenses`` is the
-  // AUTHORITATIVE owner for any node it actually renders (its gate already resolves
-  // shapeability + source corners + un-routable suppression), so drop from the
-  // boundary pass exactly those nodes ``screenLenses`` drew. Keyed by the stored
-  // ``bodyId:nodeIndex`` on the LOWER edge (the edge ``sharedBoundaries`` reads).
-  const sharedBoundariesForRender = useMemo((): SharedBoundary[] => {
-    const lensLowerNodeKeys = new Set<string>()
-    for (const sl of screenLenses) {
-      for (const n of sl.lowerNodes) lensLowerNodeKeys.add(`${sl.bodyId}:${n.nodeIndex}`)
-    }
-    if (lensLowerNodeKeys.size === 0) return sharedBoundaries
-    return sharedBoundaries.map((sb) => {
-      const kept = sb.nodes.filter(
-        (n) => !lensLowerNodeKeys.has(`${sb.upperBodyId}:${n.nodeIndex}`),
-      )
-      return kept.length === sb.nodes.length ? sb : { ...sb, nodes: kept }
-    })
-  }, [sharedBoundaries, screenLenses])
+  // S98: the ``sharedBoundariesForRender`` referee is DELETED. It existed only to stop a
+  // stored node being drawn as BOTH a contact handle and a lens handle ("three dots"). That
+  // dedup is now enforced BY CONSTRUCTION inside ``sharedBoundaries`` (``lensOwningBodyByGap``:
+  // a body that owns a lens/pinch tip in a gap emits no contact-bend nodes there), so the
+  // render maps ``sharedBoundaries`` directly — one uniform handle owns each edge.
 
   // ---- Add-node handlers ---------------------------------------------------
 
@@ -2466,7 +2477,7 @@ export default function PartitionFillOverlay({
 
           Each handle's testid encodes [upperBodyId]-[lowerBodyId]-[i] so tests
           can assert N handles independently. */}
-      {!refinement && sharedBoundariesForRender.map((sb) => {
+      {!refinement && sharedBoundaries.map((sb) => {
         const [ne0, ne1] = sb.naturalEdge
         return (
           // Key by per-gap-unique region indices, NOT the body-pair: the same
@@ -2495,6 +2506,10 @@ export default function PartitionFillOverlay({
               // ``isNew`` drag rather than persisting). ``preventDefault`` + ``stopPropagation``
               // keep the press off the pan handler, exactly as the existing handle onMouseDown does.
               onMouseDown={(e) => {
+                // LEFT-BUTTON-ONLY (S98): the add-strip press CREATES + grabs a node. Gating to
+                // ``button === 0`` stops a RIGHT-click from spawning a marker (the owner's bug —
+                // the add-strip fired for any button). Right-click routes to onContextMenu-remove.
+                if (e.button !== 0) return
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
@@ -2517,6 +2532,9 @@ export default function PartitionFillOverlay({
                   fill="transparent"
                   style={{ pointerEvents: interactivePtr, cursor: 'ns-resize' }}
                   onMouseDown={(e) => {
+                    // LEFT-BUTTON-ONLY (S98): grab only on the left button; a right-click on the
+                    // handle removes via onContextMenu, it must not also start a drag.
+                    if (e.button !== 0) return
                     e.preventDefault()
                     e.stopPropagation()
                     setBoundaryDrag({
@@ -2617,7 +2635,9 @@ export default function PartitionFillOverlay({
               style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
                 const { x, y } = svgCoordsFromEvent(e)
-                setAddNodePreview({ x, y, color: LENS_COLOR })
+                // UNIFIED HANDLE (S98): the add-node preview dot on a lens edge is the SAME
+                // teal as a contact edge — the user can't tell a lens edge from a contact.
+                setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
               }}
               onMouseLeave={() => setAddNodePreview(null)}
               // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
@@ -2625,6 +2645,10 @@ export default function PartitionFillOverlay({
               // ``isNew`` drag rather than persisting). ``preventDefault`` + ``stopPropagation``
               // keep the press off the pan handler, exactly as the existing handle onMouseDown does.
               onMouseDown={(e) => {
+                // LEFT-BUTTON-ONLY (S98): the add-strip press CREATES + grabs a node. Gating to
+                // ``button === 0`` stops a RIGHT-click from spawning a marker (the owner's bug —
+                // the add-strip fired for any button). Right-click routes to onContextMenu-remove.
+                if (e.button !== 0) return
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
@@ -2647,7 +2671,9 @@ export default function PartitionFillOverlay({
               style={{ pointerEvents: interactivePtr, cursor: 'copy' }}
               onMouseMove={(e) => {
                 const { x, y } = svgCoordsFromEvent(e)
-                setAddNodePreview({ x, y, color: LENS_COLOR })
+                // UNIFIED HANDLE (S98): the add-node preview dot on a lens edge is the SAME
+                // teal as a contact edge — the user can't tell a lens edge from a contact.
+                setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
               }}
               onMouseLeave={() => setAddNodePreview(null)}
               // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
@@ -2655,6 +2681,10 @@ export default function PartitionFillOverlay({
               // ``isNew`` drag rather than persisting). ``preventDefault`` + ``stopPropagation``
               // keep the press off the pan handler, exactly as the existing handle onMouseDown does.
               onMouseDown={(e) => {
+                // LEFT-BUTTON-ONLY (S98): the add-strip press CREATES + grabs a node. Gating to
+                // ``button === 0`` stops a RIGHT-click from spawning a marker (the owner's bug —
+                // the add-strip fired for any button). Right-click routes to onContextMenu-remove.
+                if (e.button !== 0) return
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
@@ -2673,6 +2703,9 @@ export default function PartitionFillOverlay({
                   fill="transparent"
                   style={{ pointerEvents: interactivePtr, cursor: 'grab' }}
                   onMouseDown={(e) => {
+                    // LEFT-BUTTON-ONLY (S98): grab only on the left button; a right-click on the
+                    // handle removes via onContextMenu, it must not also start a drag.
+                    if (e.button !== 0) return
                     e.preventDefault()
                     e.stopPropagation()
                     setLensDrag({
@@ -2706,7 +2739,10 @@ export default function PartitionFillOverlay({
                   fill={handleColorForTarget(
                     { kind: 'lens', bodyId: sl.bodyId, gapIndex: sl.gapIndex, edge: 'upper', nodeIndex },
                     rejectedDragTarget,
-                    LENS_COLOR,
+                    // UNIFIED HANDLE (S98): a lens edge is the SAME litho-transition line as a
+                    // contact — one teal handle colour, not the retired amber. The rejected-drag
+                    // frame still reddens via ``handleColorForTarget``.
+                    BOUNDARY_COLOR,
                   )}
                   stroke="#0f172a"
                   strokeWidth={1}
@@ -2725,6 +2761,9 @@ export default function PartitionFillOverlay({
                   fill="transparent"
                   style={{ pointerEvents: interactivePtr, cursor: 'grab' }}
                   onMouseDown={(e) => {
+                    // LEFT-BUTTON-ONLY (S98): grab only on the left button; a right-click on the
+                    // handle removes via onContextMenu, it must not also start a drag.
+                    if (e.button !== 0) return
                     e.preventDefault()
                     e.stopPropagation()
                     setLensDrag({
@@ -2758,7 +2797,8 @@ export default function PartitionFillOverlay({
                   fill={handleColorForTarget(
                     { kind: 'lens', bodyId: sl.bodyId, gapIndex: sl.gapIndex, edge: 'lower', nodeIndex },
                     rejectedDragTarget,
-                    LENS_COLOR,
+                    // UNIFIED HANDLE (S98): one teal colour for the lens edge, see the upper edge.
+                    BOUNDARY_COLOR,
                   )}
                   stroke="#0f172a"
                   strokeWidth={1}

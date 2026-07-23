@@ -29,7 +29,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const NORMAL_LENS_COLOR = '#f59e0b' // LENS_COLOR (amber-400)
+// S98 unified handle: a lens edge now renders the ONE teal BOUNDARY_COLOR, not the
+// retired amber LENS_COLOR. The rejected-drag frame still reddens to REJECT_COLOR.
+const NORMAL_LENS_COLOR = '#38bdf8' // BOUNDARY_COLOR (sky-400) — the one unified handle colour
 
 function layer(
   id: string,
