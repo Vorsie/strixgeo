@@ -26,8 +26,10 @@ import {
   type LensApexOverride,
   lensApexOverrideKey,
   type PartitionColumn,
+  type SectionRegion,
 } from '../../utils/partitionFill'
 import { collectContactOverridesForGap, type ContactDragState } from './contactOverrideWiring'
+import { isApexShapeable } from './partitionFillOverlayHelpers'
 
 /**
  * Ownership epsilon (screen px): a node whose projected x sits within this
@@ -36,6 +38,9 @@ import { collectContactOverridesForGap, type ContactDragState } from './contactO
  * a functional change).
  */
 const NODE_OWN_EPS = 0.5
+
+/** Elevation match epsilon (metres) for the §91 tip-span membership test. */
+const CONTACT_MATCH_M = 1e-3
 
 /** Clamp a value to [0, 1]. */
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
@@ -77,6 +82,20 @@ export interface ApexOverrideInputs {
   boundaryDrag: ContactDragState | null
   /** Whether the v2 engine (the ``contact:`` consumer) is active. */
   partitionEngineV2: boolean
+  /**
+   * ``gapIndex:bodyId`` for TWO-SIDED bodies whose STORED (persisted) in-gap node is a
+   * genuine LENS tip, NOT a shared-contact bend (§91). The caller (``PartitionFillOverlay``)
+   * derives this from an engine-truth base pass: a two-sided body that owns an
+   * apex-shapeable lens region whose elevation span contains the stored node is
+   * shaping a lens, so its node must route through the ``bodyId@gap`` LENS apex path —
+   * NOT the ``contact:U|L@g`` path — EVEN WITH NO LIVE DRAG. Without this, the live
+   * lens drag reshapes (the §88 branch fires) but on RELEASE the memo rebuilds with
+   * ``lensDrag = null`` → the same node routes as an un-routable contact override →
+   * floods to a band → the reshape SNAPS BACK. This set makes the persisted routing
+   * match the live routing so a safe lens drag persists visibly. ``undefined`` (the
+   * legacy caller) preserves the pre-§91 behaviour exactly.
+   */
+  persistedLensBodies?: ReadonlySet<string>
 }
 
 /** Output: the override map + the set of gap-scoped bodies whose contact was overridden. */
@@ -117,6 +136,7 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
     lensDrag,
     boundaryDrag,
     partitionEngineV2,
+    persistedLensBodies,
   } = inputs
 
   const apexOverrides = new Map<string, LensApexOverride>()
@@ -197,22 +217,39 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
     for (const id of leftIds) if (!rightIds.has(id)) setShape(id)
     for (const id of rightIds) if (!leftIds.has(id)) setShape(id)
 
-    // §88 FIX — a TWO-SIDED band (present on BOTH columns, so skipped by the two
-    // XOR loops above) can still own a genuine LENS tip inside this gap. When the
-    // live lens drag targets such a body IN THIS GAP, build its ``bodyId@gap`` apex
-    // override too — otherwise the drag produces NO override and nothing reshapes
-    // (the definitive "manual reshape does nothing" root cause). ``setShape`` self-
-    // filters (early-returns when the body owns no in-gap lens node), so this is a
-    // no-op for a two-sided body being dragged only on its shared contact.
-    let lensDragBodyThisGap: string | null = null
-    if (lensDrag && lensDrag.gapIndex === i && leftIds.has(lensDrag.bodyId) && rightIds.has(lensDrag.bodyId)) {
-      const before = apexOverrides.has(lensApexOverrideKey(lensDrag.bodyId, i))
-      setShape(lensDrag.bodyId)
+    // §88 / §91 FIX — a TWO-SIDED band (present on BOTH columns, so skipped by the two
+    // XOR loops above) can still own a genuine LENS tip inside this gap. Its
+    // ``bodyId@gap`` apex override must be built (never the contact path) in TWO cases:
+    //   • §88 — the LIVE lens drag targets this body in this gap (reshape follows the
+    //     cursor). Without it the drag produces NO override and nothing reshapes.
+    //   • §91 — NO live drag, but this body's PERSISTED in-gap node is an engine-
+    //     confirmed lens tip (in ``persistedLensBodies``). Without it the memo rebuild
+    //     after mouseup routes the stored node through the contact path (un-routable →
+    //     flood) → the live reshape SNAPS BACK on release.
+    // ``setShape`` self-filters (early-returns when the body owns no in-gap node), so
+    // this is a no-op for a two-sided body with no lens node here. The set of bodies
+    // to disentangle from the contact path is collected so their node is never applied
+    // twice (once as a lens apex, once as a contact bend). The drag/persist KIND (lens)
+    // decides, not the body's two-sidedness (which reads as a contact by geometry alone).
+    const lensBodiesThisGap = new Set<string>()
+    const routeAsLens = (bodyId: string): void => {
+      if (!leftIds.has(bodyId) || !rightIds.has(bodyId)) return // not two-sided here
+      const key = lensApexOverrideKey(bodyId, i)
+      const before = apexOverrides.has(key)
+      setShape(bodyId)
       // Only claim the disentangle when the lens override was actually written (the
-      // body owns a lens node here) — a bare drag over a contact-only body must not
+      // body owns a lens node here) — a bare route over a contact-only body must not
       // suppress its legitimate contact override.
-      if (!before && apexOverrides.has(lensApexOverrideKey(lensDrag.bodyId, i))) {
-        lensDragBodyThisGap = lensDrag.bodyId
+      if (!before && apexOverrides.has(key)) lensBodiesThisGap.add(bodyId)
+    }
+    if (lensDrag && lensDrag.gapIndex === i) routeAsLens(lensDrag.bodyId)
+    if (persistedLensBodies) {
+      for (const id of persistedLensBodies) {
+        // Keyed ``gapIndex:bodyId``; only process this gap's entries.
+        const at = id.indexOf(':')
+        if (at < 0) continue
+        if (Number(id.slice(0, at)) !== i) continue
+        routeAsLens(id.slice(at + 1))
       }
     }
 
@@ -234,11 +271,103 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
         screenToLevel,
         boundaryDrag,
         apexOverrides,
-        lensDragBodyThisGap,
+        lensBodiesThisGap.size > 0 ? lensBodiesThisGap : null,
       )
       for (const id of gapOverridden) contactOverriddenBodies.add(`${i}:${id}`)
     }
   }
 
   return { apexOverrides, contactOverriddenBodies }
+}
+
+/**
+ * Detect two-sided bodies whose STORED (persisted) in-gap node is a genuine LENS tip
+ * — the §91 engine-truth discriminator for the ``persistedLensBodies`` input above.
+ *
+ * The problem it solves: BOTH the lens-edge drag and the shared-contact drag persist a
+ * node onto the SAME ``lower_nodes`` array, so the node's KIND is not recoverable from
+ * storage alone. On the memo rebuild after a lens-drag mouseup (``lensDrag = null``) a
+ * two-sided body's node would route through the contact path (un-routable → flood) and
+ * the live reshape snaps back. This function recovers the KIND from ENGINE TRUTH: a
+ * two-sided body that owns an APEX-SHAPEABLE lens region in a gap (an interior tip, not
+ * a full-width band) AND whose stored in-gap node sits INSIDE that region's elevation
+ * span is shaping that lens tip — its node must route through the lens path. A genuine
+ * shared-contact bend sits at the full-width band's BASE contact (outside the tip
+ * region's span), so it is NOT flagged and keeps routing through the contact path.
+ *
+ * Pure: takes the base-fill regions (no overrides) the caller already computes.
+ *
+ * Parameters
+ * ----------
+ * baseRegions : readonly SectionRegion[]
+ *     The no-override base partition (``computeSectionFillActive(cols, edges, undefined,
+ *     alongM)``). Each region carries ``bodyId`` + ``gapIndex`` + a fraction×elevation
+ *     ``polygon``.
+ * orderedColumns : readonly PartitionColumn[]
+ *     The section columns (to test two-sidedness per gap).
+ * boundariesByBodyId : ReadonlyMap<string, BodyBoundaryResponse> | undefined
+ *     Stored per-body boundary shapes (the persisted node source).
+ * alongToScreenX : ((along: number) => number) | undefined
+ *     Along-metres → screen x (for node in-gap ownership).
+ * gapXs : readonly GapExtent[]
+ *     Per-gap screen x-extents (1:1 with the gaps between ``orderedColumns``).
+ *
+ * Returns
+ * -------
+ * Set<string>
+ *     ``gapIndex:bodyId`` for every two-sided body whose persisted node is a lens tip.
+ */
+export function detectPersistedLensBodies(
+  baseRegions: readonly SectionRegion[],
+  orderedColumns: readonly PartitionColumn[],
+  boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse> | undefined,
+  alongToScreenX: ((along: number) => number) | undefined,
+  gapXs: readonly GapExtent[],
+): Set<string> {
+  const out = new Set<string>()
+  if (!boundariesByBodyId || !alongToScreenX) return out
+
+  // Elevation span of every apex-shapeable region per ``gapIndex:bodyId``. A body can
+  // own several shapeable tips in a gap; union their spans so a node inside ANY tip is
+  // recognised.
+  const tipSpan = new Map<string, { min: number; max: number }>()
+  for (const r of baseRegions) {
+    if (r.bodyId == null || !isApexShapeable(r)) continue
+    let lo = Infinity
+    let hi = -Infinity
+    for (const p of r.polygon) {
+      if (p.elevation < lo) lo = p.elevation
+      if (p.elevation > hi) hi = p.elevation
+    }
+    const key = `${r.gapIndex}:${r.bodyId}`
+    const prev = tipSpan.get(key)
+    tipSpan.set(key, prev ? { min: Math.min(prev.min, lo), max: Math.max(prev.max, hi) } : { min: lo, max: hi })
+  }
+  if (tipSpan.size === 0) return out
+
+  for (let i = 0; i < orderedColumns.length - 1 && i < gapXs.length; i += 1) {
+    const { leftX, rightX } = gapXs[i]
+    if (rightX <= leftX) continue
+    const left = orderedColumns[i]
+    const right = orderedColumns[i + 1]
+    const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+    const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+    for (const bodyId of leftIds) {
+      if (!rightIds.has(bodyId)) continue // only two-sided bodies risk the contact-path misroute
+      const span = tipSpan.get(`${i}:${bodyId}`)
+      if (!span) continue // no shapeable lens tip here → a genuine contact-only body
+      const bnd = boundariesByBodyId.get(bodyId)
+      if (!bnd) continue
+      // Any stored in-gap node (either edge) whose elevation sits inside the tip span
+      // → the node is shaping the lens tip, not the shared contact.
+      const nodes = [...(bnd.upper_nodes ?? []), ...(bnd.lower_nodes ?? [])]
+      const routesAsLens = nodes.some((n) => {
+        const x = alongToScreenX(n.along_m)
+        if (x < leftX - NODE_OWN_EPS || x > rightX + NODE_OWN_EPS) return false
+        return n.elevation_m >= span.min - CONTACT_MATCH_M && n.elevation_m <= span.max + CONTACT_MATCH_M
+      })
+      if (routesAsLens) out.add(`${i}:${bodyId}`)
+    }
+  }
+  return out
 }
