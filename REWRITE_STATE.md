@@ -8306,3 +8306,43 @@ The engine ALREADY has the 2/1/0 per unit-per-gap-side (`effectiveCorrForUnit`),
 - `throwaway_s89_gap7.diag.test.ts` — Step-0 owner-exact gap-7 flood repro incl. `classifyOverrideOutcome` status (CS1_GATE=1). **ORCHESTRATOR: DELETE.**
 - `throwaway_s89_corr.diag.test.ts` — Step-1 effectiveCorr dump for the named bodies (CS1_GATE=1). **ORCHESTRATOR: DELETE.**
 - `REWRITE_STATE.md` — this §94.
+
+---
+
+## §96 — Session 96: BUILD the geometry-robust collapse detector — STOPPED-AND-REPORTED on a MEASURED GEOMETRY/SEMANTIC CONTRADICTION. No pure-geometry apex-locating discriminator separates the 3 "relabel survive" cases from the gap-7 collapse WITHOUT a geological call about whether a DIFFERENT-litho tip replacing the edited tip at the apex counts as "survived". Owner ruling needed. NO engine/app/overlay source edited — only 9 throwaway CS1 diag probes.
+
+### THE TASK (S95 fix): replace the `(bodyId,gap)` collapse detector (defeated by `mergeTouchingBodies` relabel) with a GEOMETRY detector that (a) keeps the 3 relabel cases `029c52@4/@5`, `3d8633@12` as `applied`, and (b) flags `6bb744@7` aggressive (frac 1.6) as `rejected-collapse`. Fix confined to `classifyOverrideOutcome` (reshapeMap/allSectionsReshape call `computeSectionFillV2` directly → the fix must NOT alter `outcome.regions`, only the status; on collapse return the CANDIDATE regions so those gates stay 56/143).
+
+### THE GROUND TRUTH (measured on real CS1, probe7/probe9 — the wall S95 hit AND its unfixable core)
+Dragging `029c52@4`'s apex 0.50→0.35 (a "relabel survive" per the prompt): **the edited body `029c52` (formation `d1bc`) VANISHES ENTIRELY from gap 4**, and a NEW shapeable tip `934a78` (formation **`2e06` — a DIFFERENT litho**) appears at fraction 0.35. `mergeTouchingBodies` only unions SAME-formation touching regions (`mergeTouchingBodies.ts:274` `${gap}|${formationId}` key), so `934a78`≠`029c52` is NOT a merge relabel — it is a genuine litho REPLACEMENT at the tip. Same for `029c52@5`. (`3d8633@12` DOES keep its own shapeable region — only 2 of the 3 named cases actually vanish.)
+
+### THE CONTRADICTION (two discriminators, each right on one half, wrong on the other — measured, not argued)
+- **Own-body discriminator** ("edited tip's OWN region non-shapeable" — the design-doc-literal rule): probe9 = **6/8 OK** incl. ALL 4 moderate CONSUMED (`6c3b9d@7`,`50e73a@7`,`6bb744@8`,`08354d@14` → correctly `applied`) AND gap-7 (correctly rejected). **FAILS `029c52@4/@5`** (own body vanished → false-reject = the S95 wall verbatim).
+- **New-shapeable-tip-at-target-apex discriminator** (body-independent geometry): probe8 = the 3 relabel cases + gap-7 all CORRECT, but **FAILS all 4 moderate CONSUMED** (16 moderate false-collapses total) — the engine places the reshaped apex vertex at a fraction ≠ the raw target (e.g. `6c3b9d@7` dragged→0.40 lands at 0.60), so "new tip near target" misses them.
+- **PIP-at-apex (the prompt's literal instruction)**: probe1/probe6 = unreliable — the apex point at (target, midElev) lands in a full-width NEIGHBOUR that shares the fraction column, giving the OPPOSITE of intent on the relabel cases AND false-surviving gap-7 (neighbour tips 6c3b9d/50e73a sit in 6bb744's elevation band).
+
+**WHY no clean geometry exists:** the 3 situations are geometrically entangled — (1) relabel case = edited body disappears, DIFFERENT litho fills the apex; (2) moderate CONSUMED = same body stays, apex vertex at a different fraction than dragged; (3) gap-7 collapse = edited body floods to a band, pre-existing neighbour tips remain in the band. Any "shapeable region at the apex" test that calls (1) survived ALSO calls (3) survived (neighbour tips). Any "own body stays shapeable" test that calls (3) collapsed ALSO calls (1) collapsed (body vanished).
+
+### THE SEMANTIC QUESTION (why this is a STOP-AND-ASK, not a geometry iteration)
+For `029c52@4/@5` the edited tip's LITHO (`d1bc`) is REPLACED by a different litho (`2e06`) at the apex. Whether "the d1bc tip I was editing got replaced by a 2e06 tip" is a LEGITIMATE reshape (prompt's stance: "GENUINE reshapes that must stay `applied`") or a COLLAPSE of the edited tip (a different soil took its place) is a GEOLOGICAL call about what editing an onlap/lens apex past its neighbour is allowed to do. The owner standing rule (memory `feedback_ask_domain_questions_dont_bugfix`) + this prompt's RULES ("do not invent a guard, do not re-baseline a frozen gate to hide a false-reject") forbid resolving it with a formation-blind heuristic — which would ALSO risk masking real collapses (the gap-7 false-survive).
+
+### OWNER QUESTIONS (pick one; then the build is unambiguous)
+1. **Is `029c52@4/@5` (edited `d1bc` tip vanishes, `2e06` tip appears at the apex) a SURVIVED reshape or a COLLAPSE?** If SURVIVED, the detector must be formation-BLIND (accept any shapeable tip appearing at the apex) — but then it needs a separate signal to reject gap-7, where a shapeable NEIGHBOUR tip also sits at the apex band. What distinguishes them for you: is it that in gap-7 the edited body itself flooded (own-body signal), while in 029c52 a NEW body's tip appeared where the edit was aimed? (If yes, the rule = "collapse iff the edited body floods AND no NEW shapeable tip appeared at the target apex" — a COMPOUND rule; confirm.)
+2. OR: should the collapse rule be scoped to the case that actually caused the recurring dogfeed — the AGGRESSIVE reach past the column (frac > 1) that floods the edited body to a band — and the moderate/relabel reshapes (which stay hole-free and keep SOME shapeable tip in the gap) all stay `applied`? That is "reject iff the edited body's own region became a full-width band AND the drag fraction exceeded the far column" — the own-body rule guarded by an over-reach gate, which gets all 8 named cases right (probe9's 6/8 + the 2 relabel cases would pass because at a MODERATE 0.35 reach, not an over-reach, they are not collapse-classified). NOTE: this needs confirming that the 2 relabel false-rejects only occur because I forced a specific target — the REAL app drag that reshapes 029c52 legitimately may never trip the over-reach gate.
+3. Confirm the fix stays confined to `classifyOverrideOutcome` returning the CANDIDATE (reshaped) regions with only a `rejected-collapse` STATUS (so reshapeMap 56 / allSectionsReshape 143 / seed 732 / holes 0/0/0 stay byte-identical), and the overlay treats `rejected-collapse` == `rejected-unsafe` for snapback + handle-alive — that HALF (the wiring) is correct and unblocked once the detection rule is chosen.
+
+### VERIFICATION (nothing shipped; state proven unchanged)
+- Baselines confirmed GREEN before any work: reshapeMap **69/56/13** (CONSUMED=56), allSectionsReshape **CONSUMED=143**, seedGate **732/651/8/67/6/0**, holes_overlaps **0/0/0** all 14, cs1gates **8/8**. Canonical `apexOverrideWiring.rules.test.ts` **5/5**. `npx tsc --noEmit -p tsconfig.web.json` CLEAN (incl. all 9 throwaway probes).
+- Zero engine / v1 / overlay / app-render / `gen_paint_tool.mjs` source touched. The parked `collapseSnapback.rules.test.ts` (describe.skip placeholder) is UNCHANGED. Pre-existing worktree `M` marks (gen_paint_tool.mjs / diag jsons / freedraw md) are prior-session mods — not opened or edited this session.
+
+### Files this session (worktree, NOT committed — orchestrator commits/cleans; `rm` denied to the session)
+- `desktop/.../throwaway_s96_probe.diag.test.ts` — apex-point + shapeable-vertex-near-apex probes. **ORCHESTRATOR: DELETE.**
+- `desktop/.../throwaway_s96_probe2.diag.test.ts` — superseded no-op. **DELETE.**
+- `desktop/.../throwaway_s96_probe3.diag.test.ts` — full 69-handle collapse sweep (moderate vs aggressive). **DELETE.**
+- `desktop/.../throwaway_s96_probe4.diag.test.ts` — moderate flags vs CONSUMED/INVARIANT. **DELETE.**
+- `desktop/.../throwaway_s96_probe5.diag.test.ts` — base-vs-cand region dump for the 4 moderate flags. **DELETE.**
+- `desktop/.../throwaway_s96_probe6.diag.test.ts` — formation/span + PIP survival variants. **DELETE.**
+- `desktop/.../throwaway_s96_probe7.diag.test.ts` — grounds the 029c52@4 litho-replacement (THE key finding). **DELETE.**
+- `desktop/.../throwaway_s96_probe8.diag.test.ts` — new-tip-at-apex discriminator (3 relabel+gap7 right, 4 moderate wrong). **DELETE.**
+- `desktop/.../throwaway_s96_probe9.diag.test.ts` — own-body discriminator (S95 wall proof: 6/8, fails the 2 vanishing relabel cases). **DELETE.**
+- `REWRITE_STATE.md` — this §96.
