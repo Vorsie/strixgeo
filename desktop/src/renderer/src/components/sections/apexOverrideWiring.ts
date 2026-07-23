@@ -166,7 +166,25 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
       const upper = chain(b.upper_nodes ?? [], bodyId, 'upper')
       const lower = chain(b.lower_nodes ?? [], bodyId, 'lower')
       if (upper.length + lower.length === 0) return // no owned node → domain default apex
-      const apex0 = upper[0] ?? lower[0]
+      // TOP-LEVEL APEX = the reach the engine reads as the lens tip (``ov.fraction`` /
+      // ``ov.elevation``). It MUST ride the edge the owner is actively dragging — not the
+      // unconditional ``upper[0]`` (S84 root cause). A tall two-sided band can carry a STALE
+      // UPPER contact node near the section top AND the LOWER lens node being dragged;
+      // ``upper[0] ?? lower[0]`` then pinned the apex to the top node (el≈11.7 in the owner's
+      // ...934a78 gap-5 dogfeed) whatever edge was grabbed, so the tip flooded to the section
+      // top → an unsafe reach → rejected → snapback (nothing persisted). Prefer the dragged
+      // edge's first node when THIS body is the live lens-drag target in THIS gap; otherwise
+      // keep the legacy upper-then-lower precedence (the non-drag render path, unchanged).
+      const draggingThisBody =
+        !!lensDrag &&
+        lensDrag.bodyId === bodyId &&
+        Math.abs(lensDrag.leftX - leftX) < 0.5
+      const draggedEdgeFirst = draggingThisBody
+        ? lensDrag!.edge === 'lower'
+          ? (lower[0] ?? upper[0])
+          : (upper[0] ?? lower[0])
+        : undefined
+      const apex0 = draggedEdgeFirst ?? upper[0] ?? lower[0]
       apexOverrides.set(lensApexOverrideKey(bodyId, i), {
         // Floor the apex reach to a VISIBLE fraction (S72) — see clampVisibleApex.
         fraction: clampVisibleApex(apex0.fraction),

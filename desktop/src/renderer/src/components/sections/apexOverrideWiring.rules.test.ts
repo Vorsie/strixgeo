@@ -69,6 +69,27 @@ function boundariesWithLensNode(): Map<string, BodyBoundaryResponse> {
   return m
 }
 
+/**
+ * Stored freedraw shape mirroring the owner's real ...934a78 gap-5 body: a tall
+ * two-sided band carrying BOTH a stale UPPER contact node near the section top AND
+ * the LOWER lens node the owner is dragging. This is the S84 el11.70 bug fixture —
+ * the top-level apex must ride the DRAGGED edge, not the unconditional ``upper[0]``.
+ */
+function boundariesWithUpperAndLowerNodes(): Map<string, BodyBoundaryResponse> {
+  const m = new Map<string, BodyBoundaryResponse>()
+  m.set(BAND, {
+    body_id: BAND,
+    content_key: null,
+    render_style: 'straight',
+    primary_section_id: null,
+    // A top contact bend high up the tall band (screen y=88 → el=12 under screenToLevel).
+    upper_nodes: [{ along_m: 150, elevation_m: 12 }],
+    // The LOW lens tip the owner grabs (screen y=95 → el=5).
+    lower_nodes: [{ along_m: 150, elevation_m: 5 }],
+  })
+  return m
+}
+
 /** The old XOR-only gate, reproduced verbatim, as the RED reference. */
 function xorOnlyOverrideKeys(columns: PartitionColumn[]): Set<string> {
   const keys = new Set<string>()
@@ -145,6 +166,47 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
     for (const k of apexOverrides.keys()) expect(k.startsWith('contact:')).toBe(false)
     // The contact path did not claim this body for the gap either.
     expect(contactOverriddenBodies.has(`0:${BAND}`)).toBe(false)
+  })
+
+  it('S84: dragging the LOWER lens node of a band that also owns an UPPER node rides the DRAGGED edge, not the stale upper node', () => {
+    // The owner's live dogfeed (body ...934a78 gap 5): grabbing the LOW lens tip put the
+    // reshaped node at the SECTION TOP (~el11.70) instead of the clicked low edge (~el5),
+    // and the node never persisted (an unsafe top reach → rejected → snapback). Root cause:
+    // ``setShape`` set the top-level apex to ``upper[0] ?? lower[0]`` — the stale UPPER node —
+    // regardless of which edge the owner dragged. The engine reads that top-level apex as the
+    // lens reach, so the tip flooded to the top.
+    const columns = twoSidedColumns()
+    // Owner drags BAND's LOWER lens handle (node 0) down to screen y=95 (→ el=5).
+    const lensDrag: LensDragState = {
+      bodyId: BAND,
+      gapIndex: 0,
+      edge: 'lower',
+      nodeIndex: 0,
+      leftX: GAP.leftX,
+      x: 150,
+      y: 95,
+    }
+    const { apexOverrides } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs: [GAP],
+      boundariesByBodyId: boundariesWithUpperAndLowerNodes(),
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    const ov = apexOverrides.get(lensApexOverrideKey(BAND, 0))!
+    expect(ov, 'two-sided band lens-tip drag produced no override').toBeTruthy()
+    // THE fix: the top-level apex ELEVATION reflects the DRAGGED LOWER node (screenToLevel(95)=5),
+    // NOT the stale UPPER node (el=12). RED on the old code (apex0 = upper[0] → el=12).
+    expect(ov.elevation, 'apex rode the stale upper node instead of the dragged lower edge').toBeCloseTo(
+      screenToLevel(95),
+      5,
+    )
+    // The full per-edge arrays are still both carried so the engine rebuilds both flanks.
+    expect(ov.upper?.length).toBe(1)
+    expect(ov.lower?.length).toBe(1)
   })
 
   it('a two-sided band NOT being lens-dragged still routes through the contact path (regression guard)', () => {
