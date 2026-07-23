@@ -8118,3 +8118,38 @@ Drag ONE lens/contact handle into an unsafe reach → ONLY that handle turns red
 - `PartitionFillOverlay.unsafeDrag.test.tsx` — NEW UD4 (sibling-handle stays normal); two-handle fixture.
 - `freeDrawIdentity.phase0.diag.test.ts` — NEW Phase-0 architectural trace (CS1_GATE=1, 5 measurements; assert-light dev diagnostic).
 - `REWRITE_STATE.md` — this §87.
+
+## §88 — Session 83: "MANUAL RESHAPE DOES NOTHING" — THE definitive root cause FIXED. A live dev-trace of the owner's real drag (`[freedraw] DRAG ... override=NONE` every frame) proved the app never built an apex override for the dragged body → nothing reshaped. Root: the `setShape` XOR gate skips a body present on BOTH gap columns, even when it owns a genuine LENS tip. App-render layer only; ENGINE + v1 + intersect.ts byte-untouched.
+
+### THE ROOT CAUSE (from the live trace, not a hypothesis)
+The override map is built inside `PartitionFillOverlay`'s `sectionFillData` memo, gated by two loops:
+```
+for (const id of leftIds) if (!rightIds.has(id)) setShape(id)
+for (const id of rightIds) if (!leftIds.has(id)) setShape(id)
+```
+`setShape` runs ONLY for a body on ONE side of the gap (`leftIds` XOR `rightIds`). The owner's dragged body `019ea170` (CS1 gap 5) is a full-width band present on BOTH columns AND owns a shapeable lens tip → the XOR gate SKIPS it → `bodyId@gap` override NEVER written → `override=NONE`. Every `reshapeMap` / `allSectionsReshape` gate passed while the app failed because those tests feed the override DIRECTLY to `computeSectionFillV2`, BYPASSING `setShape` — so they never exercised the gate that drops the override.
+
+### THE FIX (surgical, app-side, disentangled from the contact path)
+- **NEW `apexOverrideWiring.ts`** — extracted the memo's whole override-building loop (the `setShape` gate + the two XOR loops + the contact call) into a pure, unit-testable `buildApexOverridesForGaps(...)`. This is what makes the REAL gate testable (the point the reshapeMap bypass missed).
+- **The §88 branch:** after the two XOR loops, if the LIVE `lensDrag` targets a TWO-SIDED body in THIS gap (`leftIds.has && rightIds.has`), also `setShape(lensDrag.bodyId)`. `setShape` self-filters (early-returns when the body owns no in-gap lens node), so a contact-only two-sided body is a no-op.
+- **The disentangle (no double-apply):** `collectContactOverridesForGap` gains a `skipBodyId` param; when the §88 branch actually wrote a lens override for the dragged two-sided body, the contact path skips that exact body for the gap → the same `lower_nodes` node is applied EITHER as a `bodyId@gap` lens apex (when the owner is dragging its lens tip) OR as a `contact:U|L@g` bend (when it is not), never both. The drag KIND (lens) decides, not the body's two-sidedness (which reads as `'contact'` by geometry alone).
+- `PartitionFillOverlay.tsx` — the memo now destructures `{ apexOverrides, contactOverriddenBodies }` from the helper (−~80 lines from the god-component). The two temporary `[freedraw]` dev traces (DRAG in the memo + ADD-NODE in `handleLensAddNode`) REMOVED — no console spam ships.
+
+### RED-FIRST TEST (drives the REAL setShape path, not the engine bypass)
+`apexOverrideWiring.rules.test.ts` — a two-sided band that owns a lens node in the gap (the owner's `019ea170` gap-5 shape):
+- **RED reference:** the old XOR-only gate (reproduced inline) produces NO `bodyId@gap` override for the two-sided band (the bug, made concrete). PROVEN RED against the fix-disabled helper (`if(false && ...)`): the two-sided lens drag yielded ONLY a spurious `contact:` override, `override=NONE` for the lens — the exact live-trace symptom.
+- **GREEN after:** `buildApexOverridesForGaps` builds the `bodyId@gap` override with the dragged cursor fraction (x=170 → 0.70) + elevation; exactly one key, no `contact:` twin; contact path did not claim the body.
+- **Regression guard:** a two-sided band NOT being lens-dragged still routes through the contact path (`contact:U|L@0`), no spurious lens apex.
+
+### VERIFICATION GATE (all green; engine byte-identical)
+apexOverrideWiring.rules 4/4 (+ proven RED with fix disabled) · unsafeDragUX.rules 5/5 (+2 skip) · unsafeDrag component 4/4 · freeDrawRepair.rules **6/6 CS1_GATE** (Rules 2/3/4 drive the real engine path) · contactOverride + apexOverride + reshapeMap + allSectionsReshape **10/10 CS1_GATE** · seedGate **732/651/8/67/6/0** (SHAPE_AUDIT=1) · HOLES_DIAG **0/0/0** · **FULL SUITE 2482 pass / 32 skip / 0 fail** (275 files; the ErrorBoundary "render bomb" is its intentional throw fixture, not a failure) · tsc `tsconfig.web.json` CLEAN. **Zero engine / v1 / intersect.ts files edited.** `gen_paint_tool.mjs` untouched.
+
+### OWNER DOGFEED
+Grab a lens handle on a TWO-SIDED band (a full-width matrix that pinches a lens) → the body reshapes live (the override is now BUILT, not NONE). A two-sided band's shared-contact drag still bends the contact as before (unchanged).
+
+### Files this session (worktree, NOT committed — orchestrator commits + re-verifies)
+- `apexOverrideWiring.ts` — NEW pure `buildApexOverridesForGaps` (extracted gate + §88 two-sided-lens-tip fix + disentangle).
+- `contactOverrideWiring.ts` — `collectContactOverridesForGap` gains `skipBodyId` (default null = unchanged).
+- `PartitionFillOverlay.tsx` — memo calls the helper; both `[freedraw]` dev traces removed.
+- `apexOverrideWiring.rules.test.ts` — NEW real-setShape-path RED→GREEN test.
+- `REWRITE_STATE.md` — this §88.
