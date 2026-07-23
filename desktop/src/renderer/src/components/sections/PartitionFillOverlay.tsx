@@ -63,7 +63,7 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
-import { collectContactOverridesForGap } from './contactOverrideWiring'
+import { buildApexOverridesForGaps } from './apexOverrideWiring'
 import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -709,100 +709,24 @@ export default function PartitionFillOverlay({
       rightX: (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
     }))
 
-    // Lens shape overrides, keyed PER (body, gap). Each gap reads only the
-    // boundary nodes it OWNS (their along-position falls inside the gap) and
-    // feeds the full freedraw shape (upper + lower edge chains, gap-local
-    // fraction/elevation, with the live drag applied to the dragged node) to the
-    // DOMAIN. The domain builds AND clips the lens (rides the matrix seam) + cuts
-    // a matching notch, so the overlay no longer rebuilds it un-clipped (which let
-    // a straddle lens cross into the neighbour). Per-gap keys keep a two-gap
-    // lens's apexes independent.
-    const apexOverrides = new Map<string, LensApexOverride>()
-    // ``gapIndex:upperBodyId`` set whose shared contact the ENGINE re-partitions
-    // via a ``contact:U|L@g`` override (S68). The POST-BEND off-engine reshape is
-    // SKIPPED for these (else it double-reshapes one band → the gap the engine
-    // consumer removes). Empty on v1 / no contact node → today's path unchanged.
-    const contactOverriddenBodies = new Set<string>()
-    for (let i = 0; i < orderedColumns.length - 1; i += 1) {
-      const { leftX, rightX } = gapXs[i]
-      if (rightX <= leftX || !alongToScreenX) continue
-      const gapW = rightX - leftX
-      const left = orderedColumns[i]
-      const right = orderedColumns[i + 1]
-      const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
-      const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
-      // Owned nodes → gap-local (fraction, elevation); the node being dragged
-      // takes the live cursor position so the domain rebuilds the lens in real time.
-      const chain = (
-        nodes: readonly BodyBoundaryNode[],
-        bodyId: string,
-        edge: 'upper' | 'lower',
-      ): { fraction: number; elevation: number }[] => {
-        const chainOut: { fraction: number; elevation: number }[] = []
-        nodes.forEach((n, ni) => {
-          const x = alongToScreenX!(n.along_m)
-          if (x < leftX - NODE_OWN_EPS || x > rightX + NODE_OWN_EPS) return // neighbour gap's node
-          const dragging =
-            !!lensDrag &&
-            lensDrag.bodyId === bodyId &&
-            Math.abs(lensDrag.leftX - leftX) < 0.5 &&
-            lensDrag.edge === edge &&
-            lensDrag.nodeIndex === ni
-          if (dragging) {
-            chainOut.push({
-              fraction: clamp01((lensDrag.x - leftX) / gapW),
-              elevation: screenToLevel ? screenToLevel(lensDrag.y) : n.elevation_m,
-            })
-          } else {
-            chainOut.push({ fraction: clamp01((x - leftX) / gapW), elevation: n.elevation_m })
-          }
-        })
-        return chainOut
-      }
-      const setShape = (bodyId: string): void => {
-        const b = boundariesByBodyId?.get(bodyId)
-        if (!b) return
-        const upper = chain(b.upper_nodes ?? [], bodyId, 'upper')
-        const lower = chain(b.lower_nodes ?? [], bodyId, 'lower')
-        if (upper.length + lower.length === 0) return // no owned node → domain default apex
-        const apex0 = upper[0] ?? lower[0]
-        apexOverrides.set(lensApexOverrideKey(bodyId, i), {
-          // Floor the apex reach to a VISIBLE fraction (S72): a click near the source
-          // column face drove the apex toward the column → the engine's 2%-legality
-          // clamp left a hairline sliver that read as "the lens disappeared". The
-          // symmetric visible floor keeps the reach ≥ 8 % of the gap from EITHER
-          // anchored side, so a click can never pinch the lens to nothing.
-          fraction: clampVisibleApex(apex0.fraction),
-          elevation: apex0.elevation,
-          upper,
-          lower,
-        })
-      }
-      for (const id of leftIds) if (!rightIds.has(id)) setShape(id)
-      for (const id of rightIds) if (!leftIds.has(id)) setShape(id)
-
-      // Matched TWO-BAND CONTACT free-draw (S68): a node stored on a full-width
-      // (two-sided) band's ``lower_nodes`` shapes the shared contact between it
-      // and the band directly below. v2 re-partitions BOTH bands from ONE
-      // ``contact:U|L@g`` override (partitionFillV2/contactOverride.ts) so the
-      // boundary moves together, never a gap. Only the v2 engine consumes it —
-      // under v1 (no consumer) the legacy off-engine POST-BEND path still runs.
-      if (partitionEngineV2) {
-        const gapOverridden = collectContactOverridesForGap(
-          i,
-          left,
-          right,
-          leftX,
-          rightX,
-          boundariesByBodyId,
-          alongToScreenX,
-          screenToLevel,
-          boundaryDrag,
-          apexOverrides,
-        )
-        for (const id of gapOverridden) contactOverriddenBodies.add(`${i}:${id}`)
-      }
-    }
+    // Lens + two-band contact overrides, keyed PER (body, gap). The whole
+    // override-building path — the ``setShape`` gate + the two XOR loops + the §88
+    // two-sided-lens-tip fix + the contact disentangle — lives in the pure,
+    // unit-testable ``buildApexOverridesForGaps`` (see apexOverrideWiring.ts). It was
+    // extracted from this memo (S88) because the reshape tests fed overrides DIRECTLY
+    // to the engine, bypassing this gate — which is why the "manual reshape does
+    // nothing" bug (a two-sided band's lens tip skipped by the XOR gate → override
+    // NONE) hid behind green tests. Now the gate is testable in isolation.
+    const { apexOverrides, contactOverriddenBodies } = buildApexOverridesForGaps({
+      orderedColumns,
+      gapXs,
+      boundariesByBodyId,
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag,
+      partitionEngineV2,
+    })
 
     // Bands come from the APPROVED correlation edges (layer-id pairs) — the
     // trustworthy signal — NOT the over-lumped body_id. Geometry only fills the
