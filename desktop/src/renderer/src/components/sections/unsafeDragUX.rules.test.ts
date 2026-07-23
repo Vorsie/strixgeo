@@ -40,6 +40,7 @@ import {
   type EditableTargetIdentity,
   handleColorForTarget,
   isDragRejected,
+  type OverrideStatus,
   REJECT_COLOR,
   sameEditableTarget,
   shouldPersistDrag,
@@ -96,8 +97,9 @@ function realSection(name: string): { columns: PartitionColumn[]; edges: Correla
 // the engine already computed). These lock the OWNER decision "red + snapback".
 // ===========================================================================
 describe('unsafeDragUX — pure decision primitives', () => {
-  it('isDragRejected is true ONLY for the rejected-unsafe status', () => {
+  it('isDragRejected is true for BOTH rejected statuses (unsafe + collapse), false otherwise', () => {
     expect(isDragRejected('rejected-unsafe')).toBe(true)
+    expect(isDragRejected('rejected-collapse')).toBe(true) // S97 over-reach collapse → snap back too
     expect(isDragRejected('applied')).toBe(false)
     expect(isDragRejected('unsupported')).toBe(false)
     expect(isDragRejected(null)).toBe(false)
@@ -106,8 +108,9 @@ describe('unsafeDragUX — pure decision primitives', () => {
   // (The body-level ``handleFillColor`` was REMOVED in §87 — superseded by the exact-identity
   //  ``handleColorForTarget`` below, which reddens only the dragged node, not every same-body handle.)
 
-  it('shouldPersistDrag is false ONLY for a rejected-unsafe release (snap-back), true otherwise', () => {
+  it('shouldPersistDrag is false for BOTH rejected releases (snap-back), true otherwise', () => {
     expect(shouldPersistDrag('rejected-unsafe')).toBe(false) // snap back — do not persist the unsafe node
+    expect(shouldPersistDrag('rejected-collapse')).toBe(false) // S97 over-reach collapse → snap back too
     expect(shouldPersistDrag('applied')).toBe(true) // safe reshape persists normally
     expect(shouldPersistDrag('unsupported')).toBe(true) // no override / v1 → today's behaviour (persist)
     expect(shouldPersistDrag(null)).toBe(true)
@@ -224,6 +227,3 @@ describe.skipIf(!RUN)('unsafeDragUX on a real CS1 rejected-unsafe outcome', () =
     }
   })
 })
-
-// Local mirror of the engine status union so the test does not import an internal-only alias.
-type OverrideStatus = 'applied' | 'rejected-unsafe' | 'unsupported'

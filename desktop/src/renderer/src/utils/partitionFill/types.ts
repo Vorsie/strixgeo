@@ -106,6 +106,21 @@ export interface LensApexOverride {
    */
   upper?: { fraction: number; elevation: number }[]
   lower?: { fraction: number; elevation: number }[]
+  /**
+   * The RAW (pre-clamp) apex reach of the DRAGGED tip, in gap-local fraction space
+   * (S97 collapse discriminator, owner-locked 2026-07-23). ``fraction`` above is
+   * ALWAYS clamped to a visible in-gap value (``clampVisibleApex`` → [0.08, 0.92])
+   * so the engine never emits a hairline; that clamp DISCARDS whether the user
+   * dragged the apex PAST a column edge. ``rawApexFraction`` preserves the
+   * unclamped reach: ``> 1`` = dragged past the far column, ``< 0`` = past the
+   * anchor column. The "collapse → invalid → snapback" rule reads it as the
+   * OVER-REACH signal (condition 1): a tip that floods its own body to a
+   * full-width band is only ``rejected-collapse`` when it ALSO over-reached a
+   * column (raw fraction outside [0,1]). A tip that vanishes WITHIN the gap
+   * (raw still in [0,1]) is a VALID reshape and stays ``applied``. Absent on the
+   * non-drag / persisted-render path (no live cursor → no over-reach to test).
+   */
+  rawApexFraction?: number
 }
 
 /**

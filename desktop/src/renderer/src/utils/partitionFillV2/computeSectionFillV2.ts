@@ -99,12 +99,22 @@ export function computeSectionFillV2WithConflicts(
  *   - ``rejected-unsafe``— every variant exceeded the no-override base defect area; ``regions``
  *                          fall back to the un-reshaped base and the defect areas are reported
  *                          so the caller can prove the rejection (never a silent success).
+ *   - ``rejected-collapse``— a variant was gap/overlap-SAFE (it would have been ``applied``), but it
+ *                          COLLAPSED the edited tip: the drag OVER-REACHED a column edge (raw apex
+ *                          fraction outside [0,1]) AND the edited tip's own body flooded to a
+ *                          full-width band (its grab handle would be destroyed). Owner-locked
+ *                          2026-07-23 ("only over-reach snaps back"): this is INVALID even though a
+ *                          full band is a hole-free partition. ``regions`` fall back to the base
+ *                          (last-safe) fill so the overlay snaps the handle back — ALIVE, not
+ *                          suppressed. A tip that VANISHES within the gap (raw still in [0,1],
+ *                          neighbour litho fills its place) is a VALID reshape and stays ``applied``.
  *   - ``unsupported``    — no override was present (or the section was degenerate); ``regions``
  *                          are the plain no-override fill.
  */
 export type OverrideOutcome =
   | { status: 'applied'; source: 'aliased' | 'direct'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
   | { status: 'rejected-unsafe'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
+  | { status: 'rejected-collapse'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
   | { status: 'unsupported'; reason: string; regions: SectionRegion[]; conflicts: TieConflict[] }
 
 /**
@@ -181,6 +191,19 @@ export function classifyOverrideOutcome(
     const candidateDefect = sectionDefectArea(fill.merged)
     if (candidateDefect < bestCandidateDefect) bestCandidateDefect = candidateDefect
     if (candidateDefect <= baseDefect + HOLE_AREA_EPS) {
+      // COLLAPSE → INVALID (owner-locked 2026-07-23, "only over-reach snaps back"). This variant is
+      // gap/overlap-SAFE (a full-width band is a hole-free partition), so the defect guard above would
+      // pass it as ``applied``. But if the drag OVER-REACHED a column edge (raw apex fraction outside
+      // [0,1]) AND that reach flooded the edited tip's OWN body to a full-width band, the tip destroyed
+      // its own grab handle — INVALID. Snap back to the base (last-safe) fill, handle ALIVE. BOTH
+      // conditions are required: a moderate in-gap reshape (raw in [0,1]) never trips this even if the
+      // tip vanishes (a VALID neighbour-fill reshape), and a full-width flood with no over-reach is a
+      // legitimate band. The region OUTPUT the reshapeMap / allSectionsReshape gates read comes from
+      // ``computeSectionFillV2`` (not this classifier), so those stay byte-identical — only the STATUS
+      // returned here changes, and on collapse we return the BASE regions (the snapback shape).
+      if (ov && isCollapseOverReach(fill.merged, ov)) {
+        return { status: 'rejected-collapse', regions: base.merged, conflicts: base.conflicts, baseDefect, candidateDefect }
+      }
       return { status: 'applied', source, regions: fill.merged, conflicts: fill.conflicts, baseDefect, candidateDefect }
     }
   }
@@ -198,6 +221,94 @@ export function classifyOverrideOutcome(
 
 /** Hole-area tolerance (m²) — a variant must not exceed the no-override base hole area by more. */
 const HOLE_AREA_EPS = 1e-3
+
+/**
+ * Fraction epsilon for the tip-vs-band shapeability test. Mirrors
+ * ``partitionFillOverlayHelpers.isApexShapeable``'s ``TIP_FRACTION_EPS`` (kept in
+ * sync — a vertex within this of a column edge counts as touching that column).
+ * Duplicated here (not imported) because the classifier lives in the ``utils``
+ * layer and MUST NOT import from the ``components`` layer (one-way dependency).
+ */
+const COLLAPSE_TIP_FRACTION_EPS = 0.02
+
+/**
+ * Is a region an APEX-SHAPEABLE termination (an interior tip the grab handle can reshape),
+ * as opposed to a full-width band that spans column-to-column with no free tip?
+ *
+ * A ``lens`` is always shapeable. A ``pinch`` / ``quad`` is shapeable iff it has a vertex
+ * strictly inside the gap AND does not already span the full [0,1] width. This is the
+ * ``utils``-layer copy of ``partitionFillOverlayHelpers.isApexShapeable`` (see
+ * ``COLLAPSE_TIP_FRACTION_EPS`` for why it is duplicated, not imported).
+ */
+function isApexShapeableRegion(region: SectionRegion): boolean {
+  if (region.kind === 'lens') return true
+  let fMin = Infinity
+  let fMax = -Infinity
+  let hasInteriorVertex = false
+  for (const p of region.polygon) {
+    if (p.fraction < fMin) fMin = p.fraction
+    if (p.fraction > fMax) fMax = p.fraction
+    if (p.fraction > COLLAPSE_TIP_FRACTION_EPS && p.fraction < 1 - COLLAPSE_TIP_FRACTION_EPS) hasInteriorVertex = true
+  }
+  const spansFullWidth = fMin <= COLLAPSE_TIP_FRACTION_EPS && fMax >= 1 - COLLAPSE_TIP_FRACTION_EPS
+  return hasInteriorVertex && !spansFullWidth
+}
+
+/**
+ * The "collapse → invalid" discriminator (owner-locked 2026-07-23, "only over-reach snaps back").
+ *
+ * Returns ``true`` iff SOME override in the pass is a collapse: the drag OVER-REACHED a column edge
+ * (its ``rawApexFraction`` is outside [0,1] — dragged past the far column or before the anchor) AND
+ * the edited tip's OWN body flooded to a full-width band in the candidate fill (every region carrying
+ * that body in that gap is non-shapeable, and at least one such region exists). BOTH conditions are
+ * required, which is exactly why a pure ``!isApexShapeable`` test alone (S95) over-rejected the valid
+ * cases:
+ *
+ *   - A tip that VANISHES within the gap (raw fraction still in [0,1], a neighbour litho fills its
+ *     apex — CS1 ``029c52@4/@5`` 0.50→0.35/0.65) has NO over-reach → NOT a collapse → stays ``applied``.
+ *   - A tip that floods to a band WITHOUT over-reaching (raw in [0,1]) is a legitimate band → NOT a
+ *     collapse.
+ *   - Only the aggressive reach that BOTH over-reaches a column AND floods the own body (CS1
+ *     ``6bb744`` gap-7 aggressive, raw ≈ 1.6) is ``rejected-collapse``.
+ *
+ * ``rawApexFraction`` is ABSENT on the non-drag / persisted-render path, so that path never trips this
+ * (no live cursor → no over-reach to test) — additive and backward-compatible.
+ *
+ * Parameters
+ * ----------
+ * candidate : readonly SectionRegion[]
+ *     The gap/overlap-safe candidate fill this override pass produced (its regions carry bodyId + gap).
+ * overrides : ReadonlyMap<string, LensApexOverride>
+ *     The override map that produced ``candidate`` (aliased or direct). Each entry may carry a raw
+ *     apex reach; only the over-reaching ones are collapse candidates.
+ *
+ * Returns
+ * -------
+ * bool
+ *     ``true`` when at least one over-reaching override flooded its own body to a full-width band.
+ */
+function isCollapseOverReach(
+  candidate: readonly SectionRegion[],
+  overrides: ReadonlyMap<string, LensApexOverride>,
+): boolean {
+  for (const [key, ov] of overrides) {
+    // Condition 1 — OVER-REACH: the raw (pre-clamp) apex reach is past a column edge.
+    const raw = ov.rawApexFraction
+    if (raw == null || (raw >= 0 && raw <= 1)) continue
+    // The override key is ``<bodyId>@<gapIndex>`` (split on the LAST '@' so an '@' inside a bodyId
+    // is still recovered). Only the edited body's OWN region in ITS gap is inspected.
+    const at = key.lastIndexOf('@')
+    if (at < 0) continue
+    const bodyId = key.slice(0, at)
+    const gapIndex = Number(key.slice(at + 1))
+    if (!Number.isFinite(gapIndex)) continue
+    // Condition 2 — FULL-WIDTH FLOOD: the edited body's own region(s) in this gap all became
+    // non-shapeable bands. A VANISHED tip (no own region) is NOT a flood — it is a valid reshape.
+    const own = candidate.filter((r) => r.bodyId === bodyId && r.gapIndex === gapIndex)
+    if (own.length > 0 && own.every((r) => !isApexShapeableRegion(r))) return true
+  }
+  return false
+}
 
 /** Even-odd covered elevation intervals of one polygon at fraction ``f``. */
 function coveredIntervalsAt(poly: readonly PartitionPoint[], f: number): [number, number][] {

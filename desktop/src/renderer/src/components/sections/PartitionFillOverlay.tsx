@@ -111,6 +111,8 @@ import {
 import {
   type EditableTargetIdentity,
   handleColorForTarget,
+  isDragRejected,
+  type OverrideStatus,
   sameEditableTarget,
   shouldPersistDrag,
 } from './unsafeDragUX'
@@ -557,11 +559,14 @@ export default function PartitionFillOverlay({
 
         onSaveBoundary(lensDrag.bodyId, upperArr, lowerArr, 'straight')
       } else {
+        // S97: report the EXACT rejection kind so the owner's dogfeed confirms an over-reach collapse
+        // (``rejected-collapse``) distinctly from an unsafe reach (``rejected-unsafe``). Both snap back.
+        const rejectKind = rejected ? (overrideStatusRef.current ?? 'rejected-unsafe') : null
         // eslint-disable-next-line no-console
         console.info(
           `[freedraw] RELEASE body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} ` +
             `node=${lensDrag.nodeIndex} isNew=${lensDrag.isNew === true} ` +
-            `onSaveBoundary=SKIPPED persist=${rejected ? 'rejected-unsafe (snapback by design)' : 'no-save-wired'}`,
+            `onSaveBoundary=SKIPPED persist=${rejectKind ? `${rejectKind} (snapback by design)` : 'no-save-wired'}`,
         )
       }
       setLensDrag(null)
@@ -717,6 +722,11 @@ export default function PartitionFillOverlay({
     // nodeIndex, or the boundary contact), NOT a bodyId — so only the dragged handle reddens, never
     // every sibling handle of the same body. Read from the SAME engine pass — no extra run.
     rejectedDragTarget: EditableTargetIdentity | null
+    // The raw override outcome status this frame (``applied`` | ``rejected-unsafe`` |
+    // ``rejected-collapse`` | ``unsupported``). Mirrored into a ref so the RELEASE trace reports the
+    // EXACT rejection kind on snapback (S97 — the owner's dogfeed distinguishes an unsafe reach from
+    // an over-reach collapse). ``null`` when bands are hidden / the section is degenerate.
+    overrideStatus: OverrideStatus | null
   } => {
     if (!showBands)
       return {
@@ -728,6 +738,7 @@ export default function PartitionFillOverlay({
         unroutableBodies: new Set(),
         conflicts: [],
         rejectedDragTarget: null,
+        overrideStatus: null,
       }
 
     // Valid columns in along-section order (have both unit data + screen edges).
@@ -743,6 +754,7 @@ export default function PartitionFillOverlay({
         unroutableBodies: new Set(),
         conflicts: [],
         rejectedDragTarget: null,
+        overrideStatus: null,
       }
 
     // Pre-compute gap x-extents from screenByInv so both memos share the same
@@ -849,7 +861,9 @@ export default function PartitionFillOverlay({
             nodeIndex: boundaryDrag.nodeIndex,
           }
         : null
-    const rejectedDragTarget = draggedTarget != null && overrideStatus === 'rejected-unsafe' ? draggedTarget : null
+    // Both ``rejected-unsafe`` (would gap/overlap) and ``rejected-collapse`` (over-reach + full-width
+    // flood, owner-locked 2026-07-23) drive the red handle + snap-back; ``isDragRejected`` covers both.
+    const rejectedDragTarget = draggedTarget != null && isDragRejected(overrideStatus) ? draggedTarget : null
     // FREEDRAW DEV TRACE v2 (2026-07-23, re-added after S83 — kept until the owner confirms reshape).
     if (draggedTarget != null && lensDrag) {
       const ov = apexOverrides.get(lensApexOverrideKey(lensDrag.bodyId, lensDrag.gapIndex))
@@ -860,7 +874,7 @@ export default function PartitionFillOverlay({
       // eslint-disable-next-line no-console
       console.info(
         `[freedraw] DRAG body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} node=${lensDrag.nodeIndex} ` +
-          `override=${ov ? `frac${ov.fraction?.toFixed(3)} el${ov.elevation?.toFixed(2)}` : 'NONE (setShape skipped)'} ` +
+          `override=${ov ? `frac${ov.fraction?.toFixed(3)}${ov.rawApexFraction !== undefined ? ` raw${ov.rawApexFraction.toFixed(3)}${ov.rawApexFraction < 0 || ov.rawApexFraction > 1 ? '(over-reach)' : ''}` : ''} el${ov.elevation?.toFixed(2)}` : 'NONE (setShape skipped)'} ` +
           `outcome=${overrideStatus} regions=${dRegions.length} shape=${shape || 'NONE'}`,
       )
     }
@@ -922,6 +936,7 @@ export default function PartitionFillOverlay({
       unroutableBodies,
       conflicts,
       rejectedDragTarget,
+      overrideStatus,
     }
   }, [
     orderedInvs,
@@ -957,6 +972,14 @@ export default function PartitionFillOverlay({
   useEffect(() => {
     rejectedDragTargetRef.current = rejectedDragTarget
   }, [rejectedDragTarget])
+
+  // S97: mirror the raw override STATUS into a ref too so the RELEASE trace reports the EXACT rejection
+  // kind (``rejected-unsafe`` vs ``rejected-collapse``) — the owner's dogfeed distinguishes an unsafe
+  // reach from an over-reach collapse. Captured-once mouseup closures read the current status here.
+  const overrideStatusRef = useRef<OverrideStatus | null>(null)
+  useEffect(() => {
+    overrideStatusRef.current = sectionFillData.overrideStatus
+  }, [sectionFillData.overrideStatus])
 
   // Log the conflict list ONCE per change so a dogfeed DevTools console shows the
   // suspended ties without a dialog. console.info (not .debug) so it survives the

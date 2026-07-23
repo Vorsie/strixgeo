@@ -229,4 +229,80 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
     // The only override written is a contact key.
     expect([...apexOverrides.keys()].every((k) => k.startsWith('contact:'))).toBe(true)
   })
+
+  // -------------------------------------------------------------------------
+  // S97 OVER-REACH signal (collapse discriminator, owner-locked 2026-07-23).
+  // The dragged tip's override must carry ``rawApexFraction`` = the RAW (pre-clamp)
+  // cursor reach, so the classifier can test "dragged PAST a column edge". The
+  // visible ``fraction`` stays clamped; only ``rawApexFraction`` preserves the
+  // over-reach. Absent on the non-drag / persisted-render path.
+  // -------------------------------------------------------------------------
+  it('S97: an IN-GAP lens drag carries rawApexFraction inside [0,1] (no over-reach)', () => {
+    const columns = twoSidedColumns()
+    // x=170 in [100,200] → raw fraction 0.70, in-gap.
+    const lensDrag: LensDragState = { bodyId: BAND, gapIndex: 0, edge: 'lower', nodeIndex: 0, leftX: GAP.leftX, x: 170, y: 34 }
+    const { apexOverrides } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs: [GAP],
+      boundariesByBodyId: boundariesWithLensNode(),
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    const ov = apexOverrides.get(lensApexOverrideKey(BAND, 0))!
+    expect(ov.rawApexFraction, 'in-gap drag must carry a raw reach').toBeCloseTo(0.7, 5)
+    // Not over-reach → within [0,1].
+    expect(ov.rawApexFraction! >= 0 && ov.rawApexFraction! <= 1).toBe(true)
+  })
+
+  it('S97: an OVER-REACH lens drag (cursor past the far column) carries rawApexFraction > 1 while fraction stays clamped', () => {
+    const columns = twoSidedColumns()
+    // x=260, past the right face at x=200 (gapW=100) → raw fraction 1.60 = over-reach.
+    const lensDrag: LensDragState = { bodyId: BAND, gapIndex: 0, edge: 'lower', nodeIndex: 0, leftX: GAP.leftX, x: 260, y: 34 }
+    const { apexOverrides } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs: [GAP],
+      boundariesByBodyId: boundariesWithLensNode(),
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    const ov = apexOverrides.get(lensApexOverrideKey(BAND, 0))!
+    // THE over-reach signal: raw reach past the far column (1.60), OUTSIDE [0,1].
+    expect(ov.rawApexFraction, 'over-reach drag must preserve the raw past-column reach').toBeCloseTo(1.6, 5)
+    expect(ov.rawApexFraction! > 1).toBe(true)
+    // The VISIBLE fraction the engine reads stays clamped in-gap (clampVisibleApex → ≤ 0.92) — the raw
+    // reach is the ONLY carrier of over-reach; the clamp would otherwise discard it.
+    expect(ov.fraction).toBeLessThanOrEqual(0.92)
+  })
+
+  it('S97: the non-drag / persisted-render path leaves rawApexFraction ABSENT (no over-reach to test)', () => {
+    const columns = twoSidedColumns()
+    // A one-sided lens body (present on ONE column) with a stored node but NO live drag → the render
+    // path builds the override from storage; no cursor → no raw reach.
+    const oneSided: PartitionColumn[] = [
+      { investigationId: 'A', surfaceElevM: 10, units: [{ topDepthM: 0, baseDepthM: 5, formationId: 'zand', bodyId: 'lens-1', layerId: 'L1' }] },
+      { investigationId: 'B', surfaceElevM: 10, units: [{ topDepthM: 0, baseDepthM: 5, formationId: 'klei', bodyId: 'other', layerId: 'L2' }] },
+    ]
+    const stored = new Map<string, BodyBoundaryResponse>([
+      ['lens-1', { body_id: 'lens-1', content_key: null, render_style: 'straight', primary_section_id: null, upper_nodes: [], lower_nodes: [{ along_m: 150, elevation_m: 6 }] }],
+    ])
+    const { apexOverrides } = buildApexOverridesForGaps({
+      orderedColumns: oneSided,
+      gapXs: [GAP],
+      boundariesByBodyId: stored,
+      alongToScreenX,
+      screenToLevel,
+      lensDrag: null,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    const ov = apexOverrides.get(lensApexOverrideKey('lens-1', 0))
+    expect(ov, 'one-sided stored lens builds an override').toBeTruthy()
+    expect(ov!.rawApexFraction, 'non-drag render must NOT carry a raw reach').toBeUndefined()
+  })
 })

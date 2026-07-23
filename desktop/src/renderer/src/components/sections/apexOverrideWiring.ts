@@ -243,12 +243,20 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
           : (upper[0] ?? lower[0])
         : undefined
       const apex0 = draggedEdgeFirst ?? upper[0] ?? lower[0]
+      // S97 OVER-REACH signal (collapse discriminator): the RAW (pre-clamp) apex reach of the live
+      // cursor, in gap-local fraction. ``fraction`` above is clamped to a visible in-gap value
+      // (``clampVisibleApex``), which DISCARDS whether the user dragged the apex PAST a column edge;
+      // ``rawApexFraction`` preserves it (> 1 = past the far column, < 0 = past the anchor). Set ONLY
+      // when THIS body is the live lens-drag target in THIS gap (the cursor IS the reach) — the
+      // non-drag / persisted-render path leaves it absent so it never trips the collapse rule.
+      const rawApexFraction = draggingThisBody ? (lensDrag!.x - leftX) / gapW : undefined
       apexOverrides.set(lensApexOverrideKey(bodyId, i), {
         // Floor the apex reach to a VISIBLE fraction (S72) — see clampVisibleApex.
         fraction: clampVisibleApex(apex0.fraction),
         elevation: apex0.elevation,
         upper,
         lower,
+        ...(rawApexFraction !== undefined ? { rawApexFraction } : {}),
       })
     }
 

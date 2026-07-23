@@ -16,8 +16,13 @@
  * decision logic is unit-tested in isolation (``unsafeDragUX.rules.test.ts``).
  */
 
-/** The tri-state a free-draw override pass reports (Session-79 ``OverrideOutcome['status']``). */
-export type OverrideStatus = 'applied' | 'rejected-unsafe' | 'unsupported'
+/**
+ * The status a free-draw override pass reports (Session-79 ``OverrideOutcome['status']``, extended
+ * S97 with ``rejected-collapse``). ``rejected-unsafe`` = the reach would gap/overlap the partition;
+ * ``rejected-collapse`` = the reach was gap-safe but over-reached a column AND flooded the edited tip
+ * to a full-width band (owner-locked 2026-07-23). Both drive the SAME red-handle + snap-back UX.
+ */
+export type OverrideStatus = 'applied' | 'rejected-unsafe' | 'rejected-collapse' | 'unsupported'
 
 /**
  * The EXACT editable target a free-draw gesture operates on (§87 BUG #1 fix).
@@ -129,10 +134,13 @@ export const REJECT_COLOR = '#dc2626'
  * Returns
  * -------
  * bool
- *     ``true`` only for ``'rejected-unsafe'``; ``'applied'`` / ``'unsupported'`` / absent → ``false``.
+ *     ``true`` for ``'rejected-unsafe'`` OR ``'rejected-collapse'`` (both snap back); ``'applied'`` /
+ *     ``'unsupported'`` / absent → ``false``. The collapse case (over-reach + full-width flood,
+ *     owner-locked 2026-07-23) reddens + snaps back exactly like the unsafe case — the handle stays
+ *     ALIVE at the last-safe shape, never suppressed.
  */
 export function isDragRejected(status: OverrideStatus | null | undefined): boolean {
-  return status === 'rejected-unsafe'
+  return status === 'rejected-unsafe' || status === 'rejected-collapse'
 }
 
 /**
