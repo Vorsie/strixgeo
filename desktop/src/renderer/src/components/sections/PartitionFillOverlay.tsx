@@ -63,7 +63,7 @@ import {
   lensApexOverrideKey,
 } from '../../utils/partitionFill'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
-import { buildApexOverridesForGaps } from './apexOverrideWiring'
+import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOverrideWiring'
 import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -503,7 +503,8 @@ export default function PartitionFillOverlay({
         edge: lensDrag.edge,
         nodeIndex: lensDrag.nodeIndex,
       })
-      if (shouldPersistDrag(rejected ? 'rejected-unsafe' : 'applied') && onSaveBoundary && screenXToAlong && screenToLevel) {
+      const willPersist = shouldPersistDrag(rejected ? 'rejected-unsafe' : 'applied')
+      if (willPersist && onSaveBoundary && screenXToAlong && screenToLevel) {
         const existing = boundariesByBodyId?.get(lensDrag.bodyId)
         const newNode: BodyBoundaryNode = {
           along_m: screenXToAlong(lensDrag.x),
@@ -519,7 +520,27 @@ export default function PartitionFillOverlay({
           lowerArr[lensDrag.nodeIndex] = newNode
         }
 
+        // FREEDRAW DEV TRACE v3 (§91, 2026-07-23) — the RELEASE analogue of the [freedraw]
+        // DRAG trace (~797). Prints whether onSaveBoundary fired + the saved node, so the
+        // owner's console shows the persist actually happened. The post-rebuild routing
+        // (does the persisted node reshape or snap back) is measured by the RED→GREEN
+        // ``lensPersistRouting.rules.test.ts`` on real CS1 — the DevTools DRAG trace still
+        // shows the live outcome; both traces stay until the owner confirms the reshape
+        // sticks. Kept minimal (no engine re-run here).
+        // eslint-disable-next-line no-console
+        console.info(
+          `[freedraw] RELEASE body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} ` +
+            `node=${lensDrag.nodeIndex} saved=(along ${newNode.along_m.toFixed(1)}, el ${newNode.elevation_m.toFixed(2)}) ` +
+            `onSaveBoundary=fired persist=applied`,
+        )
+
         onSaveBoundary(lensDrag.bodyId, upperArr, lowerArr, 'straight')
+      } else {
+        // eslint-disable-next-line no-console
+        console.info(
+          `[freedraw] RELEASE body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} ` +
+            `node=${lensDrag.nodeIndex} onSaveBoundary=SKIPPED persist=${rejected ? 'rejected-unsafe (snapback by design)' : 'no-save-wired'}`,
+        )
       }
       setLensDrag(null)
     }
@@ -709,25 +730,6 @@ export default function PartitionFillOverlay({
       rightX: (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
     }))
 
-    // Lens + two-band contact overrides, keyed PER (body, gap). The whole
-    // override-building path — the ``setShape`` gate + the two XOR loops + the §88
-    // two-sided-lens-tip fix + the contact disentangle — lives in the pure,
-    // unit-testable ``buildApexOverridesForGaps`` (see apexOverrideWiring.ts). It was
-    // extracted from this memo (S88) because the reshape tests fed overrides DIRECTLY
-    // to the engine, bypassing this gate — which is why the "manual reshape does
-    // nothing" bug (a two-sided band's lens tip skipped by the XOR gate → override
-    // NONE) hid behind green tests. Now the gate is testable in isolation.
-    const { apexOverrides, contactOverriddenBodies } = buildApexOverridesForGaps({
-      orderedColumns,
-      gapXs,
-      boundariesByBodyId,
-      alongToScreenX,
-      screenToLevel,
-      lensDrag,
-      boundaryDrag,
-      partitionEngineV2,
-    })
-
     // Bands come from the APPROVED correlation edges (layer-id pairs) — the
     // trustworthy signal — NOT the over-lumped body_id. Geometry only fills the
     // uncorrelated remainder.
@@ -749,6 +751,47 @@ export default function PartitionFillOverlay({
     // the uniform fallback. In along-METRES (the slice math is metre-based); the
     // screen projection downstream is unchanged, so no raw-vs-warped mismatch.
     const alongM = valid.map((id) => (screenByInv.get(id) as ColumnScreen).along)
+
+    // ---- §91 PERSISTED-LENS ROUTING (fixes "safe lens drag reshapes live then snaps
+    // back on release"). A two-sided body's persisted node is stored on the same
+    // ``lower_nodes`` array whether it shapes a lens tip OR a shared contact, so its
+    // KIND is lost. On the memo rebuild after a lens mouseup (``lensDrag = null``) the
+    // node would route through the un-routable contact path → flood → snapback. Recover
+    // the KIND from ENGINE TRUTH: a no-override base pass tells which two-sided bodies
+    // own an apex-shapeable lens tip whose span contains the stored node. Those route
+    // through the LENS path so the persisted shape matches the live drag. Skipped when
+    // there is no stored boundary (the common no-override render — no extra work). ----
+    const persistedLensBodies =
+      boundariesByBodyId && boundariesByBodyId.size > 0
+        ? detectPersistedLensBodies(
+            computeSectionFillActive(orderedColumns, edges, undefined, alongM),
+            orderedColumns,
+            boundariesByBodyId,
+            alongToScreenX,
+            gapXs,
+          )
+        : undefined
+
+    // Lens + two-band contact overrides, keyed PER (body, gap). The whole
+    // override-building path — the ``setShape`` gate + the two XOR loops + the §88
+    // two-sided-lens-tip fix + the §91 persisted-lens routing + the contact
+    // disentangle — lives in the pure, unit-testable ``buildApexOverridesForGaps``
+    // (see apexOverrideWiring.ts). It was extracted from this memo (S88) because the
+    // reshape tests fed overrides DIRECTLY to the engine, bypassing this gate — which
+    // is why the "manual reshape does nothing" bug (a two-sided band's lens tip
+    // skipped by the XOR gate → override NONE) hid behind green tests. Now the gate is
+    // testable in isolation.
+    const { apexOverrides, contactOverriddenBodies } = buildApexOverridesForGaps({
+      orderedColumns,
+      gapXs,
+      boundariesByBodyId,
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag,
+      partitionEngineV2,
+      persistedLensBodies,
+    })
 
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
@@ -785,6 +828,20 @@ export default function PartitionFillOverlay({
           }
         : null
     const rejectedDragTarget = draggedTarget != null && overrideStatus === 'rejected-unsafe' ? draggedTarget : null
+    // FREEDRAW DEV TRACE v2 (2026-07-23, re-added after S83 — kept until the owner confirms reshape).
+    if (draggedTarget != null && lensDrag) {
+      const ov = apexOverrides.get(lensApexOverrideKey(lensDrag.bodyId, lensDrag.gapIndex))
+      const dRegions = sectionRegions.filter((r) => r.bodyId === lensDrag.bodyId && r.gapIndex === lensDrag.gapIndex)
+      const shape = dRegions
+        .map((r) => `${r.kind}[${r.polygon.map((p) => `${p.fraction.toFixed(2)},${p.elevation.toFixed(2)}`).join(' ')}]`)
+        .join(' / ')
+      // eslint-disable-next-line no-console
+      console.info(
+        `[freedraw] DRAG body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} node=${lensDrag.nodeIndex} ` +
+          `override=${ov ? `frac${ov.fraction?.toFixed(3)} el${ov.elevation?.toFixed(2)}` : 'NONE (setShape skipped)'} ` +
+          `outcome=${overrideStatus} regions=${dRegions.length} shape=${shape || 'NONE'}`,
+      )
+    }
     log.debug(
       'partition',
       `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions` +
