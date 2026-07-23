@@ -8080,3 +8080,41 @@ Drag a lens/contact handle into an unsafe reach → handle turns RED, body stays
 - `unsafeDragUX.rules.test.ts` — NEW pure + real-CS1 rejected-outcome tests.
 - `PartitionFillOverlay.unsafeDrag.test.tsx` — NEW UD1–3 component red-handle + snap-back tests.
 - `REWRITE_STATE.md` — this §86.
+
+## §87 — Session 81: FREE-DRAW ARCHITECTURAL IDENTITY REPAIR — CONFIRMED BUG #1 (rejection identity too broad) FIXED with exact-identity primitives; the alias-fan-out redesign STOPPED-AT-FORK after Phase-0 measurement PROVED it does NOT corrupt (no engine change justified). Owner+Codex §87 brief, executed in strict order (Phase-0 trace → RED tests → minimal identity fix → verification). App-render layer only; ZERO engine files touched → no-override path byte-identical BY CONSTRUCTION.
+
+### PHASE 0 — measured on REAL CS1 (`freeDrawIdentity.phase0.diag.test.ts`, CS1_GATE=1, skips in the suite)
+Traced the full chain (routing → identity → alias → engine → render) with 5 measurements:
+- **[IDENT] BUG #1 CONFIRMED, DOMINANT.** 69 shapeable handles across only **30 bodies**; **18/30 bodies carry >1 handle (worst = 9)**; **13 bodies are BOTH a shapeable tip AND a full-width band** (their boundary handle also reddens). Dragging one tip of a 9-handle body reddened all 9 tips + its boundary handle = the "MANY/ALL markers turn red" dogfeed.
+- **[ALIAS] fan-out MEASURED.** merge 43 raw → 32 rendered (0.744); 69 overrides → 49 alias keys (worst 3); 28/69 aliases reach a raw id ≠ the rendered body; 28/69 have >1 raw emitter in-gap.
+- **[MUTATE] the DECISIVE test.** 46/69 single drags mutate SOME other body in the gap — but **0/46 mutate a topologically DISTANT body**; every mutation is a shared-boundary neighbour = LEGITIMATE tessellation re-flow (the intended "neighbours re-flow" behaviour).
+- **[2ND] class-C stateful = 0/12** — a first edit does NOT destabilise a second at the engine level.
+- **[AGGR] the reject-reach corruption test = 0 distant mutations** even at fraction 1.8.
+**Root-cause classification: A (wrong routing)? no. B (projection)? was §85 Fact-A, already fixed. C (unstable identity)? no. D (raw/rendered ownership)? the alias is a within-component relabel that does NOT bleed to distant onlaps → NOT corrupting. E (alias fan-out)? measured NON-corrupting at every reach. F (topology)? no.** The ONE real, reproduced defect is the RED-REJECTION IDENTITY being body-level (the brief's CONFIRMED BUG #1). Symptoms 1/2 (floating marker / onlap disappears) = §85's floating-node (fixed) + the VISUAL consequence of mass-reddening; symptoms 3/4/5 = BUG #1 directly.
+
+### THE FORK — alias-ownership redesign NOT undertaken (evidence-based STOP)
+The brief flagged the multi-raw-emitter alias as "likely cause of onlaps disappearing" and mandated STOP-for-approval if the change is large. Phase-0 PROVED the alias fan-out does not corrupt distant onlaps on real CS1 at any reach (0 distant mutations at moderate AND aggressive reach). Removing/redesigning it is a LARGE change that would REGRESS the 69/56/13 reshape gate (the aliasing is what makes 56 dead handles reshape, S75) and touch the frozen engine — with NO evidence of benefit. Per the brief's "do NOT blindly remove aliasing; first PROVE which raw emitter produces the visible boundary" + the stop-at-fork clause: the alias stays as-is. If the owner still sees an onlap vanish in dogfeed, the Phase-0 harness is the repro tool and the next suspect is the app-render/snapback path, not the engine.
+
+### THE FIX (BUG #1) — exact editable-target identity (app-layer, RED-first)
+- `unsafeDragUX.ts` — NEW `EditableTargetIdentity` discriminated union (lens: bodyId+gap+edge+nodeIndex; boundary: upper+lower body+gap+nodeIndex), `sameEditableTarget` (THE canonical equality — byte-for-byte, never bodyId-only), `handleColorForTarget` (red ONLY for the exact node). REMOVED the superseded body-level `handleFillColor`.
+- `partitionFillOverlayHelpers.ts` — `LensDrag` + `ScreenLens` gain `gapIndex`; `BoundaryDrag` gains `gapIndex` (the stable identity key; `regionIdx` stays for the on-screen copy discrimination but is NOT identity — it re-indexes mid-drag).
+- `PartitionFillOverlay.tsx` — `sectionFillData` derives `rejectedDragTarget: EditableTargetIdentity | null` (from lensDrag/boundaryDrag + the same-pass overrideStatus, no extra engine run); the ref mirrors the identity; all 3 handle render sites build their exact local identity + call `handleColorForTarget`; both `up` handlers snap-back via `sameEditableTarget` on the exact node (a rejected release of one node cannot suppress another node's save).
+
+### RED-FIRST TESTS (proven RED then GREEN)
+- `unsafeDragUX.rules.test.ts` — 3 NEW exact-identity cases (sameEditableTarget byte-match; handleColorForTarget reddens ONLY the exact node, sibling lens edge / other-gap tip / boundary handle stay normal; boundary node reddens without touching the body's lens handles) — proven RED (API absent). RED-1 real-CS1 retargeted to assert the sibling stays normal.
+- `PartitionFillOverlay.unsafeDrag.test.tsx` — NEW **UD4**: a body with an upper AND lower node; a rejected UPPER drag reddens ONLY upper, lower stays amber — proven RED on the old body-level code (`#dc2626` bled onto the sibling), GREEN after.
+
+### VERIFICATION GATE (all green; engine byte-identical)
+unsafeDragUX.rules 7/7 (CS1_GATE) · unsafeDrag component 4/4 (incl. UD4) · freeDrawRepair.rules 6/6 · PartitionFillOverlay 63/63 · partitionAddStripRouter 21/21 · full sections dir 613 pass (−1 = removed handleFillColor pure test) · reshapeMap **69/56/13 UNMOVED** · ghost oracle CS1 unchanged · seedGate **732/651/8/67/6/0** · HOLES_DIAG **0/0/0** all 14 · CS1 gates (sandbody/frozen/lensdisjoint/void/bandauthority) green · cs1flip walkthrough pass (`diag_cs1_flip_walkthrough.json` unchanged) · paint `diff_owner_paint.mjs` **212/0** · full v1+v2 utils 188 pass · tsc `tsconfig.web.json` CLEAN. **Zero engine / v1 / intersect.ts / mergeTouchingBodies / expandOverrideAliases files edited** (byte-intact by construction). Hook order safe (renamed the existing useRef/useEffect pair, no new hook, no reorder, no early-return crossing; TDZ-safe — const declared before its ref/effect readers). `gen_paint_tool.mjs` untouched by this session.
+
+### OWNER DOGFEED (the real ground truth — orchestrator/owner do the visual replay)
+Drag ONE lens/contact handle into an unsafe reach → ONLY that handle turns red (its sibling handles + the body's other tips + its boundary contact stay normal); release → only that node snaps back. A safe drag on one handle no longer visually disturbs the body's other handles. If an onlap still appears to vanish, re-run the Phase-0 harness (it shows 0 engine-level distant mutation) and look at the app-render/snapback path, not the engine.
+
+### Files this session (worktree, NOT committed — orchestrator commits + re-verifies)
+- `unsafeDragUX.ts` — NEW EditableTargetIdentity + sameEditableTarget + handleColorForTarget; REMOVED handleFillColor.
+- `partitionFillOverlayHelpers.ts` — gapIndex on LensDrag / ScreenLens / BoundaryDrag.
+- `PartitionFillOverlay.tsx` — rejectedDragTarget (exact identity) threaded through memo + ref + 3 render sites + both up-handlers.
+- `unsafeDragUX.rules.test.ts` — NEW exact-identity tests; RED-1 retargeted; removed the handleFillColor pure test.
+- `PartitionFillOverlay.unsafeDrag.test.tsx` — NEW UD4 (sibling-handle stays normal); two-handle fixture.
+- `freeDrawIdentity.phase0.diag.test.ts` — NEW Phase-0 architectural trace (CS1_GATE=1, 5 measurements; assert-light dev diagnostic).
+- `REWRITE_STATE.md` — this §87.
