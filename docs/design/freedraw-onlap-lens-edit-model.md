@@ -1,5 +1,29 @@
 # Free-draw edit model — onlap vs lens (LOCKED spec, owner 2026-07-23)
 
+## UNIFIED LITHO-EDGE HANDLE (owner-decided 2026-07-23 — the interaction surface)
+
+There is exactly ONE grabbable thing: **a line between two litho fills.** Every
+fill-to-fill boundary — a shared contact between two bodies OR the edge of a
+lens/pinch-out — is the SAME grabbable litho-transition line, with the SAME
+single handle (one colour), the SAME gesture: **left-press-drag to reshape**
+(press-to-grab; stays gap-free), **right-click to remove.** A lens edge is NOT
+special — the fills are built FROM the lines we drew, so a lens's sloping edge
+is a litho-transition exactly like any contact, and keeps its handle.
+
+This RETIRES the historical dual-handle system (born 2026-06-05: teal
+`BOUNDARY_COLOR` contact handle `b73d44621` + orange `LENS_COLOR` lens-apex
+handle `3d55885e3`, then buried under S67–S97 reworks). The two colours, the
+`sharedBoundariesForRender` referee layer (which existed only to stop both
+systems drawing "three dots"), the right-click-spawns-a-marker bug (mousedown
+not gated to the left button), and the marker-doesn't-follow-snapback desync
+all GO. Under the hood the correct override path still routes per edge (a
+contact → contact-override, a lens edge → lens/apex-override), but the USER
+sees one uniform handle. The per-kind CONSTRAINTS below (onlap apex pinned to
+band, lens free apex) are a later refinement on top of this one surface — the
+surface is unified first.
+
+## Per-kind model (the constrained-handle refinement, on top of the unified surface)
+
 Direct-manipulation handles over the existing 2/1/0 partition primitives
 (`section-fill.md`: 2 correlations → BAND, 1 → ONLAP, 0 → LENS). Free-draw is
 NOT one free-dragging dot — it is a small set of constrained handles whose
