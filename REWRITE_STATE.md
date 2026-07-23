@@ -8153,3 +8153,26 @@ Grab a lens handle on a TWO-SIDED band (a full-width matrix that pinches a lens)
 - `PartitionFillOverlay.tsx` — memo calls the helper; both `[freedraw]` dev traces removed.
 - `apexOverrideWiring.rules.test.ts` — NEW real-setShape-path RED→GREEN test.
 - `REWRITE_STATE.md` — this §88.
+
+## §90 — Session 84: "RESHAPE LANDS AT THE SECTION TOP + DOESN'T PERSIST" — THE el11.70 root FIXED. The S83 override BUILDS (setShape XOR fixed), but for a TALL two-sided band that owns BOTH a stale UPPER contact node AND the LOWER lens node being dragged, ``setShape`` set the top-level lens apex to ``upper[0] ?? lower[0]`` — the stale upper node (~el11.7) — no matter which edge the owner grabbed. The engine reads that top-level apex as the lens reach → the tip flooded to the section top → unsafe reach → rejected → snapback → no persist. Both owner symptoms (weird top reshape + non-persist) = ONE root. App-render layer only; ENGINE + v1 + intersect.ts byte-untouched.
+
+### THE ROOT CAUSE (proven, not hypothesised)
+The task-prompt hypothesis (add-node projecting onto the wrong edge) was DISPROVEN by a real-CS1 reproduction (`freeDrawEdgeElev.phase0.diag.test.ts`, CS1_GATE=1): clicking the low apex of body ...934a78's shapeable tip regions stores el≈4.90 / 6.08 (the clicked edge), and the FULL containment router routes a low-apex click to the lens tip storing el≈4.90 — the add path is faithful. The el11.70 comes from `apexOverrideWiring.ts` `setShape`: `const apex0 = upper[0] ?? lower[0]`. A `hyp` probe fed a two-sided band with `upper_nodes=[el11.7]` + a dragged `lower_nodes` node → the built override `elevation=11.7` (the stale upper), `lower` array carrying the real dragged node. That is `override=frac0.559 el11.70` in the live trace verbatim. The §88 shipped test passed only because its fixture had `upper_nodes: []` (apex0 = lower[0] = correct).
+
+### THE FIX (surgical, one function)
+- `apexOverrideWiring.ts` `setShape` — the top-level apex now rides the DRAGGED edge when THIS body is the live lens-drag target in THIS gap: `draggedEdgeFirst = lensDrag.edge==='lower' ? (lower[0] ?? upper[0]) : (upper[0] ?? lower[0])`; `apex0 = draggedEdgeFirst ?? upper[0] ?? lower[0]`. Non-drag render path keeps the legacy upper-then-lower precedence (unchanged). The full `upper`/`lower` arrays are still both carried so the engine rebuilds both flanks. With the apex now at el≈5 (in-band, safe), the drag lands `applied` → mouseup persists via `onSaveBoundary` (S80 `shouldPersistDrag('applied')`, unchanged) → the coupled non-persist symptom resolves from the same root.
+
+### RED-FIRST TEST (drives the REAL setShape path)
+`apexOverrideWiring.rules.test.ts` — NEW S84 case: a two-sided BAND carrying a stale UPPER node (el12) AND a LOWER lens node dragged to screen y=95 (el5). PROVEN RED on old code (`expected 12 to be close to 5`), GREEN after (apex.elevation ≈ 5; both `upper`/`lower` arrays length 1). `freeDrawEdgeElev.phase0.diag.test.ts` — NEW CS1_GATE repro proving the add path stores the clicked edge (rules out the prompt hypothesis; documents the real root).
+
+### VERIFICATION GATE (all green; engine byte-identical)
+apexOverrideWiring.rules **5/5** (+ proven RED) · unsafeDragUX.rules 5/5 (+2 skip) · unsafeDrag component 4/4 · freeDrawRepair.rules **6/6 CS1_GATE** · partitionAddStripRouter 21/21 · reshapeMap **69/56/13 UNMOVED** · allSectionsReshape + contactOverride green · seedGate **732/651/8/67/6/0** (SHAPE_AUDIT=1, byte-identical) · HOLES_DIAG **0/0/0** all 14 · CS1 gates **8/8** · full sections dir **618 pass** · **FULL SUITE 2453 pass / 51 skip / 0 fail** · tsc `tsconfig.web.json` CLEAN. The `SHAPE_AUDIT=1` conformance ratchet (tie-sections 10/12 residuals) is the PRE-EXISTING engine ratchet — it imports ONLY engine modules (computeSectionFillV2/sectionGeom/emitCurves/emitBands), none of which this session touched. **Zero engine / v1 / intersect.ts files edited.** The `[freedraw]` DRAG trace (~797) is UNTOUCHED (stays until the owner confirms). `gen_paint_tool.mjs` NOT edited by this session (it shows pre-existing uncommitted worktree modification from S83 — flagged to the orchestrator).
+
+### OWNER DOGFEED
+Grab the LOW lens tip of a tall two-sided band (e.g. gap-5 ...934a78) and drag it → the node now rides where you drag it (el≈5), not the section top; a safe in-band reshape persists (survives save). The trace prints `override=... el5.xx outcome=applied` (was `el11.70 → rejected`).
+
+### Files this session (worktree, NOT committed — orchestrator commits + re-verifies)
+- `apexOverrideWiring.ts` — `setShape` top-level apex rides the DRAGGED edge (S84 el11.70 fix).
+- `apexOverrideWiring.rules.test.ts` — NEW S84 RED→GREEN case (dragged-edge apex).
+- `freeDrawEdgeElev.phase0.diag.test.ts` — NEW CS1_GATE repro (add path is faithful; root is the override builder).
+- `REWRITE_STATE.md` — this §90.
