@@ -1,0 +1,170 @@
+/**
+ * apexOverrideWiring.rules.test.ts — §88 root-cause gate.
+ *
+ * THE definitively-diagnosed bug (live dev-trace of the owner's real drag): dragging
+ * a lens handle on a TWO-SIDED band produced ``override=NONE`` every frame → nothing
+ * reshaped. Root cause: the app builds the ``bodyId@gap`` lens apex override through
+ * ``setShape`` gated by the two XOR loops:
+ *
+ *     for (const id of leftIds) if (!rightIds.has(id)) setShape(id)
+ *     for (const id of rightIds) if (!leftIds.has(id)) setShape(id)
+ *
+ * A body present on BOTH columns of the gap (a full-width band) is skipped by the
+ * XOR — even when it owns a genuine LENS tip inside the gap. So its lens override is
+ * never built and the drag is a silent no-op. Every ``reshapeMap`` / ``allSectionsReshape``
+ * test passed because they feed the override DIRECTLY to the engine, bypassing this gate.
+ *
+ * Discipline: these drive the REAL ``setShape`` + XOR path via ``buildApexOverridesForGaps``.
+ * Test 1 first REPRODUCES the bug with an XOR-only reference (proves the override is
+ * absent under the old gate), THEN asserts the fixed builder DOES produce it — and that
+ * the produced apex reflects the dragged cursor position (the body reshapes). Test 2 is
+ * the disentangle: a two-sided lens-tip drag must NOT also emit a spurious ``contact:``
+ * override for the same node.
+ */
+import { describe, expect, it } from 'vitest'
+
+import { type BodyBoundaryResponse } from '../../api/client'
+import { lensApexOverrideKey, type PartitionColumn } from '../../utils/partitionFill'
+import { buildApexOverridesForGaps, type GapExtent, type LensDragState } from './apexOverrideWiring'
+
+// --------------------------------------------------------------------------
+// A minimal two-column section where the SAME body is a full-width band (present
+// on both columns) yet ALSO owns a lens tip inside the gap. This is the owner's
+// ``019ea170`` gap-5 shape: a matrix band that pinches a lens the XOR gate skips.
+// --------------------------------------------------------------------------
+const BAND = 'band-two-sided' // present on BOTH columns → skipped by the XOR gate
+const LOWER = 'band-below' // the band directly beneath (gives the contact a lower body)
+
+// Gap screen extent: left face at x=100, right face at x=200 (gapW=100).
+const GAP: GapExtent = { leftX: 100, rightX: 200 }
+
+/** along-metres → screen x. The lens node sits mid-gap (x=150) so it is owned here. */
+const alongToScreenX = (along: number): number => along // 1:1: use along = screen x directly
+/** screen y → elevation (mTAW). Simple linear inverse for the drag preview. */
+const screenToLevel = (y: number): number => 100 - y
+
+function twoSidedColumns(): PartitionColumn[] {
+  // Both columns carry BAND (full-width) over LOWER (the band below) → BAND is two-sided.
+  const units = [
+    { topDepthM: 0, baseDepthM: 5, formationId: 'zand', bodyId: BAND, layerId: 'L-band' },
+    { topDepthM: 5, baseDepthM: 12, formationId: 'klei', bodyId: LOWER, layerId: 'L-below' },
+  ]
+  return [
+    { investigationId: 'A', surfaceElevM: 10, units },
+    { investigationId: 'B', surfaceElevM: 10, units },
+  ]
+}
+
+/** Stored freedraw shape: BAND owns ONE lens node mid-gap on its lower edge. */
+function boundariesWithLensNode(): Map<string, BodyBoundaryResponse> {
+  const m = new Map<string, BodyBoundaryResponse>()
+  m.set(BAND, {
+    body_id: BAND,
+    content_key: null,
+    render_style: 'straight',
+    primary_section_id: null,
+    upper_nodes: [],
+    lower_nodes: [{ along_m: 150, elevation_m: 6 }], // mid-gap (x=150 ∈ [100,200]) → owned
+  })
+  return m
+}
+
+/** The old XOR-only gate, reproduced verbatim, as the RED reference. */
+function xorOnlyOverrideKeys(columns: PartitionColumn[]): Set<string> {
+  const keys = new Set<string>()
+  const left = columns[0]
+  const right = columns[1]
+  const leftIds = new Set(left.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+  const rightIds = new Set(right.units.map((u) => u.bodyId).filter((id): id is string => !!id))
+  for (const id of leftIds) if (!rightIds.has(id)) keys.add(lensApexOverrideKey(id, 0))
+  for (const id of rightIds) if (!leftIds.has(id)) keys.add(lensApexOverrideKey(id, 0))
+  return keys
+}
+
+describe('§88 — two-sided band lens-tip drag builds an apex override (real setShape path)', () => {
+  it('RED reference: the old XOR-only gate produces NO override for the two-sided band', () => {
+    const columns = twoSidedColumns()
+    // The bug, made concrete: BAND is on both columns, so the XOR gate skips it.
+    expect(xorOnlyOverrideKeys(columns).has(lensApexOverrideKey(BAND, 0))).toBe(false)
+  })
+
+  it('the fixed builder DOES build the bodyId@gap override when the lens handle is dragged', () => {
+    const columns = twoSidedColumns()
+    // Owner drags BAND's lens handle (lower edge, node 0) toward x=170 in gap 0.
+    const lensDrag: LensDragState = {
+      bodyId: BAND,
+      gapIndex: 0,
+      edge: 'lower',
+      nodeIndex: 0,
+      leftX: GAP.leftX,
+      x: 170,
+      y: 34,
+    }
+    const { apexOverrides } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs: [GAP],
+      boundariesByBodyId: boundariesWithLensNode(),
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    const key = lensApexOverrideKey(BAND, 0)
+    // THE fix: the override is now BUILT (not NONE) for the two-sided lens tip.
+    expect(apexOverrides.has(key), 'two-sided band lens-tip drag produced no override (XOR gate skipped it)').toBe(true)
+    // AND it reflects the dragged cursor: x=170 in [100,200] → fraction 0.70.
+    const ov = apexOverrides.get(key)!
+    expect(ov.fraction).toBeCloseTo(0.7, 5)
+    expect(ov.elevation).toBeCloseTo(screenToLevel(34), 5)
+  })
+
+  it('disentangle: the two-sided lens-tip drag does NOT also emit a contact:U|L override for the same body', () => {
+    const columns = twoSidedColumns()
+    const lensDrag: LensDragState = {
+      bodyId: BAND,
+      gapIndex: 0,
+      edge: 'lower',
+      nodeIndex: 0,
+      leftX: GAP.leftX,
+      x: 170,
+      y: 34,
+    }
+    const { apexOverrides, contactOverriddenBodies } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs: [GAP],
+      boundariesByBodyId: boundariesWithLensNode(),
+      alongToScreenX,
+      screenToLevel,
+      lensDrag,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    // Exactly ONE override key, and it is the lens apex — no ``contact:`` twin.
+    expect([...apexOverrides.keys()]).toEqual([lensApexOverrideKey(BAND, 0)])
+    for (const k of apexOverrides.keys()) expect(k.startsWith('contact:')).toBe(false)
+    // The contact path did not claim this body for the gap either.
+    expect(contactOverriddenBodies.has(`0:${BAND}`)).toBe(false)
+  })
+
+  it('a two-sided band NOT being lens-dragged still routes through the contact path (regression guard)', () => {
+    const columns = twoSidedColumns()
+    // No lens drag → BAND's lower node is a shared CONTACT bend (contact:U|L@0), not a lens apex.
+    const { apexOverrides, contactOverriddenBodies } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs: [GAP],
+      boundariesByBodyId: boundariesWithLensNode(),
+      alongToScreenX,
+      screenToLevel,
+      lensDrag: null,
+      boundaryDrag: null,
+      partitionEngineV2: true,
+    })
+    // The contact path claims BAND for gap 0 (its lower_nodes shape the shared contact).
+    expect(contactOverriddenBodies.has(`0:${BAND}`)).toBe(true)
+    // And there is NO one-sided lens apex for the two-sided band.
+    expect(apexOverrides.has(lensApexOverrideKey(BAND, 0))).toBe(false)
+    // The only override written is a contact key.
+    expect([...apexOverrides.keys()].every((k) => k.startsWith('contact:'))).toBe(true)
+  })
+})
