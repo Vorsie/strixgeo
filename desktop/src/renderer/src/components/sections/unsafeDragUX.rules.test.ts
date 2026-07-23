@@ -37,9 +37,11 @@ import { computeSectionFillV2 } from '../../utils/partitionFillV2'
 import { classifyOverrideOutcome } from '../../utils/partitionFillV2/computeSectionFillV2'
 import { setTwoSidedTerminations } from '../../utils/partitionFillV2/tileFlags'
 import {
-  handleFillColor,
+  type EditableTargetIdentity,
+  handleColorForTarget,
   isDragRejected,
   REJECT_COLOR,
+  sameEditableTarget,
   shouldPersistDrag,
 } from './unsafeDragUX'
 
@@ -101,13 +103,8 @@ describe('unsafeDragUX — pure decision primitives', () => {
     expect(isDragRejected(null)).toBe(false)
   })
 
-  it('handleFillColor recolours ONLY the actively-dragged body when its drag is rejected', () => {
-    // The dragged body IS the rejected one → red.
-    expect(handleFillColor('bodyA', 'bodyA', NORMAL_COLOR)).toBe(REJECT_COLOR)
-    // A different body (or none dragged) → the normal colour, never red.
-    expect(handleFillColor('bodyB', 'bodyA', NORMAL_COLOR)).toBe(NORMAL_COLOR)
-    expect(handleFillColor('bodyA', null, NORMAL_COLOR)).toBe(NORMAL_COLOR)
-  })
+  // (The body-level ``handleFillColor`` was REMOVED in §87 — superseded by the exact-identity
+  //  ``handleColorForTarget`` below, which reddens only the dragged node, not every same-body handle.)
 
   it('shouldPersistDrag is false ONLY for a rejected-unsafe release (snap-back), true otherwise', () => {
     expect(shouldPersistDrag('rejected-unsafe')).toBe(false) // snap back — do not persist the unsafe node
@@ -118,11 +115,62 @@ describe('unsafeDragUX — pure decision primitives', () => {
 })
 
 // ===========================================================================
+// §87 EXACT-IDENTITY primitives (CONFIRMED BUG #1: body-level reddening is too
+// broad). A rejected drag must redden ONLY the exact dragged node, never every
+// handle that shares the bodyId. The identity discriminates a lens node
+// (bodyId + gap + edge + nodeIndex) from a boundary node (upper+lower body + gap
+// + nodeIndex), so a body with several handles / a shared-boundary handle keeps
+// its OTHER handles normal.
+// ===========================================================================
+describe('unsafeDragUX — exact editable-target identity (§87 BUG #1)', () => {
+  const lensA0up: EditableTargetIdentity = { kind: 'lens', bodyId: 'A', gapIndex: 0, edge: 'upper', nodeIndex: 0 }
+  const lensA0lo: EditableTargetIdentity = { kind: 'lens', bodyId: 'A', gapIndex: 0, edge: 'lower', nodeIndex: 0 }
+  const lensA0up1: EditableTargetIdentity = { kind: 'lens', bodyId: 'A', gapIndex: 0, edge: 'upper', nodeIndex: 1 }
+  const lensA5up: EditableTargetIdentity = { kind: 'lens', bodyId: 'A', gapIndex: 5, edge: 'upper', nodeIndex: 0 }
+  const boundA_B0: EditableTargetIdentity = { kind: 'boundary', upperBodyId: 'A', lowerBodyId: 'B', gapIndex: 0, nodeIndex: 0 }
+
+  it('sameEditableTarget is true only for a byte-for-byte identity match', () => {
+    expect(sameEditableTarget(lensA0up, { ...lensA0up })).toBe(true)
+    // Same body, DIFFERENT edge / node / gap → NOT the same target.
+    expect(sameEditableTarget(lensA0up, lensA0lo)).toBe(false) // other edge of the SAME lens node position
+    expect(sameEditableTarget(lensA0up, lensA0up1)).toBe(false) // other node index
+    expect(sameEditableTarget(lensA0up, lensA5up)).toBe(false) // other gap (two-gap copy)
+    // A lens node and a boundary node of the same body are different kinds → never equal.
+    expect(sameEditableTarget(lensA0up, boundA_B0)).toBe(false)
+    // Null / absent target never matches.
+    expect(sameEditableTarget(lensA0up, null)).toBe(false)
+    expect(sameEditableTarget(null, null)).toBe(false)
+  })
+
+  it('handleColorForTarget reddens ONLY the exact rejected node — a sibling handle of the same body stays normal', () => {
+    // Body A is dragged on its upper node 0 into a rejection.
+    const rejected = lensA0up
+    // The dragged node → red.
+    expect(handleColorForTarget(lensA0up, rejected, NORMAL_COLOR)).toBe(REJECT_COLOR)
+    // A DIFFERENT handle of the SAME body A (BUG #1 reddened all of these) → normal.
+    expect(handleColorForTarget(lensA0lo, rejected, NORMAL_COLOR)).toBe(NORMAL_COLOR)
+    expect(handleColorForTarget(lensA0up1, rejected, NORMAL_COLOR)).toBe(NORMAL_COLOR)
+    expect(handleColorForTarget(lensA5up, rejected, NORMAL_COLOR)).toBe(NORMAL_COLOR)
+    // A shared-boundary handle whose upper body is A → normal (BUG #1 reddened it too).
+    expect(handleColorForTarget(boundA_B0, rejected, NORMAL_COLOR)).toBe(NORMAL_COLOR)
+    // No rejection active → everything normal.
+    expect(handleColorForTarget(lensA0up, null, NORMAL_COLOR)).toBe(NORMAL_COLOR)
+  })
+
+  it('handleColorForTarget reddens the exact boundary node without touching the body’s lens handles', () => {
+    const rejected = boundA_B0
+    expect(handleColorForTarget(boundA_B0, rejected, NORMAL_COLOR)).toBe(REJECT_COLOR)
+    // The same upper body A also owns a lens handle → it must stay normal.
+    expect(handleColorForTarget(lensA0up, rejected, NORMAL_COLOR)).toBe(NORMAL_COLOR)
+  })
+})
+
+// ===========================================================================
 // RED-1 + RED-2 driven by a REAL CS1 rejected-unsafe outcome — the status the
 // overlay reads per frame drives the red handle + the snap-back.
 // ===========================================================================
 describe.skipIf(!RUN)('unsafeDragUX on a real CS1 rejected-unsafe outcome', () => {
-  function realRejectedOutcome(): { status: OverrideStatus; rejectedBody: string } {
+  function realRejectedOutcome(): { status: OverrideStatus; rejectedTarget: EditableTargetIdentity } {
     const { columns, edges, alongM } = realSection('Cross-section 1')
     const base = computeSectionFillV2(columns, edges, undefined, alongM)
     const shapeable = base.filter((r) => r.bodyId != null && isApexShapeable(r))
@@ -135,19 +183,30 @@ describe.skipIf(!RUN)('unsafeDragUX on a real CS1 rejected-unsafe outcome', () =
       ov.set(lensApexOverrideKey(r.bodyId as string, r.gapIndex), { fraction: 1.8, elevation: midElev })
     }
     const outcome = classifyOverrideOutcome(columns, edges, ov, alongM)
-    return { status: outcome.status, rejectedBody: shapeable[0]!.bodyId as string }
+    // The EXACT node the first shapeable region's upper handle represents (§87 identity).
+    const first = shapeable[0]!
+    const rejectedTarget: EditableTargetIdentity = {
+      kind: 'lens',
+      bodyId: first.bodyId as string,
+      gapIndex: first.gapIndex,
+      edge: 'upper',
+      nodeIndex: 0,
+    }
+    return { status: outcome.status, rejectedTarget }
   }
 
-  it('RED-1 — a rejected-unsafe drag drives a RED handle for the dragged body', () => {
+  it('RED-1 — a rejected-unsafe drag drives a RED handle for the EXACT dragged node only', () => {
     setTwoSidedTerminations(true)
     try {
-      const { status, rejectedBody } = realRejectedOutcome()
+      const { status, rejectedTarget } = realRejectedOutcome()
       // The aggressive multi-tip reach must be rejected on real CS1 (else the fixture is not exercising
       // the unsafe path — a bug-class problem per the campaign's RED discipline).
       expect(status, `expected rejected-unsafe on the aggressive reach, got ${status}`).toBe('rejected-unsafe')
-      // The dragged body is the rejected body → its handle renders red.
-      const rejectedDragBody = isDragRejected(status) ? rejectedBody : null
-      expect(handleFillColor(rejectedBody, rejectedDragBody, NORMAL_COLOR)).toBe(REJECT_COLOR)
+      // The dragged node → red; a SIBLING node of the same body (its lower edge) stays normal (§87).
+      const active = isDragRejected(status) ? rejectedTarget : null
+      expect(handleColorForTarget(rejectedTarget, active, NORMAL_COLOR)).toBe(REJECT_COLOR)
+      const sibling: EditableTargetIdentity = { ...rejectedTarget, edge: 'lower' } as EditableTargetIdentity
+      expect(handleColorForTarget(sibling, active, NORMAL_COLOR)).toBe(NORMAL_COLOR)
     } finally {
       setTwoSidedTerminations(false)
     }
