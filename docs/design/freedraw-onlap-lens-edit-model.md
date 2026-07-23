@@ -75,13 +75,22 @@ to tie.
   is a hole-free/overlap-free partition. Root cause of the recurring "it
   stopped working": flood-to-band passes the defect check (0 holes) →
   `classifyOverrideOutcome` returned `applied` → the flooded band persisted →
-  the region went non-shapeable → the handle was suppressed. The rule: if the
-  edited tip's region would become non-shapeable (`!isApexShapeable`, i.e.
-  full-width / no interior vertex), REJECT → snap back to the last good shape,
-  keep the handle ALIVE. A legitimate near-tie pinch stays a clamped sliver
-  (still shapeable) and is NOT a collapse. This is engine-agnostic — no
-  onlap-vs-lens adjudication needed — and REPLACES the flood-to-band +
-  handle-suppression escape hatch for the edited tip.
+  the region went non-shapeable → the handle was suppressed.
+  - **The discriminator (owner-decided 2026-07-23, "only over-reach snaps
+    back"):** two ways a tip edit can erase the edited tip, and they are NOT
+    the same. (①) **Tip vanishes WITHIN the gap** — dragged back so the tip's
+    own litho dissolves and a neighbour fills its place, apex fraction still
+    inside [0,1]. This is a VALID, intentional reshape → it APPLIES (the CS1
+    `029c52@4/@5` cases; keeps `reshapeMap` UNMOVED). (②) **Over-reach past
+    the far column** — apex dragged beyond a column edge (fraction outside
+    [0,1]) AND the edited tip floods to a full-width band. This is INVALID →
+    `rejected-collapse` → snap back to the last good shape, handle ALIVE (the
+    CS1 `6bb744` gap-7 case). So the collapse rule = **over-reach past a
+    column AND full-width flood**, NOT merely "tip vanished" — a pure geometry
+    test (`!isApexShapeable`) alone over-rejects ① and is wrong.
+  This is engine-agnostic — no onlap-vs-lens adjudication needed — and
+  REPLACES the flood-to-band + handle-suppression escape hatch for the edited
+  tip.
 - Persist routes the node by KIND (onlap → contact/tied path; lens → lens
   path) — see §85 `detectPersistedLensBodies`; a persisted node must rebuild
   through the SAME routable mechanism the live drag used (no snapback).
