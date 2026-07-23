@@ -199,6 +199,13 @@ export interface BoundaryDrag {
   /** Gap's facing-edge screen x values for along-range splice on save. */
   leftX: number
   rightX: number
+  /**
+   * S86 press-to-grab: this boundary drag CREATED the contact node on mousedown (the
+   * add-strip press starts the drag rather than persisting). ``nodeIndex`` is the
+   * would-be new in-gap index. On mouseup the node is APPENDED (not an overwrite) and
+   * persisted; on subsequent renders it is an ordinary stored node (``isNew`` absent).
+   */
+  isNew?: boolean
 }
 
 /**
@@ -238,6 +245,15 @@ export interface LensDrag {
   /** Lens elevation band in screen coords — clamp for elevation_m. */
   lensTopY: number
   lensBaseY: number
+  /**
+   * S86 press-to-grab: this lens drag CREATED the node on mousedown (the add-strip
+   * press starts the drag rather than persisting). ``nodeIndex`` is the would-be new
+   * index on the dragged edge (the edge array's current length). The live override
+   * INJECTS the dragged node (see ``apexOverrideWiring.chain``) so a new node reshapes
+   * on the same press-drag; on mouseup it is APPENDED (not an overwrite) and persisted;
+   * on subsequent renders it is an ordinary stored node (``isNew`` absent).
+   */
+  isNew?: boolean
 }
 
 /** A region already mapped to screen polygon points, tagged with its gap edges. */

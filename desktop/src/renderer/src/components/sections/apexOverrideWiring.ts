@@ -63,6 +63,16 @@ export interface LensDragState {
   leftX: number
   x: number
   y: number
+  /**
+   * S86 press-to-grab: this drag CREATED the node on mousedown (it is not yet in
+   * ``boundariesByBodyId``). ``nodeIndex`` is the WOULD-BE index (the dragged edge's
+   * current length). The live override must INJECT the dragged node so a new node
+   * reshapes on the same press-drag — without this the new node has no stored slot to
+   * override and nothing renders until it persists (the old two-step gesture). On
+   * mouseup the overlay APPENDS the node and persists; from then on it is an ordinary
+   * stored node and this flag is absent.
+   */
+  isNew?: boolean
 }
 
 /** One gap's screen x-extent (left column right face → right column left face). */
@@ -177,14 +187,42 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
           chainOut.push({ fraction: clamp01((x - leftX) / gapW), elevation: n.elevation_m })
         }
       })
+      // S86 press-to-grab: a NEW node created on mousedown is not yet in ``nodes``, so
+      // it has no slot the loop above can override. INJECT it from the live cursor on
+      // the edge it was created on so the new node reshapes on the SAME press-drag. The
+      // mouseup APPENDS the node to this edge, so from the next render it is an ordinary
+      // stored node handled by the loop above (``isNew`` absent). Guarded on the exact
+      // (body, gap, edge) so it never bleeds into a sibling body/edge.
+      const injectNew =
+        !!lensDrag &&
+        lensDrag.isNew === true &&
+        lensDrag.bodyId === bodyId &&
+        Math.abs(lensDrag.leftX - leftX) < 0.5 &&
+        lensDrag.edge === edge
+      if (injectNew) {
+        chainOut.push({
+          fraction: clamp01((lensDrag!.x - leftX) / gapW),
+          elevation: screenToLevel ? screenToLevel(lensDrag!.y) : 0,
+        })
+      }
       return chainOut
     }
 
     const setShape = (bodyId: string): void => {
       const b = boundariesByBodyId?.get(bodyId)
-      if (!b) return
-      const upper = chain(b.upper_nodes ?? [], bodyId, 'upper')
-      const lower = chain(b.lower_nodes ?? [], bodyId, 'lower')
+      // S86 press-to-grab: a body may own NO stored boundary yet when its FIRST node is
+      // created on the add-strip press. ``chain`` injects the new node from the live
+      // cursor, so proceed with empty stored arrays when THIS body/gap is the ``isNew``
+      // drag target — otherwise the first-ever node would build no live override and the
+      // new node would not reshape until it persisted (the old two-step gesture).
+      const isNewHere =
+        !!lensDrag &&
+        lensDrag.isNew === true &&
+        lensDrag.bodyId === bodyId &&
+        Math.abs(lensDrag.leftX - leftX) < 0.5
+      if (!b && !isNewHere) return
+      const upper = chain(b?.upper_nodes ?? [], bodyId, 'upper')
+      const lower = chain(b?.lower_nodes ?? [], bodyId, 'lower')
       if (upper.length + lower.length === 0) return // no owned node → domain default apex
       // TOP-LEVEL APEX = the reach the engine reads as the lens tip (``ov.fraction`` /
       // ``ov.elevation``). It MUST ride the edge the owner is actively dragging — not the

@@ -446,10 +446,23 @@ export default function PartitionFillOverlay({
             return n
           })
 
+        // S86 PRESS-TO-GRAB: a new contact node (created on the add-strip mousedown,
+        // ``isNew``) is APPENDED to this gap's in-gap nodes; an existing-handle drag was
+        // handled by the overwrite ``.map`` above (its index is < length, so append does
+        // not fire). ``nodeIndex`` was set to the in-gap length on press, so this new node
+        // is not matched by the overwrite map and must be added explicitly.
+        // ``screenXToAlong`` / ``screenToLevel`` are already narrowed truthy by the guard above.
+        const finalInGap = boundaryDrag.isNew
+          ? [
+              ...inGapNodes,
+              { along_m: screenXToAlong(boundaryDrag.x), elevation_m: screenToLevel(boundaryDrag.y) },
+            ]
+          : inGapNodes
+
         onSaveBoundary(
           boundaryDrag.upperBodyId,
           existing?.upper_nodes ?? [],
-          [...otherGapNodes, ...inGapNodes],
+          [...otherGapNodes, ...finalInGap],
           'straight',
         )
       }
@@ -514,10 +527,16 @@ export default function PartitionFillOverlay({
         const upperArr = (existing?.upper_nodes ?? []).slice()
         const lowerArr = (existing?.lower_nodes ?? []).slice()
 
-        if (lensDrag.edge === 'upper') {
-          upperArr[lensDrag.nodeIndex] = newNode
+        // S86 PRESS-TO-GRAB: a new node (created on the add-strip mousedown, ``isNew``)
+        // is APPENDED to its edge; an existing-handle drag OVERWRITES at its index. The
+        // press-to-grab ``nodeIndex`` was set to the edge's stored length, so append and
+        // overwrite land at the same slot — but append is explicit so a stale length
+        // (mid-drag refetch) can never overwrite a real neighbour.
+        const targetArr = lensDrag.edge === 'upper' ? upperArr : lowerArr
+        if (lensDrag.isNew) {
+          targetArr.push(newNode)
         } else {
-          lowerArr[lensDrag.nodeIndex] = newNode
+          targetArr[lensDrag.nodeIndex] = newNode
         }
 
         // FREEDRAW DEV TRACE v3 (§91, 2026-07-23) — the RELEASE analogue of the [freedraw]
@@ -526,11 +545,13 @@ export default function PartitionFillOverlay({
         // (does the persisted node reshape or snap back) is measured by the RED→GREEN
         // ``lensPersistRouting.rules.test.ts`` on real CS1 — the DevTools DRAG trace still
         // shows the live outcome; both traces stay until the owner confirms the reshape
-        // sticks. Kept minimal (no engine re-run here).
+        // sticks. §92 extends it with ``isNew`` so the owner's log confirms the press-to-
+        // grab new-node path fired. Kept minimal (no engine re-run here).
         // eslint-disable-next-line no-console
         console.info(
           `[freedraw] RELEASE body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} ` +
-            `node=${lensDrag.nodeIndex} saved=(along ${newNode.along_m.toFixed(1)}, el ${newNode.elevation_m.toFixed(2)}) ` +
+            `node=${lensDrag.nodeIndex} isNew=${lensDrag.isNew === true} ` +
+            `saved=(along ${newNode.along_m.toFixed(1)}, el ${newNode.elevation_m.toFixed(2)}) ` +
             `onSaveBoundary=fired persist=applied`,
         )
 
@@ -539,7 +560,8 @@ export default function PartitionFillOverlay({
         // eslint-disable-next-line no-console
         console.info(
           `[freedraw] RELEASE body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} ` +
-            `node=${lensDrag.nodeIndex} onSaveBoundary=SKIPPED persist=${rejected ? 'rejected-unsafe (snapback by design)' : 'no-save-wired'}`,
+            `node=${lensDrag.nodeIndex} isNew=${lensDrag.isNew === true} ` +
+            `onSaveBoundary=SKIPPED persist=${rejected ? 'rejected-unsafe (snapback by design)' : 'no-save-wired'}`,
         )
       }
       setLensDrag(null)
@@ -1974,42 +1996,10 @@ export default function PartitionFillOverlay({
 
   // ---- Add-node handlers ---------------------------------------------------
 
-  /**
-   * Insert a new node into a matched boundary's lower_nodes for a given gap.
-   * Called on click of the add-strip. The node is appended (the array is always
-   * re-sorted by along_m on next render, so insertion order doesn't matter).
-   */
-  const handleBoundaryAddNode = (
-    upperBodyId: string,
-    leftX: number,
-    rightX: number,
-    svgX: number,
-    svgY: number,
-  ): void => {
-    if (!onSaveBoundary || !screenXToAlong || !screenToLevel) return
-    const existing = boundariesByBodyId?.get(upperBodyId)
-    const newNode: BodyBoundaryNode = {
-      along_m: screenXToAlong(svgX),
-      elevation_m: screenToLevel(svgY),
-    }
-    // Preserve nodes in other gaps.
-    const otherGapNodes = (existing?.lower_nodes ?? []).filter((n) => {
-      if (!alongToScreenX) return false
-      const nx = alongToScreenX(n.along_m)
-      return nx < leftX || nx > rightX
-    })
-    const inGapNodes = (existing?.lower_nodes ?? []).filter((n) => {
-      if (!alongToScreenX) return false
-      const nx = alongToScreenX(n.along_m)
-      return nx >= leftX && nx <= rightX
-    })
-    onSaveBoundary(
-      upperBodyId,
-      existing?.upper_nodes ?? [],
-      [...otherGapNodes, ...inGapNodes, newNode],
-      'straight',
-    )
-  }
+  // S86 press-to-grab: the add-node ``handle*AddNode`` persist helpers are RETIRED — the
+  // add-strip mousedown now starts an ``isNew`` drag (``routeAddStripClick`` → the dispatch
+  // thunks) that both creates and grabs the node, and the drag ``mouseup`` APPENDS + persists
+  // (see the lens/boundary drag effects above). Only the REMOVE helpers stay (right-click).
 
   /**
    * Remove a node from a matched boundary's lower_nodes.
@@ -2038,28 +2028,6 @@ export default function PartitionFillOverlay({
       [...otherGapNodes, ...updated],
       'straight',
     )
-  }
-
-  /**
-   * Insert a new node into a lens edge (upper or lower).
-   */
-  const handleLensAddNode = (
-    bodyId: string,
-    edge: 'upper' | 'lower',
-    svgX: number,
-    svgY: number,
-  ): void => {
-    if (!onSaveBoundary || !screenXToAlong || !screenToLevel) return
-    const existing = boundariesByBodyId?.get(bodyId)
-    const newNode: BodyBoundaryNode = {
-      along_m: screenXToAlong(svgX),
-      elevation_m: screenToLevel(svgY),
-    }
-    const upperArr = [...(existing?.upper_nodes ?? [])]
-    const lowerArr = [...(existing?.lower_nodes ?? [])]
-    if (edge === 'upper') upperArr.push(newNode)
-    else lowerArr.push(newNode)
-    onSaveBoundary(bodyId, upperArr, lowerArr, 'straight')
   }
 
   /**
@@ -2113,15 +2081,41 @@ export default function PartitionFillOverlay({
         // PROJECT the click onto the contact edge (S72): a click deep inside the
         // upper band must drop the node ON the shared contact at the cursor x, not
         // float at the raw interior y (the "point without grabbing a boundary" +
-        // the tie-bounded-base "can't grab it" dogfeed). ``handleBoundaryAddNode``
-        // then stores the on-edge (along, elevation); S68's contact-override
-        // re-partitions BOTH bands through the engine, so a tie-bounded base bends
-        // gap/overlap-free.
+        // the tie-bounded-base "can't grab it" dogfeed). The S86 press-to-grab dispatch
+        // starts an ``isNew`` boundary drag at that on-edge (along, elevation); S68's
+        // contact-override re-partitions BOTH bands through the engine, so a tie-bounded
+        // base bends gap/overlap-free.
         dispatch: () => {
           const p =
             projectClickToCandidate(lastClick.current, { segments: segs, dispatch: null }) ??
             lastClick.current
-          handleBoundaryAddNode(sb.upperBodyId, sb.leftX, sb.rightX, p.x, p.y)
+          // S86 PRESS-TO-GRAB: create AND grab the contact node in this SAME mousedown.
+          // Rather than persist here (the old ``handleBoundaryAddNode`` two-step), START
+          // a boundary drag flagged ``isNew`` at the projected on-contact position. The
+          // node lives on the upper body's ``lower_nodes``; ``nodeIndex`` is the would-be
+          // new IN-GAP index (matches ``sharedBoundaries`` / ``contactOverrideWiring``,
+          // which treat the first in-gap node as index 0). The live contact override
+          // synthesizes this node so it reshapes as the cursor moves; mouseup APPENDS +
+          // persists it as a contact bend.
+          const existing = boundariesByBodyId?.get(sb.upperBodyId)
+          const inGapCount = (existing?.lower_nodes ?? []).filter((n) => {
+            if (!alongToScreenX) return false
+            const nx = alongToScreenX(n.along_m)
+            return nx >= sb.leftX && nx <= sb.rightX
+          }).length
+          setBoundaryDrag({
+            upperBodyId: sb.upperBodyId,
+            lowerBodyId: sb.lowerBodyId,
+            gapIndex: sb.gapIndex,
+            nodeIndex: inGapCount,
+            x: p.x,
+            y: p.y,
+            minY: sb.minY,
+            maxY: sb.maxY,
+            leftX: sb.leftX,
+            rightX: sb.rightX,
+            isNew: true,
+          })
         },
       })
     }
@@ -2167,7 +2161,29 @@ export default function PartitionFillOverlay({
           const gapW = sl.rightX - sl.leftX
           const floorPx = MIN_VISIBLE_APEX_FRACTION * gapW
           const node = applyReachFloorOnSegment(p, seg, sl.side, sl.leftX, sl.rightX, floorPx)
-          handleLensAddNode(sl.bodyId, edge, node.x, node.y)
+          // S86 PRESS-TO-GRAB: create AND grab the node in this SAME mousedown. Rather
+          // than persist here (the old ``handleLensAddNode`` two-step), START a lens
+          // drag flagged ``isNew`` at the projected on-edge position. ``nodeIndex`` is
+          // the would-be new index = the dragged edge's current stored length (the
+          // mouseup APPENDS at that index). The live override injects this new node so
+          // it reshapes as the cursor moves; mouseup persists it routed as a lens.
+          const existing = boundariesByBodyId?.get(sl.bodyId)
+          const edgeLen = (edge === 'upper' ? existing?.upper_nodes : existing?.lower_nodes)?.length ?? 0
+          setLensDrag({
+            bodyId: sl.bodyId,
+            regionIdx: sl.regionIdx,
+            gapIndex: sl.gapIndex,
+            side: sl.side,
+            edge,
+            nodeIndex: edgeLen,
+            x: node.x,
+            y: node.y,
+            leftX: sl.leftX,
+            rightX: sl.rightX,
+            lensTopY: sl.lensTopY,
+            lensBaseY: sl.lensBaseY,
+            isNew: true,
+          })
         },
       })
     }
@@ -2177,9 +2193,12 @@ export default function PartitionFillOverlay({
     screenLenses,
     screenRegions,
     onSaveBoundary,
-    // handleBoundaryAddNode / handleLensAddNode close over the same deps the
-    // dispatch thunks need; they are stable within a render, so re-deriving the
-    // candidate list on each of these inputs keeps the thunks fresh.
+    // The S86 press-to-grab dispatch thunks read ``boundariesByBodyId`` (for the
+    // dragged edge's current length → the would-be new nodeIndex) + ``alongToScreenX``
+    // (in-gap node count for the contact path) and start a drag via the stable setters.
+    // Re-deriving the candidate list on each of these keeps the thunks fresh. The
+    // screen transforms below are carried for parity with the drag effects that consume
+    // them on mouseup (an over-inclusive dep never mis-fires the reshape).
     boundariesByBodyId,
     alongToScreenX,
     screenXToAlong,
@@ -2448,7 +2467,11 @@ export default function PartitionFillOverlay({
                 setAddNodePreview({ x, y, color: BOUNDARY_COLOR })
               }}
               onMouseLeave={() => setAddNodePreview(null)}
-              onClick={(e) => {
+              // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
+              // and GRABS the node in one gesture (``routeAddStripClick`` now starts an
+              // ``isNew`` drag rather than persisting). ``preventDefault`` + ``stopPropagation``
+              // keep the press off the pan handler, exactly as the existing handle onMouseDown does.
+              onMouseDown={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
@@ -2574,7 +2597,11 @@ export default function PartitionFillOverlay({
                 setAddNodePreview({ x, y, color: LENS_COLOR })
               }}
               onMouseLeave={() => setAddNodePreview(null)}
-              onClick={(e) => {
+              // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
+              // and GRABS the node in one gesture (``routeAddStripClick`` now starts an
+              // ``isNew`` drag rather than persisting). ``preventDefault`` + ``stopPropagation``
+              // keep the press off the pan handler, exactly as the existing handle onMouseDown does.
+              onMouseDown={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
@@ -2600,7 +2627,11 @@ export default function PartitionFillOverlay({
                 setAddNodePreview({ x, y, color: LENS_COLOR })
               }}
               onMouseLeave={() => setAddNodePreview(null)}
-              onClick={(e) => {
+              // S86 PRESS-TO-GRAB: mousedown (not click) so the add-strip press CREATES
+              // and GRABS the node in one gesture (``routeAddStripClick`` now starts an
+              // ``isNew`` drag rather than persisting). ``preventDefault`` + ``stopPropagation``
+              // keep the press off the pan handler, exactly as the existing handle onMouseDown does.
+              onMouseDown={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()

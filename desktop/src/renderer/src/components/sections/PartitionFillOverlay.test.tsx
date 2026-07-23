@@ -150,6 +150,23 @@ const transforms = {
   screenToLevel: (y: number) => (100 - y) / 10, // inverse of levelToScreen
 }
 
+/**
+ * S86 press-to-grab gesture: an add-strip press CREATES and GRABS the node in one
+ * mousedown, and the drag mouseup persists it. With no intervening mousemove the node
+ * persists at the projected mousedown position — so a bare press-release reproduces the
+ * old ``fireEvent.click`` semantics (node stored on the boundary at the cursor) while
+ * exercising the real one-gesture path. ``moveTo`` optionally drags before release.
+ */
+function pressGrabRelease(
+  strip: HTMLElement,
+  at: { clientX: number; clientY: number },
+  moveTo?: { clientX: number; clientY: number },
+): void {
+  fireEvent.mouseDown(strip, at)
+  if (moveTo) fireEvent.mouseMove(window, moveTo)
+  fireEvent.mouseUp(window)
+}
+
 // Enclosed silt lens in a sand matrix on L; continuous sand on R.
 // Column L: nudgedX=0, width=40 → gap leftX=20, rightX=80.
 const lensLayers = [
@@ -545,7 +562,7 @@ describe('PartitionFillOverlay', () => {
   // --------------------------------------------------------------------------
   // FD2: Clicking the add-strip inserts a new node
   // --------------------------------------------------------------------------
-  it('FD2 — clicking the matched-boundary add-strip calls onSaveBoundary with a new node appended', () => {
+  it('FD2 — press-to-grab on the matched-boundary add-strip calls onSaveBoundary with a new node appended', () => {
     const onSaveBoundary = vi.fn()
     const { getByTestId } = renderOverlay({
       ...transforms,
@@ -560,8 +577,9 @@ describe('PartitionFillOverlay', () => {
         ],
       ]),
     })
-    // Click the add-strip at an arbitrary client position.
-    fireEvent.click(getByTestId('partition-boundary-addstrip-sand-clay'), {
+    // S86: press the add-strip (creates + grabs the node) then release (persists). One
+    // gesture — no separate handle-drag step. Persists at the projected mousedown x.
+    pressGrabRelease(getByTestId('partition-boundary-addstrip-sand-clay'), {
       clientX: 60,
       clientY: 55,
     })
@@ -1562,7 +1580,7 @@ describe('PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)', ()
     // Fire on the u2 (silt2) lens strip — the "grabbed the lens above" element —
     // at coords nearest the interface below it. jsdom svg rect is 0,0 → client 1:1.
     const wrongStrip = getByTestId('partition-lens-addstrip-silt2-lower')
-    fireEvent.click(wrongStrip, { clientX: 50, clientY: 53 })
+    pressGrabRelease(wrongStrip, { clientX: 50, clientY: 53 })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     // The nearest boundary at (50,53) is NOT silt2 (the lens ~1 m above). The bug:
     // the click routed to silt2. The fix: it routes to whatever body's edge is
@@ -1583,7 +1601,7 @@ describe('PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)', ()
       boundariesByBodyId: stackBoundaries,
     })
     const strip = getByTestId('partition-lens-addstrip-silt2-lower')
-    fireEvent.click(strip, { clientX: 50, clientY: 41 })
+    pressGrabRelease(strip, { clientX: 50, clientY: 41 })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     expect(onSaveBoundary.mock.calls[0][0]).toBe('silt2')
   })
@@ -1695,8 +1713,8 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
     expect(pt).not.toBeNull()
     const { x: cx, y: cy } = pt!
     expect(inside({ x: cx, y: cy }, ring)).toBe(true)
-    // Fire on a SILT lens strip (the "on top" element) at the sand-interior coords.
-    fireEvent.click(getByTestId('partition-lens-addstrip-silt4-lower'), { clientX: cx, clientY: cy })
+    // Press-to-grab on a SILT lens strip (the "on top" element) at the sand-interior coords.
+    pressGrabRelease(getByTestId('partition-lens-addstrip-silt4-lower'), { clientX: cx, clientY: cy })
     // The click landed inside sand → it must NOT have grabbed any silt lens.
     if (onSaveBoundary.mock.calls.length > 0) {
       const grabbed = onSaveBoundary.mock.calls[0][0] as string
@@ -1745,7 +1763,8 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
         if (!pt) continue
         const { x: cx, y: cy } = pt
         onSaveBoundary.mockClear()
-        fireEvent.click(anyStrip, { clientX: cx, clientY: cy })
+        // S86 press-to-grab: the press starts the drag, the release persists.
+        pressGrabRelease(anyStrip, { clientX: cx, clientY: cy })
         if (onSaveBoundary.mock.calls.length === 0) continue // no shapeable edge here
         const grabbed = onSaveBoundary.mock.calls[0][0] as string
         // The grabbed body's region must CONTAIN the click (region-containment),
@@ -1962,7 +1981,9 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
     })
     const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
     expect(strip).toBeTruthy()
-    fireEvent.click(strip!, { clientX: 50, clientY: 60 })
+    // S86 press-to-grab: press projects the node onto the contact + starts the drag;
+    // release persists it. No mousemove → persists at the projected mousedown position.
+    pressGrabRelease(strip!, { clientX: 50, clientY: 60 })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     const lower = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
     expect(lower).toHaveLength(1)
@@ -1989,7 +2010,7 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
     })
     // Fire on the (possibly wrong, z-order) upper strip; containment + projection
     // must still land the node on the silt lens edge for an in-lens click.
-    fireEvent.click(getByTestId('partition-lens-addstrip-silt-upper'), {
+    pressGrabRelease(getByTestId('partition-lens-addstrip-silt-upper'), {
       clientX: 30,
       clientY: 45,
     })
@@ -2024,7 +2045,7 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
     })
     // A click hugging the left column face at x=22 (fraction ≈ 0.03) — the collapse
     // trigger. The lens is left-anchored, so the floored node must land at x ≥ ~24.8.
-    fireEvent.click(getByTestId('partition-lens-addstrip-silt-upper'), {
+    pressGrabRelease(getByTestId('partition-lens-addstrip-silt-upper'), {
       clientX: 22,
       clientY: 47,
     })
@@ -2118,7 +2139,7 @@ describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () =>
     // the contact is at 5 m (y=50), so a raw-cursor store would float at y=60.
     const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
     expect(strip).toBeTruthy()
-    fireEvent.click(strip!, { clientX: 50, clientY: 60 })
+    pressGrabRelease(strip!, { clientX: 50, clientY: 60 })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     // The node is stored on the UPPER band (silt) lower_nodes (S68 contact-bend),
     // ON the base contact (~5 m), NOT the interior cursor elevation (4 m).
@@ -2326,55 +2347,52 @@ describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2
     return maxX
   }
 
-  it('SC4 — drag-and-drop reshape: click adds ONE node, its handle is grabbable, the drag reshapes the fill', () => {
-    // The owner's "why can't i drag and drop reshape anymore?": with the click path
-    // fixed (one node, one surface) the added node must render a GRABBABLE handle and
-    // dragging it must reshape the engine fill live. Full round-trip through the real
-    // click → store → re-render → grab → drag path (not a pre-seeded node).
+  it('SC4 — press-to-grab reshape: ONE gesture — press the add-strip creates AND grabs the node, the drag reshapes the fill LIVE, release persists', () => {
+    // The owner's S86 "i just want to click down and drag": the OLD flow was two-step
+    // (press dropped a node, then a SEPARATE press-drag on its handle reshaped). This
+    // asserts the unified gesture: a single mousedown on the add-strip creates and grabs
+    // the new node; dragging deep into the gap reshapes the engine fill LIVE (no re-render
+    // between add and grab); release persists the shaped node. Full round-trip through the
+    // real press → live-inject → drag → persist path (not a pre-seeded node).
     const onSaveBoundary = vi.fn<(id: string, u: unknown[], l: unknown[], k: string) => void>()
-    let stored = new Map<string, BodyBoundaryResponse>()
-    const draw = (): ReturnType<typeof render> =>
-      render(
-        <svg>
-          <PartitionFillOverlay
-            {...base}
-            lithoLayers={enclosedLensLayers}
-            {...transforms}
-            onSaveBoundary={onSaveBoundary}
-            boundariesByBodyId={stored}
-          />
-        </svg>,
-      )
-    // 1. Click the silt lens upper add-strip at a point INSIDE the silt lens so the
-    //    node lands on silt. The lens spans elevation 4..6 (y 40..60); apex mid-gap.
-    const r1 = draw()
-    fireEvent.click(r1.getByTestId('partition-lens-addstrip-silt-upper'), {
+    const stored = new Map<string, BodyBoundaryResponse>()
+    const r1 = render(
+      <svg>
+        <PartitionFillOverlay
+          {...base}
+          lithoLayers={enclosedLensLayers}
+          {...transforms}
+          onSaveBoundary={onSaveBoundary}
+          boundariesByBodyId={stored}
+        />
+      </svg>,
+    )
+    // The silt apex reach at rest (no stored node), before any interaction.
+    const restReach = siltApexReach(r1.getByTestId('partition-region-silt'))
+    // 1. PRESS the silt lens upper add-strip INSIDE the silt lens (elevation 4..6 →
+    //    y 40..60). This SAME mousedown creates the node AND starts the drag — no
+    //    persist yet, no separate handle grab.
+    fireEvent.mouseDown(r1.getByTestId('partition-lens-addstrip-silt-upper'), {
       clientX: 35,
       clientY: 47,
     })
-    // Exactly one node stored, on silt.
-    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
-    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
-    const [id, u, l] = onSaveBoundary.mock.calls[0]
-    stored = new Map([[id, { upper_nodes: u, lower_nodes: l } as unknown as BodyBoundaryResponse]])
-    r1.unmount()
-    // 2. Re-render with the node stored: exactly one grabbable handle + hit target.
-    const r2 = draw()
-    const hits = r2.container.querySelectorAll('[data-testid^="partition-lens-hit-silt-"]')
-    expect(hits).toHaveLength(1)
-    const restReach = siltApexReach(r2.getByTestId('partition-region-silt'))
-    // 3. Grab the handle and drag it deep into the gap → the fill FOLLOWS (reshape).
-    fireEvent.mouseDown(hits[0])
+    // No persist on press — the drag is in flight (Approach B, single save on release).
+    expect(onSaveBoundary).toHaveBeenCalledTimes(0)
+    // 2. DRAG deep into the gap → the fill FOLLOWS the cursor LIVE (the new node is
+    //    injected into the override even though it is not yet stored).
     act(() => {
       window.dispatchEvent(new MouseEvent('mousemove', { clientX: 72, clientY: 50 }))
     })
-    const draggedReach = siltApexReach(r2.getByTestId('partition-region-silt'))
-    expect(draggedReach).toBeGreaterThan(restReach + 10) // the fill reshaped toward the cursor
-    // 4. Release persists the shaped node.
+    const draggedReach = siltApexReach(r1.getByTestId('partition-region-silt'))
+    expect(draggedReach, 'the new node did not reshape the fill live on press-drag').toBeGreaterThan(
+      restReach + 10,
+    )
+    // 3. RELEASE persists the shaped node (exactly one save, on silt, routed as a lens).
     act(() => {
       window.dispatchEvent(new MouseEvent('mouseup'))
     })
-    expect(onSaveBoundary.mock.calls[onSaveBoundary.mock.calls.length - 1][0]).toBe('silt')
-    r2.unmount()
+    expect(onSaveBoundary).toHaveBeenCalledTimes(1)
+    expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
+    r1.unmount()
   })
 })

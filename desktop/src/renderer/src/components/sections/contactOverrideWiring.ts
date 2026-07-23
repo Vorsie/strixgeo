@@ -35,6 +35,16 @@ export interface ContactDragState {
   y: number
   leftX: number
   rightX: number
+  /**
+   * S86 press-to-grab: this drag CREATED the contact node on mousedown (it is not yet
+   * stored on the upper body's ``lower_nodes``). The live override must synthesize the
+   * control point from the drag cursor so a new contact bend reshapes on the SAME
+   * press-drag; without it, an empty boundary has no in-gap node → no override → the
+   * new node does not render until it persists (the old two-step gesture). On mouseup
+   * the overlay APPENDS the node and persists; from then on it is an ordinary stored
+   * node (``isNew`` absent).
+   */
+  isNew?: boolean
 }
 
 /**
@@ -197,8 +207,6 @@ export function collectContactOverridesForGap(
     if (skipBodyIds?.has(upperBodyId)) continue
     const bnd = boundariesByBodyId.get(upperBodyId)
     if (!bnd) continue
-    const nodes = (bnd.lower_nodes ?? []).filter(inGap)
-    if (nodes.length === 0) continue
 
     // The natural base contact of the upper band = where the lower band's top sits.
     const naturalBase = bodyBaseElev(left, right, upperBodyId)
@@ -206,12 +214,27 @@ export function collectContactOverridesForGap(
     const lowerBodyId = lowerBodyAtContact(left, right, naturalBase, upperBodyId)
     if (lowerBodyId == null) continue
 
+    const nodes = (bnd.lower_nodes ?? []).filter(inGap)
+    // S86 press-to-grab: an ``isNew`` contact drag targeting THIS contact synthesizes the
+    // control point from the live cursor even before it is stored, so the new contact bend
+    // reshapes on the same press-drag. Requires matching the exact (upper, lower, gap).
+    const draggingThisNew =
+      !!drag &&
+      drag.isNew === true &&
+      drag.upperBodyId === upperBodyId &&
+      drag.lowerBodyId === lowerBodyId &&
+      drag.nodeIndex === 0 &&
+      Math.abs(drag.leftX - leftX) < 0.5
+    // No stored in-gap node AND not a new-node drag here → nothing to override.
+    if (nodes.length === 0 && !draggingThisNew) continue
+
     // Take the first in-gap node as the control point (single-node contact bend;
     // multi-node contact freedraw stays on the existing per-node handles for now).
     // ``boundaryDrag.nodeIndex`` is the IN-GAP index (matches ``sharedBoundaries``),
-    // so the first in-gap node is index 0.
-    let cx = alongToScreenX(nodes[0].along_m)
-    let cyElev = nodes[0].elevation_m
+    // so the first in-gap node is index 0. For an ``isNew`` drag on an empty edge the
+    // cursor IS the control point (no stored node to read).
+    let cx = nodes.length > 0 ? alongToScreenX(nodes[0].along_m) : leftX
+    let cyElev = nodes.length > 0 ? nodes[0].elevation_m : (naturalBase ?? 0)
     if (
       drag &&
       drag.upperBodyId === upperBodyId &&
@@ -220,7 +243,7 @@ export function collectContactOverridesForGap(
       Math.abs(drag.leftX - leftX) < 0.5
     ) {
       cx = Math.max(leftX + 1, Math.min(rightX - 1, drag.x))
-      cyElev = screenToLevel ? screenToLevel(drag.y) : nodes[0].elevation_m
+      cyElev = screenToLevel ? screenToLevel(drag.y) : cyElev
     }
     const fraction = clamp01((cx - leftX) / gapW)
 
