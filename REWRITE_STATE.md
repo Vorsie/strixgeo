@@ -8266,3 +8266,43 @@ To "pin the onlap apex to the band in `setShape`" the app must FIRST know a tip 
 ### Files this session (worktree, NOT committed — orchestrator commits/cleans)
 - `throwaway_s88_onlap_probe.diag.test.ts` — the phase-0 measurement of record (CS1_GATE=1, skips in the suite). **ORCHESTRATOR: DELETE** (`rm` denied to the session).
 - `REWRITE_STATE.md` — this §93.
+
+## §94 — Session 89: BUILD THE LENS RULE — STOPPED AT STEP 0/1 on a MEASURED PREMISE CONFLICT. The owner's exact flood case (6bb744 gap 7) is a corr-1 ONLAP, not a corr-0 LENS, per the engine's own effectiveCorr — so building "the LENS rule (corr 0 → reject+snapback)" would NOT fix the reported case, and the engine-agnostic fix that WOULD fix it deliberately changes corr-1 onlap behaviour (prompt-forbidden + a geological reclassification I must not invent). Owner ruling needed. NO engine / app source edited — only three throwaway CS1 diag probes.
+
+### STEP 0 — THE LIVE FLOOD IS REAL AND FULLY REPRODUCED (unlike §93's "clean")
+§93 fed the override "the memo way" (moderate nudge) and saw `applied` / no flood. This session drove the LIVE press-to-grab (`isNew`) drag AT AN AGGRESSIVE reach + the PERSIST rebuild on real CS1, replicating the overlay's OWN `unroutableBodies` computation. Result on **6bb744 gap 7 lower** (the owner's exact log — one-sided, `leftHas=true rightHas=false`):
+- `mod` (mid-span): LIVE `status=applied unroutable=[]` → PERSIST `status=applied unroutable=[]` — clean, no flood.
+- `agg-top` (el pushed 2× above the tip span, frac 0.97) AND `agg-low`: LIVE `status=applied unroutable=[7:...6bb744]` → PERSIST (node stored at the drag along/el) `status=applied unroutable=[7:...6bb744]`. **THE OWNER'S FLOOD, VERBATIM: persist=applied, then the handle is suppressed forever.**
+
+**THE ROOT (measured, not hypothesised):** an aggressive apex drag makes the engine FLOOD the tip to a full-width band-quad to keep the partition gap-free. A full-width band is a VALID partition (0 holes/overlaps), so `sectionDefectArea` scores it 0 → `classifyOverrideOutcome` returns **`status=applied`, NOT `rejected-unsafe`**. Because the status is `applied`, `shouldPersistDrag` PERSISTS the flooded node; on the next render the region for `7:6bb744` is `!isApexShapeable` → `unroutableBodies` fires → the grab handle is suppressed on v2 (~:1873). The `rejected-unsafe`/snapback path NEVER fires because a flood-to-band opens no hole. This is the escape hatch the session set out to replace — and it treats a flood as a legal `applied` outcome REGARDLESS of corr (it is NOT lens-gated today).
+
+### STEP 1 — THE OWNER'S 2/1/0 PREMISE DOES NOT HOLD FOR THE FLOOD CASE (the fork)
+The prompt (owner via 2/1/0): "i thought it was a lens, can't you tell using 2/1/0 logic — corr 0 = lens, and the engine's effectiveCorr already knows it." A direct `effectiveCorrForSide` dump (real CS1, `setTwoSidedTerminations(true)`) of the NAMED bodies at their shapeable-tip gaps says the OPPOSITE for the flood case:
+- **6bb744 gap 7 (the owner's EXACT flood log) = corr 1 (ONLAP)** — one-sided, topTied via the 8d-rev TOP-BAND implicit tie (`topTie.kind='top-band'`). It is NOT a lens.
+- 6bb744 gap 5 = corr 2 (left) / corr 0 (right); gap 12 = corr 0 (left); gap 18 = corr 1 (left) / corr 2 (right); gap 10 = corr 2/1; gap 17/19 = corr 1.
+- 934a78 gap 5 = corr 1 / corr 1 (both ONLAP); gap 1/4 = corr 1; the rest corr 2.
+
+So 6bb744 DOES own genuine corr-0 lens tips (gap 5 right, gap 12 left) — but they are NOT the tips the owner reported flooding. The flood the owner watched is a **corr-1 ONLAP** whose apex, dragged aggressively, floods to a band.
+
+### WHY THE "LENS RULE" CANNOT BE BUILT AS SPECIFIED (owner ruling required)
+The prompt's build = "thread corr 0 → classify the tip as a lens → reject+snapback instead of flood, for LENSES; do NOT change onlap (corr 1) or band (corr 2)." Applied to the measured facts:
+1. If I gate reject+snapback on **corr 0 (LENS) only**, the owner's reported case (gap-7, **corr 1**) STILL floods + suppresses — the fix is a no-op for exactly the tip the owner named.
+2. If I make reject+snapback fire for the flood **regardless of corr** (the engine-agnostic fix — any `bodyId@gap` apex override that floods to a full-width band is an invalid placement → reject), it FIXES the owner's case — but it **changes corr-1 ONLAP behaviour**, which the prompt explicitly forbids ("Do NOT change onlap (corr 1) or band (corr 2) behaviour"), and treating a corr-1 onlap's flood as "invalid" is a geological call about what an onlap apex is allowed to do.
+3. Reclassifying the corr-1 gap-7 tip as a corr-0 lens (so the LENS rule catches it) is the forbidden invent-a-heuristic path — the engine says onlap; the owner's intuition says lens; those conflict.
+
+### THE CORR-THREADING SUB-FACT (Step-1 mechanism, if fork resolves toward it)
+The engine ALREADY has the 2/1/0 per unit-per-gap-side (`effectiveCorrForUnit`), and the face `klass` (band/onlap/lens in `labelFaces`) is that outcome at the face level — but it is NOT on the `SectionRegion` contract (§93 confirmed; verified again). Threading it additively is feasible, BUT it would NOT label the named shapeable tips corr-0: the base geometry labels them band/onlap-class faces (corr 2 / corr 1). So "read the region's corr and treat corr 0 as a lens" gives corr 1/2 for the very tips in question — the app-vs-engine disagreement (§93) is that the OVERLAY treats an apex-shapeable sub-region as a lens gesture while the ENGINE labels the whole face band/onlap. Threading corr does not by itself resolve the fork; it just surfaces the conflict onto the region.
+
+### OWNER QUESTIONS (pick one; then the build is unambiguous)
+1. **The flood-to-band escape hatch fires for corr-1 ONLAPS too (the owner's actual gap-7 case), not just corr-0 lenses.** Do you want reject+snapback (never persist a flooded band, never suppress the handle) to apply to **ANY apex tip the user is editing that floods** — corr 0 AND corr 1 — leaving only corr-2 bands + genuine ghost tips (the S77 `deadHandleBodies` probe) suppressed? That is the fix that actually cures your gap-7 dogfeed. It DOES change corr-1 onlap drag: an aggressive onlap apex that today floods+persists+suppresses would instead snap back with the handle alive. (This contradicts the prompt's "don't change onlap" clause — I need you to lift it, since your reported case IS an onlap.)
+2. OR: is the intended behaviour that a corr-1 onlap apex should be CLAMPED to a legal in-band reach (the LOCKED spec's "apex constrained to the band, clamp just short") so it can never reach a flooding position in the first place — i.e. fix it by constraining the drag envelope, not by rejecting on release? (That is Stage-1 onlap work from `freedraw-onlap-lens-edit-model.md`, which §93 flagged as the real corr-1 mechanism — and would ALSO stop the flood, differently.)
+3. Confirm: for the GENUINE corr-0 lens tips (6bb744 gap 5-right, gap 12-left), is the reject+snapback-on-flood rule correct as I described (an aggressive drag that would flood the lens to a band is refused, handle stays alive, snap to last valid lens)? I can build THAT slice safely today (corr-0 only) — it just won't touch the gap-7 onlap you dogfed.
+
+### VERIFICATION (nothing shipped; state proven unchanged)
+- Canonical gate `apexOverrideWiring.rules.test.ts` **5/5** (zero source edited). `npx tsc --noEmit -p tsconfig.web.json` CLEAN (incl. the 3 throwaway probes). Zero engine / v1 / intersect.ts / app-render / `gen_paint_tool.mjs` source touched — `git status` shows ONLY the 3 new throwaway tests as additions (the `M` on freedraw-onlap-lens-edit-model.md / gen_paint_tool.mjs / diag jsons are PRE-EXISTING worktree mods from prior sessions, not opened or edited this session).
+
+### Files this session (worktree, NOT committed — orchestrator commits/cleans)
+- `throwaway_s89_live_flood.diag.test.ts` — Step-0 all-gap live-vs-persist flood scan (CS1_GATE=1). **ORCHESTRATOR: DELETE** (`rm` denied to the session).
+- `throwaway_s89_gap7.diag.test.ts` — Step-0 owner-exact gap-7 flood repro incl. `classifyOverrideOutcome` status (CS1_GATE=1). **ORCHESTRATOR: DELETE.**
+- `throwaway_s89_corr.diag.test.ts` — Step-1 effectiveCorr dump for the named bodies (CS1_GATE=1). **ORCHESTRATOR: DELETE.**
+- `REWRITE_STATE.md` — this §94.
