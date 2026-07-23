@@ -183,6 +183,9 @@ export function baseContactEdge(
 export interface BoundaryDrag {
   upperBodyId: string
   lowerBodyId: string
+  /** The gap this contact spans (``SharedBoundary.gapIndex``) — the stable part of the §87
+   *  editable-target identity so a rejected boundary drag reddens only THIS contact node. */
+  gapIndex: number
   /** Index into the within-gap node array of the node being dragged. */
   nodeIndex: number
   /** Live cursor x (clamped to gap). */
@@ -216,6 +219,14 @@ export interface LensDrag {
    * discriminates which copy is being dragged so the other stays put.
    */
   regionIdx: number
+  /**
+   * The gap this dragged lens region sits in (``screenRegions[regionIdx].region.gapIndex``).
+   * Part of the EXACT editable-target identity (§87 BUG #1): a two-gap lens's apex in gap g is a
+   * different node from its apex in gap g+1, so the rejected-drag red / snap-back must key on the
+   * gap, not just the bodyId. ``regionIdx`` is ephemeral (it re-indexes as the partition regenerates
+   * mid-drag); ``gapIndex`` is the stable ownership key.
+   */
+  gapIndex: number
   side: 'left' | 'right'
   edge: 'upper' | 'lower'
   nodeIndex: number
@@ -278,6 +289,9 @@ export interface SharedBoundary {
 export interface ScreenLens {
   /** Index into screenRegions. */
   regionIdx: number
+  /** The gap this lens region sits in (``screenRegions[regionIdx].region.gapIndex``) — the stable
+   *  part of the §87 editable-target identity, shared verbatim with ``LensDrag.gapIndex``. */
+  gapIndex: number
   bodyId: string
   side: 'left' | 'right'
   /**

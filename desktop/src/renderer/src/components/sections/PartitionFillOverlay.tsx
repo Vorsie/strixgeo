@@ -108,7 +108,12 @@ import {
   type ScreenRegion,
   type SharedBoundary,
 } from './partitionFillOverlayHelpers'
-import { handleFillColor, shouldPersistDrag } from './unsafeDragUX'
+import {
+  type EditableTargetIdentity,
+  handleColorForTarget,
+  sameEditableTarget,
+  shouldPersistDrag,
+} from './unsafeDragUX'
 
 /**
  * Geotech fraction-space refinement inputs (owner-locked 2026-07-06). When
@@ -398,10 +403,18 @@ export default function PartitionFillOverlay({
       })
     }
     const up = (): void => {
-      // SNAP BACK (owner S80): a boundary drag that ended on a REFUSED reach (this body's live outcome
-      // is ``rejected-unsafe`` at release) is discarded — do NOT persist. Clearing ``boundaryDrag``
-      // returns the handle to the last safe contact the base fill already renders. See the lens ``up``.
-      const rejected = rejectedDragBodyRef.current === boundaryDrag.upperBodyId
+      // SNAP BACK (owner S80): a boundary drag that ended on a REFUSED reach (this EXACT contact node's
+      // live outcome is ``rejected-unsafe`` at release) is discarded — do NOT persist. Clearing
+      // ``boundaryDrag`` returns the handle to the last safe contact the base fill already renders. §87:
+      // match the EXACT dragged node (upper+lower body, gap, nodeIndex), not just the upper body, so a
+      // rejected release of one node cannot suppress the save of another. See the lens ``up``.
+      const rejected = sameEditableTarget(rejectedDragTargetRef.current, {
+        kind: 'boundary',
+        upperBodyId: boundaryDrag.upperBodyId,
+        lowerBodyId: boundaryDrag.lowerBodyId,
+        gapIndex: boundaryDrag.gapIndex,
+        nodeIndex: boundaryDrag.nodeIndex,
+      })
       if (
         shouldPersistDrag(rejected ? 'rejected-unsafe' : 'applied') &&
         onSaveBoundary &&
@@ -476,12 +489,20 @@ export default function PartitionFillOverlay({
       setLensDrag({ ...lensDrag, x: cx, y: cy })
     }
     const up = (): void => {
-      // SNAP BACK (owner S80): if the drag ended on a reach the engine REFUSED (this body's live
-      // outcome is ``rejected-unsafe`` at release), discard the unsafe node — do NOT persist. The
-      // base fill already renders the last SAFE shape, so clearing ``lensDrag`` snaps the handle back
-      // onto it. A safe release persists as before. Read the CURRENT rejection via the ref (the
-      // outcome is recomputed per drag frame; this closure was captured once at drag start).
-      const rejected = rejectedDragBodyRef.current === lensDrag.bodyId
+      // SNAP BACK (owner S80): if the drag ended on a reach the engine REFUSED (this EXACT node's live
+      // outcome is ``rejected-unsafe`` at release), discard the unsafe node — do NOT persist. The base
+      // fill already renders the last SAFE shape, so clearing ``lensDrag`` snaps the handle back onto
+      // it. A safe release persists as before. §87: match the EXACT dragged node (body, gap, edge,
+      // nodeIndex), not just the bodyId, so a rejected release of one edge cannot suppress the save of
+      // another node of the same body. Read the CURRENT rejection via the ref (the outcome is recomputed
+      // per drag frame; this closure was captured once at drag start).
+      const rejected = sameEditableTarget(rejectedDragTargetRef.current, {
+        kind: 'lens',
+        bodyId: lensDrag.bodyId,
+        gapIndex: lensDrag.gapIndex,
+        edge: lensDrag.edge,
+        nodeIndex: lensDrag.nodeIndex,
+      })
       if (shouldPersistDrag(rejected ? 'rejected-unsafe' : 'applied') && onSaveBoundary && screenXToAlong && screenToLevel) {
         const existing = boundariesByBodyId?.get(lensDrag.bodyId)
         const newNode: BodyBoundaryNode = {
@@ -646,11 +667,13 @@ export default function PartitionFillOverlay({
     unroutableBodies: Set<string>
     // v2 crossing-tie conflicts (owner §8 Q4) — drives the amber warning chip.
     conflicts: TieConflict[]
-    // The bodyId currently being dragged whose live override outcome this frame is
+    // The EXACT editable target currently being dragged whose live override outcome this frame is
     // ``rejected-unsafe`` (the engine refused the reach → rendered the un-reshaped base fill).
     // ``null`` when the drag is safe / absent. Drives the RED handle + the snap-back-on-release
-    // (owner S80 "red handle and snapback"). Read from the SAME engine pass — no extra run.
-    rejectedDragBody: string | null
+    // (owner S80 "red handle and snapback"). §87 BUG #1: this is the EXACT node identity (lens edge +
+    // nodeIndex, or the boundary contact), NOT a bodyId — so only the dragged handle reddens, never
+    // every sibling handle of the same body. Read from the SAME engine pass — no extra run.
+    rejectedDragTarget: EditableTargetIdentity | null
   } => {
     if (!showBands)
       return {
@@ -661,7 +684,7 @@ export default function PartitionFillOverlay({
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
         conflicts: [],
-        rejectedDragBody: null,
+        rejectedDragTarget: null,
       }
 
     // Valid columns in along-section order (have both unit data + screen edges).
@@ -676,7 +699,7 @@ export default function PartitionFillOverlay({
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
         conflicts: [],
-        rejectedDragBody: null,
+        rejectedDragTarget: null,
       }
 
     // Pre-compute gap x-extents from screenByInv so both memos share the same
@@ -820,13 +843,24 @@ export default function PartitionFillOverlay({
     // ---- UNSAFE-DRAG outcome (owner S80 "red handle and snapback"). ----------
     // The engine keeps "never a gap or overlap" by rendering the un-reshaped base fill on a
     // rejected frame (S79); ``overrideStatus === 'rejected-unsafe'`` is the explicit signal that the
-    // in-progress drag reached a refused position. Tie it to the body being dragged this frame so the
-    // render can redden ONLY that handle and the release can snap it back. Read from the SAME engine
-    // pass above (no extra run). A boundary drag reshapes the shared contact of its upper body, so its
-    // dragged body is ``upperBodyId``.
-    const draggedBodyId = lensDrag?.bodyId ?? boundaryDrag?.upperBodyId ?? null
-    const rejectedDragBody =
-      draggedBodyId != null && overrideStatus === 'rejected-unsafe' ? draggedBodyId : null
+    // in-progress drag reached a refused position. §87 BUG #1: tie it to the EXACT node being dragged
+    // (lens edge + nodeIndex, or the boundary contact), NOT the bodyId — a rendered body carries many
+    // handles (its two lens edges, several stacked tips across gaps, its shared-boundary contact when
+    // it is a full-width band; measured 9 sibling handles on real CS1), and a body-level match reddens
+    // ALL of them at once. The exact identity reddens only the dragged handle and snaps back only it.
+    // Read from the SAME engine pass above (no extra run).
+    const draggedTarget: EditableTargetIdentity | null = lensDrag
+      ? { kind: 'lens', bodyId: lensDrag.bodyId, gapIndex: lensDrag.gapIndex, edge: lensDrag.edge, nodeIndex: lensDrag.nodeIndex }
+      : boundaryDrag
+        ? {
+            kind: 'boundary',
+            upperBodyId: boundaryDrag.upperBodyId,
+            lowerBodyId: boundaryDrag.lowerBodyId,
+            gapIndex: boundaryDrag.gapIndex,
+            nodeIndex: boundaryDrag.nodeIndex,
+          }
+        : null
+    const rejectedDragTarget = draggedTarget != null && overrideStatus === 'rejected-unsafe' ? draggedTarget : null
     log.debug(
       'partition',
       `section fill: ${orderedColumns.length} cols, ${edges.length} edges → ${sectionRegions.length} regions` +
@@ -884,7 +918,7 @@ export default function PartitionFillOverlay({
       contactOverriddenBodies,
       unroutableBodies,
       conflicts,
-      rejectedDragBody,
+      rejectedDragTarget,
     }
   }, [
     orderedInvs,
@@ -908,17 +942,18 @@ export default function PartitionFillOverlay({
   // (never a dialog / focus steal). v1 always reports none.
   const conflicts = sectionFillData.conflicts
 
-  // ---- UNSAFE-DRAG UX (owner S80 "red handle and snapback"). ---------------
-  // The bodyId whose in-progress drag reached a REFUSED reach this frame (engine ``rejected-unsafe``).
-  // Drives the RED handle in the render. A ref mirrors it so the drag ``mouseup`` closures (which are
-  // captured once per drag, not per frame) can read the CURRENT rejection state at release without a
+  // ---- UNSAFE-DRAG UX (owner S80 "red handle and snapback"; §87 exact identity). ------------
+  // The EXACT editable target whose in-progress drag reached a REFUSED reach this frame (engine
+  // ``rejected-unsafe``). Drives the RED handle in the render — reddening ONLY the dragged node, never
+  // every sibling handle of the same body (§87 BUG #1). A ref mirrors it so the drag ``mouseup``
+  // closures (captured once per drag, not per frame) read the CURRENT rejection at release without a
   // stale closure — a rejected release snaps back (skips ``onSaveBoundary``) instead of persisting the
   // unsafe node. The gap-proof invariant holds: a rejected drag never persists → never a stored gap.
-  const rejectedDragBody = sectionFillData.rejectedDragBody
-  const rejectedDragBodyRef = useRef<string | null>(null)
+  const rejectedDragTarget = sectionFillData.rejectedDragTarget
+  const rejectedDragTargetRef = useRef<EditableTargetIdentity | null>(null)
   useEffect(() => {
-    rejectedDragBodyRef.current = rejectedDragBody
-  }, [rejectedDragBody])
+    rejectedDragTargetRef.current = rejectedDragTarget
+  }, [rejectedDragTarget])
 
   // Log the conflict list ONCE per change so a dogfeed DevTools console shows the
   // suspended ties without a dialog. console.info (not .debug) so it survives the
@@ -1902,6 +1937,7 @@ export default function PartitionFillOverlay({
 
       out.push({
         regionIdx: ri,
+        gapIndex: sr.region.gapIndex,
         bodyId,
         side,
         upperNodes: toHandles(upperStored, 'upper'),
@@ -2459,6 +2495,7 @@ export default function PartitionFillOverlay({
                     setBoundaryDrag({
                       upperBodyId: sb.upperBodyId,
                       lowerBodyId: sb.lowerBodyId,
+                      gapIndex: sb.gapIndex,
                       nodeIndex,
                       x,
                       y,
@@ -2485,8 +2522,13 @@ export default function PartitionFillOverlay({
                   cx={x}
                   cy={y}
                   r={BOUNDARY_R}
-                  // RED while THIS boundary drag is refused (owner S80); normal sky-blue otherwise.
-                  fill={handleFillColor(sb.upperBodyId, rejectedDragBody, BOUNDARY_COLOR)}
+                  // RED while THIS EXACT contact node's drag is refused (owner S80; §87 exact identity);
+                  // a sibling contact node or lens handle of the same body stays sky-blue.
+                  fill={handleColorForTarget(
+                    { kind: 'boundary', upperBodyId: sb.upperBodyId, lowerBodyId: sb.lowerBodyId, gapIndex: sb.gapIndex, nodeIndex },
+                    rejectedDragTarget,
+                    BOUNDARY_COLOR,
+                  )}
                   stroke="#0f172a"
                   strokeWidth={1}
                   style={{ pointerEvents: 'none' }}
@@ -2601,6 +2643,7 @@ export default function PartitionFillOverlay({
                     setLensDrag({
                       bodyId: sl.bodyId,
                       regionIdx: sl.regionIdx,
+                      gapIndex: sl.gapIndex,
                       side: sl.side,
                       edge: 'upper',
                       nodeIndex,
@@ -2623,8 +2666,13 @@ export default function PartitionFillOverlay({
                   cx={x}
                   cy={y}
                   r={lensR}
-                  // RED while THIS lens drag is refused (owner S80); normal amber otherwise.
-                  fill={handleFillColor(sl.bodyId, rejectedDragBody, LENS_COLOR)}
+                  // RED while THIS EXACT lens node's drag is refused (owner S80; §87 exact identity);
+                  // the body's OTHER edge / other-gap tip / boundary handle stays amber.
+                  fill={handleColorForTarget(
+                    { kind: 'lens', bodyId: sl.bodyId, gapIndex: sl.gapIndex, edge: 'upper', nodeIndex },
+                    rejectedDragTarget,
+                    LENS_COLOR,
+                  )}
                   stroke="#0f172a"
                   strokeWidth={1}
                   style={{ pointerEvents: 'none' }}
@@ -2647,6 +2695,7 @@ export default function PartitionFillOverlay({
                     setLensDrag({
                       bodyId: sl.bodyId,
                       regionIdx: sl.regionIdx,
+                      gapIndex: sl.gapIndex,
                       side: sl.side,
                       edge: 'lower',
                       nodeIndex,
@@ -2669,8 +2718,13 @@ export default function PartitionFillOverlay({
                   cx={x}
                   cy={y}
                   r={lensR}
-                  // RED while THIS lens drag is refused (owner S80); normal amber otherwise.
-                  fill={handleFillColor(sl.bodyId, rejectedDragBody, LENS_COLOR)}
+                  // RED while THIS EXACT lens node's drag is refused (owner S80; §87 exact identity);
+                  // the body's OTHER edge / other-gap tip / boundary handle stays amber.
+                  fill={handleColorForTarget(
+                    { kind: 'lens', bodyId: sl.bodyId, gapIndex: sl.gapIndex, edge: 'lower', nodeIndex },
+                    rejectedDragTarget,
+                    LENS_COLOR,
+                  )}
                   stroke="#0f172a"
                   strokeWidth={1}
                   style={{ pointerEvents: 'none' }}

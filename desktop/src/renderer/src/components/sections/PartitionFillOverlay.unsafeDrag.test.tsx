@@ -126,6 +126,7 @@ function siltLensRegion(): SectionRegion {
   } as unknown as SectionRegion
 }
 
+
 /** A full-width sand band so the gap is a valid partition alongside the lens. */
 function sandBandRegion(): SectionRegion {
   return {
@@ -163,6 +164,19 @@ const boundariesWithNode = new Map([
     {
       upper_nodes: [{ along_m: 50, elevation_m: 4.5 }],
       lower_nodes: [],
+    } as unknown as BodyBoundaryResponse,
+  ],
+])
+
+// The SAME silt body carries an upper AND a lower node → TWO handles on one body. BUG #1 (§87):
+// the old body-level red rule reddened BOTH when only one is dragged. The exact-identity rule
+// reddens only the dragged one.
+const boundariesTwoHandles = new Map([
+  [
+    'silt',
+    {
+      upper_nodes: [{ along_m: 50, elevation_m: 4.5 }],
+      lower_nodes: [{ along_m: 50, elevation_m: 4.2 }],
     } as unknown as BodyBoundaryResponse,
   ],
 ])
@@ -208,6 +222,27 @@ describe('PartitionFillOverlay — unsafe-drag red handle + snap-back (owner S80
     })
     // Snap back: the unsafe node was discarded, the safe geometry stands unchanged.
     expect(onSaveBoundary).not.toHaveBeenCalled()
+  })
+
+  it('UD4 — a rejected lens drag reddens ONLY the dragged node, not a sibling handle of the same body (§87 BUG #1)', () => {
+    stubOutcome('rejected-unsafe')
+    const { getByTestId } = renderOverlay({
+      onSaveBoundary: vi.fn(),
+      boundariesByBodyId: boundariesTwoHandles,
+    })
+    const upper = getByTestId('partition-lens-handle-silt-upper-0')
+    const lower = getByTestId('partition-lens-handle-silt-lower-0')
+    // Both amber before the drag.
+    expect(upper.getAttribute('fill')).toBe(NORMAL_LENS_COLOR)
+    expect(lower.getAttribute('fill')).toBe(NORMAL_LENS_COLOR)
+    // Drag the UPPER node into a rejection.
+    fireEvent.mouseDown(getByTestId('partition-lens-hit-silt-upper-0'))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 78, clientY: 45 }))
+    })
+    // The dragged (upper) handle is red; the SIBLING (lower) handle of the SAME body stays amber.
+    expect(getByTestId('partition-lens-handle-silt-upper-0').getAttribute('fill')).toBe(REJECT_COLOR)
+    expect(getByTestId('partition-lens-handle-silt-lower-0').getAttribute('fill')).toBe(NORMAL_LENS_COLOR)
   })
 
   it('UD3 — a SAFE (applied) drag keeps the normal handle colour AND persists', () => {
