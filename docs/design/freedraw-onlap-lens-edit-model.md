@@ -30,10 +30,18 @@ ever reached via right-click **Decouple** (below).
 - **Apex handle** — CONSTRAINED TO THE BAND. Dragging slides it ALONG the band
   only (1-D); it can never leave the band. Moving it changes WHERE along the
   band the wedge pinches out.
+  - **Endpoint behaviour (owner-decided 2026-07-23, "for now"): CLAMP JUST
+    SHORT.** The apex stops a hair before either tie (the engine's existing
+    `clampApex` [0.02, 0.98] margin); the onlap never fully degenerates to
+    zero width, and reaching a tie is a clamp — NOT a reject, NOT a vanish.
+    Revisit only if dogfeed wants a true pinch-to-tie.
 - **Diagonal handle** — grab the sloping segment to re-angle the wedge slope,
-  independently of the apex.
+  independently of the apex. **DEFERRED past Stage 1** — Stage 1 ships the
+  apex handle only; the wedge slope is whatever the default flood produces
+  until the diagonal handle lands as a Stage-1 suffix.
 - Overlap / collision with a neighbour → **invalid placement**, rejected
-  (the existing red-handle + snapback).
+  (the existing red-handle + snapback). This REPLACES the engine's old
+  "override opens a defect → flood to band → suppress handle" escape hatch.
 
 ## Right-click → "Decouple onlap" → LENS
 
@@ -60,7 +68,20 @@ to tie.
 
 - The fill stays a true partition — no gaps, no overlaps — at every drag frame
   and on release (the v2 engine's HOLES_DIAG 0/0/0 gate).
-- An invalid (overlapping) placement is never persisted: red handle + snapback.
+- An invalid placement is never persisted: red handle + snapback.
+- **Collapse → invalid (owner-approved 2026-07-23, the general rule).** A
+  tip edit — ONLAP or LENS alike — that collapses its tip into a full-width
+  band (destroying its own grab handle) is INVALID, even though a full band
+  is a hole-free/overlap-free partition. Root cause of the recurring "it
+  stopped working": flood-to-band passes the defect check (0 holes) →
+  `classifyOverrideOutcome` returned `applied` → the flooded band persisted →
+  the region went non-shapeable → the handle was suppressed. The rule: if the
+  edited tip's region would become non-shapeable (`!isApexShapeable`, i.e.
+  full-width / no interior vertex), REJECT → snap back to the last good shape,
+  keep the handle ALIVE. A legitimate near-tie pinch stays a clamped sliver
+  (still shapeable) and is NOT a collapse. This is engine-agnostic — no
+  onlap-vs-lens adjudication needed — and REPLACES the flood-to-band +
+  handle-suppression escape hatch for the edited tip.
 - Persist routes the node by KIND (onlap → contact/tied path; lens → lens
   path) — see §85 `detectPersistedLensBodies`; a persisted node must rebuild
   through the SAME routable mechanism the live drag used (no snapback).
