@@ -148,6 +148,13 @@ function lowerBodyAtContact(
  *     The active boundary drag, so the dragged node reads the live cursor.
  * out : Map<string, LensApexOverride>
  *     The override map to populate (mutated).
+ * skipBodyId : string | null
+ *     A two-sided body that is being dragged as a LENS tip in this gap (§88). Its
+ *     node is already applied as a ``bodyId@gap`` lens apex override, so the contact
+ *     path must NOT also emit a ``contact:U|L@g`` bend for it (the same node would be
+ *     double-applied — once as a lens tip, once as a shared-contact bend). The drag
+ *     KIND (lens) decides, not the body's two-sidedness (which reads as a contact by
+ *     geometry alone). ``null`` (the default caller) preserves the original behaviour.
  *
  * Returns
  * -------
@@ -166,6 +173,7 @@ export function collectContactOverridesForGap(
   screenToLevel: ((y: number) => number) | undefined,
   drag: ContactDragState | null,
   out: Map<string, LensApexOverride>,
+  skipBodyId: string | null = null,
 ): Set<string> {
   const overridden = new Set<string>()
   if (!boundariesByBodyId) return overridden
@@ -184,6 +192,8 @@ export function collectContactOverridesForGap(
   const clamp01 = (v: number): number => Math.max(0, Math.min(1, v))
 
   for (const upperBodyId of twoSided) {
+    // §88 disentangle: this body's node is already a lens apex override in this gap.
+    if (upperBodyId === skipBodyId) continue
     const bnd = boundariesByBodyId.get(upperBodyId)
     if (!bnd) continue
     const nodes = (bnd.lower_nodes ?? []).filter(inGap)
