@@ -1,5 +1,26 @@
 # Free-draw edit model — onlap vs lens (LOCKED spec, owner 2026-07-23)
 
+## ANY BOUNDARY BENDS TO THE CURSOR (owner-decided 2026-07-24 — the reshape capability)
+
+A drag on ANY two-band litho boundary moves the grabbed node to the CURSOR
+position and bends the boundary through it — ONE clean bend, gap-free —
+**whether or not the boundary is correlated.** Un-correlated boundaries are
+NO LONGER read-only. This is the owner's core model ("i just want the boundary
+i click to reshape to where i move my cursor") and it supersedes the v2
+engine's tie-only reshape: today `contactOverride.collectContactBends` bends
+ONLY a contact carrying an active correlation TIE, an `isApexShapeable` region
+is hijacked to the LENS path whose mousemove clamps the node to the tip span
+(`PartitionFillOverlay.tsx:507` → el snaps to the pinch span, not the cursor),
+and an un-tied two-band base (e.g. CS1 clay `934a78` gap-5 base el 6.44) has no
+bend mechanism at all (S100 diagnosis). The capability to build: a boundary
+drag stores the RAW cursor `(along, elevation)` (gap-free-clamped only — cannot
+cross the neighbour above/below), and the engine bends ANY two-band boundary
+through it, no tie required, no lens clamp, one region set (no fragmentation).
+Correlation ties still drive the AUTO fill; MANUAL reshape is unrestricted.
+Edge cases handled/asked-not-invented: a true pinch tip (band → zero, no other
+band) and a surface-bounded boundary (nothing above) have no two-band contact
+to bend — resolve per case, do not guess.
+
 ## UNIFIED LITHO-EDGE HANDLE (owner-decided 2026-07-23 — the interaction surface)
 
 There is exactly ONE grabbable thing: **a line between two litho fills.** Every
