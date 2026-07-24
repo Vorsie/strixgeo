@@ -2185,9 +2185,14 @@ export default function PartitionFillOverlay({
     // sits inside both incident bands — the router's nearest-edge tiebreak then
     // resolves which one, matching the geometric-upper labelling in the pair.
     for (const sb of sharedBoundaries) {
-      const [ne0, ne1] = sb.naturalEdge
       const upperRegion = screenRegions[sb.upperIdx]
-      const segs: [{ x: number; y: number }, { x: number; y: number }][] = [[ne0, ne1]]
+      // Hit segments = consecutive pairs of the base-contact polyline, so a click on
+      // any part of a BENT contact grabs it (and the grab tolerance rides the visible
+      // marker, not a straight chord that drifts above the bend). S104.
+      const segs: [{ x: number; y: number }, { x: number; y: number }][] = []
+      for (let i = 0; i < sb.naturalEdge.length - 1; i += 1) {
+        segs.push([sb.naturalEdge[i], sb.naturalEdge[i + 1]])
+      }
       cands.push({
         segments: segs,
         regionPolygon: upperRegion?.points,
@@ -2660,21 +2665,23 @@ export default function PartitionFillOverlay({
           Each handle's testid encodes [upperBodyId]-[lowerBodyId]-[i] so tests
           can assert N handles independently. */}
       {!refinement && sharedBoundaries.map((sb) => {
-        const [ne0, ne1] = sb.naturalEdge
+        // The add-strip (grab box) rides the base-contact POLYLINE — following the
+        // fill's visible lower boundary, bends included — so the 14px hit tolerance is
+        // centred on the marker, not on a straight chord that drifts above a bend
+        // (owner S104 "the grab box seems to be ABOVE the marker").
+        const addStripPoints = sb.naturalEdge.map((p) => `${p.x},${p.y}`).join(' ')
         return (
           // Key by per-gap-unique region indices, NOT the body-pair: the same
           // (upper, lower) body-pair boundary recurs in every gap the bodies
           // span, so a `${upper}-${lower}` key collides across gaps (debt #2).
           <g key={`pf-bnd-${sb.upperIdx}-${sb.lowerIdx}`}>
-            {/* Add-strip: transparent line along the boundary edge.
+            {/* Add-strip: transparent polyline along the boundary contact.
                 Hover shows a preview dot ON the nearest litho edge — hidden in the
                 open interior (S99 edge-only; owner directive 2026-06-05 declutter). */}
-            <line
+            <polyline
               data-testid={`partition-boundary-addstrip-${sb.upperBodyId}-${sb.lowerBodyId}`}
-              x1={ne0.x}
-              y1={ne0.y}
-              x2={ne1.x}
-              y2={ne1.y}
+              points={addStripPoints}
+              fill="none"
               stroke="transparent"
               strokeWidth={ADDSTRIP_HIT_W}
               style={{ pointerEvents: interactivePtr, cursor: 'copy' }}

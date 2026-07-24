@@ -125,47 +125,79 @@ export interface ColumnScreen {
 }
 
 /**
- * The BASE-contact edge endpoints of an upper region's screen polygon — the
- * segment the boundary add-strip must sit on so a click on the contact between
- * two stacked bands lands ON that contact (S72).
+ * The BASE-contact POLYLINE of an upper region's screen polygon — the line the
+ * boundary add-strip (grab box) must ride so a click on the visible contact
+ * between two stacked bands lands ON that contact (S72), and so the grab box is
+ * centred on the marker the engineer sees (the fill's lower boundary).
  *
- * The previous derivation took the polygon's last two vertices, assuming they
- * were the base edge. That holds for a lens/pinch whose ring ends at its base,
- * but a v2 FULL-WIDTH band rectangle winds ``topL → baseL → baseR → topR`` — its
- * last two vertices are the RIGHT COLUMN edge, so the add-strip rendered as a
- * vertical stub on the column instead of the base contact, and a click on the
- * base could not grab it (the owner's "can't resize units bounded by a base tie /
- * can't grab it", GEO-23/125-S10). The robust base edge is the region's deepest
- * horizontal span: the two vertices at (near) the maximum screen-y (lowest
- * elevation), ordered left→right. That segment IS the shared contact with the band
- * directly below, so projecting a click onto it lands the node on the contact.
+ * Prior derivations broke on two shapes:
+ *   1. Taking the polygon's LAST TWO vertices assumed a lens ring ending at its
+ *      base — but a v2 FULL-WIDTH band winds ``topL → baseL → baseR → topR``, so
+ *      the last two vertices are the RIGHT COLUMN edge (a vertical stub on the
+ *      column — GEO-23/125-S10 "can't grab a base-tie unit").
+ *   2. Taking the two extreme-x vertices at (near) the deepest y worked ONLY for
+ *      a FLAT base. When a stored node BENDS the contact, the base run is a
+ *      polyline whose vertices sit at DIFFERENT y's; only one vertex lands within
+ *      ``Y_SLACK`` of maxY, the code fell back to "all vertices", and picked the
+ *      polygon's extreme-x corners — which are the TOP corners. The add-strip then
+ *      sloped from a top corner down to the base, sitting ABOVE the real contact
+ *      (owner dogfeed 2026-07-24: "the grab box seems to be ABOVE the marker").
+ *
+ * The robust base contact is the polygon's LOWER-ENVELOPE chain: the vertices that
+ * have NOTHING of the polygon below them (no ring edge passes DEEPER at their x).
+ * This keeps the true bottom boundary — bends and all — while EXCLUDING both the top
+ * edge AND any interior concavity (e.g. the underside of a lens carved into a matrix,
+ * whose notch vertices sit ABOVE the matrix's real base). The earlier "every non-top
+ * vertex" rule pulled such notch vertices into the base and let the matrix add-strip
+ * ride the lens edge (an N2 regression). Ordered left→right, the chain IS the visible
+ * shared contact with the band below, so projecting a click onto it lands the node on
+ * the contact and the grab tolerance is centred on the marker.
+ *
+ * Returned as an ordered point list (a polyline); the caller builds hit segments from
+ * consecutive pairs and renders the add-strip as a polyline.
  *
  * @param pts The upper region's screen polygon vertices (>= 3).
- * @returns   ``[left, right]`` endpoints of the base edge, or ``null`` when the
- *            polygon is degenerate (< 3 vertices).
+ * @returns   The ordered base-contact polyline (>= 2 points, left→right), or
+ *            ``null`` when the polygon is degenerate (< 3 vertices).
  */
 export function baseContactEdge(
   pts: readonly { x: number; y: number }[],
-): [{ x: number; y: number }, { x: number; y: number }] | null {
+): { x: number; y: number }[] | null {
   if (pts.length < 3) return null
-  // Deepest band = largest y. Collect vertices within a small y-slack of maxY so a
-  // near-horizontal (slightly bent) base still yields its full left→right span.
+  const Y_SLACK = 1 // px — a contact stored to mm is flat to well under 1 px.
+  const n = pts.length
+  // A vertex is on the base iff NOTHING of the polygon sits deeper (larger screen-y)
+  // than it at its own x — checking both spanning EDGES and other VERTICES at the same
+  // x (a column-face stack of top + base corners shares an x, so the edge test alone
+  // would keep the top corner too). Notch/top vertices have polygon below them →
+  // excluded; the true bottom boundary (sloped/bent base included) has nothing below.
+  const onBase = (v: { x: number; y: number }): boolean => {
+    for (let i = 0; i < n; i += 1) {
+      const a = pts[i]
+      const b = pts[(i + 1) % n]
+      const loX = Math.min(a.x, b.x)
+      const hiX = Math.max(a.x, b.x)
+      // A vertical edge (a.x ≈ b.x ≈ v.x): its deeper endpoint sits below v at this x.
+      if (Math.abs(a.x - b.x) < 1e-9) {
+        if (Math.abs(a.x - v.x) < 1e-9 && Math.max(a.y, b.y) > v.y + Y_SLACK) return false
+        continue
+      }
+      // Only edges whose x-span contains v.x can sit below it.
+      if (v.x < loX - 1e-9 || v.x > hiX + 1e-9) continue
+      const t = (v.x - a.x) / (b.x - a.x)
+      const edgeY = a.y + t * (b.y - a.y)
+      if (edgeY > v.y + Y_SLACK) return false // polygon runs deeper here → not the base
+    }
+    return true
+  }
+  const chain = pts.filter(onBase)
+  // Degenerate guard: keep the deepest horizontal span if the envelope collapses.
   let maxY = -Infinity
   for (const p of pts) if (p.y > maxY) maxY = p.y
-  const Y_SLACK = 1 // px — a base contact stored to mm is flat to well under 1 px.
-  const onBase = pts.filter((p) => p.y >= maxY - Y_SLACK)
-  const pool = onBase.length >= 2 ? onBase : pts
-  // Left = smallest x on the base, right = largest x — the contact's screen span.
-  let left = pool[0]
-  let right = pool[0]
-  for (const p of pool) {
-    if (p.x < left.x) left = p
-    if (p.x > right.x) right = p
-  }
-  return [
-    { x: left.x, y: left.y },
-    { x: right.x, y: right.y },
-  ]
+  const pool = chain.length >= 2 ? chain : pts.filter((p) => p.y >= maxY - Y_SLACK)
+  const finalPool = pool.length >= 2 ? pool : pts
+  // Order the base chain left→right so the add-strip polyline runs across the gap.
+  return [...finalPool].sort((a, b) => a.x - b.x)
 }
 
 // ---------------------------------------------------------------------------
@@ -291,11 +323,13 @@ export interface SharedBoundary {
   leftX: number
   rightX: number
   /**
-   * A polyline through the natural base edge of the upper region, used to
-   * position the add-strip. This is [[x0, y0], [x1, y1]] — the two endpoints
-   * of the upper polygon's base edge (screen coords).
+   * The natural base-contact POLYLINE of the upper region (screen coords, ordered
+   * left→right, >= 2 points), used to position the add-strip (grab box). It follows
+   * the fill's visible lower boundary — bends included — so the grab tolerance is
+   * centred on the marker (S104). Hit segments are consecutive pairs; the add-strip
+   * renders as a polyline.
    */
-  naturalEdge: [{ x: number; y: number }, { x: number; y: number }]
+  naturalEdge: { x: number; y: number }[]
 }
 
 /**

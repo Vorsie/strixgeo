@@ -167,6 +167,56 @@ function pressGrabRelease(
   fireEvent.mouseUp(window)
 }
 
+/**
+ * The first + last endpoints of a rendered add-strip. Lens strips are ``<line>``
+ * (x1/y1/x2/y2); the boundary strip is a ``<polyline>`` (S104, ``points`` — it rides
+ * the bent base contact) — read either shape uniformly. Module-level so every
+ * describe block shares it.
+ */
+function stripEnds(strip: Element): { x1: number; y1: number; x2: number; y2: number } {
+  const pts = strip.getAttribute('points')
+  if (pts) {
+    const parsed = pts.trim().split(/\s+/).map((pair) => pair.split(',').map(Number))
+    const [x1, y1] = parsed[0]
+    const [x2, y2] = parsed[parsed.length - 1]
+    return { x1, y1, x2, y2 }
+  }
+  return {
+    x1: Number(strip.getAttribute('x1')),
+    y1: Number(strip.getAttribute('y1')),
+    x2: Number(strip.getAttribute('x2')),
+    y2: Number(strip.getAttribute('y2')),
+  }
+}
+
+/** All consecutive segments of a rendered add-strip (polyline vertices or line ends). */
+function stripSegments(strip: Element): { a: { x: number; y: number }; b: { x: number; y: number } }[] {
+  const pts = strip.getAttribute('points')
+  if (pts) {
+    const parsed = pts.trim().split(/\s+/).map((pair) => {
+      const [x, y] = pair.split(',').map(Number)
+      return { x, y }
+    })
+    const segs: { a: { x: number; y: number }; b: { x: number; y: number } }[] = []
+    for (let i = 0; i < parsed.length - 1; i += 1) segs.push({ a: parsed[i], b: parsed[i + 1] })
+    return segs
+  }
+  const { x1, y1, x2, y2 } = stripEnds(strip)
+  return [{ a: { x: x1, y: y1 }, b: { x: x2, y: y2 } }]
+}
+
+/** Squared distance from a point to a segment (clamped) — for the edge-proximity test. */
+function distSqPointToSeg(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const lenSq = dx * dx + dy * dy
+  const t = lenSq === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq
+  const c = Math.max(0, Math.min(1, t))
+  const ex = p.x - (a.x + c * dx)
+  const ey = p.y - (a.y + c * dy)
+  return ex * ex + ey * ey
+}
+
 // Enclosed silt lens in a sand matrix on L; continuous sand on R.
 // Column L: nudgedX=0, width=40 → gap leftX=20, rightX=80.
 const lensLayers = [
@@ -581,10 +631,7 @@ describe('PartitionFillOverlay', () => {
     // own endpoints and interpolate the on-edge y at x=60) so the grab lands, then
     // release persists. Persists at the projected mousedown x (≈60).
     const strip = getByTestId('partition-boundary-addstrip-sand-clay')
-    const ex1 = Number(strip.getAttribute('x1'))
-    const ey1 = Number(strip.getAttribute('y1'))
-    const ex2 = Number(strip.getAttribute('x2'))
-    const ey2 = Number(strip.getAttribute('y2'))
+    const { x1: ex1, y1: ey1, x2: ex2, y2: ey2 } = stripEnds(strip)
     const onEdgeY = ey1 + ((60 - ex1) / (ex2 - ex1)) * (ey2 - ey1)
     pressGrabRelease(strip, { clientX: 60, clientY: onEdgeY })
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
@@ -673,12 +720,9 @@ describe('PartitionFillOverlay', () => {
   // endpoints (its midpoint is guaranteed ON the edge), not a hand-picked cursor.
   // --------------------------------------------------------------------------
 
-  /** The midpoint of a rendered add-strip <line> — a point guaranteed ON its edge. */
+  /** The midpoint of a rendered add-strip — a point guaranteed ON its edge. */
   function stripMidpoint(strip: Element): { clientX: number; clientY: number } {
-    const x1 = Number(strip.getAttribute('x1'))
-    const y1 = Number(strip.getAttribute('y1'))
-    const x2 = Number(strip.getAttribute('x2'))
-    const y2 = Number(strip.getAttribute('y2'))
+    const { x1, y1, x2, y2 } = stripEnds(strip)
     return { clientX: (x1 + x2) / 2, clientY: (y1 + y2) / 2 }
   }
 
@@ -1779,12 +1823,18 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
       ...queryAllByTestId(/partition-lens-addstrip-/),
       ...queryAllByTestId(/partition-boundary-addstrip-/),
     ]
-    const edgeMids = stripEls.map((el) => ({
-      x: (Number(el.getAttribute('x1')) + Number(el.getAttribute('x2'))) / 2,
-      y: (Number(el.getAttribute('y1')) + Number(el.getAttribute('y2'))) / 2,
-    }))
+    const edgeMids = stripEls.map((el) => {
+      const { x1, y1, x2, y2 } = stripEnds(el)
+      return { x: (x1 + x2) / 2, y: (y1 + y2) / 2 }
+    })
+    // The boundary add-strip is a bent POLYLINE (S104): its true hit line is the run of
+    // consecutive segments, not the chord between its endpoints. Build the real segment
+    // list so ``nearAnyEdge`` measures perpendicular distance to the actual grab line —
+    // otherwise an interior point sitting ON a bend is wrongly deemed "far from any edge"
+    // and the no-op assertion fires on a point that legitimately grabs.
+    const stripSegs = stripEls.flatMap((el) => stripSegments(el))
     const nearAnyEdge = (p: { x: number; y: number }): boolean =>
-      edgeMids.some((m) => (m.x - p.x) ** 2 + (m.y - p.y) ** 2 <= 7 * 7)
+      stripSegs.some((s) => distSqPointToSeg(p, s.a, s.b) <= 7 * 7)
 
     const anyStrip = stripEls[0]
     expect(anyStrip).toBeTruthy()
@@ -1997,7 +2047,7 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
   /** The interior-gap add-strip (its left endpoint sits at the gap-left x≈20),
    *  never the x=80 open-end stub that shares the same testid. */
   function interiorStrip(strips: HTMLElement[]): HTMLElement | undefined {
-    return strips.find((el) => Number(el.getAttribute('x1')) < 40)
+    return strips.find((el) => stripEnds(el).x1 < 40)
   }
 
   it('N1 — a press ON the contact edge stores the node ON the contact, not at the stray cursor y', () => {
@@ -2139,7 +2189,7 @@ describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () =>
 
   /** The interior-gap add-strip (left endpoint at gap-left x≈20), not the open-end. */
   function interiorStrip(strips: HTMLElement[]): HTMLElement | undefined {
-    return strips.find((el) => Number(el.getAttribute('x1')) < 40)
+    return strips.find((el) => stripEnds(el).x1 < 40)
   }
 
   it('T1 — a stacked band whose base is a two-band contact renders a grabbable boundary add-strip', () => {
@@ -2154,8 +2204,9 @@ describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () =>
     // runs HORIZONTALLY along the base (x1≈20, x2≈80), not a vertical column stub.
     const strip = interiorStrip(queryAllByTestId('partition-boundary-addstrip-silt-clay'))
     expect(strip).toBeTruthy()
-    expect(Number(strip!.getAttribute('x1'))).toBeLessThan(40) // gap-left
-    expect(Number(strip!.getAttribute('x2'))).toBeGreaterThan(60) // gap-right span
+    const { x1: t1x1, x2: t1x2 } = stripEnds(strip!)
+    expect(t1x1).toBeLessThan(40) // gap-left
+    expect(t1x2).toBeGreaterThan(60) // gap-right span
   })
 
   it('T2 — clicking a tie-bounded base add-strip stores a contact node on the upper band (contact-bend, both bands follow)', () => {
