@@ -88,6 +88,46 @@ export function tieRefFarElev(tie: ResolvedTie, side: 'left' | 'right'): number 
 }
 
 /**
+ * The elevation (y) at the along-section METRE position ``targetX`` along a polyline ordered by x
+ * (session 109 — the onlap rides its host tie's BENT segment). Interpolates the segment that spans
+ * ``targetX``, so a 3-point ``[left, apex, right]`` bend yields the BENT elevation at that x (NOT the
+ * straight endpoint→endpoint chord). Working in absolute metres (not a gap fraction) keeps it look-
+ * side-agnostic: the onlap's apex-x is already the real metre position, and the bent tie polyline is
+ * in the same metres×elevation space, so left/right orientation of the look never matters. A
+ * ``targetX`` at/past an endpoint clamps to that endpoint's y; a degenerate poly → the first point's y.
+ *
+ * Parameters
+ * ----------
+ * poly : readonly Point[]
+ *     The host tie's bent polyline (≥ 1 point), in metres×elevation.
+ * targetX : number
+ *     The along-section metre position to sample (the onlap apex's real x).
+ */
+export function elevAtXAlong(poly: readonly Point[], targetX: number): number {
+  if (poly.length === 0) return 0
+  if (poly.length === 1) return poly[0].y
+  // The polyline may be stored left→right OR right→left depending on the tie's column order; sample
+  // by absolute x regardless. Clamp to the min/max x endpoints.
+  const first = poly[0]
+  const last = poly[poly.length - 1]
+  const loX = Math.min(first.x, last.x)
+  const hiX = Math.max(first.x, last.x)
+  if (targetX <= loX + ELEV_EPS) return first.x <= last.x ? first.y : last.y
+  if (targetX >= hiX - ELEV_EPS) return first.x <= last.x ? last.y : first.y
+  for (let i = 0; i + 1 < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[i + 1]
+    if (targetX >= Math.min(a.x, b.x) - ELEV_EPS && targetX <= Math.max(a.x, b.x) + ELEV_EPS) {
+      const dx = b.x - a.x
+      if (Math.abs(dx) < ELEV_EPS) return a.y
+      const t = (targetX - a.x) / dx
+      return a.y + t * (b.y - a.y)
+    }
+  }
+  return last.y
+}
+
+/**
  * The FACING endpoint's CONTACT SIDE (top / base) of a resolved tie for the look ``side`` (ruling
  * 8m follow-the-tie correctness). The far endpoint is the FACING column's; a LEFT look faces RIGHT,
  * a RIGHT look faces LEFT. The tie's own ``leftSide`` / ``rightSide`` name which of that facing
@@ -278,6 +318,12 @@ export function drawTermination(
   const tiedRef = baseIsTied ? baseTie : topTie
   const facingTiedElev =
     tiedRef?.kind === 'resolved' ? tieRefFarElev(tiedRef.tie, side) : facingElevAt(facing, tiedElev)
+  // SESSION 109 — the BENT host polyline of the unit's own tie, when a matched-contact free-draw
+  // override bent it (``emitCurves`` attached ``bentPoints`` only when the tie actually bent). The
+  // onlap's apex ELEVATION rides THIS bent line at its own fraction (segment-confined ride,
+  // ``freedraw-onlap-lens-edit-model.md`` → "Onlap rides along") instead of the straight chord.
+  // UNDEFINED on the no-override path → ``emitOnlap`` keeps its byte-identical straight interpolation.
+  const bentTiePoints = tiedRef?.kind === 'resolved' ? tiedRef.tie.bentPoints : undefined
   // RULING 8m (owner, 2026-07-17): FOLLOW the tie to the matched facing contact (below-for-top /
   // above-for-bottom) and compare litho. SAME litho → SKIP the flank (the tie is the boundary, the
   // enclosing flood flows through, the 8j merge welds the two same-litho regions into ONE body — the
@@ -300,7 +346,9 @@ export function drawTermination(
   if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) return false
   // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent). A
   // free-draw override (``overrides``) moves that tip to the drawn apex; the arrangement re-closes.
-  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
+  // ``bentTiePoints`` (session 109) rides the onlap apex onto the BENT host tie when a matched-contact
+  // bend deformed it; undefined otherwise (straight-chord, byte-identical).
+  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides, bentTiePoints)
 }
 
 /**
@@ -470,6 +518,7 @@ function emitOnlap(
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
   overrides?: ReadonlyMap<string, LensApexOverride>,
+  bentTiePoints?: readonly Point[],
 ): boolean {
   void iu
   // FREE-DRAW APEX OVERRIDE (owner 2026-07-21): a persisted per-body node moves the onlap TIP to
@@ -490,7 +539,17 @@ function emitOnlap(
   // cleanly against it. Letting the drawn elevation float OFF the tie would separate the flank from
   // the tie sub-segment that bounds the tied side → a gap/overlap against the facing fill (the
   // "never overlap" envelope). This mirrors the default tip, which also sits on the tie line.
-  const apexElev = tiedElev + apexFrac * (facingTiedElev - tiedElev)
+  //
+  // SESSION 109 — RIDE THE BENT HOST TIE. When a matched-contact free-draw override BENT the host
+  // tie (``bentTiePoints`` populated by ``emitCurves``), the onlap laps a BENT line, not a straight
+  // chord: the sand onlap's top contact IS the bent clay-base contact, the SAME polyline, so the
+  // onlap's apex must sit ON the bend at its own apex-x (owner 2026-07-24, "it needs to reshape
+  // together with the dragged boundary"). Sample the bent polyline at the real ``apexX`` (side-
+  // agnostic, absolute metres) so the onlap thickens/thins WITH the bend and never leaves the tie.
+  // No override / straight tie → the byte-identical straight ``tiedElev → facingTiedElev`` chord.
+  const apexElev = bentTiePoints
+    ? elevAtXAlong(bentTiePoints, apexX)
+    : tiedElev + apexFrac * (facingTiedElev - tiedElev)
   const apex: Point = { x: apexX, y: apexElev }
   const topPt: Point = { x: colX, y: u.topElev }
   const basePt: Point = { x: colX, y: u.baseElev }

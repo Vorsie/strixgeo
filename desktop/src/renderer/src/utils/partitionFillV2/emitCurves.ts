@@ -71,6 +71,18 @@ export interface ResolvedTie {
   rightUnitIndex: number
   /** Stable curve id. */
   id: string
+  /**
+   * The BENT polyline this tie's curve was emitted as, when a matched-contact free-draw override
+   * bent it (``collectContactBends`` → ``applyContactBend``). ``left → apex(…) → right`` in
+   * metres×elevation. UNDEFINED on the no-override path (the tie stayed a straight 2-point chord) —
+   * so an onlap that laps this tie reads the STRAIGHT ``left``/``right`` endpoints exactly as before
+   * (byte-identical). When present, an onlap re-derives its apex ELEVATION as ``pointAt(fraction)``
+   * along THIS bent polyline (session 109 — the onlap rides along the bent contact, spec
+   * ``freedraw-onlap-lens-edit-model.md`` → "Onlap rides along — SEGMENT-CONFINED"), instead of the
+   * straight ``tiedElev → tieRefFarElev`` chord. Populated in ``emitCurves`` at the tie-emission
+   * loop, where the same ``applyContactBend`` result is already computed for the curve.
+   */
+  bentPoints?: readonly Point[]
 }
 
 /**
@@ -159,6 +171,11 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   for (const t of ties) {
     const gapBends = contactBendsByGap.get(t.gapIndex)
     const bent = gapBends ? applyContactBend([t.left, t.right], t.left.y, t.right.y, gapBends) : [t.left, t.right]
+    // Session 109 — carry the BENT polyline onto the tie so an onlap that laps this tie can ride
+    // its bend (``emitOnlap`` re-derives its apex elevation as ``pointAt(fraction)`` along it). Only
+    // when the bend actually inserted an interior vertex (``bent.length > 2``); a straight 2-point
+    // result leaves ``bentPoints`` undefined so the onlap reads the straight endpoints byte-identically.
+    if (bent.length > 2) t.bentPoints = bent
     curves.push({
       id: t.id,
       kind: 'tie',
