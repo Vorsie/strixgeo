@@ -103,6 +103,22 @@ ever reached via right-click **Decouple** (below).
 - Overlap / collision with a neighbour → **invalid placement**, rejected
   (the existing red-handle + snapback). This REPLACES the engine's old
   "override opens a defect → flood to band → suppress handle" escape hatch.
+- **Onlap rides along — SEGMENT-CONFINED (owner-decided 2026-07-24).** The
+  correlation band is a polyline `tieL → (markers…) → tieR`. An onlap stores
+  its HOST SEGMENT (the span between its two nearest control points — ties
+  and/or markers) plus a FRACTION WITHIN that segment. Whenever the band
+  bends (a marker is added/moved/pulled), the onlap's apex is re-evaluated as
+  `pointAt(fraction)` along its host segment's CURRENT bent geometry — so it
+  slides and rises WITH the segment, always pinned to the band. A control
+  point (marker) is a WALL: the onlap is confined to its segment and can NEVER
+  spill past a marker. Storing a WHOLE-BAND fraction was rejected — grabbing
+  the band at 0.3 when the onlap is at 0.45 would put the onlap on the marker's
+  far side and let its wedge spill back across the marker (owner: "the sand
+  onlap would spill over the point"). When a NEW marker splits the onlap's
+  segment, re-assign the onlap to whichever sub-segment it falls in and
+  re-normalise its fraction within it. Pure geometry (reposition the apex on
+  the bent segment) — no `labelFaces` risk. This delivers the "the onlap rides
+  along with the synthetic point" line above, concretely.
 
 ## Right-click → "Decouple onlap" → LENS
 
