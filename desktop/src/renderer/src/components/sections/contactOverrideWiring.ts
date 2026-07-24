@@ -206,7 +206,6 @@ export function collectContactOverridesForGap(
     // §88 / §91 disentangle: this body's node is already a lens apex override in this gap.
     if (skipBodyIds?.has(upperBodyId)) continue
     const bnd = boundariesByBodyId.get(upperBodyId)
-    if (!bnd) continue
 
     // The natural base contact of the upper band = where the lower band's top sits.
     const naturalBase = bodyBaseElev(left, right, upperBodyId)
@@ -214,10 +213,14 @@ export function collectContactOverridesForGap(
     const lowerBodyId = lowerBodyAtContact(left, right, naturalBase, upperBodyId)
     if (lowerBodyId == null) continue
 
-    const nodes = (bnd.lower_nodes ?? []).filter(inGap)
+    const nodes = (bnd?.lower_nodes ?? []).filter(inGap)
     // S86 press-to-grab: an ``isNew`` contact drag targeting THIS contact synthesizes the
     // control point from the live cursor even before it is stored, so the new contact bend
     // reshapes on the same press-drag. Requires matching the exact (upper, lower, gap).
+    // S110: a body dragged onlap-intervening may own NO stored boundary yet (its first node is
+    // created on this press) — the ``bnd`` may be undefined. Mirror the lens ``setShape`` gate: an
+    // ``isNew`` drag synthesizes the control point from the cursor regardless of a stored boundary,
+    // so proceed with empty stored nodes when THIS contact is the ``isNew`` drag target.
     const draggingThisNew =
       !!drag &&
       drag.isNew === true &&
@@ -225,6 +228,8 @@ export function collectContactOverridesForGap(
       drag.lowerBodyId === lowerBodyId &&
       drag.nodeIndex === 0 &&
       Math.abs(drag.leftX - leftX) < 0.5
+    // No stored boundary AND not a new-node drag here → nothing to override (byte-identical).
+    if (!bnd && !draggingThisNew) continue
     // No stored in-gap node AND not a new-node drag here → nothing to override.
     if (nodes.length === 0 && !draggingThisNew) continue
 

@@ -303,6 +303,134 @@ export function reclassifyStackedBandGrab(
   return null
 }
 
+/** The two-band contact an onlap-intervening grab bends, plus the onlap(s) that ride it. */
+export interface OnlapInterveningGrab {
+  /** The full-width UPPER band (the clay whose base is dragged). */
+  upperBodyId: string
+  /** The full-width LOWER band directly beneath it on the GRAB column. */
+  lowerBodyId: string
+  /** The non-full-width onlap body ids that intervene between them on the FAR column and RIDE the
+   *  bend (their onlap tie shares the upper band's base contact — the SAME line — so bending it
+   *  bends them; §109 blockers 1+2). One or more. */
+  ridingOnlaps: string[]
+}
+
+/**
+ * Resolve an onlap-INTERVENING grab of the clay/lower boundary into the two-band CONTACT it bends,
+ * carrying the intervening onlap(s) that ride it — the S110 sibling of ``reclassifyStackedBandGrab``.
+ *
+ * The owner's case (CS1 gap-4): grabbing the clay (``934a78``) boundary while a sand onlap
+ * (``029c52``) pinches in between the clay and the matrix (``6bb744``) on ONE column. §107 made
+ * ``reclassifyStackedBandGrab`` return null here — its BOTH-column adjacency guard blocks the
+ * destructive banding-tie path (the §106 absorb). But §109 proved the ENGINE half: a
+ * ``contact:A|C`` bend WITHOUT the A/C banding tie makes the onlap RIDE the bent clay base (the
+ * onlap's own top-tie shares that contact, so ``collectContactBends`` bends it) and the onlap
+ * SURVIVES (no absorb). This resolver recovers the (upper=A, lower=C, ridingOnlaps=[B]) triple so
+ * the overlay can dispatch that bend-without-tie — the app-layer wiring §109 left as blocker 3.
+ *
+ * The signal (distinct from a clean two-band boundary): the grabbed band is FULL-WIDTH, the
+ * neighbour beneath (at the grabbed contact) is FULL-WIDTH and ADJACENT on ONE column, but on the
+ * OTHER column one or more NON-full-width bodies (the onlap[s]) sit between the two — their contacts
+ * lie strictly between the grabbed band's contact and the neighbour's contact. Returns null when the
+ * grabbed band is not full-width (a genuine lens), when the neighbour is adjacent on BOTH columns (a
+ * plain two-band boundary — ``reclassifyStackedBandGrab`` handles it), or when nothing full-width
+ * sits beneath (a surface/pinch case — deferred).
+ *
+ * NO banding tie is created by this path — the ``ridingOnlaps`` keep their own onlap ties + contacts,
+ * so ``labelFaces`` sees them unchanged and the §106 absorb never re-opens (§109 probe).
+ *
+ * Parameters
+ * ----------
+ * left, right : PartitionColumn
+ *     The gap's two columns.
+ * grabbedBodyId : string
+ *     The body id of the grabbed full-width band (the clay A).
+ * clickElev : number
+ *     The grab elevation (mTAW) — selects the boundary (top vs base of the grabbed band) nearest the
+ *     cursor, so the resolver bends the contact the owner actually grabbed.
+ *
+ * Returns
+ * -------
+ * OnlapInterveningGrab | null
+ *     The contact-bend target + the riding onlap(s), or null (not an onlap-intervening grab).
+ */
+export function resolveOnlapInterveningGrab(
+  left: PartitionColumn,
+  right: PartitionColumn,
+  grabbedBodyId: string,
+  clickElev: number,
+): OnlapInterveningGrab | null {
+  // The grabbed body must be FULL-WIDTH (present on BOTH columns) — else it is a genuine lens.
+  const grabbedLeft = left.units.find((u) => u.bodyId === grabbedBodyId)
+  const grabbedRight = right.units.find((u) => u.bodyId === grabbedBodyId)
+  if (!grabbedLeft || !grabbedRight) return null
+
+  /**
+   * Try to resolve the grabbed band as the UPPER band of an onlap-intervening boundary at the
+   * given contact (grabbed band's BASE). ``grabCol`` is the column on which the grabbed band and
+   * the full-width lower neighbour are ADJACENT; ``farCol`` is the column where the onlap(s)
+   * intervene. Returns the (lower, ridingOnlaps) or null.
+   */
+  const resolveBelow = (
+    grabCol: PartitionColumn,
+    farCol: PartitionColumn,
+  ): { lowerBodyId: string; ridingOnlaps: string[] } | null => {
+    const grabbedUnit = grabCol.units.find((u) => u.bodyId === grabbedBodyId)
+    if (!grabbedUnit) return null
+    const grabbedBaseElev = unitBaseElev(grabCol, grabbedUnit)
+    // The LOWER neighbour is full-width AND its TOP sits at the grabbed band's base ON THE GRAB
+    // COLUMN (they are adjacent there — the boundary the owner grabbed is a real contact on this
+    // column). If it were adjacent on the FAR column too, this is a plain two-band boundary
+    // (``reclassifyStackedBandGrab`` owns it) — reject so the onlap path fires ONLY when an onlap
+    // truly intervenes.
+    for (const u of grabCol.units) {
+      if (u.bodyId == null || u.bodyId === grabbedBodyId) continue
+      if (Math.abs(unitTopElev(grabCol, u) - grabbedBaseElev) > CONTACT_MATCH_M) continue
+      const lowerBodyId = u.bodyId
+      const lowerFar = farCol.units.find((r) => r.bodyId === lowerBodyId)
+      if (!lowerFar) continue // the lower neighbour must be full-width (present on the far column)
+      const grabbedFar = farCol.units.find((r) => r.bodyId === grabbedBodyId)
+      if (!grabbedFar) continue
+      const grabbedFarBase = unitBaseElev(farCol, grabbedFar)
+      const lowerFarTop = unitTopElev(farCol, lowerFar)
+      // If the lower neighbour is ALSO adjacent on the far column → plain two-band boundary, NOT
+      // onlap-intervening (handled by reclassifyStackedBandGrab). Skip.
+      if (Math.abs(grabbedFarBase - lowerFarTop) <= CONTACT_MATCH_M) continue
+      // The intervening onlap(s): NON-full-width bodies on the far column whose span sits strictly
+      // between the grabbed band's base (grabbedFarBase) and the lower neighbour's top (lowerFarTop).
+      // Their onlap tie shares the grabbed band's base contact, so bending it makes them ride (§109).
+      const ridingOnlaps: string[] = []
+      for (const fu of farCol.units) {
+        if (fu.bodyId == null || fu.bodyId === grabbedBodyId || fu.bodyId === lowerBodyId) continue
+        const fuTop = unitTopElev(farCol, fu)
+        const fuBase = unitBaseElev(farCol, fu)
+        // A body strictly between the two contacts (its top at the grabbed base, or nested within).
+        const withinStack = fuBase < grabbedFarBase + CONTACT_MATCH_M && fuTop > lowerFarTop - CONTACT_MATCH_M
+        if (!withinStack) continue
+        // It must be NON-full-width (a real onlap/lens, not another full-width band).
+        const onGrabCol = grabCol.units.some((g) => g.bodyId === fu.bodyId)
+        if (onGrabCol) continue
+        ridingOnlaps.push(fu.bodyId)
+      }
+      if (ridingOnlaps.length === 0) continue // a gap with no intervening onlap is not this case
+      return { lowerBodyId, ridingOnlaps }
+    }
+    return null
+  }
+
+  // Select the grabbed contact nearest the cursor. The owner grabs the clay near its BASE (the A/C
+  // boundary), so the base contact drives the resolve. (A top-contact grab would need a symmetric
+  // "onlap above" resolve; deferred — the CS1 case is the clay's base.) Try each column as the grab
+  // column (the onlap may intervene on either side).
+  const grabbedTop = unitTopElev(left, grabbedLeft)
+  const grabbedBase = unitBaseElev(left, grabbedLeft)
+  // Only the base-contact grab is wired this session (the owner's clay-base case).
+  if (Math.abs(clickElev - grabbedBase) > Math.abs(clickElev - grabbedTop)) return null
+  const below = resolveBelow(left, right) ?? resolveBelow(right, left)
+  if (!below) return null
+  return { upperBodyId: grabbedBodyId, lowerBodyId: below.lowerBodyId, ridingOnlaps: below.ridingOnlaps }
+}
+
 /**
  * The FULL two-band extent in screen-y: the upper band's own TOP and the lower band's own BASE —
  * the gap-free clamp for a stacked-band boundary drag ("cannot cross the neighbour above/below").

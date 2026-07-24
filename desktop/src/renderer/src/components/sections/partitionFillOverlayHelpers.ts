@@ -256,6 +256,17 @@ export interface BoundaryDrag {
    * after a real excursion still persists.
    */
   crossedThreshold?: boolean
+  /**
+   * S110 ONLAP-INTERVENING contact bend: this boundary drag grabbed a clay/lower boundary that a
+   * sand onlap pinches into on the FAR column (``resolveOnlapInterveningGrab``). The drag bends the
+   * shared clay-base contact via a ``contact:U|L@g`` override so the onlap RIDES it (§109 engine
+   * half) — but it must NEVER synthesize/POST the A/C BANDING tie (``synthesizeContactTie``), which
+   * is what caused the §106 re-absorb. When set, the tie-injection + tie-persist paths are skipped;
+   * only the contact bend (built by ``collectContactOverridesForGap`` from this drag) is applied.
+   * The riding onlap(s) keep their own onlap ties, so ``labelFaces`` never absorbs them. Absent for
+   * the plain two-band drag (which KEEPS its correlate-then-bend banding-tie path).
+   */
+  onlapIntervening?: boolean
 }
 
 /**

@@ -120,6 +120,7 @@ import {
 import {
   pendingContactTieForDrag,
   reclassifyStackedBandGrab,
+  resolveOnlapInterveningGrab,
   twoBandExtentScreenY,
 } from './correlateOnDrag'
 import { dragCrossedThreshold } from './dragThreshold'
@@ -438,9 +439,11 @@ export default function PartitionFillOverlay({
       // the old ``isNew && crossed`` PROXY (which lied when the boundary was already correlated OR
       // not a clean two-full-band boundary, e.g. the S106 onlap-intervening grab that resolves to
       // null). A tie is injected only when the drag is a deliberate ``isNew`` drag AND a tie resolves.
+      // S110: an ``onlapIntervening`` drag NEVER injects a banding tie (the §106 hazard) — the trace
+      // must report that honestly (tieInjected=false, a bend-without-tie was dispatched).
       const dctx = contactTieContextRef.current
       const dtie =
-        boundaryDrag.isNew && crossed
+        boundaryDrag.isNew && crossed && !boundaryDrag.onlapIntervening
           ? pendingContactTieForDrag(
               dctx.orderedColumns,
               boundaryDrag.gapIndex,
@@ -457,6 +460,8 @@ export default function PartitionFillOverlay({
         `[freedraw] BDRAG upper=${boundaryDrag.upperBodyId.slice(-6)} lower=${boundaryDrag.lowerBodyId.slice(-6)} ` +
           `gap=${boundaryDrag.gapIndex} node=${boundaryDrag.nodeIndex} isNew=${boundaryDrag.isNew === true} ` +
           `crossedThreshold=${crossed} tieInjected=${dtie != null} reclassified=${dreclass} ` +
+          `onlapIntervening=${boundaryDrag.onlapIntervening === true} ` +
+          `${boundaryDrag.onlapIntervening ? 'dispatch=bend-WITHOUT-tie ' : ''}` +
           `${screenToLevel ? `el=${screenToLevel(clampedY).toFixed(2)}` : ''}`,
       )
       setBoundaryDrag({
@@ -484,9 +489,11 @@ export default function PartitionFillOverlay({
       // created + POSTed on this release (``pendingContactTieForDrag != null``), not the old
       // ``isNew && crossed`` proxy. ``reclassified`` prints the resolved (upper/lower) pair, or null
       // when the grab did not resolve to a clean two-full-band boundary (S106 onlap-intervening).
+      // S110: an ``onlapIntervening`` release NEVER creates the banding tie (the §106 hazard) — the
+      // trace reports tieInjected=false + the bend-without-tie dispatch.
       const rctx = contactTieContextRef.current
       const rtie =
-        boundaryDrag.isNew && crossedThreshold
+        boundaryDrag.isNew && crossedThreshold && !boundaryDrag.onlapIntervening
           ? pendingContactTieForDrag(
               rctx.orderedColumns,
               boundaryDrag.gapIndex,
@@ -501,6 +508,8 @@ export default function PartitionFillOverlay({
         `[freedraw] BRELEASE upper=${boundaryDrag.upperBodyId.slice(-6)} lower=${boundaryDrag.lowerBodyId.slice(-6)} ` +
           `gap=${boundaryDrag.gapIndex} node=${boundaryDrag.nodeIndex} isNew=${boundaryDrag.isNew === true} ` +
           `crossedThreshold=${crossedThreshold} tieInjected=${rtie != null} reclassified=${rreclass} ` +
+          `onlapIntervening=${boundaryDrag.onlapIntervening === true} ` +
+          `${boundaryDrag.onlapIntervening ? 'dispatch=bend-WITHOUT-tie ' : ''}` +
           `${relElev !== null ? `el=${relElev.toFixed(2)} ` : ''}` +
           `${boundaryDrag.isNew && !crossedThreshold ? 'action=CLICK (no persist, no correlate)' : 'action=drag persist'}`,
       )
@@ -578,7 +587,11 @@ export default function PartitionFillOverlay({
         // reproduces exactly the wedge→band snap the user just saw. Already-correlated boundaries
         // return null here (nothing to create — just the bend persists). Reuses the accepted-auto-
         // correlation path in the parent (``api.geology.createContactCorrelation``).
-        if (boundaryDrag.isNew && onCorrelateBoundary) {
+        // S110: an ``onlapIntervening`` drag persists the CONTACT BEND (the ``onSaveBoundary`` node
+        // above) but NEVER POSTs the A/C banding tie — that tie is the §106 re-absorb hazard the
+        // owner walled off. The riding onlap keeps its own onlap tie; the persisted bend re-rides it
+        // on the next rebuild (the same ``contact:A|C`` override the live drag used).
+        if (boundaryDrag.isNew && !boundaryDrag.onlapIntervening && onCorrelateBoundary) {
           const ctx = contactTieContextRef.current
           const tie = pendingContactTieForDrag(
             ctx.orderedColumns,
@@ -951,8 +964,14 @@ export default function PartitionFillOverlay({
     // click (press-release with no travel) injects NOTHING, so a pinched-out clay is never
     // snapped to a band by an accidental click — the fill stays byte-identical to the un-tied
     // pinch. A real drag crosses the tiny threshold almost instantly (press-to-grab feel kept).
+    // S110 ONLAP-INTERVENING drag: NEVER synthesize the A/C banding tie (``onlapIntervening``). The
+    // §106 absorb came from that tie; §109 proved the ``contact:A|C`` bend alone (built below by
+    // ``collectContactOverridesForGap``) makes the onlap ride WITHOUT it — the onlap keeps its own
+    // tie, so bending the shared contact never absorbs it. The plain two-band drag (no flag) KEEPS
+    // its correlate-then-bend tie injection.
     if (
       boundaryDrag?.isNew &&
+      !boundaryDrag.onlapIntervening &&
       (boundaryDrag.crossedThreshold || dragCrossedThreshold(boundaryDrag, { x: boundaryDrag.x, y: boundaryDrag.y }))
     ) {
       const tie = pendingContactTieForDrag(
@@ -2395,6 +2414,62 @@ export default function PartitionFillOverlay({
             gapLeft && gapRight
               ? reclassifyStackedBandGrab(gapLeft, gapRight, sl.bodyId, clickElev)
               : null
+          // S110 ONLAP-INTERVENING grab (owner 2026-07-24, "i'm grabbing the boundary of the clay
+          // and the sand is disappearing — it needs to reshape together with the dragged boundary").
+          // ``reclassifyStackedBandGrab`` returns null when an onlap intervenes (its §107 both-column
+          // guard STOPS the destructive banding-tie absorb, §106). But the §109 engine proved a
+          // ``contact:A|C`` bend WITHOUT the A/C banding tie makes the onlap RIDE the bent clay base
+          // (the onlap's own top-tie shares that contact) and SURVIVE. So when the plain reclassify
+          // bails, try the onlap resolver: it returns the (upper=clay, lower=matrix, ridingOnlaps)
+          // triple, and we start a boundary drag flagged ``onlapIntervening`` — which emits the
+          // contact bend but NEVER synthesizes/POSTs the banding tie (no re-absorb).
+          const onlapGrab =
+            !stacked && gapLeft && gapRight
+              ? resolveOnlapInterveningGrab(gapLeft, gapRight, sl.bodyId, clickElev)
+              : null
+          if (onlapGrab) {
+            const clampedX = Math.max(sl.leftX + 1, Math.min(sl.rightX - 1, lastClick.current.x))
+            const bandExtentY = twoBandExtentScreenY(
+              gapLeft!,
+              gapRight!,
+              onlapGrab.upperBodyId,
+              onlapGrab.lowerBodyId,
+              levelToScreen,
+            )
+            const existing = boundariesByBodyId?.get(onlapGrab.upperBodyId)
+            const inGapCount = (existing?.lower_nodes ?? []).filter((n) => {
+              if (!alongToScreenX) return false
+              const nx = alongToScreenX(n.along_m)
+              return nx >= sl.leftX && nx <= sl.rightX
+            }).length
+            // eslint-disable-next-line no-console
+            console.info(
+              `[freedraw] BGRAB onlap-intervening upper=${onlapGrab.upperBodyId.slice(-6)} ` +
+                `lower=${onlapGrab.lowerBodyId.slice(-6)} gap=${sl.gapIndex} ` +
+                `ridingOnlaps=[${onlapGrab.ridingOnlaps.map((o) => o.slice(-6)).join(',')}] ` +
+                `dispatch=contact-bend-WITHOUT-tie (no re-absorb)`,
+            )
+            setBoundaryDrag({
+              upperBodyId: onlapGrab.upperBodyId,
+              lowerBodyId: onlapGrab.lowerBodyId,
+              gapIndex: sl.gapIndex,
+              nodeIndex: inGapCount,
+              x: clampedX,
+              y: lastClick.current.y,
+              minY: bandExtentY?.minY ?? sl.lensTopY,
+              maxY: bandExtentY?.maxY ?? sl.lensBaseY,
+              leftX: sl.leftX,
+              rightX: sl.rightX,
+              isNew: true,
+              // S110: this drag emits the contact bend but MUST NOT synthesize/POST the A/C banding
+              // tie — the §106 re-absorb hazard the owner walled off. The riding onlap keeps its own
+              // tie, so the engine bends the shared contact (collectContactBends) without absorbing.
+              onlapIntervening: true,
+              x0: lastClick.current.x,
+              y0: lastClick.current.y,
+            })
+            return
+          }
           if (stacked) {
             const clampedX = Math.max(sl.leftX + 1, Math.min(sl.rightX - 1, lastClick.current.x))
             // Gap-free clamp = the FULL two-band extent (owner "cannot cross the neighbour above/
