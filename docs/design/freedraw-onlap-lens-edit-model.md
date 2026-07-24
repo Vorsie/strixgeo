@@ -125,6 +125,24 @@ to tie.
 - **Two side handles** — both diagonals independently draggable.
 - Overlap / collision → **invalid placement**, rejected.
 
+## Stratigraphic-order safety rail (owner-decided 2026-07-24)
+
+The reshape is a SAFETY RAIL, not a free hand: **a drag can NEVER let a layer
+jump another layer's stratigraphic order.** Clay stays below sand EVERYWHERE —
+even where the sand pinches out (onlaps) and there is no sand at that x to bump
+against. Today the only guard is the gap-free clamp against the IMMEDIATE
+neighbour (`[minY,maxY]`); that does not stop dragging clay up into the space a
+sand layer vacated by pinching out (owner dogfeed: "i was able to pull a clay
+above a sand onlap where it shouldn't exist"). EXTEND the clamp to the full
+stratigraphic ORDER: the dragged node's elevation is bounded by the nearest
+HIGHER-order layer above and nearest LOWER-order layer below across the WHOLE
+stack (pinched-out layers included), by `display_order`. The node CLAMPS at the
+order limit (stops — like the gap-free clamp), so the boundary can be shaped
+freely WITHIN the order-valid range but can never invert the sequence. (Pairs
+with the grab-box alignment fix S104 — some mis-grabs came from the hit zone
+sitting above the marker; re-test after that lands, then the order-rail catches
+the genuine inversions.)
+
 ## Invariants (both feature kinds)
 
 - The fill stays a true partition — no gaps, no overlaps — at every drag frame
