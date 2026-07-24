@@ -238,6 +238,24 @@ export interface BoundaryDrag {
    * persisted; on subsequent renders it is an ordinary stored node (``isNew`` absent).
    */
   isNew?: boolean
+  /**
+   * S105 drag-threshold origin: the raw cursor screen (x, y) at the mousedown that
+   * STARTED this drag. A press without movement (a click) must NOT reshape or correlate;
+   * only a deliberate drag past ``DRAG_THRESHOLD`` from this origin injects the synthetic
+   * tie live and persists it on release. The ``isNew`` press-to-grab feel is kept because
+   * the threshold is tiny — a real drag still creates+grabs in one motion. Absent on
+   * pre-S105 fixtures (treated as origin-at-cursor → threshold never crossed until move).
+   */
+  x0?: number
+  y0?: number
+  /**
+   * S105 sticky drag flag: set true once the cursor has EVER moved past ``DRAG_THRESHOLD``
+   * from the origin during this drag's lifetime. Sticky (never cleared) so a drag that
+   * moves out and back to the origin still counts as a deliberate drag (the UX truth). The
+   * release gate reads THIS, not a re-measured final distance, so ending near the origin
+   * after a real excursion still persists.
+   */
+  crossedThreshold?: boolean
 }
 
 /**
@@ -286,6 +304,15 @@ export interface LensDrag {
    * on subsequent renders it is an ordinary stored node (``isNew`` absent).
    */
   isNew?: boolean
+  /**
+   * S105 drag-threshold origin: the raw cursor screen (x, y) at the mousedown that
+   * STARTED this drag. See ``BoundaryDrag.x0`` — a pure click (press without moving past
+   * ``DRAG_THRESHOLD``) must NOT spawn+persist a zero-length lens/apex node either.
+   */
+  x0?: number
+  y0?: number
+  /** S105 sticky drag flag — see ``BoundaryDrag.crossedThreshold``. */
+  crossedThreshold?: boolean
 }
 
 /** A region already mapped to screen polygon points, tagged with its gap edges. */

@@ -122,6 +122,7 @@ import {
   reclassifyStackedBandGrab,
   twoBandExtentScreenY,
 } from './correlateOnDrag'
+import { dragCrossedThreshold } from './dragThreshold'
 
 /**
  * Geotech fraction-space refinement inputs (owner-locked 2026-07-06). When
@@ -425,13 +426,53 @@ export default function PartitionFillOverlay({
       // column instead of staying on the side being dragged.
       const rawX = e.clientX - (rect?.left ?? 0)
       const clampedX = Math.max(boundaryDrag.leftX, Math.min(boundaryDrag.rightX, rawX))
+      // FREEDRAW DEV TRACE (§105) — the boundary/correlate path was invisible (only the lens
+      // path printed [freedraw]). BDRAG mirrors the lens DRAG trace so the owner's next
+      // dogfeed of a boundary drag is legible: the body pair, gap, whether the threshold was
+      // crossed yet (⇒ whether the correlate-on-drag tie is injected this frame), cursor el.
+      // S105 sticky: once the cursor crosses DRAG_THRESHOLD it STAYS a deliberate drag,
+      // even if it later returns near the origin (moving out and back is still a drag).
+      const crossed = boundaryDrag.crossedThreshold || dragCrossedThreshold(boundaryDrag, { x: clampedX, y: clampedY })
+      // eslint-disable-next-line no-console
+      console.info(
+        `[freedraw] BDRAG upper=${boundaryDrag.upperBodyId.slice(-6)} lower=${boundaryDrag.lowerBodyId.slice(-6)} ` +
+          `gap=${boundaryDrag.gapIndex} node=${boundaryDrag.nodeIndex} isNew=${boundaryDrag.isNew === true} ` +
+          `crossedThreshold=${crossed} tieInjected=${boundaryDrag.isNew === true && crossed} ` +
+          `${screenToLevel ? `el=${screenToLevel(clampedY).toFixed(2)}` : ''}`,
+      )
       setBoundaryDrag({
         ...boundaryDrag,
         x: clampedX,
         y: clampedY,
+        crossedThreshold: crossed,
       })
     }
     const up = (): void => {
+      // S105 CLICK-VS-DRAG GATE on release: an ``isNew`` boundary drag that never moved past
+      // DRAG_THRESHOLD is a CLICK, not a drag — do NOT persist the node and do NOT POST the
+      // correlation. Otherwise a bare click on a boundary would append a zero-length node +
+      // create a tie (the "clay quad out of nowhere"). Below the threshold we bail here,
+      // clearing the drag → the fill returns to exactly its pre-click state. An existing-node
+      // drag (``isNew`` absent) has no click ambiguity and always follows the persist path.
+      const crossedThreshold =
+        boundaryDrag.crossedThreshold || dragCrossedThreshold(boundaryDrag, { x: boundaryDrag.x, y: boundaryDrag.y })
+      // FREEDRAW DEV TRACE (§105) — the boundary/correlate path was previously INVISIBLE (only
+      // the lens path printed [freedraw]); this made the S105 click-reshape bug a mystery.
+      // BRELEASE mirrors the lens RELEASE: body pair, gap, whether the threshold was crossed,
+      // whether a tie will be created, cursor-el vs stored-el.
+      const relElev = screenToLevel ? screenToLevel(boundaryDrag.y) : null
+      // eslint-disable-next-line no-console
+      console.info(
+        `[freedraw] BRELEASE upper=${boundaryDrag.upperBodyId.slice(-6)} lower=${boundaryDrag.lowerBodyId.slice(-6)} ` +
+          `gap=${boundaryDrag.gapIndex} node=${boundaryDrag.nodeIndex} isNew=${boundaryDrag.isNew === true} ` +
+          `crossedThreshold=${crossedThreshold} ` +
+          `${relElev !== null ? `el=${relElev.toFixed(2)} ` : ''}` +
+          `${boundaryDrag.isNew && !crossedThreshold ? 'action=CLICK (no persist, no correlate)' : 'action=drag persist'}`,
+      )
+      if (boundaryDrag.isNew && !crossedThreshold) {
+        setBoundaryDrag(null)
+        return
+      }
       // SNAP BACK (owner S80): a boundary drag that ended on a REFUSED reach (this EXACT contact node's
       // live outcome is ``rejected-unsafe`` at release) is discarded — do NOT persist. Clearing
       // ``boundaryDrag`` returns the handle to the last safe contact the base fill already renders. §87:
@@ -551,9 +592,28 @@ export default function PartitionFillOverlay({
       // Clamp to the gap's x-extent and the lens's elevation band.
       const cx = Math.max(lensDrag.leftX, Math.min(lensDrag.rightX, rawX))
       const cy = Math.max(lensDrag.lensTopY, Math.min(lensDrag.lensBaseY, rawY))
-      setLensDrag({ ...lensDrag, x: cx, y: cy })
+      // S105 sticky: mark the drag deliberate once it crosses DRAG_THRESHOLD (see the
+      // boundary move handler). A press-to-grab lens node persists ONLY after a real drag.
+      const crossed = lensDrag.crossedThreshold || dragCrossedThreshold(lensDrag, { x: cx, y: cy })
+      setLensDrag({ ...lensDrag, x: cx, y: cy, crossedThreshold: crossed })
     }
     const up = (): void => {
+      // S105 CLICK-VS-DRAG GATE on release: an ``isNew`` lens drag (press-to-grab) that never
+      // moved past DRAG_THRESHOLD is a CLICK, not a drag — do NOT persist a zero-length apex
+      // node. Below the threshold, bail here; clearing ``lensDrag`` returns the fill to its
+      // pre-click state (the new node was never injected — see the gated ``buildApexOverrides``
+      // call). An existing-node drag (``isNew`` absent) starts ON the node → no click ambiguity.
+      const lensCrossedThreshold =
+        lensDrag.crossedThreshold || dragCrossedThreshold(lensDrag, { x: lensDrag.x, y: lensDrag.y })
+      if (lensDrag.isNew && !lensCrossedThreshold) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `[freedraw] RELEASE body=${lensDrag.bodyId.slice(-6)} gap=${lensDrag.gapIndex} edge=${lensDrag.edge} ` +
+            `node=${lensDrag.nodeIndex} isNew=true onSaveBoundary=SKIPPED persist=CLICK (below threshold, no-op)`,
+        )
+        setLensDrag(null)
+        return
+      }
       // SNAP BACK (owner S80): if the drag ended on a reach the engine REFUSED (this EXACT node's live
       // outcome is ``rejected-unsafe`` at release), discard the unsafe node — do NOT persist. The base
       // fill already renders the last SAFE shape, so clearing ``lensDrag`` snaps the handle back onto
@@ -850,7 +910,16 @@ export default function PartitionFillOverlay({
     // SNAPS to a flat band (owner-accepted). Gated on an ACTIVE ``isNew`` boundary drag, so no drag
     // ⇒ no injection ⇒ the static fill (SHAPE_AUDIT / HOLES / cs1 gates) is byte-identical BY
     // CONSTRUCTION. On release the overlay POSTs the real correlation via ``onCorrelateBoundary``.
-    if (boundaryDrag?.isNew) {
+    // S105 CLICK-VS-DRAG GATE (owner 2026-07-24, "i click on the marker and this weird clay
+    // quad appears out of nowhere"): the correlate-on-drag (synthetic-tie injection) fires
+    // ONLY once the cursor has moved past DRAG_THRESHOLD from the mousedown origin. A pure
+    // click (press-release with no travel) injects NOTHING, so a pinched-out clay is never
+    // snapped to a band by an accidental click — the fill stays byte-identical to the un-tied
+    // pinch. A real drag crosses the tiny threshold almost instantly (press-to-grab feel kept).
+    if (
+      boundaryDrag?.isNew &&
+      (boundaryDrag.crossedThreshold || dragCrossedThreshold(boundaryDrag, { x: boundaryDrag.x, y: boundaryDrag.y }))
+    ) {
       const tie = pendingContactTieForDrag(
         orderedColumns,
         boundaryDrag.gapIndex,
@@ -897,14 +966,29 @@ export default function PartitionFillOverlay({
     // is why the "manual reshape does nothing" bug (a two-sided band's lens tip
     // skipped by the XOR gate → override NONE) hid behind green tests. Now the gate is
     // testable in isolation.
+    // S105 CLICK-VS-DRAG GATE for the ``isNew`` press-to-grab injection: a NEW lens/apex
+    // node (``isNew``) is INJECTED live by ``buildApexOverridesForGaps`` (the ``injectNew`` /
+    // ``isNewHere`` paths). A pure click must NOT spawn a zero-length node, so below the
+    // threshold we strip ``isNew`` — the injection paths self-filter (no stored node + not
+    // isNew → no override), leaving the fill unchanged. Past the threshold the drag passes
+    // through verbatim (press-to-grab intact). An EXISTING-node drag (``isNew`` absent) is
+    // untouched: moving a stored node has no click-vs-drag ambiguity (it starts on the node).
+    const lensDragged =
+      !!lensDrag && (lensDrag.crossedThreshold || dragCrossedThreshold(lensDrag, { x: lensDrag.x, y: lensDrag.y }))
+    const boundaryDragged =
+      !!boundaryDrag &&
+      (boundaryDrag.crossedThreshold || dragCrossedThreshold(boundaryDrag, { x: boundaryDrag.x, y: boundaryDrag.y }))
+    const gatedLensDrag = lensDrag && lensDrag.isNew && !lensDragged ? { ...lensDrag, isNew: false } : lensDrag
+    const gatedBoundaryDrag =
+      boundaryDrag && boundaryDrag.isNew && !boundaryDragged ? { ...boundaryDrag, isNew: false } : boundaryDrag
     const { apexOverrides, contactOverriddenBodies } = buildApexOverridesForGaps({
       orderedColumns,
       gapXs,
       boundariesByBodyId,
       alongToScreenX,
       screenToLevel,
-      lensDrag,
-      boundaryDrag,
+      lensDrag: gatedLensDrag,
+      boundaryDrag: gatedBoundaryDrag,
       partitionEngineV2,
       persistedLensBodies,
     })
@@ -2233,6 +2317,11 @@ export default function PartitionFillOverlay({
             leftX: sb.leftX,
             rightX: sb.rightX,
             isNew: true,
+            // S105 drag-threshold origin = the raw mousedown cursor. The correlate-on-drag
+            // (live tie injection + release persist) fires ONLY once the cursor moves past
+            // DRAG_THRESHOLD from here, so a pure click reshapes nothing.
+            x0: lastClick.current.x,
+            y0: lastClick.current.y,
           })
         },
       })
@@ -2305,6 +2394,9 @@ export default function PartitionFillOverlay({
               leftX: sl.leftX,
               rightX: sl.rightX,
               isNew: true,
+              // S105 drag-threshold origin (see the contact dispatch above).
+              x0: lastClick.current.x,
+              y0: lastClick.current.y,
             })
             return
           }
@@ -2354,6 +2446,11 @@ export default function PartitionFillOverlay({
             lensTopY: sl.lensTopY,
             lensBaseY: sl.lensBaseY,
             isNew: true,
+            // S105 drag-threshold origin: a pure click on a lens edge must NOT spawn+persist
+            // a zero-length apex node either. The isNew injection + release persist fire only
+            // past DRAG_THRESHOLD from this mousedown cursor.
+            x0: lastClick.current.x,
+            y0: lastClick.current.y,
           })
         },
       })

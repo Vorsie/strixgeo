@@ -152,18 +152,33 @@ const transforms = {
 
 /**
  * S86 press-to-grab gesture: an add-strip press CREATES and GRABS the node in one
- * mousedown, and the drag mouseup persists it. With no intervening mousemove the node
- * persists at the projected mousedown position — so a bare press-release reproduces the
- * old ``fireEvent.click`` semantics (node stored on the boundary at the cursor) while
- * exercising the real one-gesture path. ``moveTo`` optionally drags before release.
+ * mousedown, and the drag mouseup persists it. ``moveTo`` optionally sets the release
+ * position; when omitted the release lands at ``at``.
+ *
+ * S105 CLICK-VS-DRAG: a press-release with ZERO travel is now a CLICK (a no-op — no
+ * persist, no correlate) — a boundary/lens node persists ONLY on a deliberate drag past
+ * ``DRAG_THRESHOLD``. So the default (no ``moveTo``) path presses at a small offset from
+ * ``at`` and MOVES to ``at`` before release: the gesture crosses the threshold and lands
+ * the node exactly at ``at`` (the position every existing add-node caller asserts). An
+ * explicit ``moveTo`` presses at ``at`` and drags to ``moveTo`` as before.
  */
 function pressGrabRelease(
   strip: HTMLElement,
   at: { clientX: number; clientY: number },
   moveTo?: { clientX: number; clientY: number },
 ): void {
+  if (moveTo) {
+    fireEvent.mouseDown(strip, at)
+    fireEvent.mouseMove(window, moveTo)
+    fireEvent.mouseUp(window)
+    return
+  }
+  // Default add-node gesture: press AT ``at`` (identical grab/routing), nudge past the S105
+  // threshold and back to ``at`` (a deliberate drag — the sticky ``crossedThreshold`` records
+  // the excursion), then release AT ``at`` so the persisted node position is exactly ``at``.
   fireEvent.mouseDown(strip, at)
-  if (moveTo) fireEvent.mouseMove(window, moveTo)
+  fireEvent.mouseMove(window, { clientX: at.clientX + 12, clientY: at.clientY })
+  fireEvent.mouseMove(window, at)
   fireEvent.mouseUp(window)
 }
 
@@ -640,6 +655,41 @@ describe('PartitionFillOverlay', () => {
     const lowerNodes = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
     expect(lowerNodes).toHaveLength(2)
     expect(onSaveBoundary.mock.calls[0][3]).toBe('straight')
+  })
+
+  // --------------------------------------------------------------------------
+  // S105: a pure CLICK (mousedown + mouseup with ZERO movement) on a boundary
+  // add-strip is a NO-OP — it must NOT persist a node or correlate. Owner dogfeed
+  // 2026-07-24: "i click on the position of the marker and this weird clay quad
+  // appears out of nowhere." RED on pre-S105 code (the press-to-grab persisted on a
+  // bare press-release); GREEN after the DRAG_THRESHOLD gate.
+  // --------------------------------------------------------------------------
+  it('S105 — a bare click (no drag) on a boundary add-strip does NOT persist a node (no clay quad)', () => {
+    const onSaveBoundary = vi.fn()
+    const onCorrelateBoundary = vi.fn()
+    const { getByTestId } = renderOverlay({
+      ...transforms,
+      onSaveBoundary,
+      onCorrelateBoundary,
+      boundariesByBodyId: new Map([
+        [
+          'sand',
+          {
+            upper_nodes: [],
+            lower_nodes: [{ along_m: 40, elevation_m: 4.5 }],
+          } as unknown as BodyBoundaryResponse,
+        ],
+      ]),
+    })
+    const strip = getByTestId('partition-boundary-addstrip-sand-clay')
+    const { x1: ex1, y1: ey1, x2: ex2, y2: ey2 } = stripEnds(strip)
+    const onEdgeY = ey1 + ((60 - ex1) / (ex2 - ex1)) * (ey2 - ey1)
+    // A pure click: mousedown + mouseup at the SAME point, no mousemove between.
+    fireEvent.mouseDown(strip, { clientX: 60, clientY: onEdgeY })
+    fireEvent.mouseUp(window)
+    // Nothing persisted, nothing correlated — the boundary stays exactly as it was.
+    expect(onSaveBoundary).not.toHaveBeenCalled()
+    expect(onCorrelateBoundary).not.toHaveBeenCalled()
   })
 
   // --------------------------------------------------------------------------
@@ -2125,12 +2175,17 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
       onSaveBoundary,
       boundariesByBodyId: new Map(),
     })
-    // A click hugging the left column face at x=22 (fraction ≈ 0.03) — the collapse
-    // trigger. The lens is left-anchored, so the floored node must land at x ≥ ~24.8.
-    pressGrabRelease(getByTestId('partition-lens-addstrip-silt-upper'), {
-      clientX: 22,
-      clientY: 47,
-    })
+    // A press-to-grab hugging the left column face at x=22 (fraction ≈ 0.03) — the collapse
+    // trigger. The mousedown PROJECTS + FLOORS the created node's reach (S72
+    // ``applyReachFloorOnSegment``). Under S105 the node persists only on a DELIBERATE drag
+    // (a click near the face is now an inert no-op — it cannot collapse the lens at all).
+    // Drag from the face just past the visible-reach floor and release; the persisted node
+    // sits at least the floor (≥ 8% of the 60px gap → x ≥ ~24.8) from the source column.
+    pressGrabRelease(
+      getByTestId('partition-lens-addstrip-silt-upper'),
+      { clientX: 22, clientY: 47 },
+      { clientX: 30, clientY: 47 },
+    )
     expect(onSaveBoundary).toHaveBeenCalledTimes(1)
     const upper = onSaveBoundary.mock.calls[0][1] as { along_m: number; elevation_m: number }[]
     const lowerN = onSaveBoundary.mock.calls[0][2] as { along_m: number; elevation_m: number }[]
