@@ -433,11 +433,30 @@ export default function PartitionFillOverlay({
       // S105 sticky: once the cursor crosses DRAG_THRESHOLD it STAYS a deliberate drag,
       // even if it later returns near the origin (moving out and back is still a drag).
       const crossed = boundaryDrag.crossedThreshold || dragCrossedThreshold(boundaryDrag, { x: clampedX, y: clampedY })
+      // HONEST TRACE (§107): ``tieInjected`` prints the ACTUAL synthesis result — whether
+      // ``pendingContactTieForDrag`` returned a tie (``!= null``) that IS injected this frame — not
+      // the old ``isNew && crossed`` PROXY (which lied when the boundary was already correlated OR
+      // not a clean two-full-band boundary, e.g. the S106 onlap-intervening grab that resolves to
+      // null). A tie is injected only when the drag is a deliberate ``isNew`` drag AND a tie resolves.
+      const dctx = contactTieContextRef.current
+      const dtie =
+        boundaryDrag.isNew && crossed
+          ? pendingContactTieForDrag(
+              dctx.orderedColumns,
+              boundaryDrag.gapIndex,
+              boundaryDrag.upperBodyId,
+              boundaryDrag.lowerBodyId,
+              dctx.approvedEdges,
+            )
+          : null
+      // ``reclassified`` (§107): the (upper/lower) pair the grab resolved to, or ``null`` when the
+      // grab did NOT resolve to a clean two-full-band boundary (S106 onlap-intervening → no tie).
+      const dreclass = dtie != null ? `${boundaryDrag.upperBodyId.slice(-6)}/${boundaryDrag.lowerBodyId.slice(-6)}` : 'null'
       // eslint-disable-next-line no-console
       console.info(
         `[freedraw] BDRAG upper=${boundaryDrag.upperBodyId.slice(-6)} lower=${boundaryDrag.lowerBodyId.slice(-6)} ` +
           `gap=${boundaryDrag.gapIndex} node=${boundaryDrag.nodeIndex} isNew=${boundaryDrag.isNew === true} ` +
-          `crossedThreshold=${crossed} tieInjected=${boundaryDrag.isNew === true && crossed} ` +
+          `crossedThreshold=${crossed} tieInjected=${dtie != null} reclassified=${dreclass} ` +
           `${screenToLevel ? `el=${screenToLevel(clampedY).toFixed(2)}` : ''}`,
       )
       setBoundaryDrag({
@@ -461,11 +480,27 @@ export default function PartitionFillOverlay({
       // BRELEASE mirrors the lens RELEASE: body pair, gap, whether the threshold was crossed,
       // whether a tie will be created, cursor-el vs stored-el.
       const relElev = screenToLevel ? screenToLevel(boundaryDrag.y) : null
+      // HONEST TRACE (§107): ``tieInjected`` is the ACTUAL synthesis result — whether a tie will be
+      // created + POSTed on this release (``pendingContactTieForDrag != null``), not the old
+      // ``isNew && crossed`` proxy. ``reclassified`` prints the resolved (upper/lower) pair, or null
+      // when the grab did not resolve to a clean two-full-band boundary (S106 onlap-intervening).
+      const rctx = contactTieContextRef.current
+      const rtie =
+        boundaryDrag.isNew && crossedThreshold
+          ? pendingContactTieForDrag(
+              rctx.orderedColumns,
+              boundaryDrag.gapIndex,
+              boundaryDrag.upperBodyId,
+              boundaryDrag.lowerBodyId,
+              rctx.approvedEdges,
+            )
+          : null
+      const rreclass = rtie != null ? `${boundaryDrag.upperBodyId.slice(-6)}/${boundaryDrag.lowerBodyId.slice(-6)}` : 'null'
       // eslint-disable-next-line no-console
       console.info(
         `[freedraw] BRELEASE upper=${boundaryDrag.upperBodyId.slice(-6)} lower=${boundaryDrag.lowerBodyId.slice(-6)} ` +
           `gap=${boundaryDrag.gapIndex} node=${boundaryDrag.nodeIndex} isNew=${boundaryDrag.isNew === true} ` +
-          `crossedThreshold=${crossedThreshold} ` +
+          `crossedThreshold=${crossedThreshold} tieInjected=${rtie != null} reclassified=${rreclass} ` +
           `${relElev !== null ? `el=${relElev.toFixed(2)} ` : ''}` +
           `${boundaryDrag.isNew && !crossedThreshold ? 'action=CLICK (no persist, no correlate)' : 'action=drag persist'}`,
       )

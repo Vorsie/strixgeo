@@ -238,16 +238,47 @@ export function reclassifyStackedBandGrab(
   if (!grabbedLeft || !grabbedRight) return null
   const grabbedTop = unitTopElev(left, grabbedLeft)
   const grabbedBase = unitBaseElev(left, grabbedLeft)
+  // The grabbed band's SAME contacts on the RIGHT column — a full-width band shares the boundary
+  // contact on BOTH columns, so the right-column adjacency check matches against these.
+  const grabbedTopR = unitTopElev(right, grabbedRight)
+  const grabbedBaseR = unitBaseElev(right, grabbedRight)
 
-  /** Whichever full-width body is directly ABOVE/BELOW the grabbed band at ``contactElev``. */
-  const fullWidthBandAtContact = (contactElev: number, side: 'top' | 'base'): string | null => {
+  /**
+   * Whichever full-width body is directly ABOVE/BELOW the grabbed band at the shared contact,
+   * verified adjacent on BOTH columns.
+   *
+   * S106 root cause: resolving the (upper, lower) pair from the LEFT column alone returns a
+   * non-adjacent pair when a body (e.g. the sand onlap ``029c52``) INTERVENES between the grabbed
+   * band and its left-column neighbour on the RIGHT column only. Correlating that non-adjacent
+   * pair absorbs the intervening onlap (it "disappears"). The guard: the neighbour's contact must
+   * sit at the grabbed band's contact on the LEFT column AND on the RIGHT column — i.e. no third
+   * body separates them on either column. When an onlap intervenes on one column the neighbour's
+   * right-column contact no longer matches ⇒ return null ⇒ the grab does NOT reclassify ⇒ no tie,
+   * no absorb, the onlap survives (the S103-scoped deferral of onlap-intervening boundaries).
+   *
+   * ``leftContactElev`` / ``rightContactElev`` are the grabbed band's shared-contact elevations on
+   * the two columns; ``side`` selects which of the neighbour's contacts (base for a band above,
+   * top for a band below) to match against them.
+   */
+  const fullWidthBandAtContact = (
+    leftContactElev: number,
+    rightContactElev: number,
+    side: 'top' | 'base',
+  ): string | null => {
     for (const u of left.units) {
       if (u.bodyId == null || u.bodyId === grabbedBodyId) continue
       // A band ABOVE the grabbed band has its BASE at the grabbed TOP; a band BELOW has its TOP
       // at the grabbed BASE. ``side`` selects which of the neighbour's contacts to match.
-      const neighbourContact = side === 'base' ? unitBaseElev(left, u) : unitTopElev(left, u)
-      if (Math.abs(neighbourContact - contactElev) > CONTACT_MATCH_M) continue
-      if (!right.units.some((r) => r.bodyId === u.bodyId)) continue // must be full-width too
+      const neighbourContactL = side === 'base' ? unitBaseElev(left, u) : unitTopElev(left, u)
+      if (Math.abs(neighbourContactL - leftContactElev) > CONTACT_MATCH_M) continue
+      const rightUnit = right.units.find((r) => r.bodyId === u.bodyId)
+      if (!rightUnit) continue // must be full-width too
+      // BOTH-COLUMN ADJACENCY (S106): the same neighbour must share the boundary contact on the
+      // RIGHT column too — its right-column contact at the grabbed band's right-column contact. A
+      // body intervening on the right column shifts this contact ⇒ no match ⇒ not a clean two-band
+      // boundary (skip; the intervening onlap survives).
+      const neighbourContactR = side === 'base' ? unitBaseElev(right, rightUnit) : unitTopElev(right, rightUnit)
+      if (Math.abs(neighbourContactR - rightContactElev) > CONTACT_MATCH_M) continue
       return u.bodyId
     }
     return null
@@ -259,14 +290,14 @@ export function reclassifyStackedBandGrab(
   const distTop = Math.abs(clickElev - grabbedTop)
   const distBase = Math.abs(clickElev - grabbedBase)
   if (distTop <= distBase) {
-    const upper = fullWidthBandAtContact(grabbedTop, 'base') // neighbour's BASE at grabbed TOP
+    const upper = fullWidthBandAtContact(grabbedTop, grabbedTopR, 'base') // neighbour's BASE at grabbed TOP
     if (upper) return { upperBodyId: upper, lowerBodyId: grabbedBodyId }
-    const lower = fullWidthBandAtContact(grabbedBase, 'top')
+    const lower = fullWidthBandAtContact(grabbedBase, grabbedBaseR, 'top')
     if (lower) return { upperBodyId: grabbedBodyId, lowerBodyId: lower }
   } else {
-    const lower = fullWidthBandAtContact(grabbedBase, 'top') // neighbour's TOP at grabbed BASE
+    const lower = fullWidthBandAtContact(grabbedBase, grabbedBaseR, 'top') // neighbour's TOP at grabbed BASE
     if (lower) return { upperBodyId: grabbedBodyId, lowerBodyId: lower }
-    const upper = fullWidthBandAtContact(grabbedTop, 'base')
+    const upper = fullWidthBandAtContact(grabbedTop, grabbedTopR, 'base')
     if (upper) return { upperBodyId: upper, lowerBodyId: grabbedBodyId }
   }
   return null

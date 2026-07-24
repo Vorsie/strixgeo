@@ -278,6 +278,64 @@ describe('S103 — grab reclassification (fix the isApexShapeable→lens hijack)
     ).toBe(true)
   })
 
+  it('S106 — an onlap INTERVENING on ONE column blocks reclassify → the onlap survives (no absorb)', () => {
+    // The S106 topology (owner dogfeed "the onlapping sand quad disappears instead of moving with"):
+    // upper A (full-width) over lower C (full-width), with a NON-full-width sand onlap B that
+    // INTERVENES between A and C on the RIGHT column ONLY. On the LEFT column A sits directly above C.
+    //   LEFT  : A 0..5,          C 5..12          → A/C contact at el 5
+    //   RIGHT : A 0..5, B 5..7,  C 7..12          → A base el 5, C top el 3 (B between)
+    // The OLD code resolved the (upper, lower) pair from the LEFT column alone → {A, C}, then a
+    // correlate/reshape absorbed the intervening onlap B. The both-column adjacency guard makes the
+    // grab resolve to NULL (A's base el 5 ≠ C's top el 3 on the right column) → NO reclassify → NO
+    // tie → B is never absorbed. B is not a clean two-full-band boundary, so it is a NO-OP for now
+    // (the "onlap rides along" full reshape is a deferred owner item — NOT a destructive absorb).
+    const A = 'body-a'
+    const B = 'body-b-onlap' // the sand onlap — present on the RIGHT column only (intervenes A↕C)
+    const C = 'body-c'
+    const s106: PartitionColumn[] = [
+      {
+        investigationId: 'L',
+        surfaceElevM: 10,
+        units: [
+          { topDepthM: 0, baseDepthM: 5, formationId: 'a', bodyId: A, layerId: 'L-a' },
+          { topDepthM: 5, baseDepthM: 12, formationId: 'c', bodyId: C, layerId: 'L-c' },
+        ],
+      },
+      {
+        investigationId: 'R',
+        surfaceElevM: 10,
+        units: [
+          { topDepthM: 0, baseDepthM: 5, formationId: 'a', bodyId: A, layerId: 'R-a' },
+          { topDepthM: 5, baseDepthM: 7, formationId: 'b', bodyId: B, layerId: 'R-b' }, // the onlap
+          { topDepthM: 7, baseDepthM: 12, formationId: 'c', bodyId: C, layerId: 'R-c' },
+        ],
+      },
+    ]
+
+    // (a) The RECLASSIFY of a grab on C near its top must NOW return null (was {A, C} pre-guard) —
+    // A and C are NOT adjacent on the right column (B intervenes), so this is not a clean two-band
+    // boundary. clickElev near C's top on the LEFT column (el 5).
+    const stacked = reclassifyStackedBandGrab(s106[0], s106[1], C, 5)
+    expect(
+      stacked,
+      'A and C are not adjacent on the right column (B intervenes) → no reclassify (was {A, C})',
+    ).toBeNull()
+
+    // (b) The onlap B SURVIVES: with no tie injected, the engine fill keeps B's region. The region
+    // count is unchanged — B is not absorbed into the A/C band.
+    const before = computeSectionFillV2(s106, [])
+    const bBefore = before.filter((r) => r.bodyId === B && r.gapIndex === 0)
+    expect(bBefore.length, 'the sand onlap B renders in the base fill').toBeGreaterThan(0)
+    // No tie is synthesized (reclassify returned null), so nothing changes — B is not swallowed.
+
+    // (c) resolveTwoBandBoundary({A, C}) must ALSO bail (its right-column adjacency check catches the
+    // intervening B) — the two guards agree, so even a manual {A, C} pendingContactTie is null.
+    expect(
+      resolveTwoBandBoundary(s106[0], s106[1], A, C),
+      'the {A, C} boundary is not two-full-band-adjacent on the right column',
+    ).toBeNull()
+  })
+
   it('the gap-free clamp spans the FULL two-band extent (upper top → lower base)', () => {
     // levelToScreen: identity-flip (higher elevation → smaller y). Use y = -elevation.
     const levelToScreen = (el: number): number => -el
