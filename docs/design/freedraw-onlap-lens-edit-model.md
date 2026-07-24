@@ -21,8 +21,18 @@ truth = the current fill bands is preserved; only the boundary GEOMETRY moves);
 (gap-free-clamped only — cannot cross the neighbour above/below) via the
 proven tied-contact bend — no lens clamp, one region set (no fragmentation).
 The created correlation is a real, persistent tie (it behaves as one in 3D /
-exports / 2/1/0) but is consistent with the pre-drag fill, so nothing
-re-labels. Edge cases asked-not-invented: a true pinch tip (band → zero, no
+exports / 2/1/0). **Ground-truth scope (owner-decided 2026-07-24, refined
+after S102): the LITHOLOGIES are preserved (ZAND stays over KLEI — no flip),
+but the SHAPE is NOT byte-identical for an un-correlated boundary.** S102
+proved an un-correlated boundary renders as a PINCH/wedge (0 correlations =
+lens per 2/1/0), and correlating it — the only way to make it bendable —
+necessarily SNAPS the wedge to a flat band. The owner ACCEPTS this snap:
+"snap the wedge to a band, the user can always shape it into a wedge" — the
+snap is not a one-way door, the user can re-shape the band into a wedge
+afterward. So: un-correlated boundary → drag snaps wedge→band (litho
+preserved) → bends to cursor. Already-correlated (already-flat) boundaries
+just bend, no snap. The strict "byte-identical fill" gate applies ONLY to
+already-flat boundaries; for a wedge, litho-preserved + pinch→band is correct. Edge cases asked-not-invented: a true pinch tip (band → zero, no
 other band) and a surface-bounded boundary (nothing above) have no two-band
 contact to tie/bend — resolve per case, do not guess. (Superseded the earlier
 "no tie required" phrasing — a tie IS created, matching current fill.)
