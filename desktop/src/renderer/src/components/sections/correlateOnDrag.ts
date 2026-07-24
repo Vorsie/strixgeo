@@ -432,6 +432,74 @@ export function resolveOnlapInterveningGrab(
 }
 
 /**
+ * The routing a grabbed boundary/lens resolves to — the SINGLE decision both overlay dispatch
+ * sites (the shared-boundary add-strip AND the lens add-strip) share, so the onlap-intervening
+ * grab can never be routed one way from one entry point and another from the other (the S111 bug:
+ * the owner's clay-base grab landed on the SHARED-BOUNDARY strip, which had no onlap check and fell
+ * through to a plain un-tied drag that ate the clay).
+ *
+ * - ``onlap-intervening`` — a full-width band grabbed at a contact where an onlap intervenes on the
+ *   far column (``resolveOnlapInterveningGrab`` hit). Dispatch a bend WITHOUT a banding tie (§109/§110).
+ * - ``plain-boundary`` — a full-width two-band boundary adjacent on BOTH columns
+ *   (``reclassifyStackedBandGrab`` hit). Dispatch the correlate-then-bend path (S103).
+ * - ``lens`` — a genuine one-sided lens (nothing full-width). Keep the lens drag.
+ */
+export type GrabbedBoundaryRoute =
+  | { kind: 'onlap-intervening'; grab: OnlapInterveningGrab }
+  | { kind: 'plain-boundary'; upperBodyId: string; lowerBodyId: string }
+  | { kind: 'lens' }
+
+/**
+ * Decide how a grabbed boundary/lens must be dispatched — the shared routing both overlay
+ * add-strip sites call so onlap-intervening is ALWAYS caught, whichever strip the browser delivered
+ * the click to.
+ *
+ * The onlap-intervening check runs FIRST (owner standing rule: a resolver miss must never eat a
+ * band). Only when no onlap intervenes does the grab fall through to the plain two-band
+ * correlate-then-bend path, and only when nothing full-width sits beneath is it a genuine lens.
+ *
+ * Parameters
+ * ----------
+ * left, right : PartitionColumn
+ *     The gap's two columns.
+ * grabbedBodyId : string
+ *     The body id of the grabbed band (the shared boundary's UPPER body, or the lens region's body).
+ * lowerBodyId : string | null
+ *     The known lower body of a grabbed SHARED BOUNDARY (the add-strip already resolved the pair), or
+ *     ``null`` for a grabbed LENS region (``reclassifyStackedBandGrab`` derives the lower band).
+ * clickElev : number
+ *     The grab elevation (mTAW) — selects the grabbed contact nearest the cursor.
+ *
+ * Returns
+ * -------
+ * GrabbedBoundaryRoute
+ *     The dispatch route (onlap-intervening / plain-boundary / lens).
+ */
+export function routeGrabbedBoundary(
+  left: PartitionColumn,
+  right: PartitionColumn,
+  grabbedBodyId: string,
+  lowerBodyId: string | null,
+  clickElev: number,
+): GrabbedBoundaryRoute {
+  // 1. Onlap-intervening FIRST — never let a full-width band grabbed over an intervening onlap fall
+  //    through to the plain path (which would create an engine-inert tie/node that eats the band).
+  const onlap = resolveOnlapInterveningGrab(left, right, grabbedBodyId, clickElev)
+  if (onlap) return { kind: 'onlap-intervening', grab: onlap }
+  // 2. Plain two-band boundary (adjacent on both columns). When the caller already knows the lower
+  //    body (the shared-boundary strip) verify full-width adjacency; otherwise derive it from the
+  //    grabbed lens via reclassifyStackedBandGrab (the S103 lens-hijack fix).
+  if (lowerBodyId != null) {
+    const boundary = resolveTwoBandBoundary(left, right, grabbedBodyId, lowerBodyId)
+    if (boundary) return { kind: 'plain-boundary', upperBodyId: grabbedBodyId, lowerBodyId }
+  }
+  const stacked = reclassifyStackedBandGrab(left, right, grabbedBodyId, clickElev)
+  if (stacked) return { kind: 'plain-boundary', upperBodyId: stacked.upperBodyId, lowerBodyId: stacked.lowerBodyId }
+  // 3. Nothing full-width beneath → a genuine lens; keep the lens drag.
+  return { kind: 'lens' }
+}
+
+/**
  * The FULL two-band extent in screen-y: the upper band's own TOP and the lower band's own BASE —
  * the gap-free clamp for a stacked-band boundary drag ("cannot cross the neighbour above/below").
  *
@@ -469,6 +537,46 @@ export function twoBandExtentScreenY(
   if (!Number.isFinite(upperTop) || !Number.isFinite(lowerBase)) return null
   // Higher elevation → smaller screen y, so ``minY`` comes from the upper band's top.
   return { minY: levelToScreen(upperTop), maxY: levelToScreen(lowerBase) }
+}
+
+/**
+ * Whether an ``isNew`` boundary-grab drag targets a boundary the ENGINE can CONSUME — i.e. a
+ * genuine two-full-band contact (either already tied, or one the drag's synthetic base-base tie
+ * will band). An un-tied boundary that is NOT a two-band contact (an onlap intervenes, or a
+ * surface/pinch case) is engine-INERT: persisting a contact node on it produces a bend the engine
+ * cannot honour, which floods/absorbs the band away (the S111 clay-eating bug).
+ *
+ * This is the SAFETY NET behind the onlap-intervening routing: even if a future resolver miss lets
+ * an un-consumable grab reach the release, the persist is gated to a NO-OP instead of destroying a
+ * band (owner standing rule 2026-07-25: a build must never eat a band). An ``onlapIntervening`` drag
+ * is consumable BY ITS OWN PATH (the riding onlap's tie bends the shared contact) — it is handled
+ * before this predicate and is not its concern.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly PartitionColumn[]
+ *     The section's columns in along order.
+ * gapIndex : number
+ *     The gap the dragged boundary spans.
+ * upperBodyId, lowerBodyId : string
+ *     The dragged boundary's upper + lower band body ids.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True when the boundary is a genuine two-full-band contact (consumable). False when nothing
+ *     full-width sits beneath / an onlap intervenes (un-consumable → the caller must NO-OP).
+ */
+export function boundaryDragIsConsumable(
+  columns: readonly PartitionColumn[],
+  gapIndex: number,
+  upperBodyId: string,
+  lowerBodyId: string,
+): boolean {
+  const left = columns[gapIndex]
+  const right = columns[gapIndex + 1]
+  if (!left || !right) return false
+  return resolveTwoBandBoundary(left, right, upperBodyId, lowerBodyId) != null
 }
 
 /** A pending un-correlated boundary the live drag must tie: the gap + the tie to create. */
