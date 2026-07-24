@@ -117,6 +117,11 @@ import {
   sameEditableTarget,
   shouldPersistDrag,
 } from './unsafeDragUX'
+import {
+  pendingContactTieForDrag,
+  reclassifyStackedBandGrab,
+  twoBandExtentScreenY,
+} from './correlateOnDrag'
 
 /**
  * Geotech fraction-space refinement inputs (owner-locked 2026-07-06). When
@@ -202,6 +207,15 @@ export interface Props {
     lowerNodes: BodyBoundaryNode[],
     style: 'straight' | 'blocky' | 'rounded',
   ) => void
+  /**
+   * S103 CORRELATE-ON-DRAG persist (owner 2026-07-24): when a drag on an UN-correlated two-band
+   * boundary is released, this creates the REAL, section-scoped correlation the live drag
+   * synthesized — tying the two upper-band litho layers (base-base). Reuses the accepted-auto-
+   * correlation path (``api.geology.createContactCorrelation``). Called with the two upper-band
+   * ``litho_layer`` ids the tie connects; absent = the drag bends live but the tie does not persist
+   * (read-only fallback — the fill snaps back to un-correlated on the next model refetch).
+   */
+  onCorrelateBoundary?: (leftLayerId: string, rightLayerId: string) => void
   /**
    * Open-end stub length in metres — how far the first/last column's
    * open-ended unit draws past the test when there's no plot edge to fill to.
@@ -342,6 +356,7 @@ export default function PartitionFillOverlay({
   screenToLevel,
   boundariesByBodyId,
   onSaveBoundary,
+  onCorrelateBoundary,
   openExtentLengthM,
   bodies,
   onBodyContextMenu,
@@ -360,6 +375,14 @@ export default function PartitionFillOverlay({
   const interactivePtr: 'auto' | 'none' = correlateMode ? 'none' : 'auto'
   const [boundaryDrag, setBoundaryDrag] = useState<BoundaryDrag | null>(null)
   const [lensDrag, setLensDrag] = useState<LensDrag | null>(null)
+  // S103 correlate-on-drag: the boundary-drag ``mouseup`` (defined ABOVE the ``sectionFillData`` /
+  // ``partitionTopology`` memos in the module body) resolves + POSTs the synthetic tie from the gap
+  // columns + already-approved edges. A ref carries those (updated after the memos below) so the
+  // release reads them without a forward reference / declaration-order TDZ.
+  const contactTieContextRef = useRef<{
+    orderedColumns: readonly PartitionColumn[]
+    approvedEdges: readonly CorrelationEdge[]
+  }>({ orderedColumns: [], approvedEdges: [] })
   // Owner directive 2026-06-05 (litho declutter, Task 2): single dot at the
   // cursor position while hovering an add-strip, cleared on mouseleave.
   // One piece of state suffices — only one add-strip can be hovered at a time.
@@ -471,6 +494,25 @@ export default function PartitionFillOverlay({
           [...otherGapNodes, ...finalInGap],
           'straight',
         )
+
+        // S103 CORRELATE-ON-DRAG persist: if this drag targeted an UN-correlated two-band boundary
+        // (``isNew`` grab, no existing tie), CREATE the real, section-scoped correlation the live
+        // drag synthesized — matching the current fill (upper band base-base, no flip). The tie is
+        // resolved from the SAME helper the live-edge injection used, so the persisted correlation
+        // reproduces exactly the wedge→band snap the user just saw. Already-correlated boundaries
+        // return null here (nothing to create — just the bend persists). Reuses the accepted-auto-
+        // correlation path in the parent (``api.geology.createContactCorrelation``).
+        if (boundaryDrag.isNew && onCorrelateBoundary) {
+          const ctx = contactTieContextRef.current
+          const tie = pendingContactTieForDrag(
+            ctx.orderedColumns,
+            boundaryDrag.gapIndex,
+            boundaryDrag.upperBodyId,
+            boundaryDrag.lowerBodyId,
+            ctx.approvedEdges,
+          )
+          if (tie) onCorrelateBoundary(tie.leftLayerId, tie.rightLayerId)
+        }
       }
       setBoundaryDrag(null)
     }
@@ -487,6 +529,10 @@ export default function PartitionFillOverlay({
     screenToLevel,
     boundariesByBodyId,
     alongToScreenX,
+    // S103 correlate-on-drag persist: the release resolves + POSTs the synthetic tie via
+    // ``pendingContactTieForDrag``, reading the gap columns + approved edges from
+    // ``contactTieContextRef`` (updated after the memos below) — no forward memo reference.
+    onCorrelateBoundary,
   ])
 
   // -------------------------------------------------------------------------
@@ -686,6 +732,19 @@ export default function PartitionFillOverlay({
     return { orderedColumns, edges, alongM }
   }, [orderedInvs, colByInv, screenByInv, contactEdges, showBands])
 
+  // S103 correlate-on-drag: keep the boundary-drag release's tie context fresh. The ``mouseup``
+  // closure (declared ABOVE this memo) reads the gap columns + already-approved edges from this
+  // ref to resolve + POST the synthetic tie without a forward memo reference (declaration-order
+  // TDZ). Updated per partition-topology change; the release reads the current value. (S2 window:
+  // if a model refetch resolves mid-drag, the ref may lag one frame at release; the resulting
+  // re-POST is harmless — ``createContactCorrelation`` is idempotent on a duplicate edge.)
+  useEffect(() => {
+    contactTieContextRef.current = {
+      orderedColumns: partitionTopology.orderedColumns,
+      approvedEdges: partitionTopology.edges,
+    }
+  }, [partitionTopology])
+
   // ---- DATA MEMO: call computeSectionFill only when partition inputs change. --
   //
   // Split from the screen-projection memo (below) so that pan/zoom events that
@@ -782,6 +841,25 @@ export default function PartitionFillOverlay({
         aSide: e.layer_a_side,
         bSide: e.layer_b_side,
       }))
+
+    // S103 CORRELATE-ON-DRAG (owner 2026-07-24, "ANY BOUNDARY BENDS TO THE CURSOR"): a LIVE drag
+    // on an UN-correlated two-full-band boundary CREATES the tie that makes it bendable, matching
+    // the current fill lithos (no flip). An un-tied contact override is ENGINE-INERT (S100/S101);
+    // the proven fix is to synthesize the tie (upper band base-base — S101 "base-base → PERFECT
+    // clean bend") and inject it here so the boundary bands+bends on the SAME press-drag. The wedge
+    // SNAPS to a flat band (owner-accepted). Gated on an ACTIVE ``isNew`` boundary drag, so no drag
+    // ⇒ no injection ⇒ the static fill (SHAPE_AUDIT / HOLES / cs1 gates) is byte-identical BY
+    // CONSTRUCTION. On release the overlay POSTs the real correlation via ``onCorrelateBoundary``.
+    if (boundaryDrag?.isNew) {
+      const tie = pendingContactTieForDrag(
+        orderedColumns,
+        boundaryDrag.gapIndex,
+        boundaryDrag.upperBodyId,
+        boundaryDrag.lowerBodyId,
+        edges,
+      )
+      if (tie) edges.push(tie.edge)
+    }
 
     // True along-section position (metres) per column, 1:1 with orderedColumns
     // (both derive from `valid` in the same order). Passing it lets the deep-to-deep
@@ -2172,6 +2250,59 @@ export default function PartitionFillOverlay({
         segments: [upperSeg, lowerSeg],
         regionPolygon: sr.points,
         dispatch: () => {
+          // S103 RECLASSIFY (fix the ``isApexShapeable``→lens hijack): an UN-correlated two-full-
+          // band boundary renders its lower band as a PINCH (0 corr → LENS), so this grab looks like
+          // a lens. But if the grabbed body is FULL-WIDTH across the gap it is a stacked BAND, not a
+          // real lens — its base is a two-band contact that must route as a CONTACT drag so the
+          // correlate-then-bend mechanism fires (the injected tie snaps the wedge to a band + bends
+          // to the cursor). Reclassify to a ``boundaryDrag`` here; a genuine lens (one-sided body)
+          // falls through to the lens drag below unchanged.
+          const gapLeft = sectionFillData.orderedColumns[sl.gapIndex]
+          const gapRight = sectionFillData.orderedColumns[sl.gapIndex + 1]
+          // Resolve the grab elevation so the reclassify picks the boundary (top vs base of the
+          // grabbed band) nearest the cursor — the grabbed band may be the UPPER or LOWER band.
+          const clickElev = screenToLevel ? screenToLevel(lastClick.current.y) : 0
+          const stacked =
+            gapLeft && gapRight
+              ? reclassifyStackedBandGrab(gapLeft, gapRight, sl.bodyId, clickElev)
+              : null
+          if (stacked) {
+            const clampedX = Math.max(sl.leftX + 1, Math.min(sl.rightX - 1, lastClick.current.x))
+            // Gap-free clamp = the FULL two-band extent (owner "cannot cross the neighbour above/
+            // below"): the upper band's own TOP → the lower band's own BASE, in screen y. The
+            // grabbed lens region's own extent (``sl.lensTopY/BaseY``) covers only one band, which
+            // would trap the bend inside it — read the two bodies' true extents from the columns.
+            const bandExtentY = twoBandExtentScreenY(
+              gapLeft!,
+              gapRight!,
+              stacked.upperBodyId,
+              stacked.lowerBodyId,
+              levelToScreen,
+            )
+            // B2: the would-be new IN-GAP index = the count of the upper body's already-stored
+            // in-gap contact nodes (matches the non-reclassified contact dispatch above). Hard-
+            // coding 0 would OVERWRITE the first persisted node on a second drag of this boundary.
+            const existing = boundariesByBodyId?.get(stacked.upperBodyId)
+            const inGapCount = (existing?.lower_nodes ?? []).filter((n) => {
+              if (!alongToScreenX) return false
+              const nx = alongToScreenX(n.along_m)
+              return nx >= sl.leftX && nx <= sl.rightX
+            }).length
+            setBoundaryDrag({
+              upperBodyId: stacked.upperBodyId,
+              lowerBodyId: stacked.lowerBodyId,
+              gapIndex: sl.gapIndex,
+              nodeIndex: inGapCount,
+              x: clampedX,
+              y: lastClick.current.y,
+              minY: bandExtentY?.minY ?? sl.lensTopY,
+              maxY: bandExtentY?.maxY ?? sl.lensBaseY,
+              leftX: sl.leftX,
+              rightX: sl.rightX,
+              isNew: true,
+            })
+            return
+          }
           const edge = nearerLensEdge({ x: lastClick.current.x, y: lastClick.current.y }, upperSeg, lowerSeg)
           // PROJECT onto the CHOSEN edge (S72): the node rides that lens edge at the
           // cursor x, never floating in the lens interior. Projecting onto the picked
@@ -2238,6 +2369,11 @@ export default function PartitionFillOverlay({
     alongToScreenX,
     screenXToAlong,
     screenToLevel,
+    // S103 reclassify: the lens dispatch reads the gap's columns to detect a stacked full-band
+    // grab (route it as a contact drag) + ``levelToScreen`` for the full two-band clamp extent.
+    // ``orderedColumns`` is stable across pan/zoom.
+    sectionFillData.orderedColumns,
+    levelToScreen,
   ])
 
   // The GHOST barrier regions + the squared hit tolerance shared by the grab and

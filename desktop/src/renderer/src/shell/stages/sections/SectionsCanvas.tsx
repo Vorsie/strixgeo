@@ -748,6 +748,15 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated, undoStack],
   )
 
+  // S103 correlate-on-drag persist: a stable wrapper so the boundary-drag effect's dep on
+  // ``onCorrelateBoundary`` does not re-attach the window mouse listeners on every parent render
+  // (S3). Ties the two upper-band layers base-base — no litho flip.
+  const handleCorrelateBoundary = useCallback(
+    (leftLayerId: string, rightLayerId: string): void =>
+      void handleCreateContactCorrelation(leftLayerId, rightLayerId, 'base', 'base'),
+    [handleCreateContactCorrelation],
+  )
+
   const handleDeleteContactCorrelation = useCallback(
     async (
       layerAId: string,
@@ -1808,6 +1817,10 @@ export default function SectionsCanvas(): JSX.Element {
             isLitho ? edge => void handleAcceptContactCorrelation(edge.id) : undefined
           }
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
+          // S103 correlate-on-drag: a drag on an UN-correlated two-band boundary creates the
+          // section-scoped tie (upper band base-base — no litho flip), reusing the manual
+          // contact-correlate path. Litho axis only. Stable ``handleCorrelateBoundary`` (S3).
+          onCorrelateBoundary={isLitho ? handleCorrelateBoundary : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
           onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}

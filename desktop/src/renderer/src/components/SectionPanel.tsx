@@ -587,6 +587,12 @@ interface Props {
     lowerNodes: BodyBoundaryNode[],
     style: BodyRenderStyle,
   ) => void
+  /**
+   * S103 correlate-on-drag: create the section-scoped correlation an un-correlated two-band
+   * boundary drag synthesized (ties the two upper-band litho layers, base-base). Reuses the
+   * accepted-auto-correlation path in ``SectionsCanvas``. Absent = the tie does not persist.
+   */
+  onCorrelateBoundary?: (leftLayerId: string, rightLayerId: string) => void
   /** Right-click a wedge → dissolve the lens by deleting its defining edges. */
   onDeleteLens?: (aboveContactId: string, belowContactId: string, targetContactId: string) => void
   /**
@@ -643,6 +649,7 @@ export default function SectionPanel({
   onRequestDeleteEdge,
   onRequestAcceptEdge,
   onSaveLensShape,
+  onCorrelateBoundary,
   onDeleteLens,
   onNameBody,
   onDissolveBody,
@@ -3003,6 +3010,7 @@ export default function SectionPanel({
                 screenXToAlong={warpedScreenXToAlongCb}
                 screenToLevel={screenToLevel}
                 onSaveBoundary={onSaveLensShape}
+                onCorrelateBoundary={onCorrelateBoundary}
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={

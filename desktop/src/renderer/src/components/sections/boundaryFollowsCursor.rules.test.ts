@@ -1,19 +1,27 @@
 /**
- * boundaryFollowsCursor.rules.test.ts — SESSION 101 target gate: "ANY two-band litho boundary
- * bends to follow the cursor" (owner-decided 2026-07-24, docs/design/freedraw-onlap-lens-edit-model.md
- * → "ANY BOUNDARY BENDS TO THE CURSOR").
+ * boundaryFollowsCursor.rules.test.ts — SESSION 103 gate: "dragging an UN-correlated two-band
+ * litho boundary CORRELATES it (snapping the wedge to a flat band, lithologies preserved), then
+ * BENDS it to the cursor" (owner-decided 2026-07-24,
+ * docs/design/freedraw-onlap-lens-edit-model.md → "ANY BOUNDARY BENDS TO THE CURSOR").
  *
  * The rule, in the owner's words: "i just want the boundary i click to reshape to where i move my
- * cursor" — WHETHER OR NOT the boundary carries a correlation tie. Un-correlated boundaries are NO
- * LONGER read-only. A drag on a boundary BETWEEN TWO FULL-WIDTH BANDS moves the grabbed node to the
- * cursor and bends the ONE shared boundary through it: ONE clean bend, gap-free, the SAME body
- * reshaped (NOT a fragmented 4-region pinch).
+ * cursor" — WHETHER OR NOT the boundary carries a correlation tie. An un-correlated boundary renders
+ * as a PINCH/wedge (0 correlations → LENS per the 2/1/0 rule); the ONLY way to make it bendable is to
+ * CREATE the tie, which necessarily SNAPS the wedge to a flat band. The owner ACCEPTS this snap
+ * ("snap the wedge to a band, the user can always shape it into a wedge") — the lithologies are
+ * preserved (ZAND stays over KLEI, no flip), only the SHAPE changes.
  *
- * BEFORE S101 the engine's ``collectContactBends`` bent a shared contact ONLY when it carried an
- * ACTIVE correlation TIE (``for (const t of ties)``); an un-tied two-band contact override was
- * ENGINE-INERT (S100 diagnosis: applying ``contact:U|L@g`` on CS1's un-tied 934a78 base changed
- * ZERO regions). This gate REPRODUCES that inertness on a synthetic two-full-band section (RED on
- * the old engine) and asserts the fixed engine bends the un-tied boundary to the cursor (GREEN).
+ * THE MECHANISM (S101/S102 proofs, built S103): the v2 engine's ``collectContactBends`` bends a
+ * shared contact ONLY when an ACTIVE correlation TIE sits on it. So the drag (1) synthesizes the tie
+ * matching the current fill (``synthesizeContactTie`` — upper band base-base, no flip), injecting it
+ * into the ``edges`` fed to ``computeSectionFillV2``; then (2) bends the now-tied contact through the
+ * raw cursor via the proven ``contact:U|L@g`` override. This gate drives that mechanism directly on
+ * a minimal synthetic 2-band section (the real CS1 fixture has no clean un-correlated two-full-band
+ * pair — all such pairs are already correlated or are the fragmented 934a78 exotic case).
+ *
+ * BEFORE the mechanism (§101/§102): an un-tied two-band contact override was ENGINE-INERT — the fill
+ * stayed a fragmented pinch and the boundary did NOT bend (RED). AFTER (S103): the synthesized tie
+ * bands the boundary and the override bends it to the cursor (GREEN).
  *
  * The COMMON case only (owner spec, prompt item 4): a boundary between TWO FULL-WIDTH BANDS. A true
  * pinch tip (band → zero) or a surface-bounded boundary is deferred (STOP-AND-REPORT, not invented).
@@ -29,6 +37,13 @@ import {
 import { computeSectionFillV2 } from '../../utils/partitionFillV2'
 import { contactApexOverrideKey } from '../../utils/partitionFillV2/contactOverride'
 import { setTwoSidedTerminations } from '../../utils/partitionFillV2/tileFlags'
+import {
+  boundaryHasTie,
+  reclassifyStackedBandGrab,
+  resolveTwoBandBoundary,
+  synthesizeContactTie,
+  twoBandExtentScreenY,
+} from './correlateOnDrag'
 
 // --------------------------------------------------------------------------
 // Two columns, each ZAND (top) over KLEI (bottom): the ZAND/KLEI contact is a
@@ -51,7 +66,7 @@ function twoFullBandColumns(): PartitionColumn[] {
   return [mk('A'), mk('B')]
 }
 
-/** The ZAND/KLEI shared-contact region base contour's mid-gap apex elevation, or null. */
+/** The ZAND base contour's mid-gap apex elevation across the upper band's gap-0 regions, or null. */
 function midGapContactElev(regions: SectionRegion[], upperBodyId: string): number | null {
   const upper = regions.filter((r) => r.bodyId === upperBodyId && r.gapIndex === 0)
   if (upper.length === 0) return null
@@ -68,18 +83,17 @@ function midGapContactElev(regions: SectionRegion[], upperBodyId: string): numbe
   return best
 }
 
-/** Total signed area coverage check: no interior hole/overlap by summing region areas vs the gap box. */
+/** True when the ZAND/KLEI stack fully tiles the gap with no interior hole or double-coverage. */
 function hasCoverageHoleOrOverlap(regions: SectionRegion[]): boolean {
-  // A crude partition check: the union of region polygons (fraction×elevation) must tile the gap
-  // extent with no double-coverage. We approximate by point-in-polygon sampling on a grid.
   const g0 = regions.filter((r) => r.gapIndex === 0)
   if (g0.length === 0) return true
   let elMin = Infinity
   let elMax = -Infinity
-  for (const r of g0) for (const p of r.polygon) {
-    if (p.elevation < elMin) elMin = p.elevation
-    if (p.elevation > elMax) elMax = p.elevation
-  }
+  for (const r of g0)
+    for (const p of r.polygon) {
+      if (p.elevation < elMin) elMin = p.elevation
+      if (p.elevation > elMax) elMax = p.elevation
+    }
   const inPoly = (poly: { fraction: number; elevation: number }[], f: number, e: number): boolean => {
     let inside = false
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -100,35 +114,61 @@ function hasCoverageHoleOrOverlap(regions: SectionRegion[]): boolean {
       let cover = 0
       for (const r of g0) if (inPoly(r.polygon, f, e)) cover++
       if (cover > 1) return true // overlap (double coverage)
-      // A hole (cover === 0) is allowed only outside the ZAND/KLEI stack; but this synthetic
-      // section is fully covered ZAND..KLEI, so any interior 0 in [elMin,elMax] is a hole.
-      if (cover === 0) return true
+      if (cover === 0) return true // hole
     }
   }
   return false
 }
 
-// PENDING (S101, ``describe.skip``): the target invariant for the un-tied two-full-band bend. It is
-// RED against the current engine and stays SKIPPED until the un-tied-bend engine capability lands
-// (STOPPED-AND-REPORTED at engine scope 2026-07-24 — REWRITE_STATE §101). The current engine bends a
-// shared contact ONLY when ONE side carries a correlation tie (a tie on EITHER band labels the bend
-// correctly, MEASURED); an UN-TIED contact override is engine-inert (S100) — and a lone bent ``bandc``
-// contour is NOT enough because ``labelFaces`` is column-vertical-SEED driven and treats an un-tied
-// contour as a fill closing, not a litho divider, so the bend mislabels (ZAND floods to the KLEI base).
-// Un-skip this the moment the un-tied contact is taught to carry band authority (the concrete plan in
-// §101). The assertion IS the acceptance: the boundary bends to the cursor, one region set, gap-free.
-describe.skip('S101 PENDING — un-tied two-full-band boundary follows the cursor', () => {
-  it('bends the un-tied contact to the cursor, one region set, gap-free', () => {
+/** Whether the upper band sits ABOVE the lower band (no litho flip) — the ground-truth-litho gate. */
+function upperStaysAbove(regions: SectionRegion[], upperBodyId: string, lowerBodyId: string): boolean {
+  const upper = regions.filter((r) => r.bodyId === upperBodyId && r.gapIndex === 0)
+  const lower = regions.filter((r) => r.bodyId === lowerBodyId && r.gapIndex === 0)
+  if (upper.length === 0 || lower.length === 0) return false
+  const upperMin = Math.min(...upper.flatMap((r) => r.polygon.map((p) => p.elevation)))
+  const lowerMax = Math.max(...lower.flatMap((r) => r.polygon.map((p) => p.elevation)))
+  // The upper band's HIGHEST point must be above the lower band's; overlap only at the shared
+  // contact. A crude but decisive no-flip check: the upper band's top exceeds the lower band's top.
+  const upperMax = Math.max(...upper.flatMap((r) => r.polygon.map((p) => p.elevation)))
+  return upperMax > lowerMax && upperMin >= lowerMax - 3 // upper never dives below the lower body
+}
+
+describe('S103 — un-correlated two-full-band boundary correlates then follows the cursor', () => {
+  it('creates the tie (wedge→band, litho preserved) then bends the boundary to the cursor, one region, gap-free', () => {
     setTwoSidedTerminations(true)
     try {
       const columns = twoFullBandColumns()
-      const edges: CorrelationEdge[] = [] // NO ties — the un-tied case
 
-      // Base (no override): the ZAND/KLEI contact is straight at el 5.
-      const base = computeSectionFillV2(columns, edges)
-      expect(base.length, 'base fill must produce regions').toBeGreaterThan(0)
+      // (pre) The un-correlated boundary renders as a PINCH/wedge (0 edges → LENS). The boundary
+      // carries NO tie — the S100/S102 engine-inert case that this mechanism resolves.
+      const boundary = resolveTwoBandBoundary(columns[0], columns[1], ZAND, KLEI)
+      expect(boundary, 'the synthetic section must resolve as a two-full-band boundary').not.toBeNull()
+      expect(
+        boundaryHasTie([], [boundary!.upperLeft, boundary!.upperRight], [boundary!.lowerLeft, boundary!.lowerRight]),
+        'the boundary starts UN-correlated (no tie)',
+      ).toBe(false)
 
-      // Drag the boundary DOWN from el 5 to el 3, mid-gap (fraction 0.5) — the cursor is at el 3.
+      // (a) DRAGGING CREATES THE TIE matching the current fill (ZAND base-base, no flip). Injecting
+      // it into the engine edges SNAPS the wedge to a flat band — the wedge→band snap the owner
+      // accepts, lithologies preserved.
+      const tie = synthesizeContactTie(boundary!.upperLeft, boundary!.upperRight)
+      const edges: CorrelationEdge[] = [tie]
+      expect(
+        boundaryHasTie(edges, [boundary!.upperLeft, boundary!.upperRight], [boundary!.lowerLeft, boundary!.lowerRight]),
+        'the synthesized tie now sits on the boundary',
+      ).toBe(true)
+
+      const banded = computeSectionFillV2(columns, edges)
+      // The wedge is gone: ZAND is one flat band, KLEI is one flat band (no pinch fragments).
+      const zandBanded = banded.filter((r) => r.bodyId === ZAND && r.gapIndex === 0)
+      const kleiBanded = banded.filter((r) => r.bodyId === KLEI && r.gapIndex === 0)
+      expect(zandBanded.length, 'ZAND snaps to a single band').toBe(1)
+      expect(kleiBanded.length, 'KLEI snaps to a single band').toBe(1)
+      // LITHOS PRESERVED: ZAND stays ABOVE KLEI (no flip) — the ground-truth-litho gate.
+      expect(upperStaysAbove(banded, ZAND, KLEI), 'ZAND stays over KLEI (no litho flip)').toBe(true)
+
+      // (b) BEND the now-tied boundary to the RAW cursor (el 3, mid-gap). The stored node's
+      // elevation ≈ the cursor elevation.
       const CURSOR_EL = 3
       const key = contactApexOverrideKey(ZAND, KLEI, 0)
       const ov = new Map<string, LensApexOverride>([
@@ -136,19 +176,117 @@ describe.skip('S101 PENDING — un-tied two-full-band boundary follows the curso
       ])
       const after = computeSectionFillV2(columns, edges, ov)
 
-      // (1) The shared boundary BENDS to the cursor: the ZAND base carries an interior apex at ≈ el 3.
       const bentElev = midGapContactElev(after, ZAND)
-      expect(bentElev, 'the un-tied boundary must bend — an interior apex must exist').not.toBeNull()
-      expect(Math.abs(bentElev! - CURSOR_EL)).toBeLessThan(0.5) // tracks the cursor elevation
+      expect(bentElev, 'the boundary must bend — an interior apex must exist').not.toBeNull()
+      // (b) the STORED node el ≈ cursor el.
+      expect(Math.abs(bentElev! - CURSOR_EL)).toBeLessThan(0.5)
 
-      // (2) ONE clean bend — the SAME body reshaped, never fragmented into a pinch.
+      // (c) ONE region set, gap-free: the SAME body reshaped, never fragmented into a pinch.
       const upperAfter = after.filter((r) => r.bodyId === ZAND && r.gapIndex === 0)
-      expect(upperAfter.length, 'the reshaped upper band must not fragment').toBeLessThanOrEqual(2)
-
-      // (3) Gap-free by construction: no interior hole or overlap after the bend.
+      const lowerAfter = after.filter((r) => r.bodyId === KLEI && r.gapIndex === 0)
+      expect(upperAfter.length, 'the reshaped upper band must not fragment').toBe(1)
+      expect(lowerAfter.length, 'the reshaped lower band must not fragment').toBe(1)
       expect(hasCoverageHoleOrOverlap(after), 'bent fill must stay a true partition').toBe(false)
+      expect(upperStaysAbove(after, ZAND, KLEI), 'ZAND stays over KLEI after the bend').toBe(true)
+
+      // (d) RE-WEDGEABLE: a SECOND drag re-shapes it (still follows the cursor). Move the cursor to
+      // a different elevation and fraction — the boundary tracks it again.
+      const CURSOR_EL2 = 1.5
+      const ov2 = new Map<string, LensApexOverride>([
+        [key, { fraction: 0.35, elevation: CURSOR_EL2, upper: [], lower: [] } as unknown as LensApexOverride],
+      ])
+      const after2 = computeSectionFillV2(columns, edges, ov2)
+      const bentElev2 = midGapContactElev(after2, ZAND)
+      expect(bentElev2, 'the second drag must still bend the boundary').not.toBeNull()
+      expect(Math.abs(bentElev2! - CURSOR_EL2), 'the boundary re-shapes to the new cursor').toBeLessThan(0.5)
+      expect(hasCoverageHoleOrOverlap(after2), 'the re-shaped fill stays a true partition').toBe(false)
     } finally {
       setTwoSidedTerminations(false)
     }
+  })
+})
+
+describe('S103 — grab reclassification (fix the isApexShapeable→lens hijack)', () => {
+  // The un-correlated stacked pair renders its lower band (KLEI) as a PINCH → grabbed as a LENS.
+  // The reclassify must recover the two-band CONTACT pair regardless of WHICH band the cursor
+  // grabbed (near the top contact → grabbed is the lower band; near the base → grabbed is upper).
+  const columns = twoFullBandColumns()
+
+  it('a grab on the LOWER band (KLEI) near its TOP resolves ZAND-over-KLEI (grabbed = lower)', () => {
+    // KLEI spans el 5..-2; its TOP is el 5 (the shared boundary). Cursor near el 5.
+    const pair = reclassifyStackedBandGrab(columns[0], columns[1], KLEI, 5)
+    expect(pair).not.toBeNull()
+    expect(pair!.upperBodyId, 'ZAND is the upper band (no flip)').toBe(ZAND)
+    expect(pair!.lowerBodyId, 'KLEI is the lower band').toBe(KLEI)
+  })
+
+  it('a grab on the UPPER band (ZAND) near its BASE resolves ZAND-over-KLEI (grabbed = upper)', () => {
+    // ZAND spans el 10..5; its BASE is el 5 (the shared boundary). Cursor near el 5.
+    const pair = reclassifyStackedBandGrab(columns[0], columns[1], ZAND, 5)
+    expect(pair).not.toBeNull()
+    expect(pair!.upperBodyId, 'ZAND is the upper band').toBe(ZAND)
+    expect(pair!.lowerBodyId, 'KLEI is the lower band (no flip)').toBe(KLEI)
+  })
+
+  it('a one-sided body (a genuine lens) does NOT reclassify — the lens drag stands', () => {
+    // A body present on only ONE column is a real lens, not a stacked band → null (keep lens drag).
+    const oneSided: PartitionColumn[] = [
+      {
+        investigationId: 'A',
+        surfaceElevM: 10,
+        units: [
+          { topDepthM: 0, baseDepthM: 5, formationId: 'zand', bodyId: ZAND, layerId: 'A-zand' },
+          { topDepthM: 5, baseDepthM: 7, formationId: 'silt', bodyId: 'body-silt', layerId: 'A-silt' },
+          { topDepthM: 7, baseDepthM: 12, formationId: 'klei', bodyId: KLEI, layerId: 'A-klei' },
+        ],
+      },
+      {
+        investigationId: 'B',
+        surfaceElevM: 10,
+        units: [
+          { topDepthM: 0, baseDepthM: 5, formationId: 'zand', bodyId: ZAND, layerId: 'B-zand' },
+          { topDepthM: 5, baseDepthM: 12, formationId: 'klei', bodyId: KLEI, layerId: 'B-klei' },
+        ],
+      },
+    ]
+    // ``body-silt`` is only on column A → a genuine lens, not a stacked band.
+    expect(reclassifyStackedBandGrab(oneSided[0], oneSided[1], 'body-silt', 4)).toBeNull()
+  })
+
+  it('a TOP-TOP edge on the UPPER band does NOT count as tied (S1 — it ties the surface, not the contact)', () => {
+    const b = resolveTwoBandBoundary(columns[0], columns[1], ZAND, KLEI)!
+    // A top-top tie on the two ZAND layers ties ZAND's TOP (ground surface), NOT the ZAND/KLEI
+    // contact — S101 proved this leaves the bend engine-inert. It must read as UN-tied so the drag
+    // still injects the base-base tie that actually bends the boundary.
+    const zandTopTop: CorrelationEdge = {
+      a: b.upperLeft.layerId,
+      b: b.upperRight.layerId,
+      aSide: 'top',
+      bSide: 'top',
+    }
+    expect(
+      boundaryHasTie([zandTopTop], [b.upperLeft, b.upperRight], [b.lowerLeft, b.lowerRight]),
+      'a top-top upper-band edge is NOT a tie on this shared boundary',
+    ).toBe(false)
+    // The base-base tie the drag synthesizes DOES count.
+    expect(
+      boundaryHasTie(
+        [synthesizeContactTie(b.upperLeft, b.upperRight)],
+        [b.upperLeft, b.upperRight],
+        [b.lowerLeft, b.lowerRight],
+      ),
+    ).toBe(true)
+  })
+
+  it('the gap-free clamp spans the FULL two-band extent (upper top → lower base)', () => {
+    // levelToScreen: identity-flip (higher elevation → smaller y). Use y = -elevation.
+    const levelToScreen = (el: number): number => -el
+    const extent = twoBandExtentScreenY(columns[0], columns[1], ZAND, KLEI, levelToScreen)
+    expect(extent).not.toBeNull()
+    // Upper band top = el 10 → minY = -10; lower band base = el -2 → maxY = 2.
+    expect(extent!.minY, 'clamp top = ZAND top (el 10)').toBe(-10)
+    expect(extent!.maxY, 'clamp base = KLEI base (el -2)').toBe(2)
+    // The clamp must span BOTH bands — not trap the bend inside the grabbed band.
+    expect(extent!.maxY - extent!.minY, 'the clamp spans the full stack').toBe(12)
   })
 })
