@@ -6,20 +6,26 @@ A drag on ANY two-band litho boundary moves the grabbed node to the CURSOR
 position and bends the boundary through it — ONE clean bend, gap-free —
 **whether or not the boundary is correlated.** Un-correlated boundaries are
 NO LONGER read-only. This is the owner's core model ("i just want the boundary
-i click to reshape to where i move my cursor") and it supersedes the v2
-engine's tie-only reshape: today `contactOverride.collectContactBends` bends
-ONLY a contact carrying an active correlation TIE, an `isApexShapeable` region
-is hijacked to the LENS path whose mousemove clamps the node to the tip span
-(`PartitionFillOverlay.tsx:507` → el snaps to the pinch span, not the cursor),
-and an un-tied two-band base (e.g. CS1 clay `934a78` gap-5 base el 6.44) has no
-bend mechanism at all (S100 diagnosis). The capability to build: a boundary
-drag stores the RAW cursor `(along, elevation)` (gap-free-clamped only — cannot
-cross the neighbour above/below), and the engine bends ANY two-band boundary
-through it, no tie required, no lens clamp, one region set (no fragmentation).
-Correlation ties still drive the AUTO fill; MANUAL reshape is unrestricted.
-Edge cases handled/asked-not-invented: a true pinch tip (band → zero, no other
-band) and a surface-bounded boundary (nothing above) have no two-band contact
-to bend — resolve per case, do not guess.
+i click to reshape to where i move my cursor").
+
+**Mechanism (owner-decided 2026-07-24): dragging a boundary CORRELATES it,
+but the ground truth stays the current fill bands.** S101 proved that bending
+an UN-tied boundary MISLABELS (the fill floods/shatters) because `labelFaces`
+is correlation-seed-driven — an un-tied contact is not a litho divider. But a
+TIED contact bends PERFECTLY (clean, gap-free, both bands follow). So the drag
+does two things, in order: (1) CREATE a correlation on the grabbed boundary —
+the tie between the contacts that CURRENTLY bound the two adjacent fill bands,
+matching the current fill so the lithology labelling is UNCHANGED (the ground
+truth = the current fill bands is preserved; only the boundary GEOMETRY moves);
+(2) bend the now-tied boundary through the RAW cursor `(along, elevation)`
+(gap-free-clamped only — cannot cross the neighbour above/below) via the
+proven tied-contact bend — no lens clamp, one region set (no fragmentation).
+The created correlation is a real, persistent tie (it behaves as one in 3D /
+exports / 2/1/0) but is consistent with the pre-drag fill, so nothing
+re-labels. Edge cases asked-not-invented: a true pinch tip (band → zero, no
+other band) and a surface-bounded boundary (nothing above) have no two-band
+contact to tie/bend — resolve per case, do not guess. (Superseded the earlier
+"no tie required" phrasing — a tie IS created, matching current fill.)
 
 ## UNIFIED LITHO-EDGE HANDLE (owner-decided 2026-07-23 — the interaction surface)
 
