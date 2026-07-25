@@ -19,7 +19,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type LensApexOverride } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
 import { type ResolvedTie } from './emitCurves'
 import { type ColumnGeom } from './sectionGeom'
 import { type Point } from './types'
@@ -148,6 +148,66 @@ export function bendBandContour(
   return [A, apex, B]
 }
 
+/**
+ * §113 — bend a band contour through a control point CONFINED to the flush segment: bend only the
+ * side between the grabbed column and a fixed WALL vertex, keeping the other side at base geometry.
+ *
+ * Given the straight contour ``left→right`` and a WALL at ``(wallFraction, wallElev)`` (the onlap's
+ * pinch), the result is ``[left, apex, wall, right]`` (or the ordering the geometry demands): the
+ * apex bends the flush segment while the wall pins the onlap-side segment to its ORIGINAL line so a
+ * rider sampling that side does not move. The apex is only inserted when it falls strictly on the
+ * flush side of the wall (else the plain wall-pinned contour stands). Mirrors ``bendBandContour``'s
+ * degenerate-snap guard so the arrangement never sees a zero-length segment.
+ *
+ * Parameters
+ * ----------
+ * contour : readonly Point[]
+ *     The straight (clipped) band contour, 2 points left→right by x.
+ * fraction : number
+ *     The apex's gap-local fraction (0 = left, 1 = right).
+ * elevation : number
+ *     The apex elevation (mTAW).
+ * wallFraction : number
+ *     The wall's gap-local fraction (the onlap's pinch).
+ * wallElev : number
+ *     The wall vertex's elevation — the contour's own value at the pinch (the onlap's current apex),
+ *     so pinning it there leaves the onlap-side segment byte-identical to the base line.
+ *
+ * Returns
+ * -------
+ * Point[]
+ *     The confined bent contour.
+ */
+export function bendBandContourConfined(
+  contour: readonly Point[],
+  fraction: number,
+  elevation: number,
+  wallFraction: number,
+  wallElev: number,
+): Point[] {
+  if (contour.length < 2) return [...contour]
+  const A = contour[0]
+  const B = contour[contour.length - 1]
+  const xAt = (f: number): number => A.x + f * (B.x - A.x)
+  const wall: Point = { x: xAt(wallFraction), y: wallElev }
+  const apex: Point = { x: xAt(fraction), y: elevation }
+  const SNAP = 0.001
+  // The wall side toward the grab (flush) column is [A, wall] when the flush column is LEFT (wall to
+  // the RIGHT of the apex), else [wall, B]. Order the output vertices left→right by x, dropping any
+  // degenerate (apex/wall coincident with a neighbour by x).
+  const pts: Point[] = [A]
+  const flushLeft = fraction < wallFraction
+  if (flushLeft) {
+    if (Math.abs(apex.x - A.x) > SNAP && Math.abs(apex.x - wall.x) > SNAP) pts.push(apex)
+    if (Math.abs(wall.x - A.x) > SNAP && Math.abs(wall.x - B.x) > SNAP) pts.push(wall)
+  } else {
+    if (Math.abs(wall.x - A.x) > SNAP && Math.abs(wall.x - B.x) > SNAP) pts.push(wall)
+    if (Math.abs(apex.x - wall.x) > SNAP && Math.abs(apex.x - B.x) > SNAP) pts.push(apex)
+  }
+  pts.push(B)
+  return pts
+}
+
 /** Whether two elevations coincide within the contact-match epsilon. */
 export function contactElevMatches(a: number, b: number): boolean {
   return Math.abs(a - b) < CONTACT_ELEV_EPS
@@ -193,6 +253,18 @@ export interface ContactBend {
    */
   tieLeftElev: number | null
   tieRightElev: number | null
+  /**
+   * §113 FLUSH-SIDE CONFINEMENT — when the heterogeneous grab sits on the FLUSH side of the onlap's
+   * pinch (left of the sand where the two bands share a clean contact), the bend must be CONFINED to
+   * the flush segment so the onlap is a WALL and does not ride (spec "Onlap rides along —
+   * SEGMENT-CONFINED"). ``wallFraction`` is the onlap's pinch fraction in the gap frame; the bent
+   * clay-base polyline pins a FIXED vertex at ``(wallFraction, wallElev)`` (``wallElev`` = the onlap's
+   * current apex on the matrix-top tie), so the clay-base segment on the onlap's side keeps its base
+   * geometry and the onlap (sampling that segment) stays put. ``null`` when the grab is on the onlap's
+   * side (the whole-gap ride, §112 unchanged) or on the flush shared-contact path.
+   */
+  wallFraction: number | null
+  wallElev: number | null
 }
 
 /** Contour-match epsilon in metres (the ties/bands are pre-snap; 1 mm is the arrangement grid). */
@@ -317,6 +389,8 @@ export function collectContactBends(
           heterogeneous: false,
           tieLeftElev: null,
           tieRightElev: null,
+          wallFraction: null,
+          wallElev: null,
         })
       } else if (heterogeneous) {
         // HETEROGENEOUS clay-base reshape. The stratigraphic-order FLOOR is the intervening onlap's
@@ -335,9 +409,25 @@ export function collectContactBends(
         const lo = tieFloorAtApex + ELEV_MARGIN
         const elevation = hi > lo ? Math.min(hi, Math.max(lo, rawOv.elevation)) : (upperTop + tieFloorAtApex) / 2
         seen.add(key)
+        // §113 FLUSH-SIDE CONFINEMENT. The intervening onlap pinches from ITS OWN column (the
+        // HETEROGENEOUS column, where the upper base diverges from the tie contact) toward the facing
+        // column, tapering to a tip at ``INTERIOR_PINCH_FRACTION`` measured from its own column. That
+        // tip is the WALL (spec "Onlap rides along — SEGMENT-CONFINED"). Map it into the gap frame:
+        // onlap on the RIGHT column → pinch at ``1 − INTERIOR_PINCH_FRACTION`` (flush = [0, pinch));
+        // onlap on the LEFT → pinch at ``INTERIOR_PINCH_FRACTION`` (flush = (pinch, 1]). When the APEX
+        // sits on the FLUSH side of the pinch, confine the bend: pin a fixed vertex at the onlap's
+        // current apex — the matrix-top tie interpolated AT the pinch fraction (``wallElev``) — so the
+        // clay-base segment on the onlap's side keeps its base geometry and the onlap does NOT ride.
+        // On the onlap's side of the pinch the whole-gap ride stands (§112 unchanged → wall null).
+        const onlapOnRight = Math.abs(upperBaseRight - t.right.y) > CONTOUR_MATCH_M
+        const pinchFraction = onlapOnRight ? 1 - INTERIOR_PINCH_FRACTION : INTERIOR_PINCH_FRACTION
+        const apexIsFlushSide = onlapOnRight ? fraction < pinchFraction : fraction > pinchFraction
+        const wallFraction = apexIsFlushSide ? pinchFraction : null
+        const wallElev = apexIsFlushSide ? t.left.y + pinchFraction * (t.right.y - t.left.y) : null
         // Bend the CLAY's OWN base contour (upperBaseLeft → apex → upperBaseRight); carry the matched
         // tie's own elevations so curve emission can route the bent polyline onto that tie's
-        // ``bentPoints`` (onlap ride) WITHOUT bending the tie curve (matrix holds).
+        // ``bentPoints`` (onlap ride) WITHOUT bending the tie curve (matrix holds). When confined, the
+        // wall vertex keeps the onlap-side segment fixed.
         out.push({
           leftElev: upperBaseLeft,
           rightElev: upperBaseRight,
@@ -346,7 +436,34 @@ export function collectContactBends(
           heterogeneous: true,
           tieLeftElev: t.left.y,
           tieRightElev: t.right.y,
+          wallFraction,
+          wallElev,
         })
+        // §113 FLUSH-SIDE MATRIX-TOP COMPANION. On the flush segment there is NO onlap and the clay
+        // base IS the matrix top (a plain shared contact — clay base 5.21 == matrix top 5.21 on the
+        // flush column), so the MATRIX TOP must follow the clay base there (both grow/shrink together)
+        // and HOLD on the onlap segment [wall .. column] where the onlap laps it. The matrix-top
+        // authority ``bandc`` contour (emitted by the tie-only bands loop) is keyed on the TIE's own
+        // per-column elevations (5.21, 5.73), so it needs its OWN confined bend to follow — a single
+        // clay-base bend (keyed 5.21, 6.44) cannot drive it (they diverge on the onlap column). This
+        // companion bend confines the matrix top to the SAME apex + wall so it bends identically on the
+        // flush segment and holds (byte-identical to the straight authority contour) on the onlap
+        // segment — the flush-side triangle the clay vacated is then MATRIX, not a re-flooded clay
+        // sliver. Emitted ONLY when confined (flush-side); the onlap-side ride never emits it, so §112
+        // stays byte-identical.
+        if (apexIsFlushSide && wallFraction != null && wallElev != null) {
+          out.push({
+            leftElev: t.left.y,
+            rightElev: t.right.y,
+            fraction,
+            elevation,
+            heterogeneous: false,
+            tieLeftElev: null,
+            tieRightElev: null,
+            wallFraction,
+            wallElev,
+          })
+        }
       }
     }
   }
@@ -497,6 +614,11 @@ export function applyContactBend(
 ): Point[] {
   for (const bend of bends) {
     if (Math.abs(bend.leftElev - leftElev) <= CONTOUR_MATCH_M && Math.abs(bend.rightElev - rightElev) <= CONTOUR_MATCH_M) {
+      // §113: a flush-side heterogeneous bend confines to the flush segment (the onlap's pinch is a
+      // wall) so the onlap-side segment keeps its base geometry and the onlap does not ride.
+      if (bend.wallFraction != null && bend.wallElev != null) {
+        return bendBandContourConfined(contour, bend.fraction, bend.elevation, bend.wallFraction, bend.wallElev)
+      }
       return bendBandContour(contour, bend.fraction, bend.elevation)
     }
   }

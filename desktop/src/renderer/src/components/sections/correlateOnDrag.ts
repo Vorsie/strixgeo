@@ -29,7 +29,12 @@
  * to ``computeSectionFillV2`` so the boundary bands+bends on the SAME press-drag.
  */
 
-import { type CorrelationEdge, type PartitionColumn, type PartitionUnit } from '../../utils/partitionFill'
+import {
+  type CorrelationEdge,
+  INTERIOR_PINCH_FRACTION,
+  type PartitionColumn,
+  type PartitionUnit,
+} from '../../utils/partitionFill'
 
 /** Contact-elevation match epsilon in metres (units are pre-arrangement-snap; 1 mm grid). */
 const CONTACT_MATCH_M = 1e-3
@@ -432,20 +437,97 @@ export function resolveOnlapInterveningGrab(
 }
 
 /**
+ * The gap-fraction (0 = left column, 1 = right column) of the intervening onlap's PINCH — the WALL a
+ * flush-side reshape must not cross (spec ``freedraw-onlap-lens-edit-model.md`` → "Onlap rides along
+ * — SEGMENT-CONFINED": a control point / an onlap's pinch is a WALL).
+ *
+ * An onlap present on ONE column pinches from that column toward the facing column, tapering to a tip
+ * at ``INTERIOR_PINCH_FRACTION`` (0.5) MEASURED FROM ITS OWN column (``emitSharedContactOnlap.ts`` /
+ * ``drawTermination.ts``). Mapped into the gap's LEFT→RIGHT frame:
+ *   - onlap on the RIGHT column → tip at fraction ``1 − INTERIOR_PINCH_FRACTION``; the onlap occupies
+ *     ``(pinch, 1]``; the FLUSH side (no onlap) is ``[0, pinch)``.
+ *   - onlap on the LEFT column → tip at fraction ``INTERIOR_PINCH_FRACTION``; onlap occupies
+ *     ``[0, pinch)``; the flush side is ``(pinch, 1]``.
+ *
+ * Returns ``null`` when the riding onlap is not resolvable to a single column (defensive — the caller
+ * then treats the whole gap as onlap-intervening, the pre-§113 behaviour).
+ *
+ * Parameters
+ * ----------
+ * left, right : PartitionColumn
+ *     The gap's two columns.
+ * ridingOnlapId : string
+ *     A riding onlap body id (from ``OnlapInterveningGrab.ridingOnlaps``).
+ *
+ * Returns
+ * -------
+ * { pinchFraction: number; onlapOnRight: boolean } | null
+ *     The onlap's pinch fraction in the gap frame + which column carries it, or null.
+ */
+export function onlapPinch(
+  left: PartitionColumn,
+  right: PartitionColumn,
+  ridingOnlapId: string,
+): { pinchFraction: number; onlapOnRight: boolean } | null {
+  const onLeft = left.units.some((u) => u.bodyId === ridingOnlapId)
+  const onRight = right.units.some((u) => u.bodyId === ridingOnlapId)
+  // A genuine onlap laps in from exactly ONE column (its own). Full-width or absent → not a pinch.
+  if (onLeft === onRight) return null
+  const onlapOnRight = onRight
+  const pinchFraction = onlapOnRight ? 1 - INTERIOR_PINCH_FRACTION : INTERIOR_PINCH_FRACTION
+  return { pinchFraction, onlapOnRight }
+}
+
+/**
+ * Whether a grab at ``grabFraction`` sits on the FLUSH side of the onlap's pinch — the flush segment
+ * between the grab column and the pinch, where the two bands share a clean contact and no onlap
+ * intervenes at that x. On the flush side the reshape must bend the contact LOCALLY and leave the
+ * onlap PUT (the onlap is a wall); on the onlap's side the reshape rides the onlap (S110/S112).
+ *
+ * Parameters
+ * ----------
+ * grabFraction : number
+ *     The grab's gap fraction (0 = left column, 1 = right).
+ * pinch : { pinchFraction: number; onlapOnRight: boolean }
+ *     The onlap pinch (from ``onlapPinch``).
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True when the grab is on the flush side (local bend; onlap held), false on the onlap side (ride).
+ */
+export function grabIsFlushSide(
+  grabFraction: number,
+  pinch: { pinchFraction: number; onlapOnRight: boolean },
+): boolean {
+  // Onlap on the RIGHT → onlap occupies (pinch, 1]; flush is [0, pinch). Onlap on the LEFT →
+  // onlap occupies [0, pinch); flush is (pinch, 1].
+  return pinch.onlapOnRight ? grabFraction < pinch.pinchFraction : grabFraction > pinch.pinchFraction
+}
+
+/**
  * The routing a grabbed boundary/lens resolves to — the SINGLE decision both overlay dispatch
  * sites (the shared-boundary add-strip AND the lens add-strip) share, so the onlap-intervening
  * grab can never be routed one way from one entry point and another from the other (the S111 bug:
  * the owner's clay-base grab landed on the SHARED-BOUNDARY strip, which had no onlap check and fell
  * through to a plain un-tied drag that ate the clay).
  *
- * - ``onlap-intervening`` — a full-width band grabbed at a contact where an onlap intervenes on the
- *   far column (``resolveOnlapInterveningGrab`` hit). Dispatch a bend WITHOUT a banding tie (§109/§110).
+ * - ``onlap-intervening`` — a full-width band grabbed ON THE ONLAP'S SIDE of the pinch (an onlap
+ *   intervenes on the far column there). Dispatch a bend WITHOUT a banding tie; the onlap RIDES the
+ *   bent clay base (§109/§110/§112).
+ * - ``flush-contact`` — the SAME onlap-intervening topology, but the grab sits on the FLUSH side of
+ *   the onlap's pinch (§113, position-aware): left of the sand where the two bands share a clean
+ *   contact. Dispatch the SAME bend-without-tie (the onlap keeps its own tie — no §106 re-absorb), but
+ *   the engine CONFINES the bend to the flush segment so the onlap is a WALL and does not ride. The
+ *   route is distinct so the dispatch/telemetry can name the flush case; the ``grab`` carries the same
+ *   (upper, lower, ridingOnlaps) triple.
  * - ``plain-boundary`` — a full-width two-band boundary adjacent on BOTH columns
  *   (``reclassifyStackedBandGrab`` hit). Dispatch the correlate-then-bend path (S103).
  * - ``lens`` — a genuine one-sided lens (nothing full-width). Keep the lens drag.
  */
 export type GrabbedBoundaryRoute =
   | { kind: 'onlap-intervening'; grab: OnlapInterveningGrab }
+  | { kind: 'flush-contact'; grab: OnlapInterveningGrab }
   | { kind: 'plain-boundary'; upperBodyId: string; lowerBodyId: string }
   | { kind: 'lens' }
 
@@ -469,11 +551,16 @@ export type GrabbedBoundaryRoute =
  *     ``null`` for a grabbed LENS region (``reclassifyStackedBandGrab`` derives the lower band).
  * clickElev : number
  *     The grab elevation (mTAW) — selects the grabbed contact nearest the cursor.
+ * grabFraction : number | undefined
+ *     The grab's gap fraction (0 = left column, 1 = right), §113 position-awareness. When provided AND
+ *     the grab sits on the FLUSH side of the intervening onlap's pinch, the route is ``flush-contact``
+ *     (local bend, onlap held) instead of ``onlap-intervening`` (ride). Omitted (undefined) → the
+ *     pre-§113 elevation-only behaviour (always ``onlap-intervening`` when an onlap intervenes).
  *
  * Returns
  * -------
  * GrabbedBoundaryRoute
- *     The dispatch route (onlap-intervening / plain-boundary / lens).
+ *     The dispatch route (onlap-intervening / flush-contact / plain-boundary / lens).
  */
 export function routeGrabbedBoundary(
   left: PartitionColumn,
@@ -481,11 +568,25 @@ export function routeGrabbedBoundary(
   grabbedBodyId: string,
   lowerBodyId: string | null,
   clickElev: number,
+  grabFraction?: number,
 ): GrabbedBoundaryRoute {
   // 1. Onlap-intervening FIRST — never let a full-width band grabbed over an intervening onlap fall
   //    through to the plain path (which would create an engine-inert tie/node that eats the band).
   const onlap = resolveOnlapInterveningGrab(left, right, grabbedBodyId, clickElev)
-  if (onlap) return { kind: 'onlap-intervening', grab: onlap }
+  if (onlap) {
+    // §113 POSITION-AWARE split: an onlap intervenes, but WHERE along the gap the owner grabbed
+    // decides whether the onlap rides. On the FLUSH side of the onlap's pinch (left of the sand where
+    // the two bands share a clean contact) the reshape is LOCAL and the onlap is a WALL → route
+    // ``flush-contact``. On the onlap's side of the pinch it rides → ``onlap-intervening`` (S110/S112).
+    // Any riding onlap resolves the pinch (they share the pinch column); use the first that does.
+    if (grabFraction != null) {
+      for (const onlapId of onlap.ridingOnlaps) {
+        const pinch = onlapPinch(left, right, onlapId)
+        if (pinch && grabIsFlushSide(grabFraction, pinch)) return { kind: 'flush-contact', grab: onlap }
+      }
+    }
+    return { kind: 'onlap-intervening', grab: onlap }
+  }
   // 2. Plain two-band boundary (adjacent on both columns). When the caller already knows the lower
   //    body (the shared-boundary strip) verify full-width adjacency; otherwise derive it from the
   //    grabbed lens via reclassifyStackedBandGrab (the S103 lens-hijack fix).

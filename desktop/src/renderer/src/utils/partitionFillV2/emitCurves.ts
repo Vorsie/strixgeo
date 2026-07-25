@@ -33,7 +33,13 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { applyContactBend, bendBandContour, collectContactBends, type ContactBend } from './contactOverride'
+import {
+  applyContactBend,
+  bendBandContour,
+  bendBandContourConfined,
+  collectContactBends,
+  type ContactBend,
+} from './contactOverride'
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { collectEnclosedLensDiamonds, type Corr0Diamond } from './detourBandContour'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
@@ -190,24 +196,54 @@ export function emitCurves(section: SectionInput): EmittedCurves {
       for (const b of gapBends) {
         if (!b.heterogeneous || b.tieLeftElev == null || b.tieRightElev == null) continue
         if (Math.abs(b.tieLeftElev - t.left.y) > CONTOUR_MATCH_EPS || Math.abs(b.tieRightElev - t.right.y) > CONTOUR_MATCH_EPS) continue
-        const clayBase = bendBandContour(
-          [{ x: t.left.x, y: b.leftElev }, { x: t.right.x, y: b.rightElev }],
-          b.fraction,
-          b.elevation,
-        )
+        // §113 FLUSH-SIDE CONFINEMENT: a flush-side grab confines the clay-base bend to the flush
+        // segment (the onlap's pinch is a WALL), so the onlap-side segment keeps its base geometry and
+        // the onlap — which reads ``bentPoints`` at its own pinch fraction — does not ride. On the
+        // onlap's side of the pinch (``wallFraction`` null) the whole-gap ride stands (§112 unchanged).
+        const clayBase =
+          b.wallFraction != null && b.wallElev != null
+            ? bendBandContourConfined(
+                [{ x: t.left.x, y: b.leftElev }, { x: t.right.x, y: b.rightElev }],
+                b.fraction,
+                b.elevation,
+                b.wallFraction,
+                b.wallElev,
+              )
+            : bendBandContour(
+                [{ x: t.left.x, y: b.leftElev }, { x: t.right.x, y: b.rightElev }],
+                b.fraction,
+                b.elevation,
+              )
         if (clayBase.length > 2) t.bentPoints = clayBase
-        // Insert a COLLINEAR vertex on the matrix-top tie curve at the apex fraction (elevation =
-        // the tie interpolated there, so the line is geometrically UNCHANGED — the matrix still holds
-        // straight). This exposes the held matrix-top elevation as a real boundary vertex so the
-        // partition explicitly carries "the matrix top held here" rather than an implicit straight
-        // edge (a held-straight matrix top would otherwise have NO interior vertex the fill/consumers
-        // can read). Only on the heterogeneous-override path — the flush + no-override tie stays a
-        // clean 2-point chord (byte-identical).
-        const apexX = t.left.x + b.fraction * (t.right.x - t.left.x)
-        const apexY = t.left.y + b.fraction * (t.right.y - t.left.y)
         const SNAP = 0.001
-        if (Math.abs(apexX - t.left.x) > SNAP && Math.abs(apexX - t.right.x) > SNAP) {
-          heteroTiePoints = [t.left, { x: apexX, y: apexY }, t.right]
+        const collinearAt = (frac: number): Point => ({
+          x: t.left.x + frac * (t.right.x - t.left.x),
+          y: t.left.y + frac * (t.right.y - t.left.y),
+        })
+        if (b.wallFraction != null && b.wallElev != null) {
+          // §113 CONFINED (flush-side). On the FLUSH segment [column .. wall] there is NO onlap and the
+          // clay base IS the matrix top (a plain shared contact there — clay base 5.21 == matrix top
+          // 5.21 on the flush column). So the matrix top FOLLOWS the clay base on the flush segment
+          // (both bend together — matrix grows/shrinks as the shared contact moves), then HOLDS on the
+          // onlap segment [wall .. column] where the onlap laps it. Confine-bend the tie curve through
+          // the SAME apex + wall as the clay base, pinning the wall at the onlap's current apex so the
+          // onlap-side matrix top is byte-identical and the onlap does not move. This makes the flush
+          // side a clean two-band contact and keeps the onlap a WALL.
+          heteroTiePoints = bendBandContourConfined(
+            [t.left, t.right],
+            b.fraction,
+            b.elevation,
+            b.wallFraction,
+            b.wallElev,
+          )
+        } else {
+          // §112 onlap-side ride: the matrix top HOLDS straight; expose a collinear vertex at the apex
+          // so the partition carries a boundary vertex where the clay-base bandc bends (the matrix is
+          // geometrically unchanged — the vertex elevation is the tie interpolated there).
+          const apex = collinearAt(b.fraction)
+          if (Math.abs(apex.x - t.left.x) > SNAP && Math.abs(apex.x - t.right.x) > SNAP) {
+            heteroTiePoints = [t.left, apex, t.right]
+          }
         }
       }
     }

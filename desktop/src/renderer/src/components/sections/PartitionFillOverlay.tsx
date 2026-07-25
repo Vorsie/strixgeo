@@ -2438,11 +2438,22 @@ export default function PartitionFillOverlay({
           const gapLeft = sectionFillData.orderedColumns[sb.gapIndex]
           const gapRight = sectionFillData.orderedColumns[sb.gapIndex + 1]
           const clickElev = screenToLevel ? screenToLevel(lastClick.current.y) : 0
+          // §113 POSITION-AWARENESS: the grab's gap fraction (0 = left column, 1 = right) decides
+          // whether an intervening onlap RIDES (grab on the onlap's side of its pinch) or is a WALL
+          // (grab on the flush side — the clay bends locally, the onlap holds). Screen-space fraction
+          // from the two gap column x's + the raw click x.
+          const grabFraction =
+            sb.rightX > sb.leftX ? (lastClick.current.x - sb.leftX) / (sb.rightX - sb.leftX) : 0.5
           const route =
             gapLeft && gapRight
-              ? routeGrabbedBoundary(gapLeft, gapRight, sb.upperBodyId, sb.lowerBodyId, clickElev)
+              ? routeGrabbedBoundary(gapLeft, gapRight, sb.upperBodyId, sb.lowerBodyId, clickElev, grabFraction)
               : ({ kind: 'lens' } as const)
-          if (route.kind === 'onlap-intervening') {
+          // Both onlap-intervening (ride) and flush-contact (local bend, onlap held) dispatch the SAME
+          // bend-WITHOUT-tie boundaryDrag — the onlap keeps its own tie (no §106 re-absorb). The ENGINE
+          // confines the bend to the flush segment when the apex fraction is on the flush side of the
+          // onlap's pinch (§113 ``collectContactBends``), so the onlap is a wall for a flush grab and
+          // rides for an onlap-side grab. The route kind only names the case for telemetry.
+          if (route.kind === 'onlap-intervening' || route.kind === 'flush-contact') {
             startOnlapInterveningDrag({
               grab: route.grab,
               gapLeft: gapLeft!,
@@ -2525,11 +2536,17 @@ export default function PartitionFillOverlay({
           // the onlap-intervening grab FIRST (a ``contact:A|C`` bend WITHOUT the A/C banding tie makes
           // the onlap RIDE the bent clay base and SURVIVE — §109), else falls to the plain stacked-band
           // reclassify (S103 correlate-then-bend), else a genuine lens (keep the lens drag below).
+          // §113 POSITION-AWARENESS: the grab's gap fraction routes a flush-side grab (onlap held) vs
+          // an onlap-side grab (onlap rides) — see the shared-boundary dispatch.
+          const grabFraction =
+            sl.rightX > sl.leftX ? (lastClick.current.x - sl.leftX) / (sl.rightX - sl.leftX) : 0.5
           const route =
             gapLeft && gapRight
-              ? routeGrabbedBoundary(gapLeft, gapRight, sl.bodyId, null, clickElev)
+              ? routeGrabbedBoundary(gapLeft, gapRight, sl.bodyId, null, clickElev, grabFraction)
               : ({ kind: 'lens' } as const)
-          if (route.kind === 'onlap-intervening') {
+          // Onlap-intervening (ride) and flush-contact (local bend, onlap held) both dispatch the same
+          // bend-WITHOUT-tie drag; the engine confines the flush case (§113).
+          if (route.kind === 'onlap-intervening' || route.kind === 'flush-contact') {
             startOnlapInterveningDrag({
               grab: route.grab,
               gapLeft: gapLeft!,
