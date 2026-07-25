@@ -6,7 +6,6 @@ import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -26,10 +25,9 @@ from groundmodel.api.schemas.project.project_response import ProjectResponse
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
-from groundmodel.application.resolve_litho_instances_use_case import (
-    ResolveLithoInstances,
+from groundmodel.application.reconcile_bodies_after_restore import (
+    reconcile_bodies_after_restore,
 )
-from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
     BundleIntegrityError,
@@ -40,7 +38,6 @@ from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
-from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 from groundmodel.shared.timing import ms_since
 
@@ -536,7 +533,10 @@ async def restore_project(
     #                                                                      #
     # ``ResolveLithoInstances`` keeps body rows in sync with the restored #
     # correlation graph (one body per connected component, ``body_id``    #
-    # stamps current, orphan unnamed bodies removed).                      #
+    # stamps current, orphan unnamed bodies removed).  Runs for litho AND #
+    # geotech models (both carry ``litho_layer.body_id``) via the shared  #
+    # helper, so reopening a subdivided project keeps its geotech body    #
+    # grouping instead of leaving it NULL until the next subdivide.       #
     #                                                                      #
     # ``DetectBodies`` is deliberately NOT run here.  Body EXTENTS are     #
     # section-scoped (2D) and ride in the bundle's ``bodies[]`` array      #
@@ -546,23 +546,7 @@ async def restore_project(
     # ``POST .../bodies/detect`` (with the active ``section_id``) is the   #
     # only thing that sets or reconciles extents.                          #
     # ------------------------------------------------------------------ #
-    litho_model_ids = list(
-        (
-            await session.execute(
-                select(GeologicalModelOrm.id).where(
-                    GeologicalModelOrm.app_project_id == project_id,
-                    GeologicalModelOrm.kind == MODEL_KIND_LITHOSTRATIGRAPHIC,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for litho_model_id in litho_model_ids:
-        await ResolveLithoInstances(session).execute(
-            model_id=litho_model_id,
-            commit=False,
-        )
+    await reconcile_bodies_after_restore(session, project_id)
 
     await session.commit()
     await session.refresh(project)
