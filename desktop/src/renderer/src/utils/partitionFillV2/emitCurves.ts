@@ -33,7 +33,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { applyContactBend, collectContactBends, type ContactBend } from './contactOverride'
+import { applyContactBend, bendBandContour, collectContactBends, type ContactBend } from './contactOverride'
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { collectEnclosedLensDiamonds, type Corr0Diamond } from './detourBandContour'
 import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
@@ -170,16 +170,51 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   }
   for (const t of ties) {
     const gapBends = contactBendsByGap.get(t.gapIndex)
-    const bent = gapBends ? applyContactBend([t.left, t.right], t.left.y, t.right.y, gapBends) : [t.left, t.right]
+    // FLUSH bends (heterogeneous === false) are keyed to the shared tie contact's own elevations, so
+    // ``applyContactBend`` bends the tie CURVE here (both faces re-trace — byte-identical pre-§112).
+    // HETEROGENEOUS bends are keyed to the UPPER band's OWN base contour, NOT this tie's elevations,
+    // so they never match here → the tie curve stays STRAIGHT (the matrix-top tie HOLDS; §112).
+    const flushBends = gapBends ? gapBends.filter((b) => !b.heterogeneous) : undefined
+    const bent = flushBends ? applyContactBend([t.left, t.right], t.left.y, t.right.y, flushBends) : [t.left, t.right]
     // Session 109 — carry the BENT polyline onto the tie so an onlap that laps this tie can ride
     // its bend (``emitOnlap`` re-derives its apex elevation as ``pointAt(fraction)`` along it). Only
     // when the bend actually inserted an interior vertex (``bent.length > 2``); a straight 2-point
     // result leaves ``bentPoints`` undefined so the onlap reads the straight endpoints byte-identically.
     if (bent.length > 2) t.bentPoints = bent
+    // §112 HETEROGENEOUS onlap ride: when a heterogeneous bend's matched-tie elevations equal THIS
+    // tie's (it is the matrix-top tie the onlap laps), attach the bent CLAY-BASE polyline to the
+    // tie's ``bentPoints`` WITHOUT bending the tie curve. The onlap then rides the clay base (its top
+    // laps that line, base pinned to the matrix top) while the matrix-top tie curve stays straight.
+    let heteroTiePoints: Point[] | null = null
+    if (gapBends) {
+      for (const b of gapBends) {
+        if (!b.heterogeneous || b.tieLeftElev == null || b.tieRightElev == null) continue
+        if (Math.abs(b.tieLeftElev - t.left.y) > CONTOUR_MATCH_EPS || Math.abs(b.tieRightElev - t.right.y) > CONTOUR_MATCH_EPS) continue
+        const clayBase = bendBandContour(
+          [{ x: t.left.x, y: b.leftElev }, { x: t.right.x, y: b.rightElev }],
+          b.fraction,
+          b.elevation,
+        )
+        if (clayBase.length > 2) t.bentPoints = clayBase
+        // Insert a COLLINEAR vertex on the matrix-top tie curve at the apex fraction (elevation =
+        // the tie interpolated there, so the line is geometrically UNCHANGED — the matrix still holds
+        // straight). This exposes the held matrix-top elevation as a real boundary vertex so the
+        // partition explicitly carries "the matrix top held here" rather than an implicit straight
+        // edge (a held-straight matrix top would otherwise have NO interior vertex the fill/consumers
+        // can read). Only on the heterogeneous-override path — the flush + no-override tie stays a
+        // clean 2-point chord (byte-identical).
+        const apexX = t.left.x + b.fraction * (t.right.x - t.left.x)
+        const apexY = t.left.y + b.fraction * (t.right.y - t.left.y)
+        const SNAP = 0.001
+        if (Math.abs(apexX - t.left.x) > SNAP && Math.abs(apexX - t.right.x) > SNAP) {
+          heteroTiePoints = [t.left, { x: apexX, y: apexY }, t.right]
+        }
+      }
+    }
     curves.push({
       id: t.id,
       kind: 'tie',
-      points: bent,
+      points: heteroTiePoints ?? bent,
     })
   }
 
@@ -376,6 +411,13 @@ function emitColumnVerticals(columns: readonly ColumnGeom[], out: InputCurve[]):
  * snap grid (``SNAP_GRID_M``). Below this a "piece" is a vertex touch, not a real sub-segment.
  */
 const LENS_CUT_EPS = 0.001
+
+/**
+ * Elevation match epsilon (metres) for pairing a §112 heterogeneous bend to the matrix-top tie it
+ * must attach its clay-base ride polyline to (the 1 mm arrangement snap grid). The tie's own curve is
+ * left unbent; only its ``bentPoints`` (read solely by the riding onlap) takes the clay-base line.
+ */
+const CONTOUR_MATCH_EPS = 0.001
 
 /**
  * Emit the TOP-BAND curve spanning each gap — from the left column's first-litho-top

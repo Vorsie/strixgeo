@@ -170,6 +170,19 @@ function emitGapFlood(
     }
   }
 
+  // §112 HETEROGENEOUS clay-base contour: when the owner grabs an upper band's OWN base contour that
+  // is NOT a tie (an onlap intervenes so the contact is only partly tied — ruling 8l keeps it out of
+  // the tie-only ``bandc`` loop above), emit that contour as a NEW line so the arrangement traces the
+  // bent clay base. The bend is keyed to the contour's own (leftElev, rightElev), so
+  // ``emitBandContourWithDetour`` → ``applyContactBend`` bends it through the cursor apex. The
+  // matrix-top tie is UNTOUCHED (its own tie contour is emitted straight elsewhere / holds), so the
+  // clay base moves alone and the intervening onlap fills the wedge between them. Only emitted where a
+  // heterogeneous bend actually targets this gap (no override → byte-identical: the set is empty).
+  for (const b of contactBends) {
+    if (!b.heterogeneous) continue
+    emitBandContourWithDetour(gapIndex, left.x, right.x, b.leftElev, b.rightElev, shallowTD, corr0Diamonds, contactBends, nextBandId, out)
+  }
+
   // Build the interval brackets: the top-band line, every tie line, every band contour, and the
   // shallow-TD floor. Between two consecutive brackets is one interval to close.
   const brackets: FloodBracket[] = []
