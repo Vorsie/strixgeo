@@ -1,5 +1,7 @@
 """Tests for the pure NAD classifier (spec §5)."""
 
+import pytest
+
 from groundmodel.domain.services.nad_classifier import classify_nad
 from groundmodel.domain.value_objects.admixture import Admixture
 
@@ -54,3 +56,45 @@ def test_sandy_clay_uses_secondary_variant():
 def test_lithology_is_hard_truth_qc_never_changes_soil():
     """A clay at sand-like qc (12 MPa) stays clay — densest clay class, not sand."""
     assert classify_nad("KLEI", (), 12.0) == 24
+
+
+# --- invalid-input safety (P0-4) --------------------------------------------
+# Owner rule (2026-07-25): the classifier may NEVER turn missing/invalid qc into
+# a plausible-but-wrong class. Bad numbers are rejected, not silently classified.
+# A legitimate small positive qc (incl. 0.0, the borehole-only sentinel) stays
+# valid and maps to the loosest class — only NaN / inf / negative are invalid.
+
+
+def test_nan_qc_is_rejected_not_silently_classified_densest():
+    """A NaN qc is invalid — reject it, never return the densest class.
+
+    The old behaviour silently returned the densest class because ``NaN < x`` is
+    always False, so the walk fell through to the open-topped densest band. That
+    turns missing data into 'very dense' — exactly backwards for safety.
+    """
+    with pytest.raises(ValueError, match="qc"):
+        classify_nad("ZAND", (), float("nan"))
+
+
+def test_negative_qc_is_rejected_not_silently_classified_loosest():
+    """A negative qc is physically impossible — reject it, don't silently call it loosest."""
+    with pytest.raises(ValueError, match="qc"):
+        classify_nad("ZAND", (), -5.0)
+
+
+def test_infinite_qc_is_rejected():
+    """An infinite qc is invalid — reject rather than classify densest."""
+    with pytest.raises(ValueError, match="qc"):
+        classify_nad("ZAND", (), float("inf"))
+
+
+def test_zero_qc_stays_valid_and_maps_to_loosest():
+    """qc 0.0 is the borehole-only fallback sentinel — it must stay valid → loosest class."""
+    assert classify_nad("ZAND", (), 0.0) == 5
+
+
+def test_unknown_soil_code_raises_clear_error_naming_the_soil():
+    """An unrecognised soil is a data problem — raise a readable error naming the soil,
+    never a raw KeyError and never a guessed class."""
+    with pytest.raises(ValueError, match="ROCK"):
+        classify_nad("ROCK", (), 5.0)  # type: ignore[arg-type]
