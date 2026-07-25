@@ -67,6 +67,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.divide_boreholes import DivideBoreholes
+from groundmodel.application.reconcile_bodies_after_restore import (
+    reconcile_bodies_after_restore,
+)
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -82,6 +85,10 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.repositories.project_bundle import (
+    build_project_bundle,
+    restore_project_bundle,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1742,6 +1749,95 @@ async def test_sab_void_qc_does_not_crash_and_flags_needs_review(
     # VOID-3: the untouched dense 4–8 m unit still classifies to a real NAD class.
     assert bottom_classes and all(c is not None for c in bottom_classes), (
         f"VOID-3: the untouched 4–8 m unit should classify to a real NAD class; got {bottom_classes}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_geotech_body_id_survives_project_reopen(
+    multi_layer_body_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A saved geotech project reopens with its geotech body grouping intact.
+
+    Regression for the geotech-reopen defect (2026-07-25): on restore, every litho
+    layer's ``body_id`` is popped (``bundle_restore_litho.py``) and the restore
+    endpoint re-stamps it by re-running ``ResolveLithoInstances`` via
+    ``reconcile_bodies_after_restore``. That reconcile originally covered only
+    lithostratigraphic models, so geotech layers reopened with ``body_id = NULL``,
+    silently breaking the geotech body grouping (and dangling
+    ``sample.geotech_body_id``) until the next subdivide.
+
+    Exercises the real save/reopen pipeline at the DB level: build_project_bundle →
+    restore_project_bundle (replace) → reconcile_bodies_after_restore (the endpoint's
+    post-restore step), and asserts every geotech ``litho_layer.body_id`` survives.
+    """
+    scene = multi_layer_body_scene
+    project = scene["project"]
+    litho_model_id = scene["litho_model"].id
+
+    # Build the geotech model — SubdivideAllBodies stamps geotech body_id via the
+    # resolver (ResolveLithoInstances on the geotech model). Commits internally.
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    async def _geotech_body_ids() -> list:
+        return list(
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm.body_id).where(LithoLayerOrm.model_id == geotech_model_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    before = await _geotech_body_ids()
+    assert before and all(b is not None for b in before), (
+        "precondition: geotech layers must be body_id-stamped after subdivide"
+    )
+
+    # Save the project (build bundle) then reopen it (wipe + restore + reconcile),
+    # mirroring the POST /restore endpoint's post-restore reconcile step.
+    bundle = await build_project_bundle(db_session, project)
+
+    # The real reopen runs in a FRESH request session that has never seen the
+    # subdivide's ORM objects. Reuse of this test session means SubdivideAllBodies'
+    # edge/layer objects linger in the identity map; a replace-restore then wipes
+    # their rows and re-inserts new ones, so autoflush would try to re-insert the
+    # stale edges (FK-violating on the deleted layers). Expunge to match the
+    # fresh-session reality before restoring.
+    db_session.expunge_all()
+    project = await db_session.get(ProjectOrm, project.id)
+    assert project is not None
+
+    await restore_project_bundle(
+        db_session,
+        project.id,
+        bundle["project"],
+        bundle.get("cpts", []),
+        bundle.get("boreholes", []),
+        bundle.get("geological_formations", []),
+        bundle.get("geological_models", []),
+        bundle.get("cross_sections", []),
+        bundle.get("investigation_reviews", []),
+        bodies_payload=bundle.get("bodies", []),
+        formation_absences_payload=bundle.get("formation_absences", []),
+        litho_contact_correlation_edges_payload=bundle.get("litho_contact_correlation_edges", []),
+        body_boundary_shapes_payload=bundle.get("body_boundary_shapes", []),
+        body_boundary_nodes_payload=bundle.get("body_boundary_nodes", []),
+        replace=True,
+    )
+    await reconcile_bodies_after_restore(db_session, project.id)
+    await db_session.commit()
+
+    after = await _geotech_body_ids()
+    assert after, "geotech layers must exist after reopen"
+    assert all(b is not None for b in after), (
+        "geotech litho_layer.body_id must survive project reopen — the post-restore "
+        "reconcile must re-stamp geotech bodies, not only litho models"
     )
 
 
