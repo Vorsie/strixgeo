@@ -109,6 +109,114 @@ def test_no_samples_returns_fallback_band():
     assert splits[0].depth_top_m == 5.0 and splits[0].depth_base_m == 10.0
 
 
+# --- bad / missing qc handling (P0-1) ---------------------------------------
+# Owner rule (2026-07-25):
+#   1. Drop only the invalid samples (void/None, NaN, negative); classify the
+#      unit from the good ones.
+#   2. One isolated bad point never flags a unit.
+#   3. A unit "needs review" (nad_class None — NOT a guessed class) if EITHER
+#      more than ~40% of its thickness lacks valid qc OR there is a >=5 cm
+#      continuous gap with no valid qc.
+#   4. No CPT at all (borehole-only) → loosest class, conservative default.
+
+
+def test_no_cpt_at_all_falls_back_to_loosest_class():
+    """No CPT samples at all (borehole-only) → the loosest NAD class (los = 5 for sand),
+    the conservative default. Guards the existing branch against regression."""
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=[],
+        qc_mpa=[],
+        segment_top_m=5.0,
+        segment_base_m=10.0,
+        min_thickness_m=0.35,
+    )
+    assert [s.nad_class for s in splits] == [5]
+
+
+def test_isolated_void_sample_is_dropped_and_unit_still_classifies():
+    """A single void (None) qc sample among good qc is irrelevant — drop it and classify
+    from the good ones. Reproduces P0-1: today a None sample raises TypeError deep in the
+    pipeline and fails the whole model-wide Subdivide.
+
+    Spacing is CPT-density (2 cm), so one missing point is ~2 cm — genuinely irrelevant,
+    which is the case the owner's 'one point is irrelevant' rule describes."""
+    depths = _depths(0.0, 2.0, 0.02)  # ~101 samples over 2 m at CPT density
+    qc: list = [8.0] * len(depths)
+    qc[50] = None  # one void reading in the middle (~2 cm of profile)
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6]  # one bad point ignored, classifies normally
+
+
+def test_isolated_nan_sample_is_dropped_and_unit_still_classifies():
+    """A single NaN qc sample is irrelevant — drop it and classify from the good ones.
+    Today NaN silently drags the median to NaN → densest class; the unit should read matig."""
+    depths = _depths(0.0, 2.0, 0.02)  # CPT density — one bad point is ~2 cm
+    qc: list = [8.0] * len(depths)
+    qc[50] = float("nan")
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6]
+
+
+def test_sustained_missing_span_in_thin_unit_needs_review():
+    """~10 cm of void qc inside a ~20 cm unit → 'needs review' (nad_class None), never a
+    guessed class. Trips BOTH review rules: >40% of thickness missing AND a >=5 cm gap."""
+    depths = _depths(0.0, 0.20, 0.01)  # 21 samples over 20 cm at 1 cm spacing
+    qc: list = [8.0] * len(depths)
+    for i in range(5, 16):  # samples at 5..15 cm → ~10 cm contiguous void
+        qc[i] = None
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=0.20,
+        min_thickness_m=0.02,
+        gradient_snap=False,
+    )
+    assert len(splits) == 1
+    assert splits[0].nad_class is None  # unresolved, not a guessed class
+
+
+def test_cpt_present_but_all_qc_void_needs_review_not_loosest():
+    """A unit whose CPT covers it but every qc is void → 'needs review' (None), NOT the
+    loosest fallback. Distinguishes 'CPT present, data missing' from 'no CPT at all'."""
+    depths = _depths(0.0, 0.5, 0.05)
+    qc: list = [None] * len(depths)
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=0.5,
+        min_thickness_m=0.1,
+        gradient_snap=False,
+    )
+    assert len(splits) == 1
+    assert splits[0].nad_class is None
+
+
 # --- persistence filter -----------------------------------------------------
 
 
