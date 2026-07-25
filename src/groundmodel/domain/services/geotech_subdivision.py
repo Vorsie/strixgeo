@@ -8,6 +8,8 @@ contacts without ever making the placement less conservative.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from statistics import median
 
@@ -15,6 +17,73 @@ from groundmodel.domain.services.nad_classification_constants import NAD_QC_BAND
 from groundmodel.domain.services.nad_classifier import _variant_for, classify_nad
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
+
+# Owner rule (2026-07-25): a unit is flagged "needs review" (no guessed NAD class)
+# rather than classified when its valid-qc coverage is too thin — EITHER a large
+# fraction of the unit thickness has no valid qc OR there is a long continuous gap
+# with no valid qc. Isolated bad samples at CPT density stay well under both bounds,
+# so a single dropout never flags. Kept next to their sole caller (they encode this
+# service's policy, not a shared vocabulary).
+QC_REVIEW_MISSING_FRACTION = 0.40  # >40% of unit thickness lacking valid qc → review
+QC_REVIEW_MAX_GAP_M = 0.05  # a continuous ≥5 cm span with no valid qc → review
+
+
+def _is_valid_qc(q: float | None) -> bool:
+    """True when a cone-resistance sample is usable: present, finite, non-negative.
+
+    Parameters
+    ----------
+    q : float | None
+        A single qc sample (MPa). ``None`` models a GEF/DOV void reading.
+
+    Returns
+    -------
+    bool
+        ``False`` for ``None``, NaN, ±inf, or a negative value; else ``True``.
+    """
+    return q is not None and math.isfinite(q) and q >= 0.0
+
+
+def _missing_qc_coverage(
+    in_range: list[tuple[float, float | None]],
+    segment_top_m: float,
+    segment_base_m: float,
+) -> tuple[float, float]:
+    """Measure how much of a segment lacks valid qc, from its in-range samples.
+
+    Coverage is judged only over the depth span the CPT actually reaches (first to
+    last in-range sample): a gap is the depth between two consecutive *valid* samples
+    beyond the nominal sample spacing — i.e. the stretch a dropout/void run leaves
+    with no usable reading. Sub-CPT-coverage at the segment ends is NOT counted as
+    missing (that is coverage limit, not corrupt data).
+
+    Parameters
+    ----------
+    in_range : list[tuple[float, float | None]]
+        ``(depth_m, qc_mpa)`` samples inside the segment, any validity.
+    segment_top_m, segment_base_m : float
+        Segment bounds (metres); used only for the thickness denominator.
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(missing_fraction, max_gap_m)`` — the summed gap length as a fraction of
+        segment thickness, and the single longest continuous gap (metres). When no
+        sample carries valid qc, returns ``(1.0, thickness)`` (fully missing).
+    """
+    thickness = max(segment_base_m - segment_top_m, 1e-9)
+    valid_depths = sorted(d for d, q in in_range if _is_valid_qc(q))
+    if not valid_depths:
+        return 1.0, thickness
+    nominal = _median_increment([d for d, _q in in_range])
+    total_missing = 0.0
+    max_gap = 0.0
+    for a, b in zip(valid_depths, valid_depths[1:]):
+        gap = (b - a) - nominal  # depth with no valid reading beyond normal spacing
+        if gap > 0.0:
+            total_missing += gap
+            max_gap = max(max_gap, gap)
+    return total_missing / thickness, max_gap
 
 
 def _persistence_filter(mask: list[bool], persist: int) -> list[bool]:
@@ -249,20 +318,22 @@ class GeotechSplit:
     depth_base_m : float
         Base depth of the sub-unit (metres, positive down), clamped to the
         parent segment base.
-    nad_class : int
-        Classified NAD packing class 1–31.
+    nad_class : int | None
+        Classified NAD packing class 1–31, or ``None`` when the unit's qc is
+        missing/invalid over a material span and it is flagged "needs review"
+        rather than assigned a guessed class (owner rule 2026-07-25).
     """
 
     depth_top_m: float
     depth_base_m: float
-    nad_class: int
+    nad_class: int | None
 
 
 def suggest_geotech_subdivision(
     soil: BaseLithology,
     admixtures: tuple[Admixture, ...],
     depth_m: list[float],
-    qc_mpa: list[float],
+    qc_mpa: Sequence[float | None],
     segment_top_m: float,
     segment_base_m: float,
     min_thickness_m: float,
@@ -289,8 +360,9 @@ def suggest_geotech_subdivision(
     depth_m : list[float]
         Full CPT depth series (metres, positive down). Samples outside
         ``[segment_top_m, segment_base_m]`` are ignored.
-    qc_mpa : list[float]
-        Cone resistance in MPa, one value per entry in ``depth_m``.
+    qc_mpa : Sequence[float | None]
+        Cone resistance in MPa, one value per entry in ``depth_m``. Void/invalid
+        readings (``None``, NaN, negative) are dropped before classification.
     segment_top_m : float
         Top bound of the geo-bounded litho segment (metres).
     segment_base_m : float
@@ -312,9 +384,12 @@ def suggest_geotech_subdivision(
     -------
     list[GeotechSplit]
         One split per surviving packing band, ordered top-to-bottom. Never
-        empty — falls back to a single split covering the full segment when
-        no CPT samples fall inside it (qc=0.0 → loosest NAD class for the
-        soil type).
+        empty. Two special single-split cases (owner rule 2026-07-25):
+        no CPT samples at all in the segment (borehole-only) → one loosest-class
+        band (qc=0.0 fallback); missing/invalid qc over a material span (>40% of
+        thickness OR a ≥5 cm continuous gap) → one ``nad_class=None`` band flagged
+        "needs review" rather than a guessed class. Isolated bad samples are
+        dropped and the unit is classified from the remaining good qc.
 
     Raises
     ------
@@ -327,21 +402,30 @@ def suggest_geotech_subdivision(
         )
 
     # --- filter to samples inside [segment_top_m, segment_base_m] ----------
-    pairs = [
+    in_range: list[tuple[float, float | None]] = [
         (d, q)
         for d, q in zip(depth_m, qc_mpa)
         if segment_top_m - 1e-9 <= d <= segment_base_m + 1e-9
     ]
 
-    if not pairs:
-        # No CPT samples in this segment (e.g. borehole-only column): qc=0.0 →
-        # loosest NAD class for the soil; one fallback unit spanning the segment,
+    if not in_range:
+        # No CPT samples at all in this segment (e.g. borehole-only column): qc=0.0
+        # → loosest NAD class for the soil; one fallback unit spanning the segment,
         # never empty.
         fallback = classify_nad(soil, admixtures, 0.0)
         return [GeotechSplit(segment_top_m, segment_base_m, fallback)]
 
-    seg_depths: list[float] = [d for d, _q in pairs]
-    seg_qc: list[float] = [q for _d, q in pairs]
+    # The CPT reaches here, but some qc may be void/NaN/negative. Drop the bad
+    # samples and classify from the good ones (owner rule 2026-07-25). If the
+    # missing/invalid qc spans a material fraction of the unit OR leaves a long
+    # continuous gap, do NOT guess a class — flag the whole unit "needs review".
+    missing_fraction, max_gap_m = _missing_qc_coverage(in_range, segment_top_m, segment_base_m)
+    if missing_fraction > QC_REVIEW_MISSING_FRACTION or max_gap_m >= QC_REVIEW_MAX_GAP_M:
+        return [GeotechSplit(segment_top_m, segment_base_m, None)]
+
+    valid = [(d, q) for d, q in in_range if _is_valid_qc(q)]
+    seg_depths: list[float] = [d for d, _q in valid]
+    seg_qc: list[float] = [q for _d, q in valid if q is not None]
 
     # 1. Sustained per-threshold crossings -> cut depths (conservative placement).
     cuts = _sustained_threshold_cuts(seg_depths, seg_qc, soil, admixtures, min_thickness_m)
