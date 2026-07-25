@@ -470,7 +470,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     profile_by_seg_key[(seg.investigation_id, seg.top_depth_m)] = bp
                     continue
                 splits = suggest_geotech_subdivision(
-                    soil=soil_code,  # type: ignore[arg-type]
+                    soil=soil_code,
                     admixtures=admixtures,
                     depth_m=series.depths_m,
                     qc_mpa=series.qc_mpa,
