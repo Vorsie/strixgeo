@@ -39,7 +39,7 @@ from groundmodel.infrastructure.db.models.lab_test_family_constants import (
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
-from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
+from groundmodel.shared.constants.model_kind import NON_STRATIGRAPHIC_KINDS
 
 # Columns dropped on serialise + restore. Timestamps are server-defaults;
 # geometry is rebuilt from x/y/epsg. ``archived_at`` is by-design active
@@ -404,7 +404,7 @@ def _sample_to_dict(sample: SampleOrm) -> dict[str, Any]:
 
 def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
     """Serialise a geological model with its formation contacts +
-    cached TIN surfaces + (litho models only) litho_layers nested.
+    cached TIN surfaces + (litho/geotech models) litho_layers nested.
 
     Mirrors the rest of the bundle's nesting convention — child rows
     live under their parent (CPT.series, borehole.observations[]) — so
@@ -415,16 +415,19 @@ def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
     refreshes the cache anyway, but for a freshly-opened project the
     section view's slice query lands on already-computed geometry.
 
-    Litho models carry only ``litho_layers`` — the Shape A primitives
-    (id, formation_id, anchor, depth_top_m, depth_base_m, status,
-    source, confidence, ...) are the source of truth post-A3. The
-    ``contacts`` field is emitted as an empty list for litho models
-    (A4 slice 4c) — formation_contact stays populated in the DB as a
-    legacy mirror via the LL→FC trigger, but the bundle no longer
-    duplicates the data. On restore the LL→FC trigger fires per
-    accepted-layer INSERT and rebuilds the FC mirror, so a fresh v4
-    bundle opens cleanly on a wiped DB without contact rows in the
-    payload.
+    Litho AND geotech models carry only ``litho_layers`` — the Shape A
+    primitives (id, formation_id, anchor, depth_top_m, depth_base_m,
+    status, source, confidence, ...) are the source of truth post-A3.
+    The ``contacts`` field is emitted as an empty list for both
+    (``NON_STRATIGRAPHIC_KINDS``, A4 slice 4c) — formation_contact stays
+    populated in the DB as a legacy mirror via the LL→FC trigger, but
+    the bundle no longer duplicates the data. On restore the geotech/
+    litho layers insert explicitly and the LL→FC trigger (no kind gate)
+    rebuilds the FC mirror. Geotech MUST stay empty here: if it emitted
+    its contacts, restore's de-dupe would SKIP the explicit layer INSERT
+    and defer to the FC→LL trigger, which is gated to litho only — so a
+    reopened geotech project would lose every geotech layer and its
+    correlation edges would dangle (FK violation on restore).
 
     Geological models keep the historical ``contacts`` shape (the
     geological axis never grew Shape A) and always emit an empty
@@ -450,9 +453,15 @@ def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
         JSON-friendly dict with nested contacts/surfaces/litho_layers.
     """
     payload = _column_to_json(model, _SKIP_COLUMNS)
-    if model.kind == MODEL_KIND_LITHOSTRATIGRAPHIC:
-        # Shape A native: layers are the truth, contacts are derived
-        # via the trigger and don't ride along in the bundle.
+    if model.kind in NON_STRATIGRAPHIC_KINDS:
+        # Shape A native (litho AND geotech): layers are the truth, contacts
+        # are derived via the LL→FC trigger and don't ride along in the bundle.
+        # Geotech MUST NOT emit contacts — its layers are restored explicitly
+        # (the de-dupe skip only fires when a matching contact is in the
+        # payload), and the LL→FC trigger (no kind gate) rebuilds the mirror.
+        # If geotech emitted its contacts, restore would SKIP the layer INSERT
+        # and defer to the FC→LL trigger, which is gated to litho only — so the
+        # geotech layers would never come back and their edges would dangle.
         payload["contacts"] = []
     else:
         payload["contacts"] = [
