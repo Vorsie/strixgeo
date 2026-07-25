@@ -849,6 +849,136 @@ async def test_litho_layer_body_id_round_trips_via_resolver_restamp(
     assert body_after.name == "Sand lens A", "named body must survive the round-trip"
 
 
+async def test_geotech_bundle_restores_with_child_before_parent_formation_order(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """A geotech formation that appears BEFORE its litho parent in the bundle
+    still restores — order-independence (P0-3).
+
+    Geotech units carry self-referential FKs into ``geological_formation``
+    (``source_litho_formation_id``, ``source_geo_formation_id``,
+    ``parent_formation_id``). The bundle build has no ORDER BY, so the payload
+    order is not guaranteed parent-first; an existing test even notes "Geo parent
+    must appear before the litho model (INSERT order)". If restore inserts rows
+    in payload order with immediate self-FKs, a child-before-parent bundle
+    FK-violates on flush → the saved geotech project fails to reopen (500).
+
+    This restores a two-formation bundle with the geotech CHILD first and asserts
+    it completes and preserves the ``source_litho_formation_id`` link.
+    """
+    p = project_with_litho
+    litho_parent_id = str(uuid7())
+    geotech_child_id = str(uuid7())
+    bundle = {
+        "format_version": 4,
+        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
+        "cpts": [],
+        "boreholes": [],
+        # CHILD FIRST: the geotech unit references a litho parent that appears
+        # LATER in the array — the order-inversion that breaks a naive restore.
+        "geological_formations": [
+            {
+                "id": geotech_child_id,
+                "app_project_id": str(p["project"].id),
+                "name": "GEOTECH-UNIT",
+                "color": "#111111",
+                "display_order": 1,
+                "nad_class": 5,
+                "source_litho_formation_id": litho_parent_id,
+            },
+            {
+                "id": litho_parent_id,
+                "app_project_id": str(p["project"].id),
+                "name": "LITHO-PARENT",
+                "color": "#222222",
+                "display_order": 0,
+                "litho_main_soil_code": "ZAND",
+            },
+        ],
+        "geological_models": [],
+    }
+
+    # Must NOT raise, regardless of payload order.
+    await _restore_bundle(db_session, p["project"].id, bundle, replace=False)
+
+    child = await db_session.get(GeologicalFormationOrm, geotech_child_id)
+    assert child is not None, "the geotech child formation must be restored"
+    assert str(child.source_litho_formation_id) == litho_parent_id, (
+        "the geotech unit's link to its litho parent must survive the round-trip"
+    )
+
+
+async def test_geotech_model_restores_with_child_before_parent_order(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """A geotech model that appears BEFORE its litho/geo parents in the bundle
+    still restores — model-chain order-independence (P0-3).
+
+    Models carry ``parent_model_id`` (geotech→litho→geo, ondelete RESTRICT). The
+    build has no ORDER BY; if restore inserts models in payload order with an
+    immediate self-FK, a child-before-parent bundle FK-violates on flush.
+    Restores the full geo←litho←geotech chain with the CHILD FIRST.
+    """
+    p = project_with_litho
+    geo_id = str(uuid7())
+    litho_id = str(uuid7())
+    geotech_id = str(uuid7())
+    bundle = {
+        "format_version": 4,
+        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
+        "cpts": [],
+        "boreholes": [],
+        "geological_formations": [],
+        # CHILD FIRST: geotech (→litho) then litho (→geo) then geo.
+        "geological_models": [
+            {
+                "id": geotech_id,
+                "app_project_id": str(p["project"].id),
+                "name": "GEOTECH",
+                "kind": "geotechnical",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "parent_model_id": litho_id,
+                "contacts": [],
+                "surfaces": [],
+                "litho_layers": [],
+            },
+            {
+                "id": litho_id,
+                "app_project_id": str(p["project"].id),
+                "name": "LITHO",
+                "kind": "lithostratigraphic",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "parent_model_id": geo_id,
+                "contacts": [],
+                "surfaces": [],
+                "litho_layers": [],
+            },
+            {
+                "id": geo_id,
+                "app_project_id": str(p["project"].id),
+                "name": "GEO",
+                "kind": "geological",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "contacts": [],
+                "surfaces": [],
+                "litho_layers": [],
+            },
+        ],
+    }
+
+    # Must NOT raise, regardless of payload order.
+    await _restore_bundle(db_session, p["project"].id, bundle, replace=False)
+
+    geotech = await db_session.get(GeologicalModelOrm, geotech_id)
+    assert geotech is not None, "the geotech model must be restored"
+    assert str(geotech.parent_model_id) == litho_id, (
+        "the geotech model's parent link must survive the round-trip"
+    )
+
+
 async def test_body_with_dangling_source_investigation_is_dropped(
     db_session: AsyncSession, project_with_litho: dict
 ) -> None:
