@@ -1652,6 +1652,99 @@ async def test_sab_bug1_duplicate_investigation_id_regression(
     )
 
 
+@pytest.mark.asyncio
+async def test_sab_void_qc_does_not_crash_and_flags_needs_review(
+    multi_layer_body_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """Void qc must not crash the model-wide Subdivide; a unit missing qc over a
+    material span becomes 'needs review', while a well-covered unit still classifies.
+
+    Regression for P0-1 (2026-07-25): a GEF COLUMNVOID reading arrives as ``None``
+    in the qc series and, before the fix, raised ``TypeError`` inside
+    ``suggest_geotech_subdivision`` (``None >= threshold`` / ``median([…, None, …])``),
+    failing the whole ``SubdivideAllBodies`` run on ordinary real data.
+
+    This test punches a ~1 m contiguous void into CPT-P's TOP litho layer
+    (0–4 m ZAND). That span trips the ≥5 cm continuous-gap review rule, so the
+    0–4 m unit must become a needs-review (``nad_class`` None) geotech unit, while
+    CPT-P's untouched 4–8 m dense zone (qc 22 MPa) must still classify to a real
+    NAD class.
+
+    Asserts:
+    VOID-1  The use case COMPLETES without raising (TypeError was the failure mode).
+    VOID-2  CPT-P's 0–4 m unit is needs-review (``nad_class`` None) — never a guess.
+    VOID-3  CPT-P's 4–8 m unit still classifies to a real NAD class (good data used).
+
+    Run via the integration wrapper:
+        .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_subdivide_all_bodies.py
+    """
+    scene = multi_layer_body_scene
+    project = scene["project"]
+    litho_model_id = scene["litho_model"].id
+    cpt_p_id = scene["cpt_p_id"]
+
+    # Inject void (None) qc over ~1 m inside CPT-P's 0–4 m ZAND layer. CPT-P's top
+    # zone is 200 samples at 0.02 m (0.00–3.98 m); indices 60–110 span ≈1.2–2.2 m.
+    series = (
+        await db_session.execute(select(CptSeriesOrm).where(CptSeriesOrm.cpt_id == cpt_p_id))
+    ).scalar_one()
+    qc = list(series.qc_mpa)
+    for i in range(60, 111):
+        qc[i] = None  # a contiguous void run — real COLUMNVOID data
+    series.qc_mpa = qc
+    await db_session.commit()
+
+    # VOID-1: the run must COMPLETE — a void qc used to raise TypeError here.
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    # Collect CPT-P's geotech units and the NAD class of each unit's formation.
+    layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id == cpt_p_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert layers, "expected CPT-P to have geotech units after subdivide"
+
+    formation_ids = {lyr.formation_id for lyr in layers}
+    forms = {
+        f.id: f
+        for f in (
+            await db_session.execute(
+                select(GeologicalFormationOrm).where(GeologicalFormationOrm.id.in_(formation_ids))
+            )
+        )
+        .scalars()
+        .all()
+    }
+    top_classes = {
+        forms[lyr.formation_id].nad_class for lyr in layers if lyr.depth_base_m <= 4.0 + 1e-6
+    }
+    bottom_classes = {
+        forms[lyr.formation_id].nad_class for lyr in layers if lyr.depth_top_m >= 4.0 - 1e-6
+    }
+
+    # VOID-2: the void 0–4 m unit is flagged needs-review (None), not a guessed class.
+    assert None in top_classes, (
+        f"VOID-2: the void 0–4 m unit should be needs-review (nad_class None); got {top_classes}"
+    )
+    # VOID-3: the untouched dense 4–8 m unit still classifies to a real NAD class.
+    assert bottom_classes and all(c is not None for c in bottom_classes), (
+        f"VOID-3: the untouched 4–8 m unit should classify to a real NAD class; got {bottom_classes}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # SAB-10 — geotech edge count is proportional to litho connectivity
 # ---------------------------------------------------------------------------
