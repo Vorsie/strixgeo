@@ -122,6 +122,16 @@ import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
 /** Stable empty map so the PartitionFillOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
+
+// Litho free-draw (grab-a-boundary-and-reshape) is DISABLED for now (owner directive
+// 2026-07-25): the flush-side local bend (S113) works, but the onlap-apex-slide handle,
+// the pull-onlap-up-without-banding case, and grabbing the clay BELOW an onlap are not yet
+// built — so the interaction is half-finished and off until the full segment-confined
+// handle model lands. The partition FILL render is unaffected. Withholding onSaveBoundary /
+// onCorrelateBoundary suppresses every grab handle, the add-strip, and the drag dispatch by
+// construction (every handle memo short-circuits on ``!onSaveBoundary``). Flip to ``true`` to
+// resume the free-draw work. See docs/design/freedraw-onlap-lens-edit-model.md.
+const FREEDRAW_EDIT_ENABLED = false
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -3009,8 +3019,8 @@ export default function SectionPanel({
                 alongToScreenX={warpedXToScreen}
                 screenXToAlong={warpedScreenXToAlongCb}
                 screenToLevel={screenToLevel}
-                onSaveBoundary={onSaveLensShape}
-                onCorrelateBoundary={onCorrelateBoundary}
+                onSaveBoundary={FREEDRAW_EDIT_ENABLED ? onSaveLensShape : undefined}
+                onCorrelateBoundary={FREEDRAW_EDIT_ENABLED ? onCorrelateBoundary : undefined}
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
