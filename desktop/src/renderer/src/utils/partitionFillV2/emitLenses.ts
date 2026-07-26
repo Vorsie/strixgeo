@@ -128,8 +128,6 @@ function emitOne(
 ): void {
   const colX = col.x
   const dir = side === 'left' ? 1 : -1
-  const topPt: Point = { x: colX, y: lens.topElev }
-  const basePt: Point = { x: colX, y: lens.baseElev }
   const label: LensLabel = { formationId: lens.formationId, bodyId: lens.bodyId }
   const push = (points: Point[]): void => {
     const id = nextId()
@@ -139,6 +137,10 @@ function emitOne(
 
   const ov = lookupOverride(section, lens, gapIndex)
   if (ov?.freedraw) {
+    // User-drawn lens: emit the drawn polyline verbatim between the RAW column corners (the
+    // substrate-floor clamp is an auto-geometry correction, not applied to explicit user nodes).
+    const topPt: Point = { x: colX, y: lens.topElev }
+    const basePt: Point = { x: colX, y: lens.baseElev }
     const toPt = (n: { fraction: number; elevation: number }): Point => ({
       x: colX + dir * gapLocalToDist(n.fraction, side, gapWidth),
       y: n.elevation,
@@ -148,12 +150,14 @@ function emitOne(
     push([topPt, ...upper, ...lower, basePt])
     return
   }
-  const { apex } = enclosedLensDiamond(lens, col, facing, gapIndex, side, gapWidth, section, gapTies)
-  // TARGET-2 degenerate-flank guard (session 10): in a sub-snap-width gap (CS1 col21/col22 gap21,
-  // 0.17 m) the apex snaps onto the column, collapsing a flank to zero extent in BOTH axes (the
-  // ``close72`` elev-8.92-to-8.92 class). Emit NEITHER flank so the loop is never left half-open
-  // and no output curve is degenerate — the enclosed lens degenerates to nothing in a sub-snap
-  // gap (acceptable no-op; the enclosing matrix band simply covers the slot, holes/overlaps 0).
+  // ``topPt``/``basePt`` come from the diamond (base clamped to the substrate floor — see
+  // ``enclosedLensDiamond``) so the two flanks and the detour's copy of the diamond are identical.
+  const { topPt, apex, basePt } = enclosedLensDiamond(lens, col, facing, gapIndex, side, gapWidth, section, gapTies)
+  // TARGET-2 degenerate-flank guard (session 10): in a sub-snap-width gap the apex can snap onto the
+  // column, collapsing a flank to zero extent. Emit NEITHER flank so the loop is never left
+  // half-open and no output curve is degenerate (acceptable no-op; the enclosing matrix band covers
+  // the slot, holes/overlaps 0). ``collectEnclosedLensDiamonds`` mirrors this drop so the detour
+  // never wraps a diamond the emitter did not draw.
   if (segmentDegenerate(topPt, apex) || segmentDegenerate(apex, basePt)) return
   push([topPt, apex])
   push([apex, basePt])
@@ -202,8 +206,24 @@ export function enclosedLensDiamond(
 ): { topPt: Point; apex: Point; basePt: Point } {
   const colX = col.x
   const dir = side === 'left' ? 1 : -1
+  // SUBSTRATE-FLOOR CLAMP (owner 2026-07-26, CS1 g21). An enclosed lens whose base dips BELOW the
+  // gap's substrate floor (shallow TD = the higher of the two columns' deepest bases) pokes out of
+  // the bottom of its enclosing matrix band into the deep-to-deep substrate zone. The band-contour
+  // detour (``detourBandContourAroundLenses``) only carves a lens fully INSIDE the band, so a
+  // straddling lens is NOT carved and the enclosing flood absorbs it — the drilled minority vanishes
+  // (CS1 g21 ZAND-in-SILT, a 0.17 m near-coincident-borehole gap: the 0.35 m sand base 8.88 sat
+  // 0.04 m below the SILT band floor 8.92). Clamping the base UP to the floor makes the lens a clean
+  // interior hole the detour carves; the sub-floor sliver is substrate territory (filled by the
+  // deep-to-deep substrate, not this lens). A lens already at/above the floor is byte-identical (the
+  // ``max`` is a no-op); a lens ENTIRELY below the floor (floor ≥ top) is left untouched — it is a
+  // sub-TD unit for ``emitSubTdLenses``, not an interior enclosed lens.
+  const substrateFloor = Math.max(
+    Math.min(...col.units.map((u) => u.baseElev)),
+    Math.min(...facing.units.map((u) => u.baseElev)),
+  )
+  const clampedBase = substrateFloor < lens.topElev ? Math.max(lens.baseElev, substrateFloor) : lens.baseElev
   const topPt: Point = { x: colX, y: lens.topElev }
-  const basePt: Point = { x: colX, y: lens.baseElev }
+  const basePt: Point = { x: colX, y: clampedBase }
   // Ruling 8s (design partition-engine-v2.md §8, owner 2026-07-19, "0.45 stands, matrix detours"):
   // the DEFAULT 0-corr reach is 0.45 and STAYS 0.45 even when the facing carries a THIRD lithology
   // and the wedge opens into surrounding fill — the enclosing region detours AROUND the wedge (its
@@ -215,14 +235,17 @@ export function enclosedLensDiamond(
   // only the default diamond — an overridden lens is user-drawn and rare; the detour tracks the
   // default reach that the emitted lens flanks use when there is no override).
   const ov = section === null ? undefined : lookupOverride(section, lens, gapIndex)
-  const lensMid = (lens.topElev + lens.baseElev) / 2
+  // Diamond geometry uses the CLAMPED base (above): mid-elevation, thickness, and the tie-collision
+  // reach all reference the carved-into-the-band extent, so the apex and both flanks stay inside the
+  // enclosing band.
+  const lensMid = (lens.topElev + clampedBase) / 2
   const capFrac = enclosedLensReach(
-    lens.topElev - lens.baseElev,
+    lens.topElev - clampedBase,
     colX,
     facing.x,
     lensMid,
     lens.topElev,
-    lens.baseElev,
+    clampedBase,
     gapTies,
   )
   const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
