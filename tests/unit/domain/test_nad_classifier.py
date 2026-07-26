@@ -2,8 +2,10 @@
 
 import pytest
 
+from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS
 from groundmodel.domain.services.nad_classifier import classify_nad
 from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES
 
 
 def test_clean_sand_band_selection():
@@ -98,3 +100,55 @@ def test_unknown_soil_code_raises_clear_error_naming_the_soil():
     never a raw KeyError and never a guessed class."""
     with pytest.raises(ValueError, match="ROCK"):
         classify_nad("ROCK", (), 5.0)  # type: ignore[arg-type]
+
+
+# --- NAD_QC_BANDS table integrity ------------------------------------------
+# Structural invariants the ascending-walk classifier relies on. A future edit
+# to the threshold table (or the Task T0 xlsx swap) must preserve all of them,
+# or classify_nad silently misclassifies. NAD_CLASSES structure is covered
+# separately in test_litho_constants.py; this pins the qc-band table itself.
+
+
+def test_every_band_column_ends_open_top():
+    """Every (soil, variant) column ends with a ``(None, class)`` open-top band.
+
+    classify_nad walks ascending bands and relies on the last entry having an
+    open (``None``) upper so qc above every finite threshold always resolves to
+    the densest class — the invariant documented at nad_classifier.py:80. A
+    dropped ``None`` entry would fall through to the type-checker fallback and
+    misclassify the densest band.
+    """
+    for key, bands in NAD_QC_BANDS.items():
+        assert bands, f"{key}: empty band list"
+        assert bands[-1][0] is None, f"{key}: last band must be open-top (None upper)"
+
+
+def test_only_the_last_band_is_open_top():
+    """No interior band has a ``None`` upper — an interior open bound would make
+    the ascending walk short-circuit before reaching the denser bands."""
+    for key, bands in NAD_QC_BANDS.items():
+        for upper, _cls in bands[:-1]:
+            assert upper is not None, f"{key}: only the last band may have a None upper"
+
+
+def test_finite_thresholds_are_strictly_ascending():
+    """Within each column the finite upper bounds strictly ascend, so the
+    first-band-whose-upper-exceeds-qc walk is well defined."""
+    for key, bands in NAD_QC_BANDS.items():
+        finite = [upper for upper, _cls in bands if upper is not None]
+        assert finite == sorted(set(finite)), f"{key}: thresholds not strictly ascending: {finite}"
+
+
+def test_band_keys_are_valid_soil_and_variant():
+    """Every column key is a (base lithology, clean|secondary) pair."""
+    for soil, variant in NAD_QC_BANDS:
+        assert soil in BASE_LITHOLOGIES, f"unknown soil in band key: {soil!r}"
+        assert variant in ("clean", "secondary"), f"unknown variant in band key: {variant!r}"
+
+
+def test_bands_cover_every_nad_class_1_to_31():
+    """The qc table assigns every NAD packing class 1–31 (each class is reachable
+    from some soil/variant/qc). VEEN clean and secondary intentionally share
+    29–31, so classes may repeat across columns — coverage, not uniqueness."""
+    classes = {cls for bands in NAD_QC_BANDS.values() for _upper, cls in bands}
+    assert classes == set(range(1, 32)), f"NAD_QC_BANDS does not cover 1..31 exactly: {classes}"
