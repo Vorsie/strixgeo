@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------
@@ -332,3 +334,72 @@ async def test_sab_it5_idempotent_reruns(
         "Idempotent re-run must reuse the same geotech model"
     )
     assert body2["layer_count"] >= 1, "Re-run must still materialise layers"
+
+
+# ---------------------------------------------------------------------------
+# SAB-IT-6  Full HTTP save/reopen — a subdivided project survives GET /bundle
+#            + POST /restore with its geotech body grouping intact
+# ---------------------------------------------------------------------------
+
+
+async def test_sab_it6_subdivided_project_survives_save_and_reopen(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """SAB-IT-6: a subdivided project reopens intact over the REAL HTTP path.
+
+    Drives the whole save/reopen pipeline through the actual endpoints —
+    subdivide-all-bodies → GET /bundle → POST /restore?replace=true — and asserts
+    every geotech ``litho_layer.body_id`` survives. This is the faithful
+    end-to-end counterpart to the DB-level reconcile test: it proves GET /bundle
+    can serialise a subdivided geotech project (geotech emits Shape-A contacts=[])
+    and that the restore endpoint's post-restore reconcile re-stamps geotech bodies.
+    """
+    pid = project.id
+    litho_id = scene["litho_model_id"]
+
+    sab_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_id}/geotech/subdivide-all-bodies",
+        json={"litho_model_id": litho_id},
+    )
+    assert sab_resp.status_code == 200, sab_resp.text
+    geotech_model_id = sab_resp.json()["geotech_model_id"]
+
+    async def _geotech_body_ids() -> list:
+        await db_session.rollback()  # drop any snapshot; read the API sessions' commits
+        return list(
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm.body_id).where(LithoLayerOrm.model_id == geotech_model_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    before = await _geotech_body_ids()
+    assert before and all(b is not None for b in before), (
+        "precondition: geotech layers must be body_id-stamped after subdivide"
+    )
+
+    # Save: GET /bundle must serialise the subdivided geotech project (no 500).
+    bundle_resp = await async_client.get(f"/projects/{pid}/bundle")
+    assert bundle_resp.status_code == 200, (
+        f"GET /bundle on a subdivided project failed: {bundle_resp.status_code} {bundle_resp.text}"
+    )
+    bundle = bundle_resp.json()
+
+    # Reopen: POST /restore (replace) must round-trip + reconcile geotech bodies.
+    restore_resp = await async_client.post(f"/projects/{pid}/restore?replace=true", json=bundle)
+    assert restore_resp.status_code == 200, (
+        f"POST /restore failed: {restore_resp.status_code} {restore_resp.text}"
+    )
+
+    after = await _geotech_body_ids()
+    assert after, "geotech layers must exist after reopen"
+    assert all(b is not None for b in after), (
+        "geotech litho_layer.body_id must survive a real GET /bundle + POST /restore "
+        "round-trip — the restore endpoint must re-stamp geotech bodies, not only litho"
+    )
