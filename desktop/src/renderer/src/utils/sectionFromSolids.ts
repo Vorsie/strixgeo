@@ -479,8 +479,23 @@ function intersectAtAlong(
 export function sliceSolidsAlongZigzag(
   meshes: SolidMesh[],
   tests: ZigzagTest[],
+  resolvePerLeg?: (polys: SectionPoly[]) => SectionPoly[],
 ): SectionPoly[] {
   const result: SectionPoly[] = []
+
+  // PERF: precompute each mesh's 2D (x,y) footprint bbox ONCE so each leg can
+  // cheaply reject bodies it cannot cross. Without it, every leg re-scans EVERY
+  // body's triangles (37 legs × 80 bodies × ~11k tris on the real model).
+  const bboxes = meshes.map((m) => {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const [x, y] of m.vertices) {
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+    return { minX, maxX, minY, maxY }
+  })
 
   for (let i = 0; i + 1 < tests.length; i++) {
     const a = tests[i]
@@ -497,7 +512,20 @@ export function sliceSolidsAlongZigzag(
       continue
     }
 
-    const segPolys = sliceSolidsAtPlaneRobust(meshes, {
+    // PERF: only slice bodies whose footprint bbox overlaps this leg's segment
+    // bbox (± 1 m for the sub-mm plane nudge). sliceSolidsAtPlane omits
+    // non-crossing bodies anyway, but this avoids scanning their triangles.
+    const sMinX = Math.min(a.x, b.x) - 1
+    const sMaxX = Math.max(a.x, b.x) + 1
+    const sMinY = Math.min(a.y, b.y) - 1
+    const sMaxY = Math.max(a.y, b.y) + 1
+    const nearMeshes = meshes.filter((_, k) => {
+      const bb = bboxes[k]
+      return bb.maxX >= sMinX && bb.minX <= sMaxX && bb.maxY >= sMinY && bb.minY <= sMaxY
+    })
+    if (nearMeshes.length === 0) continue
+
+    const segPolys = sliceSolidsAtPlaneRobust(nearMeshes, {
       ax: a.x,
       ay: a.y,
       bx: b.x,
@@ -511,6 +539,7 @@ export function sliceSolidsAlongZigzag(
       elev: p.elev,
     })
 
+    const legPolys: SectionPoly[] = []
     for (const poly of segPolys) {
       // Clip the slice to this leg's [0, segWorldLen] band so a body extending
       // past the leg endpoints (the infinite cutting plane captures it) does not
@@ -522,7 +551,7 @@ export function sliceSolidsAlongZigzag(
         ?.map((h) => clipRingToAlongBand(h, 0, segWorldLen))
         .filter((h) => h.length >= 3)
 
-      result.push({
+      legPolys.push({
         bodyId: poly.bodyId,
         formationId: poly.formationId,
         color: poly.color,
@@ -533,6 +562,13 @@ export function sliceSolidsAlongZigzag(
             : undefined,
       })
     }
+
+    // PERF: resolve PER LEG. Legs occupy DISJOINT along-ranges, so cross-leg
+    // overlap is impossible and per-leg resolution equals resolving the whole set
+    // — but the resolver's "claimed" jsts union stays tiny per leg instead of
+    // growing to cover the entire section (the ~1 s vs ~18 s difference on the
+    // real model). No resolver passed → raw leg polys (diagnostics / tests).
+    result.push(...(resolvePerLeg ? resolvePerLeg(legPolys) : legPolys))
   }
 
   return result
