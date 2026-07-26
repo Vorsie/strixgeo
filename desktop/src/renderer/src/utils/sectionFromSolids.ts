@@ -177,12 +177,22 @@ export interface SectionPlaneLine {
  *                         the signed distance along the section line from the
  *                         first endpoint `a` (metres); `elev` is the map-CRS
  *                         vertical coordinate (metres, negative underground).
+ * @property holes        - Optional inner rings (each an ordered ring of
+ *                         (alongM, elev) pairs) that are NOT filled — an enclosed
+ *                         higher-priority body shows through here.  Absent/empty
+ *                         = a solid band with no holes.  The raw slicer
+ *                         ({@link sliceSolidsAtPlane}) never sets holes; they are
+ *                         introduced only by the resolution stage
+ *                         (``resolveModelFillPolys``) when a lower-priority body
+ *                         encloses a higher-priority one (clay lens in a sand
+ *                         slab → sand emitted as a donut).
  */
 export interface SectionPoly {
   bodyId: string
   formationId: string
   color: string
   points: { alongM: number; elev: number }[]
+  holes?: { alongM: number; elev: number }[][]
 }
 
 // ─── Public API — Mode B ──────────────────────────────────────────────────────
@@ -260,6 +270,75 @@ export function sliceSolidsAtPlane(
   }
 
   return result
+}
+
+/**
+ * Perpendicular offset (metres) applied to the section line before slicing, so a
+ * plane exactly aligned to voxel/mesh faces never lands ON a mesh vertex/edge.
+ *
+ * WHY this exists (exact-plane P0): ``collectCutSegments`` only registers an edge
+ * crossing when its two endpoints have STRICTLY opposite plane-side signs.  At a
+ * 2 m voxel grid, a real section line frequently coincides with a body's front
+ * wall or a face — every vertex there has side == 0, so no strict sign change
+ * fires and the WHOLE body vanishes (measured: an exactly-aligned plane returned
+ * 0 polygons; a 1 cm parallel offset returned 312).  Nudging the line
+ * perpendicular by a fixed sub-mm epsilon converts every on-plane vertex into an
+ * unambiguous positive/negative endpoint, so a face-aligned plane produces the
+ * same normalised visible section as a tiny parallel offset — no duplicate
+ * polygons, no double-counted shared boundaries.
+ *
+ * 0.2 mm is well below any real geometry resolution (voxels are metres) yet far
+ * above SLICE_EPS (1e-6 m), so the nudge is always decisive.
+ */
+const PLANE_PERPENDICULAR_EPS = 2e-4
+
+/**
+ * Slice body solids with a section plane that is robust to face-aligned lines.
+ *
+ * Identical to {@link sliceSolidsAtPlane} except the cutting line is first
+ * nudged perpendicular by {@link PLANE_PERPENDICULAR_EPS}.  This is the variant
+ * the renderer MUST use for the model-fill overlay: at a metre-scale voxel grid
+ * a real section line routinely coincides with mesh faces, and the strict
+ * opposite-sign edge test in {@link sliceSolidsAtPlane} silently drops
+ * plane-coincident vertices/edges — making whole bodies disappear.  A fixed
+ * sub-mm perpendicular epsilon guarantees no vertex lands exactly on the plane,
+ * so a face-aligned plane yields the same result as a tiny parallel offset.
+ *
+ * The raw {@link sliceSolidsAtPlane} is kept as-is for diagnostics (the
+ * throwaway overlap diag test slices raw solids directly), so this wrapper does
+ * not change the raw function's behaviour.
+ *
+ * @param meshes - Watertight body meshes to slice.
+ * @param line   - The 2D section line defining the vertical cutting plane.
+ * @returns      One SectionPoly per closed loop (see {@link sliceSolidsAtPlane}).
+ */
+export function sliceSolidsAtPlaneRobust(
+  meshes: SolidMesh[],
+  line: SectionPlaneLine,
+): SectionPoly[] {
+  const { ax, ay, bx, by } = line
+  const dx = bx - ax
+  const dy = by - ay
+  const len = Math.sqrt(dx * dx + dy * dy)
+
+  // Degenerate line — defer to the raw slicer's own zero-length guard.
+  if (len < SLICE_EPS) return sliceSolidsAtPlane(meshes, line)
+
+  // Unit perpendicular to the line direction: (-dy, dx) / |d|.
+  const nx = -dy / len
+  const ny = dx / len
+
+  // Shift BOTH endpoints by the same perpendicular epsilon → the line is
+  // translated (not rotated), so alongM projection origin/scale are preserved;
+  // only the perpendicular offset (which classification depends on) changes.
+  const nudged: SectionPlaneLine = {
+    ax: ax + nx * PLANE_PERPENDICULAR_EPS,
+    ay: ay + ny * PLANE_PERPENDICULAR_EPS,
+    bx: bx + nx * PLANE_PERPENDICULAR_EPS,
+    by: by + ny * PLANE_PERPENDICULAR_EPS,
+  }
+
+  return sliceSolidsAtPlane(meshes, nudged)
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
