@@ -876,3 +876,47 @@ correlate/dismiss round-trip can only be verified in the running app). The surfa
   separate dismisses and persists the dismissal in the `.gmproj` bundle so it
   does not re-nag.
 * **Always-on** (soft coupling → always-on), Settings → Litho toggle if noisy.
+
+## 11. Ground-truth overpaint gate + enclosed-lens floor clamp + conformance → 0 (owner ruling 2026-07-26, cont.)
+
+**The independent invariant (`partitionFillV2.groundTruth.diag.test.ts`).** The
+2/1/0 shape-conformance gate checks data loss only by PROXY — its shape rule
+(corr → lens/onlap/band) has both false positives (a dipping band, a sub-TD
+substrate wedge, a split band component all render correctly yet trip the bbox
+rule) AND a false negative (it exempted a swallowed drilled unit as a
+`facesShallowVoid`). So it cannot be the sole data-loss guard. The new gate is the
+DIRECT invariant (ruling 8k, "columns are ground truth"): for every gap of all 14
+real sections (flag-ON), sample each drilled unit of both facing columns at
+25/50/75 % of its OWN thickness (never at a contact) and assert the fill at that
+column edge contains the drilled unit's formation. Runs UNCONDITIONALLY (a hard
+invariant, enforced in the normal suite — not an opt-in audit). It is the backstop
+that makes the conformance FP-accepts (below) safe: any accept that ever swallows
+real data loss turns this gate RED.
+
+**The defect it caught — CS1 g21 (enclosed lens below its band floor).** A drilled
+0.35 m ZAND lens enclosed by a tied SILT band, in a 0.17 m near-coincident-borehole
+gap, was painted SILT (the sand vanished). Root cause: the enclosed lens's base
+(8.88) sat 0.04 m BELOW the gap's substrate floor (shallow TD 8.92), so the lens
+poked out of the bottom of its enclosing matrix band into the deep-to-deep
+substrate zone; `detourBandContourAroundLenses` only carves a lens fully INSIDE the
+band, so the straddling lens was not carved and the enclosing flood absorbed it.
+NOT the `ENABLE_ENCLOSED_LENS_EDGED` wall (the ordinary `extractEnclosedLenses`
+already records it flag-ON via `edgedBelowMergeEnabled`); the only missing piece was
+a geometry clamp. **Fix:** `emitLenses.enclosedLensDiamond` clamps the lens base UP
+to the substrate floor (`max(minBase(col), minBase(facing))`), making it a clean
+interior hole the existing detour carves; the sub-floor sliver is substrate. A lens
+already at/above the floor is byte-identical; a lens entirely below the floor is left
+for `emitSubTdLenses`. Holes/overlaps stay 0/0.
+
+**Conformance flag-ON → 0 (guarded FP accepts).** With g21 fixed and the overpaint
+gate green, the five remaining flag-ON conformance instances (TS10-g0, CS1
+g12/g18/g19/g22) are all render-correct false positives of the bbox shape rule.
+Three guarded predicates in the classify loop accept them, each with a negative
+guard: (A) same-litho FACING band (facing carries the unit's own formation across
+the band → 8j merge, one body) → TS10-g0, g22; (B) sub-TD substrate STRADDLE (the
+full-width render is the deep-to-deep substrate below the shallow TD, not a
+termination band) → g18, g19; (C) own full-width band component EXISTS (a dipping
+band split at the unit's window boundary) → g12. **Scoped to the flag-ON literal-8l
+product path** (`twoSidedTerminationsEnabled`) so the frozen flag-OFF seam-engine
+reference stays pinned by identity at 10 (byte-identical). Flag-ON conformance is now
+a true 0; the overpaint gate is the independent data-loss backstop.
