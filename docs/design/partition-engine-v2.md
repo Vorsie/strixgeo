@@ -830,3 +830,45 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
   fidelity on v2; fix fallout.
 * **Wk 4** — buffer; v2 frozen snapshot; beta polish. Track 2 (body-level
   fixes) proceeds independently in week 1.
+
+## 10. Safe-default repair + review flags (owner ruling 2026-07-26)
+
+**The bug.** The 8m same-litho onlap suppression (`drawTermination`) is correct
+when the facing genuinely continues the unit's litho, but combined with the
+formation-global `bandFids` seam suppression (`closeInterval` — a *deep* KLEI
+band puts `KLEI` in the set, so the seam that would separate a *shallow* KLEI is
+skipped) it left the drilled unit unbounded → the enclosing flood painted it a
+FOREIGN litho. TS7-g0's drilled clay rendered as silt (data loss, an 8k
+ground-truth violation). Root-caused by instrumentation, not the onlap-vs-merge
+framing.
+
+**The fix — a post-pass, engine-default untouched.** `computeSectionFillV2`:
+1. run the fill once (unchanged);
+2. `detectFloodedUnits` scans for any drilled unit painted a foreign litho at its
+   OWN column edge (samples the near-column band interior above the shallow TD);
+3. if any, re-run with those units' onlaps FORCED ON (`forceOnlapUnits` bypasses
+   the 8m skip for exactly them), accumulating over ≤3 iterations to a fixed
+   point.
+
+Clean cases flood nothing → detect nothing → never re-run → **byte-identical** to
+the pre-repair engine (verified: full v2 suite unchanged, conformance 10, holes
+0/0/0). Only the failing cases are repaired. This deliberately does NOT change the
+merge engine's default — the reason two earlier upfront discriminators
+(body-identity, `facingCoversSpan`) were rejected: both perturbed clean merges.
+
+**Review flags (the UX call, owner "give the ux call").** The repaired units ARE
+the uncorrelated same-litho neighbours worth surfacing. `computeSectionFillV2WithConflicts`
+now returns `reviewFlags: {layerId, gapIndex, side}[]`. The UI surface (build
+pending) is:
+* **Advisory, not an error** — the engine already preserved the data; the flag
+  invites an *optional* correlation. Never a modal/confirm/build-blocker
+  (assisted-manual, explicit-content model).
+* **Amber, low-emphasis** — not red (red is for conflicts/errors); amber is the
+  project's "attention, not error" colour (dirty-marker convention).
+* **Litho axis only** — a small marker on the repaired region; hidden on the
+  geology/geotech axes.
+* **Interaction** — click → popover "These units aren't correlated. [Correlate]
+  [Keep separate]". Correlate draws the edge (→ they band next build); Keep
+  separate dismisses and persists the dismissal in the `.gmproj` bundle so it
+  does not re-nag.
+* **Always-on** (soft coupling → always-on), Settings → Litho toggle if noisy.
