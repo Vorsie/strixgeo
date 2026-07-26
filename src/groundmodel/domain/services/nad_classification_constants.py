@@ -62,18 +62,32 @@ NAD_QC_BANDS: dict[tuple[BaseLithology, Variant], list[tuple[float | None, int]]
     ("VEEN", "secondary"): [(0.5, 29), (1.0, 30), (None, 31)],
 }
 
+# Sand bijmenging codes → any of these makes a fines soil "zandhoudend".
+# ZN is the CORE "zand" admixture code (GL/ZN/SL/KL/VE); XZ is the generic DOV
+# grain code; Z is its alias; FZ/MZ/GZ are fine/medium/coarse-sand grain
+# variants. All are unambiguously sand (matches the UI's ADMIXTURE_SOIL_EN
+# 'sandy' group). ZL (zandleem = sandy-loam) is deliberately excluded — it is
+# loam-dominant, and whether it triggers "zandhoudend" is an unresolved owner
+# ruling, not a mechanical inclusion.
+_SAND_ADMIXTURE_CODES = frozenset({"XZ", "ZN", "Z", "FZ", "MZ", "GZ"})
+
 # Which admixture soil_codes map to the "secondary" NAD variant per main soil
 # (spec §5). Codes are DOV hoofdnaam/bijmenging grondsoort codes from
 # ``codetabel_hoofdnaam.csv`` (same codelist for main + admixture elements):
-# SI=silt, KL=klei, LE=leem, XZ=zand (generic). The NAD secondary variant for
-# coarse soils is "silt-/kleihoudend" (silty OR clayey); leem is geotechnically
-# the same as silt (owner directive 2026-06-23), so sand/gravel take SI, KL OR
-# LE. Fines (silt/clay/peat) take the sand code XZ ("zandhoudend"). "SL" (slib)
-# is not a used admixture code → intentionally omitted. Anything else → "clean".
+# SI=silt, KL=klei, LE=leem. The NAD secondary variant for coarse soils is
+# "silt-/kleihoudend" (silty OR clayey); leem is geotechnically the same as
+# silt (owner directive 2026-06-23), so sand/gravel take SI, KL OR LE. Fines
+# (silt/clay/peat) take any sand code ("zandhoudend").
+#
+# KNOWN GAP (owner ruling pending): the coarse-soil set may under-match — the
+# UI also emits the aliases ``K`` (klei) / ``S`` (silt) as admixture codes, and
+# ``SL`` is 'silty' in the UI but 'slib' (sludge, non-silt) here. Those
+# conflicts are NOT resolved here; only the unambiguous sand side is expanded.
+# The real fix is one canonical code→grain-class map shared by UI + backend.
 _SECONDARY_ADMIXTURE_CODES: dict[BaseLithology, frozenset[str]] = {
     "GRIND": frozenset({"SI", "KL", "LE"}),
     "ZAND": frozenset({"SI", "KL", "LE"}),
-    "SILT": frozenset({"XZ"}),
-    "KLEI": frozenset({"XZ"}),
-    "VEEN": frozenset({"XZ"}),
+    "SILT": _SAND_ADMIXTURE_CODES,
+    "KLEI": _SAND_ADMIXTURE_CODES,
+    "VEEN": _SAND_ADMIXTURE_CODES,
 }
