@@ -180,9 +180,11 @@ closure→pinch, LENS→lens). Consumers that must not change:
     difference must map to a v1 bug class (documented per section);
     everything else must be < 1 cm² noise.
   - Invariant gates on v2 output: holes/overlaps reporter (0/0 on all
-    sections), `cs1lensdisjoint`, `cs1sandbody`, `cs1bandauthority`,
-    `cs1void`, tie-straddle diag. The FROZEN gate pins v1 only; v2 gets its
-    own frozen snapshot after owner dogfeed sign-off.
+    sections), the **ground-truth overpaint gate** (`partitionFillV2.groundTruth.diag.test.ts`
+    — 0 drilled-unit overpaints across all 14 sections; the hidden-data-loss
+    invariant the holes/overlaps gate is blind to, §11), `cs1lensdisjoint`,
+    `cs1sandbody`, `cs1bandauthority`, `cs1void`, tie-straddle diag. The FROZEN
+    gate pins v1 only; v2 gets its own frozen snapshot after owner dogfeed sign-off.
   - **Full 2/1/0 conformance gate** (`partitionFillV2.conformance.diag.test.ts`,
     `SHAPE_AUDIT=1`, 2026-07-15): per unit per gap, the engine's own tie
     state vs the rendered shape — `0corr-not-lens` / `1corr-not-onlap` /
@@ -194,17 +196,23 @@ closure→pinch, LENS→lens). Consumers that must not change:
     differs). ``topBandTies``/``firstUnitTopBandBand`` in
     `partitionFillV2.conformance.classify.ts` fold this in; the `corr===2`
     render check accepts the midpoint-quad ``onlap``-per-side shape when the
-    facing first unit differs.** Corrected totals on the 14 real sections:
-    **0corr-not-lens 22, 1corr-not-onlap 99, 2corr-not-band 0** (byCorr
-    41/145/756 — 41 first units promoted from 1-corr to 2-corr; was
-    41/186/715; 32 sub-TD substrate excluded per Q3; q3-legit 6, reach-cap
-    advisory 2; CS1-g7 KLEI correctly q3-legit — a first unit tied ONLY by the
-    top band with no base tie stays a 0-corr §8-Q3 surface void). This
-    corrected baseline is the acceptance denominator. Band authority for the
-    "2" classification = the engine's matched-pair `collectGapBands` + the
+    facing first unit differs.** CURRENT STANDARD (2026-07-26): the gate runs TWO ratchets. The **flag-ON
+    literal-8l PRODUCT path is a true 0** — all three counters 0; the five
+    former render-correct false positives (TS10-g0 ZAND, CS1-g12 KLEI, CS1-g18
+    ZAND, CS1-g19 KLEI, CS1-g22 SILT) are accepted by three guarded predicates
+    in the classify loop (same-litho facing band / sub-TD substrate straddle /
+    own full-width band component), each with a negative guard and ALL proven
+    non-data-loss by the ground-truth overpaint gate (§11). The **flag-OFF
+    frozen seam-engine reference stays pinned by identity at 10** (a different,
+    older arrangement, `twoSidedTerminationsEnabled === false`; the accepts are
+    scoped to flag-ON so this reference is byte-identical). Band authority for
+    the "2" classification = the engine's matched-pair `collectGapBands` + the
     ruling-8d first-unit case (naive both-contacts-tied miscounts mixed-bracket
     minorities).
-    CUTOVER CRITERION: all three counters 0 (advisories triaged).
+    CUTOVER CRITERION (matches the executable gate exactly): flag-ON
+    conformance == 0 AND the ground-truth overpaint gate green (every drilled
+    unit renders its own litho at its own column edge, all 14 sections) AND
+    holes/overlaps 0/0/0. The flag-OFF 10 is a frozen reference, not a blocker.
     Determinism for the frozen snapshot: VERIFIED 2026-07-15 evening —
     `computeSectionFillV2` output is byte-identical (SHA-256 of the raw
     SectionRegion geometry, all 14 sections) across 5 separate node
@@ -222,10 +230,13 @@ closure→pinch, LENS→lens). Consumers that must not change:
     `partitionFill.oneGesture.test.ts` run against BOTH engines via the
     2-column wrapper (parameterised), except cases that pin v1 bug
     behaviour — those get inverted for v2 with a comment citing this doc.
-* Definition of cutover-ready: all gates green on v2 + parity diffs fully
+* Definition of cutover-ready: all gates green on v2 (holes/overlaps 0/0,
+  ground-truth overpaint 0, flag-ON conformance 0) + parity diffs fully
   explained + owner dogfeed on the real model (litho AND geotech axes) +
   voxel build from v2 output passes the fidelity harness
-  (`scripts/eval_strat_fidelity.py`).
+  (`scripts/eval_strat_fidelity.py`). Status 2026-07-26: geometry gates + litho
+  dogfeed done; geotech-axis dogfeed, v2-fed voxel fidelity, and the
+  approval-gated v2-default/beta-fallback wiring remain.
 
 ## 7. Out of scope for v2
 
