@@ -549,20 +549,29 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
   // "closes with the termination-plan rebuild") now render their lens, and the TS7-g0 KLEI onlaps
   // (left+right) now render. The clamp is the correct 8n application (a band contour is a bracket
   // exactly like a tie), so those four closed as a side effect — the ratchet drops 14 → 10.
+  // SAFE-DEFAULT DATA-LOSS REPAIR (owner 2026-07-26, ratchet 10 -> 5): FIVE of the pinned rows were
+  // NOT classifier artefacts but HIDDEN DATA LOSS -- the drilled unit's OWN column edge rendered a
+  // FOREIGN litho, its own regions absent (region evidence): TS11-g0 ZAND->silt, CS3-g6 KLEI->sand,
+  // CS3-g7 ZAND->clay, CS2-g13 SILT->sand, CS2-g21 ZAND->silt. The holes gate can't see this (the
+  // space is filled, just the wrong litho). Root cause: a flooded corr-2 BAND MEMBER was skipped by
+  // the sweep (`if (c === 2) continue`) before the force-onlap bypass. FIX: detectFloodedUnits (which
+  // already flagged them) -> the sweep now WIRES a forced-flooded corr-2 unit through as a corr-1
+  // onlap so its litho survives (holes/overlaps stayed 0/0/0). Negative guard:
+  // partitionFillV2.dataLossRepair.test.ts asserts each renders its drilled litho, so this drop can
+  // never silently hide a re-regression. The REMAINING five are render-correct classifier
+  // false-positives (a separate follow-up): TS10-g0 / CS1-g19 (corr-1 SAME-litho emergent bands, no
+  // data loss), CS1-g12 (a full-width KLEI band DOES exist; the classifier scored a 0..0.54 partial),
+  // CS1-g18 (ZAND band with a drilled KLEI lens enclosed), CS1-g22 (corr-0 SILT inside a SILT
+  // enclosing -- ruling-8e). These stay pinned until the classifier fix.
   const FLAG_ON_BASELINE: Pin[] = [
     { section: 'Tie-section 10', gap: 0, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
-    { section: 'Tie-section 11', gap: 0, formation: 'ZAND', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
-    { section: 'Cross-section 3', gap: 6, formation: 'KLEI', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
-    { section: 'Cross-section 3', gap: 7, formation: 'ZAND', side: 'left', corr: 2, shape: 'absent', violation: '2corr-not-band' },
     { section: 'Cross-section 1', gap: 12, formation: 'KLEI', side: 'left', corr: 2, shape: 'onlap', violation: '2corr-not-band' },
     { section: 'Cross-section 1', gap: 18, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
     { section: 'Cross-section 1', gap: 19, formation: 'KLEI', side: 'left', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
     { section: 'Cross-section 1', gap: 22, formation: 'SILT', side: 'left', corr: 0, shape: 'band', violation: '0corr-not-lens' },
-    { section: 'Cross-section 2', gap: 13, formation: 'SILT', side: 'right', corr: 1, shape: 'absent', violation: '1corr-not-onlap' },
-    { section: 'Cross-section 2', gap: 21, formation: 'ZAND', side: 'right', corr: 2, shape: 'absent', violation: '2corr-not-band' },
   ]
 
-  it('FLAG-ON: literal-8l conformance == the pinned 10-instance ratchet', () => {
+  it('FLAG-ON: literal-8l conformance == the pinned 5-instance ratchet', () => {
     console.log('\n===== CONFORMANCE FLAG-ON (literal-8l product path) =====')
     const prev = setTwoSidedTerminations(true)
     let rows: ConfRow[]
@@ -573,7 +582,7 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
       setTwoSidedTerminations(prev)
     }
     const total = grand['0corr-not-lens'] + grand['1corr-not-onlap'] + grand['2corr-not-band']
-    expect(total, 'flag-ON total conformance instances must equal the pinned 10').toBe(10)
+    expect(total, 'flag-ON total conformance instances must equal the pinned 5').toBe(5)
     assertRatchet('FLAG-ON', rows, FLAG_ON_BASELINE)
   })
 })
