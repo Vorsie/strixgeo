@@ -104,9 +104,9 @@ import PartitionFillOverlay, { type GeotechRefinement } from './sections/Partiti
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
-import { sampleSolidColumns, sliceSolidsAtPlaneRobust } from '../utils/sectionFromSolids'
+import { sliceSolidsAtPlaneRobust, sliceSolidsAlongZigzag } from '../utils/sectionFromSolids'
 import { resolveModelFillPolys } from '../utils/resolveModelFillPolys'
-import type { SectionPlaneLine, SolidColumn, SectionPoly, SolidMesh } from '../utils/sectionFromSolids'
+import type { SectionPlaneLine, SectionPoly, SolidMesh, ZigzagTest } from '../utils/sectionFromSolids'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
@@ -2308,63 +2308,81 @@ export default function SectionPanel({
     return buildModelFillMeshes(lithoSolids, (fid) => formationColorById.get(fid) ?? '#a3a3a3')
   }, [axisMode, lithoSolids, formationColorById])
 
-  // Mode B — plane slice through the section line (map CRS). PERF-CRITICAL: this
-  // slices every body mesh AND runs the jsts boolean resolver, so it MUST NOT
-  // depend on the viewport transform. It is keyed on the section LINE + the
-  // solids only — never ``visibleColumns`` (which is rebuilt on every zoom/pan
-  // via ``xToScreen``); lumping it in re-sliced 871k triangles + re-ran jsts on
-  // every zoom (the "terribly slow zoom" regression).
+  // ZOOM-INVARIANT test positions for the zigzag (Mode A) fill: the projected
+  // investigations (map x/y + along-section distance), ordered by along. Derived
+  // from ``projectedCpts`` / ``projectedBoreholes`` — the SAME zoom-invariant
+  // projections ``placedColumns`` maps over — so this memo (and the zigzag slice
+  // keyed on it) never rebuilds on zoom/pan. Deliberately NOT derived from
+  // ``placedColumns`` / ``visibleColumns``, which close over ``xToScreen`` and
+  // rebuild on every viewport change (the d6691b323 slow-zoom regression class).
+  const zigzagTests = useMemo<ZigzagTest[]>(() => {
+    const tests: ZigzagTest[] = [
+      ...projectedCpts.map((proj) => ({
+        x: proj.item.location_x,
+        y: proj.item.location_y,
+        alongM: proj.along,
+      })),
+      ...projectedBoreholes.map((proj) => ({
+        x: proj.item.location_x,
+        y: proj.item.location_y,
+        alongM: proj.along,
+      })),
+    ]
+    // The zigzag threads test→test in along-section order.
+    return tests.sort((a, b) => a.alongM - b.alongM)
+  }, [projectedCpts, projectedBoreholes])
+
+  // The section model fill. PERF-CRITICAL: both branches slice every body mesh
+  // AND run the jsts boolean resolver, so this MUST NOT depend on the viewport
+  // transform. Keyed on the solids + (Mode B) the section line / (Mode A) the
+  // zoom-invariant zigzag tests only — never ``visibleColumns`` / ``placedColumns``
+  // (rebuilt on every zoom/pan via ``xToScreen``); lumping those in re-sliced
+  // 871k triangles + re-ran jsts on every zoom (the "terribly slow zoom"
+  // regression, d6691b323).
+  //
+  //   Mode B (sectionFillAtSectionLine true): plane-slice the STRAIGHT section
+  //     line — the fill lands exactly on the 3-D fence builder's cut surface.
+  //   Mode A (false): "run through columns" — a CONTINUOUS zigzag that threads
+  //     borehole→borehole through the actual test positions, so the fill runs
+  //     through every column with NO gaps between them.
+  //
+  // sliceSolidsAtPlaneRobust (not the raw slicer): a real section line at a
+  // metre-scale voxel grid routinely coincides with mesh faces, and the raw
+  // slicer drops plane-coincident edges → whole bodies vanish. resolveModelFillPolys
+  // then clips the raw slices into a deterministic, non-overlapping partition:
+  // the 3D bodies ARE mutually exclusive (verified — 0 volumetric overlap), but
+  // sliceSolidsAtPlane emits an ENCLOSING body's hole-loop as a solid polygon, so
+  // without the resolver a thin clay band paints behind broad sand and translucent
+  // fills stack darker. Ownership is geometry-derived (thinner on top). The zigzag
+  // legs occupy disjoint along-section ranges, so a single resolve over the whole
+  // set is correct (no cross-segment overlap to introduce).
   const modelFillPolys = useMemo<SectionPoly[] | undefined>(() => {
-    if (!sectionFillAtSectionLine || modelFillMeshes.length === 0) return undefined
-    const sectionLine: SectionPlaneLine = {
-      ax: section.start_x,
-      ay: section.start_y,
-      bx: section.end_x,
-      by: section.end_y,
+    if (modelFillMeshes.length === 0) return undefined
+    if (sectionFillAtSectionLine) {
+      const sectionLine: SectionPlaneLine = {
+        ax: section.start_x,
+        ay: section.start_y,
+        bx: section.end_x,
+        by: section.end_y,
+      }
+      return resolveModelFillPolys(sliceSolidsAtPlaneRobust(modelFillMeshes, sectionLine))
     }
-    // sliceSolidsAtPlaneRobust (not the raw slicer): a real section line at a
-    // metre-scale voxel grid routinely coincides with mesh faces, and the raw
-    // slicer drops plane-coincident edges → whole bodies vanish. resolveModelFillPolys
-    // then clips the raw slices into a deterministic, non-overlapping partition:
-    // the 3D bodies ARE mutually exclusive (verified — 0 volumetric overlap), but
-    // sliceSolidsAtPlane emits an ENCLOSING body's hole-loop as a solid polygon, so
-    // without the resolver a thin clay band paints behind broad sand and translucent
-    // fills stack darker. Ownership is geometry-derived (thinner on top).
-    return resolveModelFillPolys(sliceSolidsAtPlaneRobust(modelFillMeshes, sectionLine))
-  }, [sectionFillAtSectionLine, modelFillMeshes, section.start_x, section.start_y, section.end_x, section.end_y])
+    if (zigzagTests.length < 2) return undefined
+    return resolveModelFillPolys(sliceSolidsAlongZigzag(modelFillMeshes, zigzagTests))
+  }, [
+    sectionFillAtSectionLine,
+    modelFillMeshes,
+    section.start_x,
+    section.start_y,
+    section.end_x,
+    section.end_y,
+    zigzagTests,
+  ])
 
-  // Mode A — vertical ray at each visible column's map (x, y): the voxel litho
-  // stack sampled at the borehole/CPT positions (how well the voxel model
-  // approximates the drilled columns). Depends on ``visibleColumns`` (rebuilt on
-  // zoom), but sampleSolidColumns is a cheap per-column ray-cast, not the resolver.
-  const modelFillColumns = useMemo<SolidColumn[] | undefined>(() => {
-    if (sectionFillAtSectionLine || modelFillMeshes.length === 0) return undefined
-    const tests = visibleColumns.map((col) => ({
-      id: col.proj.item.id,
-      x: col.proj.item.location_x,
-      y: col.proj.item.location_y,
-      alongM: col.proj.along,
-    }))
-    if (tests.length === 0) return undefined
-    return sampleSolidColumns(modelFillMeshes, tests)
-  }, [sectionFillAtSectionLine, modelFillMeshes, visibleColumns])
-
-  const modelFillData = useMemo<{ columns?: SolidColumn[]; polys?: SectionPoly[] }>(
-    () => ({ columns: modelFillColumns, polys: modelFillPolys }),
-    [modelFillColumns, modelFillPolys],
+  const modelFillData = useMemo<{ polys?: SectionPoly[] }>(
+    () => ({ polys: modelFillPolys }),
+    [modelFillPolys],
   )
-
-  // Mode-A column geometry: the rendered centre + width of every placed column,
-  // keyed by test id, so the per-test model fill spans the WHOLE investigation
-  // column and lands exactly on its litho band (uses ``nudgedX`` — the warped,
-  // spacing-aware screen x — never raw along).
-  const modelFillColumnLayout = useMemo<Record<string, { centerX: number; width: number }>>(() => {
-    const out: Record<string, { centerX: number; width: number }> = {}
-    for (const c of placedColumns) {
-      out[c.proj.item.id] = { centerX: c.nudgedX, width: c.width }
-    }
-    return out
-  }, [placedColumns])
 
   // Along-section positions of every placed investigation — the distance metric
   // for the model-fill confidence fade (fill far from any test reads faint).
@@ -3086,17 +3104,18 @@ export default function SectionPanel({
 
             {/* 3-D model fill — renders the geometric body fill derived from the
                 prebuilt solid meshes.  Litho axis only, beneath interactive
-                overlays (pointerEvents="none" on every element inside).
-                Mode A (default): ray-sampled at each test's map (x,y).
+                overlays (pointerEvents="none" on every element inside). BOTH
+                modes now emit resolved ``polys`` (ModelFillOverlay Mode B path):
+                Mode A (default): CONTINUOUS zigzag sliced borehole→borehole
+                through the actual test positions (gap-free "run through columns").
                 Mode B (sectionFillAtSectionLine): plane-sliced through the
-                section line, matching the 3-D fence builder's cut surface. */}
+                straight section line, matching the 3-D fence builder's cut
+                surface. */}
             {axisMode === 'lithostratigraphic' &&
               showModelFill &&
-              (modelFillData.columns != null || modelFillData.polys != null) && (
+              modelFillData.polys != null && (
                 <ModelFillOverlay
-                  columns={modelFillData.columns}
                   polys={modelFillData.polys}
-                  columnLayoutByTestId={modelFillColumnLayout}
                   // Confidence fade is a 3D-only concern (owner directive
                   // 2026-06-17): the 2D model fill renders solid, never dimmed by
                   // distance-to-investigation. Fading it washed low-confidence
