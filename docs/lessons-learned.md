@@ -4,6 +4,18 @@ Transferable, hard-won lessons. Each is a *rule* + the concrete instance that ta
 
 ---
 
+## 2026-07-26 — The geotech save/reopen data-loss bug (codex safety audit)
+
+### 15. A new model *kind* that reuses a table with kind-gated triggers can silently lose data on restore — audit the whole round-trip, not the create path.
+Geotech subdivision reuses the `litho_layer` table and the "Shape A" idea (layers are truth, contacts are a derived mirror). The create path worked. But **reopening** a saved subdivided project dropped every geotech layer: the bundle serialized geotech's FC-mirror *contacts* (unlike litho, which emits `contacts=[]`), so restore's de-dupe **skipped** the explicit geotech-layer insert and deferred to the FC→LL trigger — which is **gated to `lithostratigraphic` only** (`mirror_litho_contact_to_layer`, migration `p0j1k2l3m4n5:73`). No layer → dangling correlation edges → FK 500 / silent loss. Two asymmetries (serialization + trigger kind-gate) lined up to lose data only on the round-trip. Fix: serialize geotech as Shape-A (`NON_STRATIGRAPHIC_KINDS`) so layers restore explicitly, and the *un-gated* LL→FC trigger rebuilds the mirror; plus reconcile `body_id` for geotech too.
+**Apply:** when a new `kind` reuses a table that has kind-gated triggers or kind-branched serialization, write the **save → close → reopen** regression test before calling it shipped. Grep every `IF ... kind` in the triggers and every `if model.kind ==` in the bundle serializer/restorer and confirm the new kind is handled on *both* the write and the read side. Create-path green says nothing about round-trip survival.
+
+### 16. A disproven hypothesis + a symptom that won't quit = keep pulling the thread; the harness "artifact" may be the real bug.
+The audit flagged a suspected restore *ordering* P0. It **didn't reproduce** (SQLAlchemy batches inserts — proven with child-before-parent tests). But writing the geotech round-trip test kept hitting obstacles — a `MissingGreenlet`, an HTTP 500, then a DB FK violation — each of which *looked* like a test-harness problem. Chasing "why does the harness fight me" (rather than papering over it with `expunge_all`/session tweaks) led straight to the real, worse defect above. The FK violation **was** the bug, not an artifact.
+**Apply:** when a suspected bug is disproven but a related symptom persists, don't close the ticket — the real defect is usually adjacent. And when the test harness repeatedly resists (greenlet errors, 500s, FK violations that survive the obvious session fixes), treat the resistance as a signal about the *system*, not just the test. Verify a reproduction is real vs. artifact by reading the code path the error names, not by assuming.
+
+---
+
 ## 2026-06-30 — Geotech body model + the whole-codebase observability/testing audit
 
 ### 1. An all-or-nothing match rule almost never matches on real data — match *partially* along the lines you already have.
