@@ -106,7 +106,7 @@ import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
 import { sampleSolidColumns, sliceSolidsAtPlaneRobust } from '../utils/sectionFromSolids'
 import { resolveModelFillPolys } from '../utils/resolveModelFillPolys'
-import type { SectionPlaneLine, SolidColumn, SectionPoly } from '../utils/sectionFromSolids'
+import type { SectionPlaneLine, SolidColumn, SectionPoly, SolidMesh } from '../utils/sectionFromSolids'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
@@ -2301,65 +2301,58 @@ export default function SectionPanel({
   //   SectionsCanvas already reads readLithoSegmenterPrefs(project.view_state)
   //   for every other pref (lithoSnapToleranceM, openExtentLengthM).  Following
   //   the same pattern avoids adding a shell dependency inside SectionPanel.
-  const modelFillData = useMemo<{ columns?: SolidColumn[]; polys?: SectionPoly[] }>(() => {
-    if (
-      axisMode !== 'lithostratigraphic' ||
-      !lithoSolids ||
-      lithoSolids.length === 0
-    ) {
-      return {}
+  // The solid meshes are zoom-INVARIANT (they depend only on the built solids +
+  // formation colours), so memoise them once and reuse across the two fill modes.
+  const modelFillMeshes = useMemo<SolidMesh[]>(() => {
+    if (axisMode !== 'lithostratigraphic' || !lithoSolids || lithoSolids.length === 0) return []
+    return buildModelFillMeshes(lithoSolids, (fid) => formationColorById.get(fid) ?? '#a3a3a3')
+  }, [axisMode, lithoSolids, formationColorById])
+
+  // Mode B — plane slice through the section line (map CRS). PERF-CRITICAL: this
+  // slices every body mesh AND runs the jsts boolean resolver, so it MUST NOT
+  // depend on the viewport transform. It is keyed on the section LINE + the
+  // solids only — never ``visibleColumns`` (which is rebuilt on every zoom/pan
+  // via ``xToScreen``); lumping it in re-sliced 871k triangles + re-ran jsts on
+  // every zoom (the "terribly slow zoom" regression).
+  const modelFillPolys = useMemo<SectionPoly[] | undefined>(() => {
+    if (!sectionFillAtSectionLine || modelFillMeshes.length === 0) return undefined
+    const sectionLine: SectionPlaneLine = {
+      ax: section.start_x,
+      ay: section.start_y,
+      bx: section.end_x,
+      by: section.end_y,
     }
+    // sliceSolidsAtPlaneRobust (not the raw slicer): a real section line at a
+    // metre-scale voxel grid routinely coincides with mesh faces, and the raw
+    // slicer drops plane-coincident edges → whole bodies vanish. resolveModelFillPolys
+    // then clips the raw slices into a deterministic, non-overlapping partition:
+    // the 3D bodies ARE mutually exclusive (verified — 0 volumetric overlap), but
+    // sliceSolidsAtPlane emits an ENCLOSING body's hole-loop as a solid polygon, so
+    // without the resolver a thin clay band paints behind broad sand and translucent
+    // fills stack darker. Ownership is geometry-derived (thinner on top).
+    return resolveModelFillPolys(sliceSolidsAtPlaneRobust(modelFillMeshes, sectionLine))
+  }, [sectionFillAtSectionLine, modelFillMeshes, section.start_x, section.start_y, section.end_x, section.end_y])
 
-    const meshes = buildModelFillMeshes(
-      lithoSolids,
-      (fid) => formationColorById.get(fid) ?? '#a3a3a3',
-    )
-
-    if (meshes.length === 0) return {}
-
-    if (sectionFillAtSectionLine) {
-      // Mode B — plane slice through the section line in map CRS.
-      const sectionLine: SectionPlaneLine = {
-        ax: section.start_x,
-        ay: section.start_y,
-        bx: section.end_x,
-        by: section.end_y,
-      }
-      // sliceSolidsAtPlaneRobust (not the raw slicer): a real section line at a
-      // metre-scale voxel grid routinely coincides with mesh faces, and the raw
-      // slicer drops plane-coincident edges → whole bodies vanish. Then
-      // resolveModelFillPolys clips the raw (overlapping, unclipped) per-body
-      // slices into deterministic, non-overlapping visible polys — the 3D bodies
-      // are meant to be mutually exclusive but the voxel solids overlap, so
-      // without this a thin clay band paints behind broad sand and translucent
-      // fills stack darker. Ownership is geometry-derived (thinner on top),
-      // order-independent.
-      const raw = sliceSolidsAtPlaneRobust(meshes, sectionLine)
-      return { polys: resolveModelFillPolys(raw) }
-    }
-
-    // Mode A (default) — vertical ray at each test's map (x, y).
-    const tests = visibleColumns.map(col => ({
+  // Mode A — vertical ray at each visible column's map (x, y): the voxel litho
+  // stack sampled at the borehole/CPT positions (how well the voxel model
+  // approximates the drilled columns). Depends on ``visibleColumns`` (rebuilt on
+  // zoom), but sampleSolidColumns is a cheap per-column ray-cast, not the resolver.
+  const modelFillColumns = useMemo<SolidColumn[] | undefined>(() => {
+    if (sectionFillAtSectionLine || modelFillMeshes.length === 0) return undefined
+    const tests = visibleColumns.map((col) => ({
       id: col.proj.item.id,
       x: col.proj.item.location_x,
       y: col.proj.item.location_y,
       alongM: col.proj.along,
     }))
+    if (tests.length === 0) return undefined
+    return sampleSolidColumns(modelFillMeshes, tests)
+  }, [sectionFillAtSectionLine, modelFillMeshes, visibleColumns])
 
-    if (tests.length === 0) return {}
-
-    return { columns: sampleSolidColumns(meshes, tests) }
-  }, [
-    axisMode,
-    lithoSolids,
-    sectionFillAtSectionLine,
-    formationColorById,
-    visibleColumns,
-    section.start_x,
-    section.start_y,
-    section.end_x,
-    section.end_y,
-  ])
+  const modelFillData = useMemo<{ columns?: SolidColumn[]; polys?: SectionPoly[] }>(
+    () => ({ columns: modelFillColumns, polys: modelFillPolys }),
+    [modelFillColumns, modelFillPolys],
+  )
 
   // Mode-A column geometry: the rendered centre + width of every placed column,
   // keyed by test id, so the per-test model fill spans the WHOLE investigation
