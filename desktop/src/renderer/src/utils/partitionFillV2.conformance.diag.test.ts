@@ -56,7 +56,7 @@ import { describe, expect, it } from 'vitest'
 
 import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
 import { computeSectionFillV2 } from './partitionFillV2'
-import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
+import { setTwoSidedTerminations, twoSidedTerminationsEnabled } from './partitionFillV2/tileFlags'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { collectGapBands } from './partitionFillV2/emitBands'
@@ -288,14 +288,63 @@ function classifyAllSections(): {
             // engine work ruling 8e's condition mandates).
             const enclosedByOwnTiedBand = sameFormationEnclosedByTiedBand(bands, u.formationId)
 
+            // OWNER 2026-07-26 — RENDER-BACKED FALSE-POSITIVE ACCEPTS. The strict bbox 0/1/2 shape
+            // rule over-flags three CORRECT geometries; each is proven non-data-loss by the
+            // ground-truth overpaint gate (partitionFillV2.groundTruth.diag.test.ts — every drilled
+            // unit renders its own litho at its own column edge, 0 hits). Each predicate carries a
+            // NEGATIVE guard so a genuine defect still trips:
+            //   (A) SAME-LITHO FACING BAND — the FACING column carries the unit's OWN formation
+            //       across the band, so two same-litho terminations merge into ONE band (ruling 8j;
+            //       owner's "1 corr = follow tie = same litho = no onlap"). TS10-g0 ZAND[R] (corr-1),
+            //       CS1-g22 SILT[L] (corr-0). GUARD: a DIFFERENT-litho facing → false → flagged.
+            // SCOPED to the flag-ON literal-8l PRODUCT path — the flag-OFF frozen seam-engine
+            // reference stays pinned by identity (a different, older arrangement; not disturbed).
+            const acceptsOn = twoSidedTerminationsEnabled()
+            const sameLithoFacingBand =
+              acceptsOn &&
+              facing.units.some(
+                (fu) => fu.formationId === u.formationId && Math.min(fu.topElev, bandHi) - Math.max(fu.baseElev, bandLo) > 1e-6,
+              )
+            //   (B) SUB-TD SUBSTRATE STRADDLE — a full-width render whose unit DIPS below the gap's
+            //       shallow TD is full-width because of the deep-to-deep substrate below the floor,
+            //       not a termination band; above the floor it onlaps. CS1-g18 ZAND[R], CS1-g19
+            //       KLEI[L] (both corr-1). GUARD: a unit ENTIRELY above the shallow TD that renders
+            //       full-width stays flagged (a real 1corr-not-onlap). Extends the existing
+            //       whole-unit substrate exclusion (bandHi ≤ shallowTD) to the STRADDLING unit.
+            const subTdStraddle = acceptsOn && bandLo < shallowTD - 1e-3 && bandHi > shallowTD + 1e-3
+            //   (C) OWN FULL-WIDTH BAND COMPONENT EXISTS — a corr-2 unit the incident-component
+            //       picker scored as a partial onlap while a full-width SAME-formation component DOES
+            //       span the gap over the band (a dipping band split at the unit's window boundary).
+            //       CS1-g12 KLEI[L]. GUARD: no full-width own component → genuinely absent/partial →
+            //       flagged (the real 2corr-not-band).
+            const ownFullWidthBandComp =
+              acceptsOn &&
+              regs.some((r) => {
+                if (r.formationId !== u.formationId) return false
+                let flo = Infinity, fhi = -Infinity, elo = Infinity, ehi = -Infinity
+                for (const p of r.polygon) {
+                  if (p.fraction < flo) flo = p.fraction
+                  if (p.fraction > fhi) fhi = p.fraction
+                  if (p.elevation < elo) elo = p.elevation
+                  if (p.elevation > ehi) ehi = p.elevation
+                }
+                // Full-width AND vertically OVERLAPPING or CONTIGUOUS-below the unit's band within
+                // 10 cm — a dipping band split at the window boundary touches the unit's base (CS1-g12
+                // KLEI: the full-width band [-10.36..-6.02] meets the unit [-6.02..-4.72] at -6.02).
+                return flo <= 0.02 && fhi >= 0.98 && Math.min(ehi, bandHi) - Math.max(elo, bandLo) > -0.1
+              })
+
             if (corr === 0) {
               // Rule: SMALL LENS around the unit — never full-width, never band.
               if (rs.shape === 'band' || (rs.reachesLeft && rs.reachesRight)) {
                 // Full-width: a violation UNLESS it is a genuine §8 Q3 void case (tag, not flag)
                 // OR a ruling-8e same-formation enclosure by an own-formation tied band.
-                if (enclosedByOwnTiedBand) {
+                if (enclosedByOwnTiedBand || sameLithoFacingBand) {
+                  // Accept (A): a corr-0 minority merged into a same-formation matrix (the facing
+                  // carries the unit's own litho across the band → the 8j merge welds them into one
+                  // body — you cannot draw a silt lens inside silt). CS1-g22 SILT[L].
                   advisory = '8e-enclosure'
-                  note = '0-corr full-width but §8-e same-formation enclosure by own tied band (one body)'
+                  note = '0-corr full-width but same-formation enclosure / merge (one body)'
                 } else if (isSurfaceFirst || facesShallowVoid) {
                   advisory = 'q3-legit'
                   note = `0-corr full-width but §8-Q3 void (surfaceFirst=${isSurfaceFirst} facesShallowVoid=${facesShallowVoid})`
@@ -329,9 +378,19 @@ function classifyAllSections(): {
               if (rs.shape === 'band' || (rs.reachesLeft && rs.reachesRight)) {
                 // Ruling 8g(b): a base-tied same-formation pair is ONE band — the full-width
                 // render is CORRECT (not a violation), tagged like the 8e one-body case.
-                if (baseTiedPair) {
+                if (baseTiedPair || sameLithoFacingBand) {
+                  // Accept (A): a same-litho EMERGENT band — the facing carries the unit's own
+                  // formation across the band, so the two same-litho onlaps merge into one band
+                  // (ruling 8j; owner's "1 corr = follow tie = same litho = no onlap"). Generalises
+                  // 8g(b) to any tie side. TS10-g0 ZAND[R].
                   advisory = '8e-enclosure'
-                  note = '1-corr full-width but §8-g(b) base-tied same-formation pair (one band)'
+                  note = '1-corr full-width but same-litho emergent band (one body)'
+                } else if (subTdStraddle) {
+                  // Accept (B): the full-width render is the deep-to-deep SUBSTRATE below the gap's
+                  // shallow TD (the unit dips below the floor); above the floor it onlaps. Not a
+                  // termination band. CS1-g18 ZAND[R], CS1-g19 KLEI[L].
+                  advisory = '8e-enclosure'
+                  note = `1-corr full-width but sub-TD substrate straddle (band dips below shallowTD ${round(shallowTD)})`
                 } else if (enclosedByOwnTiedBand) {
                   // Ruling 8e: a full-width same-formation render enclosed by its OWN formation's
                   // tied band is one body by construction (the Tie-4 ZAND boundary unit merging
@@ -372,7 +431,11 @@ function classifyAllSections(): {
                 facing.units[0].formationId !== u.formationId
               const midpointQuadOk =
                 facingFirstDiffers && (rs.reachesLeft !== rs.reachesRight) && rs.shape !== 'absent'
-              if (rs.shape !== 'band' && !midpointQuadOk) {
+              // Accept (C): the incident-component picker scored a PARTIAL onlap piece even though a
+              // full-width SAME-formation band component DOES span the gap over the band (a dipping
+              // band split at the unit's window boundary — CS1-g12 KLEI[L]). The band exists → the
+              // corr-2 render is correct. GUARD: no full-width own component → still flagged.
+              if (rs.shape !== 'band' && !midpointQuadOk && !ownFullWidthBandComp) {
                 if (rs.shape === 'absent') {
                   violation = '2corr-not-band'
                   note = '2-corr unit absent (no band drawn)'
@@ -558,20 +621,24 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
   // already flagged them) -> the sweep now WIRES a forced-flooded corr-2 unit through as a corr-1
   // onlap so its litho survives (holes/overlaps stayed 0/0/0). Negative guard:
   // partitionFillV2.dataLossRepair.test.ts asserts each renders its drilled litho, so this drop can
-  // never silently hide a re-regression. The REMAINING five are render-correct classifier
-  // false-positives (a separate follow-up): TS10-g0 / CS1-g19 (corr-1 SAME-litho emergent bands, no
-  // data loss), CS1-g12 (a full-width KLEI band DOES exist; the classifier scored a 0..0.54 partial),
-  // CS1-g18 (ZAND band with a drilled KLEI lens enclosed), CS1-g22 (corr-0 SILT inside a SILT
-  // enclosing -- ruling-8e). These stay pinned until the classifier fix.
-  const FLAG_ON_BASELINE: Pin[] = [
-    { section: 'Tie-section 10', gap: 0, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
-    { section: 'Cross-section 1', gap: 12, formation: 'KLEI', side: 'left', corr: 2, shape: 'onlap', violation: '2corr-not-band' },
-    { section: 'Cross-section 1', gap: 18, formation: 'ZAND', side: 'right', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
-    { section: 'Cross-section 1', gap: 19, formation: 'KLEI', side: 'left', corr: 1, shape: 'band', violation: '1corr-not-onlap' },
-    { section: 'Cross-section 1', gap: 22, formation: 'SILT', side: 'left', corr: 0, shape: 'band', violation: '0corr-not-lens' },
-  ]
+  // never silently hide a re-regression.
+  // CLASSIFIER FALSE-POSITIVE ACCEPTS (owner 2026-07-26, ratchet 5 -> 0). The remaining five were
+  // render-correct classifier false-positives — the strict bbox 0/1/2 shape rule over-flagged three
+  // CORRECT geometries, ALL proven non-data-loss by the ground-truth overpaint gate
+  // (partitionFillV2.groundTruth.diag.test.ts: every drilled unit renders its own litho at its own
+  // column edge, 0 hits across all 14 sections). Three guarded predicates (flag-ON only; see the
+  // classify loop) accept them, each with a NEGATIVE guard so a genuine defect still trips:
+  //   (A) same-litho FACING band -> TS10-g0 ZAND (corr-1), CS1-g22 SILT (corr-0): the facing carries
+  //       the unit's own formation across the band, the 8j merge welds one body.
+  //   (B) sub-TD substrate STRADDLE -> CS1-g18 ZAND, CS1-g19 KLEI (corr-1): the full-width render is
+  //       the deep-to-deep substrate below the shallow TD, not a termination band.
+  //   (C) own full-width band component EXISTS -> CS1-g12 KLEI (corr-2): a dipping band split at the
+  //       unit's window boundary; the full-width KLEI band [-10.36..-6.02] meets the unit at -6.02.
+  // The overpaint gate is the independent backstop: if any accept ever wrongly swallows real data
+  // loss, that gate goes RED. Flag-ON conformance is now a true 0.
+  const FLAG_ON_BASELINE: Pin[] = []
 
-  it('FLAG-ON: literal-8l conformance == the pinned 5-instance ratchet', () => {
+  it('FLAG-ON: literal-8l conformance == 0 (all shape-FPs accepted as guarded advisories)', () => {
     console.log('\n===== CONFORMANCE FLAG-ON (literal-8l product path) =====')
     const prev = setTwoSidedTerminations(true)
     let rows: ConfRow[]
@@ -582,7 +649,7 @@ describe('v2 full 2/1/0 conformance gate (S38 HARD GATE)', () => {
       setTwoSidedTerminations(prev)
     }
     const total = grand['0corr-not-lens'] + grand['1corr-not-onlap'] + grand['2corr-not-band']
-    expect(total, 'flag-ON total conformance instances must equal the pinned 5').toBe(5)
+    expect(total, 'flag-ON total conformance instances must be 0 (all shape-FPs accepted)').toBe(0)
     assertRatchet('FLAG-ON', rows, FLAG_ON_BASELINE)
   })
 })
