@@ -2368,7 +2368,11 @@ export default function SectionPanel({
       return resolveModelFillPolys(sliceSolidsAtPlaneRobust(modelFillMeshes, sectionLine))
     }
     if (zigzagTests.length < 2) return undefined
-    return resolveModelFillPolys(sliceSolidsAlongZigzag(modelFillMeshes, zigzagTests))
+    // Resolve PER LEG (passed into the zigzag) so the jsts "claimed" union stays
+    // small per disjoint along-range — resolving the whole concatenated set grew
+    // it to cover the section and froze the app ~18 s. Legs are disjoint, so this
+    // yields equivalent output, ~1 s.
+    return sliceSolidsAlongZigzag(modelFillMeshes, zigzagTests, resolveModelFillPolys)
   }, [
     sectionFillAtSectionLine,
     modelFillMeshes,
