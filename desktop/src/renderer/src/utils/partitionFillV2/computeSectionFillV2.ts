@@ -27,8 +27,10 @@
  */
 
 import { buildArrangement } from './arrangement'
+import { detectFloodedUnits } from './detectFloodedUnits'
 import { emitCurves, type TieConflict } from './emitCurves'
 import { expandOverrideAliasesFromBase } from './expandOverrideAliases'
+import { clearForceOnlapUnits, parseForceOnlapKey, type ReviewFlag, setForceOnlapUnits } from './forceOnlapUnits'
 import { labelFaces } from './labelFaces'
 import { mergeTouchingBodies } from './mergeTouchingBodies'
 import { buildSectionInput } from './sectionGeom'
@@ -81,9 +83,14 @@ export function computeSectionFillV2WithConflicts(
   edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
   alongM?: readonly number[],
-): { regions: SectionRegion[]; conflicts: TieConflict[] } {
+): { regions: SectionRegion[]; conflicts: TieConflict[]; reviewFlags: ReviewFlag[] } {
   const outcome = classifyOverrideOutcome(columns, edges, lensApexOverrides, alongM)
-  return { regions: outcome.regions, conflicts: outcome.conflicts }
+  return { regions: outcome.regions, conflicts: outcome.conflicts, reviewFlags: outcome.reviewFlags }
+}
+
+/** Parse the repair pass' forced-onlap keys into structured review flags (drop any malformed key). */
+function toReviewFlags(keys: readonly string[]): ReviewFlag[] {
+  return keys.map(parseForceOnlapKey).filter((f): f is ReviewFlag => f !== null)
 }
 
 /**
@@ -112,10 +119,10 @@ export function computeSectionFillV2WithConflicts(
  *                          are the plain no-override fill.
  */
 export type OverrideOutcome =
-  | { status: 'applied'; source: 'aliased' | 'direct'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
-  | { status: 'rejected-unsafe'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
-  | { status: 'rejected-collapse'; regions: SectionRegion[]; conflicts: TieConflict[]; baseDefect: number; candidateDefect: number }
-  | { status: 'unsupported'; reason: string; regions: SectionRegion[]; conflicts: TieConflict[] }
+  | { status: 'applied'; source: 'aliased' | 'direct'; regions: SectionRegion[]; conflicts: TieConflict[]; reviewFlags: ReviewFlag[]; baseDefect: number; candidateDefect: number }
+  | { status: 'rejected-unsafe'; regions: SectionRegion[]; conflicts: TieConflict[]; reviewFlags: ReviewFlag[]; baseDefect: number; candidateDefect: number }
+  | { status: 'rejected-collapse'; regions: SectionRegion[]; conflicts: TieConflict[]; reviewFlags: ReviewFlag[]; baseDefect: number; candidateDefect: number }
+  | { status: 'unsupported'; reason: string; regions: SectionRegion[]; conflicts: TieConflict[]; reviewFlags: ReviewFlag[] }
 
 /**
  * Compute the v2 fill AND report a structured outcome for the override pass.
@@ -135,29 +142,58 @@ export function classifyOverrideOutcome(
   alongM?: readonly number[],
 ): OverrideOutcome {
   // ONE fill pass for a given override map: normalise → emit → arrange → label → slice → merge.
+  // With the hoist flag ON, a SAFE-DEFAULT REPAIR loop follows (owner 2026-07-26): the first pass
+  // may leave a drilled unit flooded by a foreign litho (the 8m-suppressed-onlap → enclosing-flood
+  // data-loss, TS7-g0 clay → silt). ``detectFloodedUnits`` finds them; the fill re-runs with those
+  // units' onlaps FORCED ON (``forceOnlapUnits``) so the drilled litho survives. The clean cases
+  // flood nothing → detect nothing → re-run nothing → byte-identical to the pre-repair engine.
   const runFill = (
     ov: ReadonlyMap<string, LensApexOverride> | undefined,
-  ): { sliced: SectionRegion[]; merged: SectionRegion[]; conflicts: TieConflict[] } => {
+  ): { sliced: SectionRegion[]; merged: SectionRegion[]; conflicts: TieConflict[]; repaired: string[] } => {
     const section = buildSectionInput(columns, edges, ov, alongM)
-    if (section.columns.length < 2) return { sliced: [], merged: [], conflicts: [] }
-    const { curves, conflicts, lensLabels } = emitCurves(section)
-    const arrangement = buildArrangement(curves)
-    // Pass the whole ARRANGEMENT so the flag-ON seed path (labelFaces, SEED_FILL_MANDATE) can
-    // measure each face's non-zero column-edge seeds from the half-edge provenance. Flag-OFF
-    // ignores it and takes the original vote path (byte-identical).
-    const labelled = labelFaces(arrangement.faces, section.columns, lensLabels, arrangement)
-    const sliced = sliceFaces(labelled, section.columns)
-    // RULING 8j "MERGE AFTER FILL" (2026-07-17): after the fill, same-litho regions that TOUCH merge
-    // into one body — a body-only relabel (never moves a vertex, so holes/overlaps/conformance are
-    // invariant). Gated on the hoist flag so flag-OFF stays the frozen v1-seam baseline byte-identical.
-    const merged = twoSidedTerminationsEnabled() ? mergeTouchingBodies(sliced, section.columns) : sliced
-    return { sliced, merged, conflicts }
+    if (section.columns.length < 2) return { sliced: [], merged: [], conflicts: [], repaired: [] }
+    const onePass = (): { sliced: SectionRegion[]; merged: SectionRegion[]; conflicts: TieConflict[] } => {
+      const { curves, conflicts, lensLabels } = emitCurves(section)
+      const arrangement = buildArrangement(curves)
+      // Pass the whole ARRANGEMENT so the flag-ON seed path (labelFaces, SEED_FILL_MANDATE) can
+      // measure each face's non-zero column-edge seeds from the half-edge provenance. Flag-OFF
+      // ignores it and takes the original vote path (byte-identical).
+      const labelled = labelFaces(arrangement.faces, section.columns, lensLabels, arrangement)
+      const sliced = sliceFaces(labelled, section.columns)
+      // RULING 8j "MERGE AFTER FILL" (2026-07-17): after the fill, same-litho regions that TOUCH merge
+      // into one body — a body-only relabel (never moves a vertex, so holes/overlaps/conformance are
+      // invariant). Gated on the hoist flag so flag-OFF stays the frozen v1-seam baseline byte-identical.
+      const merged = twoSidedTerminationsEnabled() ? mergeTouchingBodies(sliced, section.columns) : sliced
+      return { sliced, merged, conflicts }
+    }
+    let result = onePass()
+    // Flag-OFF (frozen v1 seam) never enters the repair — it has no HOIST onlap to force.
+    if (!twoSidedTerminationsEnabled()) return { ...result, repaired: [] }
+    // Accumulate the forced-onlap set across up to REPAIR_ITERS re-runs: each pass may reveal a
+    // fresh flooded unit; stop as soon as a pass adds nothing new (fixed point) or the cap is hit.
+    const forced = new Set<string>()
+    for (let iter = 0; iter < REPAIR_ITERS; iter++) {
+      const flooded = detectFloodedUnits(result.sliced, section.columns)
+      let added = false
+      for (const k of flooded) if (!forced.has(k)) { forced.add(k); added = true }
+      if (!added) break
+      setForceOnlapUnits(forced)
+      try {
+        result = onePass()
+      } finally {
+        clearForceOnlapUnits()
+      }
+    }
+    // ``repaired`` (the forced-onlap keys) are exposed as REVIEW FLAGS: the uncorrelated same-litho
+    // neighbours the repair re-emitted. The engine fixed the data loss; the UI surfaces them so the
+    // user can correlate the pair into one band (or confirm separate).
+    return { ...result, repaired: [...forced] }
   }
 
   // No override → the byte-identical single-pass fill, reported as ``unsupported`` (nothing to apply).
   if (!lensApexOverrides || lensApexOverrides.size === 0) {
-    const { merged, conflicts } = runFill(lensApexOverrides)
-    return { status: 'unsupported', reason: 'no override present', regions: merged, conflicts }
+    const { merged, conflicts, repaired } = runFill(lensApexOverrides)
+    return { status: 'unsupported', reason: 'no override present', regions: merged, conflicts, reviewFlags: toReviewFlags(repaired) }
   }
 
   // FREE-DRAW OVERRIDE ALIASING (owner 2026-07-22, THIRD engine grant "make every handle reshape").
@@ -202,9 +238,9 @@ export function classifyOverrideOutcome(
       // ``computeSectionFillV2`` (not this classifier), so those stay byte-identical — only the STATUS
       // returned here changes, and on collapse we return the BASE regions (the snapback shape).
       if (ov && isCollapseOverReach(fill.merged, ov)) {
-        return { status: 'rejected-collapse', regions: base.merged, conflicts: base.conflicts, baseDefect, candidateDefect }
+        return { status: 'rejected-collapse', regions: base.merged, conflicts: base.conflicts, reviewFlags: toReviewFlags(base.repaired), baseDefect, candidateDefect }
       }
-      return { status: 'applied', source, regions: fill.merged, conflicts: fill.conflicts, baseDefect, candidateDefect }
+      return { status: 'applied', source, regions: fill.merged, conflicts: fill.conflicts, reviewFlags: toReviewFlags(fill.repaired), baseDefect, candidateDefect }
     }
   }
   // Every override variant opened a hole vs the no-override base → the drag is not gap-safe at this
@@ -214,10 +250,14 @@ export function classifyOverrideOutcome(
     status: 'rejected-unsafe',
     regions: base.merged,
     conflicts: base.conflicts,
+    reviewFlags: toReviewFlags(base.repaired),
     baseDefect,
     candidateDefect: bestCandidateDefect,
   }
 }
+
+/** Max safe-default repair re-runs before accepting the best-so-far fill (bounded fixed-point). */
+const REPAIR_ITERS = 3
 
 /** Hole-area tolerance (m²) — a variant must not exceed the no-override base hole area by more. */
 const HOLE_AREA_EPS = 1e-3
