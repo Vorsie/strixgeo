@@ -71,22 +71,21 @@ NAD_QC_BANDS: dict[tuple[BaseLithology, Variant], list[tuple[float | None, int]]
 # ruling, not a mechanical inclusion.
 _SAND_ADMIXTURE_CODES = frozenset({"XZ", "ZN", "Z", "FZ", "MZ", "GZ"})
 
+# Silt/clay bijmenging codes → any of these makes a coarse soil (sand/gravel)
+# "silt-/kleihoudend". DOV codes (codetabel_hoofdnaam.csv): SI=silt, KL=klei,
+# LE=leem (geotechnically = silt, owner directive 2026-06-23). ``SL`` is a
+# code-vocabulary collision: the UI emits it for a "Silt (SL)" admixture, but
+# DOV uses ``SL`` for slib (sludge). Owner ruling 2026-07-26: slib is rare, so
+# treat SL as silt here. (The cleaner fix is to align the UI's silt code to the
+# DOV ``SI``; tracked separately.)
+_SILT_CLAY_ADMIXTURE_CODES = frozenset({"SI", "KL", "LE", "SL"})
+
 # Which admixture soil_codes map to the "secondary" NAD variant per main soil
-# (spec §5). Codes are DOV hoofdnaam/bijmenging grondsoort codes from
-# ``codetabel_hoofdnaam.csv`` (same codelist for main + admixture elements):
-# SI=silt, KL=klei, LE=leem. The NAD secondary variant for coarse soils is
-# "silt-/kleihoudend" (silty OR clayey); leem is geotechnically the same as
-# silt (owner directive 2026-06-23), so sand/gravel take SI, KL OR LE. Fines
-# (silt/clay/peat) take any sand code ("zandhoudend").
-#
-# KNOWN GAP (owner ruling pending): the coarse-soil set may under-match — the
-# UI also emits the aliases ``K`` (klei) / ``S`` (silt) as admixture codes, and
-# ``SL`` is 'silty' in the UI but 'slib' (sludge, non-silt) here. Those
-# conflicts are NOT resolved here; only the unambiguous sand side is expanded.
-# The real fix is one canonical code→grain-class map shared by UI + backend.
+# (spec §5). Coarse soils (sand/gravel) go secondary on a silt/clay admixture;
+# fines (silt/clay/peat) go secondary on a sand admixture ("zandhoudend").
 _SECONDARY_ADMIXTURE_CODES: dict[BaseLithology, frozenset[str]] = {
-    "GRIND": frozenset({"SI", "KL", "LE"}),
-    "ZAND": frozenset({"SI", "KL", "LE"}),
+    "GRIND": _SILT_CLAY_ADMIXTURE_CODES,
+    "ZAND": _SILT_CLAY_ADMIXTURE_CODES,
     "SILT": _SAND_ADMIXTURE_CODES,
     "KLEI": _SAND_ADMIXTURE_CODES,
     "VEEN": _SAND_ADMIXTURE_CODES,
