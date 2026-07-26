@@ -41,6 +41,7 @@ import {
   classifyOverrideOutcome,
   computeSectionFillV2,
   type OverrideOutcome,
+  type ReviewFlag,
   type TieConflict,
 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
@@ -265,7 +266,7 @@ export function computeSectionFillActiveWithDiagnostics(
   edges: readonly CorrelationEdge[] = [],
   lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
   alongM?: readonly number[],
-): { regions: SectionRegion[]; conflicts: TieConflict[]; overrideStatus: OverrideOutcome['status'] } {
+): { regions: SectionRegion[]; conflicts: TieConflict[]; reviewFlags: ReviewFlag[]; overrideStatus: OverrideOutcome['status'] } {
   const useV2 = isPartitionEngineV2Active()
   if (useV2 !== lastLoggedV2) {
     lastLoggedV2 = useV2
@@ -279,7 +280,10 @@ export function computeSectionFillActiveWithDiagnostics(
     const prev = setTwoSidedTerminations(true)
     try {
       const outcome = classifyOverrideOutcome(columns, edges, lensApexOverrides, alongM)
-      return { regions: outcome.regions, conflicts: outcome.conflicts, overrideStatus: outcome.status }
+      // ``reviewFlags`` = the uncorrelated same-litho neighbours the safe-default repair re-emitted
+      // (drilled units that would otherwise render a foreign litho). The overlay surfaces them so the
+      // user can correlate the pair into one band. v1 has no repair model → always ``[]``.
+      return { regions: outcome.regions, conflicts: outcome.conflicts, reviewFlags: outcome.reviewFlags, overrideStatus: outcome.status }
     } finally {
       setTwoSidedTerminations(prev)
     }
@@ -287,6 +291,7 @@ export function computeSectionFillActiveWithDiagnostics(
   return {
     regions: computeSectionFill(columns, edges, lensApexOverrides, alongM),
     conflicts: [],
+    reviewFlags: [],
     overrideStatus: 'unsupported',
   }
 }
