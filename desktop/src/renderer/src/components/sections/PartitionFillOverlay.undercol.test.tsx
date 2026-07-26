@@ -35,6 +35,7 @@ vi.mock('../../utils/partitionEngineSelect', async (importOriginal) => {
     computeSectionFillActiveWithDiagnostics: () => ({
       regions: mockRegions.value,
       conflicts: [],
+      reviewFlags: [],
     }),
   }
 })

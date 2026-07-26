@@ -155,6 +155,7 @@ function stubOutcome(status: 'applied' | 'rejected-unsafe'): void {
     (_cols, _edges, overrides) => ({
       regions: [sandBandRegion(), siltLensRegion()],
       conflicts: [],
+      reviewFlags: [],
       overrideStatus: overrides && overrides.size > 0 ? status : 'unsupported',
     }),
   )
