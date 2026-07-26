@@ -1,0 +1,69 @@
+/**
+ * partitionFillV2.dataLossRepair.test.ts — REAL-SECTION data-loss gate (owner 2026-07-26).
+ *
+ * THE INVARIANT (ruling 8k, "columns are ground truth"). A drilled unit must render its OWN litho
+ * at its OWN column edge. The safe-default post-pass (detectFloodedUnits → forceOnlapUnits) already
+ * catches units painted a FOREIGN litho, but only corr-1 onlaps were wired through — a flooded
+ * corr-2 BAND MEMBER is skipped by the sweep (`if (c === 2) continue`) before the force bypass, so
+ * its band failing to render leaves the drilled litho replaced by a foreign flood: HIDDEN DATA LOSS
+ * the holes gate cannot see (the space is filled, just with the wrong litho).
+ *
+ * These 5 real-section units were flooded on the flag-ON engine (region evidence: own column edge
+ * rendered a different formation, the unit's own regions absent). RED before the corr-2 wire-through,
+ * GREEN after. Flag-ON path.
+ */
+
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { describe, expect, it } from 'vitest'
+
+import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './partitionFill'
+import { computeSectionFillV2 } from './partitionFillV2'
+import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const INPUT = resolve(HERE, '../../../../..', 'scripts/diag_allsections_input.json')
+const present = existsSync(INPUT)
+
+function pip(poly: readonly PartitionPoint[], f: number, e: number): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].fraction, yi = poly[i].elevation, xj = poly[j].fraction, yj = poly[j].elevation
+    if (yi > e !== yj > e && f < ((xj - xi) * (e - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+// (section, gap, side, litho name, mid-elevation) — the 5 flooded drilled units.
+const CASES = [
+  { s: 'Tie-section 11', g: 0, side: 'left', litho: 'ZAND', el: 11.36 },
+  { s: 'Cross-section 3', g: 6, side: 'left', litho: 'KLEI', el: 12.02 },
+  { s: 'Cross-section 3', g: 7, side: 'left', litho: 'ZAND', el: 12.09 },
+  { s: 'Cross-section 2', g: 13, side: 'right', litho: 'SILT', el: 4.52 },
+  { s: 'Cross-section 2', g: 21, side: 'right', litho: 'ZAND', el: 12.58 },
+] as const
+
+describe('safe-default repair: flooded drilled units render their own litho (real data)', () => {
+  const maybe = present ? it : it.skip
+  for (const c of CASES) {
+    maybe(`${c.s} g${c.g} ${c.litho}[${c.side}] renders ${c.litho}, not a foreign litho`, () => {
+      const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as any
+      const nameOf = (id: string): string => raw.formationNames[id] ?? id.slice(-4)
+      const sec = raw.sections.find((s: any) => s.name === c.s)
+      const keep = sec.columns.filter((col: any) => col.surfaceElevM != null && col.units.length > 0)
+      const columns: PartitionColumn[] = keep.map((col: any) => ({ investigationId: col.investigationId, surfaceElevM: col.surfaceElevM, units: col.units }))
+      const alongM = sec.columns.map((_: any, i: number) => sec.alongM[i]).slice(0, keep.length)
+      const edges: CorrelationEdge[] = sec.edges.map((e: any) => ({ a: e.a, b: e.b, aSide: e.aSide ?? 'top', bSide: e.bSide ?? 'top' }))
+      const prev = setTwoSidedTerminations(true)
+      let regions: SectionRegion[]
+      try { regions = computeSectionFillV2(columns, edges, undefined, alongM) } finally { setTwoSidedTerminations(prev) }
+      const edgeF = c.side === 'left' ? 0.02 : 0.98
+      const cover = regions.filter((r) => r.gapIndex === c.g && pip(r.polygon, edgeF, c.el)).map((r) => nameOf(r.formationId))
+      // The drilled litho must be present at its own column edge (ground truth) — never replaced
+      // entirely by a foreign litho.
+      expect(cover, `${c.litho} must render at its own column edge (drilled ground truth)`).toContain(c.litho)
+    })
+  }
+})
