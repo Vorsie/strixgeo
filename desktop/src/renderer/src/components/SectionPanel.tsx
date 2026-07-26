@@ -88,6 +88,7 @@ import {
   pickQcFullScaleMpa,
   type CptChannels,
 } from './sections/cptChannels'
+import { buildReviewFlagPatch, readDismissedReviewFlags } from '../utils/reviewFlagPrefs'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import SectionGrid from './sections/SectionGrid'
 import InvestigationColumns from './sections/InvestigationColumns'
@@ -1172,6 +1173,22 @@ export default function SectionPanel({
       }
     },
     [onPatch],
+  )
+
+  // REVIEW-FLAG dismissal (owner 2026-07-26; design §10). The safe-default repair surfaces
+  // uncorrelated same-litho neighbours as amber markers; "Keep separate" dismisses one, persisted in
+  // ``view_state.review_flags`` so it rides the .gmproj bundle and does not re-nag (like cpt_channels).
+  const dismissedReviewFlags = useMemo(
+    () => readDismissedReviewFlags(section.view_state ?? null),
+    [section.view_state],
+  )
+  const handleDismissReviewFlag = useCallback(
+    (flagId: string) => {
+      const next = new Set(readDismissedReviewFlags(section.view_state ?? null))
+      next.add(flagId)
+      if (onPatch) void onPatch(buildReviewFlagPatch(next))
+    },
+    [section.view_state, onPatch],
   )
 
   // Band half-width scales with horizontal zoom — at low zoom keep
@@ -3021,6 +3038,10 @@ export default function SectionPanel({
                 screenToLevel={screenToLevel}
                 onSaveBoundary={FREEDRAW_EDIT_ENABLED ? onSaveLensShape : undefined}
                 onCorrelateBoundary={FREEDRAW_EDIT_ENABLED ? onCorrelateBoundary : undefined}
+                axisMode={axisMode}
+                dismissedReviewFlags={dismissedReviewFlags}
+                onDismissReviewFlag={handleDismissReviewFlag}
+                onCorrelateReviewFlag={onCorrelateBoundary}
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
