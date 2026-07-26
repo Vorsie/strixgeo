@@ -104,7 +104,8 @@ import PartitionFillOverlay, { type GeotechRefinement } from './sections/Partiti
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
-import { sampleSolidColumns, sliceSolidsAtPlane } from '../utils/sectionFromSolids'
+import { sampleSolidColumns, sliceSolidsAtPlaneRobust } from '../utils/sectionFromSolids'
+import { resolveModelFillPolys } from '../utils/resolveModelFillPolys'
 import type { SectionPlaneLine, SolidColumn, SectionPoly } from '../utils/sectionFromSolids'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
@@ -2324,7 +2325,17 @@ export default function SectionPanel({
         bx: section.end_x,
         by: section.end_y,
       }
-      return { polys: sliceSolidsAtPlane(meshes, sectionLine) }
+      // sliceSolidsAtPlaneRobust (not the raw slicer): a real section line at a
+      // metre-scale voxel grid routinely coincides with mesh faces, and the raw
+      // slicer drops plane-coincident edges → whole bodies vanish. Then
+      // resolveModelFillPolys clips the raw (overlapping, unclipped) per-body
+      // slices into deterministic, non-overlapping visible polys — the 3D bodies
+      // are meant to be mutually exclusive but the voxel solids overlap, so
+      // without this a thin clay band paints behind broad sand and translucent
+      // fills stack darker. Ownership is geometry-derived (thinner on top),
+      // order-independent.
+      const raw = sliceSolidsAtPlaneRobust(meshes, sectionLine)
+      return { polys: resolveModelFillPolys(raw) }
     }
 
     // Mode A (default) — vertical ray at each test's map (x, y).
