@@ -1,0 +1,262 @@
+{
+  "_meta": {
+    "purpose": "Committed audit reference for the Belgian NAD packing-class table (1-31). The classifier constants are validated against this snapshot by tests/unit/domain/services/test_nad_reference_manifest.py, so any change to the qc thresholds or class names is a deliberate, reviewed edit (must update this file too) rather than a silent drift.",
+    "code_source": "src/groundmodel/domain/services/nad_classification_constants.py (NAD_QC_BANDS) + src/groundmodel/shared/constants/litho_constants.py (NAD_CLASSES)",
+    "workbook_filename": "Correlaties uit S en NAD_NEN_v2.xlsx",
+    "workbook_sha256": null,
+    "workbook_sheet": null,
+    "verified_against_workbook": false,
+    "generated": "2026-07-26",
+    "owner_todo": "qc thresholds + names were transcribed from the CODE on 2026-07-26 and are UNVERIFIED against Daniel workbook. Reconcile each class qc_upper_mpa + name against the xlsx, fill workbook_sha256/sheet/workbook_row, then set verified_against_workbook true. qc_upper_mpa is the OPEN upper bound of the class band in MPa (null = densest/open-topped band); the band is [previous upper, this upper)."
+  },
+  "classes": [
+    {
+      "class": 1,
+      "family": "GRIND",
+      "variant": "clean",
+      "name": "GRIND, matig gp",
+      "qc_upper_mpa": 20.0,
+      "workbook_row": null
+    },
+    {
+      "class": 2,
+      "family": "GRIND",
+      "variant": "clean",
+      "name": "GRIND, dicht gp",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 3,
+      "family": "GRIND",
+      "variant": "secondary",
+      "name": "GRIND, silt-/kleihoudend, matig gp",
+      "qc_upper_mpa": 20.0,
+      "workbook_row": null
+    },
+    {
+      "class": 4,
+      "family": "GRIND",
+      "variant": "secondary",
+      "name": "GRIND, silt- of kleihoudend, dicht gp",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 5,
+      "family": "ZAND",
+      "variant": "clean",
+      "name": "ZAND, los gp",
+      "qc_upper_mpa": 4.0,
+      "workbook_row": null
+    },
+    {
+      "class": 6,
+      "family": "ZAND",
+      "variant": "clean",
+      "name": "ZAND, matig gp",
+      "qc_upper_mpa": 10.0,
+      "workbook_row": null
+    },
+    {
+      "class": 7,
+      "family": "ZAND",
+      "variant": "clean",
+      "name": "ZAND, dicht gp",
+      "qc_upper_mpa": 15.0,
+      "workbook_row": null
+    },
+    {
+      "class": 8,
+      "family": "ZAND",
+      "variant": "clean",
+      "name": "ZAND, zeer dicht gp",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 9,
+      "family": "ZAND",
+      "variant": "secondary",
+      "name": "ZAND, silt-/kleihoudend, los gp",
+      "qc_upper_mpa": 4.0,
+      "workbook_row": null
+    },
+    {
+      "class": 10,
+      "family": "ZAND",
+      "variant": "secondary",
+      "name": "ZAND, silt-/kleihoudend, matig gp",
+      "qc_upper_mpa": 10.0,
+      "workbook_row": null
+    },
+    {
+      "class": 11,
+      "family": "ZAND",
+      "variant": "secondary",
+      "name": "ZAND, silt-/kleihoudend, dicht gp",
+      "qc_upper_mpa": 15.0,
+      "workbook_row": null
+    },
+    {
+      "class": 12,
+      "family": "ZAND",
+      "variant": "secondary",
+      "name": "ZAND, silt-/kleihoudend, zeer dicht gp",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 13,
+      "family": "SILT",
+      "variant": "clean",
+      "name": "SILT, weinig vast",
+      "qc_upper_mpa": 1.0,
+      "workbook_row": null
+    },
+    {
+      "class": 14,
+      "family": "SILT",
+      "variant": "clean",
+      "name": "SILT, matig vast",
+      "qc_upper_mpa": 2.0,
+      "workbook_row": null
+    },
+    {
+      "class": 15,
+      "family": "SILT",
+      "variant": "clean",
+      "name": "SILT, vrij vast",
+      "qc_upper_mpa": 4.0,
+      "workbook_row": null
+    },
+    {
+      "class": 16,
+      "family": "SILT",
+      "variant": "clean",
+      "name": "SILT, vast",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 17,
+      "family": "SILT",
+      "variant": "secondary",
+      "name": "SILT, zandhoudend, weinig vast",
+      "qc_upper_mpa": 1.0,
+      "workbook_row": null
+    },
+    {
+      "class": 18,
+      "family": "SILT",
+      "variant": "secondary",
+      "name": "SILT, zandhoudend, matig vast",
+      "qc_upper_mpa": 2.0,
+      "workbook_row": null
+    },
+    {
+      "class": 19,
+      "family": "SILT",
+      "variant": "secondary",
+      "name": "SILT, zandhoudend, vrij vast",
+      "qc_upper_mpa": 4.0,
+      "workbook_row": null
+    },
+    {
+      "class": 20,
+      "family": "SILT",
+      "variant": "secondary",
+      "name": "SILT, zandhoudend, vast",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 21,
+      "family": "KLEI",
+      "variant": "clean",
+      "name": "KLEI, weinig vast",
+      "qc_upper_mpa": 1.0,
+      "workbook_row": null
+    },
+    {
+      "class": 22,
+      "family": "KLEI",
+      "variant": "clean",
+      "name": "KLEI, matig vast",
+      "qc_upper_mpa": 2.0,
+      "workbook_row": null
+    },
+    {
+      "class": 23,
+      "family": "KLEI",
+      "variant": "clean",
+      "name": "KLEI, vrij vast",
+      "qc_upper_mpa": 4.0,
+      "workbook_row": null
+    },
+    {
+      "class": 24,
+      "family": "KLEI",
+      "variant": "clean",
+      "name": "KLEI, vast",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 25,
+      "family": "KLEI",
+      "variant": "secondary",
+      "name": "KLEI, zandhoudend, weinig vast",
+      "qc_upper_mpa": 1.0,
+      "workbook_row": null
+    },
+    {
+      "class": 26,
+      "family": "KLEI",
+      "variant": "secondary",
+      "name": "KLEI, zandhoudend, matig vast",
+      "qc_upper_mpa": 2.0,
+      "workbook_row": null
+    },
+    {
+      "class": 27,
+      "family": "KLEI",
+      "variant": "secondary",
+      "name": "KLEI, zandhoudend, vrij vast",
+      "qc_upper_mpa": 4.0,
+      "workbook_row": null
+    },
+    {
+      "class": 28,
+      "family": "KLEI",
+      "variant": "secondary",
+      "name": "KLEI, zandhoudend, vast",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    },
+    {
+      "class": 29,
+      "family": "VEEN",
+      "variant": "clean",
+      "name": "VEEN, weinig vast",
+      "qc_upper_mpa": 0.5,
+      "workbook_row": null
+    },
+    {
+      "class": 30,
+      "family": "VEEN",
+      "variant": "clean",
+      "name": "VEEN, matig vast",
+      "qc_upper_mpa": 1.0,
+      "workbook_row": null
+    },
+    {
+      "class": 31,
+      "family": "VEEN",
+      "variant": "clean",
+      "name": "VEEN, vast",
+      "qc_upper_mpa": null,
+      "workbook_row": null
+    }
+  ]
+}
