@@ -341,6 +341,203 @@ export function sliceSolidsAtPlaneRobust(
   return sliceSolidsAtPlane(meshes, nudged)
 }
 
+/**
+ * A test location on the section, ordered by ``alongM`` ascending.
+ *
+ * @property x      - Map x coordinate (same CRS as SolidMesh vertices).
+ * @property y      - Map y coordinate.
+ * @property alongM - Projected distance along the STRAIGHT section line (the
+ *                    section view's horizontal axis, metres).
+ */
+export interface ZigzagTest {
+  x: number
+  y: number
+  alongM: number
+}
+
+/**
+ * Minimum world segment length / along-section span (metres) below which a
+ * consecutive test pair is treated as coincident and skipped.
+ *
+ * WHY: two near-coincident boreholes (e.g. the GEO-23/125-S5 cluster 0.17 m
+ * apart) — or two tests that project to the same along-section distance — would
+ * otherwise produce a zero- or near-zero-length leg. Slicing along it is
+ * meaningless and the remap divides by ``segWorldLen``, so we skip the leg. The
+ * threshold sits well above SLICE_EPS (1e-6) yet far below any real borehole
+ * spacing, so genuine legs are never dropped.
+ */
+const ZIGZAG_MIN_SEG_M = 1e-3
+
+/**
+ * Clip a closed ring (in (alongM, elev) space) to the vertical along-section band
+ * ``[loM, hiM]`` using the Sutherland–Hodgman algorithm.
+ *
+ * WHY this is needed: ``sliceSolidsAtPlaneRobust`` cuts an INFINITE plane through
+ * a leg, so a body whose footprint extends past the leg's two endpoints projects
+ * to LOCAL ``alongM`` values outside ``[0, segWorldLen]``. If those out-of-band
+ * points were remapped onto the section axis they would bleed into the
+ * neighbouring leg's sub-range and break the "disjoint ranges → no cross-segment
+ * overlap" invariant. Clipping each ring to the leg's own ``[0, segWorldLen]``
+ * band before remapping guarantees each leg fills exactly its own sub-range.
+ *
+ * Sutherland–Hodgman against two vertical half-planes (``alongM >= loM`` then
+ * ``alongM <= hiM``) is exact for this convex band clip and preserves a simple
+ * ring; ``elev`` is linearly interpolated at each band-edge crossing.
+ *
+ * @param ring - Closed ring of (alongM, elev) points (implicit last→first edge).
+ * @param loM  - Lower along-section bound (inclusive).
+ * @param hiM  - Upper along-section bound (inclusive).
+ * @returns    The clipped ring; empty when the ring lies entirely outside the band.
+ */
+function clipRingToAlongBand(
+  ring: { alongM: number; elev: number }[],
+  loM: number,
+  hiM: number,
+): { alongM: number; elev: number }[] {
+  // Clip against one vertical edge. ``keepGE`` true keeps points with
+  // alongM >= bound; false keeps points with alongM <= bound.
+  const clipEdge = (
+    poly: { alongM: number; elev: number }[],
+    bound: number,
+    keepGE: boolean,
+  ): { alongM: number; elev: number }[] => {
+    if (poly.length === 0) return poly
+    const inside = (p: { alongM: number }): boolean =>
+      keepGE ? p.alongM >= bound : p.alongM <= bound
+    const out: { alongM: number; elev: number }[] = []
+    for (let i = 0; i < poly.length; i++) {
+      const cur = poly[i]
+      const prev = poly[(i + poly.length - 1) % poly.length]
+      const curIn = inside(cur)
+      const prevIn = inside(prev)
+      if (curIn) {
+        if (!prevIn) out.push(intersectAtAlong(prev, cur, bound))
+        out.push(cur)
+      } else if (prevIn) {
+        out.push(intersectAtAlong(prev, cur, bound))
+      }
+    }
+    return out
+  }
+
+  const afterLo = clipEdge(ring, loM, true)
+  return clipEdge(afterLo, hiM, false)
+}
+
+/**
+ * Interpolate the point where segment ``a→b`` crosses the vertical line
+ * ``alongM = bound``; ``elev`` is linearly interpolated by the along fraction.
+ */
+function intersectAtAlong(
+  a: { alongM: number; elev: number },
+  b: { alongM: number; elev: number },
+  bound: number,
+): { alongM: number; elev: number } {
+  const denom = b.alongM - a.alongM
+  // Degenerate vertical-in-along edge (both endpoints at the same alongM): the
+  // line can't cross the bound between them, so just return ``a`` clamped.
+  if (Math.abs(denom) < SLICE_EPS) return { alongM: bound, elev: a.elev }
+  const t = (bound - a.alongM) / denom
+  return { alongM: bound, elev: a.elev + t * (b.elev - a.elev) }
+}
+
+/**
+ * Slice body solids along a CONTINUOUS zigzag path that threads borehole→borehole
+ * through the actual test positions, producing a gap-free section fill.
+ *
+ * This is the "run through columns" (Mode A) fill: instead of plane-slicing a
+ * single straight line (Mode B), the cutting surface zig-zags through every
+ * test's real (x, y). Each consecutive test pair defines one straight leg; that
+ * leg is plane-sliced independently, then each slice point's LOCAL along-leg
+ * distance is remapped onto the SECTION along-axis so the leg's fill occupies
+ * exactly the ``[tests[i].alongM, tests[i+1].alongM]`` horizontal range. Because
+ * consecutive legs occupy DISJOINT along-section ranges, there is no
+ * cross-segment overlap and the caller runs ``resolveModelFillPolys`` once over
+ * the concatenated result.
+ *
+ * Algorithm:
+ * 1. For each consecutive pair (tests[i], tests[i+1]):
+ *    a. Compute ``segWorldLen = hypot(dx, dy)`` and the along-section span
+ *       ``segAlongSpan = tests[i+1].alongM - tests[i].alongM``. Skip the leg when
+ *       either is below {@link ZIGZAG_MIN_SEG_M} (near-coincident boreholes or a
+ *       duplicate projection — avoids a divide-by-zero in the remap).
+ *    b. Slice the meshes along the leg with {@link sliceSolidsAtPlaneRobust}; the
+ *       returned points carry ``alongM`` as the LOCAL distance in ``[0,
+ *       segWorldLen]`` along that leg.
+ *    c. Remap each point:
+ *         ``sectionAlong = tests[i].alongM + (p.alongM / segWorldLen) * segAlongSpan``
+ *       leaving ``elev`` (and bodyId / formationId / color) unchanged. So the
+ *       leg's slice fills exactly its ``[tests[i].alongM, tests[i+1].alongM]``
+ *       sub-range.
+ * 2. Return the concatenation of every leg's remapped polys.
+ *
+ * @param meshes - Watertight body meshes to slice.
+ * @param tests  - Test locations ordered by ``alongM`` ascending.
+ * @returns      Remapped {@link SectionPoly} rings whose ``alongM`` values live on
+ *               the section along-axis; empty when fewer than 2 valid legs exist.
+ */
+export function sliceSolidsAlongZigzag(
+  meshes: SolidMesh[],
+  tests: ZigzagTest[],
+): SectionPoly[] {
+  const result: SectionPoly[] = []
+
+  for (let i = 0; i + 1 < tests.length; i++) {
+    const a = tests[i]
+    const b = tests[i + 1]
+
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const segWorldLen = Math.hypot(dx, dy)
+    const segAlongSpan = b.alongM - a.alongM
+
+    // Skip near-coincident boreholes (zero world length) or duplicate
+    // projections (zero along-section span) — either makes the remap ill-defined.
+    if (segWorldLen < ZIGZAG_MIN_SEG_M || segAlongSpan < ZIGZAG_MIN_SEG_M) {
+      continue
+    }
+
+    const segPolys = sliceSolidsAtPlaneRobust(meshes, {
+      ax: a.x,
+      ay: a.y,
+      bx: b.x,
+      by: b.y,
+    })
+
+    // Remap a LOCAL along-leg distance onto the SECTION along-axis so the leg's
+    // slice lands in [a.alongM, b.alongM]; elev is unchanged.
+    const remap = (p: { alongM: number; elev: number }): { alongM: number; elev: number } => ({
+      alongM: a.alongM + (p.alongM / segWorldLen) * segAlongSpan,
+      elev: p.elev,
+    })
+
+    for (const poly of segPolys) {
+      // Clip the slice to this leg's [0, segWorldLen] band so a body extending
+      // past the leg endpoints (the infinite cutting plane captures it) does not
+      // bleed into the neighbouring leg's sub-range.
+      const clippedOuter = clipRingToAlongBand(poly.points, 0, segWorldLen)
+      if (clippedOuter.length < 3) continue
+
+      const clippedHoles = poly.holes
+        ?.map((h) => clipRingToAlongBand(h, 0, segWorldLen))
+        .filter((h) => h.length >= 3)
+
+      result.push({
+        bodyId: poly.bodyId,
+        formationId: poly.formationId,
+        color: poly.color,
+        points: clippedOuter.map(remap),
+        holes:
+          clippedHoles && clippedHoles.length > 0
+            ? clippedHoles.map((h) => h.map(remap))
+            : undefined,
+      })
+    }
+  }
+
+  return result
+}
+
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 /** Epsilon for deduplicated z-crossing values (metres). */
