@@ -187,6 +187,43 @@ describe('Mode B', () => {
     expect(pe).toBe('none')
   })
 
+  it('MFO4c a poly with a hole renders ONE evenodd path whose d punches the hole out', () => {
+    // A resolved donut: outer sand ring with an enclosed clay hole. The overlay
+    // must emit a single <path> with fill-rule evenodd and a d that contains the
+    // outer subpath followed by the hole subpath, so the enclosed body shows
+    // through (not re-covered by a solid fill).
+    const polys: SectionPoly[] = [
+      {
+        bodyId: 'zand',
+        formationId: 'ZAND',
+        color: '#fbbf24',
+        points: [
+          { alongM: 0, elev: 0 },
+          { alongM: 20, elev: 0 },
+          { alongM: 20, elev: -6 },
+          { alongM: 0, elev: -6 },
+        ],
+        holes: [
+          [
+            { alongM: 5, elev: -2 },
+            { alongM: 15, elev: -2 },
+            { alongM: 15, elev: -4 },
+            { alongM: 5, elev: -4 },
+          ],
+        ],
+      },
+    ]
+    const { container } = renderOverlay({ polys })
+    const el = container.querySelector('[data-testid="model-fill-zand"]') as SVGPathElement
+    // evenodd so the inner ring is transparent.
+    const fr = el.getAttribute('fill-rule') ?? el.style.fillRule
+    expect(fr).toBe('evenodd')
+    // The path must contain TWO subpaths (outer + hole): two 'M' commands, two 'Z'.
+    const d = el.getAttribute('d') ?? ''
+    expect((d.match(/M/g) ?? []).length).toBe(2)
+    expect((d.match(/Z/g) ?? []).length).toBe(2)
+  })
+
   it('MFO4b two loops of one body render two filled elements', () => {
     // sliceSolidsAtPlane returns one SectionPoly PER loop, so a body sliced into
     // two disjoint pieces arrives as two polys sharing a bodyId. Both must render
