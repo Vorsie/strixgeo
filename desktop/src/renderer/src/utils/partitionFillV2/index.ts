@@ -39,6 +39,7 @@ export {
   type OverrideOutcome,
 } from './computeSectionFillV2'
 export { type TieConflict, type ResolvedTie } from './emitCurves'
+export { type ReviewFlag } from './forceOnlapUnits'
 export {
   detectCrossingConflicts,
   edgeKey,
