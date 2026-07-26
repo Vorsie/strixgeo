@@ -78,6 +78,17 @@ def test_fine_sand_admixture_on_silt_uses_secondary_variant():
     assert classify_nad("SILT", admx, 1.5) == 18
 
 
+def test_silt_admixture_via_ui_sl_code_makes_sand_secondary():
+    """Sand + a UI "Silt (SL)" admixture → silt-/kleihoudend sand = secondary.
+
+    The UI stores ``SL`` for a silt admixture; DOV uses ``SL`` for slib, but slib
+    is rare (owner ruling 2026-07-26 — treat SL as silt for NAD). qc 8.0 →
+    secondary-sand matig band → NAD 10 (clean sand at the same qc is NAD 6).
+    """
+    admx = (Admixture(soil_code="SL", amount="M"),)
+    assert classify_nad("ZAND", admx, 8.0) == 10
+
+
 def test_lithology_is_hard_truth_qc_never_changes_soil():
     """A clay at sand-like qc (12 MPa) stays clay — densest clay class, not sand."""
     assert classify_nad("KLEI", (), 12.0) == 24
