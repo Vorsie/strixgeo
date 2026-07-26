@@ -12,9 +12,11 @@
  *   A body present at fewer than 2 columns cannot form a band and is skipped.
  *
  *   **Mode B** (``polys`` prop) — the consumer passes ``SectionPoly[]`` produced
- *   by ``sliceSolidsAtPlane`` (vertical plane intersection of body meshes).  Each
- *   polygon is rendered as a closed filled path using ``fillRule="nonzero"``
- *   because the ring winding is not guaranteed for arbitrary mesh orientations.
+ *   by ``sliceSolidsAtPlane`` then resolved by ``resolveModelFillPolys``.  Each
+ *   poly is rendered as a single closed filled path with ``fillRule="evenodd"``:
+ *   its exterior ring is the band outline and every ``holes`` inner ring is
+ *   punched out so an ENCLOSED higher-priority body (a clay lens inside a sand
+ *   slab) shows through instead of being re-covered by a solid fill.
  *
  * This overlay is a read-only, purely presentational layer:
  *   - ``pointerEvents="none"`` on every painted element so it never intercepts
@@ -118,26 +120,15 @@ const DEFAULT_TEST_STRIP_WIDTH_PX = 14
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 /**
- * Build an SVG path string for a Mode B closed ring.
- *
- * WHY ``fillRule="nonzero"``: the winding of points in a ``SectionPoly`` depends
- * on the triangle order in the input mesh and is not normalised.  ``nonzero``
- * handles both CW and CCW windings correctly for the convex slices that the 3D
- * body builder produces.
- *
- * @param points - Ring of (alongM, elev) pairs (the last point connects back to
- *                 the first implicitly).
- * @param alongMToScreenX - Warp-aware along→screenX transform.
- * @param levelToScreen   - elev→screenY transform.
- * @returns SVG path string ``"M ... Z"``, or ``''`` if the ring has < 3 points.
+ * Build the ``M…L…Z`` subpath for a single closed ring of (alongM, elev) pairs.
+ * Returns ``''`` for a ring with < 3 points.
  */
-function buildPolyPath(
+function ringSubpath(
   points: { alongM: number; elev: number }[],
   alongMToScreenX: (m: number) => number,
   levelToScreen: (z: number) => number,
 ): string {
   if (points.length < 3) return ''
-
   return (
     points
       .map((p, i) => {
@@ -147,6 +138,37 @@ function buildPolyPath(
       })
       .join(' ') + ' Z'
   )
+}
+
+/**
+ * Build an SVG path string for a Mode B closed ring, WITH optional holes.
+ *
+ * The outer ring is emitted first, then each hole ring as its own ``M…Z``
+ * subpath.  Combined with ``fillRule="evenodd"`` on the ``<path>``, the holes
+ * become transparent so an enclosed higher-priority body (a clay lens inside a
+ * sand slab) shows through instead of being re-covered by a solid fill.  A poly
+ * with no holes renders exactly as before (a single filled outline).
+ *
+ * @param points - Outer ring of (alongM, elev) pairs (last point connects back
+ *                 to the first implicitly).
+ * @param holes  - Inner rings (each a closed (alongM, elev) ring) to punch out.
+ * @param alongMToScreenX - Warp-aware along→screenX transform.
+ * @param levelToScreen   - elev→screenY transform.
+ * @returns SVG path string, or ``''`` if the outer ring has < 3 points.
+ */
+function buildPolyPath(
+  points: { alongM: number; elev: number }[],
+  holes: { alongM: number; elev: number }[][] | undefined,
+  alongMToScreenX: (m: number) => number,
+  levelToScreen: (z: number) => number,
+): string {
+  const outer = ringSubpath(points, alongMToScreenX, levelToScreen)
+  if (!outer) return ''
+  if (!holes || holes.length === 0) return outer
+  const holeSubpaths = holes
+    .map((h) => ringSubpath(h, alongMToScreenX, levelToScreen))
+    .filter((s) => s !== '')
+  return holeSubpaths.length > 0 ? `${outer} ${holeSubpaths.join(' ')}` : outer
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -173,7 +195,7 @@ export default function ModelFillOverlay({
     return (
       <g data-testid="model-fill-overlay">
         {polys.map((poly, i) => {
-          const d = buildPolyPath(poly.points, alongMToScreenX, levelToScreen)
+          const d = buildPolyPath(poly.points, poly.holes, alongMToScreenX, levelToScreen)
           if (!d) return null
           // Fade by the poly's centroid distance to the nearest investigation:
           // a poly spanning a wide data gap reads as interpolated.
@@ -192,11 +214,18 @@ export default function ModelFillOverlay({
               d={d}
               fill={poly.color}
               fillOpacity={opacity * mult}
-              // WHY nonzero: SectionPoly winding is not guaranteed — depends on
-              // triangle order in the input mesh.  nonzero handles both CW and CCW
-              // correctly for the convex slices we produce.
-              fillRule="nonzero"
+              // WHY evenodd: a resolved poly may carry HOLES (its ``holes`` inner
+              // rings, appended to ``d`` as extra M…Z subpaths) so an enclosed
+              // higher-priority body — a clay lens inside a sand slab — shows
+              // through instead of being re-covered.  evenodd punches those inner
+              // rings out regardless of winding; for a hole-less poly it fills
+              // the single outer ring identically to nonzero.
+              fillRule="evenodd"
               stroke="none"
+              // pointerEvents stays "none" DELIBERATELY. Making a model-fill
+              // body clickable (whole-layer summary stats for e.g. a sand body,
+              // independent of packing density) is a separate, deferred UX for
+              // the geotech stage — do NOT enable pointer events here.
               pointerEvents="none"
             />
           )
