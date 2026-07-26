@@ -858,8 +858,12 @@ merge engine's default — the reason two earlier upfront discriminators
 
 **Review flags (the UX call, owner "give the ux call").** The repaired units ARE
 the uncorrelated same-litho neighbours worth surfacing. `computeSectionFillV2WithConflicts`
-now returns `reviewFlags: {layerId, gapIndex, side}[]`. The UI surface (build
-pending) is:
+returns `reviewFlags: {layerId, gapIndex, side}[]`, surfaced through
+`computeSectionFillActiveWithDiagnostics`. **SHIPPED** as `ReviewFlagLayer`
+(rendered by `PartitionFillOverlay`; dismissal persisted via `reviewFlagPrefs` →
+`view_state.review_flags`; positioned at the drilled unit's gap-facing column
+edge via `screenByInv`, nudge-aware). Owner dogfeed pending (live marker render +
+correlate/dismiss round-trip can only be verified in the running app). The surface is:
 * **Advisory, not an error** — the engine already preserved the data; the flag
   invites an *optional* correlation. Never a modal/confirm/build-blocker
   (assisted-manual, explicit-content model).
