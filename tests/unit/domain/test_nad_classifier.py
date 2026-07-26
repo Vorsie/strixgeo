@@ -55,6 +55,29 @@ def test_sandy_clay_uses_secondary_variant():
     assert classify_nad("KLEI", admx, 2.0) == 27
 
 
+def test_sandy_clay_via_zn_core_code_uses_secondary_variant():
+    """Clay + the CORE sand admixture code ZN → secondary, same as XZ.
+
+    ``ZN`` is the core "zand" bijmenging code (GL/ZN/SL/KL/VE); the UI offers it
+    as "Sand (ZN)" and treats it as sandy, exactly like the generic ``XZ``. A
+    zandhoudend clay must land in the secondary range (25–28), not clean (21–24).
+    qc 2.0 → NAD 27. (Regression for the ZN-mis-classifies audit finding.)
+    """
+    admx = (Admixture(soil_code="ZN", amount="M"),)
+    assert classify_nad("KLEI", admx, 2.0) == 27
+
+
+def test_fine_sand_admixture_on_silt_uses_secondary_variant():
+    """Silt + a fine-sand admixture (FZ) → zandhoudend silt = secondary.
+
+    FZ/MZ/GZ are grain-size variants of sand; any sand admixture makes a fines
+    soil sand-bearing. qc 1.5 → secondary-silt matig-vast band [1,2) → NAD 18
+    (clean silt at the same qc would be NAD 14).
+    """
+    admx = (Admixture(soil_code="FZ", amount="M"),)
+    assert classify_nad("SILT", admx, 1.5) == 18
+
+
 def test_lithology_is_hard_truth_qc_never_changes_soil():
     """A clay at sand-like qc (12 MPa) stays clay — densest clay class, not sand."""
     assert classify_nad("KLEI", (), 12.0) == 24
