@@ -6420,4 +6420,56 @@ project appears whose deepest tests sit well below its section partitions.
 Reproduce by comparing the partition elevation range against the deepest
 `load_body_picks` base; the numbers above came from a six-line check.
 
+## 243. The enclosed-lens body merge has no caller — it has never run (M)
+
+**What.** `MergeEnclosedLensBodies` + `plan_enclosed_lens_merges` are finished,
+unit-tested and reachable at `POST .../bodies/merge-enclosed-lenses`. **Nothing
+invokes the endpoint** — not the desktop app, not the integration suite, not e2e.
+Verified 2026-07-27: the string `merge-enclosed-lenses` occurs only in the router
+and its response schema; `enclosed` occurs nowhere in `desktop/src` outside
+comments. Consequently the merge has never run on any model, and every
+enclosed-lens host on the dev model is still two bodies.
+
+The use case's docstring claimed it was "the top of the Fill-bands request".
+There is no such request: **Fill bands is a client-side view toggle**
+(`bandFillStore.toggleBandFill`) that flips whether `PartitionFillOverlay`
+renders and makes no network call. Corrected in the docstring 2026-07-27 — that
+wording is what made two separate investigations assume the merge had run.
+
+**Why it matters (owner-visible).** Body identity is the CONNECTED COMPONENTS of
+the user-approved correlation-edge graph (`ResolveLithoInstances`); body SHAPE is
+the partition fill. They are separate pipelines, so a sand that Fill bands draws
+as one continuous body around a carved-out lens can carry two `body_id`s. On the
+dev model, CPT GEO-05/040-S4's sand is `417604` above the silt lens and `6ceedf`
+below it, while the neighbouring BH GEO-10/117-B4 (0.49 m away) logs one
+continuous sand. The planner handles this correctly — run against those two real
+stacks it returns BOTH host halves tied to B4's continuous sand — it is simply
+never asked. Only the upper tie exists in the DB, hand-drawn by the owner.
+
+**Owner decision (2026-07-27): fire it on BUILD, with a report.**
+
+**The ordering is not negotiable.** The merge re-stamps `body_id` in the DB,
+while the voxel build takes body identity from the FRONTEND payload
+(`build_voxel_litho_model`: "the frontend is the single source of body identity
+here"). A caller MUST:
+
+1. merge (per section — the use case is section-scoped),
+2. RELOAD the litho layers into the frontend,
+3. recompute the partition (regions carry `body_id`),
+4. POST the build.
+
+Calling the merge from inside the build endpoint instead would leave the
+payload's split ids disagreeing with the re-stamped picks, and the mesher would
+emit a merged island inside two unmerged hosts — strictly worse than not merging.
+
+**Why deferred.** The wiring crosses `useLithoSolids` → `useGeologicalModel` and
+must WAIT for the refetch rather than predict the post-merge state
+(`memory/feedback_defer_until_loaded_not_predict`). It lands in the frontend,
+where vitest + tsc do not catch this class of bug, so it needs an owner dogfeed.
+
+**When to revisit.** Next session — it is the first task of the overnight blend
+handoff. Reproduce with the S4/B4 pair: run `plan_enclosed_lens_merges` on their
+stacks and confirm 2 edges, then check `litho_contact_correlation_edge` for the
+lower-host tie (absent today).
+
 ## (end)
