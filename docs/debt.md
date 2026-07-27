@@ -6420,9 +6420,46 @@ project appears whose deepest tests sit well below its section partitions.
 Reproduce by comparing the partition elevation range against the deepest
 `load_body_picks` base; the numbers above came from a six-line check.
 
-## 243. The enclosed-lens body merge has no caller — it has never run (M)
+## 243. The enclosed-lens body merge has no caller — WIRED 2026-07-27, owner dogfeed pending (M)
 
-**What.** `MergeEnclosedLensBodies` + `plan_enclosed_lens_merges` are finished,
+**Status 2026-07-27.** The caller is built and committed (`7c41869aa`..`e3d1366a3`,
+unpushed). The litho **Build model** button now merges enclosed-lens bodies across
+every visible section, reloads the layer rows, recomputes the partition from those
+rows, and only then POSTs the build — the ordering below, held inside ONE async
+sequence in `makeVoxelRequestBuilder` so it cannot depend on when React re-renders
+the closure. Geotech deliberately does not opt in (its bodies come from the
+subdivision pass).
+
+* Frontend: `mergeEnclosedLensesForBuild.ts` (sequential fan-out — each POST
+  re-resolves body identity model-wide and commits, so two in flight would race)
+  \+ `describeEnclosedLensMerge` for the toast; `makeVoxelRequestBuilder`
+  `mergeEnclosedLenses` opt-in; `LithologyCanvas` wires it.
+* The reload is mandatory: if `listLayers` fails after edges were created the
+  build **aborts** rather than building on pre-merge body ids.
+* Report wording is in **correlations**, not lenses — one enclosed lens yields two
+  edges (both bracketing host halves) and the endpoint reports edges only, so
+  "N lenses" would overstate by ~2×. A true lens count needs
+  `plan_enclosed_lens_merges` to return the triples; not done.
+* Tests: `mergeEnclosedLensesForBuild.test.ts` (11) + `LithologyCanvas` V3/V4.
+  V3 pins merge → reload → edge-fetch order AND that the payload carries the
+  POST-merge body id; **verified RED** against the pre-fix code
+  (`Set{'body-split-a'}` vs `Set{'body-merged'}`). The canvas test's api mock
+  previously lacked `mergeEnclosedLenses`, so the merge silently took the
+  error branch and every claim still passed — that stub is now in place.
+* **Dry run before the first real click:** `scripts/diag_enclosed_lens_merge_dryrun.py`
+  (read-only, dev-DB-guarded) plans the merge per section without writing. On the
+  dev model it reports **63 net-new edges across 13 sections** (67 planned edges
+  already exist), including the debt entry's own missing tie —
+  `GEO-05/040-S4 ZAND -2.53/-6.60 → GEO-10/117-B4 ZAND 4.70/-6.65` on Cross-section 3.
+
+**Remaining.** Owner dogfeed (frontend — vitest + tsc do not catch this class),
+then confirm the acceptance below on the dev DB. One efficiency note left
+deliberately unfixed: `MergeEnclosedLensBodies` re-runs `ResolveLithoInstances`
+model-wide on any section whose plan is non-empty, even when every planned edge
+already existed, so a repeat Build re-resolves ~13× for nothing. Guarding that on
+`edges_created > 0` is safe but was out of scope of the wiring.
+
+**What (original).** `MergeEnclosedLensBodies` + `plan_enclosed_lens_merges` are finished,
 unit-tested and reachable at `POST .../bodies/merge-enclosed-lenses`. **Nothing
 invokes the endpoint** — not the desktop app, not the integration suite, not e2e.
 Verified 2026-07-27: the string `merge-enclosed-lenses` occurs only in the router
