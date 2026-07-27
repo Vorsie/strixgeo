@@ -6244,5 +6244,58 @@ a visual owner call, not a mechanical fix.
 **When to revisit.** Next 3D-fence dogfeed: decide whether fence panels should
 match the section render (likely yes), flip the one-liner, dogfeed.
 
-## (end)
+## 241. Two investigations inside one voxel — only one drilled log survives (owner decision, S)
 
+**What.** `label_voxels` honors at most ONE investigation per `(i, j)` grid
+column (`honored_by_cell`, lexicographically smallest `investigation_id` wins).
+Two investigations closer than the horizontal voxel therefore contend for one
+column, and the loser's own drilled log is silently replaced by its neighbour's
+AT THE LOSER'S OWN MAP POSITION — the model asserts borehole A's stratigraphy
+where borehole B was actually drilled.
+
+Measured on the dev model at 2 m horizontal (2026-07-27), after the footprint
+fix (#voxel-footprint, commits `d3b6c1fd0`..`99c6e023f`):
+
+| pair | separation | logs | effect |
+|---|---|---|---|
+| BH GEO-10/117-B5 (`964b`) / CPT GEO-05/040-S5 (`7c31`) | 0.28 m | identical | harmless |
+| BH GEO-10/117-B4 (`9635`) / CPT GEO-05/040-S4 (`7c30`) | 0.49 m | differ | **B4 shows S4's log** |
+| CPT GEO-23/125-S5A (`7c4c`) / CPT GEO-23/125-S5 (`7c4b`) | 1.13 m | differ | **S5A shows S5's log** |
+| BH GEO-10/171-B9 (`9602`) / CPT GEO-10/170-S9 (`7c3e`) | 1.91 m | differ | dissolved by grid phase |
+
+These two columns are the ENTIRE remaining "wrong (reorder/invent)" signal on
+`eval_strat_fidelity` that is not the expected below-TD substrate. `7c4c` also
+owns the worst contact-depth error (20.7 m). The B9/S9 pair shows the failure is
+**grid-phase dependent**: the same pair collides or not depending on where the
+grid origin lands, so the defect set is not stable across builds.
+
+The build now WARNS (`BuildVoxelLithoModel._warn_sub_voxel_investigations`) and
+names every pair closer than one horizontal voxel, so the loss is no longer
+silent — but the choice of which log wins is still arbitrary (UUID order, which
+on time-ordered UUIDv7 means "whichever was imported first").
+
+**Why deferred.** The fix is a geological/semantic rule, not a mechanical one,
+and it is the owner's call. Grid refinement cannot resolve it: the closest pair
+is 0.28 m apart, so separating every pair needs a sub-0.25 m horizontal voxel
+(~64x the voxels). A 1 m voxel would separate the S5A/S5 and B9/S9 pairs but not
+B4/S4. Candidate rules, none yet chosen:
+
+* **Precedence** — when a borehole and a CPT contend, honor the BOREHOLE (the
+  directly observed log) over the CPT (an interpreted one). Decides B4/S4 and
+  B9/S9; does NOT decide S5A/S5 (both CPTs) — that needs a second tie-break
+  (deepest log? nearest the cell centre?).
+* **Refuse to choose** — when contending logs DIFFER, honor neither and let the
+  section blend fill the column. Never asserts a log at the wrong place; loses
+  the honored fidelity at both.
+* **Merge upstream** — treat near-coincident investigations as one location in
+  the interpretation (a companion/duplicate relation), so there is one log to
+  honor. Largest change; also the most truthful if the pairs really are one
+  sampling station (the 0.28-0.49 m pairs are BH/CPT twins with matching names,
+  e.g. GEO-10/117-B5 next to GEO-05/040-S5).
+
+**When to revisit.** At the next voxel-fidelity dogfeed, or as soon as the owner
+answers which rule applies. Reproduce with
+`uv run python scripts/diag_voxel_newly_covered.py` (prints the contention list
+under the live grid) and `scripts/diag_voxel_fidelity_delta.py`.
+
+## (end)
