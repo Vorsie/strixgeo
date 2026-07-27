@@ -6509,4 +6509,64 @@ handoff. Reproduce with the S4/B4 pair: run `plan_enclosed_lens_merges` on their
 stacks and confirm 2 edges, then check `litho_contact_correlation_edge` for the
 lower-host tie (absent today).
 
+## 244. The 3-D blend pinches two UNCORRELATED same-lithology bodies against each other (L)
+
+**What.** `label_voxels._blend_stacks` matches the two nearest sections' stacks
+by `body_id`. A body present on both blends its thickness; a body present on only
+one is treated as a lens and scaled by `max(0, 2w - 1)` — at roughly equal
+distance that is **near zero**. Two sections that both show the SAME sand but
+whose sands were never correlated to each other are therefore each "one-sided",
+and BOTH pinch to nothing midway between them. `_fill_band_voids` then back-fills
+the hole, and because `_layout` stacks cumulatively downward from a blended top,
+any unit that IS matched keeps its full thickness and slides up into the space
+the collapsed sand vacated.
+
+**Reproduced 2026-07-27** on CS1 between `GEO-23/125-S9` and `GEO-23/125-S8`,
+which both log a solid `ZAND 3.2 → -4.5`. At 40 % along that leg, band 3:
+
+| section | distance | weight | stack |
+|---|---|---|---|
+| 2-column tie (`GEO-10/170-S4 ↔ S9`) | 12.79 m | 0.579 | `ZAND 3.045/-4.590` th 7.635 body `019ea3e1-9be2` |
+| Cross-section 1 (gap 13 = **S9↔S8**, the right gap) | 17.59 m | 0.421 | `ZAND 3.236/-4.600` th 7.836 body `019ea42e-1b84` |
+
+Same lithology, same elevations, **different `body_id`** → unmatched → pinch
+factors 0.158 and 0.000 → 7.6 m of sand becomes 1.2 m. The `SILT` below IS
+matched (`019ea42e-1b51` on both) and keeps 2.575 m, and ends up at `1.92/-0.65`
+— inside the sand. That is the "invented silt", and its 4.5 m climb along the leg
+is the same effect with a position-varying pinch factor.
+
+**Proven fix path (offline, no writes).** Re-running the same production path with
+the two sand bodies unified — exactly what correlating them does — removes it
+completely at every sampled position:
+
+```
+frac 0.4  BEFORE: ZAND 3.13/1.92 · SILT 1.92/-0.65 · ZAND -0.65/-4.59 · SILT -4.59/-7.06
+frac 0.4  AFTER : ZAND 3.13/-4.59 · SILT -4.59/-7.17
+```
+
+**This supersedes the earlier framing** ("a 2-column tie section outvotes the
+section you are looking at, and imports a distant column's silt"). CS1 contributes
+the CORRECT gap — S9↔S8 — and neither section carries a silt inside the sand. The
+defect is body identity, not neighbour selection, so none of the four
+neighbour-selection candidates in `HANDOFF-voxel-blend.md` address it.
+
+**Why deferred — it is an owner call, and there are two levels.**
+1. *Data*: correlate the same-lithology bodies that are not yet tied. The owner
+   already has this on the board (60 uncorrelated adjacent same-litho overlaps,
+   33 ZAND — `CLAUDE.local.md` litho-stage diagnosis), and #243's merge creates 63
+   of those edges on the next Build.
+2. *Engine*: should the blend pinch two same-LITHOLOGY bodies against each other
+   at all, when neither section shows the other's material? Matching on lithology
+   (falling back to `body_id` only to separate genuinely different units) would
+   make the model robust to a missing correlation instead of producing invented
+   geology. That is a modelling decision — it trades "the user's correlations are
+   the only truth" against "two sands that look identical should not annihilate".
+
+**When to revisit.** With the owner, before the closed beta — it is the visible
+defect in the 3-D litho model today. Reproduce with
+`scripts/diag_blend_mechanism_at_point.py --between GEO-23/125-S9 GEO-23/125-S8
+--fraction 0.4` (its self-check confirms the offline path reproduces the persisted
+build before printing any arithmetic) and
+`scripts/diag_blend_between_columns.py` for the along-leg walk.
+
 ## (end)
