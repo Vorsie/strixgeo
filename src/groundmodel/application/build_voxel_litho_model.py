@@ -251,6 +251,10 @@ def _investigation_columns_from_picks(
                 world_x=first.x_m,
                 world_y=first.y_m,
                 intervals=intervals,
+                # Constant per investigation (every pick shares one anchor); the
+                # labeller needs it to decide which of two investigations sharing
+                # a grid column is honored.
+                kind=first.kind,
             )
         )
     return tuple(columns)
@@ -266,6 +270,14 @@ def _investigation_columns_checksum(
     Columns arrive already sorted by ``investigation_id`` (deterministic order);
     each interval is folded in its top → bottom order.
 
+    The investigation ``kind`` is folded in too, because it decides which
+    investigation is honored when two of them share a voxel column — so a
+    re-typed anchor changes the labelling.  This is a ONE-TIME cache bust for
+    every existing model: an unchanged model's digest moves once, the next build
+    rewrites it, and it is stable thereafter.  Backwards compatibility is
+    suspended pre-ship (CLAUDE.md), and the on-click Build passes ``force=True``
+    regardless.
+
     Parameters
     ----------
     h : hashlib.blake2b
@@ -276,6 +288,7 @@ def _investigation_columns_checksum(
     for c in columns:
         h.update(b"\x01")  # domain separator between sections + columns
         h.update(c.investigation_id.encode("utf-8"))
+        h.update(c.kind.encode("utf-8"))
         h.update(struct.pack("<dd", c.world_x, c.world_y))
         for body_id, formation_id, top, base in c.intervals:
             h.update(body_id.encode("utf-8"))
