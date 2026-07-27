@@ -16,6 +16,7 @@ un-bounded ``()`` + a warning") rather than implementation-variable terms.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -31,6 +32,7 @@ from groundmodel.application.build_voxel_litho_model import (
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.voxel_types import (
+    InvestigationColumn,
     LabelGrid,
     RegionInput,
     SectionColumnInput,
@@ -455,3 +457,80 @@ async def test_each_sub_voxel_pair_is_reported_exactly_once(caplog) -> None:
     pair_lines = [r.message for r in caplog.records if "sub-voxel pair" in r.message]
     assert len(pair_lines) == 1, pair_lines
     assert "1 investigation pair(s)" in "\n".join(r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# The investigation kind must survive the trip to the labeller
+# ---------------------------------------------------------------------------
+#
+# A regular grid holds one observed log per column, so when two investigations
+# share a column the labeller has to choose between them — and it cannot judge a
+# column whose provenance it never learns.  See docs/debt.md #241.
+
+
+@pytest.mark.asyncio
+async def test_the_investigation_kind_reaches_the_labeller() -> None:
+    """A CPT's picks arrive at the labeller marked as a CPT, not as a borehole."""
+    captured: dict[str, Any] = {}
+    cpt_pick = replace(_pick("cpt-a", 0.0, 0.0), kind="cpt")
+    borehole_pick = replace(_pick("bh-b", 50.0, 50.0), kind="borehole")
+
+    def _capture_label(*args: Any, **kwargs: Any) -> LabelGrid:
+        captured["kwargs"] = kwargs
+        return _empty_grid()
+
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[cpt_pick, borehole_pick])
+    use_case = _make_use_case(parent_id=None)
+
+    with (
+        patch(f"{_PATH}.load_geo_surfaces", new=AsyncMock(return_value=())),
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0))),
+        ),
+        patch(f"{_PATH}.label_voxels", side_effect=_capture_label),
+        patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+    ):
+        await use_case.execute(uuid4(), [_section()], grid_spacing_m=1.0, force=True)
+
+    kinds = {
+        column.investigation_id: column.kind
+        for column in captured["kwargs"]["investigation_columns"]
+    }
+    assert kinds == {"cpt-a": "cpt", "bh-b": "borehole"}
+
+
+def test_the_kind_is_folded_into_the_build_checksum() -> None:
+    """Re-typing an anchor must rebuild — the honored winner can change.
+
+    Two models identical but for whether their one investigation is a cone or a
+    borehole must not share a cache entry, because the kind decides which log
+    survives a shared column.
+    """
+    as_cpt = (
+        InvestigationColumn(
+            investigation_id="a",
+            world_x=0.0,
+            world_y=0.0,
+            intervals=(("b", "KLEI", 5.0, 0.0),),
+            kind="cpt",
+        ),
+    )
+    as_borehole = (
+        InvestigationColumn(
+            investigation_id="a",
+            world_x=0.0,
+            world_y=0.0,
+            intervals=(("b", "KLEI", 5.0, 0.0),),
+            kind="borehole",
+        ),
+    )
+
+    assert _partition_checksum([_section()], 1.0, as_cpt) != _partition_checksum(
+        [_section()], 1.0, as_borehole
+    )
