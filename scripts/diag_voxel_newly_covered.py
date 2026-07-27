@@ -43,6 +43,7 @@ from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
 from groundmodel.domain.services.voxel_litho.extract_body_solids import (  # noqa: E402
     extract_body_solids,
 )
+from groundmodel.domain.services.voxel_litho.honor_precedence import honor_rank  # noqa: E402
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels  # noqa: E402
 from groundmodel.infrastructure.db.models.geological_model_orm import (  # noqa: E402
     GeologicalModelOrm,
@@ -120,6 +121,10 @@ async def main() -> None:
     )
 
     # --- honor contention under the WIDENED grid ---------------------------
+    # The selection reads the PRODUCTION rule (``honor_rank``) rather than a
+    # copy of it: a diagnostic that re-implements the thing it is checking will
+    # eventually report a winner the build does not agree with.
+    by_id = {c.investigation_id: c for c in inv_columns}
     honored: dict[tuple[int, int], str] = {}
     cell_of: dict[str, tuple[int, int]] = {}
     for inv in inv_columns:
@@ -129,7 +134,7 @@ async def main() -> None:
         cj = int(np.argmin(np.abs(grid.gy - inv.world_y)))
         cell_of[inv.investigation_id] = (ci, cj)
         prev = honored.get((ci, cj))
-        if prev is None or inv.investigation_id < prev:
+        if prev is None or honor_rank(inv) < honor_rank(by_id[prev]):
             honored[(ci, cj)] = inv.investigation_id
     losers = [i for i, cell in cell_of.items() if honored[cell] != i]
     print("\n  --- honor contention under the WIDENED grid ---")
