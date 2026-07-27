@@ -60,6 +60,7 @@ from groundmodel.domain.services.voxel_litho.geo_bands import (
     band_of_from_elevs,
     section_reaches_band_from_elevs,
 )
+from groundmodel.domain.services.voxel_litho.honor_precedence import honor_rank
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
@@ -1196,8 +1197,11 @@ def label_voxels(
     band/onlap/lens ramps (our ``RegionInput`` carries no ``kind``).
 
     Honor-borehole: when two investigations map to the SAME grid column (sub-
-    voxel neighbours at the chosen spacing) the one with the lexicographically
-    smaller ``investigation_id`` is kept, deterministically.  Each honored
+    voxel neighbours at the chosen spacing) only ONE of them can be honored, and
+    it is chosen by
+    :func:`~groundmodel.domain.services.voxel_litho.honor_precedence.honor_rank`
+    — a CPT over a borehole, then the one that reached deeper, then the lower id.
+    Each honored
     investigation's interval body_ids are registered in the body index +
     formation lookup (a borehole-only body that no section carries still meshes).
     """
@@ -1308,7 +1312,7 @@ def label_voxels(
         ci = int(np.argmin(np.abs(gx - inv.world_x)))
         cj = int(np.argmin(np.abs(gy - inv.world_y)))
         existing = honored_by_cell.get((ci, cj))
-        if existing is None or inv.investigation_id < existing.investigation_id:
+        if existing is None or honor_rank(inv) < honor_rank(existing):
             honored_by_cell[(ci, cj)] = inv
 
     # --- label every voxel column -----------------------------------------
