@@ -6380,4 +6380,44 @@ log.
 `uv run python scripts/diag_voxel_newly_covered.py` and the A/B with
 `scripts/diag_voxel_fidelity_delta.py`.
 
+## 242. The 3-D model floor is shallower than the deepest investigations (S)
+
+**What.** `label_voxels` frames the grid's vertical range from the 2-D section
+partition polygons alone (`zmin` = the lowest region-polygon elevation). On the
+dev model that floor is **-13.190 mTAW**, but three investigations drill below
+it:
+
+| investigation | drilled base | below the model floor by |
+|---|---|---|
+| CPT GEO-05/040-S2 (`7c2e`) | -16.470 | **3.28 m** |
+| CPT GEO-05/040-S3 (`7c2f`) | -16.400 | **3.21 m** |
+| CPT GEO-10/170-S11 (`7c36`) | -13.370 | 0.18 m |
+
+So the deepest ~3.3 m of two CPTs is not represented in the 3-D model at all.
+Found 2026-07-27 while tracing the largest remaining contact error: `7c2e`
+reports a 3.155 m error whose whole cause is that the model's basal KLEI stops
+at -13.315 where the CPT logged it to -16.470.
+
+This is the VERTICAL twin of the footprint bug fixed the same day (commits
+`d3b6c1fd0`..`99c6e023f`): there, the footprint was framed from the section
+columns' projected feet while the builder honored investigations at their true
+positions; here, the grid is framed from the partition's depth while the builder
+honors logs that reach deeper.
+
+**Why deferred — it is NOT a one-line fix.** Extending the grid below the 2-D
+partition creates voxels with no partition data to label from. Only the honored
+log could fill them, so each deep investigation would grow an isolated column
+hanging below the model floor with nothing beside it — almost certainly worse
+than the current clean truncation. The real question is whether the 2-D
+partition should reach the deepest pick in the first place (a `computeSectionFill`
+question, frontend) or whether the voxel builder should extrapolate the deepest
+band downward to the deepest log. That is a modelling decision, not a mechanical
+one.
+
+**When to revisit.** With the owner, when the deep part of the model matters —
+e.g. before an export that has to represent full investigation depth, or if a
+project appears whose deepest tests sit well below its section partitions.
+Reproduce by comparing the partition elevation range against the deepest
+`load_body_picks` base; the numbers above came from a six-line check.
+
 ## (end)
