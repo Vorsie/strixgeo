@@ -69,6 +69,15 @@ vi.mock('../../../api/client', async () => {
         buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
         listLithoSolids: vi.fn().mockResolvedValue([]),
+        // Enclosed-lens merge (debt #243) — the litho Build path runs this
+        // before it assembles the payload, and reloads the layer rows through
+        // listLayers when it created anything.  Both MUST be stubbed: without
+        // them the merge call throws, the builder treats the section as failed,
+        // and the V-series claims pass while never exercising the merge at all.
+        mergeEnclosedLenses: vi
+          .fn()
+          .mockResolvedValue({ edges_created: 0, edges_skipped_existing: 0 }),
+        listLayers: vi.fn().mockResolvedValue([]),
         buildVoxelLithoModel: vi.fn().mockResolvedValue({
           bodies_considered: 0,
           bodies_built: 0,
@@ -882,6 +891,102 @@ describe('LithologyCanvas voxel Build wiring (Task 5)', () => {
     // One section assembled with both columns projected onto it.
     expect(request!.sections).toHaveLength(1)
     expect(request!.sections[0].columns.map(c => c.investigation_id).sort()).toEqual(['A', 'B'])
+  })
+
+  // V3: The enclosed-lens merge fires on Build, and the payload is rebuilt
+  //     from the RELOADED layer rows (debt #243).
+  //
+  //     The ordering claim is the whole point: merge → reload → repartition →
+  //     build.  If the payload were assembled from the pre-merge snapshot, its
+  //     split body ids would disagree with the ids the merge just stamped in
+  //     the DB and the mesher would emit a merged island inside two unmerged
+  //     hosts.  So this asserts (a) one merge call per visible section, (b) the
+  //     merge lands before the edge fetch — the merge CREATES edges the
+  //     partition has to see, and (c) the assembled regions carry the
+  //     POST-merge body id, never the pre-merge ones.
+  it('V3 — merges enclosed lenses, then assembles the payload from the reloaded layers', async () => {
+    const section = makeSection('sec-1')
+    const ctx = makeCtx({
+      hasLithoSolids: true,
+      lithoSolids: [makeSolid('b-1', 'ZAND')],
+      visibleSections: [section],
+      visibleCpts: [makeCpt('A', 200000, 200000), makeCpt('B', 201000, 200000)],
+      // Pre-merge: the same sand carries two different body ids.
+      lithoLayers: [
+        makeLithoLayer('a1', 'A', 'ZAND', 'body-split-a'),
+        makeLithoLayer('b1', 'B', 'ZAND', 'body-split-b'),
+      ],
+    })
+
+    vi.mocked(api.geology.mergeEnclosedLenses).mockResolvedValue({
+      edges_created: 2,
+      edges_skipped_existing: 0,
+    })
+    // Post-merge the server reports both halves under one body id.
+    vi.mocked(api.geology.listLayers).mockResolvedValue([
+      makeLithoLayer('a1', 'A', 'ZAND', 'body-merged'),
+      makeLithoLayer('b1', 'B', 'ZAND', 'body-merged'),
+    ])
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+
+    let request: VoxelBuildRequestResult = undefined
+    await act(async () => {
+      request = await lithoVoxelRequestCallback.current!()
+    })
+
+    // (a) once per visible section — the merge is section-scoped.
+    expect(vi.mocked(api.geology.mergeEnclosedLenses)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(api.geology.mergeEnclosedLenses)).toHaveBeenCalledWith(
+      'proj-1',
+      'litho-1',
+      'sec-1',
+    )
+
+    // (b) merge → reload → edge fetch, in that order.
+    const mergeOrder = vi.mocked(api.geology.mergeEnclosedLenses).mock.invocationCallOrder[0]
+    const reloadOrder = vi.mocked(api.geology.listLayers).mock.invocationCallOrder[0]
+    const edgeOrder = vi.mocked(api.geology.listContactCorrelations).mock.invocationCallOrder[0]
+    expect(mergeOrder).toBeLessThan(reloadOrder)
+    expect(reloadOrder).toBeLessThan(edgeOrder)
+
+    // (c) the payload carries the post-merge body id, never the pre-merge ones.
+    const bodyIds = request!.sections.flatMap(s => s.regions.map(r => r.body_id))
+    expect(bodyIds.length).toBeGreaterThan(0)
+    expect(new Set(bodyIds)).toEqual(new Set(['body-merged']))
+  })
+
+  // V4: A merge that changed nothing must not reload the layers — every build
+  //     after the first is this case, and a needless refetch on each Build is
+  //     both wasted work and a state churn the canvas does not need.
+  it('V4 — a no-op merge skips the layer reload', async () => {
+    const ctx = makeCtx({
+      hasLithoSolids: true,
+      lithoSolids: [makeSolid('b-1', 'ZAND')],
+      visibleSections: [makeSection('sec-1')],
+      visibleCpts: [makeCpt('A', 200000, 200000), makeCpt('B', 201000, 200000)],
+      lithoLayers: [
+        makeLithoLayer('a1', 'A', 'ZAND', 'z'),
+        makeLithoLayer('b1', 'B', 'ZAND', 'z'),
+      ],
+    })
+
+    vi.mocked(api.geology.mergeEnclosedLenses).mockResolvedValue({
+      edges_created: 0,
+      edges_skipped_existing: 4,
+    })
+
+    await act(async () => {
+      renderCanvas(ctx)
+    })
+    await act(async () => {
+      await lithoVoxelRequestCallback.current!()
+    })
+
+    expect(vi.mocked(api.geology.mergeEnclosedLenses)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(api.geology.listLayers)).not.toHaveBeenCalled()
   })
 
   // V2: With no visible section there is nothing to project onto → the
