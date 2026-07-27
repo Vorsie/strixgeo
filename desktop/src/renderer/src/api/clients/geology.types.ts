@@ -865,6 +865,22 @@ export interface ClearBoundariesResponse {
   shapes_deleted: number
 }
 
+/**
+ * Response from ``POST .../models/{mid}/bodies/merge-enclosed-lenses?section_id=…``.
+ *
+ * A lithology split on one column only by a LOCAL lens should read as ONE body
+ * (owner directive 2026-06-05). The endpoint plans the merge edges for one
+ * section, creates them as user-approved ``manual`` correlation edges, and
+ * re-resolves so the split halves join into a single ``body_id``. Idempotent —
+ * a re-run reports every planned edge as skipped.
+ */
+export interface MergeEnclosedLensResponse {
+  /** Net-new correlation edges inserted (host half ↔ neighbour's continuous host). */
+  edges_created: number
+  /** Planned edges that already existed (idempotent re-run). */
+  edges_skipped_existing: number
+}
+
 
 // ---------------------------------------------------------------------------
 // Geotech subdivision types
