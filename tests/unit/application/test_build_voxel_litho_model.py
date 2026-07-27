@@ -28,6 +28,7 @@ from groundmodel.application.build_voxel_litho_model import (
     BuildVoxelLithoModel,
     _partition_checksum,
 )
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     LabelGrid,
@@ -292,3 +293,127 @@ def test_changing_vertical_spacing_busts_the_partition_checksum() -> None:
 
     assert cubic != fine  # toggling anisotropy on busts the cache
     assert fine != finer  # changing the vertical spacing busts the cache
+
+
+# ---------------------------------------------------------------------------
+# The model footprint must reach the drilled positions
+# ---------------------------------------------------------------------------
+#
+# A borehole feeds a cross-section at its PROJECTED FOOT on the section line —
+# on real data metres to tens of metres from where it was actually drilled.  The
+# builder honors each investigation's own log at its TRUE map position, so the
+# footprint that gates labelling has to reach that position too; a footprint
+# framed from the projected feet alone leaves boreholes standing outside the
+# model they helped build, and the labeller then produces no material at all
+# where the ground was drilled.
+
+
+def _pick(inv_id: str, x_m: float, y_m: float) -> BodyLayerPick:
+    """One accepted body-assigned pick for ``inv_id`` at a true map position."""
+    return BodyLayerPick(
+        investigation_id=inv_id,
+        x_m=x_m,
+        y_m=y_m,
+        surface_elev_m=5.0,
+        body_id="body-1",
+        formation_id="KLEI",
+        top_depth_m=0.0,
+        base_depth_m=5.0,
+    )
+
+
+async def _run_capturing_domain(
+    picks: list[BodyLayerPick], captured: dict[str, Any], *, grid_spacing_m: float = 1.0
+) -> None:
+    """Execute the use case, recording the kwargs the footprint builder received."""
+
+    def _capture_domain(*args: Any, **kwargs: Any) -> Any:
+        captured["domain_args"] = args
+        captured["domain_kwargs"] = kwargs
+        return SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)))
+
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=picks)
+    use_case = _make_use_case(parent_id=None)
+
+    with (
+        patch(f"{_PATH}.load_geo_surfaces", new=AsyncMock(return_value=())),
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.build_domain_from_sections", side_effect=_capture_domain),
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+    ):
+        await use_case.execute(uuid4(), [_section()], grid_spacing_m=grid_spacing_m, force=True)
+
+
+@pytest.mark.asyncio
+async def test_every_honored_investigations_drilled_position_frames_the_footprint() -> None:
+    """The footprint builder receives each honored investigation's TRUE position.
+
+    The section payload places investigation "A" at its projected foot ``(0, 0)``;
+    the borehole was actually drilled 60 m north.  Both positions must reach the
+    footprint builder, because the fill geometry lives at the foot and the
+    honored log lives at the drilled position.
+    """
+    captured: dict[str, Any] = {}
+
+    await _run_capturing_domain([_pick("A", 0.0, 60.0), _pick("B", 10.0, 40.0)], captured)
+
+    supplied = captured["domain_kwargs"]["investigation_positions"]
+    assert set(supplied) == {("A", 0.0, 60.0), ("B", 10.0, 40.0)}
+
+
+@pytest.mark.asyncio
+async def test_a_model_with_no_picks_frames_the_footprint_from_the_sections_alone() -> None:
+    """No honored investigation → no extra footprint input (unchanged behaviour).
+
+    A model whose picks are all unaccepted has nothing to honor, so the
+    footprint stays exactly the section-fence hull it was before.
+    """
+    captured: dict[str, Any] = {}
+
+    await _run_capturing_domain([], captured)
+
+    assert captured["domain_kwargs"]["investigation_positions"] == ()
+
+
+@pytest.mark.asyncio
+async def test_investigations_closer_than_one_voxel_are_reported(caplog) -> None:
+    """Two investigations inside one voxel are named at WARNING, not silently merged.
+
+    Only ONE investigation per grid column can be honored, so a sub-voxel pair
+    means one borehole's drilled log is replaced by its neighbour's at its own
+    position — a fidelity loss the build log must surface.
+    """
+    captured: dict[str, Any] = {}
+
+    with caplog.at_level("WARNING"):
+        # 0.4 m apart, well inside a 2 m horizontal voxel.
+        await _run_capturing_domain(
+            [_pick("near-a", 0.0, 0.0), _pick("near-b", 0.4, 0.0)],
+            captured,
+            grid_spacing_m=2.0,
+        )
+
+    warnings = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
+    assert "near-a" in warnings and "near-b" in warnings
+    assert "0.40 m" in warnings
+
+
+@pytest.mark.asyncio
+async def test_well_separated_investigations_raise_no_contention_warning(caplog) -> None:
+    """Investigations more than one voxel apart never trigger the warning."""
+    captured: dict[str, Any] = {}
+
+    with caplog.at_level("WARNING"):
+        await _run_capturing_domain(
+            [_pick("far-a", 0.0, 0.0), _pick("far-b", 40.0, 0.0)],
+            captured,
+            grid_spacing_m=2.0,
+        )
+
+    warnings = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
+    assert "closer than" not in warnings
