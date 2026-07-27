@@ -19,9 +19,32 @@ Idempotent: existing edges are skipped (``ON CONFLICT DO NOTHING`` on the
 canonical triple). Section-scoped via ``project_investigations_onto_section`` —
 only the columns the user sees on the active section participate.
 
-Flush / commit boundary: this use case OWNS its commit (it is the top of the
-Fill-bands request). It creates edges, runs the resolver (``commit=False``), then
-commits once so the edge writes + body re-stamps land atomically.
+Flush / commit boundary: this use case OWNS its commit. It creates edges, runs
+the resolver (``commit=False``), then commits once so the edge writes + body
+re-stamps land atomically.
+
+⚠ NOTHING CALLS THIS TODAY — see ``docs/debt.md`` #243.
+------------------------------------------------------------
+``POST .../bodies/merge-enclosed-lenses`` is reachable, and the planner is
+correct (verified 2026-07-27 against the real S4/B4 pair: it returns both host
+halves → the neighbour's continuous sand). But no client invokes the endpoint —
+not the desktop app, not the integration suite, not e2e — so the merge has never
+run on any model and every enclosed-lens host is still split into two bodies.
+
+This docstring previously said the use case "is the top of the Fill-bands
+request". That request does not exist: "Fill bands" is a client-side view toggle
+(``bandFillStore.toggleBandFill``) that flips whether ``PartitionFillOverlay``
+renders and makes no network call at all. The wording is corrected here because
+it is what made two separate investigations assume the merge had already run.
+
+When wiring a trigger, the ORDER matters and is not negotiable: the merge
+re-stamps ``body_id`` in the DB, while the voxel build takes body identity from
+the FRONTEND payload (see ``build_voxel_litho_model`` — "the frontend is the
+single source of body identity here"). So a caller must merge, then RELOAD the
+litho layers, then recompute the partition, then build. Calling this from inside
+the build endpoint would leave the payload's split body ids disagreeing with the
+re-stamped picks, and the mesher would emit a merged island inside two unmerged
+hosts — strictly worse than not merging at all.
 """
 
 from __future__ import annotations
