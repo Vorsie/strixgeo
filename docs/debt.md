@@ -6244,7 +6244,7 @@ a visual owner call, not a mechanical fix.
 **When to revisit.** Next 3D-fence dogfeed: decide whether fence panels should
 match the section render (likely yes), flip the one-liner, dogfeed.
 
-## 241. Two investigations inside one voxel — RULE DECIDED 2026-07-27, implementation pending (S)
+## 241. Two investigations inside one voxel — RESOLVED 2026-07-27
 
 **What.** `label_voxels` honors at most ONE investigation per `(i, j)` grid
 column (`honored_by_cell`). Two investigations closer than the horizontal voxel
@@ -6338,6 +6338,32 @@ is unscoreable by construction — one column, two logs, the loser always counts
 "wrong". It cannot exceed 56/58 while those pairs exist. Adjusting the gate for
 that would be indistinguishable from moving the goalposts, so the paired
 stations get a listed note and the headline count stays as-is.
+
+**RESOLVED.** The rule ships as
+`domain/services/voxel_litho/honor_precedence.py` (`honor_rank`), applied by
+`label_voxels`' `honored_by_cell` selection; the kind tokens live in
+`domain/services/investigation_kind_constants.py` and reach the domain via
+`BodyLayerPick.kind` → `InvestigationColumn.kind`. Commits `3ea43f734`..`b021e2982`.
+
+Verified on the dev model (2 m / 0.25 m, widened footprint):
+
+* **Exactly one outcome moved**, the predicted one — `GEO-23/125-S5A` took the
+  column from `S5` (both cones; S5A reached 0.05 m deeper). The two BH-loses-to-CPT
+  lines were already resolving the way the rule says and are unchanged.
+* Gate held at **covered 58/58, exact 49**; the `wrong` count stayed 9 BY DESIGN
+  (a paired station is unscoreable — one column, two logs, the loser always
+  counts wrong, so the gate cannot exceed 56/58 while those pairs exist).
+* Contact-depth error IMPROVED even though the verdicts did not: p90
+  **0.463 → 0.420 m**, worst **20.705 → 15.695 m** — the deeper, finer log now
+  describes the contested column.
+* Watertight + zero-overlap integration gates unchanged (6 passed); 1472 unit
+  tests green.
+
+An added value beyond the flip: on this project the CPTs happened to be imported
+before the boreholes, so the old id-order rule coincidentally agreed with the new
+one at three of the four pairs. Import boreholes first in the next project and
+the old rule would silently have handed every one of those columns to the coarser
+log.
 
 **Related threads, deliberately out of scope here.**
 
