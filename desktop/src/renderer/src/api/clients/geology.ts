@@ -78,6 +78,7 @@ import type {
   ClearBoundariesResponse,
   SubdivideAllBodiesResponse,
   DivideBoreholeResponse,
+  MergeEnclosedLensResponse,
 } from './geology.types'
 
 // ---------------------------------------------------------------------------
@@ -724,6 +725,31 @@ export const geologyClient = {
   }> =>
     post(
       `/projects/${projectId}/geology/models/${modelId}/contact-correlations/${edgeId}/accept`,
+      {},
+    ),
+
+  /**
+   * POST .../bodies/merge-enclosed-lenses?section_id=… — fuse a lithology that
+   * is split on one column only by a local lens back into ONE body.
+   *
+   * Section-scoped: ``sectionId`` defines the column adjacency the planner uses
+   * (only the columns the user sees on that section participate), so a caller
+   * that wants the whole model runs this once per section.
+   *
+   * The merge re-stamps ``body_id`` in the DB while the voxel build takes body
+   * identity from the FRONTEND payload — so a caller MUST merge, then reload the
+   * litho layers, then recompute the partition, then build (docs/debt.md #243).
+   *
+   * Idempotent: a re-run reports its planned edges as ``edges_skipped_existing``.
+   */
+  mergeEnclosedLenses: (
+    projectId: string,
+    modelId: string,
+    sectionId: string,
+  ): Promise<MergeEnclosedLensResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${modelId}/bodies/merge-enclosed-lenses` +
+        `?section_id=${encodeURIComponent(sectionId)}`,
       {},
     ),
 
