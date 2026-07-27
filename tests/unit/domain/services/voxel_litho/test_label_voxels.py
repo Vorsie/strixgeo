@@ -40,6 +40,9 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 # tests per section (so the alpha hull triangulates and is not collinear).
 _KLEI = "KLEI"
 _SAND = "SAND"
+# A third lithology, so a honored column can be told apart from BOTH the
+# section blend (KLEI) and the other contender in a shared-column test.
+_VEEN = "VEEN"
 
 
 def _section_a() -> SectionPartitionInput:
@@ -859,3 +862,77 @@ def test_shallow_honored_log_over_a_geo_band_fills_below_td_with_band_litho():
     # (b) Below the log's TD, in the LOWER geological band: the deep section's
     #     KLEI drawn sideways — not void, not the borehole's ZAND pushed down.
     assert _formation_at(grid, x=40.0, y=20.0, elev=-10.0) == _KLEI
+
+
+def test_a_cpt_takes_a_shared_voxel_column_from_a_borehole():
+    """Two tests inside one voxel: the model shows the cone's log, not the driller's.
+
+    Both stand at the same spot to well within one 2 m voxel, so the grid has a
+    single column for them and can hold a single log.  The honored voxels must
+    carry the CPT's lithology whichever order the two are supplied in — the
+    choice must come from what the tests ARE, not from which was seen first.
+
+    The borehole's id sorts BEFORE the CPT's, so under the old "smallest id
+    wins" rule (which on time-ordered UUIDv7 meant "imported first") the
+    borehole took the column.
+    """
+    domain = _domain_for_two_sections()
+    sections = [_section_klei_all(0.0, "P"), _section_klei_all(40.0, "Q")]
+
+    borehole = InvestigationColumn(
+        investigation_id="aaa-borehole",
+        world_x=40.0,
+        world_y=20.6,
+        intervals=(("bodyZand", _SAND, 10.0, 0.0),),
+        kind="borehole",
+    )
+    cpt = InvestigationColumn(
+        investigation_id="zzz-cpt",
+        world_x=40.3,
+        world_y=20.9,
+        intervals=(("bodyVeen", _VEEN, 10.0, 0.0),),
+        kind="cpt",
+    )
+
+    for order in ((borehole, cpt), (cpt, borehole)):
+        grid = label_voxels(domain, 2.0, sections, investigation_columns=order)
+        # Both tests map to the SAME grid node (x=40, y=21) — that is the
+        # single column they are contending for, so read it there.
+        seq = _vertical_formation_sequence(grid, x=40.0, y=20.9)
+        supplied = [column.investigation_id for column in order]
+        assert seq[0] == _VEEN, f"order {supplied} honored the borehole, not the CPT"
+        assert _SAND not in seq, f"order {supplied} kept the borehole's log"
+
+
+def test_between_two_cpts_in_one_voxel_the_deeper_one_is_honored():
+    """Same kind in one column: the test that reached deeper describes it.
+
+    Both are cones, so the kind cannot separate them; the deeper log wins
+    because it accounts for more of the column.
+    """
+    domain = _domain_for_two_sections()
+    sections = [_section_klei_all(0.0, "P"), _section_klei_all(40.0, "Q")]
+
+    shallow = InvestigationColumn(
+        investigation_id="aaa-shallow-cpt",
+        world_x=40.0,
+        world_y=20.6,
+        intervals=(("bodyZand", _SAND, 10.0, 6.0),),
+        kind="cpt",
+    )
+    deep = InvestigationColumn(
+        investigation_id="zzz-deep-cpt",
+        world_x=40.3,
+        world_y=20.9,
+        intervals=(("bodyVeen", _VEEN, 10.0, -4.0),),
+        kind="cpt",
+    )
+
+    for order in ((shallow, deep), (deep, shallow)):
+        grid = label_voxels(domain, 2.0, sections, investigation_columns=order)
+        # Both tests map to the SAME grid node (x=40, y=21) — that is the
+        # single column they are contending for, so read it there.
+        seq = _vertical_formation_sequence(grid, x=40.0, y=20.9)
+        supplied = [column.investigation_id for column in order]
+        assert seq[0] == _VEEN, f"order {supplied} honored the shallower cone"
+        assert _SAND not in seq, f"order {supplied} kept the shallower log"
