@@ -35,6 +35,10 @@ class BodyLayerPick:
         Member layer top depth below ``surface_elev_m``.
     base_depth_m : float
         Member layer base depth below ``surface_elev_m``.
+    kind : str, default ``"borehole"``
+        The anchor investigation's kind — ``"cpt"`` or ``"borehole"``.  Carried
+        so the voxel builder can decide which investigation is honored when two
+        of them share one grid column; see ``docs/debt.md`` #241.
     """
 
     investigation_id: str
@@ -45,3 +49,4 @@ class BodyLayerPick:
     formation_id: str
     top_depth_m: float
     base_depth_m: float
+    kind: str = "borehole"
