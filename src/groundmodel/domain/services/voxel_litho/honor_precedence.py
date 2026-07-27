@@ -32,9 +32,11 @@ The four keys form a TOTAL order, so a cell holding three or more contenders
 resolves to the same winner whatever order they are folded in — the caller can
 use a running comparison and need not sort.
 
-Only ``cpt`` and ``borehole`` can anchor a litho layer today.  A future
-investigation kind (DMT, pressuremeter) MUST be given an explicit place in
-``_KIND_RANK`` rather than inheriting one.
+Only ``cpt`` and ``borehole`` can anchor a litho layer today (the tokens live in
+:mod:`~groundmodel.domain.services.investigation_kind_constants`, beside the
+pick that carries them rather than here, because they describe an investigation
+and not a voxel rule).  A future investigation kind (DMT, pressuremeter) MUST be
+given an explicit place in ``_KIND_RANK`` rather than inheriting one.
 
 Pure domain module — no I/O, no logging, no framework imports.  It computes; it
 does not act, so nothing inherits ``GroundModelLogger``.
@@ -44,14 +46,13 @@ from __future__ import annotations
 
 import math
 
+from groundmodel.domain.services.investigation_kind_constants import (
+    KIND_BOREHOLE,
+    KIND_CPT,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import InvestigationColumn
 
-__all__ = ["KIND_BOREHOLE", "KIND_CPT", "honor_rank"]
-
-# The two investigation kinds that can anchor a litho layer.  These are the
-# values ``LithoLayerRepository.load_body_picks`` stamps on a ``BodyLayerPick``.
-KIND_CPT: str = "cpt"
-KIND_BOREHOLE: str = "borehole"
+__all__ = ["honor_rank"]
 
 # Lower rank wins.  An unrecognised kind sorts AFTER both known kinds rather
 # than raising: a build must not fail because a new investigation type appeared,

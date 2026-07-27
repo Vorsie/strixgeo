@@ -26,11 +26,11 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.voxel_litho.honor_precedence import (
+from groundmodel.domain.services.investigation_kind_constants import (
     KIND_BOREHOLE,
     KIND_CPT,
 )
+from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm

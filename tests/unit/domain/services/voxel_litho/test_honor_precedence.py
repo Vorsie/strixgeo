@@ -12,11 +12,11 @@ The rule, in the modelling vocabulary (full evidence in ``docs/debt.md`` #241):
 
 from __future__ import annotations
 
-from groundmodel.domain.services.voxel_litho.honor_precedence import (
+from groundmodel.domain.services.investigation_kind_constants import (
     KIND_BOREHOLE,
     KIND_CPT,
-    honor_rank,
 )
+from groundmodel.domain.services.voxel_litho.honor_precedence import honor_rank
 from groundmodel.domain.services.voxel_litho.voxel_types import InvestigationColumn
 
 
