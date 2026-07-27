@@ -417,3 +417,41 @@ async def test_well_separated_investigations_raise_no_contention_warning(caplog)
 
     warnings = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
     assert "closer than" not in warnings
+
+
+@pytest.mark.asyncio
+async def test_a_sub_voxel_pair_straddling_a_bucket_boundary_is_still_reported(caplog) -> None:
+    """Neighbours either side of a bucket seam are found, not missed.
+
+    The contention scan buckets investigations by voxel to stay linear, so the
+    case it can silently miss is a close pair that lands in DIFFERENT buckets.
+    These two are 0.20 m apart across the x = 4.0 seam of a 2 m voxel.
+    """
+    captured: dict[str, Any] = {}
+
+    with caplog.at_level("WARNING"):
+        await _run_capturing_domain(
+            [_pick("seam-left", 3.9, 7.9), _pick("seam-right", 4.1, 8.1)],
+            captured,
+            grid_spacing_m=2.0,
+        )
+
+    warnings = "\n".join(r.message for r in caplog.records if r.levelname == "WARNING")
+    assert "seam-left" in warnings and "seam-right" in warnings
+
+
+@pytest.mark.asyncio
+async def test_each_sub_voxel_pair_is_reported_exactly_once(caplog) -> None:
+    """A contending pair is named once, not once per bucket it is seen from."""
+    captured: dict[str, Any] = {}
+
+    with caplog.at_level("WARNING"):
+        await _run_capturing_domain(
+            [_pick("dup-a", 10.0, 10.0), _pick("dup-b", 10.5, 10.0)],
+            captured,
+            grid_spacing_m=2.0,
+        )
+
+    pair_lines = [r.message for r in caplog.records if "sub-voxel pair" in r.message]
+    assert len(pair_lines) == 1, pair_lines
+    assert "1 investigation pair(s)" in "\n".join(r.message for r in caplog.records)
