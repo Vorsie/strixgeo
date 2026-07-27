@@ -27,6 +27,10 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.voxel_litho.honor_precedence import (
+    KIND_BOREHOLE,
+    KIND_CPT,
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
@@ -371,9 +375,11 @@ class LithoLayerRepository(GroundModelLogger):
             if r.borehole_id is not None:
                 anchor = boreholes_by_id.get(r.borehole_id)
                 anchor_id = str(r.borehole_id)
+                anchor_kind = KIND_BOREHOLE
             else:
                 anchor = cpts_by_id.get(r.cpt_id)
                 anchor_id = str(r.cpt_id)
+                anchor_kind = KIND_CPT
 
             if anchor is None:
                 skipped_no_anchor += 1
@@ -402,6 +408,7 @@ class LithoLayerRepository(GroundModelLogger):
                     formation_id=str(r.formation_id),
                     top_depth_m=r.depth_top_m,
                     base_depth_m=r.depth_base_m,
+                    kind=anchor_kind,
                 )
             )
 
