@@ -161,12 +161,20 @@ class InvestigationColumn:
         elevations are ABSOLUTE (mTAW, positive up; ``top_elev_m`` above
         ``base_elev_m``).  Empty when the investigation has no body-assigned
         accepted picks (it then contributes no override).
+    kind : str, default ``"borehole"``
+        The investigation kind — ``"cpt"`` or ``"borehole"`` (see
+        :mod:`~groundmodel.domain.services.voxel_litho.honor_precedence`).  Decides
+        which investigation is honored when two of them share one voxel column,
+        which a regular grid can only fill from a single log.  Defaults to
+        ``"borehole"``, the conservative choice: a column of unstated provenance
+        never outranks a cone.
     """
 
     investigation_id: str
     world_x: float
     world_y: float
     intervals: tuple[tuple[str, str, float, float], ...]
+    kind: str = "borehole"
 
 
 @dataclass(frozen=True)
