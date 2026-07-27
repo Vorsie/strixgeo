@@ -368,10 +368,40 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             self.warning(f"BuildVoxelLithoModel: model={model_id} — no sections; clearing cache")
             return await self._handle_empty(model_id)
 
-        # --- Phase 1: domain footprint from the section columns ---------------
+        # --- Honor each investigation's OWN observed log at its true location --
+        # The section blend at a borehole's true (x, y) can disagree with the
+        # borehole's own log (it feeds a section at its projected foot, not its
+        # true map position).  Load the resolved DB picks and build the per-
+        # investigation observed columns so ``label_voxels`` labels those columns
+        # from the log itself (within its observed depth range).  ``load_body_picks``
+        # already reflects the resolver, so we do NOT run ResolveLithoInstances.
+        #
+        # Loaded BEFORE the footprint because the drilled positions are a hull
+        # input: the footprint must reach every investigation the build honors.
+        picks = await LithoLayerRepository(self._session).load_body_picks(model_id)
+        investigation_columns = _investigation_columns_from_picks(picks)
+        self.info(
+            f"BuildVoxelLithoModel: model={model_id} — honoring "
+            f"{len(investigation_columns)} investigation column(s) from "
+            f"{len(picks)} pick(s)"
+        )
+        self._warn_sub_voxel_investigations(model_id, investigation_columns, grid_spacing_m)
+
+        # --- Phase 1: domain footprint from the feet + the drilled positions ---
+        # Both position kinds feed the hull: the section columns' PROJECTED FEET
+        # (where the 2-D partition geometry lives) and the investigations' TRUE
+        # map positions (where their logs are honored).  Feet alone leave
+        # off-corridor investigations outside the footprint, and the labeller
+        # then skips their grid column entirely — no model at all where the
+        # ground was drilled.
         try:
             with phase_timer(self, "BuildVoxelLithoModel phase-1 domain"):
-                domain = build_domain_from_sections(sections)
+                domain = build_domain_from_sections(
+                    sections,
+                    investigation_positions=tuple(
+                        (c.investigation_id, c.world_x, c.world_y) for c in investigation_columns
+                    ),
+                )
         except ValueError as err:
             self.warning(
                 f"BuildVoxelLithoModel: model={model_id} domain unbuildable — {err}; "
@@ -381,21 +411,6 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         self.debug(
             f"BuildVoxelLithoModel: model={model_id} — domain footprint "
             f"{len(domain.polygon)}-vertex hull"
-        )
-
-        # --- Honor each investigation's OWN observed log at its true location --
-        # The section blend at a borehole's true (x, y) can disagree with the
-        # borehole's own log (it feeds a section at its projected foot, not its
-        # true map position).  Load the resolved DB picks and build the per-
-        # investigation observed columns so ``label_voxels`` labels those columns
-        # from the log itself (within its observed depth range).  ``load_body_picks``
-        # already reflects the resolver, so we do NOT run ResolveLithoInstances.
-        picks = await LithoLayerRepository(self._session).load_body_picks(model_id)
-        investigation_columns = _investigation_columns_from_picks(picks)
-        self.info(
-            f"BuildVoxelLithoModel: model={model_id} — honoring "
-            f"{len(investigation_columns)} investigation column(s) from "
-            f"{len(picks)} pick(s)"
         )
 
         # --- Geo-bound the labelling by the parent geological model's bands ----
@@ -547,6 +562,59 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             orphans_deleted=orphans_deleted,
             marked_test_ids=[],
         )
+
+    def _warn_sub_voxel_investigations(
+        self,
+        model_id: UUID,
+        investigation_columns: tuple[InvestigationColumn, ...],
+        grid_spacing_m: float,
+    ) -> None:
+        """Warn about investigation pairs too close to both be honored.
+
+        ``label_voxels`` honors at most ONE investigation per grid column, so two
+        investigations less than one horizontal voxel apart contend for the same
+        column and only one of their logs survives — the other's drilled log is
+        silently replaced by its neighbour's at its own map position.  That is a
+        real fidelity loss and must never pass unlogged, so every contending pair
+        is named at WARNING with its separation.
+
+        The test is grid-PHASE independent (a pair closer than one voxel may or
+        may not land in the same cell depending on where the grid origin falls),
+        so this over-reports rather than under-reports: a flagged pair is at risk,
+        a pair farther apart than one voxel never is.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model being built (for the log line).
+        investigation_columns : tuple of InvestigationColumn
+            The honored per-investigation observed columns.
+        grid_spacing_m : float
+            The HORIZONTAL voxel edge length; the contention radius.
+        """
+        contending: list[tuple[str, str, float]] = []
+        cols = list(investigation_columns)
+        for a in range(len(cols)):
+            for b in range(a + 1, len(cols)):
+                dx = cols[a].world_x - cols[b].world_x
+                dy = cols[a].world_y - cols[b].world_y
+                separation = (dx * dx + dy * dy) ** 0.5
+                if separation < grid_spacing_m:
+                    contending.append(
+                        (cols[a].investigation_id, cols[b].investigation_id, separation)
+                    )
+        if not contending:
+            return
+        self.warning(
+            f"BuildVoxelLithoModel: model={model_id} — {len(contending)} investigation pair(s) "
+            f"closer than the {grid_spacing_m} m horizontal voxel; only ONE of each pair can be "
+            f"honored, the other takes its neighbour's log at its own position"
+        )
+        for inv_a, inv_b, separation in contending:
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — sub-voxel pair "
+                f"{inv_a} / {inv_b} separated by {separation:.2f} m"
+            )
 
     async def _handle_empty(
         self,
