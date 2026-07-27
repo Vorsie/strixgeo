@@ -6244,58 +6244,104 @@ a visual owner call, not a mechanical fix.
 **When to revisit.** Next 3D-fence dogfeed: decide whether fence panels should
 match the section render (likely yes), flip the one-liner, dogfeed.
 
-## 241. Two investigations inside one voxel — only one drilled log survives (owner decision, S)
+## 241. Two investigations inside one voxel — RULE DECIDED 2026-07-27, implementation pending (S)
 
 **What.** `label_voxels` honors at most ONE investigation per `(i, j)` grid
-column (`honored_by_cell`, lexicographically smallest `investigation_id` wins).
-Two investigations closer than the horizontal voxel therefore contend for one
-column, and the loser's own drilled log is silently replaced by its neighbour's
-AT THE LOSER'S OWN MAP POSITION — the model asserts borehole A's stratigraphy
-where borehole B was actually drilled.
+column (`honored_by_cell`). Two investigations closer than the horizontal voxel
+contend for one column, and the loser's own log is replaced by its neighbour's
+AT THE LOSER'S OWN MAP POSITION — the model asserts investigation A's
+stratigraphy where investigation B was actually drilled. The winner is currently
+the lexicographically smallest `investigation_id`, which on time-ordered UUIDv7
+means **whichever was imported first** — arbitrary, and grid-phase dependent (a
+pair collides or not depending on where the grid origin lands, so the defect set
+moved when the footprint fix landed).
 
 Measured on the dev model at 2 m horizontal (2026-07-27), after the footprint
-fix (#voxel-footprint, commits `d3b6c1fd0`..`99c6e023f`):
+fix (commits `d3b6c1fd0`..`99c6e023f`) — seven pairs sit inside one voxel:
 
-| pair | separation | logs | effect |
+| pair | separation | logs | today's winner |
 |---|---|---|---|
-| BH GEO-10/117-B5 (`964b`) / CPT GEO-05/040-S5 (`7c31`) | 0.28 m | identical | harmless |
-| BH GEO-10/117-B4 (`9635`) / CPT GEO-05/040-S4 (`7c30`) | 0.49 m | differ | **B4 shows S4's log** |
-| CPT GEO-23/125-S5A (`7c4c`) / CPT GEO-23/125-S5 (`7c4b`) | 1.13 m | differ | **S5A shows S5's log** |
-| BH GEO-10/171-B9 (`9602`) / CPT GEO-10/170-S9 (`7c3e`) | 1.91 m | differ | dissolved by grid phase |
+| BH GEO-10/117-B5 / CPT GEO-05/040-S5 | 0.28 m | identical | CPT |
+| BH GEO-10/117-B1 / CPT GEO-05/040-S1 | 0.40 m | identical | CPT |
+| BH GEO-10/117-B4 / CPT GEO-05/040-S4 | 0.49 m | **differ** | CPT |
+| CPT GEO-23/125-S5 / CPT GEO-23/125-S5A | 1.13 m | **differ** | S5 |
+| CPT GEO-23/125-S7 / CPT GEO-23/125-S7A | 1.17 m | differ | S7 (deeper) |
+| BH GEO-10/171-B6 / BH 1411-GEO-23/126-B4 | 1.66 m | differ | B6 (deeper) |
+| BH GEO-10/171-B9 / CPT GEO-10/170-S9 | 1.91 m | **differ** | CPT |
 
-These two columns are the ENTIRE remaining "wrong (reorder/invent)" signal on
-`eval_strat_fidelity` that is not the expected below-TD substrate. `7c4c` also
-owns the worst contact-depth error (20.7 m). The B9/S9 pair shows the failure is
-**grid-phase dependent**: the same pair collides or not depending on where the
-grid origin lands, so the defect set is not stable across builds.
+Grid refinement cannot resolve this: the closest pair is 0.28 m apart, so
+separating every pair needs a sub-0.25 m horizontal voxel (~64x the voxels).
 
-The build now WARNS (`BuildVoxelLithoModel._warn_sub_voxel_investigations`) and
-names every pair closer than one horizontal voxel, so the loss is no longer
-silent — but the choice of which log wins is still arbitrary (UUID order, which
-on time-ordered UUIDv7 means "whichever was imported first").
+**THE RULE (owner decision, 2026-07-27).** At a shared voxel column the model
+honors ONE investigation, chosen in this order:
 
-**Why deferred.** The fix is a geological/semantic rule, not a mechanical one,
-and it is the owner's call. Grid refinement cannot resolve it: the closest pair
-is 0.28 m apart, so separating every pair needs a sub-0.25 m horizontal voxel
-(~64x the voxels). A 1 m voxel would separate the S5A/S5 and B9/S9 pairs but not
-B4/S4. Candidate rules, none yet chosen:
+1. **A CPT beats a borehole.**
+2. **Same kind → the one that reached deeper** (lower base elevation).
+3. **Still tied → the lower `investigation_id`** (reproducibility only; not
+   reached on real data).
 
-* **Precedence** — when a borehole and a CPT contend, honor the BOREHOLE (the
-  directly observed log) over the CPT (an interpreted one). Decides B4/S4 and
-  B9/S9; does NOT decide S5A/S5 (both CPTs) — that needs a second tie-break
-  (deepest log? nearest the cell centre?).
-* **Refuse to choose** — when contending logs DIFFER, honor neither and let the
-  section blend fill the column. Never asserts a log at the wrong place; loses
-  the honored fidelity at both.
-* **Merge upstream** — treat near-coincident investigations as one location in
-  the interpretation (a companion/duplicate relation), so there is one log to
-  honor. Largest change; also the most truthful if the pairs really are one
-  sampling station (the 0.28-0.49 m pairs are BH/CPT twins with matching names,
-  e.g. GEO-10/117-B5 next to GEO-05/040-S5).
+*Why CPT over borehole* — measured on the four BH/CPT pairs, not assumed:
 
-**When to revisit.** At the next voxel-fidelity dogfeed, or as soon as the owner
-answers which rule applies. Reproduce with
-`uv run python scripts/diag_voxel_newly_covered.py` (prints the contention list
-under the live grid) and `scripts/diag_voxel_fidelity_delta.py`.
+* The driller's descriptions are logged on a **0.5 m grid** (13–19 of every ~20
+  `field_log_interval` boundaries land exactly on a 0.5 m multiple; commonest
+  interval thickness 0.5 m), so a borehole contact depth is only known to the
+  nearest half metre. The CPT registers depth continuously.
+* The CPT resolves **3–4x more litho contacts** at every one of these stations
+  (31 vs 8 at B4/S4; 25 vs 8, 20 vs 7, 13 vs 4).
+* The collars agree to **2–6 cm**, so this is not a levelling/datum problem and
+  there is no whole-log shift available as a correction.
+* A "borehole's materials + CPT's depths" merge was considered and rejected: it
+  needs both logs to describe the same layers. Where the sequences match (B5/S5,
+  B1/S1) the materials are already identical, so the merge collapses to "use the
+  CPT"; where it would matter (B4/S4, B9/S9) the sequences differ, so there is no
+  correspondence to merge along.
+
+The owner's earlier instinct ("borehole should always win") was reversed on this
+evidence; the borehole stays the better source for WHAT the soil is, but its
+contact GEOMETRY is the least reliable in the pair.
+
+**Effect on the dev model:** exactly ONE outcome changes — `GEO-23/125-S5A`
+takes the column from `S5` (both CPTs, S5A reached 5 cm deeper). The other six
+pairs already resolve the way the rule says. The value is not the flip; it is
+that the choice stops depending on import order (import boreholes first in the
+next project and the borehole silently wins every pair today).
+
+**Implementation (not yet done).** The domain cannot currently tell a CPT from a
+borehole — neither `InvestigationColumn` nor `BodyLayerPick` carries the kind:
+
+* `BodyLayerPick` gains `kind` (`"cpt"` / `"borehole"`); `load_body_picks`
+  already branches on `borehole_id is not None` to resolve the anchor, so it is
+  one line inside an existing branch.
+* `InvestigationColumn` gains `kind`, set in `_investigation_columns_from_picks`.
+* `label_voxels` replaces `inv.investigation_id < existing.investigation_id`
+  with the precedence key. "Deepest" comes from `intervals` — no new data.
+* `_partition_checksum` folds `kind` in, so a re-typed anchor rebuilds.
+
+Labelling, meshing, the footprint and the 2-D partition are untouched. TDD, with
+each case proven RED first; then the real-data A/B (`covered 58/58, exact 49`
+must hold with the S5/S5A flip as the only difference) and the watertight +
+zero-overlap gates.
+
+**Deliberately NOT changed: the acceptance gate's headline numbers.**
+`eval_strat_fidelity` scores the model against all 58 logs, so a paired station
+is unscoreable by construction — one column, two logs, the loser always counts
+"wrong". It cannot exceed 56/58 while those pairs exist. Adjusting the gate for
+that would be indistinguishable from moving the goalposts, so the paired
+stations get a listed note and the headline count stays as-is.
+
+**Related threads, deliberately out of scope here.**
+
+* *False precision on borehole contacts* — accepted borehole litho contacts sit
+  at 0.481 / 1.532 / 3.747 where the driller's log says 0.5 / 1.5 / 3.8. Most
+  kept contacts are like this. Something downstream of a 0.5 m log is placing
+  contacts to the millimetre. Not the 3-D builder; needs its own look.
+* *Stacking the pair* — honor the borehole to its own TD, then let the deeper CPT
+  carry on below it. The most truthful option, and the one that uses all the
+  measured data at a station; deferred because it changes what a honored column
+  IS (a column fed by two tests) and needs a seam rule of its own.
+
+**When to revisit.** Implementation next; reproduce the contention list with
+`uv run python scripts/diag_voxel_newly_covered.py` and the A/B with
+`scripts/diag_voxel_fidelity_delta.py`.
 
 ## (end)
