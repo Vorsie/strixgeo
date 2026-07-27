@@ -81,3 +81,19 @@ A spec saying "ready to implement" with unchecked boxes can describe ALREADY-SHI
 ### 14. Don't stack new work on an un-dogfed, unmerged branch foundation without flagging it.
 It compounds the mess and makes the eventual revert bigger.
 **Apply:** flag the shaky foundation before building on it; prefer a clean base.
+
+---
+
+## 2026-07-27 — the voxel model-fidelity investigation
+
+### 15. Prove an offline diagnostic reproduces the production output BEFORE trusting a single conclusion it draws.
+Diagnosing the built 3-D litho model needed the frontend's 2-D partition payload, which is not stored anywhere — so the harness had to be rebuilt offline from a captured payload. Two ways to get that wrong bit immediately. (a) The **first** diagnostic recovered the voxel lattice from the persisted mesh vertices and measured a 1 m step for a 2 m grid — the greedy mesher's pinch-splitting inserts coincident edge MIDPOINTS, which are not lattice nodes. Every grid cell it reported was therefore wrong, and it named the wrong pair of boreholes as colliding. (b) The committed oracle fixture was captured from the v1 partition engine, while the build under investigation used v2 — diagnosing against it would have been a diagnosis of a model the owner never saw.
+**Apply:** an offline reproduction of a production pipeline is a *hypothesis about the inputs* until it reproduces the production *output*. Make that the harness's first assertion: here, the A/B's control arm had to return the persisted build's exact fidelity numbers (49 covered / 9 uncovered / 41 exact / 8 wrong) before either arm meant anything. Never infer a pipeline's parameters from its output artifacts when the parameters are recorded somewhere authoritative (the project view-state held `voxel_horizontal_spacing_m = 2` all along).
+
+### 16. When two subsystems consume "the position of X", check they mean the SAME position.
+The voxel builder framed its model footprint from the section columns' **projected feet** (where an investigation meets the section line) but honored each investigation's drilled log at its **true map position** — two different points, 0.5–64.9 m apart on real data, inside one use case. Nine of 58 interpreted investigations consequently sat outside the footprint that gates labelling, and the model had no material at all where the ground was drilled. Both behaviours were separately documented and separately correct; the contradiction only existed between them.
+**Apply:** when an entity has more than one legitimate position (true vs projected, raw vs snapped, screen vs world), treat "which one does this consumer mean?" as a review question at every consumer, and say which one in the parameter name. A footprint that gates *honored* data must be built from the *honored* positions.
+
+### 17. A resolution limit is not a bug — but silently picking a winner is.
+Two investigations closer than one voxel cannot both be represented on a regular grid; the builder honored whichever had the lexicographically smaller UUID, which on time-ordered UUIDv7 means "whichever was imported first". The loser's drilled log was replaced by its neighbour's *at the loser's own map position* — the model asserting borehole A's stratigraphy where borehole B was drilled — with nothing in the log to say so. Worse, which pairs collide depends on where the grid origin falls, so the defect set moved when an unrelated fix changed the footprint.
+**Apply:** where a discretisation forces a choice between two pieces of real data, the choice is a domain rule the owner has to make — but the *reporting* of it never is. Log every contended pair by name at WARNING before asking the question, and record the arbitrary rule as debt rather than letting it read as intent.
