@@ -70,6 +70,22 @@ _DEFAULT_MODEL_ID = UUID("019e934c-70fd-7d11-a44a-b2073f4063a2")
 # as a real gap (below = touching seam noise; above = a hole).
 _GAP_THRESHOLD_M = 0.1
 
+# How far below an investigation's own total depth a paired model interval has
+# to sit before the pairing is treated as matching the deep-to-deep SUBSTRATE
+# rather than a drilled contact.  One vertical voxel at the dogfeed spacing
+# (0.25 m) plus margin.
+#
+# Why this exists: the pairing walk below matches each authored unit to the next
+# model interval of the same lithology.  A model column continues BELOW the
+# borehole that authored it (the substrate fill), so once the walk runs past the
+# drilled bottom it happily pairs a shallow authored unit against a deep
+# substrate interval and reports a huge "contact error" that is not a
+# displacement at all.  On the reference model this inflates the max from 4.8 m
+# to 15.7 m and the p90 from 0.12 m to 0.42 m.  The headline numbers keep every
+# pairing (they are the long-standing baseline); the second line reports the
+# subset that actually sits within drilled ground.
+_SUBSTRATE_MARGIN_M = 0.3
+
 # Contact-depth error buckets (in metres).
 _BUCKET_05 = 0.5
 _BUCKET_1 = 1.0
@@ -349,6 +365,9 @@ def _fidelity_analysis(
     wrong = 0
 
     depth_errors: list[float] = []
+    # The same errors, minus every pairing that matched a model interval BELOW
+    # the investigation's own total depth — see _SUBSTRATE_MARGIN_M.
+    above_td_errors: list[float] = []
     per_litho_errors: dict[str, list[float]] = defaultdict(list)
 
     # For "worst columns" reporting: (max_depth_error, inv_id, authored, model).
@@ -381,6 +400,10 @@ def _fidelity_analysis(
 
         col_max_err = 0.0
         model_pos = 0
+        # The investigation's own total depth: the deepest authored base.  A
+        # model interval whose base sits below it is the deep-to-deep substrate
+        # the model draws BELOW the borehole, not a displaced contact.
+        drilled_td = auth_units_seq[-1][2] if auth_units_seq else float("-inf")
         for fid, _auth_top, auth_base in auth_units_seq:
             # Advance to first model interval with this formation_id.
             while model_pos < len(model_map) and model_map[model_pos][0] != fid:
@@ -390,6 +413,8 @@ def _fidelity_analysis(
             _, m_base, _m_top = model_map[model_pos]
             err = abs(m_base - auth_base)
             depth_errors.append(err)
+            if m_base >= drilled_td - _SUBSTRATE_MARGIN_M:
+                above_td_errors.append(err)
             litho_label = formation_names.get(fid, fid[:8])
             per_litho_errors[litho_label].append(err)
             col_max_err = max(col_max_err, err)
@@ -440,6 +465,15 @@ def _fidelity_analysis(
         mean_err = median_err = p90_err = max_err = 0.0
         within_05 = within_1 = beyond_2 = 0
 
+    # The same distribution restricted to pairings inside drilled ground.
+    above_arr = sorted(above_td_errors)
+    if above_arr:
+        above_median = float(np.median(above_arr))
+        above_p90 = float(np.percentile(above_arr, 90))
+        above_max = float(above_arr[-1])
+    else:
+        above_median = above_p90 = above_max = 0.0
+
     # Per-lithology summary.
     per_litho_summary: dict[str, dict] = {}
     for litho, errs in sorted(per_litho_errors.items()):
@@ -467,6 +501,10 @@ def _fidelity_analysis(
         "within_05m": within_05,
         "within_1m": within_1,
         "beyond_2m": beyond_2,
+        "above_td_n": len(above_arr),
+        "above_td_median_m": round(above_median, 3),
+        "above_td_p90_m": round(above_p90, 3),
+        "above_td_max_m": round(above_max, 3),
         "per_litho": per_litho_summary,
         "worst_columns": worst_columns,
     }
@@ -804,6 +842,17 @@ async def main() -> None:
     print(f"    within 0.5 m           : {fidelity['within_05m']} / {fidelity['depth_errors_n']}")
     print(f"    within 1.0 m           : {fidelity['within_1m']} / {fidelity['depth_errors_n']}")
     print(f"    beyond 2.0 m           : {fidelity['beyond_2m']} / {fidelity['depth_errors_n']}")
+    # Second line: the same pairings minus those that ran past the drilled
+    # bottom and matched the substrate the model draws BELOW the borehole.  The
+    # headline above is unchanged; this is the subset inside drilled ground.
+    n_substrate = fidelity["depth_errors_n"] - fidelity["above_td_n"]
+    print(
+        f"\n  Within DRILLED ground only ({fidelity['above_td_n']} contacts; "
+        f"{n_substrate} excluded as below-TD substrate):"
+    )
+    print(f"    median                 : {fidelity['above_td_median_m']:.3f} m")
+    print(f"    p90                    : {fidelity['above_td_p90_m']:.3f} m")
+    print(f"    max                    : {fidelity['above_td_max_m']:.3f} m")
     print()
     print("  Per-lithology depth error breakdown:")
     for litho, stats in fidelity["per_litho"].items():
