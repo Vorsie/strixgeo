@@ -592,17 +592,40 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         grid_spacing_m : float
             The HORIZONTAL voxel edge length; the contention radius.
         """
+        # Spatial hash at the contention radius: two investigations within one
+        # voxel of each other necessarily fall in the same or an adjacent bucket,
+        # so each investigation only compares against its 3x3 bucket
+        # neighbourhood.  A project with thousands of investigations would make
+        # the all-pairs walk quadratic for a check that finds a handful of pairs.
+        buckets: dict[tuple[int, int], list[InvestigationColumn]] = defaultdict(list)
+        for col in investigation_columns:
+            buckets[
+                (int(col.world_x // grid_spacing_m), int(col.world_y // grid_spacing_m))
+            ].append(col)
+
         contending: list[tuple[str, str, float]] = []
-        cols = list(investigation_columns)
-        for a in range(len(cols)):
-            for b in range(a + 1, len(cols)):
-                dx = cols[a].world_x - cols[b].world_x
-                dy = cols[a].world_y - cols[b].world_y
-                separation = (dx * dx + dy * dy) ** 0.5
-                if separation < grid_spacing_m:
-                    contending.append(
-                        (cols[a].investigation_id, cols[b].investigation_id, separation)
-                    )
+        for (bi, bj), members in buckets.items():
+            for col in members:
+                for di in (0, 1):
+                    for dj in (-1, 0, 1):
+                        if di == 0 and dj < 0:
+                            continue  # the mirrored half of the neighbourhood
+                        for other in buckets.get((bi + di, bj + dj), ()):
+                            # Within one bucket, compare each pair once only.
+                            if (
+                                di == 0
+                                and dj == 0
+                                and other.investigation_id <= col.investigation_id
+                            ):
+                                continue
+                            dx = col.world_x - other.world_x
+                            dy = col.world_y - other.world_y
+                            separation = (dx * dx + dy * dy) ** 0.5
+                            if separation < grid_spacing_m:
+                                contending.append(
+                                    (col.investigation_id, other.investigation_id, separation)
+                                )
+        contending.sort()
         if not contending:
             return
         self.warning(
