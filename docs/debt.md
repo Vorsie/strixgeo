@@ -6280,6 +6280,16 @@ honors ONE investigation, chosen in this order:
 3. **Still tied → the lower `investigation_id`** (reproducibility only; not
    reached on real data).
 
+The three keys form a TOTAL order, so a cell holding three or more contenders
+(the S5 / S5A / S5B cluster is three tests) resolves to the same winner whatever
+order they are folded in — the selection stays a simple running comparison.
+"Deeper" is the lowest base ELEVATION over the investigation's intervals, not
+depth below its own collar: paired collars differ by centimetres, so the two
+readings agree here, but elevation is the one that stays right when they do not.
+Only `cpt` and `borehole` anchor a litho layer today; a future investigation kind
+(DMT, pressuremeter) MUST be given an explicit place in the order rather than
+falling through to the id tie-break.
+
 *Why CPT over borehole* — measured on the four BH/CPT pairs, not assumed:
 
 * The driller's descriptions are logged on a **0.5 m grid** (13–19 of every ~20
