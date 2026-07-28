@@ -50,6 +50,7 @@ import 'jsts/org/locationtech/jts/monkey.js'
 import GeometryFactory from 'jsts/org/locationtech/jts/geom/GeometryFactory.js'
 import Coordinate from 'jsts/org/locationtech/jts/geom/Coordinate.js'
 import PrecisionModel from 'jsts/org/locationtech/jts/geom/PrecisionModel.js'
+import Polygonizer from 'jsts/org/locationtech/jts/operation/polygonize/Polygonizer.js'
 
 import type { SectionPoly } from './sectionFromSolids'
 
@@ -88,6 +89,12 @@ interface JstsRing {
   getCoordinates(): { x: number; y: number }[]
 }
 
+/** jsts returns java-style collections from Polygonizer; only these are used. */
+interface JstsList<T> {
+  size(): number
+  get(index: number): T
+}
+
 interface JstsGeometry {
   getArea(): number
   isEmpty(): boolean
@@ -102,6 +109,8 @@ interface JstsGeometry {
   getNumInteriorRing?(): number
   getInteriorRingN?(n: number): JstsRing
   getCoordinates(): { x: number; y: number }[]
+  getInteriorPoint(): JstsGeometry
+  getCoordinate(): { x: number; y: number }
 }
 
 // ── Priority ────────────────────────────────────────────────────────────────────
@@ -158,31 +167,101 @@ function comparePriority(a: RankedPoly, b: RankedPoly): number {
 // ── jsts <-> SectionPoly conversion ─────────────────────────────────────────────
 
 /**
- * Build a cleaned jsts Polygon from a SectionPoly ring (x = alongM, y = elev).
+ * Even-odd containment of a point by one ring (crossing-number test).
  *
- * The ring is explicitly closed (first coordinate repeated).  ``buffer(0)`` on
- * the result fixes minor self-touching / winding issues from the mesh slicer and
- * returns a valid geometry the overlay ops can trust.  Returns ``null`` for a
- * degenerate ring (< 3 distinct points or ~zero area after cleaning).
+ * Deliberately hand-rolled rather than delegated to jsts: the whole point of
+ * this pass is that the slicer's rings are NOT valid polygons, so asking jsts
+ * whether an invalid polygon contains a point begs the question.  A crossing
+ * count is defined for any closed ring, valid or not.
  */
-function toJsts(poly: SectionPoly): JstsGeometry | null {
-  if (poly.points.length < 3) return null
-  const coords = poly.points.map((p) => new Coordinate(p.alongM, p.elev))
-  // Close the ring for jsts (LinearRing requires first == last).
-  coords.push(new Coordinate(poly.points[0].alongM, poly.points[0].elev))
-  let ring
+function ringContains(pts: readonly { alongM: number; elev: number }[], x: number, y: number): boolean {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].alongM
+    const yi = pts[i].elev
+    const xj = pts[j].alongM
+    const yj = pts[j].elev
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+/** Closed jsts LineString for one ring, or ``null`` if it collapses. */
+function ringToLine(pts: readonly { alongM: number; elev: number }[]): JstsGeometry | null {
+  if (pts.length < 3) return null
+  const coords = pts.map((p) => new Coordinate(p.alongM, p.elev))
+  coords.push(new Coordinate(pts[0].alongM, pts[0].elev))
   try {
-    ring = GF.createLinearRing(coords)
+    return GF.createLineString(coords) as JstsGeometry
   } catch {
-    // A ring that collapses under the precision model (all points snap together)
-    // throws — treat as degenerate.
     return null
   }
-  const g = GF.createPolygon(ring, []) as JstsGeometry
-  // buffer(0) cleans self-touching rings and normalises winding.
-  const cleaned = g.buffer(0)
-  if (cleaned.isEmpty() || cleaned.getArea() < MIN_VISIBLE_AREA) return null
-  return cleaned
+}
+
+/**
+ * Build a VALID jsts geometry for one SectionPoly without losing enclosed area.
+ *
+ * WHY NOT ``buffer(0)`` — the previous implementation, and the cause of the holes
+ * the engineer sees in the section view.  ``sliceSolidsAtPlaneRobust`` emits BARE
+ * closed loops: no outer/hole classification, no nesting, arbitrary winding.
+ * Feeding such a loop to ``createPolygon(ring, []).buffer(0)`` asks JTS to
+ * reinterpret it under the orientation rule, and when the loop touches or
+ * crosses itself JTS resolves the two lobes as outer-minus-inner and DELETES
+ * one.  Measured against jsts directly:
+ *
+ *     simple square           encloses 16 -> buffer(0) 16
+ *     bowtie (self-crossing)  encloses  8 -> buffer(0)  4
+ *     figure-eight (touching) encloses  8 -> buffer(0)  4
+ *
+ * A plane cut through a voxel mesh is staircase geometry whose faces meet at
+ * voxel corners, so self-touching rings are routine — and each one silently lost
+ * a lobe.  That happens for a SINGLE body with nothing to compete against, which
+ * is why no adjustment of the ownership policy or of a tolerance could have
+ * fixed it.  ``createPolygon(ring, [])`` also discarded ``poly.holes`` outright,
+ * so a genuine void was painted solid.
+ *
+ * WHAT THIS DOES INSTEAD.  Node all of the poly's rings against each other,
+ * polygonize the noded line work into faces, and keep a face when it is enclosed
+ * by an ODD number of the source rings — the same even-odd rule the overlay
+ * renders with.  Every face the rings enclose survives; a face inside two rings
+ * (a real hole) does not.  The result is a valid geometry whose area equals the
+ * area the rings actually enclose.
+ *
+ * Returns ``null`` for a degenerate poly (no ring survives, or ~zero area).
+ */
+function toJsts(poly: SectionPoly): JstsGeometry | null {
+  const rings: (readonly { alongM: number; elev: number }[])[] = [
+    poly.points,
+    ...(poly.holes ?? []),
+  ]
+  const lines = rings.map(ringToLine).filter((l): l is JstsGeometry => l !== null)
+  if (lines.length === 0) return null
+
+  // Node the line work. Unioning the collection with its own first line forces
+  // self-intersections to become nodes, which is what Polygonizer needs; a
+  // simple ring is unaffected.
+  let noded = lines[0]
+  for (let i = 1; i < lines.length; i++) noded = noded.union(lines[i])
+  noded = noded.union(lines[0])
+
+  const polygonizer = new Polygonizer()
+  polygonizer.add(noded)
+  const faces = polygonizer.getPolygons() as unknown as JstsList<JstsGeometry>
+  const count = faces.size()
+  if (!count) return null
+
+  let out: JstsGeometry | null = null
+  for (let i = 0; i < count; i++) {
+    const face = faces.get(i)
+    if (face.isEmpty() || face.getArea() < MIN_VISIBLE_AREA) continue
+    const probe = face.getInteriorPoint().getCoordinate()
+    let depth = 0
+    for (const ring of rings) if (ringContains(ring, probe.x, probe.y)) depth += 1
+    if (depth % 2 === 0) continue // outside, or inside a hole
+    out = out === null ? face : out.union(face)
+  }
+  if (out === null || out.isEmpty() || out.getArea() < MIN_VISIBLE_AREA) return null
+  return out
 }
 
 /**
