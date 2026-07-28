@@ -86,6 +86,10 @@ from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
 )
 from groundmodel.domain.services.voxel_litho.extract_body_solids import extract_body_solids
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
+from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (
+    apply_body_aliases,
+    plan_body_aliases,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     SectionPartitionInput,
@@ -260,6 +264,48 @@ def _investigation_columns_from_picks(
     return tuple(columns)
 
 
+def _apply_aliases_to_columns(
+    columns: tuple[InvestigationColumn, ...],
+    aliases: dict[str, str],
+) -> tuple[InvestigationColumn, ...]:
+    """Relabel each honored column's interval body ids through ``aliases``.
+
+    The honored intervals carry the resolver-assigned ``body_id`` straight from
+    the database, while the section regions carry the frontend partition's. Both
+    must pass through the SAME alias map or the labeller registers two identities
+    for one physical unit — one in blended space, one at the honored column — and
+    the mesher emits them as separate bodies that abut.
+
+    Parameters
+    ----------
+    columns : tuple of InvestigationColumn
+        The per-investigation observed columns.
+    aliases : dict of str to str
+        The map from :func:`plan_body_aliases`.
+
+    Returns
+    -------
+    tuple of InvestigationColumn
+        New value objects with aliased interval body ids; input untouched.
+    """
+    out: list[InvestigationColumn] = []
+    for column in columns:
+        intervals = tuple(
+            (aliases.get(body_id, body_id), formation_id, top, base)
+            for body_id, formation_id, top, base in column.intervals
+        )
+        out.append(
+            InvestigationColumn(
+                investigation_id=column.investigation_id,
+                world_x=column.world_x,
+                world_y=column.world_y,
+                intervals=intervals,
+                kind=column.kind,
+            )
+        )
+    return tuple(out)
+
+
 def _investigation_columns_checksum(
     h: hashlib.blake2b, columns: tuple[InvestigationColumn, ...]
 ) -> None:
@@ -399,6 +445,37 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"{len(picks)} pick(s)"
         )
         self._warn_sub_voxel_investigations(model_id, investigation_columns, grid_spacing_m)
+
+        # --- Stage 2: one body identity across the whole fence -----------------
+        # The frontend's per-section merge picks its representative PER SECTION,
+        # so the same physical unit arrives under a different body_id on every
+        # section it appears on.  ``_blend_stacks`` matches sections BY body_id
+        # and pinches an unmatched body to ~nothing at the midline, which invents
+        # lithology between columns (docs/debt.md #244).
+        #
+        # The map is planned ONCE here and applied to BOTH the section regions
+        # AND the honored investigation intervals.  Applying it to only one of
+        # them — as the first, frontend-only version of this did — gives the same
+        # material two identities: the merged one in blended space and the
+        # original resolver one at every honored column.
+        #
+        # This creates no correlation edge and writes nothing: the user's ties
+        # stay exactly the user's ties, only the ids are aliased.
+        aliases = plan_body_aliases(sections)
+        merged_away = sum(1 for src, dst in aliases.items() if src != dst)
+        if merged_away:
+            sections = apply_body_aliases(sections, aliases)
+            investigation_columns = _apply_aliases_to_columns(investigation_columns, aliases)
+            self.info(
+                f"BuildVoxelLithoModel: model={model_id} — cross-section body merge "
+                f"aliased {merged_away} of {len(aliases)} body id(s) "
+                f"({len(aliases) - merged_away} component(s) remain)"
+            )
+        else:
+            self.debug(
+                f"BuildVoxelLithoModel: model={model_id} — cross-section body merge "
+                f"found nothing to alias across {len(aliases)} body id(s)"
+            )
 
         # --- Phase 1: domain footprint from the feet + the drilled positions ---
         # Both position kinds feed the hull: the section columns' PROJECTED FEET
