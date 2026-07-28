@@ -52,7 +52,6 @@ import {
 } from '../shared/useBody3DViewState'
 import { BodyViewModePills } from '../shared/BodyViewModePills'
 import { makeVoxelRequestBuilder } from '../shared/makeVoxelRequestBuilder'
-import { describeEnclosedLensMerge } from '../shared/mergeEnclosedLensesForBuild'
 
 // ---------------------------------------------------------------------------
 // Module-level refs shared with LithologyStage toolbar — no bus extension.
@@ -146,11 +145,9 @@ export default function LithologyCanvas(): JSX.Element {
       lithoSolids,
       hasLithoSolids,
       hideMarkers,
-      refetchLithoContacts,
     },
     overlays: { showConfidenceFade },
     sections: { visibleSections },
-    toasts: { toast },
   } = useShell()
 
   // ---------------------------------------------------------------------------
@@ -204,13 +201,6 @@ export default function LithologyCanvas(): JSX.Element {
   // return so the ref is always populated while the canvas is mounted.
   // ---------------------------------------------------------------------------
 
-  // mergeEnclosedLenses is LITHO-ONLY (debt #243): a lithology split on one
-  // column by a local lens is fused back into one body just before the
-  // partition is recomputed.  GeotechnicalCanvas deliberately does NOT opt in —
-  // its bodies are materialised by the subdivision pass and must not be
-  // re-merged.  refetchLithoContacts brings the shell's own layer state in line
-  // with the DB after a merge; the build itself does not wait on it (the
-  // builder uses the rows it fetched directly).
   lithoVoxelRequestCallback.current = makeVoxelRequestBuilder({
     projectId,
     modelId: lithoModelId,
@@ -219,12 +209,6 @@ export default function LithologyCanvas(): JSX.Element {
     layers: lithoLayers,
     viewState: project?.view_state,
     logLabel: 'litho-voxel',
-    mergeEnclosedLenses: true,
-    onMergeReport: report => {
-      const message = describeEnclosedLensMerge(report)
-      if (message) toast(message.type, message.message)
-    },
-    onLayersReloaded: refetchLithoContacts,
   })
 
   // ---------------------------------------------------------------------------
