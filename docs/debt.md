@@ -6560,4 +6560,68 @@ data" is true for the model but not yet for the rows; (b) `buildProjectFence`
 (the 3-D fence view) does not run the pass, so fence panels can still show the
 per-section ids.
 
+## 245. Litho 3-D build is too slow (M — owner-raised 2026-07-28)
+
+**What.** A full "Build model" takes ~62 s of pure compute on the dev model
+(58 investigations, 16 sections) at 2.0 m horizontal / 0.25 m vertical, plus DB
+load and persist. The owner's words: *"litho model build is too slow for my
+taste (we need to do it faster but without losing accuracy, let's first get it
+100 % right)"* — so correctness work takes precedence; this is the queue behind
+it.
+
+**Measured** (`docs/benchmarks-journal.md`, 2026-07-28):
+
+| horizontal | vertical | label | extract | total |
+|---|---|---|---|---|
+| 2.0 m | 0.25 m | 32.6 s | 29.7 s | 62.3 s |
+| 2.0 m | 0.5 m | 33.8 s | 17.6 s | 51.3 s |
+| 3.0 m | 0.5 m | 15.2 s | 9.5 s | 24.7 s |
+
+**The load-bearing fact: `label_voxels` scales with the number of map-plane
+COLUMNS, not with voxel count.** Halving the vertical spacing left labelling
+untouched and only halved extraction; widening horizontal 2 → 3 m halved both.
+Fine Z is therefore nearly free on the labelling side — the opposite of the
+intuition that it is the expensive axis.
+
+Profiled hotspots, in payoff order:
+
+1. `extract_body_solids._split_pinched_edges_by_midpoint` — **12.9 s tottime in
+   112 calls**, the single largest item in the whole build and never optimised.
+2. `label_voxels._project_to_section_fence` — 7.5 s cumulative over 528 k calls:
+   every in-footprint column projects onto EVERY section. An exact bounding-box
+   lower bound would let a column skip sections that cannot be in its nearest
+   two — no approximation, just early rejection.
+3. Numba on the labelling loop (the long-standing candidate; `greedy_mesh` is
+   already JIT'd and no longer dominant).
+
+Free win already banked: the cross-section body merge (#244) cut triangles
+997,986 → 814,098 (-18 %) because merged bodies no longer carry internal
+boundary surfaces between their halves.
+
+**Why deferred.** Correctness first, by owner directive. Optimising the labeller
+while its output is still being corrected risks locking in current behaviour.
+
+**When to revisit.** Once the observed-column fidelity gate is green — then take
+(1) and (2), which are contained and do not change output.
+
+## 246. Opening a cross-section on the litho axis is slow (S — owner-raised 2026-07-28)
+
+**What.** Owner: *"clicking open a CS on litho view is kinda slow."* Not yet
+measured — no profile exists for this path.
+
+**Where to look first.** Opening a section on the litho axis triggers, in the
+same tick: the per-section approved-edge fetch, `computeSectionFillActive` (the
+v2 partition engine) for that section, the model-fill slice
+(`sectionFromSolids` slices every persisted body solid leg by leg — 101 solids ×
+~24 legs on CS1), and `resolveModelFillPolys`. The slice/resolve pair is the
+prime suspect: it is O(bodies × legs) and now also runs a polygonize per body
+per leg (#244 / the buffer(0) fix). None of it is memoised across opens.
+
+**Why deferred.** Same reason as #245 — correctness first. Also worth measuring
+before optimising: the cost may be dominated by one of the four stages, and
+guessing which has already been wrong once on this subsystem.
+
+**When to revisit.** With #245. Instrument first (`performance.mark` around the
+four stages), then optimise what the numbers name.
+
 ## (end)
