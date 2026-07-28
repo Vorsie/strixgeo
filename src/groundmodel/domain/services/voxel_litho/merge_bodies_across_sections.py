@@ -36,10 +36,18 @@ hand.
 
 THE RULE
 --------
-Two regions belong to the same body when they meet at a SHARED investigation
-column, carry the SAME formation, and OVERLAP in elevation there — the renderer's
-own "across a gap boundary" rule, generalised from gaps to sections. Nothing else
-merges them. Overlap is strict rather than mere contact, so two same-formation
+Two regions belong to the same body when they carry the SAME formation and touch
+with OVERLAPPING elevation, in either of the two ways two sections can touch:
+
+* at a SHARED investigation column — the renderer's own "across a gap boundary"
+  rule, generalised from gaps to sections; or
+* where the two section fences CROSS in map space, at an arbitrary point between
+  columns (owner, 2026-07-28: *"but also when they touch in between columns
+  right?"*). With tie-sections cutting across the long cross-sections this is the
+  common case, not an exotic one — restricting the rule to shared columns leaves
+  the same unit split wherever two sections merely cross.
+
+Nothing else merges them. Overlap is strict rather than mere contact, so two same-formation
 units *stacked* at a column (a sand, a lens, another sand) are never welded.
 
 This creates no correlation edge and writes nothing: the user's ties stay exactly
@@ -92,6 +100,76 @@ def _span_at_fraction(region: RegionInput, fraction: float) -> tuple[float, floa
     if not elevations:
         return None
     return min(elevations), max(elevations)
+
+
+def _spans_at_fraction(region: RegionInput, fraction: float) -> list[tuple[float, float]]:
+    """Elevation intervals a region covers on the vertical line at ``fraction``.
+
+    Intersects the gap-local vertical line with the region ring and pairs the
+    crossings even-odd, which is exact for a simple ring. Used where two section
+    fences CROSS mid-gap, so the meeting point is at an arbitrary fraction rather
+    than at a column edge.
+
+    Parameters
+    ----------
+    region : RegionInput
+        The partition region to slice.
+    fraction : float
+        Gap-local horizontal position in ``[0, 1]``.
+
+    Returns
+    -------
+    list of (float, float)
+        ``(low, high)`` intervals, lowest first; empty when the line misses.
+    """
+    crossings: list[float] = []
+    points = region.polygon
+    for i in range(len(points)):
+        f_a, e_a = points[i]
+        f_b, e_b = points[(i + 1) % len(points)]
+        if f_a == f_b:
+            continue
+        # Half-open straddle test so a vertex is counted once, not twice.
+        lo, hi = (f_a, f_b) if f_a < f_b else (f_b, f_a)
+        if not (lo <= fraction < hi):
+            continue
+        crossings.append(e_a + (e_b - e_a) * ((fraction - f_a) / (f_b - f_a)))
+    crossings.sort()
+    return [
+        (crossings[i], crossings[i + 1])
+        for i in range(0, len(crossings) - 1, 2)
+        if crossings[i + 1] - crossings[i] > 0.0
+    ]
+
+
+def _segment_crossing(
+    ax: float,
+    ay: float,
+    bx: float,
+    by: float,
+    cx: float,
+    cy: float,
+    dx_: float,
+    dy_: float,
+) -> tuple[float, float] | None:
+    """Where segments ``a-b`` and ``c-d`` cross, as a parameter on each.
+
+    Returns
+    -------
+    tuple of (float, float) or None
+        ``(t, u)`` in ``[0, 1]`` — the position along ``a-b`` and along ``c-d``
+        — or ``None`` when the segments are parallel or do not meet.
+    """
+    r_x, r_y = bx - ax, by - ay
+    s_x, s_y = dx_ - cx, dy_ - cy
+    denom = r_x * s_y - r_y * s_x
+    if abs(denom) < 1e-12:
+        return None  # parallel or collinear — no single crossing point
+    t = ((cx - ax) * s_y - (cy - ay) * s_x) / denom
+    u = ((cx - ax) * r_y - (cy - ay) * r_x) / denom
+    if not (0.0 <= t <= 1.0 and 0.0 <= u <= 1.0):
+        return None
+    return t, u
 
 
 def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
@@ -164,6 +242,53 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
                     continue
                 if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
                     union(body_a, body_b)
+
+    # --- second way two sections touch: their fences CROSS between columns ---
+    # Each gap segment runs between two consecutive columns' TRUE world
+    # positions, so a crossing is a segment-segment intersection. At the crossing
+    # both sections have a real stack, and any same-formation pair that overlaps
+    # in elevation there is one body passing through the intersection.
+    for i, section_a in enumerate(sections):
+        for section_b in sections[i + 1 :]:
+            for gap_a in range(len(section_a.columns) - 1):
+                col_a0 = section_a.columns[gap_a]
+                col_a1 = section_a.columns[gap_a + 1]
+                for gap_b in range(len(section_b.columns) - 1):
+                    col_b0 = section_b.columns[gap_b]
+                    col_b1 = section_b.columns[gap_b + 1]
+                    hit = _segment_crossing(
+                        col_a0.world_x,
+                        col_a0.world_y,
+                        col_a1.world_x,
+                        col_a1.world_y,
+                        col_b0.world_x,
+                        col_b0.world_y,
+                        col_b1.world_x,
+                        col_b1.world_y,
+                    )
+                    if hit is None:
+                        continue
+                    frac_a, frac_b = hit
+                    spans_a = [
+                        (r.body_id, r.formation_id, span)
+                        for r in section_a.regions
+                        if r.gap_index == gap_a and r.body_id is not None
+                        for span in _spans_at_fraction(r, frac_a)
+                    ]
+                    spans_b = [
+                        (r.body_id, r.formation_id, span)
+                        for r in section_b.regions
+                        if r.gap_index == gap_b and r.body_id is not None
+                        for span in _spans_at_fraction(r, frac_b)
+                    ]
+                    for body_a, form_a, (low_a, high_a) in spans_a:
+                        find(str(body_a))
+                        for body_b, form_b, (low_b, high_b) in spans_b:
+                            find(str(body_b))
+                            if form_a != form_b or body_a == body_b:
+                                continue
+                            if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
+                                union(str(body_a), str(body_b))
 
     return {body: find(body) for body in parent}
 
