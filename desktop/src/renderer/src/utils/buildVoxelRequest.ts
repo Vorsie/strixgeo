@@ -14,6 +14,7 @@
 
 import type { FenceSectionInput } from "./buildProjectFence";
 import { computeSectionFillActive } from "./partitionEngineSelect";
+import { mergeBodiesAcrossSections } from "./mergeBodiesAcrossSections";
 import { assembleSectionsWithCanonical } from "./sectionFenceData";
 
 /** One filled region of a 2-D section partition (mirrors `SectionRegion`). */
@@ -193,11 +194,20 @@ export function buildVoxelRequest(
     });
   }
 
+  // Pass 3 — stage 2 of the staged body model: give one body_id to regions that
+  // are the same body across sections. `computeSectionFill`'s own merge is
+  // per-section and picks its representative per section, so the same physical
+  // unit arrives here under a different id on every section it appears on; the
+  // backend blend matches sections BY body_id, so that mismatch makes both
+  // copies pinch to nothing between them and invents lithology in the gap
+  // (docs/debt.md #244). Relabels only — no geometry changes, nothing written.
+  const merged = mergeBodiesAcrossSections(out);
+
   // grid_spacing_m is kept set to the horizontal spacing for back-compat / the
   // cubic fallback; the explicit anisotropic fields let the backend's
   // effective-spacing resolver pick the right per-axis values.
   return {
-    sections: out,
+    sections: merged,
     grid_spacing_m: horizontalM,
     horizontal_spacing_m: horizontalM,
     vertical_spacing_m: verticalM,
