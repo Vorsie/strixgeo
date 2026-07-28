@@ -388,3 +388,37 @@ Python 3.14 is tracked-not-adopted: dep-tree wheel coverage + a
 measured multi-threaded CPU workload both need to land before
 switching from the GIL build. See CLAUDE.md "Performance Escape
 Hatches" for the full reasoning.
+
+## 2026-07-28 — voxel build: the spacing/time trade-off, measured
+
+Dev model `019e934c-70fd-7d11-a44a-b2073f4063a2` (58 investigations, 16 sections,
+4 geo surfaces), compute only — DB load and persist excluded.
+
+| horizontal | vertical | label | extract | total | grid | bodies | tris |
+|---|---|---|---|---|---|---|---|
+| 2.0 m | 0.25 m | 32.6 s | 29.7 s | **62.3 s** | 311×326×107 = 10.8 M | 112 | 998 k |
+| 2.0 m | 0.5 m | 33.8 s | 17.6 s | **51.3 s** | 311×326×54 = 5.5 M | 111 | 612 k |
+| 3.0 m | 0.5 m | 15.2 s | 9.5 s | **24.7 s** | 208×218×54 = 2.4 M | 110 | 386 k |
+
+**The load-bearing observation: `label_voxels` scales with the number of
+map-plane COLUMNS, not with the voxel count.** Halving the vertical spacing left
+label untouched (32.6 → 33.8 s) and only halved extract; widening the horizontal
+spacing 2 → 3 m halved BOTH (2.2× fewer columns). So horizontal spacing is the
+dominant lever on build time, and vertical spacing is nearly free on the labelling
+side — the opposite of the intuition that finer Z is what costs.
+
+Profiled hotspots at 2.0/0.25 (cProfile, so absolute numbers run ~35 % high):
+
+* extract — `_split_pinched_edges_by_midpoint` **12.9 s tottime** (112 calls, the
+  single largest item in the whole build), `triangulate_subdivided_rect` 5.7 s
+  (350 k calls), `np.ascontiguousarray` 3.2 s (166 k calls — the per-slice copy
+  the Numba mesher needs, deliberate), `_maximal_rectangles_njit` 3.1 s (already
+  JIT'd and no longer the bottleneck).
+* label — `_project_to_section_fence` 7.5 s cumulative (528 k calls: every
+  in-footprint column projects onto every section), `evaluate_tin_at` 3.9 s
+  (151 k), `_project_point_to_segment` 3.7 s (2.6 M).
+
+Next candidates, in payoff order: (1) `_split_pinched_edges_by_midpoint`;
+(2) a bounding-box lower bound in the per-column section ranking so a column only
+projects onto sections that could be in its nearest two — exact, not approximate;
+(3) Numba on the labelling loop (the long-standing candidate).
