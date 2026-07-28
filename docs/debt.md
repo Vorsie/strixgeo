@@ -6420,44 +6420,43 @@ project appears whose deepest tests sit well below its section partitions.
 Reproduce by comparing the partition elevation range against the deepest
 `load_body_picks` base; the numbers above came from a six-line check.
 
-## 243. The enclosed-lens body merge has no caller — WIRED 2026-07-27, owner dogfeed pending (M)
+## 243. The enclosed-lens body merge has no caller — WIRING REVERTED 2026-07-28 (M)
 
-**Status 2026-07-27.** The caller is built and committed (`7c41869aa`..`e3d1366a3`,
-unpushed). The litho **Build model** button now merges enclosed-lens bodies across
-every visible section, reloads the layer rows, recomputes the partition from those
-rows, and only then POSTs the build — the ordering below, held inside ONE async
-sequence in `makeVoxelRequestBuilder` so it cannot depend on when React re-renders
-the closure. Geotech deliberately does not opt in (its bodies come from the
-subdivision pass).
+**Status 2026-07-28 — the Build-time wiring is REVERTED, and the approach is
+rejected.** It ran once on the dev model and created **62 correlation edges**.
+**14 of them joined two units with no vertical overlap at all** (gaps up to
+5.18 m), i.e. correlation lines that jump across the lithologies in between —
+visible on the section and, worse, each one merges two bodies that should have
+stayed apart. Ten of the fourteen were KLEI, which is exactly the "climbing and
+dropping clay" the owner reported. All 19 such ties in the planner's output come
+from ONE branch: when no neighbour host FULLY SPANS the lens band, it falls back
+to any host that merely *overlaps* it — contradicting the planner's own
+documented rule ("the host lithology runs **continuously across** the lens
+depth"). Removing that fallback drops the planned set 108 → 76 and the
+non-overlapping ties 19 → 0.
 
-* Frontend: `mergeEnclosedLensesForBuild.ts` (sequential fan-out — each POST
-  re-resolves body identity model-wide and commits, so two in flight would race)
-  \+ `describeEnclosedLensMerge` for the toast; `makeVoxelRequestBuilder`
-  `mergeEnclosedLenses` opt-in; `LithologyCanvas` wires it.
-* The reload is mandatory: if `listLayers` fails after edges were created the
-  build **aborts** rather than building on pre-merge body ids.
-* Report wording is in **correlations**, not lenses — one enclosed lens yields two
-  edges (both bracketing host halves) and the endpoint reports edges only, so
-  "N lenses" would overstate by ~2×. A true lens count needs
-  `plan_enclosed_lens_merges` to return the triples; not done.
-* Tests: `mergeEnclosedLensesForBuild.test.ts` (11) + `LithologyCanvas` V3/V4.
-  V3 pins merge → reload → edge-fetch order AND that the payload carries the
-  POST-merge body id; **verified RED** against the pre-fix code
-  (`Set{'body-split-a'}` vs `Set{'body-merged'}`). The canvas test's api mock
-  previously lacked `mergeEnclosedLenses`, so the merge silently took the
-  error branch and every claim still passed — that stub is now in place.
-* **Dry run before the first real click:** `scripts/diag_enclosed_lens_merge_dryrun.py`
-  (read-only, dev-DB-guarded) plans the merge per section without writing. On the
-  dev model it reports **63 net-new edges across 13 sections** (67 planned edges
-  already exist), including the debt entry's own missing tie —
-  `GEO-05/040-S4 ZAND -2.53/-6.60 → GEO-10/117-B4 ZAND 4.70/-6.65` on Cross-section 3.
+**Owner directive (2026-07-28), which supersedes the 2026-07-27 one:** *"there
+should be no auto ties that are generated, you just keep the ties and merge the
+bodies on lithological adjacency, like the renderer does"* — so that "something
+rendered as one body is one body in the data". Unifying bodies by fabricating
+`manual`/`user_approved` correlation edges is rejected outright: those are the
+owner's own interpretive artifacts and must not be invented, whatever the tie
+quality. See #244 for what replaced it.
 
-**Remaining.** Owner dogfeed (frontend — vitest + tsc do not catch this class),
-then confirm the acceptance below on the dev DB. One efficiency note left
-deliberately unfixed: `MergeEnclosedLensBodies` re-runs `ResolveLithoInstances`
-model-wide on any section whose plan is non-empty, even when every planned edge
-already existed, so a repeat Build re-resolves ~13× for nothing. Guarding that on
-`edges_created > 0` is safe but was out of scope of the wiring.
+**Reverted cleanly.** `scripts/audit_merge_edges.py` (+ the captured
+`merge_edges_2026_07_28.json`) resolves every edge that Build created, reports
+its vertical overlap, and with `--apply-revert` deletes them and re-resolves.
+Applied to the dev DB: manual edges 248 → 186, S4's lower sand split from
+GEO-10/117-B4 again, 87 distinct bodies. A full `pg_dump` was taken first
+(`.backups/`). One wrinkle worth knowing: the first delete matched on the layer
+pair without scoping to the section and removed 5 pre-existing rows the owner had
+drawn on OTHER sections; those were restored verbatim from the backup and the
+model re-resolved. The 3-D solids are gone (the project restore dropped them) —
+they come back on the next Build.
+
+**The use case + endpoint are untouched and once again have no caller.** They
+stay in the tree; if the enclosed-lens case ever needs an explicit verb it should
+be user-invoked, and the loose-fallback branch should be removed first.
 
 **What (original).** `MergeEnclosedLensBodies` + `plan_enclosed_lens_merges` are finished,
 unit-tested and reachable at `POST .../bodies/merge-enclosed-lenses`. **Nothing
@@ -6509,64 +6508,56 @@ handoff. Reproduce with the S4/B4 pair: run `plan_enclosed_lens_merges` on their
 stacks and confirm 2 edges, then check `litho_contact_correlation_edge` for the
 lower-host tie (absent today).
 
-## 244. The 3-D blend pinches two UNCORRELATED same-lithology bodies against each other (L)
+## 244. The 3-D blend pinches same-lithology bodies apart — ROOT CAUSE FOUND + FIXED 2026-07-28 (L)
 
-**What.** `label_voxels._blend_stacks` matches the two nearest sections' stacks
-by `body_id`. A body present on both blends its thickness; a body present on only
-one is treated as a lens and scaled by `max(0, 2w - 1)` — at roughly equal
-distance that is **near zero**. Two sections that both show the SAME sand but
-whose sands were never correlated to each other are therefore each "one-sided",
-and BOTH pinch to nothing midway between them. `_fill_band_voids` then back-fills
-the hole, and because `_layout` stacks cumulatively downward from a blended top,
-any unit that IS matched keeps its full thickness and slides up into the space
-the collapsed sand vacated.
+**Root cause (measured, not inferred).** `label_voxels._blend_stacks` matches the
+two nearest sections' stacks by `body_id`; an unmatched body is treated as a
+one-sided lens and scaled by `max(0, 2w - 1)` — near ZERO at roughly equal
+distance. The ids did not match because
+**`partitionFillV2/mergeTouchingBodies` is stage 1 only — per-section** — and
+picks its component representative per section. Its own docstring records the
+gap: *"Stages 2-3 (cross-section, 3D) stay the backend's job — recorded, not
+here."* That stage was never built.
 
-**Reproduced 2026-07-27** on CS1 between `GEO-23/125-S9` and `GEO-23/125-S8`,
-which both log a solid `ZAND 3.2 → -4.5`. At 40 % along that leg, band 3:
+Measured on the dev model's build payload: **23 cases** where ONE column carries
+the SAME lithology over OVERLAPPING elevations under two different body ids on
+two different sections — including all three units at `GEO-23/125-S9`:
 
-| section | distance | weight | stack |
-|---|---|---|---|
-| 2-column tie (`GEO-10/170-S4 ↔ S9`) | 12.79 m | 0.579 | `ZAND 3.045/-4.590` th 7.635 body `019ea3e1-9be2` |
-| Cross-section 1 (gap 13 = **S9↔S8**, the right gap) | 17.59 m | 0.421 | `ZAND 3.236/-4.600` th 7.836 body `019ea42e-1b84` |
+| column | litho | elevation | id on one section | id on another |
+|---|---|---|---|---|
+| GEO-23/125-S9 | KLEI | 4.84..3.80 | `019ea170-5ce6` | `019ea3e1-9b50` |
+| GEO-23/125-S9 | SILT | 11.73..4.84 | `019ea170-5cf3` | `019ea170-5cec` |
+| GEO-23/125-S13 | ZAND | 3.68..-1.79 | `019ea42e-1b84` | `019ea3e1-9be2` |
 
-Same lithology, same elevations, **different `body_id`** → unmatched → pinch
-factors 0.158 and 0.000 → 7.6 m of sand becomes 1.2 m. The `SILT` below IS
-matched (`019ea42e-1b51` on both) and keeps 2.575 m, and ends up at `1.92/-0.65`
-— inside the sand. That is the "invented silt", and its 4.5 m climb along the leg
-is the same effect with a position-varying pinch factor.
+So at a point between two sections both showing the same sand, BOTH copies pinch
+to nothing, the void is back-filled, and whatever IS matched keeps full thickness
+and slides into the vacated space. That is the invented lithology AND the
+climbing/dropping lens — one mechanism, not two.
 
-**Proven fix path (offline, no writes).** Re-running the same production path with
-the two sand bodies unified — exactly what correlating them does — removes it
-completely at every sampled position:
+**Fixed — `desktop/.../utils/mergeBodiesAcrossSections.ts` (stage 2).** Two
+regions are the same body when they meet at a SHARED COLUMN with the SAME
+formation over OVERLAPPING elevation — the renderer's own "across a gap boundary"
+rule, generalised from gaps to sections. It runs in `buildVoxelRequest` just
+before the payload is emitted. It **relabels `body_id` and nothing else**: no
+correlation edge is created, nothing is written to the database, no vertex,
+formation or gap index moves, so it cannot introduce a hole or an overlap.
+Strict overlap (> 1 mm), not mere contact, so two same-formation units *stacked*
+at a column are never welded. `null` bodies are left alone.
+
+Real-data result on the dev payload: divergent cases **23 → 0**, distinct region
+body ids 65 → 61, and the invented silt disappears at every sampled position
+along the `GEO-23/125-S9 → -S8` leg:
 
 ```
-frac 0.4  BEFORE: ZAND 3.13/1.92 · SILT 1.92/-0.65 · ZAND -0.65/-4.59 · SILT -4.59/-7.06
-frac 0.4  AFTER : ZAND 3.13/-4.59 · SILT -4.59/-7.17
+frac 0.5  BEFORE: ZAND 3.13/2.80 · SILT 2.80/0.18 · ZAND 0.16/-4.59
+frac 0.5  AFTER : ZAND 3.13/-4.58
 ```
 
-**This supersedes the earlier framing** ("a 2-column tie section outvotes the
-section you are looking at, and imports a distant column's silt"). CS1 contributes
-the CORRECT gap — S9↔S8 — and neither section carries a silt inside the sand. The
-defect is body identity, not neighbour selection, so none of the four
-neighbour-selection candidates in `HANDOFF-voxel-blend.md` address it.
-
-**Why deferred — it is an owner call, and there are two levels.**
-1. *Data*: correlate the same-lithology bodies that are not yet tied. The owner
-   already has this on the board (60 uncorrelated adjacent same-litho overlaps,
-   33 ZAND — `CLAUDE.local.md` litho-stage diagnosis), and #243's merge creates 63
-   of those edges on the next Build.
-2. *Engine*: should the blend pinch two same-LITHOLOGY bodies against each other
-   at all, when neither section shows the other's material? Matching on lithology
-   (falling back to `body_id` only to separate genuinely different units) would
-   make the model robust to a missing correlation instead of producing invented
-   geology. That is a modelling decision — it trades "the user's correlations are
-   the only truth" against "two sands that look identical should not annihilate".
-
-**When to revisit.** With the owner, before the closed beta — it is the visible
-defect in the 3-D litho model today. Reproduce with
-`scripts/diag_blend_mechanism_at_point.py --between GEO-23/125-S9 GEO-23/125-S8
---fraction 0.4` (its self-check confirms the offline path reproduces the persisted
-build before printing any arithmetic) and
-`scripts/diag_blend_between_columns.py` for the along-leg walk.
+**Remaining.** Owner dogfeed of the 3-D model after a Build. Two follow-ups, both
+open: (a) the DB's `body_id` still carries the pre-merge split — this pass fixes
+the payload the 3-D build reads, not the stored identity, so "one body in the
+data" is true for the model but not yet for the rows; (b) `buildProjectFence`
+(the 3-D fence view) does not run the pass, so fence panels can still show the
+per-section ids.
 
 ## (end)
