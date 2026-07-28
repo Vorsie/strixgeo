@@ -6624,4 +6624,87 @@ guessing which has already been wrong once on this subsystem.
 **When to revisit.** With #245. Instrument first (`performance.mark` around the
 four stages), then optimise what the numbers name.
 
+## 247. The 3-D blend ranks sections in PROJECTED-FOOT space, not true position (L — likely the fundamental voxel defect)
+
+**What.** `label_voxels._project_to_section_fence` ranks sections by perpendicular
+distance to a polyline through each section's column `world_x/world_y`, and its
+docstring states those are "the columns' **true** (world_x, world_y) positions
+(the canonical fence)". They are not. The frontend's
+`computeCanonicalColumnWorldPositions` sets each column to *"the **projected**
+position on the DENSEST section that contains it"* — deliberately, so a test drawn
+on two sections lands in one consistent place.
+
+Measured over the 83 payload columns of the dev model: payload position vs true DB
+location differs by a **median of 11.08 m, max 64.91 m**, and **77 of 83 are off by
+more than 1 m**.
+
+Meanwhile the voxel grid, the honored investigation columns
+(`InvestigationColumn.world_x/y`, straight from the picks) and — since the July
+footprint fix — the domain footprint all live in TRUE world space. So the labeller
+decides *which sections are nearest this voxel* in one coordinate space and places
+the material in another, ~11 m apart.
+
+**This is the exact twin of the footprint bug fixed in commits `d3b6c1fd0`..
+`99c6e023f`** (the footprint was framed from projected feet while the builder
+honored logs at true positions). The footprint consumer was fixed; the blend
+consumer was not.
+
+**Worked example — the owner's S12 report** ("the bottom of the silt is labelled
+clay, way thicker than one voxel"). At S12's own column the model matches the log
+exactly. **2 m away — one horizontal voxel — 1.75 m of the silt base becomes clay.**
+At that point:
+
+| section | distance the blend uses | weight |
+|---|---|---|
+| a 2-column tie, `GEO-23/125-S22 -> S12` | **2.52 m** | **0.829** |
+| Cross-section 1 (whose own leg the point sits on) | 12.25 m | 0.171 |
+
+CS1's own partition on that leg carries `SILT 11.95..5.21` across the whole gap —
+no clay at all. The tie carries `KLEI 8.166/6.326`. The tie wins 5:1 on CS1's own
+leg because CS1's fence is made of feet displaced from where S12 actually is.
+
+**Why deferred — it is an architectural call, not a mechanical fix.** Two
+defensible answers and the owner has to pick:
+1. Rank sections by distance to the columns' TRUE positions (consistent with the
+   grid, the footprint and the honored columns), accepting that the 2-D partition
+   geometry was drawn between projected feet.
+2. Keep foot-space ranking but place the material in foot-space too — which would
+   contradict the footprint fix and the honor rule.
+
+Whichever wins, the two spaces must stop being mixed.
+
+**When to revisit.** Next, before any further voxel-fidelity work — every blend
+weight in the model is currently computed in the wrong space, so tuning anything
+downstream of it is building on sand. Reproduce with
+`scripts/diag_blend_mechanism_at_point.py --between GEO-23/125-S12 GEO-23/125-S13
+--fraction 0.0204`.
+
+## 248. `_blend_stacks` pairs re-entrant body occurrences by array RANK (M)
+
+**What.** When a body appears more than once in a section's stack (a clay that
+occurs twice in the column), `label_voxels._blend_stacks` pairs the two sections'
+occurrences by **elevation rank** — `left[k]` with `right[k]` — and blends their
+thicknesses. Rank is an artifact of sort order, not geology, so a shallow
+occurrence can be paired with a deep one and their thicknesses averaged into a
+position neither section has.
+
+Seen at the S12 point above (band 2), after the #244 alias map made the ids match:
+
+* the tie has TWO `019ea170-5ce6` (KLEI) entries: `8.166/6.326` and `5.844/3.622`
+* CS1 has ONE: `5.719/3.552`
+* rank 0 pairs the tie's **upper** clay with CS1's **only** clay — 2.4 m apart —
+  and blends them, putting ~1.9 m of clay at ~8 m where CS1 has silt
+* rank 1 leaves the tie's lower clay unpaired, so it pinches
+
+**Note the interaction with #244:** unifying body ids across sections is correct
+and necessary, but it creates MORE re-entrant pairs, so it makes this latent flaw
+bite more often. Both need fixing; neither is a reason to undo the other.
+
+**Why deferred.** The replacement rule is a geological decision the owner owns:
+pair by elevation overlap? by midpoint proximity? require overlap and otherwise
+treat the occurrence as a lens that pinches? Each gives different geology.
+
+**When to revisit.** With #247 — they show up at the same points and the fix for
+one changes the evidence for the other.
+
 ## (end)
