@@ -162,3 +162,85 @@ def test_a_region_pinching_out_before_the_column_does_not_reach_it() -> None:
 def test_empty_input_is_an_empty_map() -> None:
     """No sections, nothing to alias."""
     assert plan_body_aliases([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# Sections that CROSS mid-gap
+#
+# Owner, 2026-07-28: "two regions are the same body when they meet at a shared
+# investigation column, same formation, but also when they touch in between
+# columns right?" — yes. Two section lines can cross in map space nowhere near a
+# column, and the same unit passes through that crossing on both of them. With
+# tie-sections cutting across the long cross-sections this is the common case,
+# not an exotic one.
+# ---------------------------------------------------------------------------
+
+
+def _section_at(
+    columns: list[tuple[str, float, float]], regions: list[RegionInput]
+) -> SectionPartitionInput:
+    """A section whose columns sit at explicit world positions."""
+    return SectionPartitionInput(
+        start_x=columns[0][1],
+        start_y=columns[0][2],
+        end_x=columns[-1][1],
+        end_y=columns[-1][2],
+        columns=tuple(
+            SectionColumnInput(investigation_id=c, along_m=float(i), world_x=x, world_y=y)
+            for i, (c, x, y) in enumerate(columns)
+        ),
+        regions=tuple(regions),
+    )
+
+
+def test_sections_crossing_between_columns_merge() -> None:
+    """Two fences crossing at (50, 0) share no column, but share the sand."""
+    east_west = _section_at(
+        [("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "ew", 3.2, -4.5)]
+    )
+    north_south = _section_at(
+        [("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("ZAND", "ns", 3.2, -4.5)]
+    )
+
+    aliases = plan_body_aliases([east_west, north_south])
+
+    assert aliases["ew"] == aliases["ns"]
+
+
+def test_crossing_sections_with_different_lithologies_do_not_merge() -> None:
+    """Crossing is adjacency, not identity — the formation still has to match."""
+    aliases = plan_body_aliases(
+        [
+            _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "sand", 3.2, -4.5)]),
+            _section_at([("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("KLEI", "clay", 3.2, -4.5)]),
+        ]
+    )
+
+    assert aliases.get("sand", "sand") == "sand"
+    assert aliases.get("clay", "clay") == "clay"
+
+
+def test_crossing_sections_at_disjoint_elevations_do_not_merge() -> None:
+    """They cross in plan, but the two sands are at different levels."""
+    aliases = plan_body_aliases(
+        [
+            _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "upper", 8.0, 5.0)]),
+            _section_at([("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("ZAND", "deep", 3.0, -4.0)]),
+        ]
+    )
+
+    assert aliases.get("upper", "upper") == "upper"
+    assert aliases.get("deep", "deep") == "deep"
+
+
+def test_sections_that_do_not_cross_do_not_merge() -> None:
+    """Parallel fences that never meet stay separate bodies."""
+    aliases = plan_body_aliases(
+        [
+            _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "north", 3.2, -4.5)]),
+            _section_at([("C", 0.0, 80.0), ("D", 100.0, 80.0)], [_band("ZAND", "south", 3.2, -4.5)]),
+        ]
+    )
+
+    assert aliases.get("north", "north") == "north"
+    assert aliases.get("south", "south") == "south"
