@@ -22,6 +22,9 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
+from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
+    LithoBuildGenerationOrm,
+)
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -55,6 +58,7 @@ __all__ = [
     "InvestigationReviewOrm",
     "FormationAbsenceOrm",
     "LithoBodySolidOrm",
+    "LithoBuildGenerationOrm",
     "LithoContactCorrelationEdgeOrm",
     "LithoLayerOrm",
     "ObservationLayerOrm",
