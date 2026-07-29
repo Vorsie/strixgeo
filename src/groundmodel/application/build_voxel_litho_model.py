@@ -65,8 +65,9 @@ import time
 from collections import defaultdict
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
 
 from groundmodel.application.litho_solid_persistence import (
     LithoSolidPersistenceMixin,
@@ -97,7 +98,11 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     SectionPartitionInput,
 )
+from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
+    LithoBuildGenerationOrm,
+)
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.timing import phase_timer
 
@@ -655,9 +660,33 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
         bodies_considered = len(wanted_storage_ids)
 
-        # --- Phase 4: upsert + orphan-delete + commit -------------------------
+        # --- Phase 4: provenance + upsert + orphan-delete + commit ------------
+        # The generation row is written FIRST so every mesh can point at it in
+        # the same transaction.  It records what the build was made from and
+        # with, which nothing else does: the payload lived only in the frontend,
+        # the settings only in the project's view-state at the moment the build
+        # ran, and the derived body identity only in memory.  Without it no
+        # diagnostic can reproduce a build after the fact (docs/debt.md #252).
+        generation_id = uuid7()
         with phase_timer(self, "BuildVoxelLithoModel phase-4 upsert"):
+            await self._write_generation(
+                generation_id=generation_id,
+                model_id=model_id,
+                sections=sections,
+                grid=grid,
+                aliases=aliases,
+                checksum=new_checksum,
+                geo_surfaces=geo_surfaces,
+                horizontal_spacing_m=grid_spacing_m,
+                vertical_spacing_m=vertical_spacing_m,
+                honor_radius_m=honor_radius_m,
+                litho_snap_tolerance_m=snap_tol,
+                meshes=meshes,
+                started_at=t_total,
+            )
             rows = self._mesh_rows(meshes, model_id, new_checksum)
+            for row in rows:
+                row["generation_id"] = generation_id
             bodies_built = len(rows)
             chunks_written = await self._batch_upsert(rows)
             self.info(
@@ -833,6 +862,151 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         stmt = select(GeologicalModelOrm.parent_model_id).where(GeologicalModelOrm.id == model_id)
         parent_id = (await self._session.execute(stmt)).scalar_one_or_none()
         return parent_id  # already a UUID | None (mapped column type)
+
+    #: Identifies the builder behind a stored generation.  Bump when a change
+    #: alters the labelling, so a mesh built by an older builder is recognisable
+    #: after the algorithm moves on.
+    _BUILDER_VERSION = "voxel-2026.07.29"
+
+    #: How many generations to keep per model.  Each row carries the full
+    #: section payload (hundreds of kB), so an unbounded history would grow by
+    #: that much on every dogfeed click.  Enough to A/B a change against the
+    #: builds either side of it.
+    _KEEP_GENERATIONS = 10
+
+    async def _write_generation(
+        self,
+        *,
+        generation_id: UUID,
+        model_id: UUID,
+        sections: list[SectionPartitionInput],
+        grid: object,
+        aliases: dict[str, str],
+        checksum: bytes,
+        geo_surfaces: tuple[SurfaceBound, ...],
+        horizontal_spacing_m: float,
+        vertical_spacing_m: float | None,
+        honor_radius_m: float,
+        litho_snap_tolerance_m: float,
+        meshes: list[LithoBodyMesh],
+        started_at: float,
+    ) -> None:
+        """Record what this build was made from and with.
+
+        Writes one :class:`LithoBuildGenerationOrm` row carrying the exact
+        section payload, every setting that changes the output, the grid geometry
+        (the ORIGIN matters as much as the spacing — which cell an investigation
+        lands in depends on grid phase), the parent geo digest, and the derived
+        body-alias map.
+
+        The alias map is DERIVED build data with provenance.  It records which
+        source bodies were merged into one component and must never be read back
+        as a user correlation.
+
+        Older generations beyond :attr:`_KEEP_GENERATIONS` are pruned in the same
+        transaction so the payload history stays bounded.
+
+        Parameters
+        ----------
+        generation_id : UUID
+            Pre-allocated id, so the mesh rows can reference it in one transaction.
+        model_id : UUID
+            The model built.
+        sections : list of SectionPartitionInput
+            The payload as labelled (post-alias, post-re-seat).
+        grid : LabelGrid
+            The labelled grid, for its axes.
+        aliases : dict of str to str
+            ``source_body_id -> derived component id``.
+        checksum : bytes
+            The model-level digest stamped on every solid row.
+        geo_surfaces : tuple of SurfaceBound
+            The parent geological model's band surfaces.
+        horizontal_spacing_m, vertical_spacing_m, honor_radius_m, litho_snap_tolerance_m : float
+            The settings the build ran with.
+        meshes : list of LithoBodyMesh
+            The built meshes, for the outcome counts.
+        started_at : float
+            ``time.perf_counter()`` at the start of the build.
+        """
+        gx, gy, gz = grid.gx, grid.gy, grid.gz  # type: ignore[attr-defined]
+        payload = {
+            "sections": [
+                {
+                    "start_x": sec.start_x,
+                    "start_y": sec.start_y,
+                    "end_x": sec.end_x,
+                    "end_y": sec.end_y,
+                    "columns": [
+                        {
+                            "investigation_id": c.investigation_id,
+                            "along_m": c.along_m,
+                            "world_x": c.world_x,
+                            "world_y": c.world_y,
+                        }
+                        for c in sec.columns
+                    ],
+                    "regions": [
+                        {
+                            "formation_id": r.formation_id,
+                            "body_id": r.body_id,
+                            "gap_index": r.gap_index,
+                            "polygon": [[f, e] for f, e in r.polygon],
+                        }
+                        for r in sec.regions
+                    ],
+                }
+                for sec in sections
+            ]
+        }
+        self._session.add(
+            LithoBuildGenerationOrm(
+                id=generation_id,
+                model_id=model_id,
+                builder_version=self._BUILDER_VERSION,
+                horizontal_spacing_m=float(horizontal_spacing_m),
+                vertical_spacing_m=float(
+                    vertical_spacing_m if vertical_spacing_m is not None else horizontal_spacing_m
+                ),
+                honor_radius_m=float(honor_radius_m),
+                litho_snap_tolerance_m=float(litho_snap_tolerance_m),
+                grid_nx=len(gx),
+                grid_ny=len(gy),
+                grid_nz=len(gz),
+                grid_origin_x=float(gx[0]),
+                grid_origin_y=float(gy[0]),
+                grid_origin_z=float(gz[0]),
+                payload=payload,
+                payload_checksum=checksum,
+                geo_surface_digest=digest_surfaces(list(geo_surfaces)) if geo_surfaces else None,
+                body_aliases=dict(aliases),
+                sections_count=len(sections),
+                bodies_built=len(meshes),
+                triangles=sum(len(m.triangles) for m in meshes),
+                duration_s=time.perf_counter() - started_at,
+            )
+        )
+        await self._session.flush()
+
+        keep = (
+            select(LithoBuildGenerationOrm.id)
+            .where(LithoBuildGenerationOrm.model_id == model_id)
+            .order_by(LithoBuildGenerationOrm.created_at.desc())
+            .limit(self._KEEP_GENERATIONS)
+        )
+        keep_ids = [row[0] for row in (await self._session.execute(keep)).all()]
+        if keep_ids:
+            await self._session.execute(
+                delete(LithoBuildGenerationOrm).where(
+                    LithoBuildGenerationOrm.model_id == model_id,
+                    LithoBuildGenerationOrm.id.not_in(keep_ids),
+                )
+            )
+        self.info(
+            f"BuildVoxelLithoModel: model={model_id} — generation {generation_id} recorded "
+            f"({len(sections)} section(s), {len(aliases)} alias(es), "
+            f"{self._BUILDER_VERSION})"
+        )
 
     async def _read_honor_radius_m(self, model_id: UUID, grid_spacing_m: float) -> float:
         """Read the honored-column radius, defaulting to one horizontal voxel.
