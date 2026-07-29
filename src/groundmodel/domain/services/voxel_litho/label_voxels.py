@@ -956,6 +956,65 @@ def _column_stack_geo(
 # ---------------------------------------------------------------------------
 
 
+def _honored_cells(
+    gx: np.ndarray | list[float],
+    gy: np.ndarray | list[float],
+    world_x: float,
+    world_y: float,
+    radius_m: float,
+) -> list[tuple[int, int]]:
+    """Grid cells an investigation's own log should own, as ``(i, j)`` pairs.
+
+    An investigation used to own exactly its NEAREST cell.  Two consequences the
+    owner hit (docs/debt.md #249): a test sitting near a cell boundary is honored
+    up to half a voxel from where it is, and which side it lands on depends on
+    the grid phase — which moves whenever the footprint changes; and the column
+    drawn on a section is wider than one voxel, so the cells beside the honored
+    one show blended material instead of the log.
+
+    Every cell whose CENTRE lies within ``radius_m`` of the investigation is
+    therefore honored.  The nearest cell is always included, whatever the radius,
+    so a small value can never leave a log unhonored altogether.
+
+    Note the geometry: a radius of one horizontal spacing reaches the four
+    orthogonal neighbours but NOT the diagonals, which sit ``sqrt(2)`` spacings
+    away — so the footprint is a plus, not a 3x3 block.
+
+    Parameters
+    ----------
+    gx, gy : numpy.ndarray or list of float
+        The grid's X and Y coordinate axes.
+    world_x, world_y : float
+        The investigation's true map position.
+    radius_m : float
+        Honored radius in metres; ``0.0`` reproduces the nearest-cell-only
+        behaviour exactly.
+
+    Returns
+    -------
+    list of (int, int)
+        Cell indices, sorted, so contention between two investigations resolves
+        identically on every run.
+    """
+    ax = np.asarray(gx, dtype=float)
+    ay = np.asarray(gy, dtype=float)
+    ci = int(np.argmin(np.abs(ax - world_x)))
+    cj = int(np.argmin(np.abs(ay - world_y)))
+    cells = {(ci, cj)}
+    if radius_m > 0.0:
+        # Only the axis bands within the radius can contain a qualifying centre.
+        xs = np.nonzero(np.abs(ax - world_x) <= radius_m)[0]
+        ys = np.nonzero(np.abs(ay - world_y) <= radius_m)[0]
+        r2 = radius_m * radius_m
+        for i in xs:
+            dx = ax[i] - world_x
+            for j in ys:
+                dy = ay[j] - world_y
+                if dx * dx + dy * dy <= r2:
+                    cells.add((int(i), int(j)))
+    return sorted(cells)
+
+
 def _column_labels(
     stack: list[_Entry],
     gz: np.ndarray,
@@ -1191,6 +1250,7 @@ def label_voxels(
     investigation_columns: tuple[InvestigationColumn, ...] = (),
     geo_surfaces: tuple[SurfaceBound, ...] = (),
     litho_snap_tolerance_m: float = 0.20,
+    honor_radius_m: float = 0.0,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -1239,6 +1299,14 @@ def label_voxels(
         with snap-or-divide, and the bands are concatenated into a gap-aware column
         stack.  A litho body never crosses a geological surface.  The default ``()``
         keeps labelling byte-identical to the un-bounded single-blend path.
+    honor_radius_m : float, default 0.0
+        Radius in metres around an investigation whose grid cells take its OWN
+        log rather than the section blend.  ``0.0`` honors only the single
+        nearest cell — the pre-#249 behaviour, under which a test near a cell
+        boundary was honored up to half a voxel from where it is, and the column
+        drawn on a section (wider than one voxel) showed blended material beside
+        the honored cell.  The caller resolves the value; see
+        ``BuildVoxelLithoModel``.
     litho_snap_tolerance_m : float, default 0.20
         The snap-or-divide tolerance for clipping a litho contact to a geological
         band surface (geology-bounded branch only).  A litho contact within this
@@ -1371,21 +1439,19 @@ def label_voxels(
         if bid not in body_index:
             body_index[bid] = len(body_index)
 
-    # --- map each honored investigation to its nearest grid column --------
-    # ``(i, j) = argmin |gx - world_x|, argmin |gy - world_y|``.  When two
-    # investigations land on the same (i, j) (sub-voxel neighbours) keep the one
-    # with the smaller investigation_id, deterministically.  Investigations
-    # whose true (x, y) falls outside the footprint are dropped (the column is
-    # void there anyway).
+    # --- map each honored investigation to the cells it owns ---------------
+    # Every grid cell whose centre lies within ``honor_radius_m`` of the
+    # investigation, plus its nearest cell always (see ``_honored_cells``).  When
+    # two investigations claim the same cell, ``honor_rank`` decides —
+    # has-a-log, then CPT over borehole, then deepest, then id (debt #241).
     honored_by_cell: dict[tuple[int, int], InvestigationColumn] = {}
     for inv in investigation_columns:
         if not inv.intervals:
             continue  # no observed log → nothing to honor
-        ci = int(np.argmin(np.abs(gx - inv.world_x)))
-        cj = int(np.argmin(np.abs(gy - inv.world_y)))
-        existing = honored_by_cell.get((ci, cj))
-        if existing is None or honor_rank(inv) < honor_rank(existing):
-            honored_by_cell[(ci, cj)] = inv
+        for cell in _honored_cells(gx, gy, inv.world_x, inv.world_y, honor_radius_m):
+            existing = honored_by_cell.get(cell)
+            if existing is None or honor_rank(inv) < honor_rank(existing):
+                honored_by_cell[cell] = inv
 
     # --- label every voxel column -----------------------------------------
     # Each column is labelled from its section-blend stack via ``_column_labels``
