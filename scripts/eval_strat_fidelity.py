@@ -18,6 +18,13 @@ Usage
 -----
     uv run python scripts/eval_strat_fidelity.py
     uv run python scripts/eval_strat_fidelity.py --model-id <uuid>
+    uv run python scripts/eval_strat_fidelity.py --gate     # non-zero on a real defect
+
+The ``--gate`` form is the acceptance check: it fails only on a disagreement
+INSIDE an investigation's drilled interval, where the log is authoritative. The
+headline sequence counts deliberately keep scoring the deep-band fill below total
+depth as a mismatch — that is the long-standing baseline and it is left alone —
+but it is correct geology, so it must never decide whether a build is acceptable.
 """
 
 from __future__ import annotations
@@ -334,6 +341,85 @@ def _classify_column(
     return "subsequence" if is_sub else "wrong"
 
 
+def _clip_to_drilled(
+    authored_units: list[tuple[str, float, float]],
+    model_stack: list[tuple[str, float, float]],
+) -> list[tuple[str, float, float]]:
+    """Model intervals that genuinely sit inside the investigation's drilled range.
+
+    An interval is kept when it overlaps ``[base, top]`` of the log at all.  The
+    ``_SUBSTRATE_MARGIN_M`` guard applies ONLY to an interval that also extends
+    outside the range: a deep-band unit poking a few centimetres up past the
+    drilled bottom is grid phase, not geology, and must not count as a unit the
+    log failed to mention.
+
+    An interval lying FULLY inside is always kept however thin it is.  Requiring
+    the margin of those too made the model look as if it were losing layers — the
+    within-drilled count came out WORSE than the headline, which is impossible
+    when the clip only removes material below total depth, and is what exposed
+    the bug.
+
+    Parameters
+    ----------
+    authored_units : list[tuple[str, float, float]]
+        ``(formation_id, top_elev_m, base_elev_m)`` top→bottom.
+    model_stack : list[tuple[str, float, float]]
+        ``(formation_id, base_elev_m, top_elev_m)`` top→bottom.
+
+    Returns
+    -------
+    list[tuple[str, float, float]]
+        The model intervals inside drilled ground, in model order.
+    """
+    top = max(u[1] for u in authored_units)
+    base = min(u[2] for u in authored_units)
+    kept: list[tuple[str, float, float]] = []
+    for fid, m_base, m_top in model_stack:
+        overlap = min(m_top, top) - max(m_base, base)
+        if overlap <= 0:
+            continue
+        fully_inside = m_top <= top + TOL and m_base >= base - TOL
+        if not fully_inside and overlap <= _SUBSTRATE_MARGIN_M:
+            continue
+        kept.append((fid, m_base, m_top))
+    return kept
+
+
+def _classify_column_in_drilled_interval(
+    authored_units: list[tuple[str, float, float]],
+    model_stack: list[tuple[str, float, float]],
+) -> str:
+    """Classify the model column WITHIN the investigation's drilled interval only.
+
+    The headline :func:`_classify_column` compares the whole model column against
+    the log, so it scores the deep-band fill BELOW an investigation's total depth
+    as a mismatch — correct geology, counted as a failure.  On the reference model
+    that accounts for most of the "wrong" tally, which makes the number useless
+    for deciding whether anything is actually broken: a real defect and a
+    by-design continuation look identical.
+
+    This restricts the comparison to ``[base, top]`` of the authored log, where
+    the log IS authoritative and any disagreement is a genuine defect. Both
+    numbers are reported; neither replaces the other.
+
+    Parameters
+    ----------
+    authored_units : list[tuple[str, float, float]]
+        ``(formation_id, top_elev_m, base_elev_m)`` top→bottom.
+    model_stack : list[tuple[str, float, float]]
+        ``(formation_id, base_elev_m, top_elev_m)`` top→bottom (model output).
+
+    Returns
+    -------
+    str
+        ``"exact"``, ``"subsequence"`` or ``"wrong"``, judged inside the drilled
+        interval; ``"exact"`` for an empty authored column (nothing to contradict).
+    """
+    if not authored_units:
+        return "exact"
+    return _classify_column(authored_units, _clip_to_drilled(authored_units, model_stack))
+
+
 def _fidelity_analysis(
     columns: list[tuple[str, float, float, list]],
     active_solids: list[tuple[str, str, list, list]],
@@ -363,6 +449,12 @@ def _fidelity_analysis(
     exact = 0
     subsequence = 0
     wrong = 0
+    # The same verdicts restricted to drilled ground, where the log is
+    # authoritative — the number that says whether anything is really broken.
+    exact_drilled = 0
+    subsequence_drilled = 0
+    wrong_drilled = 0
+    drilled_failures: list[dict] = []
 
     depth_errors: list[float] = []
     # The same errors, minus every pairing that matched a model interval BELOW
@@ -391,6 +483,26 @@ def _fidelity_analysis(
             subsequence += 1
         else:
             wrong += 1
+
+        drilled_verdict = _classify_column_in_drilled_interval(authored_units, model_stack)
+        if drilled_verdict == "exact":
+            exact_drilled += 1
+        elif drilled_verdict == "subsequence":
+            subsequence_drilled += 1
+        else:
+            wrong_drilled += 1
+        if drilled_verdict != "exact":
+            drilled_failures.append(
+                {
+                    "inv_id": inv_id,
+                    "verdict": drilled_verdict,
+                    "authored": [formation_names.get(u[0], u[0][:6]) for u in authored_units],
+                    "model": [
+                        formation_names.get(f, f[:6])
+                        for f, _mb, _mt in _clip_to_drilled(authored_units, model_stack)
+                    ],
+                }
+            )
 
         # Contact-depth error: compare each authored unit's base elevation to
         # the corresponding model interval's base elevation (paired by
@@ -493,6 +605,10 @@ def _fidelity_analysis(
         "exact": exact,
         "subsequence": subsequence,
         "wrong": wrong,
+        "exact_drilled": exact_drilled,
+        "subsequence_drilled": subsequence_drilled,
+        "wrong_drilled": wrong_drilled,
+        "drilled_failures": drilled_failures,
         "depth_errors_n": n,
         "depth_err_mean_m": round(mean_err, 3),
         "depth_err_median_m": round(median_err, 3),
@@ -750,6 +866,14 @@ async def main() -> None:
     """Run the fidelity + render-cost diagnostic and print the full evidence block."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model-id", type=UUID, default=_DEFAULT_MODEL_ID)
+    ap.add_argument(
+        "--gate",
+        action="store_true",
+        help=(
+            "exit non-zero when any investigation disagrees with its own log INSIDE "
+            "drilled ground (the deep-band fill below total depth is not a failure)"
+        ),
+    )
     args = ap.parse_args()
     model_id = args.model_id
 
@@ -834,6 +958,20 @@ async def main() -> None:
     print(f"    subsequence (pinch)    : {fidelity['subsequence']}")
     print(f"    wrong (reorder/invent) : {fidelity['wrong']}")
     print()
+    # Second line, same shape as the contact-error pair below: the headline
+    # counts the deep-band fill BELOW an investigation's total depth as a
+    # mismatch (correct geology, scored as failure), which makes it useless for
+    # deciding whether anything is broken.  Inside drilled ground the log is
+    # authoritative and a disagreement is a genuine defect.
+    print("  Sequence fidelity WITHIN DRILLED GROUND (the one that decides):")
+    print(f"    exact match            : {fidelity['exact_drilled']}")
+    print(f"    subsequence (pinch)    : {fidelity['subsequence_drilled']}")
+    print(f"    wrong (reorder/invent) : {fidelity['wrong_drilled']}")
+    for f in fidelity["drilled_failures"]:
+        print(f"    - {f['verdict'].upper()}  inv {f['inv_id']}")
+        print(f"        authored : {f['authored']}")
+        print(f"        model    : {f['model']}")
+    print()
     print(f"  Contact-depth errors ({fidelity['depth_errors_n']} contacts):")
     print(f"    mean                   : {fidelity['depth_err_mean_m']:.3f} m")
     print(f"    median                 : {fidelity['depth_err_median_m']:.3f} m")
@@ -878,6 +1016,22 @@ async def main() -> None:
     _print_worst_columns(fidelity["worst_columns"], formation_names)
 
     print("\n=== DIAGNOSTIC COMPLETE ===\n")
+
+    if args.gate:
+        # Only drilled-ground disagreements decide. The headline sequence counts
+        # score the deep-band fill below total depth as a mismatch — correct
+        # geology — so gating on them would fail every healthy build.
+        failures = fidelity["wrong_drilled"] + fidelity["subsequence_drilled"]
+        if failures or fidelity["uncovered"]:
+            raise SystemExit(
+                f"GATE FAILED: {fidelity['wrong_drilled']} column(s) contradict their own log "
+                f"inside drilled ground, {fidelity['subsequence_drilled']} lose a unit there, "
+                f"{fidelity['uncovered']} have no model at all."
+            )
+        print(
+            f"  GATE PASSED: all {fidelity['covered']} covered column(s) reproduce their own "
+            f"log inside drilled ground.\n"
+        )
 
 
 if __name__ == "__main__":
