@@ -6775,7 +6775,7 @@ treat the occurrence as a lens that pinches? Each gives different geology.
 **When to revisit.** With #247 — they show up at the same points and the fix for
 one changes the evidence for the other.
 
-## 249. Honor paints one voxel column, but a test is drawn wider than a voxel (S — owner-raised 2026-07-29)
+## 249. Honor paints one voxel column — WIDENED to a radius 2026-07-29 (S)
 
 **What.** Owner: *"shouldn't we paint the whole width of a column with one voxel?
 what if a test falls right on the bound of 2 voxels"*.
@@ -6796,9 +6796,33 @@ footprint to the drawn column width would make the log authoritative across the
 whole visible column, at the cost of overriding the blend in a wider corridor —
 which is a modelling decision, not a mechanical one.
 
-**When to revisit.** With the owner, after the current correctness pass. Related:
-#247 (fixed), the paired-station collisions in the fidelity gate, and the ~1.5 m
-surface step beside GEO-23/125-S12.
+**Done (owner ruling: "widen honor to the drawn column width").** The drawn width
+is screen-space (`BARE_COLUMN_WIDTH_PX = 14`, scaled by zoom), so there is no
+metre value to copy; `label_voxels` now honors every grid cell whose centre lies
+within `honor_radius_m`, read from
+`view_state.litho_segmenter.voxel_honor_radius_m` and defaulting to ONE horizontal
+voxel. The nearest cell is always included, so a small radius can never leave a
+log unhonored. A radius of one spacing reaches the four orthogonal neighbours but
+not the diagonals — a plus, not a 3x3 block.
+
+Measured on the real model. The per-column gate is the wrong instrument here (it
+samples AT the investigation, which was already honored); the metric that matches
+the intent is whether the model beside a column still reproduces that column's log:
+
+| radius | at-column gate | 1 m beside a column reproduces its log |
+|---|---|---|
+| 0 m (before) | 55 / 1 / 2 | 201/232 (86 %) |
+| **2 m = one voxel** | 55 / 1 / 2 | **216/232 (93 %)** |
+| 4 m = two voxels | 47 / 2 / 9 ✗ | — |
+
+Two voxels is actively harmful: corridors from neighbouring investigations start
+overriding each other and the blend. One voxel is the default; the setting is
+there for tuning.
+
+**It does NOT fix the paired stations.** Two tests 0.49 m apart still map into the
+same cell, so widening cannot separate them — `honor_rank` still picks one. That
+remains the only drilled-ground gate failure and needs finer spacing or a stacked
+paired-station column.
 
 ## 250. The fidelity gate now decides on drilled ground — and names 3 paired-station failures (S)
 
@@ -6835,5 +6859,36 @@ that also extend outside the range.
 
 **When to revisit.** Wire `--gate` into the pre-push hook once the paired-station
 question (#249) is settled, so it can be green.
+
+## 251. The 3-D model reproduces Fill bands at 97.8 % — 2 % genuine divergence left (M)
+
+**Owner, 2026-07-29:** *"the voxel should almost be the same as the zones in the
+fill bands tool no? Can't you check that (only a bit more blocky)"*. It should —
+the 2-D partition is the source the labeller works from — and
+`scripts/diag_partition_vs_voxel.py` now measures it.
+
+It samples every gap of every section in (fraction, elevation), asks the 2-D
+partition and the 3-D model what is there, and buckets each point. Current state:
+
+| bucket | points | share |
+|---|---|---|
+| agree | 26,709 | 95.6 % |
+| blocky (within half a voxel of a 2-D contact) | 608 | 2.2 % |
+| **disagree** | **545** | **2.0 %** |
+| model void where the partition fills | 66 | 0.2 % |
+
+**97.8 % reproduced.** The residual 2.0 % is concentrated on Cross-section 1
+(3.9 %, 331 of 8,592 samples); the two-column tie sections #7 and #3 are worse in
+share (4.9 %, 4.3 %) but tiny in absolute terms.
+
+**Why this instrument matters more than the per-column gate.** The gate scores 58
+investigation columns and says nothing about the area between them — which is
+where every defect this campaign chased actually lived (the invented silt, the
+climbing clay, the S12 clay wedge). This one covers the whole section area and
+localises the remainder.
+
+**When to revisit.** Next correctness pass: pull the 545 disagreeing samples,
+cluster them, and see whether they share a cause. Do NOT chase the percentage —
+find the mechanism, as with #244 and #247.
 
 ## (end)
