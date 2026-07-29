@@ -52,6 +52,12 @@ from groundmodel.domain.services.voxel_litho.extract_body_solids import (  # noq
     extract_body_solids,
 )
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels  # noqa: E402
+from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (  # noqa: E402
+    apply_body_aliases,
+)
+from groundmodel.domain.services.voxel_litho.true_column_positions import (  # noqa: E402
+    apply_true_column_positions,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (  # noqa: E402
     RegionInput,
     SectionColumnInput,
@@ -175,21 +181,27 @@ async def main() -> None:
         if model is not None and model.parent_model_id is not None:
             geo_surfaces = await load_geo_surfaces(session, model.parent_model_id)
 
-    sections = _sections_from_payload(target.payload)
-    # The stored payload is post-alias and post-re-seat (it is what was labelled),
-    # so only the honored columns need the alias map re-applied here.
-    columns = _apply_aliases_to_columns(
-        _investigation_columns_from_picks(picks), dict(target.body_aliases or {})
-    )
+    # Mirror BuildVoxelLithoModel.execute exactly. The stored payload is AS
+    # RECEIVED, so the alias map and the true-position re-seat are re-derived
+    # here, and — crucially — the footprint hull is built from the columns AS
+    # DRAWN unioned with the true positions, exactly as the build does. Building
+    # it from the re-seated payload instead loses the projected feet and returns
+    # a narrower grid.
+    received = _sections_from_payload(target.payload)
+    aliases = dict(target.body_aliases or {})
+    aliased = apply_body_aliases(received, aliases)
+    columns = _apply_aliases_to_columns(_investigation_columns_from_picks(picks), aliases)
+    seated, _moved, _shift = apply_true_column_positions(aliased, columns)
+
     started = time.perf_counter()
     domain = build_domain_from_sections(
-        sections,
+        aliased,
         investigation_positions=tuple((c.investigation_id, c.world_x, c.world_y) for c in columns),
     )
     grid = label_voxels(
         domain,
         target.horizontal_spacing_m,
-        sections,
+        seated,
         vertical_spacing_m=target.vertical_spacing_m,
         investigation_columns=columns,
         geo_surfaces=geo_surfaces,
