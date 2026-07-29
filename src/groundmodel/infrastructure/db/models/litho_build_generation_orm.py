@@ -96,9 +96,14 @@ class LithoBuildGenerationOrm(Base):
     grid_origin_z: Mapped[float] = mapped_column(Float, nullable=False)
 
     # --- inputs -------------------------------------------------------------
-    #: The section-partition payload exactly as POSTed. Large (hundreds of kB);
-    #: PostgreSQL TOASTs it out of line. This is what makes a build reproducible
-    #: without asking the frontend to hand-capture it again.
+    #: The section-partition payload exactly AS RECEIVED — before the
+    #: cross-section alias map and before columns are re-seated onto their true
+    #: map positions. Both of those are re-derivable from it; the projected-foot
+    #: column positions it carries are NOT recoverable afterwards, and the
+    #: footprint hull needs them (it unions the columns as-drawn with the true
+    #: positions, so it can only grow). Storing the re-seated payload instead
+    #: made a reproduction come back 21 grid cells narrower in Y.
+    #: Large (hundreds of kB); PostgreSQL TOASTs it out of line.
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     #: Digest over the payload + settings — the same value stamped on every
     #: solid row as ``source_pick_checksum``, so a mesh can be matched to the
