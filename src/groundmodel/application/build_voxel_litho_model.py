@@ -482,6 +482,15 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         #
         # This creates no correlation edge and writes nothing: the user's ties
         # stay exactly the user's ties, only the ids are aliased.
+        # The payload AS RECEIVED, before any transform.  The generation row
+        # stores THIS, not an intermediate: the alias map and the true-position
+        # re-seat are both derived from it, whereas the projected-foot column
+        # positions it carries are NOT recoverable afterwards — and the footprint
+        # hull needs them (it unions the columns as-drawn with the true
+        # positions, so it can only grow).  Storing the re-seated payload instead
+        # made a reproduction come back 21 grid cells narrower.
+        sections_received = sections
+
         aliases = plan_body_aliases(sections)
         merged_away = sum(1 for src, dst in aliases.items() if src != dst)
         if merged_away:
@@ -672,7 +681,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             await self._write_generation(
                 generation_id=generation_id,
                 model_id=model_id,
-                sections=sections,
+                sections=sections_received,
                 grid=grid,
                 aliases=aliases,
                 checksum=new_checksum,
