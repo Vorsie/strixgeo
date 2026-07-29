@@ -114,6 +114,7 @@ def _partition_checksum(
     geo_surfaces: tuple[SurfaceBound, ...] = (),
     *,
     vertical_spacing_m: float | None = None,
+    honor_radius_m: float = 0.0,
 ) -> bytes:
     """Model-wide BLAKE2b-16 digest over the voxel build inputs.
 
@@ -153,6 +154,12 @@ def _partition_checksum(
         The honored per-investigation observed columns (loaded from the DB
         picks); defaults to ``()`` (no honoring → digest unchanged from the
         section-only form for that case).
+    honor_radius_m : float, optional
+        The honored-column radius.  Folded in so widening or narrowing it
+        rebuilds — it changes which voxels take an investigation's own log
+        instead of the section blend.  Defaults to ``0.0`` (the pre-#249
+        nearest-cell-only behaviour), which keeps the digest byte-stable for a
+        caller that does not pass one.
     vertical_spacing_m : float or None, optional
         The anisotropic Z spacing.  ``None`` (the cubic case) is NOT folded in,
         so the cubic digest is byte-stable with the pre-anisotropy form; a set
@@ -178,6 +185,12 @@ def _partition_checksum(
     if vertical_spacing_m is not None:
         h.update(b"\x03")
         h.update(struct.pack("<d", vertical_spacing_m))
+    # Same shape for the honored radius: folded only when set, after its own
+    # domain separator, so a caller that does not pass one keeps the previous
+    # digest exactly.
+    if honor_radius_m:
+        h.update(b"\x04")
+        h.update(struct.pack("<d", float(honor_radius_m)))
     for s in sections:
         h.update(struct.pack("<dddd", s.start_x, s.start_y, s.end_x, s.end_y))
         for c in s.columns:
@@ -543,9 +556,10 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 "no built surfaces; building un-bounded"
             )
         snap_tol = await self._read_litho_snap_tolerance_m(model_id)
+        honor_radius_m = await self._read_honor_radius_m(model_id, grid_spacing_m)
         self.info(
             f"BuildVoxelLithoModel: model={model_id} — {len(geo_surfaces)} geo "
-            f"surface(s), litho_snap_tolerance_m={snap_tol}"
+            f"surface(s), litho_snap_tolerance_m={snap_tol}, honor_radius_m={honor_radius_m}"
         )
 
         # --- Early checksum short-circuit (before the expensive Phase 2/3) ----
@@ -563,6 +577,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             investigation_columns,
             geo_surfaces,
             vertical_spacing_m=vertical_spacing_m,
+            honor_radius_m=honor_radius_m,
         )
         existing_by_body = await self._load_existing(model_id)
         if (
@@ -599,6 +614,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     investigation_columns=investigation_columns,
                     geo_surfaces=geo_surfaces,
                     litho_snap_tolerance_m=snap_tol,
+                    honor_radius_m=honor_radius_m,
                 )
         except ValueError as err:
             self.warning(
@@ -817,6 +833,44 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         stmt = select(GeologicalModelOrm.parent_model_id).where(GeologicalModelOrm.id == model_id)
         parent_id = (await self._session.execute(stmt)).scalar_one_or_none()
         return parent_id  # already a UUID | None (mapped column type)
+
+    async def _read_honor_radius_m(self, model_id: UUID, grid_spacing_m: float) -> float:
+        """Read the honored-column radius, defaulting to one horizontal voxel.
+
+        Owner directive 2026-07-29: *"widen honor to the drawn column width"*.  The
+        drawn width is screen-space (``BARE_COLUMN_WIDTH_PX = 14``, scaled by
+        zoom), so there is no metre value to copy; the honored footprint is a real
+        radius instead, defaulting to one horizontal voxel so an investigation owns
+        its own cell and the four orthogonal neighbours rather than a single cell
+        chosen by grid phase (docs/debt.md #249).
+
+        ``0`` is a legitimate setting — it restores nearest-cell-only honoring — so
+        the guard admits it, unlike the snap-tolerance reader which rejects
+        non-positive values.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic model (to find its project).
+        grid_spacing_m : float
+            The horizontal voxel spacing, used as the default radius.
+
+        Returns
+        -------
+        float
+            The configured radius in metres, or ``grid_spacing_m``.
+        """
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is None:
+            return grid_spacing_m
+        view_state = await load_project_view_state(self._session, model.app_project_id)
+        radius = read_view_state_float(
+            view_state,
+            "litho_segmenter",
+            "voxel_honor_radius_m",
+            grid_spacing_m,
+        )
+        return radius if radius >= 0.0 else grid_spacing_m
 
     async def _read_litho_snap_tolerance_m(self, model_id: UUID) -> float:
         """Read the project's ``litho_snap_tolerance_m`` from its view-state.
