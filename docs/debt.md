@@ -6891,7 +6891,7 @@ localises the remainder.
 cluster them, and see whether they share a cause. Do NOT chase the percentage —
 find the mechanism, as with #244 and #247.
 
-## 252. Build provenance — a 3-D build is now reproducible from the database (M)
+## 252. Build provenance — a 3-D build is reproducible from the database, VERIFIED (M)
 
 **Done 2026-07-29**, owner-approved. A `litho_body_solid` row said WHAT was
 built; nothing said HOW or from what. The payload lived only in the frontend, the
@@ -6925,6 +6925,25 @@ the full payload.
 **The alias map is DERIVED build data with provenance and must never be read back
 as a user correlation.** It records a geometric merge, not user intent; the
 owner's ties remain exactly the owner's ties.
+
+**VERIFIED on the real model 2026-07-29.** Rebuilding generation
+`019fae07-b05d-7143` from the database alone returns grid 311x326x107, 81 bodies
+and 790,910 triangles — identical to what that build recorded — with mesh
+SHA-256 `2c3bda49b6e9…`. All 81 solid rows carry its `generation_id`.
+
+**The check found two of its own bugs before it found anything else**, which is
+the argument for having built it:
+
+1. `generation_id` was absent from the upsert's `ON CONFLICT DO UPDATE` set, so
+   the first build after shipping provenance wrote 81 meshes pointing at no
+   generation. Same failure mode as the `updated_at` bug days earlier, so the
+   update set is now DERIVED from the row's own keys rather than hand-listed
+   (`_upsert_update_columns`), and six tests pin it.
+2. The payload was stored AFTER the true-position re-seat, so a reproduction came
+   back 311x**305**x107 and 731,242 triangles — the footprint hull unions the
+   columns as-drawn with the true positions, and the projected feet had been
+   thrown away. The payload is now stored AS RECEIVED; the alias map and the
+   re-seat are re-derived from it.
 
 `scripts/diag_build_generations.py --reproduce` re-runs the labeller and mesher on
 a stored generation and compares bodies, triangles and a mesh checksum against
