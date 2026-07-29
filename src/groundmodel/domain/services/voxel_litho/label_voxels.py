@@ -282,6 +282,21 @@ def _project_to_section_fence(
     for gi in range(len(cols) - 1):
         a = cols[gi]
         b = cols[gi + 1]
+        # Exact bounding-box prune.  The true distance to a segment is never less
+        # than the distance to its bounding box, so a segment whose box is already
+        # farther than the best found cannot win — skipping it cannot change the
+        # result.  This loop runs once per section per in-footprint voxel column
+        # (2.6 M segment projections on the real model, docs/debt.md #245).
+        ax, bx = a.world_x, b.world_x
+        ay, by = a.world_y, b.world_y
+        if ax > bx:
+            ax, bx = bx, ax
+        if ay > by:
+            ay, by = by, ay
+        gap_x = ax - x if x < ax else (x - bx if x > bx else 0.0)
+        gap_y = ay - y if y < ay else (y - by if y > by else 0.0)
+        if gap_x * gap_x + gap_y * gap_y >= best_dist * best_dist:
+            continue
         along, dist, px, py = _project_point_to_segment(
             x, y, a.world_x, a.world_y, b.world_x, b.world_y
         )
