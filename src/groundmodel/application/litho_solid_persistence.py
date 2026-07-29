@@ -28,6 +28,7 @@ persistence contract separable from the build logic.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid5
@@ -41,6 +42,40 @@ from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodyS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 __all__ = ["LithoSolidsOutcome", "storage_body_id", "LithoSolidPersistenceMixin"]
+
+
+#: Columns an upsert must NEVER overwrite: the primary key, and the two columns
+#: that form the conflict target ``(model_id, body_id)`` — the row's identity.
+#: Everything else the builder writes is refreshed on rebuild.
+_UPSERT_IDENTITY_COLUMNS = frozenset({"id", "model_id", "body_id"})
+
+
+def _upsert_update_columns(row_keys: Iterable[str]) -> list[str]:
+    """Columns the ``ON CONFLICT DO UPDATE`` clause should refresh.
+
+    DERIVED from the row's own keys rather than hand-listed, because a column
+    missing from the update set is silently never written on the conflict path —
+    and the conflict path is every rebuild, since the row already exists.
+
+    That mistake has been made twice on this table. ``updated_at`` was absent, so
+    a rebuilt mesh kept the timestamp of the build that first created it (correct
+    content, stale metadata — which led to reporting that a successful build had
+    never persisted). ``generation_id`` was absent the moment it was added, so
+    the first build after shipping build provenance wrote 81 meshes and left every
+    one of them pointing at no generation. Neither was visible to any test.
+
+    Parameters
+    ----------
+    row_keys : Iterable of str
+        The keys of one upsert row dict.
+
+    Returns
+    -------
+    list of str
+        The updatable columns, in the row's own key order so the generated
+        statement is deterministic.
+    """
+    return [key for key in row_keys if key not in _UPSERT_IDENTITY_COLUMNS]
 
 
 @dataclass(frozen=True)
@@ -242,27 +277,19 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
         chunks = [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
         for chunk in chunks:
             stmt = pg_insert(LithoBodySolidOrm).values(chunk)
+            # Derived, not hand-listed — see ``_upsert_update_columns``. Every
+            # row in a chunk comes from one comprehension, so they share keys.
+            updates = {
+                column: getattr(stmt.excluded, column)
+                for column in _upsert_update_columns(chunk[0])
+            }
+            # The ORM column declares ``onupdate=func.now()``, but that only
+            # fires on an ORM-level UPDATE — a Core ``on_conflict_do_update``
+            # bypasses it, so the timestamp has to be set explicitly.
+            updates["updated_at"] = func.now()
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_litho_body_solid_model_body",
-                set_=dict(
-                    formation_id=stmt.excluded.formation_id,
-                    method=stmt.excluded.method,
-                    vertices=stmt.excluded.vertices,
-                    triangles=stmt.excluded.triangles,
-                    source_pick_count=stmt.excluded.source_pick_count,
-                    source_pick_checksum=stmt.excluded.source_pick_checksum,
-                    is_flagged=stmt.excluded.is_flagged,
-                    is_stale=stmt.excluded.is_stale,
-                    # The ORM column declares ``onupdate=func.now()``, but that
-                    # only fires on an ORM-level UPDATE — a Core
-                    # ``on_conflict_do_update`` bypasses it, so a rebuilt mesh
-                    # kept the timestamp of the build that FIRST created it.
-                    # The row content was current and only the timestamp was
-                    # stale, which is worse than either: it made "when was this
-                    # built?" unanswerable from the database and led a diagnosis
-                    # to conclude a successful build had never persisted.
-                    updated_at=func.now(),
-                ),
+                set_=updates,
             )
             await self._session.execute(stmt)
         return len(chunks)
