@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid5
 
-from sqlalchemy import CursorResult, delete, select
+from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -253,6 +253,15 @@ class LithoSolidPersistenceMixin(GroundModelLogger):
                     source_pick_checksum=stmt.excluded.source_pick_checksum,
                     is_flagged=stmt.excluded.is_flagged,
                     is_stale=stmt.excluded.is_stale,
+                    # The ORM column declares ``onupdate=func.now()``, but that
+                    # only fires on an ORM-level UPDATE — a Core
+                    # ``on_conflict_do_update`` bypasses it, so a rebuilt mesh
+                    # kept the timestamp of the build that FIRST created it.
+                    # The row content was current and only the timestamp was
+                    # stale, which is worse than either: it made "when was this
+                    # built?" unanswerable from the database and led a diagnosis
+                    # to conclude a successful build had never persisted.
+                    updated_at=func.now(),
                 ),
             )
             await self._session.execute(stmt)
