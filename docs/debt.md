@@ -6624,7 +6624,7 @@ guessing which has already been wrong once on this subsystem.
 **When to revisit.** With #245. Instrument first (`performance.mark` around the
 four stages), then optimise what the numbers name.
 
-## 247. The 3-D blend ranks sections in PROJECTED-FOOT space, not true position (L — likely the fundamental voxel defect)
+## 247. The 3-D blend ranked sections in PROJECTED-FOOT space — FIXED 2026-07-29 (L)
 
 **What.** `label_voxels._project_to_section_fence` ranks sections by perpendicular
 distance to a polyline through each section's column `world_x/world_y`, and its
@@ -6662,6 +6662,47 @@ At that point:
 CS1's own partition on that leg carries `SILT 11.95..5.21` across the whole gap —
 no clay at all. The tie carries `KLEI 8.166/6.326`. The tie wins 5:1 on CS1's own
 leg because CS1's fence is made of feet displaced from where S12 actually is.
+
+**FIXED (owner ruling 2026-07-29: "rank by true positions").**
+`domain/services/voxel_litho/true_column_positions.py` re-seats every section
+column onto its investigation's true map location before labelling, so the
+section ranking AND the gap-local fraction are both measured where the ground
+actually is. It re-measures rather than re-draws: `along_m`, the section line
+endpoints and every region polygon are untouched, so the validated 2-D partition
+is unchanged. A column whose investigation has no honored entry keeps the
+coordinate it arrived with. Commits `677113b96`, `5c1dc2fb9`, `4cf1f3525`.
+
+The footprint deliberately still uses the columns AS DRAWN plus the true
+positions, so the hull is the union of both and can only be larger — shrinking it
+would re-open the uncovered-column bug the July footprint fix closed.
+
+**Real-data result** (83 columns re-seated, max shift 64.9 m). Two metres from
+`GEO-23/125-S12` — one horizontal voxel:
+
+```
+before: SILT 11.94->8.19 | KLEI 8.19->6.44 | ZAND 6.44->5.94 | KLEI 5.94->3.44
+after : SILT 11.94->6.44 | ZAND 6.44->5.69 | KLEI 5.69->3.44
+log   : SILT 11.84->6.44 | ZAND 6.44->5.73 | KLEI 5.73->3.55
+```
+
+The invented clay is gone and the stack one voxel from the column now reproduces
+the log.
+
+**The column gate moved from exact 49 / wrong 9 to exact 48 / wrong 10, and that
+is recorded rather than explained away.** The single flip is
+`1411-GEO-23/126-B3`: its drilled interval is still reproduced EXACTLY (the first
+8 units are identical), with two extra units appended BELOW its total depth — the
+by-design deep-band fill that already accounted for 7 of the original 9. So the
+tally is now 8 below-TD fill + 2 paired-station voxel collisions, and nothing
+regressed inside drilled ground. The gate cannot currently tell those apart; that
+is a gate weakness (see the fidelity-gate work in Codex's workstream B), not a
+model regression.
+
+**Still open at S12:** the model surface one voxel from the column rises to 13.44
+where S12's own logged top is 11.94 — a ~1.5 m step in the ground surface beside
+the column, unchanged by this fix. Separate from #247.
+
+**Original analysis, kept for the record.**
 
 **Why deferred — it is an architectural call, not a mechanical fix.** Two
 defensible answers and the owner has to pick:
