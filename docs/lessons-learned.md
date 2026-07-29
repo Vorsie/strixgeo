@@ -97,3 +97,31 @@ The voxel builder framed its model footprint from the section columns' **project
 ### 17. A resolution limit is not a bug — but silently picking a winner is.
 Two investigations closer than one voxel cannot both be represented on a regular grid; the builder honored whichever had the lexicographically smaller UUID, which on time-ordered UUIDv7 means "whichever was imported first". The loser's drilled log was replaced by its neighbour's *at the loser's own map position* — the model asserting borehole A's stratigraphy where borehole B was drilled — with nothing in the log to say so. Worse, which pairs collide depends on where the grid origin falls, so the defect set moved when an unrelated fix changed the footprint.
 **Apply:** where a discretisation forces a choice between two pieces of real data, the choice is a domain rule the owner has to make — but the *reporting* of it never is. Log every contended pair by name at WARNING before asking the question, and record the arbitrary rule as debt rather than letting it read as intent.
+
+## Verify freshness by CONTENT, not by a timestamp column (2026-07-29)
+
+A `litho_body_solid` upsert wrote correct, current meshes while leaving
+`updated_at` at the value from the build that first created the row. The ORM
+column declares `onupdate=func.now()`, but that only fires on an ORM-level
+UPDATE — a Core `pg_insert(...).on_conflict_do_update(set_=...)` bypasses it
+entirely.
+
+The failure this caused was not the stale column itself. It was that a
+diagnosis read the timestamp, saw yesterday's date, and concluded twice — to the
+owner — that a successful 61-second build had never persisted. The owner rebuilt,
+saw no error, and was told again that nothing had been written. Only the backend
+log settled it, and the decisive check took one query: the row content carried
+**790,910 triangles, exactly the number that build's log reported**.
+
+Two rules out of it:
+
+* **A metadata column is a claim; the payload is the evidence.** When asking "is
+  this data fresh?", compare something the process actually computes — a count, a
+  checksum, a total — against what the process said it produced. `updated_at` is
+  a convenience, and a convenience that can silently be wrong.
+* **A row count that matches the new run while the timestamp matches the old one
+  is a contradiction, not a curiosity.** 81 rows against a log saying `built=81`
+  should have been read as "the write happened" long before it was.
+
+Any `on_conflict_do_update` that omits `updated_at` from its `set_` has this
+bug; the ORM declaration will not save it.
