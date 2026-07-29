@@ -32,8 +32,10 @@ Points are then bucketed:
 ``model void``       the partition fills it but the model has nothing there
 ``outside``          the partition has no region there (nothing to compare)
 
-The build is recomputed IN MEMORY from the current code, so this reports on the
-code as it stands rather than on whatever happens to be persisted.
+The inputs come from the STORED BUILD GENERATION, so this reports on the build
+the owner actually looked at. It used to read a hand-captured payload file, which
+silently described a different model whenever the live build had moved on (14
+sections against the file's 16).
 
 Nothing is written. Reads only, behind the usual dev-DB guard.
 
@@ -47,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -55,6 +58,8 @@ from uuid import UUID
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from sqlalchemy import select  # noqa: E402
 
 from groundmodel.application.build_voxel_litho_model import (  # noqa: E402
     _apply_aliases_to_columns,
@@ -70,7 +75,6 @@ from groundmodel.domain.services.voxel_litho.extract_body_solids import (  # noq
 from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels  # noqa: E402
 from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (  # noqa: E402
     apply_body_aliases,
-    plan_body_aliases,
 )
 from groundmodel.domain.services.voxel_litho.true_column_positions import (  # noqa: E402
     apply_true_column_positions,
@@ -79,21 +83,20 @@ from groundmodel.domain.services.voxel_litho.voxel_types import RegionInput  # n
 from groundmodel.infrastructure.db.models.geological_model_orm import (  # noqa: E402
     GeologicalModelOrm,
 )
+from groundmodel.infrastructure.db.models.litho_build_generation_orm import (  # noqa: E402
+    LithoBuildGenerationOrm,
+)
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (  # noqa: E402
     LithoLayerRepository,
 )
-from groundmodel.infrastructure.db.repositories.project_repository import (  # noqa: E402
-    ProjectRepository,
-)
 from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E402
-from scripts.diag_voxel_label_columns import _load_payload  # noqa: E402
+from scripts.diag_build_generations import _sections_from_payload  # noqa: E402
 from scripts.eval_strat_fidelity import (  # noqa: E402
     _compute_model_stack,
     _confirm_db_target,
 )
 
 _DEFAULT_MODEL_ID = UUID("019e934c-70fd-7d11-a44a-b2073f4063a2")
-_DEFAULT_PAYLOAD = _REPO_ROOT / "scripts" / "throwaway_v2_voxel_payload.json"
 
 
 def _point_in_region(region: RegionInput, fraction: float, elevation: float) -> bool:
@@ -139,8 +142,13 @@ async def main() -> None:
     """Sample every section gap and compare the 2-D partition to the 3-D model."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model-id", type=UUID, default=_DEFAULT_MODEL_ID)
-    ap.add_argument("--payload", type=Path, default=_DEFAULT_PAYLOAD)
-    ap.add_argument("--step-fraction", type=float, default=0.1)
+    ap.add_argument("--generation", type=UUID, default=None)
+    # Sampling steps along the gap in METRES, not in gap-local fraction.
+    # Stepping by fraction gives every gap the same number of samples whatever
+    # its width, so a 0.4 m pair gap is sampled as densely as a 100 m span and
+    # dominates any percentage by orders of magnitude per unit area. That bias
+    # produced a confident and wrong conclusion once already.
+    ap.add_argument("--step-m", type=float, default=1.0)
     ap.add_argument("--step-elev", type=float, default=0.5)
     args = ap.parse_args()
 
@@ -155,16 +163,25 @@ async def main() -> None:
         geo_surfaces: tuple = ()
         if model.parent_model_id is not None:
             geo_surfaces = await load_geo_surfaces(session, model.parent_model_id)
-        project = await ProjectRepository(session).get_by_id(model.app_project_id)
 
-    seg = (project.view_state or {}).get("litho_segmenter") or {}
-    snap = float(seg.get("litho_snap_tolerance_m") or 0.20)
-    horizontal = float(seg.get("voxel_horizontal_spacing_m") or 2.0)
-    vertical = float(seg.get("voxel_vertical_spacing_m") or horizontal)
-    honor_radius = float(seg.get("voxel_honor_radius_m") or horizontal)
+        gen_stmt = select(LithoBuildGenerationOrm).order_by(
+            LithoBuildGenerationOrm.created_at.desc()
+        )
+        if args.generation:
+            gen_stmt = gen_stmt.where(LithoBuildGenerationOrm.id == args.generation)
+        generation = (await session.execute(gen_stmt)).scalars().first()
+        if generation is None:
+            raise SystemExit("ABORT: no build generation stored — click Build once.")
 
-    raw, _ph, _pv = _load_payload(args.payload)
-    aliases = plan_body_aliases(raw)
+    # Settings from the GENERATION, not the live view-state: the point is to
+    # measure the build that was made, not one made with today's preferences.
+    snap = generation.litho_snap_tolerance_m
+    horizontal = generation.horizontal_spacing_m
+    vertical = generation.vertical_spacing_m
+    honor_radius = generation.honor_radius_m
+
+    raw = _sections_from_payload(generation.payload)
+    aliases = dict(generation.body_aliases or {})
     aliased = apply_body_aliases(raw, aliases)
     columns = _apply_aliases_to_columns(_investigation_columns_from_picks(picks), aliases)
     seated, moved, _shift = apply_true_column_positions(aliased, columns)
@@ -213,7 +230,10 @@ async def main() -> None:
             elevs = [e for r in regions for _f, e in r.polygon]
             lo, hi = min(elevs), max(elevs)
 
-            frac = args.step_fraction / 2.0
+            gap_m = math.hypot(right.world_x - left.world_x, right.world_y - left.world_y)
+            steps = max(1, int(round(gap_m / args.step_m)))
+            frac_step = 1.0 / steps
+            frac = frac_step / 2.0
             while frac < 1.0:
                 x = left.world_x + (right.world_x - left.world_x) * frac
                 y = left.world_y + (right.world_y - left.world_y) * frac
@@ -239,7 +259,7 @@ async def main() -> None:
                         else:
                             sec_counts["disagree"] += 1
                     elevation += args.step_elev
-                frac += args.step_fraction
+                frac += frac_step
 
         totals.update(sec_counts)
         compared = sum(sec_counts[k] for k in ("agree", "blocky", "disagree", "model void"))
