@@ -73,6 +73,7 @@ from groundmodel.infrastructure.db.repositories.litho_layer_repository import ( 
 from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E402
 from scripts.diag_build_generations import _sections_from_payload  # noqa: E402
 from scripts.diag_partition_vs_voxel import (  # noqa: E402
+    _distance_to_formation,
     _distance_to_nearest_contact,
     _point_in_region,
 )
@@ -240,7 +241,15 @@ async def main() -> None:
                             (f for f, base, top in stack if base <= elevation < top), None
                         )
                         contact_d = _distance_to_nearest_contact(regions, frac, elevation)
-                        if threed is not None and threed != twod and contact_d > blocky_tol:
+                        # Blockiness is judged against the DISPUTED formation:
+                        # the 3-D's answer must genuinely exist within half a
+                        # voxel, or it is invention (see _distance_to_formation).
+                        own_d = (
+                            _distance_to_formation(regions, frac, elevation, threed)
+                            if threed is not None
+                            else float("inf")
+                        )
+                        if threed is not None and threed != twod and own_d > blocky_tol:
                             a = names.get(twod, twod[:6])
                             b = names.get(threed, threed[:6])
                             by_transition[f"{a} -> {b}"] += 1

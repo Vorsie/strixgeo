@@ -114,6 +114,60 @@ def _point_in_region(region: RegionInput, fraction: float, elevation: float) -> 
     return inside
 
 
+def _spans_at_fraction(region: RegionInput, fraction: float) -> list[tuple[float, float]]:
+    """Elevation intervals a region covers on the vertical line at ``fraction``.
+
+    Even-odd pairing of the ring's crossings, exact for a simple ring.
+    """
+    crossings: list[float] = []
+    poly = region.polygon
+    for i in range(len(poly)):
+        f_a, e_a = poly[i]
+        f_b, e_b = poly[(i + 1) % len(poly)]
+        if f_a == f_b:
+            continue
+        lo, hi = (f_a, f_b) if f_a < f_b else (f_b, f_a)
+        if not (lo <= fraction < hi):
+            continue
+        crossings.append(e_a + (e_b - e_a) * ((fraction - f_a) / (f_b - f_a)))
+    crossings.sort()
+    return [
+        (crossings[i], crossings[i + 1])
+        for i in range(0, len(crossings) - 1, 2)
+        if crossings[i + 1] > crossings[i]
+    ]
+
+
+def _distance_to_formation(
+    regions: list[RegionInput], fraction: float, elevation: float, formation_id: str
+) -> float:
+    """Vertical distance to the nearest region of ``formation_id`` at ``fraction``.
+
+    THE blockiness test. When the 2-D says A and the 3-D says B at a point, the
+    difference is discretisation only if B genuinely exists within half a voxel
+    vertically — that is a contact landing one voxel off. If the nearest B is
+    further than that, the 3-D put B somewhere the partition has no B at all,
+    which is invention, not blockiness.
+
+    The previous test measured distance to the nearest edge of ANY region in the
+    gap. With a dozen regions stacked in one span, contacts are everywhere and
+    almost every wrong voxel sat within 12.5 cm of SOME line, so it forgave 160
+    of 167 real disagreements in a single gap and reported the model as 0.2 %
+    wrong. A metric that excuses almost everything is worse than none.
+
+    Returns ``inf`` when the gap contains no region of that formation at all.
+    """
+    best = float("inf")
+    for region in regions:
+        if region.formation_id != formation_id:
+            continue
+        for low, high in _spans_at_fraction(region, fraction):
+            if low <= elevation <= high:
+                return 0.0
+            best = min(best, low - elevation if elevation < low else elevation - high)
+    return best
+
+
 def _distance_to_nearest_contact(
     regions: list[RegionInput], fraction: float, elevation: float
 ) -> float:
@@ -254,7 +308,10 @@ async def main() -> None:
                             sec_counts["model void"] += 1
                         elif threed == twod:
                             sec_counts["agree"] += 1
-                        elif _distance_to_nearest_contact(regions, frac, elevation) <= blocky_tol:
+                        elif (
+                            _distance_to_formation(regions, frac, elevation, threed)
+                            <= blocky_tol
+                        ):
                             sec_counts["blocky"] += 1
                         else:
                             sec_counts["disagree"] += 1
