@@ -90,6 +90,9 @@ from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import
     apply_body_aliases,
     plan_body_aliases,
 )
+from groundmodel.domain.services.voxel_litho.true_column_positions import (
+    apply_true_column_positions,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     SectionPartitionInput,
@@ -477,17 +480,38 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"found nothing to alias across {len(aliases)} body id(s)"
             )
 
+        # --- Rank the blend in TRUE map space, not projected-foot space --------
+        # The payload's column world positions are the frontend's CANONICAL ones
+        # ("the projected position on the densest section"), which on the dev
+        # model sit a MEDIAN OF 11 m — max 65 m — from where the investigation
+        # actually is.  Everything else here works in true space: the grid, the
+        # footprint, the honored columns.  So the labeller was choosing which
+        # sections are nearest a voxel in one coordinate space and placing the
+        # material in another (docs/debt.md #247 — the twin of the footprint bug
+        # fixed in d3b6c1fd0..99c6e023f).  Owner ruling 2026-07-29: rank by true
+        # positions.  This re-measures only; along_m, the section line and every
+        # region polygon are untouched.
+        sections_as_drawn = sections
+        sections, columns_moved, max_shift_m = apply_true_column_positions(
+            sections, investigation_columns
+        )
+        if columns_moved:
+            self.info(
+                f"BuildVoxelLithoModel: model={model_id} — re-seated {columns_moved} section "
+                f"column(s) onto their true map positions (max shift {max_shift_m:.2f} m)"
+            )
+
         # --- Phase 1: domain footprint from the feet + the drilled positions ---
-        # Both position kinds feed the hull: the section columns' PROJECTED FEET
-        # (where the 2-D partition geometry lives) and the investigations' TRUE
-        # map positions (where their logs are honored).  Feet alone leave
-        # off-corridor investigations outside the footprint, and the labeller
-        # then skips their grid column entirely — no model at all where the
-        # ground was drilled.
+        # Built from the columns AS DRAWN plus the investigations' TRUE map
+        # positions, so the hull is the union of both and can only be larger than
+        # either.  The footprint is a coverage gate, not geometry: being generous
+        # is safe (the labeller still voids any column no section reaches), while
+        # shrinking it would re-open the uncovered-column bug the footprint fix
+        # closed.
         try:
             with phase_timer(self, "BuildVoxelLithoModel phase-1 domain"):
                 domain = build_domain_from_sections(
-                    sections,
+                    sections_as_drawn,
                     investigation_positions=tuple(
                         (c.investigation_id, c.world_x, c.world_y) for c in investigation_columns
                     ),
