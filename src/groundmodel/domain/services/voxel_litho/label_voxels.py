@@ -403,6 +403,63 @@ def _blended_top(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> float
     return w1 * t1 + (1.0 - w1) * t2
 
 
+def _pair_occurrences(
+    left: list[_Entry], right: list[_Entry]
+) -> list[tuple[_Entry | None, _Entry | None]]:
+    """Match a body's re-entrant occurrences across two sections, by elevation.
+
+    A body can appear several times in one section's stack (a clay that occurs
+    twice down the column).  Before their thicknesses can be interpolated, each
+    occurrence on one section has to be matched to the occurrence on the other
+    that it actually corresponds to.
+
+    This used to be done by ARRAY RANK — ``left[k]`` with ``right[k]`` after
+    sorting by elevation.  Rank is an artifact of sort order, not evidence: where
+    the two sections carry different NUMBERS of occurrences the ranks shift, and
+    a shallow occurrence gets paired with a deep one.  Measured 2 m from
+    ``GEO-23/125-S12``: the tie's two clays sit at mid 7.25 and 4.73, CS1 has one
+    at mid 4.64, and rank paired the 7.25 with the 4.64 — 2.6 m apart — while the
+    4.73 sat 0.1 m away (docs/debt.md #248).
+
+    Pairing is therefore by CLOSEST mid-elevation, greedily: the globally nearest
+    pair is taken first, then the next nearest among what is left, and so on.
+    Whatever is left over on either side is returned unpaired, so the caller
+    pinches it exactly as it already pinches a body present on one section only —
+    an occurrence with no counterpart is a lens, and inventing a partner for it is
+    the thing this function exists to stop.
+
+    Parameters
+    ----------
+    left, right : list of _Entry
+        One body's occurrences on each section, in any order.
+
+    Returns
+    -------
+    list of (``_Entry`` or None, ``_Entry`` or None)
+        One tuple per occurrence across both sides: matched pairs first (nearest
+        first), then the unmatched remainder.  Every input entry appears exactly
+        once, so the laid-out stack still tiles.
+    """
+    candidates = sorted(
+        ((abs(_mid(a) - _mid(b)), i, j) for i, a in enumerate(left) for j, b in enumerate(right)),
+        # Distance first; the index tie-break keeps the result deterministic when
+        # two candidates are equidistant.
+        key=lambda c: (c[0], c[1], c[2]),
+    )
+    used_left: set[int] = set()
+    used_right: set[int] = set()
+    pairs: list[tuple[_Entry | None, _Entry | None]] = []
+    for _distance, i, j in candidates:
+        if i in used_left or j in used_right:
+            continue
+        used_left.add(i)
+        used_right.add(j)
+        pairs.append((left[i], right[j]))
+    pairs.extend((e, None) for i, e in enumerate(left) if i not in used_left)
+    pairs.extend((None, e) for j, e in enumerate(right) if j not in used_right)
+    return pairs
+
+
 def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list[_Entry]:
     """Blend two section stacks at inverse-distance weight ``w1`` (for stack 1).
 
@@ -441,11 +498,11 @@ def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list
 
     specs: list[tuple[float, str | None, str, float]] = []
     for body in matched:
-        left = sorted(g1[body], key=lambda e: -_mid(e))
-        right = sorted(g2[body], key=lambda e: -_mid(e))
-        for k in range(max(len(left), len(right))):
-            e1 = left[k] if k < len(left) else None
-            e2 = right[k] if k < len(right) else None
+        # Occurrences are matched by NEAREST mid-elevation, not by rank — see
+        # ``_pair_occurrences``.  Where the two sections carry different numbers
+        # of occurrences, rank paired a shallow one with a deep one and averaged
+        # their thicknesses into a position neither section has (#248).
+        for e1, e2 in _pair_occurrences(g1[body], g2[body]):
             if e1 is not None and e2 is not None:
                 th = w1 * _th(e1) + w2 * _th(e2)
                 ref = w1 * _mid(e1) + w2 * _mid(e2)
