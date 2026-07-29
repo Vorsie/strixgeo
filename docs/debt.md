@@ -6891,4 +6891,55 @@ localises the remainder.
 cluster them, and see whether they share a cause. Do NOT chase the percentage —
 find the mechanism, as with #244 and #247.
 
+## 252. Build provenance — a 3-D build is now reproducible from the database (M)
+
+**Done 2026-07-29**, owner-approved. A `litho_body_solid` row said WHAT was
+built; nothing said HOW or from what. The payload lived only in the frontend, the
+settings only in the project view-state at the instant the build ran, and the
+derived body identity only in memory.
+
+That cost real time twice in this campaign. Every real-data check ran against a
+section payload captured by hand into a throwaway file, and when the owner's live
+build used 14 sections while the capture had 16, every number computed from the
+file was quietly about a different model. Separately, a successful build's meshes
+carried an earlier build's timestamp because nothing recorded when a generation
+happened.
+
+**`litho_build_generation`** — one row per build, carrying:
+
+* the exact section payload POSTed, plus its checksum;
+* every setting that changes the output — horizontal / vertical spacing, honor
+  radius, snap tolerance;
+* the grid geometry INCLUDING THE ORIGIN (grid phase decides which cell an
+  investigation lands in, and the phase moves when the footprint changes — two
+  builds with the same spacing and different origins are not the same build);
+* the parent geo-surface digest;
+* `body_aliases`: the cross-section merge's `source body -> derived component`
+  map, so "which user-authored bodies make up this mesh?" is answerable;
+* outcome counts and duration.
+
+`litho_body_solid.generation_id` (nullable, `ON DELETE SET NULL`) names the build
+behind every mesh. History is pruned to the last 10 per model — each row holds
+the full payload.
+
+**The alias map is DERIVED build data with provenance and must never be read back
+as a user correlation.** It records a geometric merge, not user intent; the
+owner's ties remain exactly the owner's ties.
+
+`scripts/diag_build_generations.py --reproduce` re-runs the labeller and mesher on
+a stored generation and compares bodies, triangles and a mesh checksum against
+what that build recorded. A divergence means the builder no longer reproduces its
+own output — which is precisely what a provenance record exists to detect.
+
+**Migration written by hand.** `alembic revision --autogenerate` proposed 66
+operations: the two wanted ones plus a dozen `dov_permkey` index drops and other
+pre-existing model-vs-database drift. Applying it would have silently destroyed
+indexes the DOV import relies on. Only the two intended operations shipped; the
+drift is left for a deliberate, separate migration and is still open.
+
+**Not done, deliberately.** Bundle round-trip: generations do not travel in
+`.gmproj`. They are reproducible build metadata for the machine that built the
+model, and adding them to the bundle needs a format-version decision. Revisit
+when the backwards-compat contract is re-armed (#47).
+
 ## (end)
