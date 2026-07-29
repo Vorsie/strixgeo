@@ -6560,7 +6560,7 @@ data" is true for the model but not yet for the rows; (b) `buildProjectFence`
 (the 3-D fence view) does not run the pass, so fence panels can still show the
 per-section ids.
 
-## 245. Litho 3-D build is too slow (M — owner-raised 2026-07-28)
+## 245. Litho 3-D build is too slow (M — owner-raised 2026-07-28, partially addressed)
 
 **What.** A full "Build model" takes ~62 s of pure compute on the dev model
 (58 investigations, 16 sections) at 2.0 m horizontal / 0.25 m vertical, plus DB
@@ -6598,8 +6598,35 @@ Free win already banked: the cross-section body merge (#244) cut triangles
 997,986 → 814,098 (-18 %) because merged bodies no longer carry internal
 boundary surfaces between their halves.
 
-**Why deferred.** Correctness first, by owner directive. Optimising the labeller
-while its output is still being corrected risks locking in current behaviour.
+**Progress 2026-07-29 — 62.3 s -> 53.8 s at 2.0 m / 0.25 m, output byte-identical
+throughout** (mesh SHA-256 `1f80171f...` before and after every change):
+
+| change | effect |
+|---|---|
+| cross-section body merge (#244) | tris 997,986 -> 776,686; most of the extract gain |
+| int-tuple edge keys in `_split_pinched_edges_by_midpoint` | extract 26.0 -> 24.4 s (~6 %) |
+| exact bbox prune in `_project_to_section_fence` | label 32.6 -> 31.9 s (~2 %) |
+
+Both code changes are exact — same meshes, verified by checksum — but both came in
+FAR below what cProfile implied. The lesson worth keeping: cProfile inflates
+C-call-heavy inner loops badly, so a profile-derived ranking needs a wall-clock A/B
+before anyone invests in it.
+
+**Where the time actually is, measured.** `_split_pinched_edges_by_midpoint`
+resolves **11,768 pinches across 101 bodies** (~116 per body), and each pass
+rebuilds the whole edge->triangle map over every triangle of the body. The cost is
+that repeated full rebuild, not the key type. Making it incremental (maintain the
+map across passes, touching only the triangles a split changed) is the real win
+left in extraction, and it is a correctness-sensitive rewrite of a
+watertightness-critical routine — not a quick change.
+
+Labelling is now the larger half (31.9 s of 53.8 s) and is dominated by the
+per-column, per-section work rather than any single hotspot. Numba on the labelling
+loop remains the candidate.
+
+**Why the rest is deferred.** Correctness first, by owner directive. Optimising the
+labeller while its output is still being corrected risks locking in current
+behaviour.
 
 **When to revisit.** Once the observed-column fidelity gate is green — then take
 (1) and (2), which are contained and do not change output.
@@ -6747,5 +6774,30 @@ treat the occurrence as a lens that pinches? Each gives different geology.
 
 **When to revisit.** With #247 — they show up at the same points and the fix for
 one changes the evidence for the other.
+
+## 249. Honor paints one voxel column, but a test is drawn wider than a voxel (S — owner-raised 2026-07-29)
+
+**What.** Owner: *"shouldn't we paint the whole width of a column with one voxel?
+what if a test falls right on the bound of 2 voxels"*.
+
+`label_voxels` honors an investigation at its NEAREST grid column — a single
+`(i, j)` cell, chosen by `argmin |gx - world_x|`. Two consequences:
+
+* a test sitting near a cell boundary can be honored up to half a voxel
+  (1 m at 2 m spacing) from where it actually is, and which side it lands on
+  depends on the grid phase, which moves when the footprint changes;
+* the column the engineer sees drawn on a section is wider than one voxel, so the
+  cells either side of the honored one carry blended material — the log is
+  faithful only in the middle of the drawn column.
+
+**Why it matters.** It is the residual of the same family as #247: the model is
+right AT the investigation and drifts immediately beside it. Widening the honored
+footprint to the drawn column width would make the log authoritative across the
+whole visible column, at the cost of overriding the blend in a wider corridor —
+which is a modelling decision, not a mechanical one.
+
+**When to revisit.** With the owner, after the current correctness pass. Related:
+#247 (fixed), the paired-station collisions in the fidelity gate, and the ~1.5 m
+surface step beside GEO-23/125-S12.
 
 ## (end)
