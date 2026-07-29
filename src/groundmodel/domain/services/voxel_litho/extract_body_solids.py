@@ -719,10 +719,16 @@ def _split_pinched_edges_by_midpoint(
     # passes) and only trips on a pathological all-mutually-adjacent cluster, which
     # the manifold assert would then surface.
     for _ in range(100000):
-        edge_tris: dict[frozenset[int], list[int]] = {}
+        # The edge key is a normalised (low, high) int tuple, not a frozenset.
+        # This loop runs 3x per triangle per pass over every body — ~17 M keys on
+        # the real model — and building a frozenset for each was the single
+        # largest item in the whole build profile (12.9 s tottime in 112 calls,
+        # docs/debt.md #245).  A 2-int tuple hashes far more cheaply and means
+        # exactly the same thing here, since an edge has exactly two ends.
+        edge_tris: dict[tuple[int, int], list[int]] = {}
         for ti, (a, b, c) in enumerate(triangles):
             for u, v in ((a, b), (b, c), (c, a)):
-                edge_tris.setdefault(frozenset((u, v)), []).append(ti)
+                edge_tris.setdefault((u, v) if u < v else (v, u), []).append(ti)
         pinched = [(e, ts) for e, ts in edge_tris.items() if len(ts) == 4]
         if not pinched:
             break
@@ -731,7 +737,7 @@ def _split_pinched_edges_by_midpoint(
         for edge, tris in pinched:
             if any(ti in touched for ti in tris):
                 continue  # a sibling pinch already claimed one of these triangles
-            u, v = tuple(edge)
+            u, v = edge
             # Two dihedral pairs by directed edge (one u->v + one v->u each).
             fwd = [ti for ti in tris if _directed(triangles[ti], u, v)]
             rev = [ti for ti in tris if _directed(triangles[ti], v, u)]
