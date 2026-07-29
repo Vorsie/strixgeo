@@ -6800,4 +6800,40 @@ which is a modelling decision, not a mechanical one.
 #247 (fixed), the paired-station collisions in the fidelity gate, and the ~1.5 m
 surface step beside GEO-23/125-S12.
 
+## 250. The fidelity gate now decides on drilled ground — and names 3 paired-station failures (S)
+
+**Done 2026-07-29.** `scripts/eval_strat_fidelity.py` gained a second sequence
+block restricted to `[base, top]` of each investigation's own log, plus a
+`--gate` flag that exits non-zero on a disagreement there. The headline block is
+untouched — it is the long-standing baseline and it stays.
+
+Why it was needed: the headline scores the deep-band fill BELOW total depth as a
+mismatch. That is correct geology, so a real defect and a by-design continuation
+were indistinguishable, and the number twice made a change look like a regression
+it was not.
+
+On the dev model the two views differ sharply:
+
+| | headline | within drilled ground |
+|---|---|---|
+| exact | 48 | **55** |
+| subsequence | 0 | 1 |
+| wrong | 10 | **2** |
+
+**All three drilled-ground failures are paired stations sharing one voxel
+column** — `GEO-23/125-S5` + `S5A` (1.13 m apart) and `GEO-10/117-B4` (0.49 m
+from `GEO-05/040-S4`). So on this model there is currently NO investigation whose
+own log the builder contradicts for any reason other than two tests competing for
+one grid cell (#249).
+
+**A trap worth remembering.** The first version applied the below-TD margin to
+every interval, including ones lying fully inside the drilled range, which
+discarded thin-but-real units and reported *worse* fidelity than the headline —
+impossible, since clipping only removes material below total depth. The
+impossible direction is what exposed it. The margin now applies only to intervals
+that also extend outside the range.
+
+**When to revisit.** Wire `--gate` into the pre-push hook once the paired-station
+question (#249) is settled, so it can be green.
+
 ## (end)
