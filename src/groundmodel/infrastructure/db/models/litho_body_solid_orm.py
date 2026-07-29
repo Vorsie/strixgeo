@@ -141,6 +141,16 @@ class LithoBodySolidOrm(Base):
         default=False,
     )
 
+    #: The build that produced this mesh — see ``LithoBuildGenerationOrm`` for
+    #: the payload, settings and derived-identity map behind it. Nullable so rows
+    #: written before build generations existed remain readable; a build always
+    #: stamps it.
+    generation_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("litho_build_generation.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
