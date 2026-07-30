@@ -24,6 +24,7 @@ import {
   type GapExtent,
 } from "../components/sections/apexOverrideWiring";
 import type { FenceSectionInput } from "./buildProjectFence";
+import { countSpanningRegions } from "./countSpanningRegions";
 import { log } from "./log";
 import {
   computeSectionFillActive,
@@ -241,21 +242,18 @@ export function buildVoxelRequest(
       persistedLensBodies,
     });
 
-    const regions: RegionInput[] = computeSectionFillActive(
+    const engineRegions = computeSectionFillActive(
       columns,
       input.edges,
       apexOverrides,
       alongM,
-    ).map(
-      (r) => ({
-        formation_id: r.formationId,
-        body_id: r.bodyId,
-        polygon: r.polygon.map(
-          (p) => [p.fraction, p.elevation] as [number, number],
-        ),
-        gap_index: r.gapIndex,
-      }),
     );
+    const regions: RegionInput[] = engineRegions.map((r) => ({
+      formation_id: r.formationId,
+      body_id: r.bodyId,
+      polygon: r.polygon.map((p) => [p.fraction, p.elevation] as [number, number]),
+      gap_index: r.gapIndex,
+    }));
 
     // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
     // not match a bench run of the same engine on the same inputs is visible
@@ -270,14 +268,10 @@ export function buildVoxelRequest(
       tiedLayerIds.add(e.a);
       tiedLayerIds.add(e.b);
     }
-    const spanning = regions.filter((r) => {
-      const fr = r.polygon.map((p) => p[0]);
-      return Math.min(...fr) < 0.01 && Math.max(...fr) > 0.99;
-    }).length;
     log.info(
       "litho-voxel",
       `payload section: ${payloadColumns.length} cols, ${regions.length} regions ` +
-        `(${spanning} span their gap), ${input.edges.length} edges over ` +
+        `(${countSpanningRegions(engineRegions)} span their gap), ${input.edges.length} edges over ` +
         `${tiedLayerIds.size} tied layers, engine=${partitionEngineV2 ? "v2" : "v1"}, ` +
         `overrides=${apexOverrides.size}`,
     );
