@@ -15,12 +15,24 @@
 
 import { api } from '../../../api/client'
 
-/** One approved correlation edge as a contact-id pair. */
+/**
+ * One approved correlation edge, WITH the contact each end joins.
+ *
+ * The sides are not decoration: a ``base``<->``base`` bottom tie is what lets the
+ * deepest unit of a column band, and the partition engine deliberately keeps that
+ * signal apart from top-keyed edges. This type carried only ``a``/``b`` until
+ * 2026-07-30, which silently downgraded every base tie to a top tie on the build
+ * path and cost a clay three gaps of Cross-section 1 in the 3-D model.
+ */
 export interface ApprovedEdgePair {
   /** Contact id on the A side of the edge. */
   a: string
   /** Contact id on the B side of the edge. */
   b: string
+  /** Which contact of layer ``a`` the edge joins. Omitted ⇒ ``'top'``. */
+  aSide?: 'top' | 'base'
+  /** Which contact of layer ``b`` the edge joins. Omitted ⇒ ``'top'``. */
+  bSide?: 'top' | 'base'
 }
 
 /** Result of the per-section approved-edge fan-out. */
@@ -66,7 +78,12 @@ export async function fetchApprovedEdgesBySection(
               section.id,
               edges
                 .filter(e => e.user_approved)
-                .map(e => ({ a: e.layer_a_id, b: e.layer_b_id })),
+                .map(e => ({
+                  a: e.layer_a_id,
+                  b: e.layer_b_id,
+                  aSide: e.layer_a_side,
+                  bSide: e.layer_b_side,
+                })),
             ] as const,
         )
         .catch(() => {
