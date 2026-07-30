@@ -1,24 +1,31 @@
-"""READ-ONLY dev-viewer dump: the pinching lens as a 3-D body, one per rule.
+"""READ-ONLY dev-viewer dump: the ground between FOUR tests, one grid per rule.
 
-``dump_blend_compare.py`` shows one column at a time, which is hard to judge. This
-samples a PATCH of ground — along the section from the left test to the right test,
-and away from the section toward its nearest neighbour — and records, at every node,
-what each candidate rule does to one chosen lens and to the floor beneath it.
+A lens dies out between two tests — that much is the 2-D partition's own rule and
+the builder never touches it. What this dump is about is the OTHER direction: away
+from the section, toward the next section, where nothing was ever drawn and the
+builder blends the two sections' stacks instead.
 
-The lens is the thing to watch: it is present on this section and absent on the
-neighbour, so it must die out somewhere in between. The three rules disagree about
-where and about what takes its place, and the floor underneath is the tell — today
-it rides up by whatever the lens gave away.
+To see that you need four tests, not two: the pair on this section, where the lens
+is present, and the pair on the neighbouring section, where it is absent. Those four
+corners bound the patch the lens has to die across.
 
-Axes of the patch:
+The dump samples that patch on a grid and records, at every node, the WHOLE blended
+column under each candidate rule — so the viewer can draw real stratigraphic panels
+rather than one body floating in the dark.
 
-* ``x`` — along the section, left test to right test (the 2-D partition's own axis)
-* ``y`` — away from the section toward the neighbour; 0 is on the section line
-* ``z`` — elevation, mTAW
+Axes of the patch (right-handed, elevation up):
 
-For each rule the dump records the lens's top and base surfaces over the patch and
-the column's deepest base, so the viewer can draw the lens as a solid and the floor
-as a surface underneath it.
+* ``x`` — along the section, left test to right test
+* ``z`` — straight out from the middle of the gap, perpendicular to it; 0 is on the
+  section line
+* ``y`` — elevation, mTAW
+
+The far edge is where this section stops being the nearest one and the neighbour
+takes over — that handover is the midline the builder pinches lenses at — walked to
+and then the same distance again, so the far edge sits as deep in the neighbour's
+territory as the near edge sits in this one. Neither of the two obvious shortcuts
+works: the second-nearest SECTION can lie almost along this one rather than beside
+it, and a perpendicular RAY never meets the tie-sections it runs parallel to.
 
 Nothing is written to the database — SELECTs only, behind the same dev-DB guard as
 ``eval_strat_fidelity.py``.
@@ -27,7 +34,7 @@ Usage
 -----
     uv run python scripts/dump_blend_3d.py
     uv run python scripts/dump_blend_3d.py --left GEO-23/125-S6 --right GEO-10/170-S11
-    uv run python scripts/dump_blend_3d.py --along 31 --perp 31
+    uv run python scripts/dump_blend_3d.py --along 51 --perp 9
 """
 
 from __future__ import annotations
@@ -103,17 +110,86 @@ def _pick_lens(stack1: list, stack2: list) -> str | None:
     return max(mine, key=_th).body_id
 
 
+def _column_units(section, gap: int, fraction: float, names: dict[str, str]) -> list[dict]:
+    """The authored 2-D column at one fraction of a gap, as plain dicts.
+
+    Parameters
+    ----------
+    section : _Section
+        The section carrying the gap.
+    gap : int
+        Index of the left column of the gap.
+    fraction : float
+        Position across the gap, 0 at the left column and 1 at the right.
+    names : dict of str to str
+        Formation id to display name.
+
+    Returns
+    -------
+    list of dict
+        ``{f, t, b}`` per unit — formation name, top and base elevation.
+    """
+    return [
+        {"f": names.get(e.formation_id, "?"), "t": round(e.top_elev, 3), "b": round(e.base_elev, 3)}
+        for e in _section_stack_at(section, gap, fraction)
+    ]
+
+
+def _handover_distance(
+    sections: list, near, mx: float, my: float, nx: float, ny: float, cap: float
+) -> float | None:
+    """How far out along a ray another section takes over as the nearest one.
+
+    That handover is the midline the builder pinches lenses at, so it is the natural
+    far edge of the patch: walk to it and the same distance again, and the far edge
+    sits as deep in the neighbour's territory as the near edge sits in this one.
+
+    Intersecting the ray with the other fences does not work here — cross-sections and
+    their tie-sections are near enough to perpendicular that a ray cast off one runs
+    parallel to the others and never meets them.
+
+    Parameters
+    ----------
+    sections : list of _Section
+        Every section in the build, including ``near``.
+    near : _Section
+        The section the ray starts on.
+    mx, my : float
+        Where the ray starts — the middle of the gap being studied.
+    nx, ny : float
+        Unit direction of the ray.
+    cap : float
+        Stop looking beyond this distance, in metres.
+
+    Returns
+    -------
+    float or None
+        Distance at which another section becomes nearest, or ``None`` when this
+        section stays nearest all the way out to ``cap``.
+    """
+    step = max(cap / 400.0, 0.25)
+    t = step
+    while t <= cap:
+        x, y = mx + nx * t, my + ny * t
+        closest = min(sections, key=lambda s: _project_to_section_fence(s, x, y)[2])
+        if closest is not near:
+            return t
+        t += step
+    return None
+
+
 async def main() -> None:
-    """Write ``blend_viewer/model3d.json`` for the 3-D comparison viewer."""
+    """Write ``blend_viewer/model3d.json`` for the four-test comparison viewer."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--left", default="GEO-22/115-S10")
     ap.add_argument("--right", default="GEO-10/170-S6")
-    ap.add_argument("--along", type=int, default=25, help="samples along the section")
-    ap.add_argument("--perp", type=int, default=25, help="samples away from the section")
+    ap.add_argument("--along", type=int, default=41, help="samples along the section")
+    ap.add_argument("--perp", type=int, default=7, help="panels away from the section")
+    ap.add_argument("--cap", type=float, default=600.0, help="how far out to look, metres")
     ap.add_argument("--out", default=str(_REPO_ROOT / "blend_viewer" / "model3d.json"))
     args = ap.parse_args()
 
-    print("\n=== 3-D BLEND PATCH DUMP (READ-ONLY) ===\n")
+    print("\n=== FOUR-TEST BLEND PATCH DUMP (READ-ONLY) ===\n")
     _confirm_db_target()
 
     async with AsyncSessionFactory() as session:
@@ -156,37 +232,83 @@ async def main() -> None:
     section, gap = found
     left, right = section.columns[gap], section.columns[gap + 1]
 
-    # The neighbour we walk toward, measured from the middle of the gap.
+    # Walk perpendicular to this gap, whichever side reaches another section first.
+    gap_len = math.hypot(right.world_x - left.world_x, right.world_y - left.world_y)
+    ex_x, ex_y = (right.world_x - left.world_x) / gap_len, (right.world_y - left.world_y) / gap_len
     mx = (left.world_x + right.world_x) / 2.0
     my = (left.world_y + right.world_y) / 2.0
-    ranked = sorted(
-        ((s, *_project_to_section_fence(s, mx, my)) for s in seated), key=lambda p: p[3]
+    live = [
+        (sign, handover)
+        for sign in (1.0, -1.0)
+        if (
+            handover := _handover_distance(
+                seated, section, mx, my, -ex_y * sign, ex_x * sign, args.cap
+            )
+        )
+        is not None
+    ]
+    if not live:
+        raise SystemExit(
+            f"ABORT: this section stays the nearest one for {args.cap:.0f} m either side "
+            "of the gap — raise --cap or pick a gap with a closer neighbour."
+        )
+    sign, handover = min(live, key=lambda p: p[1])
+    ux, uy = -ex_y * sign, ex_x * sign
+    reach = handover * 2.0
+    far_section, far_gap, far_frac, _far_d, _fx, _fy = min(
+        ((s, *_project_to_section_fence(s, mx + ux * reach, my + uy * reach)) for s in seated),
+        key=lambda p: p[3],
     )
-    second, _g2, _f2, reach, px2, py2 = ranked[1]
-    towards = " .. ".join(inv.get(c.investigation_id, "?") for c in second.columns[:2])
-    ux, uy = (px2 - mx) / max(reach, _EPS), (py2 - my) / max(reach, _EPS)
 
     # The lens to follow: chosen at the middle of the gap, on the section line.
     ref1 = _section_stack_at(section, gap, 0.5)
-    s2, g2b, f2b, _d2, _x2, _y2 = ranked[1]
-    ref2 = _section_stack_at(s2, g2b, f2b)
+    ref2 = _section_stack_at(far_section, far_gap, far_frac)
     lens_body = _pick_lens(ref1, ref2)
     if lens_body is None:
         raise SystemExit("ABORT: every body at this gap is matched — no lens to watch.")
     lens_formation = next(e.formation_id for e in ref1 if e.body_id == lens_body)
-    print(f"  gap {args.left} -> {args.right}, {reach:.1f} m to {towards}")
+
+    print(f"  near section: {args.left} -> {args.right}  ({gap_len:.1f} m apart)")
+    print(
+        f"  far  section: handover at {handover:.1f} m, patch runs to {reach:.1f} m, "
+        f"gap column {far_gap} at fraction {far_frac:.2f}"
+    )
     print(f"  lens = {names.get(lens_formation, '?')} body {lens_body[:13]}\n")
 
-    alongs = [k / (args.along - 1) for k in range(args.along)]
+    # Patch frame: origin at the left test, x along the gap chord, z along the ray.
+    def _to_patch(cx: float, cy: float) -> tuple[float, float]:
+        dx, dy = cx - left.world_x, cy - left.world_y
+        return dx * ex_x + dy * ex_y, dx * ux + dy * uy
+
+    tests = []
+    for sec, g, near_frac, side in (
+        (section, gap, 0.02, "near"),
+        (section, gap, 0.98, "near"),
+        (far_section, far_gap, 0.02, "far"),
+        (far_section, far_gap, 0.98, "far"),
+    ):
+        col = sec.columns[g if near_frac < 0.5 else g + 1]
+        px, pz = _to_patch(col.world_x, col.world_y)
+        tests.append(
+            {
+                "name": inv.get(col.investigation_id, "?"),
+                "side": side,
+                "x": round(px, 2),
+                "z": round(pz, 2),
+                "units": _column_units(sec, g, near_frac, names),
+            }
+        )
+
+    alongs = [gap_len * k / (args.along - 1) for k in range(args.along)]
     perps = [reach * k / (args.perp - 1) for k in range(args.perp)]
 
-    grids: dict[str, dict[str, list[list[float | None]]]] = {
-        rule: {"lensTop": [], "lensBase": [], "floor": []} for rule in _RULES
-    }
-    for frac in alongs:
-        rows = {rule: {"lensTop": [], "lensBase": [], "floor": []} for rule in _RULES}
+    # rules[rule][along index][perp index] = the whole column at that node
+    grids: dict[str, list[list[list[dict]]]] = {rule: [] for rule in _RULES}
+    for dist_along in alongs:
+        frac = dist_along / gap_len
         bx = left.world_x + (right.world_x - left.world_x) * frac
         by = left.world_y + (right.world_y - left.world_y) * frac
+        rows: dict[str, list[list[dict]]] = {rule: [] for rule in _RULES}
         for dist in perps:
             x, y = bx + ux * dist, by + uy * dist
             projs = sorted(
@@ -197,39 +319,36 @@ async def main() -> None:
             st1, st2 = _section_stack_at(s1, g1, f1), _section_stack_at(sB, gB, fB)
             if not st1 or not st2:
                 for rule in _RULES:
-                    for key in ("lensTop", "lensBase", "floor"):
-                        rows[rule][key].append(None)
+                    rows[rule].append([])
                 continue
             w1 = 0.5 if (d1 + dB) < _EPS else dB / (d1 + dB)
             cand = _candidates(st1, st2, w1)
             for rule in _RULES:
-                units = cand[rule]
-                mine = [u for u in units if u["body"] == lens_body]
-                rows[rule]["lensTop"].append(max((u["top"] for u in mine), default=None))
-                rows[rule]["lensBase"].append(min((u["base"] for u in mine), default=None))
-                rows[rule]["floor"].append(min((u["base"] for u in units), default=None))
+                rows[rule].append(
+                    [
+                        {
+                            "f": names.get(u["formation"], "?"),
+                            "t": round(u["top"], 3),
+                            "b": round(u["base"], 3),
+                            "y": u["body"],
+                        }
+                        for u in cand[rule]
+                        if u["top"] - u["base"] > 1e-4
+                    ]
+                )
         for rule in _RULES:
-            for key in ("lensTop", "lensBase", "floor"):
-                grids[rule][key].append(rows[rule][key])
+            grids[rule].append(rows[rule])
 
     payload = {
         "gap": f"{args.left} -> {args.right}",
-        "left": args.left,
-        "right": args.right,
-        "towards": towards,
-        "gapLengthM": math.hypot(right.world_x - left.world_x, right.world_y - left.world_y),
-        "reachM": reach,
+        "towards": " .. ".join(t["name"] for t in tests if t["side"] == "far"),
+        "gapLengthM": round(gap_len, 2),
+        "reachM": round(reach, 2),
+        "lensBody": lens_body,
         "lensFormation": names.get(lens_formation, "?"),
-        "alongFractions": alongs,
-        "perpM": perps,
-        "leftColumn": [
-            {"formation": names.get(e.formation_id, "?"), "top": e.top_elev, "base": e.base_elev}
-            for e in _section_stack_at(section, gap, 0.02)
-        ],
-        "rightColumn": [
-            {"formation": names.get(e.formation_id, "?"), "top": e.top_elev, "base": e.base_elev}
-            for e in _section_stack_at(section, gap, 0.98)
-        ],
+        "alongM": [round(v, 2) for v in alongs],
+        "perpM": [round(v, 2) for v in perps],
+        "tests": tests,
         "rules": grids,
     }
     out = Path(args.out)
@@ -239,11 +358,14 @@ async def main() -> None:
         f"  wrote {out.name} — {args.along}x{args.perp} nodes, {out.stat().st_size / 1024:.0f} kB"
     )
     for rule in _RULES:
-        present = sum(1 for row in grids[rule]["lensTop"] for v in row if v is not None)
-        floors = [v for row in grids[rule]["floor"] for v in row if v is not None]
+        bases = [
+            min((u["b"] for u in col), default=None) for row in grids[rule] for col in row if col
+        ]
+        real = [b for b in bases if b is not None]
+        lens = sum(1 for row in grids[rule] for col in row if any(u["y"] == lens_body for u in col))
         print(
-            f"      {rule:<6} lens present at {present:>4} of {args.along * args.perp} nodes, "
-            f"floor {min(floors):.2f} .. {max(floors):.2f} m"
+            f"      {rule:<6} lens in {lens:>4} of {args.along * args.perp} columns, "
+            f"floor {min(real):.2f} .. {max(real):.2f} m"
         )
     print()
 
