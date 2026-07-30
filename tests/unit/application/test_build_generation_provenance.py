@@ -98,11 +98,9 @@ async def _write(session: _FakeSession, **over: Any) -> Any:
         grid=_FakeGrid(),
         aliases={"body-1": "body-1", "body-2": "body-1"},
         checksum=b"\x01\x02\x03",
-        geo_surfaces=(),
         horizontal_spacing_m=2.0,
         vertical_spacing_m=0.25,
         honor_radius_m=2.0,
-        litho_snap_tolerance_m=0.3,
         meshes=[_FakeMesh(4), _FakeMesh(6)],
         started_at=time.perf_counter(),
     )
@@ -113,13 +111,20 @@ async def _write(session: _FakeSession, **over: Any) -> Any:
 
 @pytest.mark.asyncio
 async def test_records_every_setting_that_changes_the_output() -> None:
-    """A build is only reproducible if all four knobs are stored."""
+    """A build is only reproducible if every knob that moves it is stored.
+
+    ``litho_snap_tolerance_m`` is no longer one of them: since the geology
+    decoupling (2026-07-30) the builder snaps litho contacts to nothing, so the
+    column records 0.0 — "no snapping happened" — rather than a setting that had
+    no effect on the build.
+    """
     row = await _write(_FakeSession())
 
     assert row.horizontal_spacing_m == 2.0
     assert row.vertical_spacing_m == 0.25
     assert row.honor_radius_m == 2.0
-    assert row.litho_snap_tolerance_m == 0.3
+    assert row.litho_snap_tolerance_m == 0.0
+    assert row.geo_surface_digest is None
 
 
 @pytest.mark.asyncio

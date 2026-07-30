@@ -75,13 +75,11 @@ from groundmodel.application.litho_solid_persistence import (
     _SolidMeta,
     storage_body_id,
 )
-from groundmodel.application.load_geo_surfaces import digest_surfaces, load_geo_surfaces
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
     read_view_state_float,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
     build_domain_from_sections,
 )
@@ -106,17 +104,11 @@ from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.timing import phase_timer
 
-# Default litho↔geology snap tolerance (metres) when the project view-state does
-# not configure one — mirrors the section editor's
-# ``view_state.litho_segmenter.litho_snap_tolerance_m`` default.
-_DEFAULT_LITHO_SNAP_TOLERANCE_M: float = 0.20
-
 
 def _partition_checksum(
     sections: list[SectionPartitionInput],
     grid_spacing_m: float,
     investigation_columns: tuple[InvestigationColumn, ...] = (),
-    geo_surfaces: tuple[SurfaceBound, ...] = (),
     *,
     vertical_spacing_m: float | None = None,
     honor_radius_m: float = 0.0,
@@ -144,10 +136,11 @@ def _partition_checksum(
       gap index + every polygon ``(fraction, elevation)`` point,
     * each honored investigation column's id + world position + observed
       intervals (so a pick change rebuilds — see
-      :func:`_investigation_columns_checksum`),
-    * the parent geological model's band-surface geometry digest (so a geo
-      rebuild that moves a band busts the voxel cache — see
-      :func:`~groundmodel.application.load_geo_surfaces.digest_surfaces`).
+      :func:`_investigation_columns_checksum`).
+
+    The parent geological model's surfaces are NOT folded in: since 2026-07-30 the
+    voxel builder does not consume them at all, so a geo-surface rebuild cannot
+    move the litho labelling and must not bust its cache.
 
     Parameters
     ----------
@@ -170,11 +163,6 @@ def _partition_checksum(
         so the cubic digest is byte-stable with the pre-anisotropy form; a set
         value is folded after a domain-separator byte so an anisotropy change
         rebuilds.
-    geo_surfaces : tuple of SurfaceBound, optional
-        The parent geological model's built band surfaces.  Folded in (via
-        ``digest_surfaces``) after a domain-separator byte so a geo-surface
-        change forces a rebuild; defaults to ``()`` (un-bounded → digest
-        unchanged from the no-geo form, an empty digest appended).
 
     Returns
     -------
@@ -210,10 +198,6 @@ def _partition_checksum(
             for frac, elev in r.polygon:
                 h.update(struct.pack("<dd", frac, elev))
     _investigation_columns_checksum(h, investigation_columns)
-    # Domain-separator byte before the geo-surface digest so the surface block
-    # cannot collide with a trailing investigation-column block.
-    h.update(b"\x02")
-    h.update(digest_surfaces(list(geo_surfaces)))
     return h.digest()
 
 
@@ -554,26 +538,36 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"{len(domain.polygon)}-vertex hull"
         )
 
-        # --- Geo-bound the labelling by the parent geological model's bands ----
-        # The litho model is REFINED from a parent geological model; its band
-        # surfaces are HARD bounds (a litho body never crosses a geological
-        # boundary).  Load them so Task 3's band-scoped labelling can clip to
-        # them, and read the snap tolerance the section editor uses.  No parent
-        # model / no built surfaces → un-bounded build (the labeller's default).
-        parent_geo_model_id = await self._read_parent_geo_model_id(model_id)
-        geo_surfaces: tuple[SurfaceBound, ...] = ()
-        if parent_geo_model_id is not None:
-            geo_surfaces = await load_geo_surfaces(self._session, parent_geo_model_id, logger=self)
-        if not geo_surfaces:
-            self.warning(
-                f"BuildVoxelLithoModel: model={model_id} — no parent geo model / "
-                "no built surfaces; building un-bounded"
-            )
-        snap_tol = await self._read_litho_snap_tolerance_m(model_id)
+        # --- The 2-D partition is the only authority on lithology -------------
+        # The builder used to load the parent geological model's surfaces and
+        # treat them as HARD bands: a litho interval crossing a surface was cut
+        # at it, contacts within a tolerance were snapped to it, and a band left
+        # empty was back-filled from any section that reached it, at any
+        # distance.  That last rule invented material where the 2-D partition
+        # deliberately said nothing.
+        #
+        # Owner ruling 2026-07-30: "the voids below td are always filled through
+        # correlations from other tests the left or right (as in fill bands) if
+        # that is not the case then you leave it unkown."  The 2-D engine already
+        # implements exactly that (correlate-or-gap — no substrate since the
+        # 2026-07-10 revert), so the builder's job is to take the partition's
+        # answer INCLUDING its voids, not to supply a second opinion.
+        #
+        # Measured on the dev model when this landed: of the 44 gap-sides where
+        # the partition stops at a shallow column's TD, 39 carried model material
+        # below it — mean 3.58 m, worst 6.70 m, imported from a section a median
+        # 35 m away (max 238 m) while the section that authored "unknown" sat at
+        # perpendicular distance 0.0 m.  See docs/debt.md and
+        # scripts/diag_subtd_invention.py.
+        #
+        # This also restores A2 geo-decoupling (docs/domain-model.md) in 3-D: a
+        # litho body MAY span a geological boundary.  The parent model is still
+        # used everywhere else — body geo-labelling, the geotech subdivision's
+        # own bounding (litho_geo_bounding.py), surfaces in the section view.
         honor_radius_m = await self._read_honor_radius_m(model_id, grid_spacing_m)
         self.info(
-            f"BuildVoxelLithoModel: model={model_id} — {len(geo_surfaces)} geo "
-            f"surface(s), litho_snap_tolerance_m={snap_tol}, honor_radius_m={honor_radius_m}"
+            f"BuildVoxelLithoModel: model={model_id} — geology-independent build, "
+            f"honor_radius_m={honor_radius_m}"
         )
 
         # --- Early checksum short-circuit (before the expensive Phase 2/3) ----
@@ -589,7 +583,6 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             sections,
             grid_spacing_m,
             investigation_columns,
-            geo_surfaces,
             vertical_spacing_m=vertical_spacing_m,
             honor_radius_m=honor_radius_m,
         )
@@ -626,8 +619,6 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     sections,
                     vertical_spacing_m=vertical_spacing_m,
                     investigation_columns=investigation_columns,
-                    geo_surfaces=geo_surfaces,
-                    litho_snap_tolerance_m=snap_tol,
                     honor_radius_m=honor_radius_m,
                 )
         except ValueError as err:
@@ -685,11 +676,9 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 grid=grid,
                 aliases=aliases,
                 checksum=new_checksum,
-                geo_surfaces=geo_surfaces,
                 horizontal_spacing_m=grid_spacing_m,
                 vertical_spacing_m=vertical_spacing_m,
                 honor_radius_m=honor_radius_m,
-                litho_snap_tolerance_m=snap_tol,
                 meshes=meshes,
                 started_at=t_total,
             )
@@ -851,31 +840,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             marked_test_ids=[],
         )
 
-    # ``digest_surfaces`` was promoted to a public shared helper in
-    # ``load_geo_surfaces.py`` when the strat-field builder was retired (#236/#237).
-    async def _read_parent_geo_model_id(self, model_id: UUID) -> UUID | None:
-        """Read the lithostratigraphic model's parent geological model id.
-
-        A single scalar SELECT of the self-FK column.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The lithostratigraphic model id.
-
-        Returns
-        -------
-        UUID | None
-            The parent geological model id, or ``None`` when none is set.
-        """
-        stmt = select(GeologicalModelOrm.parent_model_id).where(GeologicalModelOrm.id == model_id)
-        parent_id = (await self._session.execute(stmt)).scalar_one_or_none()
-        return parent_id  # already a UUID | None (mapped column type)
-
     #: Identifies the builder behind a stored generation.  Bump when a change
     #: alters the labelling, so a mesh built by an older builder is recognisable
-    #: after the algorithm moves on.
-    _BUILDER_VERSION = "voxel-2026.07.29"
+    #: after the algorithm moves on.  ``voxel-2026.07.30`` dropped the geological
+    #: band bounding, so any generation stamped earlier reproduces differently by
+    #: design — see ``--reproduce`` in ``scripts/diag_build_generations.py``.
+    _BUILDER_VERSION = "voxel-2026.07.30"
 
     #: How many generations to keep per model.  Each row carries the full
     #: section payload (hundreds of kB), so an unbounded history would grow by
@@ -892,11 +862,9 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         grid: object,
         aliases: dict[str, str],
         checksum: bytes,
-        geo_surfaces: tuple[SurfaceBound, ...],
         horizontal_spacing_m: float,
         vertical_spacing_m: float | None,
         honor_radius_m: float,
-        litho_snap_tolerance_m: float,
         meshes: list[LithoBodyMesh],
         started_at: float,
     ) -> None:
@@ -929,9 +897,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             ``source_body_id -> derived component id``.
         checksum : bytes
             The model-level digest stamped on every solid row.
-        geo_surfaces : tuple of SurfaceBound
-            The parent geological model's band surfaces.
-        horizontal_spacing_m, vertical_spacing_m, honor_radius_m, litho_snap_tolerance_m : float
+        horizontal_spacing_m, vertical_spacing_m, honor_radius_m : float
             The settings the build ran with.
         meshes : list of LithoBodyMesh
             The built meshes, for the outcome counts.
@@ -978,7 +944,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     vertical_spacing_m if vertical_spacing_m is not None else horizontal_spacing_m
                 ),
                 honor_radius_m=float(honor_radius_m),
-                litho_snap_tolerance_m=float(litho_snap_tolerance_m),
+                # Vestigial since the geology decoupling: the builder no longer
+                # snaps litho contacts to anything, so there is no tolerance to
+                # record.  The column is NOT NULL, so 0.0 states plainly that no
+                # snapping happened rather than recording a setting that had no
+                # effect on this build.
+                litho_snap_tolerance_m=0.0,
                 grid_nx=len(gx),
                 grid_ny=len(gy),
                 grid_nz=len(gz),
@@ -987,7 +958,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 grid_origin_z=float(gz[0]),
                 payload=payload,
                 payload_checksum=checksum,
-                geo_surface_digest=digest_surfaces(list(geo_surfaces)) if geo_surfaces else None,
+                # Always NULL since the geology decoupling — the build does not
+                # read geological surfaces, so there is no surface state to
+                # attribute its output to.  The column is nullable and has no
+                # reader anywhere; it is a drop candidate for the deliberate
+                # schema-drift migration deferred under docs/debt.md #252.
+                geo_surface_digest=None,
                 body_aliases=dict(aliases),
                 sections_count=len(sections),
                 bodies_built=len(meshes),
@@ -1054,32 +1030,3 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             grid_spacing_m,
         )
         return radius if radius >= 0.0 else grid_spacing_m
-
-    async def _read_litho_snap_tolerance_m(self, model_id: UUID) -> float:
-        """Read the project's ``litho_snap_tolerance_m`` from its view-state.
-
-        The model's project owns the ``litho_segmenter`` view-state bag; the knob
-        is the litho↔geology snap tolerance the section editor defaults to (0.20
-        m).  Gets the model → its project → reads the JSON knob, guarding bad /
-        non-positive values back to the default.
-
-        Parameters
-        ----------
-        model_id : UUID
-            The lithostratigraphic model (to find its project).
-
-        Returns
-        -------
-        float
-            The configured snap tolerance, or the 0.20 m default.
-        """
-        model = await self._session.get(GeologicalModelOrm, model_id)
-        if model is None:
-            return _DEFAULT_LITHO_SNAP_TOLERANCE_M
-        view_state = await load_project_view_state(self._session, model.app_project_id)
-        return read_view_state_float(
-            view_state,
-            "litho_segmenter",
-            "litho_snap_tolerance_m",
-            _DEFAULT_LITHO_SNAP_TOLERANCE_M,
-        )

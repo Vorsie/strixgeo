@@ -1,17 +1,20 @@
-"""Unit tests for ``BuildVoxelLithoModel`` — the geo-surface wiring (Task 2).
+"""Unit tests for ``BuildVoxelLithoModel`` — the labeller wiring, without a DB.
 
-These tests pin the Task-2 contract WITHOUT a database: the use case must read
-the litho model's parent geological model id, load that model's built band
-surfaces via the shared
-:func:`~groundmodel.application.load_geo_surfaces.load_geo_surfaces` helper, read
-the project's ``litho_snap_tolerance_m`` view-state knob, and pass BOTH through
-to :func:`~groundmodel.domain.services.voxel_litho.label_voxels.label_voxels`.
+These tests pin what the use case passes to
+:func:`~groundmodel.domain.services.voxel_litho.label_voxels.label_voxels`: the
+honored investigation columns, the grid spacings, and the drilled positions that
+frame the footprint.
+
+They also pin what it must NOT pass. The builder used to load the parent
+geological model's band surfaces and hand them to the labeller as hard bounds.
+Owner ruling 2026-07-30: *"the voids below td are always filled through
+correlations from other tests the left or right (as in fill bands) if that is not
+the case then you leave it unkown"* — the 2-D partition is the only authority on
+lithology, so the geological model reaches the litho labelling nowhere at all.
 
 The collaborators that would otherwise need real data (domain build, picks load,
 the labeller, the mesher, the persistence) are patched; the assertions read the
-keyword arguments ``label_voxels`` actually received.  Phrased in the task's own
-vocabulary ("the loaded parent surfaces reach the labeller", "no parent model →
-un-bounded ``()`` + a warning") rather than implementation-variable terms.
+keyword arguments ``label_voxels`` actually received.
 """
 
 from __future__ import annotations
@@ -30,7 +33,6 @@ from groundmodel.application.build_voxel_litho_model import (
     _partition_checksum,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.surface_bound import SurfaceBound
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
@@ -38,7 +40,6 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     SectionColumnInput,
     SectionPartitionInput,
 )
-from groundmodel.domain.value_objects.tin_surface import TinSurface
 
 _MODEL = "build_voxel_litho_model"
 _PATH = f"groundmodel.application.{_MODEL}"
@@ -66,15 +67,6 @@ def _section() -> SectionPartitionInput:
     )
 
 
-def _surface() -> SurfaceBound:
-    """A trivial flat geological band surface as a ``SurfaceBound``."""
-    tin = TinSurface(
-        vertices=[(0.0, 0.0, 3.0), (10.0, 0.0, 3.0), (5.0, 10.0, 3.0)],
-        triangles=[(0, 1, 2)],
-    )
-    return SurfaceBound.from_tin(tin)
-
-
 def _empty_grid() -> LabelGrid:
     """A LabelGrid the patched ``label_voxels`` returns (mesher is stubbed too)."""
     return LabelGrid(
@@ -87,46 +79,32 @@ def _empty_grid() -> LabelGrid:
     )
 
 
-def _make_use_case(*, parent_id: Any) -> BuildVoxelLithoModel:
-    """A ``BuildVoxelLithoModel`` whose session answers the two Task-2 DB reads.
+def _make_use_case() -> BuildVoxelLithoModel:
+    """A ``BuildVoxelLithoModel`` whose session answers the settings read.
 
-    ``session.execute`` returns a result whose ``scalar_one_or_none`` is the
-    parent geological model id (mirrors ``_read_parent_geo_model_id``).  The
-    ``litho_snap_tolerance_m`` knob is injected via the project ``view_state`` in
-    :func:`_run`, not here.
+    ``session.get(GeologicalModelOrm, id)`` returns a model carrying a project id,
+    which is all ``_read_honor_radius_m`` needs.  The parent-geological-model read
+    is gone — the builder no longer looks the parent up at all.
     """
     session = AsyncMock()
     session.commit = AsyncMock()
-
-    # _read_parent_geo_model_id: select(...).scalar_one_or_none() → parent id.
-    exec_result = SimpleNamespace(scalar_one_or_none=lambda: parent_id)
-    session.execute = AsyncMock(return_value=exec_result)
-
-    # _read_*_tolerance: session.get(GeologicalModelOrm, id) → model with project id.
-    model = SimpleNamespace(app_project_id=uuid4())
-    session.get = AsyncMock(return_value=model)
-
-    use_case = BuildVoxelLithoModel(cast(Any, session))
-    return use_case
+    session.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+    session.get = AsyncMock(return_value=SimpleNamespace(app_project_id=uuid4()))
+    return BuildVoxelLithoModel(cast(Any, session))
 
 
 async def _run(
     use_case: BuildVoxelLithoModel,
     captured: dict[str, Any],
     *,
-    parent_id: Any,
-    surfaces: tuple[SurfaceBound, ...],
-    snap_tol: float | None,
     vertical_spacing_m: float | None = None,
 ) -> None:
     """Execute the use case with every heavy collaborator patched.
 
-    Records the kwargs ``label_voxels`` was called with into ``captured`` so the
-    test can assert on the geo-surface + tolerance pass-through.  When
+    Records the kwargs ``label_voxels`` was called with into ``captured``.  When
     ``vertical_spacing_m`` is set, it is forwarded to ``execute`` so the
     anisotropy pass-through can be asserted.
     """
-    view_state = {"litho_segmenter": {"litho_snap_tolerance_m": snap_tol}} if snap_tol else {}
 
     def _capture_label(*args: Any, **kwargs: Any) -> LabelGrid:
         captured["args"] = args
@@ -137,9 +115,8 @@ async def _run(
     repo.load_body_picks = AsyncMock(return_value=[])
 
     with (
-        patch(f"{_PATH}.load_geo_surfaces", new=AsyncMock(return_value=surfaces)) as load_mock,
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
-        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value=view_state)),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0))),
@@ -156,69 +133,39 @@ async def _run(
             vertical_spacing_m=vertical_spacing_m,
             force=True,
         )
-        captured["load_mock"] = load_mock
 
 
 @pytest.mark.asyncio
-async def test_loaded_parent_surfaces_and_tolerance_reach_label_voxels() -> None:
-    """The use case loads the parent geo surfaces and passes them + the tolerance.
+async def test_the_geological_model_never_reaches_the_litho_labeller() -> None:
+    """No geological surfaces, and no snap tolerance, are passed to the labeller.
 
-    With a parent geological model id set and a built band surface, the loaded
-    ``geo_surfaces`` tuple must reach ``label_voxels`` together with the
-    project's configured ``litho_snap_tolerance_m`` (0.35 m here).
-    """
-    parent_id = uuid4()
-    surfaces = (_surface(),)
-    captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=parent_id)
-
-    await _run(use_case, captured, parent_id=parent_id, surfaces=surfaces, snap_tol=0.35)
-
-    # load_geo_surfaces was called with the parent id read from the model.
-    load_mock = captured["load_mock"]
-    assert load_mock.await_count == 1
-    call_args = load_mock.await_args
-    assert parent_id in call_args.args or parent_id in call_args.kwargs.values()
-
-    # The loaded surfaces + tolerance reached label_voxels.
-    kwargs = captured["kwargs"]
-    assert kwargs["geo_surfaces"] == surfaces
-    assert kwargs["litho_snap_tolerance_m"] == pytest.approx(0.35)
-
-
-@pytest.mark.asyncio
-async def test_no_parent_model_builds_unbounded_with_default_tolerance() -> None:
-    """No parent geological model → un-bounded ``()`` surfaces + default tolerance.
-
-    When the litho model has no parent id, the loader is never called and
-    ``label_voxels`` receives the empty surfaces tuple (un-bounded build) and the
-    0.20 m default snap tolerance.
+    Owner ruling 2026-07-30: below a shallow test's TD the model is filled only
+    through correlations from the tests left or right, exactly as Fill bands does,
+    and left unknown otherwise. The 2-D partition already decides that, so the
+    parent geological model has no say in litho labelling — the builder must not
+    hand the labeller anything to bound, clip or snap against.
     """
     captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=None)
 
-    await _run(use_case, captured, parent_id=None, surfaces=(), snap_tol=None)
-
-    load_mock = captured["load_mock"]
-    assert load_mock.await_count == 0  # no parent → loader skipped
+    await _run(_make_use_case(), captured)
 
     kwargs = captured["kwargs"]
-    assert kwargs["geo_surfaces"] == ()
-    assert kwargs["litho_snap_tolerance_m"] == pytest.approx(0.20)
+    assert "geo_surfaces" not in kwargs
+    assert "litho_snap_tolerance_m" not in kwargs
 
 
-@pytest.mark.asyncio
-async def test_parent_with_no_built_surfaces_builds_unbounded() -> None:
-    """A parent id but no built surfaces → un-bounded ``()`` (loader returns empty)."""
-    parent_id = uuid4()
-    captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=parent_id)
+def test_the_builder_module_does_not_import_the_surface_loader() -> None:
+    """A structural pin: re-adding the loader import would re-open the coupling.
 
-    await _run(use_case, captured, parent_id=parent_id, surfaces=(), snap_tol=0.20)
+    Cheaper and more durable than asserting on a call count — it fails the moment
+    someone wires ``load_geo_surfaces`` back into the build path, whatever they
+    then do with the result.
+    """
+    import groundmodel.application.build_voxel_litho_model as module
 
-    # The loader WAS called (parent id set) but returned no surfaces → un-bounded.
-    assert captured["load_mock"].await_count == 1
-    assert captured["kwargs"]["geo_surfaces"] == ()
+    assert not hasattr(module, "load_geo_surfaces")
+    assert not hasattr(module, "digest_surfaces")
+    assert not hasattr(BuildVoxelLithoModel, "_read_parent_geo_model_id")
 
 
 # ---------------------------------------------------------------------------
@@ -235,18 +182,9 @@ async def test_vertical_spacing_reaches_label_voxels() -> None:
     at ``grid_spacing_m``), so a 0.5 m vertical spacing the endpoint resolved
     arrives as the ``vertical_spacing_m`` keyword of ``label_voxels``.
     """
-    parent_id = uuid4()
     captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=parent_id)
 
-    await _run(
-        use_case,
-        captured,
-        parent_id=parent_id,
-        surfaces=(),
-        snap_tol=0.20,
-        vertical_spacing_m=0.5,
-    )
+    await _run(_make_use_case(), captured, vertical_spacing_m=0.5)
 
     assert captured["kwargs"]["vertical_spacing_m"] == pytest.approx(0.5)
 
@@ -259,11 +197,9 @@ async def test_cubic_default_passes_no_vertical_spacing_to_label_voxels() -> Non
     forwards ``None``, so the labeller builds Z at ``grid_spacing_m`` exactly as
     before anisotropy existed.
     """
-    parent_id = uuid4()
     captured: dict[str, Any] = {}
-    use_case = _make_use_case(parent_id=parent_id)
 
-    await _run(use_case, captured, parent_id=parent_id, surfaces=(), snap_tol=0.20)
+    await _run(_make_use_case(), captured)
 
     assert captured["kwargs"]["vertical_spacing_m"] is None
 
@@ -336,10 +272,9 @@ async def _run_capturing_domain(
 
     repo = AsyncMock()
     repo.load_body_picks = AsyncMock(return_value=picks)
-    use_case = _make_use_case(parent_id=None)
+    use_case = _make_use_case()
 
     with (
-        patch(f"{_PATH}.load_geo_surfaces", new=AsyncMock(return_value=())),
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
         patch(f"{_PATH}.build_domain_from_sections", side_effect=_capture_domain),
@@ -481,10 +416,9 @@ async def test_the_investigation_kind_reaches_the_labeller() -> None:
 
     repo = AsyncMock()
     repo.load_body_picks = AsyncMock(return_value=[cpt_pick, borehole_pick])
-    use_case = _make_use_case(parent_id=None)
+    use_case = _make_use_case()
 
     with (
-        patch(f"{_PATH}.load_geo_surfaces", new=AsyncMock(return_value=())),
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
         patch(
