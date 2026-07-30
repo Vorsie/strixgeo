@@ -35,7 +35,7 @@ import asyncio
 import json
 import math
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -229,6 +229,7 @@ async def main() -> None:
     formation_of: dict[str, str] = {}
     sections_of: dict[str, set[int]] = defaultdict(set)
     pinches_of: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    pinch_sections_of: dict[str, list[int]] = defaultdict(list)
 
     for s_idx, section in enumerate(seated):
         for body, spans in _runs_on_section(section, args.steps, formation_of).items():
@@ -237,7 +238,12 @@ async def main() -> None:
                 for idx, interior in ((start, start_interior), (end, end_interior)):
                     if interior:
                         pinches_of[body].append(_section_point(section, args.steps, idx))
+                        pinch_sections_of[body].append(s_idx)
 
+    # Body ids are UUIDv7 and share a millisecond prefix, so a truncated id is not a
+    # name — 13 bodies on this model share the first eight characters. Number them
+    # per formation instead, which is short, unique and stable for a given dump.
+    seq: Counter[str] = Counter()
     bodies = []
     for body in sorted(sections_of, key=lambda b: -len(pinches_of[b])):
         pts = pinches_of[body]
@@ -253,11 +259,15 @@ async def main() -> None:
         elif len(pts) == 2:
             ring = [[list(p) for p in _circle(pts[0], pts[1])]]
             outlines = {"hull": ring, "angular": ring, "clusters": ring}
+        formation = names.get(formation_of.get(body, ""), "?")
+        seq[formation] += 1
         bodies.append(
             {
                 "id": body,
-                "formation": names.get(formation_of.get(body, ""), "?"),
+                "label": f"{formation}-{seq[formation]:02d}",
+                "formation": formation,
                 "sections": len(sections_of[body]),
+                "pinchSections": sorted(set(pinch_sections_of[body])),
                 "pinches": [list(p) for p in pts],
                 "outlines": outlines,
             }
@@ -288,6 +298,21 @@ async def main() -> None:
     print(f"      needs a default shape (2-3):  {default_shape}")
     multi = [b for b in bodies if len(b["outlines"].get("clusters", [])) > 1]
     print(f"      bodies splitting into >1 cluster at {args.cluster_gap:.0f} m: {len(multi)}")
+
+    # Points on one section are collinear whatever their count, so they give the body
+    # no width. Two or more sections is what makes an outline two-dimensional.
+    flat = [b for b in bodies if len(b["pinchSections"]) == 1 and len(b["pinches"]) >= 2]
+    crossed = [b for b in flat if b["sections"] > 1]
+    two_d = sum(1 for b in bodies if len(b["pinchSections"]) >= 2)
+    print("\n  outlines that are actually two-dimensional")
+    print(f"      pinches on 2+ sections:             {two_d}")
+    print(f"      pinches on ONE section (collinear): {len(flat)}")
+    print(f"          of those, carried by 2+ sections: {len(crossed)}")
+    for b in crossed:
+        print(
+            f"              {b['label']:<8} {len(b['pinches'])} pts on section "
+            f"{b['pinchSections'][0]}, but carried by {b['sections']} sections"
+        )
     print()
 
 
