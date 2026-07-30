@@ -75,7 +75,6 @@ from groundmodel.application.build_voxel_litho_model import (  # noqa: E402
     _apply_aliases_to_columns,
     _investigation_columns_from_picks,
 )
-from groundmodel.application.load_geo_surfaces import load_geo_surfaces  # noqa: E402
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (  # noqa: E402
     build_domain_from_sections,
 )
@@ -224,9 +223,6 @@ async def main() -> None:
         if model is None:
             raise SystemExit(f"ABORT: model {args.model_id} not found.")
         picks = await LithoLayerRepository(session).load_body_picks(args.model_id)
-        geo_surfaces: tuple = ()
-        if model.parent_model_id is not None:
-            geo_surfaces = await load_geo_surfaces(session, model.parent_model_id)
 
         gen_stmt = select(LithoBuildGenerationOrm).order_by(
             LithoBuildGenerationOrm.created_at.desc()
@@ -239,7 +235,9 @@ async def main() -> None:
 
     # Settings from the GENERATION, not the live view-state: the point is to
     # measure the build that was made, not one made with today's preferences.
-    snap = generation.litho_snap_tolerance_m
+    # ``litho_snap_tolerance_m`` is deliberately NOT read: since the geology
+    # decoupling the labeller snaps to nothing, and this diagnostic must mirror
+    # the CURRENT builder or it scores a model the app cannot produce.
     horizontal = generation.horizontal_spacing_m
     vertical = generation.vertical_spacing_m
     honor_radius = generation.honor_radius_m
@@ -264,8 +262,6 @@ async def main() -> None:
         seated,
         vertical_spacing_m=vertical,
         investigation_columns=columns,
-        geo_surfaces=geo_surfaces,
-        litho_snap_tolerance_m=snap,
         honor_radius_m=honor_radius,
     )
     active = [
