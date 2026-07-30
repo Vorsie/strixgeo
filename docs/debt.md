@@ -6961,4 +6961,116 @@ drift is left for a deliberate, separate migration and is still open.
 model, and adding them to the bundle needs a format-version decision. Revisit
 when the backwards-compat contract is re-armed (#47).
 
+## 253. Snap-before-fill — SUPERSEDED, never shipped (S)
+
+**What.** `_stack_at_band` back-filled a geological band's voids BEFORE snapping the
+band's outermost contacts to the surfaces, so a few-centimetre sliver between a
+section's own stack and the band floor was filled from a distant section and then
+stretched to the surface by the snap. Traced on the dev model: six invented ZAND
+voxels at exactly +3.50, one centimetre above band 2's floor at 3.49, sourced from
+a tie section 26.8 m away while the nearest section had weight 1.000 and its own
+stack ended at 3.709.
+
+**Why it never shipped.** A snap-first reordering was written and TDD-green, but
+model-wide it was neutral (402 → 394 disagreeing samples: the six named voxels
+disappeared and six appeared at other band edges). It also left the premise intact
+— that a geological band may extend lithology at all — which is exactly what #254
+removes. Committing it would have fossilised a policy being retired, and while it
+sat uncommitted in the working tree it made every build unreproducible against its
+own provenance record (`--reproduce` reported DIVERGED, 790,910 recorded against
+801,266 rebuilt).
+
+**Status.** Reverted 2026-07-30, superseded by #254. The diff and its five tests
+are recoverable from the session scratchpad; the mechanism they describe no longer
+exists.
+
+## 254. The geological model no longer bounds the litho 3-D build — SHIPPED 2026-07-30 (L)
+
+**What.** The voxel builder loaded the parent geological model's surfaces and used
+them as hard bands: an interval crossing a surface was cut at it
+(`_clip_stack_to_band`), contacts within a tolerance were snapped to it
+(`snap_edges`), a section that did not reach a band was dropped from that band's
+vote (`section_reaches_band_from_elevs`), and any band left empty was back-filled
+from any section that did reach it, **at any distance** (`_fill_band_voids`). It no
+longer loads them at all.
+
+**Owner ruling 2026-07-30**, verbatim: *"the voids below td are always filled
+through correlations from other tests the left or right (as in fill bands) if that
+is not the case then you leave it unkown."*
+
+**Why the rule was already law elsewhere.** The 2-D engine implements exactly it —
+correlate-or-gap, uncapped `emitGap`, no substrate since the 2026-07-10 revert
+(`sectionResolve.ts:783-789`, debt #237.5). The same ruling is recorded as the
+partition-engine-v2 §8 Q3 answer (2026-07-13). And geology-over-litho had already
+been reversed twice: A2 geo-decoupling (`docs/domain-model.md:89-108`) and
+`litho_geo_bounding.py:7-12` (2026-06-25). The 3-D builder was the last place that
+contradicted it. The original justification — capping extrapolation beneath a
+shallow test — describes a builder that no longer exists.
+
+**Evidence.** Measured read-only on generation `019fae07-b05d-7143`, then A/B'd with
+identical inputs and identical code, only `geo_surfaces` differing. Of the gap-sides
+whose two columns differ in depth by ≥ 1 m, **9 reach below the shallow TD** (a tie
+crosses, so the band follows it) and **44 stop at it to the millimetre**. Yet 39 of
+those 44 carried 3-D material below the TD — mean 3.58 m, worst 6.70 m, almost all
+KLEI — imported from a section a **median 35 m away, max 238 m**, while the section
+that authored *unknown* sat at perpendicular distance **0.0 m**.
+
+| | with bands | after |
+|---|---|---|
+| invented sub-TD gap-sides | 39 / 44 | **6 / 44** |
+| worst invented depth | 6.70 m | 2.96 m |
+| median import distance | 35.3 m | 0.2 m |
+| `invented` samples (model-wide) | 3,232 | **171** |
+| `disagree` | 402 | **318** |
+| `model void` | 33 | 303 |
+| `agree + blocky` | 99.7 % | 99.5 % |
+| triangles | 790,910 | 757,706 |
+| bodies | 81 | 81 |
+
+**The instrument had to be built first.** `diag_partition_vs_voxel` bucketed every
+sample with no 2-D region as `outside` *without reading the model there*, so it was
+structurally incapable of seeing invented material — the 0.3 % `disagree` the
+campaign had been optimising was eight times smaller than the 3,232 invented
+samples nobody was counting. `scripts/diag_subtd_invention.py` is the sub-TD gate.
+
+**One regression, found by the owner on the first build and fixed.** He reported
+*"bottom clay is not being made 3d even though it has a top tie and a base tie"*.
+Not the decoupling: `_stack_at` treated an EMPTY neighbour stack as an
+interpretation of "no material here" rather than "no information here", so every
+body in the informed column became one-sided and was pinched by `max(0, 2w - 1)`;
+`_layout` then accumulated the shortfall into the depths. At
+`GEO-77/002-A..GEO-05/040-S3` the neighbour projected to `f=1.000` with an empty
+stack, the column went 19.99 m → 17.45 m, and a clay tied top AND base landed at
+-4.086/-5.072 instead of -6.481/-7.610. Fixed by deferring to the section that
+knows (`_stack_at`); deepest-region samples present 917/960 → 949/960, model voids
+40 → 8. **The +29 % triangle cost the decoupling appeared to carry was this bug** —
+the mesh is now smaller than the geology-bounded build.
+
+**Deliberately staged.** The geo branch inside `label_voxels` (`_stack_at_band`,
+`_clip_stack_to_band`, `_fill_band_voids`, `_column_stack_geo`) is unreachable but
+still present, with all ~40 of its tests green, so a revert is one command while the
+change is dogfed. `geo_bands.py`, `load_geo_surfaces.py` and `surface_bound.py`
+have no production caller left. Deleting them, and `scripts/eval_voxel_geo_bands.py`
+— which asserts the OPPOSITE of the ruling ("sideways fill ≥ 1.5× un-bounded",
+"NEVER relax the assertion") — waits on owner acceptance.
+
+**Open residual, not from this change.** `model void` rose 33 → 303 (0.2 % of
+samples) and 5 gaps still have a partly-missing deepest region (8 samples, 4 of them
+on CS1). And the one-sided lens pinch still tapers to the **equidistance midline**
+(`max(0, 2w - 1)`), which spans half the perpendicular distance between sections —
+up to 119 m on this model, against the tens of metres a 2-D intra-gap lens spans.
+**Owner question queued:** a deep unit seen on only one section — does it taper out
+halfway to its neighbour, stop at the neighbour's TD, or die within a fixed
+distance? Answering it is a separate, separately-measured commit; it lives inside
+`_blend_stacks` / `_layout` alongside #248 and the vertical-migration question.
+
+**When to revisit.** The deletions after the owner accepts the dogfeed; the lens-
+reach question when he answers it.
+
+**Cache.** The partition checksum no longer folds the geo digest, so every project
+rebuilds once. `_BUILDER_VERSION` is `voxel-2026.07.30`; generations stamped earlier
+reproduce differently by design, and `--reproduce` does not yet say so (it compares
+grid, bodies and triangles but not the builder version — a cheap improvement worth
+making).
+
 ## (end)
