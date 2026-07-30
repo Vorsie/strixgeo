@@ -12,8 +12,22 @@
 // position passes as `buildProjectFence` so the voxel labelling sees the same
 // validated 2-D partition the user sees on screen.
 
+import type { BodyBoundaryResponse } from "../api/clients/geology.types";
+// LAYERING EXCEPTION, deliberate: this reaches up into components/sections for the
+// override derivation instead of reimplementing it. A second implementation is
+// exactly the divergence being fixed here — the render and the build MUST derive
+// overrides from one place or they will drift apart again. If the layering matters
+// later, move ``apexOverrideWiring`` down into utils/; do not copy it.
+import {
+  buildApexOverridesForGaps,
+  detectPersistedLensBodies,
+  type GapExtent,
+} from "../components/sections/apexOverrideWiring";
 import type { FenceSectionInput } from "./buildProjectFence";
-import { computeSectionFillActive } from "./partitionEngineSelect";
+import {
+  computeSectionFillActive,
+  isPartitionEngineV2Active,
+} from "./partitionEngineSelect";
 import { assembleSectionsWithCanonical } from "./sectionFenceData";
 
 /** One filled region of a 2-D section partition (mirrors `SectionRegion`). */
@@ -96,10 +110,15 @@ export interface VoxelBuildRequest {
  * section it assembles the partition columns (accepted layers + ordered
  * columns), reuses the SAME canonical-world-position reconciliation so a tie
  * column and a cross-section column for the same test agree at the crossing,
- * runs ``computeSectionFill`` with that section's approved edges, and reshapes
- * the result into a ``SectionPartitionInput``. The partition itself is never
- * altered — the backend voxel labeller sees exactly the regions the user sees
- * on screen.
+ * runs ``computeSectionFill`` with that section's approved edges AND the same
+ * hand-drawn apex/contact overrides the overlay renders with, and reshapes the
+ * result into a ``SectionPartitionInput``. The partition itself is never altered —
+ * the backend voxel labeller sees exactly the regions the user sees on screen.
+ *
+ * That last sentence was FALSE until 2026-07-30: the overrides were not passed, so
+ * anything the user had reshaped by hand was drawn one way and built another. Pass
+ * ``boundariesByBodyId`` to keep the two in step; omitting it reproduces the old
+ * no-override partition and is only correct for a model with nothing drawn.
  *
  * Sections whose assembled ``columns.length < 2`` (no fillable gap) are skipped,
  * matching ``buildProjectFence``.
@@ -117,6 +136,10 @@ export interface VoxelBuildRequest {
  *     Z (elevation) voxel spacing in metres. Emitted as ``vertical_spacing_m``.
  *     A finer value than ``horizontalM`` catches thin layers at the cost of more
  *     voxels; the backend collapses ``verticalM === horizontalM`` to a cubic grid.
+ * boundariesByBodyId : ReadonlyMap<string, BodyBoundaryResponse>, optional
+ *     Every body's stored hand-drawn boundary (the same map the section overlay
+ *     renders from). Used to derive the apex/contact overrides so the built model
+ *     matches the drawn partition. Omit only when nothing is drawn.
  *
  * Returns
  * -------
@@ -129,6 +152,7 @@ export function buildVoxelRequest(
   sections: readonly FenceSectionInput[],
   horizontalM: number,
   verticalM: number,
+  boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>,
 ): VoxelBuildRequest {
   // Pass 1 (shared with buildProjectFence so crossings agree): assemble every
   // section + compute the canonical per-test world positions.
@@ -165,12 +189,61 @@ export function buildVoxelRequest(
     // lockstep, so they share order + length by construction. Passing alongM lets
     // the deep-to-deep substrate pass slice each gap's deep band at the real column
     // spacing, so the 3D voxel model inherits the same substrate geometry the 2D
-    // overlay renders. (3rd arg = lensApexOverrides, unused here → undefined.)
+    // overlay renders.
     const alongM = orderedColumns.map((c) => c.alongM);
+
+    // HAND-DRAWN SHAPES REACH THE BUILD (owner directive 2026-07-30).
+    //
+    // This used to pass ``undefined`` for the engine's third argument while
+    // ``PartitionFillOverlay`` passed the real apex overrides, so the model was
+    // BUILT from a different partition than the one drawn — the file's own claim
+    // that "the backend voxel labeller sees exactly the regions the user sees" was
+    // false for every body whose contact the user had reshaped. Measured on the dev
+    // model: the basal clay banded across all 23 gaps of Cross-section 1 without
+    // overrides, while the posted payload wedged it at four of them (fraction 0.544
+    // at `1411-GEO-23/126-B3 .. GEO-23/125-S9`), which is what the owner saw as
+    // "the bottom clay is not made 3D" while Fill bands looked correct.
+    //
+    // The derivation is SCREEN-FREE here. Stored nodes carry ``along_m`` and
+    // ``elevation_m``; the overlay's ``alongToScreenX`` exists only to turn along
+    // into a gap-local fraction, and ``screenToLevel`` is read only for a LIVE
+    // drag. So the identity transform plus gap extents in ALONG metres reproduce
+    // the overlay's fractions exactly, with both drag states null.
+    const gapXs: GapExtent[] = orderedColumns
+      .slice(0, -1)
+      .map((c, i) => ({ leftX: c.alongM, rightX: orderedColumns[i + 1].alongM }));
+    const alongIdentity = (along: number): number => along;
+    const partitionEngineV2 = isPartitionEngineV2Active();
+    // Mirrors the overlay: a no-override BASE pass first, so a stored node that
+    // shapes a two-sided body's lens tip routes through the lens path rather than
+    // the un-routable contact path (§91). Skipped when nothing is drawn, so the
+    // common case costs no extra engine pass.
+    const persistedLensBodies =
+      boundariesByBodyId && boundariesByBodyId.size > 0
+        ? detectPersistedLensBodies(
+            computeSectionFillActive(columns, input.edges, undefined, alongM),
+            columns,
+            boundariesByBodyId,
+            alongIdentity,
+            gapXs,
+          )
+        : undefined;
+    const { apexOverrides } = buildApexOverridesForGaps({
+      orderedColumns: columns,
+      gapXs,
+      boundariesByBodyId,
+      alongToScreenX: alongIdentity,
+      screenToLevel: undefined,
+      lensDrag: null,
+      boundaryDrag: null,
+      partitionEngineV2,
+      persistedLensBodies,
+    });
+
     const regions: RegionInput[] = computeSectionFillActive(
       columns,
       input.edges,
-      undefined,
+      apexOverrides,
       alongM,
     ).map(
       (r) => ({
