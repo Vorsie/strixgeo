@@ -30,7 +30,17 @@ Points are then bucketed:
                      2-D contact — the expected discretisation
 ``disagree``         they differ well away from any contact — a real divergence
 ``model void``       the partition fills it but the model has nothing there
-``outside``          the partition has no region there (nothing to compare)
+``invented``         the partition authored NOTHING there but the model carries
+                     material anyway — the other direction of error
+``outside``          neither the partition nor the model has anything there
+
+``invented`` was added 2026-07-30. Until then a sample with no 2-D region went
+straight to ``outside`` without the model being read at all, so the scoreboard was
+structurally incapable of seeing invented material — the exact defect behind the
+owner's ruling that a void the correlations do not fill stays unknown. It is
+deliberately kept OUT of the ``agree``/``blocky``/``disagree``/``model void``
+denominator so the percentages stay comparable with the baseline pinned in
+``docs/debt.md`` #251.
 
 The inputs come from the STORED BUILD GENERATION, so this reports on the build
 the owner actually looked at. It used to read a hand-captured payload file, which
@@ -299,7 +309,16 @@ async def main() -> None:
                         None,
                     )
                     if twod is None:
-                        sec_counts["outside"] += 1
+                        # No 2-D region here.  Consulting the model anyway is the
+                        # only way this scoreboard can see the OTHER direction of
+                        # error: material the 3-D model carries where the partition
+                        # authored nothing.  Before this split every such sample
+                        # was bucketed "outside" without the model being read at
+                        # all, so invented material could not appear in the score.
+                        if any(base <= elevation < top for _f, base, top in stack):
+                            sec_counts["invented"] += 1
+                        else:
+                            sec_counts["outside"] += 1
                     else:
                         threed = next(
                             (f for f, base, top in stack if base <= elevation < top), None
@@ -308,10 +327,7 @@ async def main() -> None:
                             sec_counts["model void"] += 1
                         elif threed == twod:
                             sec_counts["agree"] += 1
-                        elif (
-                            _distance_to_formation(regions, frac, elevation, threed)
-                            <= blocky_tol
-                        ):
+                        elif _distance_to_formation(regions, frac, elevation, threed) <= blocky_tol:
                             sec_counts["blocky"] += 1
                         else:
                             sec_counts["disagree"] += 1
@@ -329,7 +345,21 @@ async def main() -> None:
     for key in ("agree", "blocky", "disagree", "model void"):
         pct = 100.0 * totals[key] / compared if compared else 0.0
         print(f"      {key:<12} {totals[key]:>8,}  ({pct:5.1f} %)")
-    print(f"      {'outside':<12} {totals['outside']:>8,}  (no 2-D region — not compared)")
+    # ``invented`` and ``outside`` stay OUT of ``compared`` on purpose: the four
+    # buckets above are the ones debt #251 pinned a baseline against, and moving
+    # the denominator would make every historical percentage incomparable.  The
+    # invented count is the second headline in its own right, so it is printed
+    # with its own share of the samples that HAVE no 2-D region.
+    no_region = totals["invented"] + totals["outside"]
+    inv_pct = 100.0 * totals["invented"] / no_region if no_region else 0.0
+    print(
+        f"      {'invented':<12} {totals['invented']:>8,}  "
+        f"({inv_pct:5.1f} % of no-2-D-region samples — material the partition "
+        f"never authored; NOT in the denominator above)"
+    )
+    print(
+        f"      {'outside':<12} {totals['outside']:>8,}  (no 2-D region, no model — not compared)"
+    )
     good = totals["agree"] + totals["blocky"]
     print(
         f"\n  The model reproduces Fill bands at {good:,}/{compared:,} "
