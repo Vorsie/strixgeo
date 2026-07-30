@@ -15,6 +15,8 @@ import {
   type LithoLayerLike,
   type SectionLike,
 } from '../../../utils/assembleLithoSectionInputs'
+import { api } from '../../../api/client'
+import type { BodyBoundaryResponse } from '../../../api/clients/geology.types'
 import { buildVoxelRequest, type VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
@@ -85,7 +87,40 @@ export function makeVoxelRequestBuilder(
       edgesBySectionId,
     })
 
+    // Every body's hand-drawn boundary, so the BUILD derives the same apex/contact
+    // overrides the section overlay renders with. Without them the model was built
+    // from the no-override partition while the user looked at the overridden one
+    // (owner 2026-07-30: "the bottom clay is not made 3D" while Fill bands was
+    // correct). Same fetch shape as SectionsCanvas' refetchLensData: one list call
+    // plus one GET per body. A failure degrades to no overrides — the old
+    // behaviour — rather than aborting the build, and says so loudly.
+    let boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse> | undefined
+    try {
+      const bodies = await api.geology.listLenses(projectId, modelId)
+      boundariesByBodyId = new Map(
+        await Promise.all(
+          bodies.map(
+            async (b) =>
+              [b.id, await api.geology.getBodyBoundary(projectId, modelId, b.id)] as const,
+          ),
+        ),
+      )
+      log.debug(logLabel, `loaded ${boundariesByBodyId.size} body boundary shape(s) for the build`)
+    } catch (err) {
+      log.warn(
+        logLabel,
+        'body boundaries failed to load — building WITHOUT hand-drawn overrides, so a ' +
+          'reshaped contact will not match the 2-D view',
+        err,
+      )
+    }
+
     const { voxelHorizontalSpacingM, voxelVerticalSpacingM } = readLithoSegmenterPrefs(viewState)
-    return buildVoxelRequest(sectionInputs, voxelHorizontalSpacingM, voxelVerticalSpacingM)
+    return buildVoxelRequest(
+      sectionInputs,
+      voxelHorizontalSpacingM,
+      voxelVerticalSpacingM,
+      boundariesByBodyId,
+    )
   }
 }
