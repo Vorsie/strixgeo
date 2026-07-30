@@ -56,10 +56,26 @@ export interface SectionLike {
   excluded_borehole_ids?: string[] | null
 }
 
-/** One approved correlation edge (contact-id pair) on a section. */
+/**
+ * One approved correlation edge on a section.
+ *
+ * The SIDES are load-bearing and must not be dropped. An edge joins a specific
+ * CONTACT of each layer, and the partition engine keys off that: a base<->base
+ * bottom tie is what lets the DEEPEST unit band, and it must not be counted as a
+ * top-keyed edge. Until 2026-07-30 this type carried only ``a``/``b``, so the
+ * build path silently turned every base tie into a duplicate top tie — the
+ * compiler could not object, because ``CorrelationEdge.aSide/bSide`` are optional
+ * and documented as "Omitted ⇒ 'top'". On the owner's model that erased a clay
+ * both tests bottom out in from three whole gaps of Cross-section 1 while the
+ * section view drew it correctly.
+ */
 export interface ApprovedEdge {
   a: string
   b: string
+  /** Which contact of layer ``a`` the edge joins. Omitted ⇒ ``'top'``. */
+  aSide?: 'top' | 'base'
+  /** Which contact of layer ``b`` the edge joins. Omitted ⇒ ``'top'``. */
+  bSide?: 'top' | 'base'
 }
 
 /**
@@ -133,7 +149,15 @@ export function assembleLithoSectionInputs(params: {
       surfaceElevM: p.item.elevation_m,
     }))
 
-    const edges = (edgesBySectionId.get(section.id) ?? []).map(e => ({ a: e.a, b: e.b }))
+    // Carry the SIDES. Dropping them made every base<->base bottom tie arrive as
+    // a duplicate top<->top tie, so the deepest unit had a top bound and no bottom
+    // bound and could not band (owner 2026-07-30).
+    const edges = (edgesBySectionId.get(section.id) ?? []).map(e => ({
+      a: e.a,
+      b: e.b,
+      aSide: e.aSide,
+      bSide: e.bSide,
+    }))
 
     return {
       section: {
