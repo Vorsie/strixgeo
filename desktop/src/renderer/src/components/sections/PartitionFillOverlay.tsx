@@ -44,6 +44,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { countSpanningRegions } from '../../utils/countSpanningRegions'
 import { log } from '../../utils/log'
 import type {
   BodyBoundaryNode,
@@ -1115,6 +1116,18 @@ export default function PartitionFillOverlay({
       reviewFlags,
       overrideStatus,
     } = computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
+
+    // Mirror of the line ``buildVoxelRequest`` logs per payload section, so the
+    // RENDERED partition and the BUILT one can be compared field for field in one
+    // console. Added 2026-07-30: a clay banded on screen was absent from the built
+    // model, and the two paths are documented to assemble identical columns through
+    // the same util — so whichever field differs here is the whole answer.
+    log.info(
+      'partition',
+      `rendered section: ${orderedColumns.length} cols, ${sectionRegions.length} regions ` +
+        `(${countSpanningRegions(sectionRegions)} span their gap), ${edges.length} edges, ` +
+        `overrides=${apexOverrides.size}`,
+    )
 
     // ---- UNSAFE-DRAG outcome (owner S80 "red handle and snapback"). ----------
     // The engine keeps "never a gap or overlap" by rendering the un-reshaped base fill on a
