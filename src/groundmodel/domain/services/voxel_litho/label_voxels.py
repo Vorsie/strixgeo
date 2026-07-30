@@ -600,6 +600,19 @@ def _stack_at(sections: list[SectionPartitionInput], x: float, y: float) -> list
         s2, gap2, frac2, d2, _px2, _py2 = projs[1]
         stack1 = _section_stack_at(s1, gap1, frac1)
         stack2 = _section_stack_at(s2, gap2, frac2)
+        # An EMPTY stack is no information, not an interpretation of "no material
+        # here".  It happens routinely: the projection clamps to a section's end
+        # column, or lands in a gap the partition never filled.  Blending against
+        # it made every body in the informed column one-sided, so each was pinched
+        # by ``max(0, 2w - 1)`` and — because ``_layout`` re-stacks cumulatively
+        # downward — the shortfall accumulated into the depths.  On the dev model
+        # that lifted a clay tied top AND base from -6.481/-7.610 to
+        # -4.086/-5.072, and the owner correctly reported the bottom clay as
+        # missing from the 3-D model.  Defer to the section that does know.
+        if not stack2:
+            return stack1
+        if not stack1:
+            return stack2
         denom = d1 + d2
         w1 = 0.5 if denom < _EPS else d2 / denom
         return _blend_stacks(stack1, stack2, w1)
