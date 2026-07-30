@@ -24,6 +24,7 @@ import {
   type GapExtent,
 } from "../components/sections/apexOverrideWiring";
 import type { FenceSectionInput } from "./buildProjectFence";
+import { log } from "./log";
 import {
   computeSectionFillActive,
   isPartitionEngineV2Active,
@@ -254,6 +255,31 @@ export function buildVoxelRequest(
         ),
         gap_index: r.gapIndex,
       }),
+    );
+
+    // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
+    // not match a bench run of the same engine on the same inputs is visible
+    // without guessing. Added 2026-07-30 after a correlated basal clay was absent
+    // from the built model: the payload had 193 regions for a 24-column section
+    // while the same engine, on columns / units / edges / alongM verified
+    // byte-equal, returned 210 with the body banded across the four gaps the
+    // payload left empty. Everything on the input side matched, so the difference
+    // has to be visible from inside the app.
+    const tiedLayerIds = new Set<string>();
+    for (const e of input.edges) {
+      tiedLayerIds.add(e.a);
+      tiedLayerIds.add(e.b);
+    }
+    const spanning = regions.filter((r) => {
+      const fr = r.polygon.map((p) => p[0]);
+      return Math.min(...fr) < 0.01 && Math.max(...fr) > 0.99;
+    }).length;
+    log.info(
+      "litho-voxel",
+      `payload section: ${payloadColumns.length} cols, ${regions.length} regions ` +
+        `(${spanning} span their gap), ${input.edges.length} edges over ` +
+        `${tiedLayerIds.size} tied layers, engine=${partitionEngineV2 ? "v2" : "v1"}, ` +
+        `overrides=${apexOverrides.size}`,
     );
 
     out.push({
