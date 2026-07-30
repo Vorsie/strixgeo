@@ -240,9 +240,19 @@ function paintNote() {
     extra.style.marginTop = '7px';
     extra.style.color = '#e2e8f0';
     extra.textContent =
-      `${selected.formation} · ${selected.pinches.length} pinch points on ` +
-      `${selected.sections} section(s) → ${n} outline${n === 1 ? '' : 's'}`;
+      `${selected.label} · ${selected.pinches.length} pinch points on ` +
+      `${selected.pinchSections.length} section line(s) → ${n} outline${n === 1 ? '' : 's'}`;
     note.appendChild(extra);
+    if (selected.pinchSections.length < 2) {
+      const warn = document.createElement('div');
+      warn.style.marginTop = '6px';
+      warn.style.color = '#f0a04b';
+      warn.textContent =
+        'All its pinch points lie on one section line, so they are collinear and give ' +
+        'the body no width. No rule can outline this from the data — it needs a shape ' +
+        'assumption.';
+      note.appendChild(warn);
+    }
   }
   document.getElementById('gapRow').style.opacity = rule === 'clusters' ? '1' : '0.35';
 }
@@ -258,10 +268,14 @@ function buildList() {
     sw.className = 'sw';
     sw.style.background = colourFor(body.formation);
     const name = document.createElement('span');
-    name.textContent = `${body.formation} ${body.id.slice(0, 8)}`;
+    name.textContent = body.label;
+    const flat = body.pinchSections.length < 2;
+    if (flat) name.style.color = '#f0a04b';
     const n = document.createElement('span');
     n.className = 'n';
-    n.textContent = `${body.pinches.length} pts · ${body.sections} sec`;
+    n.textContent = flat
+      ? `${body.pinches.length} pts · 1 line`
+      : `${body.pinches.length} pts · ${body.pinchSections.length} lines`;
     row.append(sw, name, n);
     row.addEventListener('click', () => {
       selected = selected && selected.id === body.id ? null : body;
@@ -287,11 +301,10 @@ fetch('footprints.json').then((r) => r.json()).then((d) => {
 
   const blurb = document.getElementById('blurb');
   blurb.replaceChildren();
-  const lens = d.bodies.filter((b) => b.pinches.length >= 4 && b.pinches.length <= 9).length;
-  const wide = d.bodies.filter((b) => b.pinches.length >= 10).length;
-  const two = d.bodies.filter((b) => b.pinches.length >= 2 && b.pinches.length <= 3).length;
+  const twoD = d.bodies.filter((b) => b.pinchSections.length >= 2).length;
+  const flat = d.bodies.filter((b) => b.pinchSections.length === 1 && b.pinches.length >= 2).length;
   const strong = document.createElement('b');
-  strong.textContent = `${lens} lens-shaped · ${wide} terminating in many places · ${two} with only 2–3 points`;
+  strong.textContent = `${twoD} bodies pinch on 2+ section lines (a real outline) · ${flat} pinch on one line only (amber — collinear, no width)`;
   blurb.append(
     document.createTextNode('White dots are the pinch-out points your correlations already fix. ' +
       'The filled shape is the lens; everything outside it is matrix, whatever its lithology. '),
@@ -325,7 +338,7 @@ fetch('footprints.json').then((r) => r.json()).then((d) => {
   });
 
   // Every body at once is unreadable, so open on a representative lens.
-  selected = d.bodies.find((b) => b.pinches.length >= 4 && b.pinches.length <= 6) || null;
+  selected = d.bodies.find((b) => b.pinchSections.length >= 2 && b.pinches.length <= 6) || null;
   buildList();
   paintNote();
   draw();
