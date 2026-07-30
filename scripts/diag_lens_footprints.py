@@ -212,6 +212,16 @@ async def main() -> None:
             note = "  (outline determined)"
         print(f"      {k:>2} points: {by_pinch[k]:>4}{note}")
 
+    with_open = sum(1 for b in bodies if open_ends[b])
+    only_open = sum(1 for b in bodies if open_ends[b] and not pinches_of[b])
+    print(
+        "\n  open ends (body still present at a section's first or last column —"
+        "\n  not a pinch-out, just no information past that point)"
+    )
+    print(f"      total open ends:              {sum(open_ends.values())}")
+    print(f"      bodies with at least one:     {with_open} of {len(bodies)}")
+    print(f"      bodies that ONLY run off the edge: {only_open}")
+
     determined = sum(1 for b in bodies if len(pinches_of[b]) >= 4)
     single = sum(1 for b in bodies if len(pinches_of[b]) in (2, 3))
     never = sum(1 for b in bodies if not pinches_of[b])
