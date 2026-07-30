@@ -7073,4 +7073,78 @@ reproduce differently by design, and `--reproduce` does not yet say so (it compa
 grid, bodies and triangles but not the builder version — a cheap improvement worth
 making).
 
+## 255. The build threw away which contact a correlation edge joins — FIXED 2026-07-30 (L)
+
+**What.** A `LithoContactCorrelationEdge` records `layer_a_side` / `layer_b_side` —
+whether each end joins that layer's TOP or its BASE. The section overlay threads
+them into the partition engine and states why in its own comment
+(`PartitionFillOverlay.tsx:996-998`): the engine splits bottom ties (`base<->base`)
+from top-keyed edges "letting the deepest unit band without a base-tie polluting the
+topCorr signal". The BUILD path dropped them, in two independent lossy maps:
+
+* `shell/stages/shared/fetchApprovedEdgesBySection.ts:69` — `.map(e => ({ a, b }))`,
+  type `ApprovedEdgePair { a, b }`;
+* `utils/assembleLithoSectionInputs.ts:136` — `.map(e => ({ a: e.a, b: e.b }))`,
+  type `ApprovedEdge { a, b }`.
+
+Fixing one alone is useless; the other re-strips.
+
+**Why it was silent.** `CorrelationEdge.aSide/bSide` are OPTIONAL and documented as
+"Omitted ⇒ `'top'`" (`utils/partitionFill/types.ts:63-68`), so both maps type-check
+and every `base<->base` tie arrives at the builder as a DUPLICATE `top<->top` tie.
+No base tie then exists anywhere in the section: the deepest unit gets a top bound
+and no bottom bound.
+
+**The symptom, and how long it hid.** The owner reported a clay that both
+GEO-23/125-S6 and GEO-10/170-S11 bottom out in — tied `top<->top` AND `base<->base`,
+four gaps apart over three shallow tests — drawn correctly by Fill bands and absent
+from the 3-D model. It hid because every input the two paths share was verifiably
+identical: same columns, same units, same 111 edges, same `alongM` to the
+centimetre. Only the SIDES differed, and neither the type system nor the build's own
+region log could see it (that log counts distinct tied layer IDs, which a top+base
+pair on one layer pair cannot move).
+
+**Evidence.** Same engine, same real CS1 input, sides present vs stripped:
+
+| | regions | basal clay, gaps 19-22 |
+|---|---|---|
+| with sides | 248 | all `0.000..1.000` |
+| stripped | 206 | all NONE |
+
+and on the owner's builds, before → after the fix:
+
+| | before | after |
+|---|---|---|
+| CS1 payload regions | 193 | 230 |
+| basal clay gaps 19-22 | 0.000..0.500, NONE, NONE, NONE | all 0.000..1.000 |
+| model under S5A / S5 / S5B below TD | VOID | `KLEI -11.59..-6.59` |
+| gap-sides reaching below a shallow TD | 9 | 53 |
+| gap-sides stopping AT the TD | 44 | 0 |
+| invented sub-TD sites | 6 | 0 |
+| drilled-column gate | 55 exact / 1 subseq / 2 wrong | unchanged |
+| contact-error p90 (drilled ground) | — | 0.119 m (median 0.065, max 4.805) |
+| triangles | 757,568 | 764,026 |
+
+Nothing user-authored moved: 418 litho layers, 480 correlation edges, 92 distinct
+body ids, all unchanged.
+
+**It also corrects an earlier conclusion in this file.** #254 reported "44 gap-sides
+where the partition stops at the shallow TD, uncorrelated, correctly left unknown".
+That number was measured from a payload whose base ties had already been stripped.
+With the sides preserved, 53 gap-sides reach below the TD and none stop at it — the
+ties were there all along, which is what the owner said twice before it was believed.
+
+**Blast radius.** `buildProjectFence` consumes the same two producers, so the 3-D
+fence walls carried the identical defect and are fixed by the same change.
+
+**Still open, found alongside it.** `buildVoxelRequest.ts:209-213` claims the build's
+override gap-extents are equivalent to the overlay's; they are not. The build uses
+column CENTRES in along-metres under an identity transform, the overlay uses column
+FACES in warped screen pixels, so `NODE_OWN_EPS = 0.5` means metres in one and
+pixels in the other. An override can only move an existing tip, so it is a separate
+and smaller bug — but the claim in that comment is false and should not be trusted.
+
+**When to revisit.** The override gap-extent mismatch: when apex overrides are next
+touched.
+
 ## (end)
