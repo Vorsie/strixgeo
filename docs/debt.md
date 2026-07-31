@@ -7280,3 +7280,64 @@ the drilled gate, the contact-error p90 and the partition-vs-voxel scoreboard.
 Necessary but not assumed sufficient — `_stack_at` also consults only the two nearest
 sections, and whether that still costs anything once the kinds arrive is a
 measurement, not an assumption.
+
+## 257. The blend deletes material BOTH sections carry, and raises the floor by it (L)
+
+**What.** `_section_stack_at` emits one `_Entry` per sliced REGION and never merges
+contiguous slices of the same body. `_pair_occurrences` then matches occurrences
+one-to-one by nearest mid-elevation, and `_blend_stacks` sends the SURPLUS into the
+one-sided branch — where `max(0, 2w - 1)` annihilates it at the midline. The body is on
+BOTH sections. It is not one-sided. It is deleted because the 2-D engine happened to cut
+it into a different NUMBER of polygons on each section.
+
+`_layout` then stacks cumulatively downward from a blended top, so every deleted metre
+comes off the bottom: the column thins, the units above sink, and the model floor rises.
+
+**Counter-example, verified against the persisted build.** At Lambert-72
+`(88 082.3, 164 463.3)`, between Tie-section 8 (perp 31.04 m) and Cross-section 1
+(perp 31.32 m), midline factor 0.0046, no honour override (nearest investigation 36.5 m):
+
+| | |
+|---|---|
+| both sections author their floor at | **-9.69 m** |
+| the model's floor | **-0.845 m** — 8.85 m too shallow |
+| model puts ZAND at | +10.41 .. +6.66 (3.75 m) |
+| Tie-section 8 authors there | KLEI (with a 0.15 m VEEN) |
+| Cross-section 1 authors there | SILT |
+| neither section has ANY sand above | +5.59 m |
+
+The mechanism at that point, measured: KLEI `019ea170-5ce6` is 5 contiguous slices on
+one section and 1 on the other (4 surplus, up to 5.81 m deleted); ZAND `019ea3e1-9be2`
+is 1 versus 5 (4 surplus, up to 5.16 m). Weighted deletion ~5.49 m from bodies both
+sections carry, plus the genuinely one-sided SILT and VEEN — 8.94 m in total, exactly
+the shortfall.
+
+The slices are CONTIGUOUS: base of one equals top of the next to 1e-6. They are one
+interval the 2-D engine cut into pieces, not a re-entrant body.
+
+**Model-wide.** 57.6 % of all deleted thickness comes from surplus occurrences of bodies
+BOTH sections carry — mean 0.684 m per column against 0.504 m for genuinely one-sided
+bodies, p90 2.18 m, max 5.67 m, with 12.6 % of blended columns losing more than 2 m to
+this alone. Floor shortfall over 37,503 columns: p50 +0.01 m, p90 +1.77 m, p99 +5.35 m,
+max +8.85 m.
+
+**Why it stayed hidden.** `scripts/diag_partition_vs_voxel.py` samples ON the section
+lines, where the weight is 1 and nothing is deleted. This happens 31 m away at the
+midline, which nothing sampled. The drilled-column gate is likewise anchored at
+investigations, which sit on sections.
+
+**This is almost certainly #242.** "The model floor is shallower than the deepest
+investigations" is this, and it is also the 3-D consequence of the 2-D sliver problem
+(#228 / #149): in 2-D a hairline sliver is cosmetic, in 3-D its thickness is deleted and
+the floor rises by it.
+
+**Why deferred.** Found 2026-07-31 by an adversarial counter-example hunt, verified
+against both the in-memory rebuild and the persisted `litho_body_solid` meshes.
+
+**When to revisit.** Before any further 3-D geometry work, and before #256's measured
+pinch earns its default — this is a larger error than the midline assumption #256
+replaces, and it is in the same function. The obvious fix is to merge CONTIGUOUS
+same-body intervals before pairing, which is correct by construction: two slices that
+touch exactly are one interval. It will not fix the cases where a 3-6 mm sliver of
+another body sits between two slices of the same one — that is #228 itself, and it needs
+the sliver gone rather than papered over.
