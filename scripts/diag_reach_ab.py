@@ -184,12 +184,18 @@ async def main() -> None:
             "bodies": len(meshes),
             "tris": sum(len(m.triangles) for m in meshes),
             "seconds": time.perf_counter() - t0,
+            "floor_short": [],
         }
         for inv_id, x, y, authored in columns:
             stack = _compute_model_stack(x, y, active)
             if not stack:
                 res["uncovered"] += 1
                 continue
+            # How far the model's own floor sits ABOVE the deepest thing the log
+            # recorded. Positive means the model stops short of drilled ground.
+            log_bottom = min(float(a[2]) for a in authored)
+            model_bottom = min(float(iv[1]) for iv in stack)
+            res["floor_short"].append(model_bottom - log_bottom)
             if inv_id in paired:
                 res["paired"] += 1
                 continue
@@ -230,6 +236,20 @@ async def main() -> None:
         print(f"    {'contact err median':22s}: {np.median(eb):.3f} -> {np.median(ea):.3f} m")
         print(f"    {'contact err max':22s}: {eb[-1]:.3f} -> {ea[-1]:.3f} m")
 
+    # #242: is the model floor still shallower than the deepest investigations?
+    print("\n  === MODEL FLOOR vs THE DEEPEST INVESTIGATIONS (#242) ===")
+    for name in ("BEFORE  midline", "AFTER   reach"):
+        short = results[name]["floor_short"]
+        if not short:
+            continue
+        arr = np.array(short)
+        print(
+            f"    {name}: model stops short of the log bottom at "
+            f"{int((arr > 0.05).sum())} of {len(arr)} investigations; "
+            f"median {np.median(arr):+.2f} m, p90 {np.percentile(arr, 90):+.2f} m, "
+            f"worst {arr.max():+.2f} m"
+        )
+
     if gb.shape == ga.shape:
         cell = h * h * v
         void_b, void_a = gb < 0, ga < 0
@@ -242,6 +262,33 @@ async def main() -> None:
         print(f"    changed body          : {moved:,} cells  ({moved * cell:,.0f} m3)")
         labelled = int(np.count_nonzero(~void_b))
         print(f"    as a share of labelled: {100.0 * moved / max(labelled, 1):.2f} %")
+
+        # A cell that was void BETWEEN the topmost and bottommost labelled cell of its
+        # own column was a hole INSIDE the model. One outside that span is the model
+        # reaching further, which is a different thing entirely and must not be
+        # reported as a hole.
+        newly = void_b & ~void_a
+        interior = grew = fresh_column = 0
+        cols = np.argwhere(newly.any(axis=2))
+        for ix, iy in cols:
+            before_col = ~void_b[ix, iy]
+            zs = np.flatnonzero(before_col)
+            hits = int(newly[ix, iy].sum())
+            if zs.size == 0:
+                fresh_column += hits
+                continue
+            lo, hi = zs.min(), zs.max()
+            got = np.flatnonzero(newly[ix, iy])
+            inside = int(((got >= lo) & (got <= hi)).sum())
+            interior += inside
+            grew += hits - inside
+        print("\n  === WHERE THE NEWLY FILLED GROUND IS ===")
+        print(f"    holes INSIDE the old model  : {interior:,} cells  ({interior * cell:,.0f} m3)")
+        print(f"    the model reaching further  : {grew:,} cells  ({grew * cell:,.0f} m3)")
+        print(
+            f"    columns that had no model   : {fresh_column:,} cells  "
+            f"({fresh_column * cell:,.0f} m3)"
+        )
     else:
         print("\n  grids differ in shape — not comparable cell by cell")
 
