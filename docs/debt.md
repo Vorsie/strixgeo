@@ -7376,15 +7376,44 @@ the build silently drops one section's contribution and extrudes the other.
 **When to revisit.** Before further work in `label_voxels`. Note the function has been
 changed twice recently (#256 wiring, #257 merge), so it wants care rather than speed.
 
-## 260. Between/beyond switching cuts hard walls through the model (M)
+## 260. The between/beyond switch is a step discontinuity, up to 12 m (L)
 
-**What.** Reported by the geological-correctness specialist and verified by its skeptic,
-not independently by me. The between/beyond switch plus the discrete choice of
-"second-nearest section" makes a formation contact **jump 5.32 m across one 2 m voxel
-step**. Separately, the beyond rule extrudes a section's TERMINAL column stack up to
-**53.4 m past the end of that section**, into ground a nearer-ranked section contradicts.
+**What.** Reproduced independently 2026-07-31, and the wall is more than twice as tall
+as reported.
 
-**When to revisit.** With #259 — same function, same class of fault.
+`_stack_at` blends the two nearest sections when the point lies BETWEEN them and
+extrudes the nearest one ALONE otherwise. The weight is therefore discontinuous at the
+boundary: inside it is `d2 / (d1 + d2)`, outside it is 1. The column changes in a single
+step.
+
+| | |
+|---|---|
+| adjacent 2 m column pairs compared | 23,469 |
+| worst jump in a shared body's top across ONE step | **12.15 m** (reported: 5.32 m) |
+| where | (88 316.3, 164 879.1), mode flipping `beyond` → `between` |
+| steps where the mode or the section pair changes | 1,112 (4.7 %) |
+
+**The second half of the reported finding does not hold as stated.** "The beyond rule
+extrudes a terminal column up to 53.4 m past the end of that section" — measured
+properly, only **147 of 23,715 sampled columns (0.6 %)** project onto a terminal column
+at all, and they are carried a median of 36.4 m, p90 61.1 m, max **70.1 m**. So the
+distance is real and larger than reported, but it applies to well under one percent of
+the model rather than being a general property of the beyond path (23.2 % of columns).
+
+A first attempt at this measurement asked how far each beyond-path point sat from the
+nearest END COLUMN and got a median of 236 m — meaningless, because a point can be far
+from both ends while sitting beside the middle of a long section. Discarded, not
+reported.
+
+**Why it needs an owner ruling.** Removing the discontinuity means deciding what happens
+past the end of a section: keep extruding the terminal column unchanged (today), let the
+second section's influence decay continuously, or stop the model there. Each is a claim
+about ground nobody sampled. A parameter-free option exists — decay the second section's
+weight over the distance between the two projection feet, which needs no invented
+constant — but it changes geometry wherever the beyond path applies.
+
+**When to revisit.** With #261, which is the same shape of question: both are about what
+the builder should do where the sections stop agreeing. Not a patch.
 
 ## 261. The blend fragments a body neither section fragments (M)
 
