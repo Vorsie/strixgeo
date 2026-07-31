@@ -45,6 +45,12 @@ if str(_REPO_ROOT) not in sys.path:
 import numpy as np  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
+from groundmodel.application.build_voxel_litho_model import (  # noqa: E402
+    _investigation_columns_from_picks,
+)
+from groundmodel.domain.services.voxel_litho.paired_stations import (  # noqa: E402
+    paired_station_losers,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (  # noqa: E402
     GeologicalFormationOrm,
 )
@@ -53,6 +59,9 @@ from groundmodel.infrastructure.db.models.geological_model_orm import (  # noqa:
 )
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import (  # noqa: E402
     LithoBodySolidOrm,
+)
+from groundmodel.infrastructure.db.models.litho_build_generation_orm import (  # noqa: E402
+    LithoBuildGenerationOrm,
 )
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (  # noqa: E402
     LithoLayerRepository,
@@ -424,6 +433,7 @@ def _fidelity_analysis(
     columns: list[tuple[str, float, float, list]],
     active_solids: list[tuple[str, str, list, list]],
     formation_names: dict[str, str],
+    paired_losers: frozenset[str] = frozenset(),
 ) -> dict:
     """Compute the full fidelity block (Section A).
 
@@ -455,6 +465,12 @@ def _fidelity_analysis(
     subsequence_drilled = 0
     wrong_drilled = 0
     drilled_failures: list[dict] = []
+    # A paired station's loser is labelled from its PARTNER's log, because a regular
+    # grid fills a cell from one investigation and ``honor_rank`` picked the other. It
+    # cannot be scored against its own log by any build, so it gets its own category
+    # rather than a permanent failure that hides real ones.
+    paired_station = 0
+    paired_details: list[dict] = []
 
     depth_errors: list[float] = []
     # The same errors, minus every pairing that matched a model interval BELOW
@@ -485,6 +501,11 @@ def _fidelity_analysis(
             wrong += 1
 
         drilled_verdict = _classify_column_in_drilled_interval(authored_units, model_stack)
+        if inv_id in paired_losers:
+            paired_station += 1
+            if drilled_verdict != "exact":
+                paired_details.append({"inv_id": inv_id, "verdict": drilled_verdict})
+            continue
         if drilled_verdict == "exact":
             exact_drilled += 1
         elif drilled_verdict == "subsequence":
@@ -608,6 +629,8 @@ def _fidelity_analysis(
         "exact_drilled": exact_drilled,
         "subsequence_drilled": subsequence_drilled,
         "wrong_drilled": wrong_drilled,
+        "paired_station": paired_station,
+        "paired_details": paired_details,
         "drilled_failures": drilled_failures,
         "depth_errors_n": n,
         "depth_err_mean_m": round(mean_err, 3),
@@ -923,6 +946,32 @@ async def main() -> None:
     ]
 
     columns = _authored_columns(picks)
+    # Two logs closer than the honour radius cannot both own a cell: honor_rank keeps
+    # one and the other is labelled from its partner's log. Scoring that loser against
+    # its OWN log reports a failure no build can fix, so it is counted separately.
+    gen = (
+        (
+            await session.execute(
+                select(LithoBuildGenerationOrm)
+                .where(LithoBuildGenerationOrm.model_id == args.model_id)
+                .order_by(LithoBuildGenerationOrm.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    paired_losers: set[str] = set()
+    if gen is not None:
+        # Replay the builder's own honour assignment on the grid it recorded, so a
+        # "paired station" is a log that owns NO cell rather than one that merely has a
+        # neighbour. A 2 m proximity rule flagged 7 investigations here; ownership finds
+        # the 2 that are genuinely mute.
+        h = float(gen.horizontal_spacing_m)
+        gx = np.arange(gen.grid_origin_x, gen.grid_origin_x + gen.grid_nx * h, h)[: gen.grid_nx]
+        gy = np.arange(gen.grid_origin_y, gen.grid_origin_y + gen.grid_ny * h, h)[: gen.grid_ny]
+        paired_losers = paired_station_losers(
+            _investigation_columns_from_picks(picks), gx, gy, float(gen.honor_radius_m)
+        )
 
     # --- Section C: render cost (cheap — just counts, before the ray-casts) ---
     render = _render_cost(solids)
@@ -940,7 +989,7 @@ async def main() -> None:
     print(
         f"\n  Running fidelity analysis over {len(columns)} columns × {len(active_solids)} active solids..."
     )
-    fidelity = _fidelity_analysis(columns, active_solids, formation_names)
+    fidelity = _fidelity_analysis(columns, active_solids, formation_names, frozenset(paired_losers))
 
     _print_section("A. FIDELITY — model vs accepted lithos")
     n_total_cols = fidelity["covered"] + fidelity["uncovered"]
@@ -967,6 +1016,13 @@ async def main() -> None:
     print(f"    exact match            : {fidelity['exact_drilled']}")
     print(f"    subsequence (pinch)    : {fidelity['subsequence_drilled']}")
     print(f"    wrong (reorder/invent) : {fidelity['wrong_drilled']}")
+    if fidelity["paired_station"]:
+        print(
+            f"    paired station         : {fidelity['paired_station']}  "
+            "(unscoreable — the cell belongs to the partner log)"
+        )
+        for d in fidelity["paired_details"]:
+            print(f"    - {d['verdict'].upper()} but PAIRED  inv {d['inv_id']}")
     for f in fidelity["drilled_failures"]:
         print(f"    - {f['verdict'].upper()}  inv {f['inv_id']}")
         print(f"        authored : {f['authored']}")
