@@ -19,6 +19,7 @@ Read-only, dev-DB guarded, reuses the helpers of ``dump_tie_pinch_vs_midline.py`
 from __future__ import annotations
 
 import asyncio
+import math
 import sys
 from pathlib import Path
 
@@ -28,6 +29,12 @@ if str(_REPO_ROOT) not in sys.path:
 
 from sqlalchemy import select  # noqa: E402
 
+from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (  # noqa: E402
+    apply_body_aliases,
+)
+from groundmodel.domain.services.voxel_litho.true_column_positions import (  # noqa: E402
+    apply_true_column_positions,
+)
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm  # noqa: E402
 from groundmodel.infrastructure.db.models.litho_build_generation_orm import (  # noqa: E402
     LithoBuildGenerationOrm,
@@ -45,12 +52,6 @@ from scripts.dump_tie_pinch_vs_midline import (  # noqa: E402
     _load_formation_names,
     _name_sections,
     _terminations,
-)
-from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (  # noqa: E402
-    apply_body_aliases,
-)
-from groundmodel.domain.services.voxel_litho.true_column_positions import (  # noqa: E402
-    apply_true_column_positions,
 )
 
 STEPS = 200
@@ -123,6 +124,72 @@ async def main() -> None:
         "  termination on any other section, so an absence tie between the query and\n"
         "  that termination cannot stop it.\n"
     )
+
+    # Does an absence tie ever sit BETWEEN two carrying ties?  The rulings say to
+    # interpolate between carrying ties and never to cross an absence tie; a body present
+    # either side of a tie that lacks it satisfies neither, and would be a question for
+    # the owner rather than something to settle by picking a rule.
+    print("  --- absence ties BETWEEN two carrying ties (unruled if any) ---")
+    ordered = _ties_in_spatial_order(seated, ties)
+    two_plus = [r for r in rows if r[2] >= 2]
+    sandwiched = []
+    for body, form, _c, _a in two_plus:
+        carried = [i for i in ordered if body in present.get(i, set())]
+        first, last = ordered.index(carried[0]), ordered.index(carried[-1])
+        between = [i for i in ordered[first : last + 1] if body not in present.get(i, set())]
+        if between:
+            sandwiched.append((body, form, len(carried), len(between)))
+
+    if not sandwiched:
+        print(
+            f"    NONE — of the {len(two_plus)} bodies carried by two or more ties, every\n"
+            "    carrying tie is contiguous in spatial order. The three rulings cover the\n"
+            "    real geometry; no further owner question is needed to build the edge.\n"
+        )
+    else:
+        print(f"    {len(sandwiched)} bodies — UNRULED, ask the owner:")
+        for body, form, carried, between in sandwiched:
+            print(
+                f"      {body[:14]:<16} {form:<8} carried by {carried} ties, "
+                f"absent on {between} lying between them"
+            )
+        print()
+
+
+def _ties_in_spatial_order(seated: list, ties: list[int]) -> list[int]:
+    """The tie indices ordered along the trend the ties themselves are spaced on.
+
+    Ties run between the cross-sections, so they are spaced along the cross-section
+    direction. Ordering them by the projection of their midpoints onto the first
+    principal direction of those midpoints is parameter-free — it reads the trend off
+    the data instead of assuming a compass axis.
+
+    Parameters
+    ----------
+    seated : list
+        All sections, positioned at their true column coordinates.
+    ties : list of int
+        Indices of the tie-sections within ``seated``.
+
+    Returns
+    -------
+    list of int
+        The same indices, ordered along their own trend.
+    """
+    mids = {}
+    for i in ties:
+        xs = [c.world_x for c in seated[i].columns]
+        ys = [c.world_y for c in seated[i].columns]
+        mids[i] = (sum(xs) / len(xs), sum(ys) / len(ys))
+    cx = sum(m[0] for m in mids.values()) / len(mids)
+    cy = sum(m[1] for m in mids.values()) / len(mids)
+    sxx = sum((m[0] - cx) ** 2 for m in mids.values())
+    syy = sum((m[1] - cy) ** 2 for m in mids.values())
+    sxy = sum((m[0] - cx) * (m[1] - cy) for m in mids.values())
+    # Principal direction of a 2x2 covariance, without pulling numpy into a diag.
+    theta = 0.5 * math.atan2(2.0 * sxy, sxx - syy)
+    ux, uy = math.cos(theta), math.sin(theta)
+    return sorted(ties, key=lambda i: (mids[i][0] - cx) * ux + (mids[i][1] - cy) * uy)
 
 
 if __name__ == "__main__":

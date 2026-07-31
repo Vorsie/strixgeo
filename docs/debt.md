@@ -7265,6 +7265,25 @@ roughly four to one. Most of these bodies are anchored by a single tie with abse
 evidence on every side, which is precisely the geometry a nearest-apex radial rule gets
 wrong: it thins toward an apex through ground the model states the body does not occupy.
 
+**The rulings do NOT cover the real geometry — one question outstanding.** Building the
+edge needs the carrying ties to be contiguous, and on the dev model four bodies, all
+SILT, are carried by ties with absence ties lying BETWEEN them:
+
+| body | carried by | absent on, between them |
+|---|---|---|
+| `019ea170-5ceb` | 4 ties | 2 |
+| `019ea170-5cef` | 5 ties | 1 |
+| `019ea170-5cf0` | 2 ties | 2 |
+| `019ea3e1-9bb5` | 5 ties | 3 |
+
+"Interpolate between carrying ties" and "never cross an absence tie" give opposite
+answers here, so the construction cannot be built until the owner rules on it. Measured
+by `scripts/diag_absence_ties.py`. The three candidate readings — the middle tie simply
+failed to record a thin body, or absence is absolute and this is two bodies the resolver
+merged, or the body pinches to nothing at the middle tie and returns — differ in what
+they claim about ground nobody sampled, and the second one would mean changing body
+identity, which is out of bounds without a directive.
+
 **Consequence for the next session: rewrite, do not tune.** No choice of radius,
 weighting or falloff makes a radial rule respect an absence tie — the information is not
 in the inputs it reads. `pinch_factor` needs the three-ruling construction (interpolate
