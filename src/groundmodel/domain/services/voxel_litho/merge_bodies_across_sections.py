@@ -60,6 +60,7 @@ so nothing inherits ``GroundModelLogger``.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
@@ -322,12 +323,11 @@ def apply_body_aliases(
             region
             if region.body_id is None
             or aliases.get(region.body_id, region.body_id) == region.body_id
-            else RegionInput(
-                formation_id=region.formation_id,
-                body_id=aliases[region.body_id],
-                polygon=region.polygon,
-                gap_index=region.gap_index,
-            )
+            # ``replace`` rather than a fresh RegionInput: re-identifying the body
+            # must change the body and nothing else. Listing the fields by hand is
+            # how a later addition gets silently dropped — which is exactly what
+            # happened to the 2-D classification at the payload boundary (#256).
+            else replace(region, body_id=aliases[region.body_id])
             for region in section.regions
         )
         out.append(
