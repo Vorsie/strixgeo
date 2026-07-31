@@ -188,27 +188,66 @@ export function splitSegments(segments: readonly GridSegment[]): GridSegment[] {
   // output to before this change.
   const nearT = twoSidedTerminationsEnabled()
 
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const pts = segmentIntersections(segments[i], segments[j])
-      // Intersection points are already snapped to whole grid units by
-      // segmentIntersections (proper crossings are Math.round-ed; collinear cases
-      // return grid endpoints). Register each cut on whichever segment(s) it lies on.
-      for (const p of pts) {
-        if (pointOnSegment(p, segments[i])) cutSets[i].set(gridKey(p), p)
-        if (pointOnSegment(p, segments[j])) cutSets[j].set(gridKey(p), p)
-      }
-      if (!nearT) continue
-      // NEAR-T recovery: if an ENDPOINT of one segment lands within perpendicular tolerance of the
-      // OTHER segment's interior (but is not exactly collinear), register that endpoint's exact grid
-      // cell as a cut on the crossed segment. Splitting at the endpoint's OWN cell (not a projected
-      // point) makes the split vertex EQUAL the endpoint vertex, so the two connect and the flank's
-      // face closes. Symmetric in i/j; endpoints already handled above (exact hits) are idempotent.
-      if (nearInteriorT(segments[i].a, segments[j].a, segments[j].b)) cutSets[j].set(gridKey(segments[i].a), segments[i].a)
-      if (nearInteriorT(segments[i].b, segments[j].a, segments[j].b)) cutSets[j].set(gridKey(segments[i].b), segments[i].b)
-      if (nearInteriorT(segments[j].a, segments[i].a, segments[i].b)) cutSets[i].set(gridKey(segments[j].a), segments[j].a)
-      if (nearInteriorT(segments[j].b, segments[i].a, segments[i].b)) cutSets[i].set(gridKey(segments[j].b), segments[j].b)
+  /** Register every cut the pair (i, j) implies. Symmetric — order does not matter. */
+  const processPair = (i: number, j: number): void => {
+    const pts = segmentIntersections(segments[i], segments[j])
+    // Intersection points are already snapped to whole grid units by
+    // segmentIntersections (proper crossings are Math.round-ed; collinear cases
+    // return grid endpoints). Register each cut on whichever segment(s) it lies on.
+    for (const p of pts) {
+      if (pointOnSegment(p, segments[i])) cutSets[i].set(gridKey(p), p)
+      if (pointOnSegment(p, segments[j])) cutSets[j].set(gridKey(p), p)
     }
+    if (!nearT) return
+    // NEAR-T recovery: if an ENDPOINT of one segment lands within perpendicular tolerance of the
+    // OTHER segment's interior (but is not exactly collinear), register that endpoint's exact grid
+    // cell as a cut on the crossed segment. Splitting at the endpoint's OWN cell (not a projected
+    // point) makes the split vertex EQUAL the endpoint vertex, so the two connect and the flank's
+    // face closes. Symmetric in i/j; endpoints already handled above (exact hits) are idempotent.
+    if (nearInteriorT(segments[i].a, segments[j].a, segments[j].b)) cutSets[j].set(gridKey(segments[i].a), segments[i].a)
+    if (nearInteriorT(segments[i].b, segments[j].a, segments[j].b)) cutSets[j].set(gridKey(segments[i].b), segments[i].b)
+    if (nearInteriorT(segments[j].a, segments[i].a, segments[i].b)) cutSets[i].set(gridKey(segments[j].a), segments[j].a)
+    if (nearInteriorT(segments[j].b, segments[i].a, segments[i].b)) cutSets[i].set(gridKey(segments[j].b), segments[j].b)
+  }
+
+  // An x-ordered sweep instead of the full pairwise scan. Two segments can only cut
+  // each other where their bounding boxes come within ``T_JUNCTION_PERP_TOL``: a proper
+  // crossing needs the boxes to overlap, and a near-T needs an endpoint within that
+  // perpendicular tolerance of the other's interior — and when the projection lands
+  // inside the segment the perpendicular distance IS the distance to the segment, so
+  // boxes grown by the tolerance are a sound bound. Pairs the sweep skips could not
+  // have registered a cut, so the output is unchanged; the cuts are sets and the result
+  // is sorted, so visiting order never mattered either.
+  //
+  // The scan was O(n^2): 778 segments on the owner's busiest section is 302,253 pairs,
+  // each running four ``nearInteriorT`` calls on the app's flag-ON path.
+  const minX = new Int32Array(n)
+  const maxX = new Int32Array(n)
+  const minY = new Int32Array(n)
+  const maxY = new Int32Array(n)
+  for (let i = 0; i < n; i++) {
+    const s = segments[i]
+    minX[i] = Math.min(s.a.ix, s.b.ix)
+    maxX[i] = Math.max(s.a.ix, s.b.ix)
+    minY[i] = Math.min(s.a.iy, s.b.iy)
+    maxY[i] = Math.max(s.a.iy, s.b.iy)
+  }
+  const order = Array.from({ length: n }, (_, i) => i).sort((p, q) => minX[p] - minX[q] || p - q)
+  const active: number[] = []
+  for (const i of order) {
+    let kept = 0
+    for (let k = 0; k < active.length; k++) {
+      const j = active[k]
+      if (maxX[j] + T_JUNCTION_PERP_TOL >= minX[i]) active[kept++] = j
+    }
+    active.length = kept
+    for (let k = 0; k < active.length; k++) {
+      const j = active[k]
+      if (minY[i] - T_JUNCTION_PERP_TOL > maxY[j]) continue
+      if (minY[j] - T_JUNCTION_PERP_TOL > maxY[i]) continue
+      processPair(i, j)
+    }
+    active.push(i)
   }
 
   const result: GridSegment[] = []
