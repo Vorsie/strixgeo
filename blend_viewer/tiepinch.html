@@ -46,7 +46,9 @@
       them. The builder assumes the <b>equidistance midline</b> — <b>max(0, 2w−1)</b> hits
       zero exactly halfway. But the tie-sections run between the cross-sections, so the
       body must terminate on a tie, and the 2-D partition already places that point.
-      Green is measured, red is assumed.
+      Green is measured, red is assumed. The edge stops at its last measurement and
+      the matrix floods past it — a tie drawn amber does not carry the body at all,
+      which is why the edge is never carried across one.
     </div>
     <div class="stats" id="stats"></div>
     <div id="listHead">one body, one cross-section pair — most ties first</div>
@@ -59,8 +61,7 @@
       <span><i style="background:#f87171"></i>where the builder assumes it dies</span>
       <span><i style="background:#38bdf8"></i>cross-sections</span>
       <span><i style="background:#475569"></i>tie-sections</span>
-      <span><i style="background:#fbbf24"></i>past the last tie: carry straight on</span>
-      <span><i style="background:#c084fc"></i>past the last tie: turn to the section without it</span>
+      <span><i style="background:#fbbf24"></i>tie that does NOT carry the body</span>
     </div>
   </div>
 </div>
@@ -98,11 +99,17 @@ function draw() {
       (s.name === selected.from ||
         s.name === selected.absentOn ||
         selected.cases.some((c) => c.tie === s.name));
+    const lacks =
+      selected &&
+      s.isTie &&
+      (DATA.bodyTies?.[selected.cases[0].body]?.without ?? []).includes(s.name);
     g.appendChild(el('polyline', {
       points: s.pts.map((p) => `${X(p[0])},${Y(p[1])}`).join(' '),
       fill: 'none',
-      stroke: involved ? (s.isTie ? '#cbd5e1' : '#38bdf8') : (s.isTie ? '#2b3b55' : '#1e4a6b'),
-      'stroke-width': involved ? 2.6 : 1.3,
+      stroke: lacks ? '#fbbf24'
+        : involved ? (s.isTie ? '#cbd5e1' : '#38bdf8') : (s.isTie ? '#2b3b55' : '#1e4a6b'),
+      'stroke-width': lacks || involved ? 2.6 : 1.3,
+      'stroke-dasharray': lacks ? '5 4' : 'none',
     }));
     for (const p of s.pts) {
       g.appendChild(el('circle', { cx: X(p[0]), cy: Y(p[1]), r: 2.2, fill: '#475569' }));
@@ -124,25 +131,12 @@ function draw() {
     path(members.map((c) => c.assumed), '#f87171');
     path(members.map((c) => c.measured), '#4ade80');
 
-    // Past the outermost tie nothing was measured, and the edge has to do something.
-    // Both candidates are drawn dashed so the choice is visible rather than described:
-    // amber carries the edge on in the heading the last two ties set, violet turns it
-    // to meet the cross-section that does NOT have the body.
-    if (members.length >= 2 && showEnds) {
-      const absent = DATA.sections.find((s) => s.name === selected.absentOn);
-      const nearestOn = (poly, p) => {
-        let best = null, bestD = Infinity;
-        for (let i = 0; i < poly.length - 1; i++) {
-          const [ax, ay] = poly[i], [bx, by] = poly[i + 1];
-          const dx = bx - ax, dy = by - ay;
-          const len2 = dx * dx + dy * dy;
-          const u = len2 <= 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / len2));
-          const q = [ax + dx * u, ay + dy * u];
-          const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
-          if (d < bestD) { bestD = d; best = q; }
-        }
-        return best;
-      };
+    // Owner ruling 2026-07-31: the edge ENDS at the last measurement, carrying on
+    // only in the direction it was already heading, and the matrix floods past it.
+    // Extrapolating further is unsafe — a tie that does not carry the body is
+    // evidence of ABSENCE, and on the SILT cases the old long extension ran straight
+    // over six such ties.
+    if (members.length >= 2) {
       const ends = [
         { tip: members[0].measured, prev: members[1].measured },
         { tip: members[members.length - 1].measured, prev: members[members.length - 2].measured },
@@ -150,46 +144,16 @@ function draw() {
       for (const { tip, prev } of ends) {
         const dx = tip[0] - prev[0], dy = tip[1] - prev[1];
         const len = Math.hypot(dx, dy) || 1;
-        const straight = [tip[0] + (dx / len) * 140, tip[1] + (dy / len) * 140];
+        const stub = [tip[0] + (dx / len) * 28, tip[1] + (dy / len) * 28];
         g.appendChild(el('polyline', {
-          points: `${X(tip[0])},${Y(tip[1])} ${X(straight[0])},${Y(straight[1])}`,
-          fill: 'none', stroke: '#fbbf24', 'stroke-width': 2.2, 'stroke-dasharray': '7 4',
+          points: `${X(tip[0])},${Y(tip[1])} ${X(stub[0])},${Y(stub[1])}`,
+          fill: 'none', stroke: '#4ade80', 'stroke-width': 2,
+          'stroke-dasharray': '6 4', 'stroke-opacity': 0.8,
         }));
-        if (absent) {
-          const meet = nearestOn(absent.pts, tip);
-          if (meet) {
-            g.appendChild(el('polyline', {
-              points: `${X(tip[0])},${Y(tip[1])} ${X(meet[0])},${Y(meet[1])}`,
-              fill: 'none', stroke: '#c084fc', 'stroke-width': 2.2, 'stroke-dasharray': '7 4',
-            }));
-          }
-        }
         g.appendChild(el('circle', {
           cx: X(tip[0]), cy: Y(tip[1]), r: 7, fill: 'none',
           stroke: '#f8fafc', 'stroke-width': 1.6,
         }));
-      }
-    }
-
-    for (const c of members) {
-      const m = c.measured, a = c.assumed;
-      g.appendChild(el('line', {
-        x1: X(m[0]), y1: Y(m[1]), x2: X(a[0]), y2: Y(a[1]),
-        stroke: '#f8fafc', 'stroke-width': 1.2, 'stroke-dasharray': '4 3',
-      }));
-      g.appendChild(el('circle', {
-        cx: X(a[0]), cy: Y(a[1]), r: 5, fill: '#f87171', stroke: '#0b1220', 'stroke-width': 1.4,
-      }));
-      g.appendChild(el('circle', {
-        cx: X(m[0]), cy: Y(m[1]), r: 5, fill: '#4ade80', stroke: '#0b1220', 'stroke-width': 1.4,
-      }));
-      if (c.errorM >= 1) {
-        const lbl = el('text', {
-          x: (X(m[0]) + X(a[0])) / 2 + 9, y: (Y(m[1]) + Y(a[1])) / 2 - 6,
-          'font-size': 11, fill: '#f8fafc', 'font-weight': 600,
-        });
-        lbl.textContent = `${c.errorM.toFixed(1)} m`;
-        g.appendChild(lbl);
       }
     }
   }
