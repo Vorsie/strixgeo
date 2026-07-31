@@ -16,8 +16,8 @@ to draw:
               concave shape, but can cross itself on scattered point sets.
 ``clusters``  points grouped by proximity, one outline per group — a body that
               terminates in several separate places gets several outlines.
-``circle``    for a body with only two points, a circle on them as diameter,
-              since two points alone do not determine an outline.
+``ellipse``   for a body whose points are collinear, a lens 15 % as wide as it
+              is long — two points on a line fix a length but no width.
 
 Nothing is written to the database — SELECTs only, behind the same dev-DB guard as
 ``eval_strat_fidelity.py``.
@@ -71,6 +71,11 @@ from scripts.eval_strat_fidelity import (  # noqa: E402
 )
 
 _CIRCLE_STEPS = 48
+
+# Owner ruling 2026-07-31: where the pinch points are collinear they fix a length but
+# no width, so the lens is drawn at 15 % of its length and the enclosing body engulfs
+# the rest. A circle would assert a width nobody measured.
+_WIDTH_RATIO = 0.15
 
 
 def _hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -162,28 +167,35 @@ def _clusters(points: list[tuple[float, float]], gap: float) -> list[list[tuple[
     return sorted(grouped.values(), key=len, reverse=True)
 
 
-def _circle(a: tuple[float, float], b: tuple[float, float]) -> list[tuple[float, float]]:
-    """A circle on two points as diameter, as a polygon.
+def _lens_ellipse(a: tuple[float, float], b: tuple[float, float]) -> list[tuple[float, float]]:
+    """A lens outline through two pinch points, ``_WIDTH_RATIO`` as wide as it is long.
+
+    Two points fix a length and a direction but no width. Rather than assert a width
+    by drawing a circle, the outline is an ellipse whose long axis runs pinch to pinch
+    and whose width is a fixed fraction of it; the enclosing body takes the rest.
 
     Parameters
     ----------
     a, b : tuple of float
-        The two pinch-out points.
+        The two pinch-out points, which become the ends of the long axis.
 
     Returns
     -------
     list of tuple of float
-        ``_CIRCLE_STEPS`` vertices around the circle.
+        ``_CIRCLE_STEPS`` vertices around the ellipse.
     """
+    length = math.dist(a, b)
+    if length <= 0.0:
+        return [a]
     cx, cy = (a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0
-    r = math.dist(a, b) / 2.0
-    return [
-        (
-            cx + r * math.cos(2 * math.pi * k / _CIRCLE_STEPS),
-            cy + r * math.sin(2 * math.pi * k / _CIRCLE_STEPS),
-        )
-        for k in range(_CIRCLE_STEPS)
-    ]
+    ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+    semi_long, semi_wide = length / 2.0, length * _WIDTH_RATIO / 2.0
+    out = []
+    for k in range(_CIRCLE_STEPS):
+        t = 2 * math.pi * k / _CIRCLE_STEPS
+        along, across = semi_long * math.cos(t), semi_wide * math.sin(t)
+        out.append((cx + ux * along - uy * across, cy + uy * along + ux * across))
+    return out
 
 
 async def main() -> None:
@@ -252,12 +264,12 @@ async def main() -> None:
             outlines["hull"] = [[list(p) for p in _hull(pts)]]
             outlines["angular"] = [[list(p) for p in _angular(pts)]]
             outlines["clusters"] = [
-                [list(p) for p in (_hull(g) if len(g) >= 3 else _circle(g[0], g[-1]))]
+                [list(p) for p in (_hull(g) if len(g) >= 3 else _lens_ellipse(g[0], g[-1]))]
                 for g in _clusters(pts, args.cluster_gap)
                 if len(g) >= 2
             ]
         elif len(pts) == 2:
-            ring = [[list(p) for p in _circle(pts[0], pts[1])]]
+            ring = [[list(p) for p in _lens_ellipse(pts[0], pts[1])]]
             outlines = {"hull": ring, "angular": ring, "clusters": ring}
         formation = names.get(formation_of.get(body, ""), "?")
         seq[formation] += 1
