@@ -7386,13 +7386,43 @@ step**. Separately, the beyond rule extrudes a section's TERMINAL column stack u
 
 **When to revisit.** With #259 — same function, same class of fault.
 
-## 261. `_layout` can report a body order neither section has (S)
+## 261. The blend fragments a body neither section fragments (M)
 
-**What.** `_layout` re-derives the blended stack's order from interpolated
-mid-elevations, so the model can report a sequence that contradicts BOTH source
-sections. Reported and skeptic-verified; not independently reproduced by me.
+**What.** Reproduced independently 2026-07-31, and the mechanism is NOT the reported
+one. Matched bodies cannot invert under interpolation — if A is above B on both sections
+then `w1*a1 + w2*a2 > w1*b1 + w2*b2` identically — so "an order neither section has"
+was the wrong description.
 
-**When to revisit.** With #259 / #260.
+What actually happens: `_layout` sorts every spec by its reference elevation, and a
+ONE-SIDED body's reference is its own mid. When that mid falls inside the span of a
+MATCHED body from the other section, the one-sided unit is laid out in the MIDDLE of it,
+splitting the matched body into pieces.
+
+**Measured at (88 022, 164 359).** Section B carries ONE SILT interval, 12.838 → 9.743.
+The blend emits it as FOUR, interleaved with one-sided units from section A:
+
+| | |
+|---|---|
+| section A entries | ~8 |
+| section B entries | 8 |
+| blended entries | **16** |
+| SILT `019ea170-5cef` on section B | 1 interval |
+| the same body in the blend | 4 intervals |
+
+Detected on 33 of 4,591 sampled between-section columns (0.7 %) by a first-occurrence
+order check — that check is a proxy and over-reports, so 33 is an upper bound on this
+shape, not a count of it.
+
+**Why it is not obviously wrong, and why it needs the owner.** Section A genuinely has
+thin units where section B has one thick SILT, so SOMETHING has to happen between them.
+Interleaving produces an alternation neither section shows; the alternatives — thinning
+the one-sided units to nothing inside the matched body, or placing them wholly above or
+below it — are each a geological claim about how a thin unit dies into a thick one. That
+is a domain ruling, not a defect to patch.
+
+**When to revisit.** After the owner rules on where a one-sided body sits relative to a
+matched body whose span contains it. Same family as #257 (surplus handling) — that one
+was deletion, this is fragmentation.
 
 ## 262. The safe-default repair loop doubles the engine cost on 4 of 14 sections (S)
 
