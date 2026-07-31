@@ -293,6 +293,18 @@ async def main() -> None:
                 f"via {c['tie']:<15} {kinds:<12} off by {c['errorM']:6.1f} m"
             )
 
+    # Which ties carry each body at all. A tie WITHOUT the body is evidence of
+    # absence, so the pinch-out edge must never be carried across one — owner ruling
+    # 2026-07-31, prompted by a SILT edge extrapolating over six ties that lack it.
+    tie_names = {section_names[i] for i in ties}
+    body_ties = {}
+    for body in {c["body"] for c in cases}:
+        carried = {section_names[i] for i in range(len(seated)) if body in present[i]}
+        body_ties[body] = {
+            "carries": sorted(carried & tie_names),
+            "without": sorted(tie_names - carried),
+        }
+
     payload = {
         "sections": [
             {
@@ -302,6 +314,7 @@ async def main() -> None:
             }
             for i, s in enumerate(seated)
         ],
+        "bodyTies": body_ties,
         "cases": cases,
     }
     out = Path(args.out)
