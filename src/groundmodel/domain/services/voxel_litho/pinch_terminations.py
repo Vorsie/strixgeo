@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -66,6 +67,52 @@ class Termination:
     world_y: float
     kind: Literal["quad", "pinch", "lens"] | None
     section_index: int
+
+
+def pinch_factor(
+    query: tuple[float, float],
+    distance_to_section: float,
+    terminations: Sequence[Termination],
+) -> float | None:
+    """How much of a one-sided body survives at ``query``, from where it is measured to die.
+
+    ``max(0, 2w - 1)`` already tapers a one-sided body to nothing, but at the
+    equidistance midline, because that is all the builder knew: with
+    ``w = d2 / (d1 + d2)`` it reaches zero exactly where the two sections are equally
+    near. This is the same shape of formula against a different anchor — full
+    thickness on the section that carries the body, nothing where it was measured to
+    end, thinning between. Where the measured end falls on the midline the two agree
+    exactly, which is what makes this a drop-in rather than a new rule.
+
+    The nearest termination governs, so a body dying in several places thins toward
+    whichever end is closest to the point being labelled.
+
+    This says how much is left, not which side of the boundary the point is on. That
+    is the edge test or the 15 % ellipse, and it is a separate step.
+
+    Parameters
+    ----------
+    query : tuple of float
+        World ``(x, y)`` of the point being labelled.
+    distance_to_section : float
+        Distance from ``query`` to the section carrying the body, in metres.
+    terminations : sequence of Termination
+        Everywhere this body is measured to pinch out.
+
+    Returns
+    -------
+    float or None
+        A factor in ``[0, 1]`` scaling the body's thickness, or ``None`` when the body
+        is measured to die nowhere. ``None`` is not zero — it means no evidence here,
+        so the caller must fall back rather than invent a pinch.
+    """
+    if not terminations:
+        return None
+    reach = min(math.dist(query, (t.world_x, t.world_y)) for t in terminations)
+    total = distance_to_section + reach
+    if total <= 0.0:
+        return 0.0
+    return max(0.0, min(1.0, reach / total))
 
 
 def _span_thicknesses(
