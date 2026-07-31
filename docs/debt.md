@@ -7239,6 +7239,38 @@ Cross-section 1 is recorded by seven ties over 607 m. So:
   it, the same extrapolation was harmless. Measured by
   `scripts/dump_tie_pinch_vs_midline.py`, drawn by `blend_viewer/tiepinch.html`.
 
+**Elevation at the edge is measured, not a rule.** Read off each region's own
+polygon: **all 48 lens regions taper to <= 1 cm** at their thin end (median 0.000 m
+against a 0.790 m thick end), and 289 of 707 bands reach zero at one end too. So a
+pinching body is a wedge, exactly as the fill band draws it, and the builder only has
+to honour the polygon. (Measuring instead by summing a BODY's thickness near where it
+vanishes reported 61 % "wall" — wrong, because a body with several layers in one
+column looks full-thickness until its last layer ends. Measure the region.)
+
+**The closed construction — owner rulings 2026-07-31.**
+
+1. A body present on one cross-section and absent from the next terminates on every
+   tie that carries it, and the 2-D partition already places each termination.
+2. Two or more ties: join them into the pinch-out EDGE and interpolate along it.
+3. One tie: close the boundary locally around that point with the 15 % ellipse —
+   long axis the body's run along that tie, width 15 % of it.
+4. Never carry the edge across a tie that does NOT carry the body; that tie is
+   evidence of absence.
+5. No dangling end may be left inside the model footprint.
+6. Vertically the body tapers to nothing at the edge, per the measurement above.
+
+**Coverage of each rule on the dev model.** Only 4 of the 27 body/cross-section-pair
+groups are recorded by more than one tie, so rule 2 governs 4 cases and rule 3 the
+other 23. All 31 edge tips sit deeper than 25 m inside the footprint and none within
+5 m of it, so rule 5 bites everywhere — which is why "end it and let the matrix
+flood" could not stand alone and rule 3 replaced it.
+
+**Two residues, flagged rather than resolved.** Of the 23 single-tie runs only 8 have
+both ends measured; the other 15 have one open end, so their length — and therefore
+their 15 % width — is set by where the section's coverage stops rather than by
+geology. And the 4 multi-tie edges have tips inside the hull too; applying the same
+local closure at each tip is a reading of rule 3, not something the owner ruled.
+
 **What remains.** Make the builder read it — chiefly `_stack_at` / `_blend_stacks`,
 where `max(0, 2w - 1)` currently kills a band, an onlap and a lens alike at the
 equidistance midline. That is a behaviour change and needs its own measurement against
