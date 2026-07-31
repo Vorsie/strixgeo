@@ -7217,6 +7217,28 @@ test written first:
 Green: 1528 python unit tests, 2549 desktop tests, mypy and tsc clean on the changed
 files.
 
+**The construction the classification enables — owner rulings 2026-07-31.** A body on
+one cross-section and absent from the next terminates on every tie that carries it,
+and the 2-D partition already places each of those terminations. Joining them gives
+the pinch-out EDGE, measured rather than assumed. On the dev model, 39 such cases:
+the assumed equidistance midline is off by a median of 4.5 m, p90 30.9 m, worst
+53.6 m, and only 21 of 39 land within 5 m. The ties classify 24 of the terminating
+bodies as BAND and 11 as LENS, so the assumption is wrong most often on bodies the
+model says are tied.
+
+Four of the 27 body/cross-section-pair groups are recorded by more than one tie, and
+their terminations line up rather than scatter — VEEN between Cross-section 2 and
+Cross-section 1 is recorded by seven ties over 607 m. So:
+
+* between ties, interpolate along the edge;
+* past the outermost tie the edge ENDS, carrying on only in the direction it was
+  already heading, and the matrix floods past it;
+* a tie that does NOT carry the body is evidence of ABSENCE — never carry the edge
+  across one. The owner caught this on a SILT edge whose extrapolation ran over six
+  ties that lack the body (5 of 11 ties carry it); on the VEEN, where all 11 carry
+  it, the same extrapolation was harmless. Measured by
+  `scripts/dump_tie_pinch_vs_midline.py`, drawn by `blend_viewer/tiepinch.html`.
+
 **What remains.** Make the builder read it — chiefly `_stack_at` / `_blend_stacks`,
 where `max(0, 2w - 1)` currently kills a band, an onlap and a lens alike at the
 equidistance midline. That is a behaviour change and needs its own measurement against
