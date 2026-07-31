@@ -84,6 +84,16 @@ _EPS: float = 1e-9
 # the gap interior so every relevant edge strictly straddles the slice line.
 _FRAC_EPS: float = 1e-6
 
+_SNAP_GRID_M: float = 0.001
+"""The grid the 2-D engine snaps polygon coordinates to, in metres.
+
+Mirrors ``SNAP_GRID_M`` in ``partitionFillV2``. A region spanning a whole gap therefore
+stops about one cell short of fraction 1 rather than reaching it exactly.
+"""
+
+_SNAP_MARGIN_CELLS: float = 2.0
+"""How many snap cells the edge nudge must clear, so it lands INSIDE the last region."""
+
 _CONTIGUOUS_EPS: float = 1e-6
 """How close two slices of one body must be to count as touching, in metres.
 
@@ -362,10 +372,28 @@ def _section_stack_at(
     list of _Entry
         The vertical body intervals, ordered shallow → deep (descending top).
     """
-    if gap_index < 0:
+    if gap_index < 0 or gap_index + 1 >= len(section.columns):
         return []
     # Nudge off the column edges so the scanline strictly straddles every edge.
-    f = min(max(fraction, _FRAC_EPS), 1.0 - _FRAC_EPS)
+    #
+    # The nudge must clear a SNAP CELL. The 2-D engine snaps polygon coordinates to a
+    # 1 mm grid, so a region spanning the whole gap still stops about one cell short of
+    # fraction 1 — 8.9e-5 on an 11 m gap. A fixed 1e-6 nudge landed BEYOND that edge and
+    # the scanline found nothing: 33 of 69 gaps on the owner's model read EMPTY at
+    # fraction 1 and 15 at fraction 0, while all 69 are non-empty at 0.5 (#259). It hid
+    # because ``_stack_at`` defers to the other section when one stack is empty, so the
+    # build quietly dropped a section's contribution instead of leaving a void.
+    #
+    # One millimetre of GROUND is a different fraction on every gap — 8.9e-5 across 11 m
+    # but 3e-6 across 333 m — so the margin is measured in this gap's own space rather
+    # than fixed.
+    left = section.columns[gap_index]
+    right = section.columns[gap_index + 1]
+    width_m = math.hypot(right.world_x - left.world_x, right.world_y - left.world_y)
+    edge_eps = (
+        _FRAC_EPS if width_m <= 0.0 else max(_FRAC_EPS, _SNAP_MARGIN_CELLS * _SNAP_GRID_M / width_m)
+    )
+    f = min(max(fraction, edge_eps), 1.0 - edge_eps)
     raw: list[_Entry] = []
     for r in section.regions:
         if r.gap_index != gap_index:
