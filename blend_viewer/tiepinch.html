@@ -49,7 +49,7 @@
       Green is measured, red is assumed.
     </div>
     <div class="stats" id="stats"></div>
-    <div id="listHead">cases — worst first</div>
+    <div id="listHead">one body, one cross-section pair — most ties first</div>
     <div id="list"></div>
   </div>
   <div id="stage">
@@ -59,6 +59,8 @@
       <span><i style="background:#f87171"></i>where the builder assumes it dies</span>
       <span><i style="background:#38bdf8"></i>cross-sections</span>
       <span><i style="background:#475569"></i>tie-sections</span>
+      <span><i style="background:#fbbf24"></i>past the last tie: carry straight on</span>
+      <span><i style="background:#c084fc"></i>past the last tie: turn to the section without it</span>
     </div>
   </div>
 </div>
@@ -71,7 +73,7 @@ const COLOURS = {
 };
 const KIND_WORD = { quad:'BAND', pinch:'ONLAP', lens:'LENS' };
 
-let DATA = null, selected = null;
+let DATA = null, selected = null, showEnds = true;
 const view = { x: 0, y: 0, k: 1 };
 
 const colourFor = (n) => COLOURS[n] || '#64748b';
@@ -91,7 +93,11 @@ function draw() {
   svg.appendChild(g);
 
   for (const s of DATA.sections) {
-    const involved = selected && [selected.from, selected.absentOn, selected.tie].includes(s.name);
+    const involved =
+      selected &&
+      (s.name === selected.from ||
+        s.name === selected.absentOn ||
+        selected.cases.some((c) => c.tie === s.name));
     g.appendChild(el('polyline', {
       points: s.pts.map((p) => `${X(p[0])},${Y(p[1])}`).join(' '),
       fill: 'none',
@@ -104,23 +110,88 @@ function draw() {
   }
 
   if (selected) {
-    const m = selected.measured, a = selected.assumed;
-    g.appendChild(el('line', {
-      x1: X(m[0]), y1: Y(m[1]), x2: X(a[0]), y2: Y(a[1]),
-      stroke: '#f8fafc', 'stroke-width': 1.4, 'stroke-dasharray': '4 3',
-    }));
-    g.appendChild(el('circle', {
-      cx: X(a[0]), cy: Y(a[1]), r: 6, fill: 'var(--assumed)', stroke: '#0b1220', 'stroke-width': 1.5,
-    }));
-    g.appendChild(el('circle', {
-      cx: X(m[0]), cy: Y(m[1]), r: 6, fill: 'var(--measured)', stroke: '#0b1220', 'stroke-width': 1.5,
-    }));
-    const t = el('text', {
-      x: (X(m[0]) + X(a[0])) / 2, y: (Y(m[1]) + Y(a[1])) / 2 - 9,
-      'text-anchor': 'middle', 'font-size': 12, fill: '#f8fafc', 'font-weight': 600,
-    });
-    t.textContent = `${selected.errorM.toFixed(1)} m apart`;
-    g.appendChild(t);
+    // A body that dies between two cross-sections terminates on EVERY tie that
+    // carries it, so its pinch-out is a line across the block rather than a point.
+    // Ordered west to east, which is how this site's ties run.
+    const members = [...selected.cases].sort((p, q) => p.measured[0] - q.measured[0]);
+    const path = (pts, stroke) => {
+      if (pts.length < 2) return;
+      g.appendChild(el('polyline', {
+        points: pts.map((p) => `${X(p[0])},${Y(p[1])}`).join(' '),
+        fill: 'none', stroke, 'stroke-width': 2, 'stroke-opacity': 0.75,
+      }));
+    };
+    path(members.map((c) => c.assumed), '#f87171');
+    path(members.map((c) => c.measured), '#4ade80');
+
+    // Past the outermost tie nothing was measured, and the edge has to do something.
+    // Both candidates are drawn dashed so the choice is visible rather than described:
+    // amber carries the edge on in the heading the last two ties set, violet turns it
+    // to meet the cross-section that does NOT have the body.
+    if (members.length >= 2 && showEnds) {
+      const absent = DATA.sections.find((s) => s.name === selected.absentOn);
+      const nearestOn = (poly, p) => {
+        let best = null, bestD = Infinity;
+        for (let i = 0; i < poly.length - 1; i++) {
+          const [ax, ay] = poly[i], [bx, by] = poly[i + 1];
+          const dx = bx - ax, dy = by - ay;
+          const len2 = dx * dx + dy * dy;
+          const u = len2 <= 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / len2));
+          const q = [ax + dx * u, ay + dy * u];
+          const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+          if (d < bestD) { bestD = d; best = q; }
+        }
+        return best;
+      };
+      const ends = [
+        { tip: members[0].measured, prev: members[1].measured },
+        { tip: members[members.length - 1].measured, prev: members[members.length - 2].measured },
+      ];
+      for (const { tip, prev } of ends) {
+        const dx = tip[0] - prev[0], dy = tip[1] - prev[1];
+        const len = Math.hypot(dx, dy) || 1;
+        const straight = [tip[0] + (dx / len) * 140, tip[1] + (dy / len) * 140];
+        g.appendChild(el('polyline', {
+          points: `${X(tip[0])},${Y(tip[1])} ${X(straight[0])},${Y(straight[1])}`,
+          fill: 'none', stroke: '#fbbf24', 'stroke-width': 2.2, 'stroke-dasharray': '7 4',
+        }));
+        if (absent) {
+          const meet = nearestOn(absent.pts, tip);
+          if (meet) {
+            g.appendChild(el('polyline', {
+              points: `${X(tip[0])},${Y(tip[1])} ${X(meet[0])},${Y(meet[1])}`,
+              fill: 'none', stroke: '#c084fc', 'stroke-width': 2.2, 'stroke-dasharray': '7 4',
+            }));
+          }
+        }
+        g.appendChild(el('circle', {
+          cx: X(tip[0]), cy: Y(tip[1]), r: 7, fill: 'none',
+          stroke: '#f8fafc', 'stroke-width': 1.6,
+        }));
+      }
+    }
+
+    for (const c of members) {
+      const m = c.measured, a = c.assumed;
+      g.appendChild(el('line', {
+        x1: X(m[0]), y1: Y(m[1]), x2: X(a[0]), y2: Y(a[1]),
+        stroke: '#f8fafc', 'stroke-width': 1.2, 'stroke-dasharray': '4 3',
+      }));
+      g.appendChild(el('circle', {
+        cx: X(a[0]), cy: Y(a[1]), r: 5, fill: '#f87171', stroke: '#0b1220', 'stroke-width': 1.4,
+      }));
+      g.appendChild(el('circle', {
+        cx: X(m[0]), cy: Y(m[1]), r: 5, fill: '#4ade80', stroke: '#0b1220', 'stroke-width': 1.4,
+      }));
+      if (c.errorM >= 1) {
+        const lbl = el('text', {
+          x: (X(m[0]) + X(a[0])) / 2 + 9, y: (Y(m[1]) + Y(a[1])) / 2 - 6,
+          'font-size': 11, fill: '#f8fafc', 'font-weight': 600,
+        });
+        lbl.textContent = `${c.errorM.toFixed(1)} m`;
+        g.appendChild(lbl);
+      }
+    }
   }
 
   const bar = 100 * view.k;
@@ -131,36 +202,65 @@ function draw() {
   g.appendChild(s);
 }
 
+/** One body dying between one pair of cross-sections, however many ties record it. */
+function groupCases(cases) {
+  const by = new Map();
+  for (const c of cases) {
+    const key = `${c.body}|${c.from}|${c.absentOn}`;
+    if (!by.has(key)) {
+      by.set(key, { formation: c.formation, from: c.from, absentOn: c.absentOn, cases: [] });
+    }
+    by.get(key).cases.push(c);
+  }
+  for (const grp of by.values()) {
+    grp.worst = Math.max(...grp.cases.map((c) => c.errorM));
+    grp.ties = new Set(grp.cases.map((c) => c.tie)).size;
+    // How far apart the ties put the terminations: a point when one tie records it,
+    // a line across the block when several do.
+    grp.spread = 0;
+    for (const a of grp.cases) {
+      for (const b of grp.cases) {
+        grp.spread = Math.max(
+          grp.spread,
+          Math.hypot(a.measured[0] - b.measured[0], a.measured[1] - b.measured[1]),
+        );
+      }
+    }
+  }
+  return [...by.values()].sort((a, b) => b.ties - a.ties || b.worst - a.worst);
+}
+
 function buildList() {
   const list = document.getElementById('list');
   list.replaceChildren();
-  DATA.cases.forEach((c, i) => {
+  for (const grp of DATA.groups) {
     const row = document.createElement('div');
-    row.className = 'row' + (selected === c ? ' sel' : '');
+    row.className = 'row' + (selected === grp ? ' sel' : '');
     const top = document.createElement('div');
     top.className = 'top';
     const sw = document.createElement('i');
     sw.className = 'sw';
-    sw.style.background = colourFor(c.formation);
+    sw.style.background = colourFor(grp.formation);
     const name = document.createElement('span');
-    const kinds = c.kindOnTie.map((k) => KIND_WORD[k] || k).join('/') || '—';
-    name.textContent = `${c.formation} · ${kinds}`;
+    name.textContent = `${grp.formation} \u00b7 ${grp.ties} tie${grp.ties === 1 ? '' : 's'}`;
     const err = document.createElement('span');
     err.className = 'err';
-    err.style.color = c.errorM > 15 ? '#f87171' : c.errorM > 5 ? '#fbbf24' : '#4ade80';
-    err.textContent = `${c.errorM.toFixed(1)} m`;
+    err.style.color = grp.worst > 15 ? '#f87171' : grp.worst > 5 ? '#fbbf24' : '#4ade80';
+    err.textContent = `worst ${grp.worst.toFixed(1)} m`;
     top.append(sw, name, err);
     const via = document.createElement('div');
     via.className = 'via';
-    via.textContent = `${c.from} → absent on ${c.absentOn}, via ${c.tie}`;
+    via.textContent =
+      `${grp.from} \u2192 absent on ${grp.absentOn}` +
+      (grp.ties > 1 ? ` \u00b7 terminations spread over ${grp.spread.toFixed(0)} m` : '');
     row.append(top, via);
     row.addEventListener('click', () => {
-      selected = selected === c ? null : c;
+      selected = selected === grp ? null : grp;
       buildList();
       draw();
     });
     list.appendChild(row);
-  });
+  }
 }
 
 fetch('tiepinch.json').then((r) => r.json()).then((d) => {
@@ -186,11 +286,14 @@ fetch('tiepinch.json').then((r) => r.json()).then((d) => {
     stats.appendChild(row);
   };
   put('cases where a tie measures what the builder assumes:', String(d.cases.length));
+  put('of those, bodies recorded by more than one tie:',
+      String(groupCases(d.cases).filter((g) => g.ties > 1).length));
   put('median error', `${errs[Math.floor(errs.length / 2)].toFixed(1)} m`);
   put('p90 error', `${errs[Math.floor(errs.length * 0.9)].toFixed(1)} m`);
   put('worst', `${errs[errs.length - 1].toFixed(1)} m`);
 
-  selected = d.cases[0] ?? null;
+  d.groups = groupCases(d.cases);
+  selected = d.groups[0] ?? null;
   buildList();
   draw();
 
