@@ -87,6 +87,12 @@ async def main() -> None:
         action="store_true",
         help="build with the #256 measured pinch on instead of the midline rule",
     )
+    ap.add_argument(
+        "--reach-to-evidence",
+        action="store_true",
+        help="build with the owner's 2026-07-31 ruling: a one-sided body reaches the "
+        "section that contradicts it instead of dying at the equidistance midline",
+    )
     args = ap.parse_args()
 
     print("\n=== DRILLED GATE, BUILT NOW (READ-ONLY) ===\n")
@@ -122,7 +128,10 @@ async def main() -> None:
     gy = np.arange(gen.grid_origin_y, gen.grid_origin_y + gen.grid_ny * h, h)[: gen.grid_ny]
     paired = paired_station_losers(inv_columns, gx, gy, honor)
 
-    print(f"  grid {h} m / {v} m | honour {honor} m | measured_pinch={args.measured_pinch}")
+    print(
+        f"  grid {h} m / {v} m | honour {honor} m | "
+        f"measured_pinch={args.measured_pinch} | reach_to_evidence={args.reach_to_evidence}"
+    )
     t0 = time.perf_counter()
     domain = build_domain_from_sections(
         as_drawn,
@@ -138,6 +147,7 @@ async def main() -> None:
         investigation_columns=inv_columns,
         honor_radius_m=honor,
         measured_pinch=args.measured_pinch,
+        reach_to_evidence=args.reach_to_evidence,
     )
     meshes = [m for m in extract_body_solids(grid) if m.vertices and m.triangles]
     active = [(m.body_id, m.formation_id, m.vertices, m.triangles) for m in meshes]
