@@ -1,22 +1,21 @@
-"""Which investigations own no voxel of their own, because a cell-mate outranks them.
+"""Which investigations do not own the voxel column they stand in.
 
-A borehole and its CPT at one station sit centimetres apart — 0.28 m and 0.40 m on the
-owner's model. A regular grid fills a cell from ONE log, so ``honor_rank`` picks the
-winner (owner ruling 2026-07-27: has-a-log, then CPT beats borehole, then deepest, then
-id) and the loser's ground is labelled from its partner's log instead of its own.
+A regular grid fills a cell from ONE log. Where two investigations share a station,
+``honor_rank`` picks the winner (owner ruling 2026-07-27: has-a-log, then CPT beats
+borehole, then deepest, then id) and the other's ground carries its partner's log.
 
-That makes the loser UNSCOREABLE against its own log: no change to the builder can make
-the model reproduce a log whose cells belong to another investigation. Scoring it anyway
-reports a permanent failure that masks real ones — both residual drilled-gate failures
-on the dev model were exactly this, which is why the gate could not exceed 56/58
-(recorded when #241 shipped).
+A log is scored WHERE IT STANDS, so what makes it unscoreable is its own cell carrying
+someone else's log. That is a sharper test than either alternative:
 
-The test is ownership, not proximity. Two logs 2 m apart usually each keep cells of
-their own and are both perfectly scoreable; only a log left with NO cell has nothing to
-be scored on. So this replays the builder's own assignment — the same
-:func:`_honored_cells` sweep and the same ``honor_rank`` comparison — rather than
-guessing a separation threshold. On the dev model a 2.0 m proximity rule flags 7
-investigations where ownership finds the 2 that are genuinely mute.
+* proximity is too loose — a 2.0 m rule with transitive grouping flagged 7
+  investigations on the owner's model, five of them perfectly scoreable;
+* "owns no cell anywhere" is too tight — two logs 1.13 m apart each keep cells further
+  out while sharing the one between them, so neither is mute, yet the loser is still
+  scored against a column it does not own.
+
+On the owner's model that last case was hiding two of the three residual drilled-gate
+failures: GEO-23/125-S5 standing in S5A's cell (1.13 m) and GEO-10/117-B4 standing in
+GEO-05/040-S4's (0.49 m). Naming them leaves ONE real failure to chase instead of three.
 
 Pure geometry over the value objects — no I/O, no logging, no framework.
 """
@@ -78,7 +77,17 @@ def paired_station_losers(
     gy: np.ndarray,
     honor_radius_m: float,
 ) -> set[str]:
-    """The logged investigations left owning no cell at all.
+    """The logged investigations that do not own the cell they stand in.
+
+    A log is scored where it stands, so what makes it unscoreable is its OWN cell
+    carrying someone else's log — not owning no cell anywhere. Two logs 1.13 m apart
+    each keep cells of their own while sharing the one between them, and the loser is
+    then scored against a column it does not own. On the owner's model that is exactly
+    what the two residual drilled failures were: GEO-23/125-S5 standing in S5A's cell
+    and GEO-10/117-B4 standing in GEO-05/040-S4's.
+
+    A log that owns nothing at all is included too, since it certainly does not own its
+    own cell.
 
     Parameters
     ----------
@@ -92,10 +101,20 @@ def paired_station_losers(
     Returns
     -------
     set of str
-        ``investigation_id`` of every logged investigation that owns no cell. An
-        investigation with no observed intervals is never included: it has nothing to
-        honour and nothing to score, so it neither wins nor loses.
+        ``investigation_id`` of every logged investigation standing in a cell owned by
+        another. An investigation with no observed intervals is never included: it has
+        nothing to honour and nothing to score, so it neither wins nor loses.
     """
     owners = honored_cell_owners(columns, gx, gy, honor_radius_m)
-    winners = {id(column) for column in owners.values()}
-    return {c.investigation_id for c in columns if c.intervals and id(c) not in winners}
+    losers: set[str] = set()
+    for column in columns:
+        if not column.intervals:
+            continue
+        cell = (
+            int(np.argmin(np.abs(gx - column.world_x))),
+            int(np.argmin(np.abs(gy - column.world_y))),
+        )
+        owner = owners.get(cell)
+        if owner is None or owner.investigation_id != column.investigation_id:
+            losers.add(column.investigation_id)
+    return losers
