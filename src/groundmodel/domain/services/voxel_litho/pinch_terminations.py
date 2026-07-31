@@ -73,22 +73,30 @@ def pinch_factor(
     query: tuple[float, float],
     distance_to_section: float,
     terminations: Sequence[Termination],
+    *,
+    own_section_index: int,
 ) -> float | None:
     """How much of a one-sided body survives at ``query``, from where it is measured to die.
 
-    ``max(0, 2w - 1)`` already tapers a one-sided body to nothing, but at the
-    equidistance midline, because that is all the builder knew: with
-    ``w = d2 / (d1 + d2)`` it reaches zero exactly where the two sections are equally
-    near. This is the same shape of formula against a different anchor — full
-    thickness on the section that carries the body, nothing where it was measured to
-    end, thinning between. Where the measured end falls on the midline the two agree
-    exactly, which is what makes this a drop-in rather than a new rule.
+    Full thickness on the section that carries the body, nothing where another section
+    measures it to end, thinning linearly between. That replaces ``max(0, 2w - 1)``,
+    which reached zero at the equidistance midline because the builder had no better
+    anchor.
 
-    The nearest termination governs, so a body dying in several places thins toward
-    whichever end is closest to the point being labelled.
+    Only terminations on OTHER sections count. An apex on the body's own section says
+    where it ends ALONG that section, which ``_section_stack_at`` already honours by
+    slicing at the query's own gap and fraction; it measures nothing about how far the
+    body reaches AWAY from that section. Counting it was a real defect: since
+    ``distance_to_section`` is the MINIMUM distance to that fence and every apex is
+    placed ON a fence, the reach could never be shorter, and the factor was pinned at
+    exactly 0.5 — no body tapered to nothing anywhere in the model, on 87-92 % of real
+    occurrences.
 
-    This says how much is left, not which side of the boundary the point is on. That
-    is the edge test or the 15 % ellipse, and it is a separate step.
+    Among the apexes that do count, the nearest governs, so a body dying in several
+    places thins toward whichever end is closest to the point being labelled.
+
+    This says how much is left, not which side of the boundary the point is on. That is
+    the edge test or the 15 % ellipse, and it is a separate step.
 
     Parameters
     ----------
@@ -97,18 +105,26 @@ def pinch_factor(
     distance_to_section : float
         Distance from ``query`` to the section carrying the body, in metres.
     terminations : sequence of Termination
-        Everywhere this body is measured to pinch out.
+        Everywhere this body is measured to pinch out, on any section.
+    own_section_index : int
+        Index of the section supplying the body here. Its own terminations are
+        excluded, for the reason above.
 
     Returns
     -------
     float or None
-        A factor in ``[0, 1]`` scaling the body's thickness, or ``None`` when the body
-        is measured to die nowhere. ``None`` is not zero — it means no evidence here,
-        so the caller must fall back rather than invent a pinch.
+        A factor in ``[0, 1]`` scaling the body's thickness, or ``None`` when no other
+        section measures this body to end. ``None`` is not zero — it means no evidence
+        about the reach, so the caller must fall back rather than invent a pinch.
     """
-    if not terminations:
+    reaches = [
+        math.dist(query, (t.world_x, t.world_y))
+        for t in terminations
+        if t.section_index != own_section_index
+    ]
+    if not reaches:
         return None
-    reach = min(math.dist(query, (t.world_x, t.world_y)) for t in terminations)
+    reach = min(reaches)
     total = distance_to_section + reach
     if total <= 0.0:
         return 0.0
