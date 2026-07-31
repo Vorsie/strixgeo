@@ -7239,6 +7239,40 @@ Cross-section 1 is recorded by seven ties over 607 m. So:
   it, the same extrapolation was harmless. Measured by
   `scripts/dump_tie_pinch_vs_midline.py`, drawn by `blend_viewer/tiepinch.html`.
 
+**Why the shipped `pinch_factor` is unearned — diagnosed 2026-07-31, do not tune it.**
+It stays opt-in (`measured_pinch=False`) because switching it on made contact error
+WORSE, p90 +24 %, and that was left unexplained. It is now explained: **the
+implementation predates the rulings above and satisfies none of them.** It takes the
+nearest termination on any other section and thins radially toward it. There is no edge,
+so nothing to interpolate along; no outermost-tie stop, so it never lets the matrix flood
+past; and — the one that bites — no notion of absence, so nothing can stop it reaching
+across a tie that says the body is not there.
+
+How much that last one matters, measured on the dev model
+(`scripts/diag_absence_ties.py`):
+
+| | |
+|---|---|
+| tie-sections | 11 |
+| bodies terminating on at least one | 22 |
+| **of those, having at least one ABSENCE tie** | **21 (95 %)** |
+| carrying tie-occurrences across all of them | 50 |
+| **absence tie-occurrences across all of them** | **192** |
+| bodies carried by exactly one tie of the eleven | 13 |
+
+So absence is not the exception the SILT case made it look like — it is the norm, by
+roughly four to one. Most of these bodies are anchored by a single tie with absence
+evidence on every side, which is precisely the geometry a nearest-apex radial rule gets
+wrong: it thins toward an apex through ground the model states the body does not occupy.
+
+**Consequence for the next session: rewrite, do not tune.** No choice of radius,
+weighting or falloff makes a radial rule respect an absence tie — the information is not
+in the inputs it reads. `pinch_factor` needs the three-ruling construction (interpolate
+between carrying ties, end at the outermost one, never cross an absence tie), and until
+it has it the flag must stay off. Re-measure the p90 against the same A/B afterwards; if
+it does not go BELOW the midline baseline, the construction is wrong and the honest move
+is to delete the module rather than ship a second unearned rule.
+
 **Elevation at the edge is measured, not a rule.** Read off each region's own
 polygon: **all 48 lens regions taper to <= 1 cm** at their thin end (median 0.000 m
 against a 0.790 m thick end), and 289 of 707 bands reach zero at one end too. So a
