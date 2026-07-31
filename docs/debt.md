@@ -7284,6 +7284,38 @@ merged, or the body pinches to nothing at the middle tie and returns — differ 
 they claim about ground nobody sampled, and the second one would mean changing body
 identity, which is out of bounds without a directive.
 
+**OWNER RULING 2026-07-31 — reach is "as far as the data permits", and the three
+earlier rulings are superseded by it.** Looking at the bodies in 3-D
+(`blend_viewer/sandwich3d.html`) settled it more cheaply than the edge construction would
+have.
+
+What the model already holds, verified on the stored payload rather than assumed:
+
+* **The pinch-out along a section is already drawn.** Every terminating region tapers to
+  ZERO thickness at its open end — checked at each terminus of `019ea3e1-9bb5`, all
+  "TAPERS to 0" — and what it tapers into is the neighbouring formations carrying on in
+  the next gap, some of them lenses. The `kind: 'quad'` on those regions is the GESTURE
+  classification (tied both sides), not a statement that the region fails to taper.
+  Reading the tag instead of the polygon is what made this look harder than it is.
+* So the apex is known in 2-D. **The only thing 3-D was ever missing is how far the body
+  reaches AWAY from the section.**
+
+**The rule: a body extends from its drawn apex until something contradicts it** — a
+station, or a crossing section, that does not carry it. Nothing else sets the distance.
+
+Why this is the right shape, and what it retires:
+
+* It puts no number in the ground that nobody measured. The midline `max(0, 2w - 1)`
+  invented one; the 15 % collinear-lens width invents a smaller one; "as far as the data
+  permits" invents none.
+* **It dissolves the absence-tie question entirely.** A tie that lacks the body is simply
+  a stop, wherever it is — there is no need to interpolate between carrying ties, no need
+  to refuse to cross an absence tie, and no need for the unruled present-absent-present
+  case above. Tie-section 7 becomes the stop for `019ea3e1-9bb5` and stops being a
+  contradiction.
+* It also explains why 7 of the 8 absence ties measured "clear of the footprint": they
+  are past a stop already, so they were never going to matter.
+
 **Consequence for the next session: rewrite, do not tune.** No choice of radius,
 weighting or falloff makes a radial rule respect an absence tie — the information is not
 in the inputs it reads. `pinch_factor` needs the three-ruling construction (interpolate
