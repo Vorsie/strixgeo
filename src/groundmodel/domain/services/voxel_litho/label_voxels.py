@@ -64,6 +64,7 @@ from groundmodel.domain.services.voxel_litho.geo_bands import (
 from groundmodel.domain.services.voxel_litho.honor_precedence import honor_rank
 from groundmodel.domain.services.voxel_litho.pinch_terminations import (
     Termination,
+    body_terminations,
     pinch_factor,
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import (
@@ -601,6 +602,7 @@ def _measured_pinches(
     query: tuple[float, float],
     distance_to_section: float,
     terminations: dict[str, tuple[Termination, ...]] | None,
+    own_section_index: int,
 ) -> dict[str, float] | None:
     """Survival factors for the bodies ``own`` carries and ``other`` does not.
 
@@ -621,6 +623,9 @@ def _measured_pinches(
     terminations : dict or None
         Every body's measured pinch-outs, or ``None`` to keep the old rule
         throughout.
+    own_section_index : int
+        Index of the section ``own`` came from. Its own apexes measure the body's
+        extent ALONG it, not away from it, so they are excluded.
 
     Returns
     -------
@@ -635,7 +640,12 @@ def _measured_pinches(
         body = entry.body_id
         if body is None or body in theirs or body in out:
             continue
-        factor = pinch_factor(query, distance_to_section, terminations.get(body, ()))
+        factor = pinch_factor(
+            query,
+            distance_to_section,
+            terminations.get(body, ()),
+            own_section_index=own_section_index,
+        )
         if factor is not None:
             out[body] = factor
     return out or None
@@ -682,9 +692,11 @@ def _stack_at(
     # Project onto every section's column-world fence; rank by perpendicular
     # distance to the nearest gap segment.  Each tuple is
     # (section, gap_index, fraction, perp_dist, foot_x, foot_y).
-    projs = [(s, *_project_to_section_fence(s, x, y)) for s in sections]
-    projs.sort(key=lambda p: p[3])  # by perpendicular distance
-    s1, gap1, frac1, d1, px1, py1 = projs[0]
+    # The index rides along: a body's apexes on its OWN section measure its extent
+    # along that section, not away from it, so the factor must know which that is.
+    projs = [(i, s, *_project_to_section_fence(s, x, y)) for i, s in enumerate(sections)]
+    projs.sort(key=lambda p: p[4])  # by perpendicular distance
+    i1, s1, gap1, frac1, d1, px1, py1 = projs[0]
 
     between = False
     if len(projs) >= 2:
@@ -693,14 +705,14 @@ def _stack_at(
         # For near-parallel sections this axis is the true interpolation
         # direction; for crossing sections it errs toward blending, which is
         # geologically reasonable in the crossing zone.
-        _s2, _g2, _f2, _d2, px2, py2 = projs[1]
+        _i2, _s2, _g2, _f2, _d2, px2, py2 = projs[1]
         dx, dy = px2 - px1, py2 - py1
         axis2 = dx * dx + dy * dy
         t = 0.0 if axis2 < _EPS else ((x - px1) * dx + (y - py1) * dy) / axis2
         between = -_EPS <= t <= 1.0 + _EPS
 
     if between:
-        s2, gap2, frac2, d2, _px2, _py2 = projs[1]
+        i2, s2, gap2, frac2, d2, _px2, _py2 = projs[1]
         stack1 = _section_stack_at(s1, gap1, frac1)
         stack2 = _section_stack_at(s2, gap2, frac2)
         # An EMPTY stack is no information, not an interpretation of "no material
@@ -723,8 +735,8 @@ def _stack_at(
             stack1,
             stack2,
             w1,
-            pinch1=_measured_pinches(stack1, stack2, here, d1, terminations),
-            pinch2=_measured_pinches(stack2, stack1, here, d2, terminations),
+            pinch1=_measured_pinches(stack1, stack2, here, d1, terminations, i1),
+            pinch2=_measured_pinches(stack2, stack1, here, d2, terminations, i2),
         )
 
     # Beyond rule: horizontal extrapolation of the nearest section's stack
@@ -1374,6 +1386,7 @@ def label_voxels(
     geo_surfaces: tuple[SurfaceBound, ...] = (),
     litho_snap_tolerance_m: float = 0.20,
     honor_radius_m: float = 0.0,
+    measured_pinch: bool = False,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -1437,6 +1450,12 @@ def label_voxels(
         clean to the surface; a contact farther than this divides the interval at
         the surface, so the litho is split across the two bands.  Ignored when
         ``geo_surfaces`` is empty.
+    measured_pinch : bool, default False
+        When ``True``, a one-sided body thins toward where the 2-D partition
+        MEASURES it to end rather than toward the equidistance midline that
+        ``max(0, 2w - 1)`` assumes (#256).  Off by default until an A/B on real
+        data earns it: the first attempt pinned every factor at exactly 0.5, so
+        nothing tapered to nothing anywhere.
 
     Returns
     -------
@@ -1594,25 +1613,14 @@ def label_voxels(
     # half-diagonal (½·h·√2) is the safe inclusion radius — any node whose cell
     # touches the footprint is admitted; nodes farther than a full cell stay void.
     footprint_tol = 0.5 * h * math.sqrt(2.0)
-    # DISABLED 2026-07-31 — ``pinch_factor`` is anchored to the wrong pair of
-    # distances and must not label a build until it is fixed (#256).
-    #
-    # ``distance_to_section`` is the MINIMUM distance to a section's fence, and every
-    # termination is placed ON a fence by ``_world_at``.  So when the governing
-    # termination lies on the body's own section — 87-92 % of real occurrences — the
-    # reach cannot be shorter than that minimum, and the factor is floored at exactly
-    # 0.5: ``pinch_factor((0, d), d, [apex at (0, 0)]) == 0.5000`` for every d.  No
-    # body tapers to nothing anywhere, which is the opposite of rule 6.
-    #
-    # The far side is worse.  ``projs`` is distance-sorted so ``d1 <= d2``, hence
-    # ``w2 <= 0.5`` and the old ``max(0, 2*w2 - 1)`` was identically ZERO: a body
-    # carried only by the farther section contributed nothing.  The measured rule
-    # gives it up to ~0.64, inventing material on ground whose own section measures
-    # the body absent — a direct breach of rule 4.
-    #
-    # Passing ``None`` keeps every one-sided body on the midline rule, which is what
-    # shipped before, while the measurement machinery stays in place for the fix.
-    terminations: dict[str, tuple[Termination, ...]] | None = None
+    # Off by default. The first attempt anchored the taper on the distance to an apex
+    # that, 87-92 % of the time, lay on the very fence the other distance was measured
+    # to — pinning the factor at exactly 0.5 so no body tapered to nothing anywhere.
+    # The anchor is fixed (own-section apexes are excluded); it stays opt-in until an
+    # A/B on real data earns the default.
+    terminations: dict[str, tuple[Termination, ...]] | None = (
+        body_terminations(sections) if measured_pinch else None
+    )
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
