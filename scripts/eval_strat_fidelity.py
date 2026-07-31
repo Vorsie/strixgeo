@@ -387,8 +387,16 @@ def _clip_to_drilled(
         overlap = min(m_top, top) - max(m_base, base)
         if overlap <= 0:
             continue
-        fully_inside = m_top <= top + TOL and m_base >= base - TOL
-        if not fully_inside and overlap <= _SUBSTRATE_MARGIN_M:
+        # The margin is a SUBSTRATE guard and applies downward only. Material above the
+        # log's top contact is grid phase: a voxel-aligned mesh always overshoots it by
+        # up to half a voxel, so the shallowest unit is never "fully inside", and if it
+        # is thinner than the margin its overlap falls under it and the unit is deleted.
+        # That turned GEO-23/125-S5A's correct column into the last outstanding drilled
+        # failure — its top ZAND is labelled, meshed and hit by the ray-cast, and was
+        # being dropped here (mesh 11.155..11.405 against a top contact at 11.380:
+        # 0.025 m of overshoot, 0.225 m of overlap, under the 0.3 m margin).
+        reaches_below_total_depth = m_base < base - TOL
+        if reaches_below_total_depth and overlap <= _SUBSTRATE_MARGIN_M:
             continue
         kept.append((fid, m_base, m_top))
     return kept
