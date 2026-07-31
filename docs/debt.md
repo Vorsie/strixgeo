@@ -7362,7 +7362,7 @@ of them perfectly scoreable. Only a log left with NO cell is unscoreable.
 
 **When to revisit.** The 2 remaining `wrong` columns, next time the gate is looked at.
 
-## 259. `_section_stack_at` returns nothing at the edges of half the gaps (L)
+## 259. `_section_stack_at` returns nothing at the edges of half the gaps — RESOLVED 2026-07-31
 
 **What.** The query fraction is clamped to `1 - _FRAC_EPS`, and in **33 of 69 gaps** the
 region polygons do not reach that far, so the section reports an EMPTY column. 15 of 69
@@ -7373,8 +7373,30 @@ section. It is partly masked by the empty-neighbour deferral added 2026-07-30 �
 stack is empty `_stack_at` defers to the section that does know — so instead of a void
 the build silently drops one section's contribution and extrudes the other.
 
-**When to revisit.** Before further work in `label_voxels`. Note the function has been
-changed twice recently (#256 wiring, #257 merge), so it wants care rather than speed.
+**RESOLVED.** The query is inset by two snap cells expressed in the gap's OWN fraction
+space (`_SNAP_MARGIN_CELLS * _SNAP_GRID_M / width_m`), because 1 mm of ground is a
+different fraction on a 0.47 m gap than on a 104 m one. Re-verified on the owner's
+payload 2026-07-31, through the real domain objects:
+
+| | before | after |
+|---|---|---|
+| gaps empty at fraction 0.0 | 15 of 69 | **0** |
+| gaps empty at fraction 1.0 | 33 of 69 | **0** |
+| gaps whose edge stack differs from the near-edge stack | — | **0** |
+
+**The follow-up item this entry carried — "5 mm / 25 mm still short on section 2 gaps 0
+and 3" — does not exist.** It came from a bad fraction→metres conversion in the original
+finding (section length used in place of gap length, which the adversarial verifier also
+caught). Measured per gap with that gap's own width
+(`scripts/diag_gap_fraction_envelope.py`), the worst shortfall in all 69 gaps is
+**1.059 mm** — section 12 gap 0 — so the 2 mm inset clears every one of them with room
+to spare. No gap needs 5 mm, let alone 25 mm.
+
+**The recommended fix was rejected, deliberately.** Clamping the query into whatever
+fraction envelope the polygons happen to reach would drag a region that *genuinely* ends
+mid-gap — a lens pinching out — all the way to the column. That is inventing geology to
+fix a rounding artefact. `test_a_region_that_genuinely_stops_short_is_not_dragged_to_the_edge`
+pins the distinction: a region ending at fraction 0.45 must still read empty at 1.0.
 
 ## 260. The between/beyond switch is a step discontinuity, up to 12 m (L)
 
