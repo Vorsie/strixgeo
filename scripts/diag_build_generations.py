@@ -102,6 +102,13 @@ def _sections_from_payload(payload: dict) -> list[SectionPartitionInput]:
                     body_id=r["body_id"],
                     polygon=tuple((p[0], p[1]) for p in r["polygon"]),
                     gap_index=r["gap_index"],
+                    # Absent on any generation stored before #256, which is why every
+                    # field defaults rather than being required — an old build must
+                    # stay inspectable.
+                    kind=r.get("kind"),
+                    overlay_tier=r.get("overlay_tier"),
+                    tied_band_base=r.get("tied_band_base"),
+                    tie_clipped=bool(r.get("tie_clipped", False)),
                 )
                 for r in sec["regions"]
             ),
