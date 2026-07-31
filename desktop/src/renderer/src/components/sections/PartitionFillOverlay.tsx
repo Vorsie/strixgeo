@@ -922,6 +922,15 @@ export default function PartitionFillOverlay({
   //
   // Deps intentionally ABSENT (they only affect pixel projection):
   //   levelToScreen, plotTop, plotBottom — elevation → screen-y mapping.
+  //
+  // Last engine result, keyed on the four arguments that fully determine it. Declared
+  // HERE, above the memo that reads it: a ref declared after the useMemo would be in the
+  // temporal dead zone when the memo callback runs, which tsc does not catch and which
+  // crashes only on first render.
+  const engineResultRef = useRef<{
+    key: string
+    value: ReturnType<typeof computeSectionFillActiveWithDiagnostics>
+  } | null>(null)
   const sectionFillData = useMemo((): {
     sectionRegions: SectionRegion[]
     orderedColumns: PartitionColumn[]
@@ -1110,12 +1119,32 @@ export default function PartitionFillOverlay({
     // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
     // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
     // ``sectionRegions`` here stay the litho partition.
+    // The engine call's arguments are EXACTLY (orderedColumns, edges, apexOverrides,
+    // alongM), so a key over those four is a complete description of its output. This
+    // memo's deps include the viewport transforms — they are needed to build
+    // ``apexOverrides``, whose conversion goes through screen pixels — so a pan or zoom
+    // re-runs the memo on every frame in both axes. The cheap half must re-run; the
+    // engine must not. Keying the call itself means no assumption about whether the
+    // pixel round-trip is viewport-invariant: if the overrides come out identical the
+    // engine is skipped, and if they genuinely changed it runs.
+    const engineKey = `${topologyKey(orderedColumns, edges, alongM, partitionEngineV2)}|${[
+      ...apexOverrides.entries(),
+    ]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${k}=${v.fraction.toFixed(9)},${v.elevation.toFixed(6)}`)
+      .join(';')}`
+    const cachedEngine = engineResultRef.current
+    const engineResult =
+      cachedEngine && cachedEngine.key === engineKey
+        ? cachedEngine.value
+        : computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
+    engineResultRef.current = { key: engineKey, value: engineResult }
     const {
       regions: sectionRegions,
       conflicts,
       reviewFlags,
       overrideStatus,
-    } = computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
+    } = engineResult
 
     // Mirror of the line ``buildVoxelRequest`` logs per payload section, so the
     // RENDERED partition and the BUILT one can be compared field for field in one
