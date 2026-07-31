@@ -137,40 +137,38 @@ async def main() -> None:
         )
 
     positions = tuple((c.investigation_id, c.world_x, c.world_y) for c in inv_columns)
-    real_terminations = label_module.body_terminations
 
     results: dict[str, dict] = {}
     for name in ("BEFORE", "AFTER"):
-        # BEFORE takes the fallback path _blend_stacks keeps for a body measured to
-        # die nowhere, so the arms differ only in the evidence, not in the code.
-        label_module.body_terminations = (lambda _s: {}) if name == "BEFORE" else real_terminations
-        try:
-            t0 = time.perf_counter()
-            domain = build_domain_from_sections(
-                sections_as_drawn, investigation_positions=positions
-            )
-            grid = label_voxels_arm = label_module.label_voxels(
-                domain,
-                h,
-                sections,
-                vertical_spacing_m=v,
-                investigation_columns=inv_columns,
-                honor_radius_m=honor_radius,
-            )
-            meshes = [m for m in extract_body_solids(grid) if m.vertices and m.triangles]
-            res = _score(columns, meshes)
-            res["bodies"] = len(meshes)
-            res["tris"] = sum(len(m.triangles) for m in meshes)
-            results[name] = res
-            _summarise(
-                name,
-                res,
-                time.perf_counter() - t0,
-                (len(label_voxels_arm.gx), len(label_voxels_arm.gy), len(label_voxels_arm.gz)),
-            )
-            print(f"    bodies={len(meshes)}  triangles={res['tris']:,}")
-        finally:
-            label_module.body_terminations = real_terminations
+        # The arms differ only by label_voxels' own opt-in flag, so BEFORE is exactly
+        # what production builds today and AFTER exactly what turning it on gives.
+        # An earlier version monkeypatched body_terminations instead; once the flag
+        # existed, label_voxels stopped calling it and BOTH arms silently ran with the
+        # feature off, producing a byte-identical result that read as a clean no-op.
+        measured = name == "AFTER"
+        t0 = time.perf_counter()
+        domain = build_domain_from_sections(sections_as_drawn, investigation_positions=positions)
+        grid = label_module.label_voxels(
+            domain,
+            h,
+            sections,
+            vertical_spacing_m=v,
+            investigation_columns=inv_columns,
+            honor_radius_m=honor_radius,
+            measured_pinch=measured,
+        )
+        meshes = [m for m in extract_body_solids(grid) if m.vertices and m.triangles]
+        res = _score(columns, meshes)
+        res["bodies"] = len(meshes)
+        res["tris"] = sum(len(m.triangles) for m in meshes)
+        results[name] = res
+        _summarise(
+            name,
+            res,
+            time.perf_counter() - t0,
+            (len(grid.gx), len(grid.gy), len(grid.gz)),
+        )
+        print(f"    bodies={len(meshes)}  triangles={res['tris']:,}  measured_pinch={measured}")
 
     b, a = results["BEFORE"], results["AFTER"]
     print("\n  === DELTA (AFTER - BEFORE) ===")
