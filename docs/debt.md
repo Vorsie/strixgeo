@@ -7194,8 +7194,35 @@ flooding rule, termination grouping — were reconstructions of information the 
 already holds. Thread the classification through first, then re-measure; some of
 those questions may not survive.
 
-**When to revisit.** Before any further 3-D geometry rules are designed. Threading
-the fields is additive on both sides (backwards-compat is suspended pre-ship, so the
-payload may grow cleanly). Necessary, but do not assume sufficient — `_stack_at`
-also consults only the two nearest sections, and whether that still costs anything
-once the kinds arrive is a measurement, not an assumption.
+**Status — the wire is threaded 2026-07-31, the builder does not read it yet.**
+`kind`, `overlay_tier`, `tied_band_base` and `tie_clipped` now travel
+`buildVoxelRequest.ts` → `RegionInputSchema` → `RegionInput`. All four are optional,
+so a generation or bundle written before this still loads and still builds. Labelling
+behaviour is deliberately unchanged: the wire lands first so the classification can be
+proved to arrive before anything acts on it.
+
+Two production defects surfaced while threading it, both fixed here, both found by a
+test written first:
+
+* `apply_body_aliases` rebuilt each region field by field, so every re-identified
+  region lost the classification the moment it existed — the same silent drop as the
+  payload boundary, one layer in. Now `dataclasses.replace`, which cannot be outgrown
+  by a later field.
+* `_partition_checksum` did not cover the classification, so a band, an onlap and an
+  enclosed lens sharing an outline shared a digest. Folded in and verified on the
+  owner's stored payload: attaching a kind moves the digest `2a4142e2…` → `61c24a8e…`,
+  so a classified build can never reuse an unclassified one. Busts every pre-#256
+  cache once, correctly.
+
+Green: 1528 python unit tests, 2549 desktop tests, mypy and tsc clean on the changed
+files.
+
+**What remains.** Make the builder read it — chiefly `_stack_at` / `_blend_stacks`,
+where `max(0, 2w - 1)` currently kills a band, an onlap and a lens alike at the
+equidistance midline. That is a behaviour change and needs its own measurement against
+the drilled gate, the contact-error p90 and the partition-vs-voxel scoreboard.
+
+**When to revisit.** Next, and before any further 3-D geometry rules are designed.
+Necessary but not assumed sufficient — `_stack_at` also consults only the two nearest
+sections, and whether that still costs anything once the kinds arrive is a
+measurement, not an assumption.
