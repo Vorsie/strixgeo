@@ -7441,7 +7441,7 @@ Necessary but not assumed sufficient — `_stack_at` also consults only the two 
 sections, and whether that still costs anything once the kinds arrive is a
 measurement, not an assumption.
 
-## 257. The blend deletes material BOTH sections carry, and raises the floor by it (L)
+## 257. The blend deletes material BOTH sections carry — FIXED 2026-07-30
 
 **What.** `_section_stack_at` emits one `_Entry` per sliced REGION and never merges
 contiguous slices of the same body. `_pair_occurrences` then matches occurrences
@@ -7494,7 +7494,18 @@ the floor rises by it.
 **Why deferred.** Found 2026-07-31 by an adversarial counter-example hunt, verified
 against both the in-memory rebuild and the persisted `litho_body_solid` meshes.
 
-**When to revisit.** Before any further 3-D geometry work, and before #256's measured
+**FIXED** in `label_voxels`, two changes. `_section_stack_at` now merges contiguous
+same-body slices (`_merge_contiguous`), so a body the 2-D engine happened to cut into a
+different number of polygons on each section presents as one occurrence. And the surplus
+of a MATCHED body now blends by weight instead of falling into the one-sided branch —
+`# SURPLUS of a body BOTH sections carry — blend it, do not pinch it (#257)`.
+
+Measured after: the counter-example floor went -0.845 → -6.567 m, model-wide floor
+shortfall p90 1.77 → 0.60 m, zero columns more than 5 m shallow. Note the one-sided branch
+it used to leak into has since changed rule again (#256), which only reinforces this: a
+matched body must never reach it.
+
+**Original when-to-revisit.** Before any further 3-D geometry work, and before #256's measured
 pinch earns its default — this is a larger error than the midline assumption #256
 replaces, and it is in the same function. The obvious fix is to merge CONTIGUOUS
 same-body intervals before pairing, which is correct by construction: two slices that
@@ -7502,7 +7513,7 @@ touch exactly are one interval. It will not fix the cases where a 3-6 mm sliver 
 another body sits between two slices of the same one — that is #228 itself, and it needs
 the sliver gone rather than papered over.
 
-## 258. Paired stations named; 2 drilled failures remain UNEXPLAINED (S)
+## 258. Paired stations named — RESOLVED 2026-07-31, and the 2 failures were the gate's own
 
 **What.** The fidelity gate scored a paired station's loser against its own log, which
 no build can satisfy: a borehole and its CPT 0.28 m / 0.40 m apart cannot both own a
@@ -7520,7 +7531,22 @@ scoring EXACT. The 2 `wrong` columns are a separate defect and remain unexplaine
 log within 2.0 m of another, transitively grouped: 7 investigations on this model, five
 of them perfectly scoreable. Only a log left with NO cell is unscoreable.
 
-**When to revisit.** The 2 remaining `wrong` columns, next time the gate is looked at.
+**RESOLVED — the 2 `wrong` columns were a bug in the SCORER, not the model.**
+`_clip_to_drilled` applied its `_SUBSTRATE_MARGIN_M` guard at the TOP of a column as well
+as the bottom, and the guard's own docstring says it exists for deep-band material poking
+up past the drilled BOTTOM. A voxel-aligned mesh always overshoots the log's top contact
+by up to half a voxel, so the shallowest unit is never "fully inside", and if it is
+thinner than the margin the guard deleted it. The scorer was throwing away a unit the
+model had labelled, meshed and hit with the ray-cast.
+
+Made downward-only, with `tests/unit/scripts/test_clip_to_drilled.py` pinning both halves
+— the log's own top unit survives its mesh overshooting, and substrate below total depth
+is still discarded. Drilled ground is now **54 exact / 0 subsequence / 0 wrong / 4 paired
+/ 0 uncovered**, confirmed again 2026-08-01 against the owner's rebuild.
+
+So all three of this campaign's "drilled gate failures" turned out to be faults in the
+gate: the footprint hull, the paired stations, and this. Worth remembering the next time
+the gate reports a model defect.
 
 ## 259. `_section_stack_at` returns nothing at the edges of half the gaps — RESOLVED 2026-07-31
 
