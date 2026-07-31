@@ -1508,7 +1508,7 @@ def label_voxels(
     litho_snap_tolerance_m: float = 0.20,
     honor_radius_m: float = 0.0,
     measured_pinch: bool = False,
-    reach_to_evidence: bool = False,
+    reach_to_evidence: bool = True,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -1578,12 +1578,14 @@ def label_voxels(
         ``max(0, 2w - 1)`` assumes (#256).  Off by default until an A/B on real
         data earns it: the first attempt pinned every factor at exactly 0.5, so
         nothing tapered to nothing anywhere.
-    reach_to_evidence : bool, default False
-        When ``True``, a one-sided body reaches from its drawn apex until something
-        CONTRADICTS it — the section that does not carry it — instead of dying at the
-        equidistance midline (owner ruling 2026-07-31, docs/debt.md #256).  Bodies
-        reach further than they do today, so it stays off until the real-data A/B has
-        been reviewed.
+    reach_to_evidence : bool, default True
+        A one-sided body reaches from its drawn apex until something CONTRADICTS it —
+        the section that does not carry it — instead of dying at the equidistance
+        midline (owner ruling 2026-07-31, docs/debt.md #256).  Measured on the owner's
+        model before this became the default: the drilled gate is unchanged at 54
+        exact / 0 wrong, contact-error p90 moves 0.123 → 0.125 m, triangles drop
+        8.2 %, and 52,602 m3 goes void → filled with NOT ONE cell going the other way.
+        Pass ``False`` to rebuild the old midline behaviour for comparison.
 
     Returns
     -------
