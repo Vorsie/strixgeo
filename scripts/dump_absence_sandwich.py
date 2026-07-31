@@ -41,6 +41,7 @@ from sqlalchemy import select  # noqa: E402
 
 from groundmodel.domain.services.voxel_litho.label_voxels import (  # noqa: E402
     _section_stack_at,
+    _slice_region_intervals,
 )
 from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (  # noqa: E402
     apply_body_aliases,
@@ -137,6 +138,77 @@ def _profile(section, steps: int, body: str, runs: list) -> list[dict]:
             }
         )
     return out
+
+
+PANEL_SAMPLES = 24
+"""Vertical slices per region when turning a 2-D region into a standing 3-D panel."""
+
+CONTEXT_SAMPLES = 10
+"""Slices for the surrounding stratigraphy, which is scenery rather than evidence."""
+
+
+def _region_panel(section, region, samples: int = PANEL_SAMPLES) -> list[list[float]]:
+    """One 2-D region as a standing panel in world space, as a flat triangle list.
+
+    The region is a ring in ``(gap fraction, elevation)``. Slicing it at a series of
+    fractions gives the material present on that vertical line, and consecutive slices
+    join into a strip. Because a gap is a straight run between two columns, the panel is
+    planar and this is exact geometry rather than an approximation of it — it is the
+    partition the owner drew, stood up at its true position and elevation.
+
+    Parameters
+    ----------
+    section : SectionPartitionInput
+        The section carrying the region.
+    region : RegionInput
+        The region to stand up.
+    samples : int
+        Vertical slices across the region's fraction span.
+
+    Returns
+    -------
+    list of list of float
+        Triangle vertices as ``[x, y, z]``, three consecutive entries per triangle.
+    """
+    gap = region.gap_index
+    if gap < 0 or gap + 1 >= len(section.columns):
+        return []
+    a, b = section.columns[gap], section.columns[gap + 1]
+    fracs = [p[0] for p in region.polygon]
+    lo, hi = min(fracs), max(fracs)
+    if hi - lo <= 0.0:
+        return []
+    inset = (hi - lo) * 1e-4
+
+    def world(f: float) -> tuple[float, float]:
+        return (
+            a.world_x + (b.world_x - a.world_x) * f,
+            a.world_y + (b.world_y - a.world_y) * f,
+        )
+
+    slices = []
+    for k in range(samples):
+        f = lo + inset + (hi - lo - 2 * inset) * (k / max(samples - 1, 1))
+        slices.append((f, _slice_region_intervals(region.polygon, f)))
+
+    tris: list[list[float]] = []
+    for (f0, iv0), (f1, iv1) in zip(slices, slices[1:], strict=False):
+        x0, y0 = world(f0)
+        x1, y1 = world(f1)
+        for base0, top0 in iv0:
+            # Pair each interval with the nearest interval on the next slice, so a
+            # region that splits or closes tapers instead of stitching across the gap.
+            if not iv1:
+                continue
+            base1, top1 = min(iv1, key=lambda iv: abs((iv[0] + iv[1]) - (base0 + top0)))
+            # Rounded to the centimetre: this is a viewer, and full float precision
+            # quadruples the payload for detail no eye resolves.
+            p00 = [round(x0, 2), round(y0, 2), round(base0, 2)]
+            p01 = [round(x0, 2), round(y0, 2), round(top0, 2)]
+            p10 = [round(x1, 2), round(y1, 2), round(base1, 2)]
+            p11 = [round(x1, 2), round(y1, 2), round(top1, 2)]
+            tris.extend([p00, p10, p11, p00, p11, p01])
+    return tris
 
 
 def _segments_cross(a1, a2, b1, b2) -> bool:
@@ -349,6 +421,43 @@ async def main() -> None:
         max_th = max(
             (r["max_th"] for i in carried for r in per_section.get(str(i), [])), default=0.0
         )
+
+        # The sections this case is actually about: the ties that carry the body, the
+        # ties that do not but sit between them, and any cross-section carrying it.
+        # Standing only these up keeps the 3-D scene about the question.
+        relevant = sorted(
+            set(carried) | {a["section"] for a in absences} | {int(i) for i in per_section}
+        )
+        panels = []
+        for i in relevant:
+            body_tris: list[list[float]] = []
+            other: dict[str, list[list[float]]] = {}
+            for region in seated[i].regions:
+                mine = region.body_id == body
+                tris = _region_panel(seated[i], region, PANEL_SAMPLES if mine else CONTEXT_SAMPLES)
+                if not tris:
+                    continue
+                if mine:
+                    body_tris.extend(tris)
+                else:
+                    label = names.get(region.formation_id, region.formation_id or "?")
+                    other.setdefault(label, []).extend(tris)
+            absence = next((a for a in absences if a["section"] == i), None)
+            panels.append(
+                {
+                    "index": i,
+                    "name": section_names[i],
+                    "is_tie": i in ties,
+                    "carries": i in carried or str(i) in per_section,
+                    "absent_between": absence is not None,
+                    "crosses": bool(absence["crosses"]) if absence else False,
+                    "gap_m": absence["gap_m"] if absence else None,
+                    "fence": [[c.world_x, c.world_y] for c in seated[i].columns],
+                    "body_tris": body_tris,
+                    "context": other,
+                }
+            )
+
         out_cases.append(
             {
                 "body_id": body,
@@ -359,6 +468,7 @@ async def main() -> None:
                 "absences": absences,
                 "profiles": per_section,
                 "max_th_on_ties": max_th,
+                "panels": panels,
             }
         )
         crossing = sum(1 for a in absences if a["crosses"])
