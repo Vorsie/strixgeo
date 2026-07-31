@@ -167,30 +167,34 @@ def test_voxel_column_on_section_b_reproduces_the_pinched_out_partition():
     assert seq == [_KLEI]
 
 
-def test_sand_lens_pinches_toward_the_midline_between_the_sections():
-    """The one-sided SAND lens pinches to ZERO at the midline, thinner near A.
+def test_sand_lens_thins_all_the_way_to_the_section_that_lacks_it():
+    """The one-sided SAND reaches the section that contradicts it, not the midline.
 
-    On section A the SAND spans +4 → -4 (8 m thick); the lens is absent on B.
-    The midline-pinch rule scales a one-sided body by ``max(0, 2*w_own - 1)``:
-    at the exact equidistance midline (y=20, equal distance to A and B) the
-    weight is 0.5, so the lens pinches clean to ZERO thickness — the apex of
-    the wedge.  Off the midline, nearer A (y=10, three-quarters of the way to
-    A), the body is present but distinctly thinner than the full 8 m on A.
+    On section A the SAND spans +4 → -4 (8 m thick); it is absent on B.  Under the
+    owner's ruling of 2026-07-31 the body runs out where the evidence against it
+    stands — section B — and thins evenly on the way there.  The equidistance midline
+    it used to die at was never evidence: nothing is measured halfway between two
+    sections, and ``max(0, 2*w_own - 1)`` killed the body there anyway.
+
+    So the wedge spans the WHOLE gap, apex on B, and interfingering is what happens
+    across all of it rather than only across the near half.
     """
     domain = _domain_for_two_sections()
     grid = label_voxels(domain, 2.0, [_section_a(), _section_b()])
 
-    sand_on_a = _sand_thickness(grid, x=40.0, y=0.0)
-    sand_near_a = _sand_thickness(grid, x=40.0, y=10.0)
-    sand_at_midline = _sand_thickness(grid, x=40.0, y=20.0)
+    on_a = _sand_thickness(grid, x=40.0, y=0.0)
+    quarter = _sand_thickness(grid, x=40.0, y=10.0)
+    midline = _sand_thickness(grid, x=40.0, y=20.0)
+    three_quarters = _sand_thickness(grid, x=40.0, y=30.0)
+    on_b = _sand_thickness(grid, x=40.0, y=40.0)
 
-    # The lens is fully present on A ...
-    assert sand_on_a > 6.0
-    # ... pinches clean to nothing at the equidistance midline (the wedge apex) ...
-    assert sand_at_midline == 0.0
-    # ... and is present but thinner partway out toward A — the interfingering
-    # behaviour the implicit field could not reproduce.
-    assert 0.0 < sand_near_a < sand_on_a
+    # Whole where it is drawn, gone where the section that lacks it stands ...
+    assert on_a > 6.0
+    assert on_b == 0.0
+    # ... still there at the midline, which is the change: it used to be zero here ...
+    assert midline > 0.0
+    # ... and thinning the whole way rather than stopping short of B.
+    assert on_a > quarter > midline > three_quarters > on_b
 
 
 # ---------------------------------------------------------------------------
@@ -782,21 +786,25 @@ def test_honored_gapped_log_defers_the_unlogged_interval_to_the_blend():
     it.
     """
     domain = _domain_for_two_sections()
-    # Surrounding sections are the KLEI / SAND-lens / KLEI fixture: the blend at
-    # the midline (y=20) carries the one-sided SAND lens, which pinches toward
-    # zero AT the exact midline.  Put the borehole nearer A (y=8) where the SAND
-    # lens is genuinely present in the blend (the midline-pinch leaves it spanning
-    # roughly +6.4 → +1.6 there) — that is the litho the unlogged gap must defer
-    # to.  The borehole's unlogged interval +7 → +1 overlaps that blend SAND band,
-    # so an elevation inside it (+4) must read SAND, not a bridge of ZAND/KLEI.
+    # Surrounding sections are the KLEI / SAND-lens / KLEI fixture, and the borehole
+    # stands at y=8, four fifths of the way to A.  The blend carries the SAND there
+    # spanning about -4 → +1, so the unlogged interval is set to +2 → -5 to sit over
+    # it: an elevation inside that gap must read the blend's SAND, not a bridge of
+    # the borehole's own ZAND-above or KLEI-below.
+    #
+    # The band used to sit at +2 → +7 and the gap was written to match. It moved when
+    # the one-sided SAND stopped dying at the midline (#256): under the old rule every
+    # body BELOW a thinned one rode up with it, putting this SAND 4.5 m above section
+    # A's own +4 → -4. The fixture follows the corrected geometry; what is under test
+    # — that an unlogged interval defers rather than bridging — is unchanged.
     bh = InvestigationColumn(
         investigation_id="BH-gapped",
         world_x=40.0,
         world_y=8.0,
-        # ZAND +10 → +7, UNLOGGED +7 → +1, KLEI +1 → -10 (two non-adjacent units).
+        # ZAND +10 → +2, UNLOGGED +2 → -5, KLEI -5 → -10 (two non-adjacent units).
         intervals=(
-            ("bodyZandTop", _ZAND, 10.0, 7.0),
-            ("bodyKleiBot", _KLEI, 1.0, -10.0),
+            ("bodyZandTop", _ZAND, 10.0, 2.0),
+            ("bodyKleiBot", _KLEI, -5.0, -10.0),
         ),
     )
     grid = label_voxels(
@@ -806,10 +814,10 @@ def test_honored_gapped_log_defers_the_unlogged_interval_to_the_blend():
         investigation_columns=(bh,),
     )
 
-    # Inside the unlogged interval, where the blend carries the SAND lens (+4):
-    # must read the blend's SAND, proving the log did NOT bridge the gap with its
-    # own bounding ZAND/KLEI.
-    assert _formation_at(grid, x=40.0, y=8.0, elev=4.0) == _SAND
+    # Inside the unlogged interval, where the blend carries the SAND lens: must read
+    # the blend's SAND, proving the log did NOT bridge the gap with its own bounding
+    # ZAND/KLEI.
+    assert _formation_at(grid, x=40.0, y=8.0, elev=0.0) == _SAND
     # The observed units are honored where they exist: ZAND on top, KLEI below.
     assert _formation_at(grid, x=40.0, y=8.0, elev=8.0) == _ZAND
     assert _formation_at(grid, x=40.0, y=8.0, elev=-7.0) == _KLEI
