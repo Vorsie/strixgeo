@@ -135,6 +135,63 @@ export type OverrideOutcome =
  *
  * Parameters mirror ``computeSectionFillV2``.
  */
+type FillPass = {
+  sliced: SectionRegion[]
+  merged: SectionRegion[]
+  conflicts: TieConflict[]
+  repaired: string[]
+}
+
+/**
+ * One-entry memo of the NO-OVERRIDE base pass.
+ *
+ * The ghost-handle probe calls ``classifyOverrideOutcome`` once per grab handle — 70
+ * times on the owner's CS1 — each with a different single override but the SAME
+ * columns, edges and alongM. Every one of those calls recomputed the identical base
+ * pass, exactly doubling the probe's cost (70 x 18 ms = 1.26 s on CS1, 34 x 47.5 ms =
+ * 1.62 s on CS2).
+ *
+ * Keyed on the IDENTITY of the inputs plus the engine flag, because the probe calls
+ * back-to-back with the very same references so identity hits every time, and a caller
+ * that rebuilds its arrays simply misses and recomputes — slow, never wrong. The cached
+ * value is handed out by reference; it is already used twice within a single call
+ * today, so any consumer that mutated it would be a bug already.
+ */
+let baseFillCache: {
+  columns: readonly PartitionColumn[]
+  edges: readonly CorrelationEdge[]
+  alongM: readonly number[] | undefined
+  flag: boolean
+  value: FillPass
+} | null = null
+
+/**
+ * The no-override base pass for these inputs, computed once per (inputs, flag).
+ *
+ * Parameters
+ * ----------
+ * columns, edges, alongM : the section inputs, compared by identity.
+ * runFill : the caller's own fill closure, invoked only on a miss.
+ */
+function cachedBaseFill(
+  columns: readonly PartitionColumn[],
+  edges: readonly CorrelationEdge[],
+  alongM: readonly number[] | undefined,
+  runFill: (ov: ReadonlyMap<string, LensApexOverride> | undefined) => FillPass,
+): FillPass {
+  const flag = twoSidedTerminationsEnabled()
+  const hit =
+    baseFillCache !== null &&
+    baseFillCache.columns === columns &&
+    baseFillCache.edges === edges &&
+    baseFillCache.alongM === alongM &&
+    baseFillCache.flag === flag
+  if (hit && baseFillCache !== null) return baseFillCache.value
+  const value = runFill(undefined)
+  baseFillCache = { columns, edges, alongM, flag, value }
+  return value
+}
+
 export function classifyOverrideOutcome(
   columns: readonly PartitionColumn[],
   edges: readonly CorrelationEdge[] = [],
@@ -213,7 +270,7 @@ export function classifyOverrideOutcome(
   // direct — whose defect area does NOT exceed the base. "Never a gap or overlap" stays a HARD
   // invariant BY CONSTRUCTION; an unsafe drag degrades to the un-reshaped base fill — but now the
   // degradation is EXPLICIT (``rejected-unsafe`` with the measured defect areas), never silent.
-  const base = runFill(undefined)
+  const base = cachedBaseFill(columns, edges, alongM, runFill)
   const baseDefect = sectionDefectArea(base.merged)
   const aliased = expandOverrideAliasesFromBase(lensApexOverrides, () => ({ sliced: base.sliced, merged: base.merged }))
   // Track the BEST (smallest) candidate defect so a rejection reports the closest attempt —
