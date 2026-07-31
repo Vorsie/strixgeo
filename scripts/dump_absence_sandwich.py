@@ -75,6 +75,36 @@ PROFILE_SAMPLES = 60
 """Thickness samples along each stretch where a body is present on a tie."""
 
 
+def _slab_at(section, steps: int, idx: float, body: str) -> tuple[float, float]:
+    """Thickness and mid elevation of one body at a global sample index, in metres.
+
+    Parameters
+    ----------
+    section : SectionPartitionInput
+        The seated section being sampled.
+    steps : int
+        Samples per gap, matching the runs.
+    idx : float
+        Global sample index along the section.
+    body : str
+        The body whose slab is wanted.
+
+    Returns
+    -------
+    tuple of float
+        ``(thickness, mid elevation)``, or ``(0.0, 0.0)`` where the body is absent.
+    """
+    gap = min(int(idx) // steps, len(section.columns) - 2)
+    frac = (idx - gap * steps) / max(steps - 1, 1)
+    for entry in _section_stack_at(section, gap, min(max(frac, 0.0), 1.0)):
+        if entry.body_id == body:
+            return (
+                float(entry.top_elev - entry.base_elev),
+                float(entry.top_elev + entry.base_elev) / 2.0,
+            )
+    return (0.0, 0.0)
+
+
 def _thickness_at(section, steps: int, idx: float, body: str) -> float:
     """Thickness of one body at a global sample index, in metres.
 
@@ -128,7 +158,8 @@ def _profile(section, steps: int, body: str, runs: list) -> list[dict]:
         for k in range(PROFILE_SAMPLES):
             idx = start + (end - start) * (k / max(PROFILE_SAMPLES - 1, 1))
             x, y = _section_point(section, steps, idx)
-            pts.append({"x": x, "y": y, "th": round(_thickness_at(section, steps, idx, body), 3)})
+            th, mid = _slab_at(section, steps, idx, body)
+            pts.append({"x": x, "y": y, "th": round(th, 3), "z": round(mid, 3)})
         out.append(
             {
                 "points": pts,
@@ -209,6 +240,42 @@ def _region_panel(section, region, samples: int = PANEL_SAMPLES) -> list[list[fl
             p11 = [round(x1, 2), round(y1, 2), round(top1, 2)]
             tris.extend([p00, p10, p11, p00, p11, p01])
     return tris
+
+
+def _convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The convex outline of a set of map positions, counter-clockwise.
+
+    This is the loosest polygon the drawn end-points can define — every point is on it
+    or inside it. Where most points fall INSIDE, the hull is bulging over ground the
+    interpretation never claimed, and it is the wrong outline for that body.
+
+    Parameters
+    ----------
+    points : list of tuple of float
+        Map positions as ``(x, y)``.
+
+    Returns
+    -------
+    list of tuple of float
+        The hull ring, or the input when there are fewer than three distinct points.
+    """
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return pts
+
+    def half(seq):
+        out: list[tuple[float, float]] = []
+        for p in seq:
+            while len(out) >= 2:
+                (x1, y1), (x2, y2) = out[-2], out[-1]
+                if (x2 - x1) * (p[1] - y1) - (y2 - y1) * (p[0] - x1) <= 0:
+                    out.pop()
+                else:
+                    break
+            out.append(p)
+        return out
+
+    return half(pts)[:-1] + half(pts[::-1])[:-1]
 
 
 def _segments_cross(a1, a2, b1, b2) -> bool:
@@ -458,11 +525,40 @@ async def main() -> None:
                 }
             )
 
+        # Every point where the drawn extent ENDS inside a section — the pinch-outs the
+        # owner actually placed. A run ending at a section's first or last column is the
+        # evidence running out, not the body terminating, and is excluded.
+        ends = []
+        for idx, runs in per_section.items():
+            for run in runs:
+                pts = run["points"]
+                for pt, interior in (
+                    (pts[0], run["starts_interior"]),
+                    (pts[-1], run["ends_interior"]),
+                ):
+                    if not interior:
+                        continue
+                    ends.append(
+                        {
+                            "x": round(pt["x"], 2),
+                            "y": round(pt["y"], 2),
+                            "z": pt["z"],
+                            "section": int(idx),
+                            "name": section_names[int(idx)],
+                            "is_tie": int(idx) in ties,
+                        }
+                    )
+        hull = _convex_hull([(e["x"], e["y"]) for e in ends])
+        on_hull = sum(1 for e in ends if (e["x"], e["y"]) in set(hull))
+
         out_cases.append(
             {
                 "body_id": body,
                 "short": body[:8],
                 "formation": formation_of.get(body, "?"),
+                "ends": ends,
+                "hull": [[x, y] for x, y in hull],
+                "ends_on_hull": on_hull,
                 "carrying_ties": carried,
                 "absent_between": [a["section"] for a in absences],
                 "absences": absences,
