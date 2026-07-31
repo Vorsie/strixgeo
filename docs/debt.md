@@ -7460,9 +7460,29 @@ was deletion, this is fragmentation.
 owner's 14 sections it fires and silently doubles the pass. Correct behaviour, twice the
 cost.
 
-**When to revisit.** After the cross-section perf work already landed (splitSegments
-sweep, base-pass memo, two memo keys, deadline-driven slice). Measure whether it still
-matters at the new baseline before optimising it.
+**Measured 2026-07-31, after the perf work landed.** The count is confirmed — 4 of 14
+sections fire it — but the cost is now second-order and concentrated:
+
+| section | pass (median of 3, JIT warmed) | repair fires |
+|---|---|---|
+| s13 | 45 ms | yes |
+| s11 | 20 ms | yes |
+| s12 | 16 ms | no |
+| s4 / s8 | 3 ms / 2 ms | yes |
+| the other nine | 1-3 ms each | no |
+
+All 14 sections cost **96 ms** per full pass. The repair accounts for roughly 36 ms of
+that, almost all of it in s13 and s11.
+
+**Verdict: do not optimise this next.** It is correctness work — it re-emits a drilled
+unit that a foreign litho would otherwise flood — so the options are making it cheaper,
+not skipping it, and 36 ms is no longer the thing anyone feels. The honest next step is
+measuring the open time in the running app, which the vitest numbers cannot stand in
+for: the 2.7-3.9 s baseline that started this was measured in vitest too.
+
+**When to revisit.** Only if a real in-app measurement still shows the open as slow after
+the five fixes that landed (splitSegments sweep, base-pass memo, ghostBase key,
+sectionFillData engine key, deadline-driven slice).
 
 ## 263. `node_modules/vite` is bit-corrupted on this machine (S)
 
