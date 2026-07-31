@@ -50,6 +50,7 @@ import math
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -99,12 +100,23 @@ class _Entry:
         Top elevation of the interval (mTAW, positive up).
     base_elev : float
         Base elevation of the interval (mTAW, positive up; below ``top_elev``).
+    kind : {'quad', 'pinch', 'lens'} or None
+        What the 2-D engine says the body is doing AT THIS POSITION — ``'quad'``
+        tied across the gap, ``'pinch'`` lapping one side, ``'lens'`` tied
+        neither side.  Per position, never per body: a body that onlaps at one
+        end and bands to the section end is an onlap only where it onlaps
+        (owner correction 2026-07-31).  ``None`` on a payload written before
+        debt #256, where the classification never crossed the API boundary.
+    overlay_tier : {'onlap', 'lens'} or None
+        The region's carve tier, where the 2-D engine set one.
     """
 
     body_id: str | None
     formation_id: str
     top_elev: float
     base_elev: float
+    kind: Literal["quad", "pinch", "lens"] | None = None
+    overlay_tier: Literal["onlap", "lens"] | None = None
 
 
 @dataclass(frozen=True)
@@ -345,7 +357,9 @@ def _section_stack_at(
         if r.gap_index != gap_index:
             continue
         for base_e, top_e in _slice_region_intervals(r.polygon, f):
-            raw.append(_Entry(r.body_id, r.formation_id, top_e, base_e))
+            # The region's own classification rides along, so the blend can ask what
+            # the body does HERE rather than what kind of body it is.
+            raw.append(_Entry(r.body_id, r.formation_id, top_e, base_e, r.kind, r.overlay_tier))
     raw.sort(key=lambda e: -e.top_elev)
     return raw
 
