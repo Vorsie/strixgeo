@@ -144,21 +144,29 @@ function clusters(points, gap) {
   return [...groups.values()].sort((a, b) => b.length - a.length);
 }
 
-/** A circle on two points as diameter — two points alone determine no outline. */
-function circle(a, b) {
+// Collinear pinch points fix a length but no width, so the lens is drawn at this
+// fraction of its length and the enclosing body engulfs the rest.
+const WIDTH_RATIO = 0.15;
+
+/** A lens outline through two pinch points, WIDTH_RATIO as wide as it is long. */
+function lensEllipse(a, b) {
+  const len = Math.hypot(a[0] - b[0], a[1] - b[1]);
+  if (len <= 0) return [a];
   const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
-  const r = Math.hypot(a[0] - b[0], a[1] - b[1]) / 2;
-  return Array.from({ length: 48 }, (_, k) => [
-    cx + r * Math.cos((2 * Math.PI * k) / 48),
-    cy + r * Math.sin((2 * Math.PI * k) / 48),
-  ]);
+  const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
+  const semiLong = len / 2, semiWide = (len * WIDTH_RATIO) / 2;
+  return Array.from({ length: 48 }, (_, k) => {
+    const t = (2 * Math.PI * k) / 48;
+    const along = semiLong * Math.cos(t), across = semiWide * Math.sin(t);
+    return [cx + ux * along - uy * across, cy + uy * along + ux * across];
+  });
 }
 
 /** The rings this rule draws for one body, in world coordinates. */
 function ringsFor(body) {
   const pts = body.pinches;
   if (pts.length < 2) return [];
-  if (pts.length === 2) return [circle(pts[0], pts[1])];
+  if (pts.length === 2) return [lensEllipse(pts[0], pts[1])];
   if (rule === 'hull') return [hull(pts)];
   if (rule === 'angular') {
     const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
@@ -167,7 +175,7 @@ function ringsFor(body) {
   }
   return clusters(pts, gapM)
     .filter((g) => g.length >= 2)
-    .map((g) => (g.length >= 3 ? hull(g) : circle(g[0], g[1])));
+    .map((g) => (g.length >= 3 ? hull(g) : lensEllipse(g[0], g[1])));
 }
 
 function draw() {
