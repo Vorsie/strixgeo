@@ -63,6 +63,7 @@ import hashlib
 import struct
 import time
 from collections import defaultdict
+from dataclasses import asdict
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -103,6 +104,43 @@ from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
 )
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.timing import phase_timer
+
+
+def _generation_payload(sections: list[SectionPartitionInput]) -> dict[str, object]:
+    """Serialise the partitions exactly as the build received them.
+
+    The stored generation is what ``--reproduce`` replays and what every build
+    diagnostic reads, so it must not be a lossy view of the build's own input.
+    Fields are taken from the value objects rather than listed by hand: writing the
+    names out is what silently dropped the 2-D classification here, at the payload
+    boundary, and in ``apply_body_aliases`` — three times in one pipeline (#256).
+
+    Parameters
+    ----------
+    sections : list of SectionPartitionInput
+        The partitions the build labelled, after aliasing and seating.
+
+    Returns
+    -------
+    dict
+        JSON-ready payload. Polygon points become lists so the stored shape is
+        unchanged for readers written before the classification existed.
+    """
+    return {
+        "sections": [
+            {
+                "start_x": sec.start_x,
+                "start_y": sec.start_y,
+                "end_x": sec.end_x,
+                "end_y": sec.end_y,
+                "columns": [asdict(c) for c in sec.columns],
+                "regions": [
+                    {**asdict(r), "polygon": [[f, e] for f, e in r.polygon]} for r in sec.regions
+                ],
+            }
+            for sec in sections
+        ]
+    }
 
 
 def _partition_checksum(
@@ -917,35 +955,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             ``time.perf_counter()`` at the start of the build.
         """
         gx, gy, gz = grid.gx, grid.gy, grid.gz  # type: ignore[attr-defined]
-        payload = {
-            "sections": [
-                {
-                    "start_x": sec.start_x,
-                    "start_y": sec.start_y,
-                    "end_x": sec.end_x,
-                    "end_y": sec.end_y,
-                    "columns": [
-                        {
-                            "investigation_id": c.investigation_id,
-                            "along_m": c.along_m,
-                            "world_x": c.world_x,
-                            "world_y": c.world_y,
-                        }
-                        for c in sec.columns
-                    ],
-                    "regions": [
-                        {
-                            "formation_id": r.formation_id,
-                            "body_id": r.body_id,
-                            "gap_index": r.gap_index,
-                            "polygon": [[f, e] for f, e in r.polygon],
-                        }
-                        for r in sec.regions
-                    ],
-                }
-                for sec in sections
-            ]
-        }
+        payload = _generation_payload(sections)
         self._session.add(
             LithoBuildGenerationOrm(
                 id=generation_id,
