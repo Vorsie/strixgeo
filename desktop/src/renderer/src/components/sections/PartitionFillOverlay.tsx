@@ -72,7 +72,7 @@ import {
   computeSectionFillActiveWithDiagnostics,
   usePartitionEngineV2,
 } from '../../utils/partitionEngineSelect'
-import { usePartitionGhostHandles } from './usePartitionGhostHandles'
+import { topologyKey, usePartitionGhostHandles } from './usePartitionGhostHandles'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
@@ -1357,17 +1357,36 @@ export default function PartitionFillOverlay({
   // DEAD set is reused with zero recompute — and it runs the probe OFF the paint path
   // in small idle chunks (empty set for the first beat, then the ghosts drop), so no
   // frame is ever held. The resolved set is byte-identical to the S77 oracle.
+  // ``ghostBase`` was memoised on partitionTopology's OBJECT IDENTITY while its
+  // consumer was already on the content key, so S78 fixed the 2.6 s probe but left its
+  // input on the identity path: a pan or zoom rebuilds each column's ``nudgedX``, the
+  // object changes, and a FULL engine pass ran every frame. Keying it on the same
+  // content key closes that half of the fault.
+  const ghostTopoKey = topologyKey(
+    partitionTopology.orderedColumns,
+    partitionTopology.edges,
+    partitionTopology.alongM,
+    partitionEngineV2,
+  )
+  const ghostTopoRef = useRef(partitionTopology)
+  ghostTopoRef.current = partitionTopology
   const ghostBase = useMemo(
     () =>
-      partitionTopology.orderedColumns.length >= 2 && partitionEngineV2
+      ghostTopoRef.current.orderedColumns.length >= 2 && partitionEngineV2
         ? computeSectionFillActive(
-            partitionTopology.orderedColumns,
-            partitionTopology.edges,
+            ghostTopoRef.current.orderedColumns,
+            ghostTopoRef.current.edges,
             undefined,
-            partitionTopology.alongM,
+            ghostTopoRef.current.alongM,
           )
         : EMPTY_REGIONS,
-    [partitionTopology, partitionEngineV2],
+    // reason: the engine output depends only on the topology CONTENT, which
+    // ``ghostTopoKey`` captures in full (unit stacks / edges / along-metres / engine).
+    // The inputs are read through a ref so the memo sees current values without
+    // depending on an identity that churns with the viewport — the same technique
+    // ``usePartitionGhostHandles`` already uses for the probe itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ghostTopoKey, partitionEngineV2],
   )
   const deadHandleBodies = usePartitionGhostHandles(
     ghostBase,
