@@ -52,6 +52,9 @@ from groundmodel.domain.services.voxel_litho.paired_stations import (  # noqa: E
 from groundmodel.domain.services.voxel_litho.true_column_positions import (  # noqa: E402
     apply_true_column_positions,
 )
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import (  # noqa: E402
+    LithoBodySolidOrm,
+)
 from groundmodel.infrastructure.db.models.litho_build_generation_orm import (  # noqa: E402
     LithoBuildGenerationOrm,
 )
@@ -134,6 +137,17 @@ async def main() -> None:
         if gen is None:
             raise SystemExit("ABORT: no stored build generation — click Build once.")
         picks = await LithoLayerRepository(session).load_body_picks(gen.model_id)
+        solids = (
+            (
+                await session.execute(
+                    select(LithoBodySolidOrm).where(LithoBodySolidOrm.generation_id == gen.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        persisted_bodies = len(solids)
+        persisted_tris = sum(len(x.triangles or []) for x in solids)
 
     aliases = dict(gen.body_aliases or {})
     as_drawn = apply_body_aliases(_sections_from_payload(gen.payload), aliases)
@@ -150,9 +164,17 @@ async def main() -> None:
 
     print(f"  generation {gen.id}")
     print(f"  grid {h} m / {v} m | honour {honor} m | {len(sections)} sections")
+    print(
+        f"  persisted: {persisted_bodies} bodies, {persisted_tris:,} triangles"
+        "  <- an arm must MATCH this or the run is void"
+    )
 
+    # The domain is framed from the sections AS DRAWN, not from the seated ones — that
+    # is what the production build does, and using the seated sections here silently
+    # produced a model that reproduced no real build (caught 2026-08-01 when the
+    # persisted rebuild disagreed with both arms).
     domain = build_domain_from_sections(
-        sections,
+        as_drawn,
         investigation_positions=tuple(
             (c.investigation_id, c.world_x, c.world_y) for c in inv_columns
         ),
