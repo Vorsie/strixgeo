@@ -6406,8 +6406,8 @@ honors logs that reach deeper.
 
 **Measured 2026-08-01 against the reach ruling (#256) — it did NOT move, and the
 prediction that it would was wrong.** Floor shortfall per investigation, identical in
-both arms of `scripts/diag_reach_ab.py`: 8 of 58 investigations, median **-0.53 → -0.59 m**
-(negative = the model reaches BELOW the log), p90 +0.07 m, worst **+0.11 m**.
+both arms of `scripts/diag_reach_ab.py`: 9 of 58 investigations, median **-0.27 → -0.49 m**
+(negative = the model reaches BELOW the log), p90 +0.08 m, worst **+0.11 m**.
 
 Two things that measurement does and does not say:
 
@@ -6420,7 +6420,7 @@ Two things that measurement does and does not say:
   is about where the grid's vertical range is framed. Conflating the two was the error in
   the prediction.
 
-What the ruling did do vertically: 52,602 m3 of previously void cells became labelled, all
+What the ruling did do vertically: 61,530 m3 of previously void cells became labelled, all
 of it inside the existing grid, and **0 m3 of it was a hole inside the old model** — every
 newly filled cell lay outside the top-to-bottom span of its own column. The watertight
 invariant was never in question; the model simply occupies more of its own grid.
@@ -7346,18 +7346,34 @@ already killed the body and the test asks for half its thickness.
 A/B on the owner's generation `019fb809`, both arms in one process on the same payload,
 grid, honour radius and aliases, so only the rule differs (`scripts/diag_reach_ab.py`):
 
+⚠ **The first run of this A/B was void and its numbers are superseded.** It framed the
+domain from the SEATED sections; production frames it from the sections AS DRAWN. Neither
+arm reproduced any real build, and it went unnoticed because the generation it ran against
+had no persisted solids to compare with. Caught 2026-08-01 when the owner's rebuild
+matched neither number. `diag_reach_ab.py` now prints the persisted body and triangle
+count up front with "an arm must MATCH this or the run is void" — the guard that should
+have been there from the start, and the same failure this campaign already hit three
+times.
+
+Corrected, with the AFTER arm reproducing the owner's rebuild exactly at 540,958
+triangles:
+
 | | midline | reach | |
 |---|---|---|---|
 | exact / subsequence / wrong | 54 / 0 / 0 | **54 / 0 / 0** | unchanged |
 | paired (unscoreable) / uncovered | 4 / 0 | 4 / 0 | unchanged |
 | contact err median | 0.065 m | 0.065 m | unchanged |
-| contact err p90 | 0.123 m | **0.125 m** | +2 mm |
-| contact err max | 3.915 m | 3.915 m | unchanged |
+| contact err p90 | 0.122 m | **0.123 m** | +1 mm |
+| contact err max | 3.145 m | 3.145 m | unchanged |
 | bodies | 81 | 81 | unchanged |
-| triangles | 539,356 | **494,938** | **-8.2 %** |
+| triangles | 586,590 | **540,958** | **-7.8 %** |
 
-Ground that changed hands: **52,602 m3 void → filled, 0 m3 filled → void**, 181,093 m3
-(5.73 % of labelled volume) changed body.
+Ground that changed hands: **61,530 m3 void → filled, 0 m3 filled → void**, 205,675 m3
+(5.78 % of labelled volume) changed body.
+
+Every conclusion survived the correction — the gate is unchanged, nothing was lost
+anywhere, the mesh got cheaper — but the magnitudes moved, so the void run's figures must
+not be quoted.
 
 The direction is the finding. Nothing was lost anywhere — not one cell went from filled
 to void — so the rule only ever adds ground the old one was withholding, and it does so
