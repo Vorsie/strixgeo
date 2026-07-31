@@ -7316,6 +7316,39 @@ Why this is the right shape, and what it retires:
 * It also explains why 7 of the 8 absence ties measured "clear of the footprint": they
   are past a stop already, so they were never going to matter.
 
+**BUILT AND MEASURED 2026-07-31 — the ruling costs nothing and closes 52,602 m3 of
+void.** `_blend_stacks(..., reach_to_evidence=True)` makes a one-sided body's survival
+factor its own section's weight: whole where that section stands, gone where the section
+that lacks it stands. TDD, red first — halfway across, the old `max(0, 2w - 1)` has
+already killed the body and the test asks for half its thickness.
+
+A/B on the owner's generation `019fb809`, both arms in one process on the same payload,
+grid, honour radius and aliases, so only the rule differs (`scripts/diag_reach_ab.py`):
+
+| | midline | reach | |
+|---|---|---|---|
+| exact / subsequence / wrong | 54 / 0 / 0 | **54 / 0 / 0** | unchanged |
+| paired (unscoreable) / uncovered | 4 / 0 | 4 / 0 | unchanged |
+| contact err median | 0.065 m | 0.065 m | unchanged |
+| contact err p90 | 0.123 m | **0.125 m** | +2 mm |
+| contact err max | 3.915 m | 3.915 m | unchanged |
+| bodies | 81 | 81 | unchanged |
+| triangles | 539,356 | **494,938** | **-8.2 %** |
+
+Ground that changed hands: **52,602 m3 void → filled, 0 m3 filled → void**, 181,093 m3
+(5.73 % of labelled volume) changed body.
+
+The direction is the finding. Nothing was lost anywhere — not one cell went from filled
+to void — so the rule only ever adds ground the old one was withholding, and it does so
+while getting CHEAPER to mesh, because a body that tapers smoothly to a section has a
+simpler surface than one truncated flat at the midline. The 2 mm on the p90 is the whole
+price.
+
+**Still off by default**, pending the owner's word: `reach_to_evidence: bool = False` in
+`label_voxels`, one line to flip. Expect **#242** ("the model floor is shallower than the
+deepest investigations") to move when it flips — the midline rule was always upward-only,
+and this is what replaces it.
+
 **Consequence for the next session: rewrite, do not tune.** No choice of radius,
 weighting or falloff makes a radial rule respect an absence tie — the information is not
 in the inputs it reads. `pinch_factor` needs the three-ruling construction (interpolate

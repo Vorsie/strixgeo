@@ -213,7 +213,8 @@ async def main() -> None:
         ("uncovered", "uncovered"),
     ):
         print(
-            f"    {label:22s}: {before[key]:3d} -> {after[key]:3d}   ({after[key] - before[key]:+d})"
+            f"    {label:22s}: {before[key]:3d} -> {after[key]:3d}"
+            f"   ({after[key] - before[key]:+d})"
         )
     print(f"    {'bodies':22s}: {before['bodies']} -> {after['bodies']}")
     print(
