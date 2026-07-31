@@ -7148,3 +7148,54 @@ and smaller bug — but the claim in that comment is false and should not be tru
 touched.
 
 ## (end)
+
+## 256. The build throws away the band / onlap / lens classification the 2-D engine computed (L)
+
+**What.** `computeSectionFillActive` classifies every region it emits — that is the
+2/1/0 gesture semantics the whole litho stage is built on. `buildVoxelRequest.ts`
+then sends four fields per region and drops the rest, so the 3-D builder never sees
+the classification and re-derives it, badly, from geometry alone.
+
+Verified against the owner's last stored build: 756 regions across 14 sections, each
+carrying exactly `body_id`, `formation_id`, `gap_index`, `polygon`.
+
+| produced by the 2-D engine (`PartitionRegion`) | reaches the builder |
+|---|---|
+| `formationId` / `bodyId` / `polygon` | yes |
+| `kind: 'quad' \| 'pinch' \| 'lens'` | **no** |
+| `overlayTier: 'onlap' \| 'lens'` | **no** |
+| `tiedBandBase` | **no** |
+| `tieClipped` | **no** |
+
+**Why it matters.** `_stack_at` says so itself, in the BEYOND branch: *"we have no
+band/onlap/lens kind to ramp, so we extend faithfully"*. It has no kind because the
+kind was dropped three layers up. The consequences are the defects already measured
+in this file:
+
+* One-sided bodies are pinched by `max(0, 2w - 1)`, an invented rule that kills a
+  body at the equidistance midline. A band tied on both sides, an onlap tied on one,
+  and an untied lens all get the same treatment, because the builder cannot tell them
+  apart. Deepest-base drift from this: median +0.369 m, p90 +3.165 m, max +7.863 m,
+  always upward, on 65 % of between-section columns (#242's likely mechanism).
+* `tiedBandBase` encodes the owner directive of 2026-07-08 — a user correlation is
+  absolute and the shallow-TD cap must not chop it flat. The builder cannot honour a
+  directive whose evidence it never receives.
+* `tieClipped` marks a region deliberately kept only above its tie; without it the
+  builder may re-merge across a tie the 2-D pass split on purpose.
+
+**Same failure family as #255**, at the same boundary, found the same way: the
+frontend computes correct semantics, the payload flattens them, the builder guesses.
+#255 was the sides of a correlation edge; this is the kind of the region. Worth
+auditing the whole `buildVoxelRequest` mapping once rather than field by field.
+
+**Why deferred.** Found 2026-07-31 while looking for a footprint rule for lenses. It
+reframes that search: the questions being asked of the owner — default lens width,
+flooding rule, termination grouping — were reconstructions of information the model
+already holds. Thread the classification through first, then re-measure; some of
+those questions may not survive.
+
+**When to revisit.** Before any further 3-D geometry rules are designed. Threading
+the fields is additive on both sides (backwards-compat is suspended pre-ship, so the
+payload may grow cleanly). Necessary, but do not assume sufficient — `_stack_at`
+also consults only the two nearest sections, and whether that still costs anything
+once the kinds arrive is a measurement, not an assumption.
