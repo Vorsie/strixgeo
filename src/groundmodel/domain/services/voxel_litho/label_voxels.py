@@ -64,7 +64,6 @@ from groundmodel.domain.services.voxel_litho.geo_bands import (
 from groundmodel.domain.services.voxel_litho.honor_precedence import honor_rank
 from groundmodel.domain.services.voxel_litho.pinch_terminations import (
     Termination,
-    body_terminations,
     pinch_factor,
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import (
@@ -1595,10 +1594,25 @@ def label_voxels(
     # half-diagonal (½·h·√2) is the safe inclusion radius — any node whose cell
     # touches the footprint is admitted; nodes farther than a full cell stay void.
     footprint_tol = 0.5 * h * math.sqrt(2.0)
-    # Where each body is MEASURED to pinch out, read once off the partitions rather
-    # than per voxel column: a one-sided body now thins toward its measured end
-    # instead of the equidistance midline the builder used to assume (#256).
-    terminations = body_terminations(sections)
+    # DISABLED 2026-07-31 — ``pinch_factor`` is anchored to the wrong pair of
+    # distances and must not label a build until it is fixed (#256).
+    #
+    # ``distance_to_section`` is the MINIMUM distance to a section's fence, and every
+    # termination is placed ON a fence by ``_world_at``.  So when the governing
+    # termination lies on the body's own section — 87-92 % of real occurrences — the
+    # reach cannot be shorter than that minimum, and the factor is floored at exactly
+    # 0.5: ``pinch_factor((0, d), d, [apex at (0, 0)]) == 0.5000`` for every d.  No
+    # body tapers to nothing anywhere, which is the opposite of rule 6.
+    #
+    # The far side is worse.  ``projs`` is distance-sorted so ``d1 <= d2``, hence
+    # ``w2 <= 0.5`` and the old ``max(0, 2*w2 - 1)`` was identically ZERO: a body
+    # carried only by the farther section contributed nothing.  The measured rule
+    # gives it up to ~0.64, inventing material on ground whose own section measures
+    # the body absent — a direct breach of rule 4.
+    #
+    # Passing ``None`` keeps every one-sided body on the midline rule, which is what
+    # shipped before, while the measurement machinery stays in place for the fix.
+    terminations: dict[str, tuple[Termination, ...]] | None = None
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
