@@ -63,6 +63,7 @@ from groundmodel.infrastructure.db.repositories.litho_layer_repository import ( 
     LithoLayerRepository,
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E402
+from scripts.diag_body_geometric_connectivity import _run_samples  # noqa: E402
 from scripts.diag_build_generations import _sections_from_payload  # noqa: E402
 from scripts.diag_lens_footprints import _runs_on_section, _section_point  # noqa: E402
 from scripts.eval_strat_fidelity import (  # noqa: E402
@@ -242,11 +243,21 @@ async def main() -> None:
     sections_of: dict[str, set[int]] = defaultdict(set)
     pinches_of: dict[str, list[tuple[float, float]]] = defaultdict(list)
     pinch_sections_of: dict[str, list[int]] = defaultdict(list)
+    runs_of: dict[str, list[list[list[float]]]] = defaultdict(list)
 
     for s_idx, section in enumerate(seated):
         for body, spans in _runs_on_section(section, args.steps, formation_of).items():
             sections_of[body].add(s_idx)
             for start, end, start_interior, end_interior in spans:
+                # The body's own extent, not just where it ends. Without this the viewer
+                # can only draw terminations, and a body that pinches out in two places
+                # reads as two disconnected pieces when it is continuous in between.
+                runs_of[body].append(
+                    [
+                        [round(x, 2), round(y, 2)]
+                        for x, y in _run_samples(section, args.steps, start, end)
+                    ]
+                )
                 for idx, interior in ((start, start_interior), (end, end_interior)):
                     if interior:
                         pinches_of[body].append(_section_point(section, args.steps, idx))
@@ -281,6 +292,7 @@ async def main() -> None:
                 "sections": len(sections_of[body]),
                 "pinchSections": sorted(set(pinch_sections_of[body])),
                 "pinches": [list(p) for p in pts],
+                "runs": runs_of[body],
                 "outlines": outlines,
             }
         )
