@@ -6404,6 +6404,27 @@ columns' projected feet while the builder honored investigations at their true
 positions; here, the grid is framed from the partition's depth while the builder
 honors logs that reach deeper.
 
+**Measured 2026-08-01 against the reach ruling (#256) — it did NOT move, and the
+prediction that it would was wrong.** Floor shortfall per investigation, identical in
+both arms of `scripts/diag_reach_ab.py`: 8 of 58 investigations, median **-0.53 → -0.59 m**
+(negative = the model reaches BELOW the log), p90 +0.07 m, worst **+0.11 m**.
+
+Two things that measurement does and does not say:
+
+* It compares the model floor against the deepest **accepted litho layer**, not the
+  **drilled base** this entry is about. Where the picks stop short of total depth — which
+  is exactly the `7c2e` / `7c2f` case above — it cannot see the gap at all. So it does not
+  refute the entry; it measures a different floor.
+* It does confirm the ruling is not the fix. The shortfall is bit-identical before and
+  after, which stands to reason: #256 changes thickness WITHIN the grid, while this entry
+  is about where the grid's vertical range is framed. Conflating the two was the error in
+  the prediction.
+
+What the ruling did do vertically: 52,602 m3 of previously void cells became labelled, all
+of it inside the existing grid, and **0 m3 of it was a hole inside the old model** — every
+newly filled cell lay outside the top-to-bottom span of its own column. The watertight
+invariant was never in question; the model simply occupies more of its own grid.
+
 **Why deferred — it is NOT a one-line fix.** Extending the grid below the 2-D
 partition creates voxels with no partition data to label from. Only the honored
 log could fill them, so each deep investigation would grow an isolated column
@@ -7344,10 +7365,15 @@ while getting CHEAPER to mesh, because a body that tapers smoothly to a section 
 simpler surface than one truncated flat at the midline. The 2 mm on the p90 is the whole
 price.
 
-**Still off by default**, pending the owner's word: `reach_to_evidence: bool = False` in
-`label_voxels`, one line to flip. Expect **#242** ("the model floor is shallower than the
-deepest investigations") to move when it flips — the midline rule was always upward-only,
-and this is what replaces it.
+**DEFAULT since 2026-08-01**, on the owner's word. Was: `reach_to_evidence` in `label_voxels`, now
+defaulting to ``True``; pass ``False`` to rebuild the old behaviour. Two unit fixtures
+that pinned the midline were rewritten to the ruling — one asserted the lens reaches zero
+at the midline, the other asserted a SAND band at an elevation it has since left, and that
+move is itself the ruling working (see #242 below).
+
+**The owner must click Build** for the persisted solids to pick this up: the partition
+checksum covers the payload, not the builder's rules, so a code change alone does not
+bust the cache.
 
 **Consequence for the next session: rewrite, do not tune.** No choice of radius,
 weighting or falloff makes a radial rule respect an absence tie — the information is not
