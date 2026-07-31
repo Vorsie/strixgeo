@@ -62,6 +62,11 @@ from groundmodel.domain.services.voxel_litho.geo_bands import (
     section_reaches_band_from_elevs,
 )
 from groundmodel.domain.services.voxel_litho.honor_precedence import honor_rank
+from groundmodel.domain.services.voxel_litho.pinch_terminations import (
+    Termination,
+    body_terminations,
+    pinch_factor,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
@@ -489,18 +494,31 @@ def _pair_occurrences(
     return pairs
 
 
-def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list[_Entry]:
+def _blend_stacks(
+    stack1: list[_Entry],
+    stack2: list[_Entry],
+    w1: float,
+    *,
+    pinch1: dict[str, float] | None = None,
+    pinch2: dict[str, float] | None = None,
+) -> list[_Entry]:
     """Blend two section stacks at inverse-distance weight ``w1`` (for stack 1).
 
     Bodies present on BOTH stacks (matched by ``body_id``, re-entrant
     occurrences paired by elevation rank) blend their thickness by ``w1``.  A
-    body present on only one stack pinches: its thickness scales by
-    ``max(0, 2*w_own - 1)`` — full at its own section, zero at the equidistance
-    midline (the lens / pinch-out behaviour).  ``None`` bodies (never-correlated
-    minorities) are always one-sided (no cross-section identity to match on).
-    The result is laid out cumulatively so it tiles.
+    body present on only one stack pinches.
 
-    Ported faithfully from ``loft_field._blend_stacks``.
+    How far it pinches depends on what is known about it.  Given a factor in
+    ``pinch1`` / ``pinch2`` — the body thinned toward where the 2-D partition
+    MEASURES it to end (see ``pinch_terminations.pinch_factor``) — that factor is
+    used.  Without one the old assumption stands: ``max(0, 2*w_own - 1)``, full at
+    its own section and zero at the equidistance midline.  The substitution is per
+    body, so one measured body never re-rules its neighbours, and a body measured to
+    die nowhere is never pinched on a guess.
+
+    ``None`` bodies (never-correlated minorities) are always one-sided — no
+    cross-section identity to match on, and no measured end either.  The result is
+    laid out cumulatively so it tiles.
 
     Parameters
     ----------
@@ -508,6 +526,9 @@ def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list
         The two sections' stacks (shallow → deep).
     w1 : float
         Inverse-distance weight for ``stack1`` (``w2 = 1 - w1``).
+    pinch1, pinch2 : dict of str to float, optional
+        Per-body survival factors in ``[0, 1]`` for one-sided bodies of stack 1 and
+        stack 2 respectively.  A body absent from the mapping keeps the midline rule.
 
     Returns
     -------
@@ -515,6 +536,20 @@ def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list
         The blended, gap-free stack.
     """
     w2 = 1.0 - w1
+    midline1, midline2 = max(0.0, 2 * w1 - 1), max(0.0, 2 * w2 - 1)
+
+    def factor1(body: str | None) -> float:
+        """Survival factor for a one-sided body of stack 1."""
+        if pinch1 is None or body is None:
+            return midline1
+        return pinch1.get(body, midline1)
+
+    def factor2(body: str | None) -> float:
+        """Survival factor for a one-sided body of stack 2."""
+        if pinch2 is None or body is None:
+            return midline2
+        return pinch2.get(body, midline2)
+
     g1: dict[str, list[_Entry]] = defaultdict(list)
     g2: dict[str, list[_Entry]] = defaultdict(list)
     for e in stack1:
@@ -537,17 +572,17 @@ def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list
                 ref = w1 * _mid(e1) + w2 * _mid(e2)
                 specs.append((ref, body, e1.formation_id, th))
             elif e1 is not None:
-                specs.append((_mid(e1), body, e1.formation_id, _th(e1) * max(0.0, 2 * w1 - 1)))
+                specs.append((_mid(e1), body, e1.formation_id, _th(e1) * factor1(body)))
             elif e2 is not None:
-                specs.append((_mid(e2), body, e2.formation_id, _th(e2) * max(0.0, 2 * w2 - 1)))
+                specs.append((_mid(e2), body, e2.formation_id, _th(e2) * factor2(body)))
 
     # One-sided: non-matched non-None bodies, and every None-body entry.
     for e in stack1:
         if e.body_id is None or e.body_id not in matched:
-            specs.append((_mid(e), e.body_id, e.formation_id, _th(e) * max(0.0, 2 * w1 - 1)))
+            specs.append((_mid(e), e.body_id, e.formation_id, _th(e) * factor1(e.body_id)))
     for e in stack2:
         if e.body_id is None or e.body_id not in matched:
-            specs.append((_mid(e), e.body_id, e.formation_id, _th(e) * max(0.0, 2 * w2 - 1)))
+            specs.append((_mid(e), e.body_id, e.formation_id, _th(e) * factor2(e.body_id)))
 
     # Order shallow → deep by reference elevation; the body-id tie-break is only
     # for determinism on exact elevation ties (None bodies sort as "None" — each
@@ -561,14 +596,69 @@ def _blend_stacks(stack1: list[_Entry], stack2: list[_Entry], w1: float) -> list
 # ---------------------------------------------------------------------------
 
 
-def _stack_at(sections: list[SectionPartitionInput], x: float, y: float) -> list[_Entry]:
+def _measured_pinches(
+    own: list[_Entry],
+    other: list[_Entry],
+    query: tuple[float, float],
+    distance_to_section: float,
+    terminations: dict[str, tuple[Termination, ...]] | None,
+) -> dict[str, float] | None:
+    """Survival factors for the bodies ``own`` carries and ``other`` does not.
+
+    Only one-sided bodies pinch, so only they need a factor. A body the partition
+    measures to die nowhere is left out, and keeps the midline rule rather than being
+    pinched on a guess.
+
+    Parameters
+    ----------
+    own : list of _Entry
+        The stack whose one-sided bodies are being measured.
+    other : list of _Entry
+        The facing stack, which decides what counts as one-sided.
+    query : tuple of float
+        World ``(x, y)`` of the point being labelled.
+    distance_to_section : float
+        Distance from ``query`` to the section ``own`` came from, in metres.
+    terminations : dict or None
+        Every body's measured pinch-outs, or ``None`` to keep the old rule
+        throughout.
+
+    Returns
+    -------
+    dict of str to float or None
+        Per-body factors, or ``None`` when there is nothing measured to apply.
+    """
+    if not terminations:
+        return None
+    theirs = {e.body_id for e in other if e.body_id is not None}
+    out: dict[str, float] = {}
+    for entry in own:
+        body = entry.body_id
+        if body is None or body in theirs or body in out:
+            continue
+        factor = pinch_factor(query, distance_to_section, terminations.get(body, ()))
+        if factor is not None:
+            out[body] = factor
+    return out or None
+
+
+def _stack_at(
+    sections: list[SectionPartitionInput],
+    x: float,
+    y: float,
+    terminations: dict[str, tuple[Termination, ...]] | None = None,
+) -> list[_Entry]:
     """Return the vertical body stack at map-plane point ``(x, y)``.
 
     Picks the two nearest sections by perpendicular distance; blends them when
     the node lies BETWEEN them (its projection onto the axis joining the two
     projection points has ``t in [0, 1]``), else extrudes the nearest section
     alone (the BEYOND rule = horizontal extrapolation of the nearest section's
-    stack — we have no band/onlap/lens kind to ramp, so we extend faithfully).
+    stack).
+
+    A body on one stack and not the other pinches. With ``terminations`` it thins
+    toward where the 2-D partition MEASURES it to end; without them it falls back
+    to the equidistance midline the builder used to assume (#256).
 
     Ported from ``loft_field.LoftField.stack_at`` minus the band-clipping and
     domain-clipping (the caller clips Z to the domain bbox grid; the footprint
@@ -629,7 +719,14 @@ def _stack_at(sections: list[SectionPartitionInput], x: float, y: float) -> list
             return stack2
         denom = d1 + d2
         w1 = 0.5 if denom < _EPS else d2 / denom
-        return _blend_stacks(stack1, stack2, w1)
+        here = (x, y)
+        return _blend_stacks(
+            stack1,
+            stack2,
+            w1,
+            pinch1=_measured_pinches(stack1, stack2, here, d1, terminations),
+            pinch2=_measured_pinches(stack2, stack1, here, d2, terminations),
+        )
 
     # Beyond rule: horizontal extrapolation of the nearest section's stack
     # (no kind to ramp; extend it faithfully within the domain footprint).
@@ -1498,6 +1595,10 @@ def label_voxels(
     # half-diagonal (½·h·√2) is the safe inclusion radius — any node whose cell
     # touches the footprint is admitted; nodes farther than a full cell stay void.
     footprint_tol = 0.5 * h * math.sqrt(2.0)
+    # Where each body is MEASURED to pinch out, read once off the partitions rather
+    # than per voxel column: a one-sided body now thins toward its measured end
+    # instead of the equidistance midline the builder used to assume (#256).
+    terminations = body_terminations(sections)
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
@@ -1519,7 +1620,7 @@ def label_voxels(
                 )
                 labeller = _column_labels_gapped
             else:
-                stack = _stack_at(sections, x, y)
+                stack = _stack_at(sections, x, y, terminations)
                 labeller = _column_labels
             honored = honored_by_cell.get((i, j))
             if honored is not None:
