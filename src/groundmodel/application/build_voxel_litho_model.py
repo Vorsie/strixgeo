@@ -195,6 +195,18 @@ def _partition_checksum(
             # that cannot collide with a real body_id string.
             h.update(b"\x00" if r.body_id is None else r.body_id.encode("utf-8"))
             h.update(struct.pack("<i", r.gap_index))
+            # The 2-D classification is a labelling input from #256 onward: a band,
+            # an onlap and an enclosed lens can share an outline and must not share
+            # a digest. Folding them in busts every pre-#256 cache once, which is
+            # correct — those builds were labelled without this evidence.
+            h.update(b"\x00" if r.kind is None else r.kind.encode("utf-8"))
+            h.update(b"\x00" if r.overlay_tier is None else r.overlay_tier.encode("utf-8"))
+            h.update(
+                b"\x00"
+                if r.tied_band_base is None
+                else b"\x01" + struct.pack("<d", r.tied_band_base)
+            )
+            h.update(b"\x01" if r.tie_clipped else b"\x00")
             for frac, elev in r.polygon:
                 h.update(struct.pack("<dd", frac, elev))
     _investigation_columns_checksum(h, investigation_columns)
