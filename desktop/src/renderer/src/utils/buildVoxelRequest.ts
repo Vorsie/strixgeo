@@ -49,6 +49,29 @@ export interface RegionInput {
    * list (matches `SectionRegion.gapIndex`).
    */
   gap_index: number;
+  /**
+   * How the 2-D engine terminated this region — the 2/1/0 gesture semantics.
+   * `quad` = tied across both columns, `pinch` = present on one column only,
+   * `lens` = enclosed minority overlaying its matrix.
+   *
+   * Sending it is the point of debt #256: without it the builder cannot tell a
+   * band from an onlap from a lens, so `_stack_at` pinches all three alike with
+   * `max(0, 2w - 1)` and kills them at the equidistance midline.
+   */
+  kind?: 'quad' | 'pinch' | 'lens';
+  /** Carve tier of an overlay region; absent on a main region. */
+  overlay_tier?: 'onlap' | 'lens';
+  /**
+   * Base elevation (mTAW) fixed by an EXPLICIT user correlation. Owner directive
+   * 2026-07-08: a user correlation is absolute, so the shallow-TD cap must not
+   * chop it flat — which the builder can only honour if it is told the elevation.
+   */
+  tied_band_base?: number;
+  /**
+   * Region deliberately kept only ABOVE a sloping cross-lithology tie, so it must
+   * never be merged back across that tie.
+   */
+  tie_clipped?: boolean;
 }
 
 /** One investigation column of a section, with its canonical world position. */
@@ -248,11 +271,20 @@ export function buildVoxelRequest(
       apexOverrides,
       alongM,
     );
+    // Carry the engine's CLASSIFICATION, not just its geometry (debt #256). The
+    // builder used to receive four fields and re-derive the rest from the polygons,
+    // which it cannot do: a band, an onlap and an enclosed lens are three different
+    // terminations with identical outlines. Optional fields are omitted rather than
+    // sent as null so the payload stays the same shape when the engine sets nothing.
     const regions: RegionInput[] = engineRegions.map((r) => ({
       formation_id: r.formationId,
       body_id: r.bodyId,
       polygon: r.polygon.map((p) => [p.fraction, p.elevation] as [number, number]),
       gap_index: r.gapIndex,
+      kind: r.kind,
+      ...(r.overlayTier !== undefined ? { overlay_tier: r.overlayTier } : {}),
+      ...(r.tiedBandBase !== undefined ? { tied_band_base: r.tiedBandBase } : {}),
+      ...(r.tieClipped !== undefined ? { tie_clipped: r.tieClipped } : {}),
     }));
 
     // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
