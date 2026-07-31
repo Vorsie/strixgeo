@@ -105,3 +105,18 @@ def test_a_station_of_three_leaves_two_with_nothing() -> None:
     )
 
     assert losers == {"mid", "shallow"}
+
+
+def test_a_log_standing_in_its_neighbours_cell_is_unscoreable() -> None:
+    """Owning cells elsewhere does not help: a log is scored where it STANDS.
+
+    Two logs 0.9 m apart both round to the cell centred at 10, so only one owns it.
+    The other keeps cells further out and is still scored against a column that
+    carries its neighbour's log — which is what the two residual drilled failures on
+    the owner's model turned out to be, at 1.13 m and 0.49 m.
+    """
+    losers = paired_station_losers(
+        [_column("cpt", 10.0, 10.0, kind="cpt"), _column("bh", 10.9, 10.0)], GX, GY, 2.0
+    )
+
+    assert losers == {"bh"}
