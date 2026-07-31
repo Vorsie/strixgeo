@@ -15,6 +15,8 @@ contract), so they are grouped in this single module — matching the domain-sid
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from groundmodel.domain.services.voxel_litho.voxel_types import (
@@ -41,12 +43,30 @@ class RegionInputSchema(BaseModel):
     gap_index : int
         Zero-based index of the gap's LEFT column within the section's column
         list.
+    kind : {'quad', 'pinch', 'lens'} or None
+        How the 2-D engine terminated this region — the 2/1/0 gesture
+        semantics. ``None`` only on a payload written before debt #256.
+    overlay_tier : {'onlap', 'lens'} or None
+        Carve tier of an overlay region; ``None`` on a main region.
+    tied_band_base : float or None
+        Base elevation (mTAW) fixed by an explicit user correlation.
+    tie_clipped : bool
+        Region deliberately kept only ABOVE a cross-lithology tie.
+
+    Notes
+    -----
+    The four classification fields are optional so a stored build generation
+    or a bundle written before debt #256 still loads and still builds.
     """
 
     formation_id: str
     body_id: str | None = None
     polygon: list[tuple[float, float]]
     gap_index: int
+    kind: Literal["quad", "pinch", "lens"] | None = None
+    overlay_tier: Literal["onlap", "lens"] | None = None
+    tied_band_base: float | None = None
+    tie_clipped: bool = False
 
     def to_domain(self) -> RegionInput:
         """Convert to the frozen domain :class:`RegionInput` value object."""
@@ -55,6 +75,10 @@ class RegionInputSchema(BaseModel):
             body_id=self.body_id,
             polygon=tuple((float(p[0]), float(p[1])) for p in self.polygon),
             gap_index=self.gap_index,
+            kind=self.kind,
+            overlay_tier=self.overlay_tier,
+            tied_band_base=self.tied_band_base,
+            tie_clipped=self.tie_clipped,
         )
 
 
