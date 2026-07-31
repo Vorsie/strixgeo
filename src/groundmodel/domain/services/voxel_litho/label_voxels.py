@@ -592,6 +592,7 @@ def _blend_stacks(
     *,
     pinch1: dict[str, float] | None = None,
     pinch2: dict[str, float] | None = None,
+    reach_to_evidence: bool = False,
 ) -> list[_Entry]:
     """Blend two section stacks at inverse-distance weight ``w1`` (for stack 1).
 
@@ -599,13 +600,24 @@ def _blend_stacks(
     occurrences paired by elevation rank) blend their thickness by ``w1``.  A
     body present on only one stack pinches.
 
-    How far it pinches depends on what is known about it.  Given a factor in
-    ``pinch1`` / ``pinch2`` — the body thinned toward where the 2-D partition
-    MEASURES it to end (see ``pinch_terminations.pinch_factor``) — that factor is
-    used.  Without one the old assumption stands: ``max(0, 2*w_own - 1)``, full at
-    its own section and zero at the equidistance midline.  The substitution is per
-    body, so one measured body never re-rules its neighbours, and a body measured to
-    die nowhere is never pinched on a guess.
+    How far it pinches depends on what is known about it.
+
+    With ``reach_to_evidence`` the owner's ruling of 2026-07-31 applies: a body
+    extends from its drawn apex until something CONTRADICTS it, and nothing else sets
+    the distance.  The section that does not carry the body is that contradiction, so
+    the body runs out THERE — factor ``w_own``, whole at its own section and gone at
+    the other one.  Along the section the pinch-out is already drawn (every
+    terminating region tapers to zero at its own apex), so this is only ever about
+    how far the body reaches AWAY from the section carrying it.
+
+    Without the ruling the old assumption stands: ``max(0, 2*w_own - 1)``, which
+    reaches zero at the equidistance midline.  That midline is not evidence — nothing
+    was ever measured halfway between two sections — which is precisely why it is
+    being replaced.
+
+    A factor in ``pinch1`` / ``pinch2`` overrides either rule for that one body.  Note
+    those factors come from ``pinch_terminations``, which the ruling supersedes; they
+    remain only until that module is retired.
 
     ``None`` bodies (never-correlated minorities) are always one-sided — no
     cross-section identity to match on, and no measured end either.  The result is
@@ -619,7 +631,10 @@ def _blend_stacks(
         Inverse-distance weight for ``stack1`` (``w2 = 1 - w1``).
     pinch1, pinch2 : dict of str to float, optional
         Per-body survival factors in ``[0, 1]`` for one-sided bodies of stack 1 and
-        stack 2 respectively.  A body absent from the mapping keeps the midline rule.
+        stack 2 respectively.  A body absent from the mapping keeps the standing rule.
+    reach_to_evidence : bool
+        Let a one-sided body reach the contradicting section instead of dying at the
+        midline.  Defaults to ``False`` until the real-data A/B has been reviewed.
 
     Returns
     -------
@@ -627,7 +642,10 @@ def _blend_stacks(
         The blended, gap-free stack.
     """
     w2 = 1.0 - w1
-    midline1, midline2 = max(0.0, 2 * w1 - 1), max(0.0, 2 * w2 - 1)
+    if reach_to_evidence:
+        midline1, midline2 = w1, w2
+    else:
+        midline1, midline2 = max(0.0, 2 * w1 - 1), max(0.0, 2 * w2 - 1)
 
     def factor1(body: str | None) -> float:
         """Survival factor for a one-sided body of stack 1."""
@@ -757,6 +775,7 @@ def _stack_at(
     x: float,
     y: float,
     terminations: dict[str, tuple[Termination, ...]] | None = None,
+    reach_to_evidence: bool = False,
 ) -> list[_Entry]:
     """Return the vertical body stack at map-plane point ``(x, y)``.
 
@@ -838,6 +857,7 @@ def _stack_at(
             w1,
             pinch1=_measured_pinches(stack1, stack2, here, d1, terminations, i1),
             pinch2=_measured_pinches(stack2, stack1, here, d2, terminations, i2),
+            reach_to_evidence=reach_to_evidence,
         )
 
     # Beyond rule: horizontal extrapolation of the nearest section's stack
@@ -1488,6 +1508,7 @@ def label_voxels(
     litho_snap_tolerance_m: float = 0.20,
     honor_radius_m: float = 0.0,
     measured_pinch: bool = False,
+    reach_to_evidence: bool = False,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -1557,6 +1578,12 @@ def label_voxels(
         ``max(0, 2w - 1)`` assumes (#256).  Off by default until an A/B on real
         data earns it: the first attempt pinned every factor at exactly 0.5, so
         nothing tapered to nothing anywhere.
+    reach_to_evidence : bool, default False
+        When ``True``, a one-sided body reaches from its drawn apex until something
+        CONTRADICTS it — the section that does not carry it — instead of dying at the
+        equidistance midline (owner ruling 2026-07-31, docs/debt.md #256).  Bodies
+        reach further than they do today, so it stays off until the real-data A/B has
+        been reviewed.
 
     Returns
     -------
@@ -1743,7 +1770,7 @@ def label_voxels(
                 )
                 labeller = _column_labels_gapped
             else:
-                stack = _stack_at(sections, x, y, terminations)
+                stack = _stack_at(sections, x, y, terminations, reach_to_evidence)
                 labeller = _column_labels
             honored = honored_by_cell.get((i, j))
             if honored is not None:
