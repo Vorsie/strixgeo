@@ -60,7 +60,8 @@
     <svg id="map"></svg>
     <div id="hint">
       <span>drag to pan</span><span>scroll to zoom</span>
-      <span>click the selected body again to see them all</span>
+      <span>thick line = where the body actually is</span>
+      <span>filled shape = the outline rule</span>
     </div>
   </div>
 </div>
@@ -211,6 +212,15 @@ function draw() {
       }));
     }
     if (focused) {
+      // The body's own extent. The outlines cover only its terminations, so without
+      // this a body that pinches out twice looks like two disconnected pieces.
+      for (const run of body.runs || []) {
+        g.appendChild(el('polyline', {
+          points: run.map((p) => `${X(p[0])},${Y(p[1])}`).join(' '),
+          fill: 'none', stroke: colour, 'stroke-width': 5, 'stroke-opacity': 0.95,
+          'stroke-linecap': 'round',
+        }));
+      }
       for (const p of body.pinches) {
         g.appendChild(el('circle', {
           cx: X(p[0]), cy: Y(p[1]), r: 3.4, fill: '#fff', stroke: '#0b1220', 'stroke-width': 1,
