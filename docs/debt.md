@@ -7511,5 +7511,17 @@ sectionFillData engine key, deadline-driven slice).
 **What.** A specialist could not start vitest at all until it repaired the install. This
 is the same disk that corrupted a git pack on 2026-07-12 (`memory/project_git_gc_disabled_after_corruption.md`).
 
-**When to revisit.** Now — it is an environment fault, not a code one. A `chkdsk` is
-overdue, and a corrupted toolchain silently invalidates every local test result.
+**State 2026-07-31.** The install is repaired and the toolchain is currently sound —
+verified rather than assumed: `npm test` runs **2,552 passed / 62 skipped across 321
+files**, and `tsc --noEmit -p tsconfig.web.json` exits clean. So no local result taken
+today is standing on a corrupted vite.
+
+**What is still open is the disk, not the package.** This is the same volume that
+corrupted a git pack on 2026-07-12, and a reinstall treats the symptom. Two bit-level
+faults on one disk inside three weeks is a pattern.
+
+**When to revisit.** Owner action, and only the owner can take it: run `chkdsk /f` on the
+volume (needs a reboot to schedule) and check the drive's SMART reallocated-sector count.
+Until that comes back clean, treat any single inexplicable local failure — a test that
+fails once and passes on re-run, a package that will not load — as possible disk error
+before spending time on it as a code bug.
