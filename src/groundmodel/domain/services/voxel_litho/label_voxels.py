@@ -84,6 +84,15 @@ _EPS: float = 1e-9
 # the gap interior so every relevant edge strictly straddles the slice line.
 _FRAC_EPS: float = 1e-6
 
+_CONTIGUOUS_EPS: float = 1e-6
+"""How close two slices of one body must be to count as touching, in metres.
+
+Measured on the real partitions the gap is exactly zero — a slice's base IS the next
+slice's top — so this is a float-noise guard, not a tunable.  Widening it would start
+joining intervals across genuinely thin layers of another body, which is the #228
+sliver problem and must be fixed there rather than absorbed here.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Internal stack entry
@@ -366,7 +375,61 @@ def _section_stack_at(
             # the body does HERE rather than what kind of body it is.
             raw.append(_Entry(r.body_id, r.formation_id, top_e, base_e, r.kind, r.overlay_tier))
     raw.sort(key=lambda e: -e.top_elev)
-    return raw
+    return _merge_contiguous(raw)
+
+
+def _merge_contiguous(entries: list[_Entry]) -> list[_Entry]:
+    """Join touching slices of the same body into the one interval they are (#257).
+
+    The 2-D engine may cut a single interval into several polygons — five on one
+    section where the other has one, each touching the next base-to-top.  Left as
+    separate entries they reach ``_pair_occurrences``, which matches one-to-one and
+    leaves the surplus unpaired; ``_blend_stacks`` then sends the surplus down the
+    ONE-SIDED branch and the midline factor annihilates it.  The body is on BOTH
+    sections and is not one-sided: it was deleted for how the partition happened to be
+    cut.  Because ``_layout`` stacks cumulatively downward, every deleted metre came
+    off the bottom — 8.85 m of missing column at (88 082.3, 164 463.3), and 57.6 % of
+    all deleted thickness model-wide.
+
+    Only slices that TOUCH merge.  A body that genuinely comes back lower, with another
+    body between, stays two intervals — that is a re-entrant body, not a cut one.
+
+    ``None`` bodies are never merged: a never-correlated minority has no identity to
+    share, and each is one-sided regardless, so merging them would change nothing here
+    while quietly fusing two distinct minorities.
+
+    Parameters
+    ----------
+    entries : list of _Entry
+        One section's intervals at a point, ordered shallow → deep.
+
+    Returns
+    -------
+    list of _Entry
+        The same intervals with touching same-body runs joined.  A merged interval
+        keeps the 2-D classification only when every slice agreed on it; where they
+        disagree it carries ``None`` rather than picking one arbitrarily.
+    """
+    merged: list[_Entry] = []
+    for entry in entries:
+        prev = merged[-1] if merged else None
+        if (
+            prev is not None
+            and prev.body_id is not None
+            and prev.body_id == entry.body_id
+            and abs(prev.base_elev - entry.top_elev) <= _CONTIGUOUS_EPS
+        ):
+            merged[-1] = _Entry(
+                prev.body_id,
+                prev.formation_id,
+                prev.top_elev,
+                entry.base_elev,
+                prev.kind if prev.kind == entry.kind else None,
+                prev.overlay_tier if prev.overlay_tier == entry.overlay_tier else None,
+            )
+            continue
+        merged.append(entry)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -571,10 +634,20 @@ def _blend_stacks(
                 th = w1 * _th(e1) + w2 * _th(e2)
                 ref = w1 * _mid(e1) + w2 * _mid(e2)
                 specs.append((ref, body, e1.formation_id, th))
+            # SURPLUS of a body BOTH sections carry — blend it, do not pinch it (#257).
+            # This body is not one-sided; only its internal subdivision differs, because
+            # the 2-D engine cut it into a different NUMBER of polygons on each section.
+            # The old midline factor annihilated the surplus, deleting material both
+            # sections agree on and — since ``_layout`` stacks downward — taking every
+            # deleted metre off the bottom of the column.
+            #
+            # Blending with ``w`` is exactly right, not merely safer: pairing gives
+            # ``w1*a1 + w2*b1`` and the surplus ``w1*a2``, which sum to
+            # ``w1*(a1+a2) + w2*b1`` — the interpolation of the two sections' own totals.
             elif e1 is not None:
-                specs.append((_mid(e1), body, e1.formation_id, _th(e1) * factor1(body)))
+                specs.append((_mid(e1), body, e1.formation_id, _th(e1) * w1))
             elif e2 is not None:
-                specs.append((_mid(e2), body, e2.formation_id, _th(e2) * factor2(body)))
+                specs.append((_mid(e2), body, e2.formation_id, _th(e2) * w2))
 
     # One-sided: non-matched non-None bodies, and every None-body entry.
     for e in stack1:
