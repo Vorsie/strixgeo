@@ -24,6 +24,7 @@ single cohesive vocabulary (the build-request contract), analogous to
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -57,12 +58,43 @@ class RegionInput:
         Zero-based index of the gap's LEFT column within the section's
         column list — i.e. the gap between column ``gap_index`` and
         column ``gap_index + 1`` (matches ``SectionRegion.gapIndex``).
+    kind : {'quad', 'pinch', 'lens'} or None
+        How the 2-D engine terminated this region — ``'quad'`` for a body
+        present on both columns, ``'pinch'`` for one present on a single
+        column and cut inside its interval, ``'lens'`` for an enclosed
+        minority overlaying its matrix.  This is the 2/1/0 gesture
+        semantics; ``None`` only for a payload written before debt #256,
+        where the field did not cross the API boundary at all.
+    overlay_tier : {'onlap', 'lens'} or None
+        For an overlay region, which carve tier it belongs to: ``'onlap'``
+        laps one bracket tie-line, ``'lens'`` is fully enclosed by its
+        matrix.  ``None`` on a main region, and on any pre-#256 payload.
+    tied_band_base : float or None
+        Elevation (mTAW) that an EXPLICIT user correlation fixed for this
+        region's base.  Owner directive 2026-07-08: a user correlation is
+        absolute, so the shallow-TD cap must not chop it flat.  ``None``
+        when no correlation fixes the base.
+    tie_clipped : bool
+        ``True`` when the 2-D pass deliberately kept this region only
+        ABOVE a sloping cross-lithology tie, so it must never be merged
+        back across that tie.
+
+    Notes
+    -----
+    Every classification field is optional.  A stored build generation or a
+    ``.gmproj`` bundle written before debt #256 carries only the first four
+    attributes, and must stay loadable — refusing it would make an existing
+    project unbuildable.
     """
 
     formation_id: str
     body_id: str | None
     polygon: tuple[tuple[float, float], ...]
     gap_index: int
+    kind: Literal["quad", "pinch", "lens"] | None = None
+    overlay_tier: Literal["onlap", "lens"] | None = None
+    tied_band_base: float | None = None
+    tie_clipped: bool = False
 
 
 @dataclass(frozen=True)
