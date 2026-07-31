@@ -7341,3 +7341,74 @@ same-body intervals before pairing, which is correct by construction: two slices
 touch exactly are one interval. It will not fix the cases where a 3-6 mm sliver of
 another body sits between two slices of the same one — that is #228 itself, and it needs
 the sliver gone rather than papered over.
+
+## 258. Paired stations named; 2 drilled failures remain UNEXPLAINED (S)
+
+**What.** The fidelity gate scored a paired station's loser against its own log, which
+no build can satisfy: a borehole and its CPT 0.28 m / 0.40 m apart cannot both own a
+cell, `honor_rank` picks one, and the other's ground carries its partner's log.
+`paired_stations.paired_station_losers` now replays the builder's own honour assignment
+on the grid the stored generation recorded, and the gate reports those columns
+separately. Drilled ground: **55 exact / 1 subsequence / 2 wrong → 53 / 1 / 2 / 2
+paired**.
+
+**It corrects the finding that prompted it.** An adversarial specialist claimed "both
+residual fidelity failures are honour losers". They are not — the two paired losers were
+scoring EXACT. The 2 `wrong` columns are a separate defect and remain unexplained.
+
+**Why it matters that the rule is ownership, not proximity.** A first attempt flagged any
+log within 2.0 m of another, transitively grouped: 7 investigations on this model, five
+of them perfectly scoreable. Only a log left with NO cell is unscoreable.
+
+**When to revisit.** The 2 remaining `wrong` columns, next time the gate is looked at.
+
+## 259. `_section_stack_at` returns nothing at the edges of half the gaps (L)
+
+**What.** The query fraction is clamped to `1 - _FRAC_EPS`, and in **33 of 69 gaps** the
+region polygons do not reach that far, so the section reports an EMPTY column. 15 of 69
+do the same at fraction 0. Verified directly: all 69 gaps are non-empty at fraction 0.5.
+
+A voxel column projecting near a gap's far edge therefore gets no stack from that
+section. It is partly masked by the empty-neighbour deferral added 2026-07-30 — when one
+stack is empty `_stack_at` defers to the section that does know — so instead of a void
+the build silently drops one section's contribution and extrudes the other.
+
+**When to revisit.** Before further work in `label_voxels`. Note the function has been
+changed twice recently (#256 wiring, #257 merge), so it wants care rather than speed.
+
+## 260. Between/beyond switching cuts hard walls through the model (M)
+
+**What.** Reported by the geological-correctness specialist and verified by its skeptic,
+not independently by me. The between/beyond switch plus the discrete choice of
+"second-nearest section" makes a formation contact **jump 5.32 m across one 2 m voxel
+step**. Separately, the beyond rule extrudes a section's TERMINAL column stack up to
+**53.4 m past the end of that section**, into ground a nearer-ranked section contradicts.
+
+**When to revisit.** With #259 — same function, same class of fault.
+
+## 261. `_layout` can report a body order neither section has (S)
+
+**What.** `_layout` re-derives the blended stack's order from interpolated
+mid-elevations, so the model can report a sequence that contradicts BOTH source
+sections. Reported and skeptic-verified; not independently reproduced by me.
+
+**When to revisit.** With #259 / #260.
+
+## 262. The safe-default repair loop doubles the engine cost on 4 of 14 sections (S)
+
+**What.** `classifyOverrideOutcome`'s repair loop re-runs the whole fill when
+`detectFloodedUnits` finds a drilled unit flooded by a foreign litho. On 4 of the
+owner's 14 sections it fires and silently doubles the pass. Correct behaviour, twice the
+cost.
+
+**When to revisit.** After the cross-section perf work already landed (splitSegments
+sweep, base-pass memo, two memo keys, deadline-driven slice). Measure whether it still
+matters at the new baseline before optimising it.
+
+## 263. `node_modules/vite` is bit-corrupted on this machine (S)
+
+**What.** A specialist could not start vitest at all until it repaired the install. This
+is the same disk that corrupted a git pack on 2026-07-12 (`memory/project_git_gc_disabled_after_corruption.md`).
+
+**When to revisit.** Now — it is an environment fault, not a code one. A `chkdsk` is
+overdue, and a corrupted toolchain silently invalidates every local test result.
