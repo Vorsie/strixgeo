@@ -41,11 +41,19 @@ import {
 import { isApexShapeable } from './partitionFillOverlayHelpers'
 import { type ComputePartition, detectDeadHandleBodies } from './partitionGhostHandles'
 
-/** Regions probed per idle slice — one full re-partition each (~38 ms), so a slice
- *  of 2 stays well under a 16 ms-ideal budget's worst tolerable stall (~80 ms) and
- *  never blocks a pan. Small enough to keep frames responsive, big enough to finish
- *  CS1's 69 regions in ~35 slices. */
+/** Regions probed per idle slice when the browser gives us NO deadline (the
+ *  setTimeout fallback). With a real ``IdleDeadline`` the slice is sized by the budget
+ *  instead — see ``PROBE_BUDGET_FLOOR_MS``. */
 const PROBE_CHUNK = 2
+
+/** Stop taking on another probe once the idle budget is down to this, in ms.
+ *
+ *  A fixed slice of 2 ignored the deadline entirely: one probe is ~18 ms on the owner's
+ *  CS1 and ~47 ms on CS2, so a slice ran 36-96 ms inside a budget that is never more
+ *  than 50 ms — five to ten dropped frames, about 35 times over. Sizing the slice by
+ *  what is actually left means a cheap section gets many probes per slice and an
+ *  expensive one gets a single probe, which is the most it can afford. */
+const PROBE_BUDGET_FLOOR_MS = 4
 
 /**
  * A stable string key over the drag/pan-INDEPENDENT partition inputs.
@@ -87,17 +95,24 @@ export function topologyKey(
   return `v2|${cols}|E:${eg}|A:${am}`
 }
 
-/** requestIdleCallback with a setTimeout fallback (Electron renderer has rIC, but be safe). */
-function scheduleIdle(fn: () => void): () => void {
+/** What the probe needs from an ``IdleDeadline`` — how much of this idle period is left. */
+type IdleBudget = { timeRemaining: () => number }
+
+/** requestIdleCallback with a setTimeout fallback (Electron renderer has rIC, but be safe).
+ *
+ * The deadline is handed to the callback so a slice can size itself to the budget
+ * rather than to a fixed count. The fallback has no deadline and passes ``undefined``,
+ * which keeps the old fixed-slice behaviour there. */
+function scheduleIdle(fn: (deadline?: IdleBudget) => void): () => void {
   const g = globalThis as unknown as {
-    requestIdleCallback?: (cb: () => void) => number
+    requestIdleCallback?: (cb: (deadline: IdleBudget) => void) => number
     cancelIdleCallback?: (h: number) => void
   }
   if (typeof g.requestIdleCallback === 'function') {
     const h = g.requestIdleCallback(fn)
     return () => g.cancelIdleCallback?.(h)
   }
-  const t = setTimeout(fn, 0)
+  const t = setTimeout(() => fn(undefined), 0)
   return () => clearTimeout(t)
 }
 
@@ -160,16 +175,27 @@ export function usePartitionGhostHandles(
     let cancel: (() => void) | null = null
     let cancelled = false
 
-    const step = (): void => {
+    const step = (deadline?: IdleBudget): void => {
       if (cancelled) return
-      const end = Math.min(i + PROBE_CHUNK, shapeable.length)
-      // ``detectDeadHandleBodies`` compares against the FULL ``base`` footprint while
-      // probing only this slice (``regionsToProbe``) — the S77 contract that keeps a
-      // multi-region body from false-flagging. Independent per region, so accumulating
-      // across chunks yields the identical set to the synchronous oracle.
-      const slice = detectDeadHandleBodies(b, c, e, a, f, shapeable.slice(i, end))
-      for (const k of slice) dead.add(k)
-      i = end
+      // One probe at a time, continuing while the idle period can still afford another.
+      // Always at least one, so a starved frame still makes progress instead of
+      // rescheduling forever. Without a deadline (the setTimeout fallback) fall back to
+      // the old fixed slice.
+      let taken = 0
+      do {
+        const end = Math.min(i + 1, shapeable.length)
+        // ``detectDeadHandleBodies`` compares against the FULL ``base`` footprint while
+        // probing only this slice (``regionsToProbe``) — the S77 contract that keeps a
+        // multi-region body from false-flagging. Independent per region, so accumulating
+        // across chunks yields the identical set to the synchronous oracle.
+        const slice = detectDeadHandleBodies(b, c, e, a, f, shapeable.slice(i, end))
+        for (const k of slice) dead.add(k)
+        i = end
+        taken += 1
+      } while (
+        i < shapeable.length &&
+        (deadline ? deadline.timeRemaining() > PROBE_BUDGET_FLOOR_MS : taken < PROBE_CHUNK)
+      )
       if (i < shapeable.length) {
         cancel = scheduleIdle(step)
       } else {
