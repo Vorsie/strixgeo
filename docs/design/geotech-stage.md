@@ -41,7 +41,8 @@ packing class.
 * **Invariant = the always-on frozen-CS1 gate at ZERO cross-class overlap**
   ("one packing class per point").
 * In-app wiring: SectionsCanvas flip + a `geotechRefinement` bundle →
-  SectionPanel → `PartitionFillOverlay` (view-only refined render).
+  SectionPanel → `PartitionFillOverlay` (refined render; view-only apart from
+  the two verbs in §4).
   ⚠ **Visual is owner-dogfeed-pending** — green vitest/tsc don't catch this
   god-component's TDZ/visual bugs.
 * Backend fix that rode along: geotech edges were derived before boreholes
@@ -70,6 +71,58 @@ All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
 
 META-RULE real-data verified: 226 auto edges, 0 cross-class, 0 null-class.
 See `memory/project_geotech_stage_body_centric.md`.
+
+## 4. Hand split / merge of packing sub-bands (2026-08-01, develop UNPUSHED)
+
+The geotech axis is view-only **except** for splitting a packing sub-band and
+merging two adjacent ones. Everything else stays shut: contacts on this axis
+still cannot be created, dragged or deleted (`SectionsCanvas.geotechViewOnly`
+pins that, and `SectionsCanvas.geotechBandEdit` pins that the hole is exactly
+two verbs wide). The two verbs are allowed because they do not move a contact —
+they go through their own endpoints, which re-derive the NAD class from the qc
+over each resulting interval.
+
+Owner rulings driving the shape are recorded in full in `docs/debt.md` #227.
+The four that constrain the code:
+
+* **Hard bounds (ruling 2).** A packing boundary moves freely inside its litho
+  body and clamps at the edge; it never moves a litho contact and never crosses
+  a geological one. A litho body here is already geo-bounded, so "inside one
+  litho body" enforces both walls in one test
+  (`components/sections/geotechBandEdit.ts` — `clampSplitDepth`,
+  `canMergeBands`). This is the ONE refusal that is correct rather than a
+  defect.
+* **The class is derived (ruling 3), locally (ruling 4).** The server re-derives
+  each resulting interval from qc and re-scopes nothing beyond the edited
+  column; correlations whose partner no longer matches the new class are
+  dropped, and the toast names how many went.
+* **Manual override always wins (ruling 5).** The consequence sheet
+  (`GeotechBandEditDialog`) never disables its action, whatever the warnings
+  say, and is deliberately not styled as an irreversible confirmation — focus
+  lands on the verb, not on Cancel.
+* **The statistic must not lie (ruling 6).** The warning is computed on the
+  MEDIAN, because `geotech_subdivision.py:444` classifies on `median(in_band)`.
+  Label it "representative qc" in the UI, never "average qc", even though the
+  owner's phrasing was "avg".
+
+Gesture (mirrored from the litho axis, `LithoSuggestionGhostColumns`):
+right-click a band → "Split band…", right-click the boundary between two bands
+→ "Merge bands". Choosing to split ARMS a placement — the boundary follows the
+cursor, clamped, with a readout naming the wall — and a click puts it down.
+It is armed-and-click rather than press-and-drag because left-drag on this
+canvas pans the section: a band-wide press target would either swallow the pan
+or fight it. `GeotechBandEditOverlay` therefore listens for nothing but a
+right-click at rest, and owns the canvas only while a placement is armed.
+
+⚠ **Owner-dogfeed pending, and no integration test exists** — the DB-level
+behaviour of these endpoints (mirror trigger, no-overlap exclusion, contiguity
+trigger, edge FK cascade) is reasoned from migration SQL, not exercised.
+⚠ **Ruling 7 (selectable representative statistic: median / arithmetic /
+harmonic / geometric, per geotech model) is NOT built.** Until it is, the
+warning and the classifier both read the median; when it lands, both must read
+the model's choice from the same place or the warning starts lying.
+⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
+it silently destroys every hand split and merge. Nothing warns today.
 
 ## Open dogfeed items (owner)
 
