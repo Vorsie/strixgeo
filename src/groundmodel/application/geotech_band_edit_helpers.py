@@ -9,6 +9,11 @@ code: :func:`load_geotech_column_context` filters every query by the edited
 band's own anchor, so no other column can be read — and therefore none can be
 re-derived — by a hand edit.
 
+That same anchor decides whether the gesture applies at all
+(:func:`require_cpt_anchor`, owner ruling A 2026-08-01): a band hanging off a
+borehole has no cone resistance behind it, so both gestures are refused there
+rather than committed into a class-less skeleton.
+
 Geotech bands are ``litho_layer`` rows in the geotechnical model whose
 ``geological_formation`` carries ``nad_class`` plus the two parent ids
 (``source_litho_formation_id`` / ``source_geo_formation_id``) that form the hard
@@ -157,6 +162,52 @@ class EdgeRef:
     def partner_of(self, layer_id: UUID) -> UUID:
         """The endpoint that is not ``layer_id``."""
         return self.layer_b_id if self.layer_a_id == layer_id else self.layer_a_id
+
+
+def require_cpt_anchor(context: GeotechColumnContext, *, gesture: str) -> None:
+    """Refuse a hand edit whose band hangs off a borehole (owner ruling A).
+
+    A borehole records no cone resistance, and every rule below this one assumes
+    there is qc to re-derive a class from. Letting the gesture through would take
+    the class ``DivideBoreholes`` extrapolated onto the column from the
+    surrounding CPTs and replace it with a ``nad_class=None`` skeleton — the
+    edit would destroy information rather than change it. So the answer is no,
+    and it is no here rather than only in the UI, so the API cannot be driven
+    around the gesture surface.
+
+    The test is the BAND's own anchor, not the column's neighbourhood: the
+    ``litho_layer`` anchor is a database-enforced XOR (``litho_layer_anchor_xor``
+    — a row hangs off a CPT or off a borehole, never both), so a borehole that
+    happens to stand a few metres from a CPT is still a borehole here.
+
+    Called by the preview and by both commits — a preview that said yes to an
+    edit the commit refuses would be worse than either refusal on its own.
+
+    Parameters
+    ----------
+    context : GeotechColumnContext
+        The loaded column, carrying the edited band's anchor.
+    gesture : str
+        ``"Split"`` or ``"Merge"`` — opens the message the same way the
+        hierarchy refusals in ``geotech_band_reclassification`` open theirs.
+
+    Raises
+    ------
+    GeotechBandEditError
+        When the band is anchored on a borehole. The message names the cause
+        (no cone resistance) and the way round it, because the engineer has just
+        seen the same gesture work one column along.
+    """
+    if context.anchor_is_cpt:
+        return
+    raise GeotechBandEditError(
+        f"{gesture} rejected: this packing band sits on a borehole, and a borehole "
+        "records no cone resistance. A hand-edited band's NAD packing class is "
+        "re-derived from the qc over its new extent, so there is nothing here to "
+        "re-derive it from. The class on this column was extrapolated from the "
+        "surrounding CPTs by 'Divide boreholes' — edit the packing bands on a CPT "
+        "column instead, then re-run 'Divide boreholes' to carry the change across."
+    )
 
 
 def invalidated_edge_ids(

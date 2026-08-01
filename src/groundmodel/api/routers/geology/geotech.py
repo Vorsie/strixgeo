@@ -512,8 +512,9 @@ async def preview_split_geotech_band(
     HTTPException(404)
         When the model does not belong to the project.
     HTTPException(422)
-        When the model is not geotechnical, or the depth falls outside the
-        band's own litho body (the hierarchy is not overrulable).
+        When the model is not geotechnical, the band sits on a borehole (no cone
+        resistance, so no class can be re-derived), or the depth falls outside
+        the band's own litho body (the hierarchy is not overrulable).
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-split "
@@ -573,8 +574,9 @@ async def preview_merge_geotech_bands(
     HTTPException(404)
         When the model does not belong to the project.
     HTTPException(422)
-        When the model is not geotechnical, or the two bands are not adjacent
-        within one geo-bounded litho body.
+        When the model is not geotechnical, the bands sit on a borehole (no cone
+        resistance, so no class can be re-derived), or the two bands are not
+        adjacent within one geo-bounded litho body.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-merge "
@@ -634,7 +636,9 @@ async def split_geotech_band(
     HTTPException(404)
         When the model does not belong to the project.
     HTTPException(422)
-        When the model is not geotechnical, or the depth breaches the hierarchy.
+        When the model is not geotechnical, the band sits on a borehole (no cone
+        resistance, so no class can be re-derived), or the depth breaches the
+        hierarchy.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/split "
@@ -698,8 +702,9 @@ async def merge_geotech_bands(
     HTTPException(404)
         When the model does not belong to the project.
     HTTPException(422)
-        When the model is not geotechnical, or the merge would cross a litho or
-        geological contact.
+        When the model is not geotechnical, the bands sit on a borehole (no cone
+        resistance, so no class can be re-derived), or the merge would cross a
+        litho or geological contact.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/merge "

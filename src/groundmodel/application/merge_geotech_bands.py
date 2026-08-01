@@ -13,6 +13,10 @@ Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
   written.
 * **Manual override always wins** — the warning about the material moving
   between layers is advisory; a merge is never blocked on it.
+* **A borehole is refused** (ruling A) — the class is re-derived from qc, and a
+  borehole has none, so :func:`require_cpt_anchor` rejects the merge before
+  anything is written rather than skeletonising a band whose class
+  ``DivideBoreholes`` extrapolated from the surrounding CPTs.
 
 Which correlations are touched
 ------------------------------
@@ -44,6 +48,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     load_edges_for_layers,
     load_geotech_column_context,
     load_nad_class_by_layer,
+    require_cpt_anchor,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -114,6 +119,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             geotech_model_id=geotech_model_id,
             band_id=upper_band_id,
         )
+        require_cpt_anchor(context, gesture="Merge")
         plan = plan_merge(
             bands=context.bands,
             upper_band_id=str(upper_band_id),

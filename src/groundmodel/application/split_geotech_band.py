@@ -16,6 +16,10 @@ Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
   the CLASS, not the hierarchy.
 * **Manual override always wins** — a resulting band thinner than the configured
   minimum is committed with a warning, not blocked.
+* **A borehole is refused** (ruling A) — the class is re-derived from qc, and a
+  borehole has none, so :func:`require_cpt_anchor` rejects the split before
+  anything is written rather than skeletonising a band whose class
+  ``DivideBoreholes`` extrapolated from the surrounding CPTs.
 
 Row identity on a split: the ORIGINAL row becomes the UPPER half, because its
 top boundary is the one the split leaves untouched, and a NEW row is inserted for
@@ -43,6 +47,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     load_edges_for_layers,
     load_geotech_column_context,
     load_nad_class_by_layer,
+    require_cpt_anchor,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -114,6 +119,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             geotech_model_id=geotech_model_id,
             band_id=band_id,
         )
+        require_cpt_anchor(context, gesture="Split")
         plan = plan_split(
             bands=context.bands,
             band_id=str(band_id),

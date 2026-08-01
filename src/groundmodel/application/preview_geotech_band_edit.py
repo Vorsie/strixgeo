@@ -16,6 +16,11 @@ Two things this preview deliberately does NOT do:
   merge across a litho or geological contact) raises
   :class:`GeotechBandEditError`, which the router maps to a 422.
 
+The one other refusal is the anchor (owner ruling A): a band on a borehole is
+rejected here as well as at the commit, because a preview that answered "here is
+what this would do" for an edit the commit refuses would be worse than either
+refusal alone.
+
 The statistic is the MEDIAN. The owner said "avg qc"; the median is used because
 that is what classifies a band today (``geotech_subdivision`` line 444), so the
 preview predicts the reclassification that will actually happen. A preview on the
@@ -31,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.geotech_band_edit_helpers import (
     load_geotech_column_context,
+    require_cpt_anchor,
 )
 from groundmodel.domain.services.geotech_band_reclassification import (
     BandEditPlan,
@@ -100,6 +106,7 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             geotech_model_id=geotech_model_id,
             band_id=band_id,
         )
+        require_cpt_anchor(context, gesture="Split")
         plan = plan_split(
             bands=context.bands,
             band_id=str(band_id),
@@ -156,6 +163,7 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             geotech_model_id=geotech_model_id,
             band_id=upper_band_id,
         )
+        require_cpt_anchor(context, gesture="Merge")
         plan = plan_merge(
             bands=context.bands,
             upper_band_id=str(upper_band_id),
