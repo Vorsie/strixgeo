@@ -7757,8 +7757,36 @@ which is exactly how a real overlap gets waved through later.
 **Why deferred.** Out of scope of the cutover it surfaced during, and one observation is
 not a diagnosis.
 
-**When to revisit.** Next time the suite goes red without an obvious cause. Start by
-running the file in a loop to establish a rate, then look for shared state — the overlap
-check's own caches, or fixture mutation across the six cases in the file. Note debt #263:
-this machine has a disk with two confirmed bit-level faults, so a single unreproducible
-failure is not automatically a code bug.
+**DIAGNOSED 2026-08-01 — environmental, not the partition.** The decisive measurement is
+that the computation cannot vary: running `computeSectionFill` over the frozen fixture and
+`findNonLensOverlaps` over the result **150 times in one process yields 1 distinct
+partition and an overlap count of 0 every time**. A deterministic pure function over a
+fixed on-disk fixture, in an isolated module registry, cannot spontaneously report an
+overlap, so the algorithm is not capable of producing the failure that was observed.
+
+Everything else was ruled out by evidence rather than assumption:
+
+| candidate | ruled out by |
+|---|---|
+| the v2 cutover | the file imports `computeSectionFill` directly, never the selector |
+| shared module state in v1 | no module-level mutables and no caches anywhere in `partitionFill/`; its only `process.env` read is the `GAP_PROBE` logging gate |
+| a corrupted or rewritten fixture | `cs1_partition_frozen.json` unchanged since 2026-07-12, tracked, 35,067 bytes, parses clean |
+| a real intermittent overlap | the determinism probe above |
+
+**What is left.** The failure appeared on the first full run after source edits, repeated
+once, and has not recurred in 11+ consecutive green full runs (2,553 tests each). Vitest
+4.1.5 keeps a persistent transform cache at `node_modules/.vite/{deps,vitest}`, and per
+**#263** this machine has TWO confirmed bit-level disk faults — one of which corrupted
+`node_modules/vite` itself during this same campaign. A torn or stale cache entry serving
+different code for one run fits every observation; nothing else does.
+
+**The reason this is not certain: the assertion text was never captured.** The failure was
+seen through a grep that printed the FAIL line and not the error body, and it did not
+recur. Capturing the error is the first thing to do if it ever comes back, before any
+theorising — the theorising above cost far more than reading one message would have.
+
+**When to revisit.** Only if it recurs. Then: capture the FULL failure output first, and
+compare the reported overlap against the determinism probe's zero. If it is a timeout
+rather than an assertion, that is a different bug and the margin is large — the test runs
+in ~209 ms against a 5,000 ms default. Independently, #263's `chkdsk` is now doubly
+warranted.
