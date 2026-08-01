@@ -7662,6 +7662,61 @@ about ground nobody sampled. A parameter-free option exists — decay the second
 weight over the distance between the two projection feet, which needs no invented
 constant — but it changes geometry wherever the beyond path applies.
 
+**THE FADE WAS BUILT AND MEASURED 2026-08-01 — it works, and it is not worth it.**
+`label_voxels(..., fade_sections=True)` gives every section a normalised inverse-distance
+weight instead of hard-picking two, so the selection step is never created. One rule
+replaces three branches — a body's thickness is `sum_i w_i * th_i`, zero where absent —
+which collapses to the reach ruling at two sections, so #256 survives the generalisation.
+No length constant: the power is a shape, and scaling every distance leaves the weights
+unchanged.
+
+**It fixes the wall it was aimed at.** At the #260 hotspot (88500.3, 164925.3) the worst
+step goes **7.70 → 0.58 m**. The mechanism is real and the fix is real.
+
+**It does not fix the model.** On the LABELLED grid, which is what the user receives, steps
+≥ 0.5 m go **7.11 % → 11.16 %** and the worst goes **8.25 → 8.75 m**. More half-metre
+steps, not fewer. The headline step did not vanish, it MOVED to (88164.3, 164791.3).
+
+Two corrections to the first report of this, both from the adversarial pass:
+
+* Its blend-field regression (worst 7.70 → 11.99 m, 6.5 % → 18.9 %) is largely a
+  sub-cell-sliver artefact of measuring with no thickness filter. Filtered at the grid's
+  own 0.25 m vertical resolution the two are **identical** (worst 7.21 → 7.63 m, ≥ 0.5 m
+  5.4 % → 5.4 %); filtered at 1.0 m the fade is BETTER (worst 7.01 → 6.84 m, 5.2 → 4.4 %).
+  So the fade is not as bad as its own author reported.
+* The two-section anchor is exact in SUBSTANCE — 72,000 randomised trials matched the
+  multiset of (body, formation, thickness) every time — but not element for element: 18 of
+  72,000 tie in the sort key `(-ref, str(body))` and the stable sort resolves it by
+  insertion order, swapping two intervals of one body, 2.00 m in the minimal case. A real
+  if small defect in the new path.
+
+**What it costs, which is why it stays off:**
+
+| | |
+|---|---|
+| labelled ground changing hands | **7.20 %**, 95.5 % of it a LITHOLOGY change (248,806 cells) |
+| net ground | **lost** — 49,018 cells filled→void against 34,544 the other way |
+| triangles | 540,958 → **917,622 (+69.6 %)** |
+| label + extract | 22.9 → **55.5 s (2.4×)** |
+| drift from the NEAREST section's own drawn column, within 2.7 m of it | p90 **0.533 → 5.743 m** |
+| weight handed to sections past the nearest two | median 14.6 %, p90 44.9 %, max 66.2 % |
+
+That last row is the one that settles it. Standing beside a section the owner drew, the
+model drifts up to 5.7 m from what he drew, because eleven other sections are voting. The
+drilled gate held throughout (54 exact / 0 wrong, contact error median and max unchanged),
+so honour is intact — but honour only pins the logs, and everything between them moved.
+
+**THE REAL FINDING, and it redirects this entry.** Removing the section-selection
+discontinuity ENTIRELY did not remove the model's steps. So the steps were never mostly
+caused by which sections get picked. The remaining candidate is `_layout`, which orders
+specs by reference elevation so that two specs crossing swaps two units vertically — and
+that is **#261 verbatim**. #260's fix attempt is the evidence that #261 is the more likely
+cause, and #261 should be answered first.
+
+**Recommendation: do not ship the fade.** Keep it behind the flag as the evidence for this
+ruling, or delete it once #261 is settled. Shipping it would trade a discontinuity the
+owner can see for a lithology change across 7 % of the model that he cannot.
+
 **When to revisit.** With #261, which is the same shape of question: both are about what
 the builder should do where the sections stop agreeing. Not a patch.
 
