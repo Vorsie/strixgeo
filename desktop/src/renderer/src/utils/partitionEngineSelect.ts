@@ -18,8 +18,17 @@
 //   1. Env override (tests / node):  ``process.env.STRIX_PARTITION_V2 === '1'``
 //      forces v2. Lets a vitest / node harness pin the engine without touching
 //      localStorage (which may not exist outside jsdom).
-//   2. Device-local pref (localStorage): the Settings toggle. Default v1 — v2 is
-//      strictly opt-in.
+//   2. Device-local pref (localStorage): the Settings toggle. Default v2 — v1 is
+//      now the explicit opt-OUT fallback.
+//
+// v2 became the default on 2026-08-01, measured rather than assumed. Both engines
+// were run over the owner's real 14 sections and built through the production voxel
+// pipeline with nothing but the engine differing (``scripts/diag_engine_fidelity_ab.py``,
+// whose v2 arm reproduces the owner's persisted build exactly). The drilled gate is
+// identical at 54 exact / 0 subsequence / 0 wrong; contact-error median is unchanged,
+// p90 goes 0.125 → 0.123 m and the WORST contact error 5.335 → 3.145 m; the mesh is
+// 1.5 % smaller. Before the flip a fresh install got v1 while the owner dogfed v2, so
+// the model anyone else saw was not the model that had been validated.
 //
 // Change notification: a module-level subscriber set + ``useSyncExternalStore``
 // hook so a component that reads the flag (the section overlay) re-renders the
@@ -76,23 +85,28 @@ function readEnvOverride(): boolean | null {
 /**
  * Read the device-local engine pref out of localStorage.
  *
- * Best-effort: a missing key, a malformed value, or an unavailable
- * localStorage (privacy mode, worker context, node without jsdom) all fall
- * back to ``false`` (v1). Never throws — the caller degrades to the stable
- * engine rather than breaking the render / build.
+ * Best-effort and inverted from how it used to read: a missing key, a malformed
+ * value, or an unavailable localStorage (privacy mode, worker context, node
+ * without jsdom) all mean "no opt-out was ever recorded", so they take the
+ * DEFAULT engine, which is v2. Only a stored ``'0'`` selects v1. Never throws —
+ * a storage failure must not decide which engine renders, and a worker or node
+ * context must render the same engine as the app rather than the fallback.
  *
  * Returns
  * -------
  * boolean
- *     ``true`` when the user has opted into v2 on this device, else ``false``.
+ *     ``true`` for v2 (the default, and anything that is not an explicit
+ *     opt-out); ``false`` only when the user has opted out on this device.
  */
 function readStoredV2(): boolean {
-  if (typeof localStorage === 'undefined') return false
+  if (typeof localStorage === 'undefined') return true
   try {
-    return localStorage.getItem(STORAGE_KEY) === '1'
+    // Absent key means "never chosen" and must read as the DEFAULT, not as opt-out.
+    // Only an explicit '0' selects v1.
+    return localStorage.getItem(STORAGE_KEY) !== '0'
   } catch {
-    // localStorage unavailable (privacy mode, quota) — default to stable v1.
-    return false
+    // localStorage unavailable (privacy mode, quota) — take the default engine.
+    return true
   }
 }
 
@@ -123,13 +137,15 @@ export function isPartitionEngineV2Active(): boolean {
 export function setPartitionEngineV2(useV2: boolean): void {
   if (typeof localStorage !== 'undefined') {
     try {
+      // Store the opt-OUT explicitly; clearing the key returns to the default, which
+      // is now v2. Writing '1' as well keeps the value readable rather than implicit.
       if (useV2) localStorage.setItem(STORAGE_KEY, '1')
-      else localStorage.removeItem(STORAGE_KEY)
+      else localStorage.setItem(STORAGE_KEY, '0')
     } catch {
       // Quota / privacy mode — session-level state still updates via notify().
     }
   }
-  log.info('partition', `engine pref set → ${useV2 ? 'v2 (experimental)' : 'v1 (stable)'}`)
+  log.info('partition', `engine pref set → ${useV2 ? 'v2 (default)' : 'v1 (fallback)'}`)
   for (const cb of subscribers) cb()
 }
 
