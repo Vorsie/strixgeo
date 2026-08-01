@@ -7584,7 +7584,7 @@ mid-gap — a lens pinching out — all the way to the column. That is inventing
 fix a rounding artefact. `test_a_region_that_genuinely_stops_short_is_not_dragged_to_the_edge`
 pins the distinction: a region ending at fraction 0.45 must still read empty at 1.0.
 
-## 260. The between/beyond switch is a step discontinuity, up to 12 m (L)
+## 260. The between/beyond switch steps the ground — CORRECTED 2026-08-01, the 12 m was my own measurement error (M)
 
 **What.** Reproduced independently 2026-07-31, and the wall is more than twice as tall
 as reported.
@@ -7612,6 +7612,48 @@ A first attempt at this measurement asked how far each beyond-path point sat fro
 nearest END COLUMN and got a median of 236 m — meaningless, because a point can be far
 from both ends while sitting beside the middle of a long section. Discarded, not
 reported.
+
+**⚠ CORRECTED 2026-08-01 — the 12.15 m headline above is WRONG, and it was a measurement
+artefact of my own making.** At the named hotspot the two columns share EVERY body they
+carry, and the worst shared body's roof moves **0.030 m** across the step. The 12 m appears
+only when the two stacks are lined up by RANK: the `between` column emits 11 intervals
+against the `beyond` column's 8 — three of them hairline slivers of 5 mm, 2 mm and 1 mm —
+so from the fourth entry down, the nth interval of one column is a different body from the
+nth of the other. Lined up that way the same step measures 12.140 m, reproducing the
+reported 12.15 m to the centimetre. **This is the #248 rank-pairing error one level up, in
+the measurement rather than in the blend.**
+
+Verified two independent ways before being accepted: a recorder wrapped around the real
+`_section_stack_at` / `_blend_stacks` and driven through the shipped `_stack_at` over all
+37,706 columns reported **0 mode mismatches, 0 pair mismatches, 0 top mismatches**, and the
+0.030 m was reproduced from the raw stacks.
+
+The corrected picture (`scripts/dump_between_beyond_wall.py`, which writes the shared-body
+number and prints all three matchings so the gap stays visible):
+
+| | reported | measured |
+|---|---|---|
+| worst step in a shared body's roof | 12.15 m | **7.70 m** |
+| where, and what changes there | mode flip `beyond → between` | **(88 500.3, 164 925.3) — a PAIR CHANGE, both columns `between`** |
+| the named hotspot | 12.15 m | **0.030 m** |
+| share of columns on the beyond path | 23.2 % | **12.9 %** |
+| adjacent pairs changing mode or pair | 1,112 of 23,469 (4.7 %) | 5,530 of 74,775 4-neighbour pairs (7.4 %) |
+| adjacent pairs sharing NO body | — | **0 of 74,775** |
+
+**The premise of the ruling this entry asked for does not survive.** The question was
+framed as "what should happen past the end of a section", because the between/beyond switch
+looked like it caused a 12 m wall. It does not. The largest real discontinuity is a **pair
+change** — which two sections are nearest — occurring entirely inside `between` mode, and
+no ruling about the beyond path would touch it. Whatever gets decided here, it is a
+different question from the one written below, and the numbers to reason about are 7.70 m
+and a pair change.
+
+**The companion does not yet show it as a step.** `blend_viewer/wall.html` draws the
+shallowest entry per column, which is a nearly flat lid (median adjacent jump 0.009 m over
+the whole 650 m model), while the steps are measured on a shared body's roof that sits a
+median 4.55 m below it. The walls therefore hang as curtains under a smooth sheet — visible
+as objects, not as risers between two treads. Fixing that means emitting the stepped body's
+roof per column so the surface itself steps.
 
 **Why it needs an owner ruling.** Removing the discontinuity means deciding what happens
 past the end of a section: keep extruding the terminal column unchanged (today), let the
