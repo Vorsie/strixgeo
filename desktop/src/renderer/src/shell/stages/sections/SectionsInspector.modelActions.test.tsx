@@ -14,7 +14,9 @@
 //       handler is NOT called (B6-litho moved from the old toolbar test).
 //   M4  Seed-for-new-tests is hidden on the litho axis; visible + disabled
 //       when newTestBoreholeIds is empty on the geology axis.
-//   M5  Dedupe button calls handleDedupeContacts.
+//   M5  Dedupe button confirms before it deletes: the click opens the dialog
+//       (M5), Cancel runs nothing (M5b), only the confirm calls
+//       handleDedupeContacts (M5c), and the dialog names the loss (M5d).
 //   M6  Whole section is omitted when neither model is active.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -555,12 +557,50 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     expect(btn).toBeDisabled()
   })
 
-  it('M5 â€” Dedupe calls handleDedupeContacts', async () => {
+  it('M5 â€” Dedupe opens the confirmation and deletes nothing yet', () => {
+    // Dedupe DB-deletes contacts and nothing restores them, so the verb has to
+    // ask first here exactly as it does on the Geology toolbar. It used to call
+    // the cleanup straight through on the first click.
     const dedupe = vi.fn().mockResolvedValue(0)
     const ctx = makeCtx({ handleDedupeContacts: dedupe })
     renderInspector(ctx)
     fireEvent.click(screen.getByTestId('inspector-dedupe'))
+    expect(
+      document.body.querySelector('[data-testid="dedupe-contacts-confirm-dialog"]'),
+    ).not.toBeNull()
+    expect(dedupe).not.toHaveBeenCalled()
+  })
+
+  it('M5b - cancelling the Dedupe confirmation deletes nothing', () => {
+    const dedupe = vi.fn().mockResolvedValue(0)
+    const ctx = makeCtx({ handleDedupeContacts: dedupe })
+    renderInspector(ctx)
+    fireEvent.click(screen.getByTestId('inspector-dedupe'))
+    fireEvent.click(screen.getByTestId('dedupe-contacts-cancel'))
+    expect(dedupe).not.toHaveBeenCalled()
+    expect(
+      document.body.querySelector('[data-testid="dedupe-contacts-confirm-dialog"]'),
+    ).toBeNull()
+  })
+
+  it('M5c - confirming the Dedupe confirmation calls handleDedupeContacts', async () => {
+    const dedupe = vi.fn().mockResolvedValue(0)
+    const ctx = makeCtx({ handleDedupeContacts: dedupe })
+    renderInspector(ctx)
+    fireEvent.click(screen.getByTestId('inspector-dedupe'))
+    fireEvent.click(screen.getByTestId('dedupe-contacts-confirm'))
     await vi.waitFor(() => expect(dedupe).toHaveBeenCalledOnce())
+  })
+
+  it('M5d - the confirmation says how many contacts the run will remove', () => {
+    // Two picks of the same formation on bh-1, so one of them goes.
+    const ctx = makeCtx({
+      contacts: [makeContact('c-1', 'bh-1'), makeContact('c-2', 'bh-1')],
+    })
+    renderInspector(ctx)
+    fireEvent.click(screen.getByTestId('inspector-dedupe'))
+    const count = document.body.querySelector('[data-testid="dedupe-contacts-count"]')
+    expect(count?.textContent).toContain('1 contact ')
   })
 
   it('M6 â€” Whole Model-actions section is omitted when neither model is active', () => {

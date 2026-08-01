@@ -12,6 +12,7 @@ import { AlertTriangle, CheckCircle } from 'lucide-react'
 
 import type { ProjectResponse, ProjectUpdatePayload } from '../api/client'
 import type { Toast } from '../hooks/useToasts'
+import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
 import NewProjectDialog from './NewProjectDialog'
 import ProjectMetadataDialog from './ProjectMetadataDialog'
 import UnsavedChangesDialog from './UnsavedChangesDialog'
@@ -30,6 +31,8 @@ export interface AppDialogsProps {
   setMetadataEditorOpen: (open: boolean) => void
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
   unsavedDialogOpen: boolean
+  /** Itemised session work the discard prompt names (from useProjectLifecycle). */
+  unsavedSummary: UnsavedWorkSummary
   unsavedSaving: boolean
   handleUnsavedSave: () => Promise<void>
   handleUnsavedDiscard: () => void
@@ -64,6 +67,7 @@ export default function AppDialogs({
   setMetadataEditorOpen,
   applyMetadataDraft,
   unsavedDialogOpen,
+  unsavedSummary,
   unsavedSaving,
   handleUnsavedSave,
   handleUnsavedDiscard,
@@ -124,6 +128,7 @@ export default function AppDialogs({
       <UnsavedChangesDialog
         open={unsavedDialogOpen}
         projectName={project.name}
+        summary={unsavedSummary}
         busy={unsavedSaving}
         onSave={() => void handleUnsavedSave()}
         onDiscard={handleUnsavedDiscard}

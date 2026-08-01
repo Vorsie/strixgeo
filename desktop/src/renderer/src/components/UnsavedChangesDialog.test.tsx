@@ -2,6 +2,30 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import UnsavedChangesDialog from './UnsavedChangesDialog'
+import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
+
+/**
+ * A saved project with no session work — the neutral baseline the older
+ * tests use. Individual tests override only the field they exercise.
+ */
+function makeSummary(overrides: Partial<UnsavedWorkSummary> = {}): UnsavedWorkSummary {
+  return {
+    hasSavedSnapshot: true,
+    importedCpts: 0,
+    importedBoreholes: 0,
+    importedFormations: 0,
+    importedSections: 0,
+    importedContacts: 0,
+    hasInterpretationEdits: false,
+    hasMetadataEdits: false,
+    ...overrides,
+  }
+}
+
+/** Everything the dialog renders, as one flat string, for copy assertions. */
+function dialogText(): string {
+  return screen.getByTestId('unsaved-changes-dialog').textContent ?? ''
+}
 
 describe('UnsavedChangesDialog', () => {
   it('renders nothing when closed', () => {
@@ -9,6 +33,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open={false}
         projectName="Site A"
+        summary={makeSummary()}
         onSave={vi.fn()}
         onDiscard={vi.fn()}
         onCancel={vi.fn()}
@@ -22,6 +47,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open
         projectName="Site A"
+        summary={makeSummary()}
         onSave={vi.fn()}
         onDiscard={vi.fn()}
         onCancel={vi.fn()}
@@ -42,6 +68,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open
         projectName="Site A"
+        summary={makeSummary()}
         onSave={onSave}
         onDiscard={onDiscard}
         onCancel={onCancel}
@@ -61,6 +88,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open
         projectName="Site A"
+        summary={makeSummary()}
         onSave={vi.fn()}
         onDiscard={vi.fn()}
         onCancel={onCancel}
@@ -75,6 +103,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open
         projectName="Site A"
+        summary={makeSummary()}
         busy
         onSave={vi.fn()}
         onDiscard={vi.fn()}
@@ -91,6 +120,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open
         projectName="Site A"
+        summary={makeSummary()}
         onSave={vi.fn()}
         onDiscard={vi.fn()}
         onCancel={vi.fn()}
@@ -108,6 +138,7 @@ describe('UnsavedChangesDialog', () => {
       <UnsavedChangesDialog
         open
         projectName="Site A"
+        summary={makeSummary()}
         onSave={vi.fn()}
         onDiscard={vi.fn()}
         onCancel={vi.fn()}
@@ -118,5 +149,176 @@ describe('UnsavedChangesDialog', () => {
     expect(cancel.className).toContain('text-text-primary')
     expect(cancel.className).not.toContain('text-gray-')
     expect(cancel.className).not.toContain('bg-white')
+  })
+})
+
+// The copy must match the behaviour. Discard runs a full replace-restore of
+// the project from the last-saved .gmproj, so an afternoon of correlating,
+// dragging boundaries and accepting suggestions is reverted — not just the
+// metadata the engineer typed. The old body promised "the database row stays
+// as it was", which is the opposite of what happens.
+describe('UnsavedChangesDialog — the copy names what Discard destroys', () => {
+  it('says discarding reverts the project to its last saved state', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasInterpretationEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(dialogText()).toMatch(/reverts[\s\S]*last saved state/i)
+  })
+
+  it('never claims the database is left untouched', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasMetadataEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const text = dialogText()
+    expect(text).not.toMatch(/database row stays/i)
+    expect(text).not.toMatch(/stays as it was/i)
+  })
+
+  it('names the kinds of work that revert, not merely "changes"', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({
+          importedCpts: 2,
+          hasInterpretationEdits: true,
+          hasMetadataEdits: true,
+        })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const text = dialogText()
+    expect(text).toMatch(/imported this session/i)
+    expect(text).toMatch(/correlations/i)
+    expect(text).toMatch(/boundary/i)
+    expect(text).toMatch(/metadata editor/i)
+  })
+
+  it('warns that discarding cannot be undone', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasInterpretationEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(dialogText()).toMatch(/cannot be undone/i)
+  })
+
+  it('reports the session import counts it actually has', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ importedCpts: 3, importedBoreholes: 1, importedSections: 2 })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    // Only the kinds actually imported are listed, and one of a kind reads
+    // as one — an engineer should never be shown "1 boreholes" or a row of
+    // zeroes for the kinds this session did not touch.
+    expect(dialogText()).toMatch(/3 CPTs, 1 borehole and 2 sections imported this session/)
+    expect(dialogText()).not.toMatch(/formation|geological contact/i)
+  })
+
+  it('says nothing about imports when nothing was imported this session', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasInterpretationEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(dialogText()).not.toMatch(/imported this session/i)
+  })
+
+  it('admits the interpretation edits are uncounted instead of inventing a number', () => {
+    // Only a boolean dirty flag exists for correlations / drags / accepts —
+    // there is no count to show, so the dialog says so.
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasInterpretationEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(dialogText()).toMatch(/not counted/i)
+  })
+
+  it('tells a never-saved project that discarding deletes rather than reverts', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasSavedSnapshot: false, importedCpts: 4 })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const text = dialogText()
+    expect(text).toMatch(/never been saved/i)
+    expect(text).not.toMatch(/last saved state/i)
+  })
+
+  it('the discard button names the whole scope, not just "Discard"', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasInterpretationEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('unsaved-discard-and-close')).toHaveTextContent(
+      /discard all changes/i,
+    )
+    // The confirm button names its action too — never a bare "OK" / "Yes".
+    const confirm = screen.getByTestId('unsaved-save-and-close')
+    expect(confirm).toHaveTextContent(/save/i)
+    expect(confirm).not.toHaveTextContent(/^(OK|Yes)$/i)
+  })
+
+  it('keeps Cancel default-focused so Enter cannot discard the session', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary({ hasInterpretationEdits: true })}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('unsaved-cancel')).toHaveFocus()
   })
 })

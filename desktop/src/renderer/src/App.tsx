@@ -464,6 +464,7 @@ export default function App() {
   // + activeGeologicalModel.
   const {
     projectDirty,
+    unsavedSummary,
     newProjectOpen,
     setNewProjectOpen,
     metadataEditorOpen,
@@ -504,6 +505,8 @@ export default function App() {
     hasUnsavedMutations,
     setHasUnsavedMutations,
     revertToLastSaved,
+    // No file path = never saved, so Discard has no snapshot to revert to.
+    hasSavedSnapshot: projectFilePath !== null,
   })
 
   // CPT + borehole data, import flows, hide/restore, elevation edits.
@@ -1104,6 +1107,7 @@ export default function App() {
         setMetadataEditorOpen={setMetadataEditorOpen}
         applyMetadataDraft={applyMetadataDraft}
         unsavedDialogOpen={unsavedDialogOpen}
+        unsavedSummary={unsavedSummary}
         unsavedSaving={unsavedSaving}
         handleUnsavedSave={handleUnsavedSave}
         handleUnsavedDiscard={handleUnsavedDiscard}

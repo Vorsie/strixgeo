@@ -221,8 +221,13 @@ export interface ShellContextValue {
   /** Active project (never null inside AppShell — the project gate in
    *  App.tsx ensures AppShell only mounts when a project is loaded). */
   project: ProjectResponse
-  /** Project lifecycle — dirty flag, dialogs, save/close actions. */
-  lifecycle: UseProjectLifecycleResult
+  /** Project lifecycle — dirty flag, dialogs, save/close actions.
+   *
+   *  ``unsavedSummary`` is omitted on purpose: it exists to write the
+   *  close-without-save dialog's body copy, which App renders directly via
+   *  AppDialogs. No stage reads it, and carrying it here would oblige every
+   *  stage test fixture to fabricate a summary it never uses. */
+  lifecycle: Omit<UseProjectLifecycleResult, 'unsavedSummary'>
   /** CPT + borehole data, import flows, hide/restore, elevation edits. */
   investigations: UseInvestigationDataResult
   /**

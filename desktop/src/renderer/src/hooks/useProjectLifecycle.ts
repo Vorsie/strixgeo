@@ -6,13 +6,15 @@
 // ``activeGeologicalModel``. Both are injected so the hook avoids reaching
 // across architectural layers.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { api } from '../api/client'
 import type { ProjectResponse } from '../api/client'
 import { log } from '../utils/log'
 import type { PickAndOpenResult } from './useProject'
 import type { StratigraphyLumping } from '../utils/projectFile'
+import { buildUnsavedWorkSummary } from '../utils/unsavedWorkSummary'
+import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
 
 /** Shape of the active geological model (id only — enough for contact cleanup). */
 interface ActiveModel {
@@ -22,6 +24,8 @@ interface ActiveModel {
 export interface UseProjectLifecycleResult {
   /** True when live project state differs from the last File → Save. */
   projectDirty: boolean
+  /** Itemised view of ``projectDirty`` for the close-without-save dialog. */
+  unsavedSummary: UnsavedWorkSummary
   // Dialog open/close state — consumed by the App render.
   newProjectOpen: boolean
   setNewProjectOpen: (open: boolean) => void
@@ -169,6 +173,7 @@ export function useProjectLifecycle({
   hasUnsavedMutations,
   setHasUnsavedMutations,
   revertToLastSaved,
+  hasSavedSnapshot,
 }: {
   project: { id: string; name: string } | null
   metadataDirty: boolean
@@ -206,6 +211,10 @@ export function useProjectLifecycle({
   hasUnsavedMutations: boolean
   setHasUnsavedMutations: (v: boolean) => void
   revertToLastSaved: () => Promise<boolean>
+  // True once the project has a .gmproj path. A never-saved project has no
+  // snapshot to revert to, so Discard deletes the session creates instead —
+  // the close dialog has to say which of the two it will do.
+  hasSavedSnapshot: boolean
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
   // Dialog state
@@ -240,6 +249,33 @@ export function useProjectLifecycle({
     sessionImportFormationIds.size > 0 ||
     sessionImportSectionIds.size > 0 ||
     sessionImportContactIds.size > 0
+
+  // The same seven sources, itemised — the close dialog names what a Discard
+  // takes, and one OR'd boolean cannot carry that. Derivation lives in
+  // utils/unsavedWorkSummary so this file does not grow it.
+  const unsavedSummary = useMemo(
+    () =>
+      buildUnsavedWorkSummary({
+        hasSavedSnapshot,
+        sessionImportCptIds,
+        sessionImportBoreholeIds,
+        sessionImportFormationIds,
+        sessionImportSectionIds,
+        sessionImportContactIds,
+        hasUnsavedMutations,
+        metadataDirty,
+      }),
+    [
+      hasSavedSnapshot,
+      sessionImportCptIds,
+      sessionImportBoreholeIds,
+      sessionImportFormationIds,
+      sessionImportSectionIds,
+      sessionImportContactIds,
+      hasUnsavedMutations,
+      metadataDirty,
+    ],
+  )
 
   // ---------------------------------------------------------------------------
   // Save / discard
@@ -547,6 +583,7 @@ export function useProjectLifecycle({
 
   return {
     projectDirty,
+    unsavedSummary,
     newProjectOpen,
     setNewProjectOpen,
     metadataEditorOpen,

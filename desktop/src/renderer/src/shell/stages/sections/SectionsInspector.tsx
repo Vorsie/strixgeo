@@ -37,8 +37,11 @@ import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
 import CrossingSectionPickerDialog from '../../../components/CrossingSectionPickerDialog'
+import DedupeContactsConfirmDialog from '../../../components/DedupeContactsConfirmDialog'
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
+import { useDedupeContactsConfirm } from '../../../hooks/useDedupeContactsConfirm'
 import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
+import { countDuplicateContacts } from '../../../utils/duplicateContacts'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilter'
 import { hashHexColor } from '../../../utils/hashColor'
@@ -1212,7 +1215,15 @@ function ModelActions({
   const isLitho = axis === 'lithostratigraphic'
   const [rebuilding, setRebuilding] = useState(false)
   const [seeding, setSeeding] = useState(false)
-  const [deduping, setDeduping] = useState(false)
+
+  // Dedupe DB-deletes contacts with no way back, so the button opens a
+  // confirmation rather than calling the cleanup. Same hook and same dialog as
+  // the Geology toolbar, which offers the identical verb.
+  const { confirmOpen, deduping, requestDedupe, cancelDedupe, confirmDedupe } =
+    useDedupeContactsConfirm(onDedupeContacts, activeGeologicalModel !== null)
+  // The contacts prop is the geological model's, model-wide — the same set the
+  // server groups — so the dialog can name the loss before the click.
+  const duplicates = useMemo(() => countDuplicateContacts(contacts), [contacts])
 
   // Build / Dedupe / Plaxis-3D act on the GEOLOGICAL model regardless
   // of axis (litho TINs are derived). The litho axis exposes Build as
@@ -1279,16 +1290,6 @@ function ModelActions({
       await onAutoPopulate(newTestBoreholeIds, selectedSectionId, applyUpdatedSection)
     } finally {
       setSeeding(false)
-    }
-  }
-
-  async function handleDedupe(): Promise<void> {
-    if (deduping || !activeGeologicalModel) return
-    setDeduping(true)
-    try {
-      await onDedupeContacts()
-    } finally {
-      setDeduping(false)
     }
   }
 
@@ -1405,7 +1406,7 @@ function ModelActions({
 
       <button
         type="button"
-        onClick={() => void handleDedupe()}
+        onClick={requestDedupe}
         disabled={deduping || geoVerbDisabled}
         className={btnClass}
         title={
@@ -1421,6 +1422,16 @@ function ModelActions({
         <Eraser size={11} aria-hidden="true" />
         {deduping ? 'Cleaning…' : 'Dedupe'}
       </button>
+
+      {/* Dedupe confirmation — the gate the maintenance verb never had. */}
+      <DedupeContactsConfirmDialog
+        open={confirmOpen}
+        duplicateContacts={duplicates.contacts}
+        duplicatePairs={duplicates.pairs}
+        busy={deduping}
+        onCancel={cancelDedupe}
+        onConfirm={confirmDedupe}
+      />
     </div>
   )
 }

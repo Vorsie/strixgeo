@@ -337,9 +337,25 @@ export function useGeologicalModelOps({
   // contacts left over from auto-populate runs that predated the
   // per-anchor uniqueness rule. Backend keeps one survivor per
   // group + deletes the rest; we refresh local contacts state +
-  // toast the count. NOT in the undo stack — this is an explicit
-  // "clean up old data" action with a confirmation dialog, not
-  // an interactive edit.
+  // toast the count.
+  //
+  // The callers gate this behind DedupeContactsConfirmDialog — the
+  // dialog this comment used to claim already existed while both
+  // buttons called straight through (see the clean/dirty audit,
+  // docs/design/clean-dirty-undo-audit.md §2.1).
+  //
+  // NOT in the undo stack, and not for want of the ids: the response
+  // carries removed_contact_ids, but an id cannot rebuild a deleted
+  // row, and re-POSTing the rows we still hold locally is refused —
+  // CreateFormationContact raises DuplicateContactError for any
+  // (model, anchor, formation) that already has a contact, which is
+  // by definition every row dedupe removed, since it kept the
+  // survivor. A real undo needs a backend restore command that
+  // re-inserts the losers with their original created_at (the third
+  // survivor tie-break reads it) and re-links the litho layers whose
+  // parent_geo_contact_id the delete set to NULL. Until that exists
+  // the dialog says the deletion cannot be undone rather than
+  // offering a restore that quietly returns a poorer row.
   const handleDedupeContacts = useCallback(async (): Promise<number> => {
     if (!project || !activeGeologicalModel) return 0
     log.debug('geology', `dedupeContacts entry model=${activeGeologicalModel.id}`)

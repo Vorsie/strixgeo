@@ -61,6 +61,7 @@ function makeArgs(overrides: Record<string, unknown> = {}) {
     hasUnsavedMutations: false,
     setHasUnsavedMutations: vi.fn(),
     revertToLastSaved: vi.fn().mockResolvedValue(true),
+    hasSavedSnapshot: true,
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any
@@ -143,5 +144,42 @@ describe('useProjectLifecycle — two-stage save (#160)', () => {
     })
 
     expect(setHasUnsavedMutations).toHaveBeenCalledWith(false)
+  })
+})
+
+// The close-without-save dialog names what a Discard takes. One OR'd
+// projectDirty boolean cannot carry that, so the hook also publishes the
+// itemised view the dialog reads.
+describe('useProjectLifecycle — unsavedSummary feeds the discard prompt', () => {
+  it('counts this session imports per kind and flags the uncounted edits', () => {
+    const { result } = renderHook(() =>
+      useProjectLifecycle(
+        makeArgs({
+          sessionImportCptIds: new Set(['c1', 'c2', 'c3']),
+          sessionImportBoreholeIds: new Set(['b1']),
+          hasUnsavedMutations: true,
+          metadataDirty: true,
+        }),
+      ),
+    )
+
+    expect(result.current.unsavedSummary).toEqual({
+      hasSavedSnapshot: true,
+      importedCpts: 3,
+      importedBoreholes: 1,
+      importedFormations: 0,
+      importedSections: 0,
+      importedContacts: 0,
+      hasInterpretationEdits: true,
+      hasMetadataEdits: true,
+    })
+  })
+
+  it('reports a never-saved project as having no snapshot to revert to', () => {
+    const { result } = renderHook(() =>
+      useProjectLifecycle(makeArgs({ hasSavedSnapshot: false })),
+    )
+
+    expect(result.current.unsavedSummary.hasSavedSnapshot).toBe(false)
   })
 })

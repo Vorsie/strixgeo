@@ -5,7 +5,9 @@
 //      via discoverBoreholeFormations; apply calls applyBoreholeFormationSelection.
 //   2. Separator.
 //   3. Build 3D model — calls handleRebuildSurfaces; amber badge when stale.
-//   4. Dedupe — calls handleDedupeContacts (model maintenance verb).
+//   4. Dedupe — model maintenance verb; DB-deletes contacts, so it goes through
+//      DedupeContactsConfirmDialog first (see below) and only then calls
+//      handleDedupeContacts.
 //   5. Separator.
 //   6. Reset view — collapses split viewport + flies camera to model bounding box.
 //   7. Delete stratigraphy — irreversible; confirm modal with Cancel default focus.
@@ -22,7 +24,7 @@
 //
 // No props accepted — all state/handlers come from useShell().
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Eraser,
   RefreshCw,
@@ -35,6 +37,9 @@ import { useShell } from '../../ShellContext'
 import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
+import DedupeContactsConfirmDialog from '../../../components/DedupeContactsConfirmDialog'
+import { useDedupeContactsConfirm } from '../../../hooks/useDedupeContactsConfirm'
+import { countDuplicateContacts } from '../../../utils/duplicateContacts'
 import FormationSelectionDialog from './FormationSelectionDialog'
 import type { FormationCandidate } from '../../../hooks/useGeologicalModel'
 import {
@@ -99,7 +104,16 @@ export default function GeologyToolbar(): JSX.Element {
   const discoverRequestIdRef = useRef(0)
 
   const [rebuilding, setRebuilding] = useState(false)
-  const [deduping, setDeduping] = useState(false)
+
+  // Dedupe deletes rows, so the button opens a confirmation instead of calling
+  // the cleanup. The hook owns the dialog-open + in-flight pair; the Sections
+  // inspector offers the same verb and uses the same one.
+  const { confirmOpen, deduping, requestDedupe, cancelDedupe, confirmDedupe } =
+    useDedupeContactsConfirm(handleDedupeContacts, activeGeologicalModel !== null)
+  // What the run is expected to cost, from the contacts already loaded here —
+  // the same model-wide list the server groups, so the dialog can name a number
+  // instead of asking the engineer to trust a verb.
+  const duplicates = useMemo(() => countDuplicateContacts(contacts), [contacts])
 
   // Delete model confirm state.
   const [deleteModelConfirmOpen, setDeleteModelConfirmOpen] = useState(false)
@@ -208,16 +222,7 @@ export default function GeologyToolbar(): JSX.Element {
     }
   }
 
-  // 3. Dedupe contacts.
-  async function handleDedupe(): Promise<void> {
-    if (deduping || !activeGeologicalModel) return
-    setDeduping(true)
-    try {
-      await handleDedupeContacts()
-    } finally {
-      setDeduping(false)
-    }
-  }
+  // 3. Dedupe contacts — see the useDedupeContactsConfirm wiring above.
 
   // 4. Confirm handler for FormationSelectionDialog.
   //    Receives stable keys (not display names) AND the manual_map at confirm
@@ -362,7 +367,7 @@ export default function GeologyToolbar(): JSX.Element {
       <ToolbarButton
         icon={<Eraser size={13} />}
         label={deduping ? 'Cleaning…' : 'Dedupe'}
-        onClick={() => void handleDedupe()}
+        onClick={requestDedupe}
         disabled={!hasModel || deduping}
         busy={deduping}
         title={
@@ -411,6 +416,16 @@ export default function GeologyToolbar(): JSX.Element {
             ? 'No active stratigraphy'
             : 'Permanently delete the active geological model and all its formations, contacts, and surfaces'
         }
+      />
+
+      {/* Dedupe confirmation — the gate the maintenance verb never had. */}
+      <DedupeContactsConfirmDialog
+        open={confirmOpen}
+        duplicateContacts={duplicates.contacts}
+        duplicatePairs={duplicates.pairs}
+        busy={deduping}
+        onCancel={cancelDedupe}
+        onConfirm={confirmDedupe}
       />
 
       {/* Formation selection dialog — opened after a successful discovery scan.
