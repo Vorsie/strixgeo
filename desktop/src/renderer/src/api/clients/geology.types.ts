@@ -894,6 +894,26 @@ export interface SubdivideAllBodiesResponse {
   borehole_only_count: number
   /** Number of project sections for which geotech edges were derived. */
   section_count: number
+  /**
+   * Accepted packing ties carried across the rebuild.  A rebuilt band is the
+   * band the tie pointed at when the investigation, the depth interval and the
+   * NAD class all match exactly (owner ruling 2026-08-01), so the tie is
+   * re-created against it — still accepted, still carrying its provenance.
+   */
+  reanchored_tie_count?: number
+  /**
+   * Accepted packing ties whose band is not in the rebuild, so they could not
+   * be carried.  These are gone; only the engineer can redraw them.
+   */
+  lost_tie_count?: number
+  /**
+   * Why the lost ties were lost — ``class_changed`` (the qc re-derived a
+   * different packing class over the same depths), ``interval_moved`` (a
+   * boundary shifted), ``band_absent`` (the rebuild no longer draws that
+   * geology), ``borehole_endpoint_deferred`` (the endpoint is a borehole
+   * column, filled by the later Divide-boreholes step).
+   */
+  lost_tie_reasons?: Record<string, number>
 }
 
 /**

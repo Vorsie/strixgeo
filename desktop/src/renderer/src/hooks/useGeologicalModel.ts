@@ -2201,7 +2201,10 @@ export function useGeologicalModel({
           ` split=${result.split_body_count}` +
           ` one_class=${result.one_class_body_count}` +
           ` borehole_only=${result.borehole_only_count}` +
-          ` sections=${result.section_count ?? 0}`,
+          ` sections=${result.section_count ?? 0}` +
+          ` ties_reanchored=${result.reanchored_tie_count ?? 0}` +
+          ` ties_lost=${result.lost_tie_count ?? 0}` +
+          ` ${JSON.stringify(result.lost_tie_reasons ?? {})}`,
       )
       // (a)+(b): re-derive activeGeotechModel so the axis toggle enables and
       // the geotechLayers useEffect fires with the new model id.
@@ -2236,7 +2239,22 @@ export function useGeologicalModel({
       const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
       const boreholeOnly = result.borehole_only_count ?? 0
       const boreholeNote = boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''
-      toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}.`)
+      // The rebuild gives every band a new id, so an accepted packing tie only
+      // survives when the band comes back on the same investigation, over the
+      // same depth interval, with the same NAD class. Say how many did — and
+      // warn about the ones that did not, because those are hand work the
+      // engineer now has to redraw and nothing else would tell him.
+      const reanchored = result.reanchored_tie_count ?? 0
+      const lostTies = result.lost_tie_count ?? 0
+      const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
+      toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}${tieNote}.`)
+      if (lostTies > 0) {
+        toast(
+          'error',
+          `${lostTies} accepted packing tie${lostTies === 1 ? '' : 's'} could not be kept — ` +
+            'the band changed and the tie has to be redrawn. See the console for which.',
+        )
+      }
     },
     // reason: activeLithoModelRef is a ref (always current) so listing it would
     // cause no-op dep churn; refreshModels, refetchFormations, addToSessionImports,

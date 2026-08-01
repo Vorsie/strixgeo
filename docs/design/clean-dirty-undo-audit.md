@@ -18,6 +18,24 @@ The geotech stage failed all four. The question this audit answers is: **where e
 
 ## 0. Read this first — the geotech bug is not fixed, only half-fixed
 
+> **CLOSED 2026-08-02 — row 1 of the table below no longer describes the code.**
+> Three commits landed after this audit was written: a derived tie is now born
+> unaccepted (`geotech_edge_derivation.py` defaults flipped to
+> `user_approved=False, source='auto'`), the reset spares accepted edges, and —
+> the part that actually matters — accepted ties are now **re-anchored** across a
+> rebuild instead of being taken by the endpoint FK cascade. The rule
+> (owner, 2026-08-01): a rebuilt band IS the old band when the investigation, the
+> depth interval and the NAD class all match, **exactly**, no tolerance.
+> `GeotechTieReanchor` captures before the reset and re-creates after the rebuild,
+> in the same transaction, preserving `user_approved=True` and the original
+> `source`. Measured on the owner's real model: **204 of 217 accepted ties
+> re-anchor, 13 are lost, all 13 because a boundary moved on 2 of 44 columns**
+> whose stored bands no longer match what today's segmenter produces; a second
+> consecutive rebuild loses zero. `SubdivideAllBodiesResult` /
+> the API response now carry `reanchored_tie_count`, `lost_tie_count` and
+> `lost_tie_reasons`, and the toast reports both. The rest of §0 is kept as the
+> record of what the audit found.
+
 The prompt describes the geotech failure in the past tense. It is still live, and the
 verification is exact:
 
