@@ -50,6 +50,21 @@ export interface UseGeotechPackingCorrelationDeps {
   setLastTargetTestId: Dispatch<SetStateAction<string | null>>
   setContactCorrelationEdges: Dispatch<SetStateAction<LithoContactCorrelationEdge[]>>
   setGeotechPackingEdges: Dispatch<SetStateAction<LithoContactCorrelationEdge[]>>
+  /**
+   * The shell undo stack, so a disconnect can be taken back.
+   *
+   * This hook otherwise stays clear of litho state, but an undo entry for a geotech
+   * disconnect is geotech's own — it recreates a geotech edge on the geotech model.
+   * It is needed because the alternative repair is re-subdividing, which is model-wide
+   * and destructive and would throw away every other manual correlation.
+   */
+  undoStack: {
+    push: (entry: {
+      description: string
+      revert: () => Promise<void>
+      reapply: () => Promise<void>
+    }) => void
+  }
 }
 
 /** Handler pair returned to SectionsCanvas. */
@@ -98,6 +113,7 @@ export function useGeotechPackingCorrelation(
     setLastTargetTestId,
     setContactCorrelationEdges,
     setGeotechPackingEdges,
+    undoStack,
   } = deps
 
   const handleCreateGeotechPackingCorrelation = useCallback(
@@ -229,6 +245,48 @@ export function useGeotechPackingCorrelation(
         markMutated()
         // Bodies changed → the borehole division is now out of date.
         markBoreholesStale()
+        // Mirror of the litho uncorrelate entry: undo restores the edge, redo removes it
+        // again, so a Ctrl-Z + Ctrl-Y round-trip leaves no drift. Pushed only after the
+        // DELETE succeeds — an undo offered for an edge that still exists would recreate
+        // a duplicate. The section id is captured here rather than read at undo time, so
+        // the revert lands on the section the edge was deleted from even if the owner has
+        // since selected another one.
+        const sectionIdAtPush = selectedSectionId
+        undoStack.push({
+          description: 'Disconnect packing bands',
+          revert: async () => {
+            await api.geology.createContactCorrelation(
+              projectId,
+              modelId,
+              layerAId,
+              layerBId,
+              sectionIdAtPush,
+              layerASide,
+              layerBSide,
+            )
+            await refetchContactEdges()
+            await refetchGeotechPackingEdges()
+            requestGeotechLayersRefetch()
+            markMutated()
+            markBoreholesStale()
+          },
+          reapply: async () => {
+            await api.geology.deleteContactCorrelation(
+              projectId,
+              modelId,
+              layerAId,
+              layerBId,
+              sectionIdAtPush,
+              layerASide,
+              layerBSide,
+            )
+            await refetchContactEdges()
+            await refetchGeotechPackingEdges()
+            requestGeotechLayersRefetch()
+            markMutated()
+            markBoreholesStale()
+          },
+        })
         log.success(
           'section',
           `packing-disconnect: edge ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) removed`,
@@ -259,6 +317,7 @@ export function useGeotechPackingCorrelation(
       markMutated,
       setContactCorrelationEdges,
       setGeotechPackingEdges,
+      undoStack,
     ],
   )
 
