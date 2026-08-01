@@ -169,7 +169,9 @@ async def subdivide_all_bodies(
         f"layers={result.layer_count} bodies={result.body_count} "
         f"split={result.split_body_count} one_class={result.one_class_body_count} "
         f"borehole_only={result.borehole_only_count} "
-        f"sections={result.section_count}"
+        f"sections={result.section_count} "
+        f"ties_reanchored={result.reanchored_tie_count} "
+        f"ties_lost={result.lost_tie_count} {result.lost_tie_reasons}"
     )
     return SubdivideAllBodiesResponse(
         geotech_model_id=result.geotech_model_id,
@@ -180,6 +182,9 @@ async def subdivide_all_bodies(
         one_class_body_count=result.one_class_body_count,
         borehole_only_count=result.borehole_only_count,
         section_count=result.section_count,
+        reanchored_tie_count=result.reanchored_tie_count,
+        lost_tie_count=result.lost_tie_count,
+        lost_tie_reasons=result.lost_tie_reasons,
     )
 
 

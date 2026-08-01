@@ -75,10 +75,25 @@ Idempotency on re-run
 ---------------------
 Before writing new rows the use case deletes the model's geotech data (not just
 a corridor), so a re-run always starts from a clean state.  The geotech model
-row itself is not deleted; only its content is.  The edge delete spares
-accepted ties per the clean/dirty rule — but the layer wipe that follows
-cascades them away regardless, because a rebuild gives every band a new id and
-the edge's endpoints cease to exist.  See ``_delete_all_geotech_data``.
+row itself is not deleted; only its content is.  See
+``_delete_all_geotech_data``.
+
+Accepted ties survive the reset by being RE-ANCHORED (owner ruling 2026-08-01).
+A correlation edge names two band ids, and the rebuild gives every band a fresh
+``uuid7``, so the endpoint FKs' ``ON DELETE CASCADE`` used to take every
+accepted packing tie with the layer wipe — silently, without passing through
+application code.  The use case therefore captures each accepted tie's endpoint
+identity BEFORE the reset (``GeotechTieReanchor.capture``) and re-creates the
+tie against the rebuilt bands AFTER materialisation
+(``GeotechTieReanchor.reanchor``), inside the same transaction, so a failure
+leaves neither half applied.  A rebuilt band **is** the old band when the
+investigation, the depth interval and the NAD class all match — exactly; no
+tolerance.  A tie whose band moved, changed class, or is gone cannot be
+re-anchored: it is logged at WARNING with both endpoints' identities and
+counted in ``lost_tie_count`` / ``lost_tie_reasons`` so the UI can say so.
+The re-anchored ties are written BEFORE the per-section derivation pass, whose
+dedup set is preloaded from them, so the auto pass never proposes a duplicate
+of a tie that was just restored.
 
 Borehole extrapolation — nearest-CPT same-lithology rule
 ---------------------------------------------------------
@@ -117,7 +132,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -126,8 +141,16 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     derive_geotech_edges_from_litho,
     load_approved_litho_edges,
+    load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
+)
+from groundmodel.application.geotech_tie_reanchor import (
+    REASON_BAND_ABSENT,
+    BandIdentity,
+    GeotechTieReanchor,
+    RebuiltBand,
+    depth_to_mm,
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
@@ -198,6 +221,23 @@ class SubdivideAllBodiesResult:
         packing-transition surface).
     section_count : int
         Number of project sections processed for edge derivation.
+    reanchored_tie_count : int
+        Accepted packing ties carried across the rebuild — the band they point
+        at came back on the same investigation, over the same depth interval,
+        with the same NAD class, so the tie was re-created against it (still
+        accepted, still carrying its original ``source``).
+    lost_tie_count : int
+        Accepted packing ties that could NOT be carried: at least one endpoint's
+        band is not in the rebuild under the owner's exact three-part rule.
+        Each is logged at WARNING with both endpoints' identities.
+    lost_tie_reasons : dict[str, int]
+        Per-reason breakdown of ``lost_tie_count`` — ``class_changed`` (the qc
+        re-derived a different packing class over the same depths),
+        ``interval_moved`` (a boundary shifted), ``band_absent`` (the rebuild
+        no longer draws geology there), ``borehole_endpoint_deferred`` (the
+        endpoint is a borehole column, whose bands ``DivideBoreholes``
+        materialises after this use case runs).  A tie whose two endpoints
+        failed differently is counted under each reason.
     """
 
     geotech_model_id: UUID
@@ -208,11 +248,48 @@ class SubdivideAllBodiesResult:
     one_class_body_count: int
     borehole_only_count: int
     section_count: int = 0
+    reanchored_tie_count: int = 0
+    lost_tie_count: int = 0
+    lost_tie_reasons: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
 # Internal data holders (not domain DTOs — private to this module)
 # ---------------------------------------------------------------------------
+
+
+def _rebuilt_bands(
+    geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
+) -> list[RebuiltBand]:
+    """Describe the bands the materialise phase just wrote, for the re-anchor.
+
+    Translates the phase's ``investigation → [(top_m, base_m, layer_id,
+    formation_id, nad_class)]`` accumulator into the three-part band identity
+    the owner's rule matches on.
+
+    Parameters
+    ----------
+    geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID, int | None]]]
+        The materialise phase's per-investigation band accumulator.
+
+    Returns
+    -------
+    list[RebuiltBand]
+        One entry per band written in this run.
+    """
+    return [
+        RebuiltBand(
+            identity=BandIdentity(
+                investigation_id=investigation_id,
+                depth_top_mm=depth_to_mm(top_m),
+                depth_base_mm=depth_to_mm(base_m),
+                nad_class=nad_class,
+            ),
+            layer_id=layer_id,
+        )
+        for investigation_id, entries in geotech_layer_by_inv_depth.items()
+        for top_m, base_m, layer_id, _formation_id, nad_class in entries
+    ]
 
 
 @dataclass
@@ -330,6 +407,13 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         await ResolveLithoInstances(self._session).execute(model_id=litho_model_id, commit=False)
         self.info(f"SubdivideAllBodies: geotech_model={geotech_model.id} (litho bodies resolved)")
 
+        # Phase 1b — capture the engineer's ACCEPTED packing ties BEFORE anything
+        # is deleted. Their endpoints are geotech litho_layer rows that the reset
+        # removes, and the edge FKs cascade, so once the wipe fires there is
+        # nothing left to read: what the tie connected can only be recorded now.
+        tie_reanchor = GeotechTieReanchor(self._session)
+        captured_ties = await tie_reanchor.capture(geotech_model.id)
+
         # Phase 2 — load ALL model picks (no section restriction).
         picks = await self._litho_repo.load_body_picks(litho_model_id)
         self.info(f"SubdivideAllBodies: {len(picks)} pick(s) across whole model")
@@ -347,6 +431,16 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 "SubdivideAllBodies: no picks in the model — geotech model "
                 "created/reused, prior geotech data cleared, no bodies materialised"
             )
+            if captured_ties:
+                # There is no rebuild on this path, so there is no band for any
+                # accepted tie to re-anchor onto. Say so rather than letting the
+                # cascade take them in silence.
+                self.warning(
+                    f"SubdivideAllBodies: {len(captured_ties)} ACCEPTED packing tie(s) "
+                    f"could not be carried — the litho model has no picks, so the "
+                    f"rebuild produced no bands to re-anchor them to "
+                    f"(model {geotech_model.id})"
+                )
             return SubdivideAllBodiesResult(
                 geotech_model_id=geotech_model.id,
                 created_formation_ids=[],
@@ -355,6 +449,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 split_body_count=0,
                 one_class_body_count=0,
                 borehole_only_count=0,
+                lost_tie_count=len(captured_ties),
+                lost_tie_reasons=(
+                    {REASON_BAND_ABSENT: len(captured_ties)} if captured_ties else {}
+                ),
             )
 
         # Phase 3 — geo-bound picks (same pipeline as C1, but a wider geotech
@@ -576,6 +674,16 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"skipped_empty_plan={skipped_empty_plan_count}"
         )
 
+        # Phase 8c — re-anchor the accepted ties captured in Phase 1b onto the
+        # bands just rebuilt. This runs BEFORE the derivation pass so the pass's
+        # per-section dedup set (loaded below) already carries the restored ties
+        # and cannot stack an unapproved proposal beside one of them.
+        reanchor_plan = await tie_reanchor.reanchor(
+            geotech_model_id=geotech_model.id,
+            captured=captured_ties,
+            rebuilt_bands=_rebuilt_bands(geotech_layer_by_inv_depth),
+        )
+
         # Phase 9 — load all project sections; derive geotech edges per section.
         # This pass sees ONLY the CPT geotech bands (materialised above); a litho
         # edge with a borehole endpoint finds an empty geotech stack and is
@@ -595,6 +703,14 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"SubdivideAllBodies: {len(litho_layer_depths)} litho layer depth entries loaded"
         )
 
+        # Per-section dedup, preloaded with the ties Phase 8c just restored (the
+        # only edges in the model at this point — the reset emptied the rest).
+        # Without the preload the derivation would re-propose a band pair an
+        # accepted tie already joins, and the pair would carry two edges.
+        seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
+            self._session, geotech_model.id
+        )
+
         edge_totals = EdgeDerivationCounts()
         sections_with_edges = 0
         for section in sections:
@@ -608,7 +724,6 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 f"SubdivideAllBodies: section={section.id} ({section.name!r}) "
                 f"{len(litho_approved_edges)} approved litho edge(s)"
             )
-            # Fresh dedup set per section (matches the original per-section scope).
             edge_totals.add(
                 await derive_geotech_edges_from_litho(
                     self._session,
@@ -618,7 +733,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     litho_approved_edges=litho_approved_edges,
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
-                    seen_layer_pairs=set(),
+                    seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
                 )
             )
         self.info(
@@ -654,6 +769,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             one_class_body_count=one_class_body_count,
             borehole_only_count=borehole_only_count,
             section_count=sections_with_edges,
+            reanchored_tie_count=len(reanchor_plan.matched),
+            lost_tie_count=len(reanchor_plan.lost),
+            lost_tie_reasons=reanchor_plan.loss_reason_counts(),
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "
@@ -661,6 +779,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"split={split_body_count} one_class={one_class_body_count} "
             f"borehole_only={borehole_only_count} "
             f"sections_with_edges={sections_with_edges}/{len(sections)} "
+            f"accepted_ties_reanchored={len(reanchor_plan.matched)}/{len(captured_ties)} "
+            f"accepted_ties_lost={len(reanchor_plan.lost)} "
             f"elapsed={elapsed:.1f}s"
         )
         return result
@@ -677,8 +797,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         Order: dirty edges → layers (LL→FC trigger cleans their FC mirrors) →
         direct FC rows written by C1 → bodies.
 
-        ⚠ ACCEPTED TIES DO NOT SURVIVE THIS RESET, and step 1's acceptance
-        predicate cannot save them — see the comment at step 2.
+        Every edge of the model is gone once this returns — the accepted ones
+        too, taken by the endpoint FK cascade.  They come back: the caller
+        captured them before calling this
+        (:meth:`GeotechTieReanchor.capture`) and re-creates each one against the
+        rebuilt band that matches its investigation, depth interval and NAD
+        class (:meth:`GeotechTieReanchor.reanchor`), in this same transaction.
 
         Parameters
         ----------
@@ -686,9 +810,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             The geotechnical model to wipe clean.
         """
         # 1. Delete the DIRTY correlation edges — everything the program derived
-        # and the engineer never accepted.  Accepted ties are spared here: under
-        # the clean/dirty rule the machine never deletes what the user accepted,
-        # and this reset is the machine regenerating its own work.
+        # and the engineer never accepted.  Accepted ties are spared by this
+        # statement (the machine never deletes what the user accepted), but see
+        # step 2: the cascade takes them anyway, and the re-anchor pass — not
+        # this predicate — is what actually carries them across the rebuild.
         await self._session.execute(
             delete(LithoContactCorrelationEdgeOrm).where(
                 LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
@@ -696,47 +821,21 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             )
         )
 
-        # 1b. Count what step 1 just spared, because step 2 is about to take it
-        # anyway (see below).  The cascade reports nothing, so without this the
-        # loss is silent — the engineer sees a successful rebuild and no hint
-        # that his accepted ties went with it.
-        spared_edge_count = (
-            await self._session.execute(
-                select(func.count())
-                .select_from(LithoContactCorrelationEdgeOrm)
-                .where(
-                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-                )
-            )
-        ).scalar_one()
-
         # 2. Delete all litho_layer rows (LL→FC trigger removes their FC mirrors).
         #
-        # ⚠ THIS DESTROYS THE EDGES STEP 1 SPARED.  A geotech edge's endpoints
+        # This also destroys the edges step 1 spared.  A geotech edge's endpoints
         # (layer_a_id / layer_b_id) are geotech litho_layer rows — the very rows
         # this statement removes — and both FKs are ON DELETE CASCADE
-        # (litho_contact_correlation_edge_orm.py:155,160).  Postgres therefore
-        # deletes every spared edge as a side effect of this line, without a
-        # rowcount and without passing through any application code.
+        # (litho_contact_correlation_edge_orm.py:155,160), so Postgres deletes
+        # every spared edge as a side effect of this line, without a rowcount
+        # and without passing through any application code.
         #
-        # Sparing them properly is not a matter of another WHERE clause: a
-        # re-subdivide re-derives every geotech band from scratch with a fresh
-        # uuid7, so the layers an accepted tie points at genuinely cease to
-        # exist.  Keeping the edge would need the rebuilt bands to be MATCHED
-        # back to the old ones (by investigation + depth interval + NAD class)
-        # and the edge re-anchored to the survivors — a design decision about
-        # what "the same band" means across a rebuild, which is the owner's to
-        # make.  Until then the predicate at step 1 states the intent and this
-        # warning states the truth.
-        if spared_edge_count:
-            self.warning(
-                f"_delete_all_geotech_data: {spared_edge_count} ACCEPTED geotech "
-                f"correlation edge(s) were spared by the delete but will be removed "
-                f"by ON DELETE CASCADE when their geotech layers go — a re-subdivide "
-                f"rebuilds every band with a new id, so accepted packing ties cannot "
-                f"survive it yet (model {geotech_model_id})"
-            )
+        # No WHERE clause can prevent that: the rebuild re-derives every band
+        # with a fresh uuid7, so the rows an accepted tie points at genuinely
+        # cease to exist.  The tie is preserved one level up instead — captured
+        # by identity before this runs, re-created against the matching rebuilt
+        # band afterwards (owner ruling 2026-08-01: same investigation, same
+        # depth interval, same NAD class).
         await self._session.execute(
             delete(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
         )

@@ -38,6 +38,22 @@ class SubdivideAllBodiesResponse(BaseModel):
     section_count : int
         Number of project sections for which geotech correlation edges were
         derived from the litho model's approved edges.
+    reanchored_tie_count : int
+        Accepted packing ties carried across the rebuild.  A rebuilt band is
+        the band the tie pointed at when the investigation, the depth interval
+        and the NAD class all match (owner ruling 2026-08-01), so the tie is
+        re-created against it — still accepted, still carrying its original
+        provenance.
+    lost_tie_count : int
+        Accepted packing ties that could not be carried because at least one
+        endpoint's band is not in the rebuild.  Surface this to the engineer:
+        the ties are gone and only he can redraw them.
+    lost_tie_reasons : dict[str, int]
+        Breakdown of ``lost_tie_count``.  ``class_changed`` = the qc re-derived
+        a different packing class over the same depths; ``interval_moved`` = a
+        boundary shifted; ``band_absent`` = the rebuild no longer draws that
+        geology; ``borehole_endpoint_deferred`` = the endpoint is a borehole
+        column, whose bands are materialised by the later DivideBoreholes step.
     """
 
     geotech_model_id: UUID = Field(
@@ -74,4 +90,25 @@ class SubdivideAllBodiesResponse(BaseModel):
     section_count: int = Field(
         0,
         description="Project sections for which geotech edges were derived.",
+    )
+    reanchored_tie_count: int = Field(
+        0,
+        description=(
+            "Accepted packing ties re-anchored onto the rebuilt bands "
+            "(same investigation, same depth interval, same NAD class)."
+        ),
+    )
+    lost_tie_count: int = Field(
+        0,
+        description=(
+            "Accepted packing ties whose band is not in the rebuild, so they "
+            "could not be carried across. The engineer has to redraw them."
+        ),
+    )
+    lost_tie_reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Why the lost ties were lost: class_changed / interval_moved / "
+            "band_absent / borehole_endpoint_deferred."
+        ),
     )
