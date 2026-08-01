@@ -62,16 +62,23 @@ What it persists (one transaction, single commit at the end)
 2. **``litho_contact_correlation_edge`` rows** — one per approved litho edge,
    mapped from the litho layer's depth to the geotech sub-layer covering that
    same depth on each investigation, tagged with the source ``section_id``.
-   All edges are ``user_approved=True``, ``source='manual'``.
+   All edges are PROPOSALS: ``user_approved=False``, ``source='auto'``.  The
+   engineer promotes them with the section Accept-correlations verb, exactly as
+   on the litho axis.  Until he does, they connect nothing — the resolver reads
+   only approved edges — so a fresh subdivide leaves each packing band its own
+   body, and geotech bodies span investigations only where he accepted a tie.
 
-3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances`` from the above
-   edges; ``litho_layer.body_id`` is stamped in the same step.
+3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances`` from the
+   ACCEPTED edges; ``litho_layer.body_id`` is stamped in the same step.
 
 Idempotency on re-run
 ---------------------
-Before writing new rows the use case deletes ALL geotech data for the model
-(not just a corridor), so a re-run always starts from a clean state.  The
-geotech model row itself is not deleted; only its content is.
+Before writing new rows the use case deletes the model's geotech data (not just
+a corridor), so a re-run always starts from a clean state.  The geotech model
+row itself is not deleted; only its content is.  The edge delete spares
+accepted ties per the clean/dirty rule — but the layer wipe that follows
+cascades them away regardless, because a rebuild gives every band a new id and
+the edge's endpoints cease to exist.  See ``_delete_all_geotech_data``.
 
 Borehole extrapolation — nearest-CPT same-lithology rule
 ---------------------------------------------------------
@@ -110,7 +117,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -663,26 +670,73 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
     # ------------------------------------------------------------------
 
     async def _delete_all_geotech_data(self, geotech_model_id: UUID) -> None:
-        """Delete ALL prior geotech layers, edges, FC rows, and bodies for the model.
+        """Delete the model's prior geotech layers, edges, FC rows, and bodies.
 
         Scoped to the entire geotech model (not a corridor subset), so that
         re-running the model-wide subdivide always starts from a clean state.
-        Order: edges → layers (LL→FC trigger cleans their FC mirrors) →
+        Order: dirty edges → layers (LL→FC trigger cleans their FC mirrors) →
         direct FC rows written by C1 → bodies.
+
+        ⚠ ACCEPTED TIES DO NOT SURVIVE THIS RESET, and step 1's acceptance
+        predicate cannot save them — see the comment at step 2.
 
         Parameters
         ----------
         geotech_model_id : UUID
             The geotechnical model to wipe clean.
         """
-        # 1. Delete all correlation edges for the geotech model.
+        # 1. Delete the DIRTY correlation edges — everything the program derived
+        # and the engineer never accepted.  Accepted ties are spared here: under
+        # the clean/dirty rule the machine never deletes what the user accepted,
+        # and this reset is the machine regenerating its own work.
         await self._session.execute(
             delete(LithoContactCorrelationEdgeOrm).where(
                 LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                LithoContactCorrelationEdgeOrm.user_approved.is_(False),
             )
         )
 
+        # 1b. Count what step 1 just spared, because step 2 is about to take it
+        # anyway (see below).  The cascade reports nothing, so without this the
+        # loss is silent — the engineer sees a successful rebuild and no hint
+        # that his accepted ties went with it.
+        spared_edge_count = (
+            await self._session.execute(
+                select(func.count())
+                .select_from(LithoContactCorrelationEdgeOrm)
+                .where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        ).scalar_one()
+
         # 2. Delete all litho_layer rows (LL→FC trigger removes their FC mirrors).
+        #
+        # ⚠ THIS DESTROYS THE EDGES STEP 1 SPARED.  A geotech edge's endpoints
+        # (layer_a_id / layer_b_id) are geotech litho_layer rows — the very rows
+        # this statement removes — and both FKs are ON DELETE CASCADE
+        # (litho_contact_correlation_edge_orm.py:155,160).  Postgres therefore
+        # deletes every spared edge as a side effect of this line, without a
+        # rowcount and without passing through any application code.
+        #
+        # Sparing them properly is not a matter of another WHERE clause: a
+        # re-subdivide re-derives every geotech band from scratch with a fresh
+        # uuid7, so the layers an accepted tie points at genuinely cease to
+        # exist.  Keeping the edge would need the rebuilt bands to be MATCHED
+        # back to the old ones (by investigation + depth interval + NAD class)
+        # and the edge re-anchored to the survivors — a design decision about
+        # what "the same band" means across a rebuild, which is the owner's to
+        # make.  Until then the predicate at step 1 states the intent and this
+        # warning states the truth.
+        if spared_edge_count:
+            self.warning(
+                f"_delete_all_geotech_data: {spared_edge_count} ACCEPTED geotech "
+                f"correlation edge(s) were spared by the delete but will be removed "
+                f"by ON DELETE CASCADE when their geotech layers go — a re-subdivide "
+                f"rebuilds every band with a new id, so accepted packing ties cannot "
+                f"survive it yet (model {geotech_model_id})"
+            )
         await self._session.execute(
             delete(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
         )
