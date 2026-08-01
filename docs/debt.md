@@ -7727,7 +7727,7 @@ through untouched.
 **When to revisit.** With #261, which is the same shape of question: both are about what
 the builder should do where the sections stop agreeing. Not a patch.
 
-## 261. The blend carries one section's fragmentation across to the other — RETITLED 2026-08-01 (L)
+## 261. The blend carries one section's fragmentation — RESOLVED 2026-08-01, never a model defect
 
 **What.** Reproduced independently 2026-07-31, and the mechanism is NOT the reported
 one. Matched bodies cannot invert under interpolation — if A is above B on both sections
@@ -7815,7 +7815,38 @@ Shown side by side in `blend_viewer/fragment.html`
 (`scripts/dump_fragmentation_cases.py` writes it): the two drawn sections at the outside,
 TODAY / THIN / OUTSIDE between them, coloured by formation at true elevation.
 
-**Why it is not obviously wrong, and why it needs the owner.** Section A genuinely has
+**RESOLVED 2026-08-01 — no ruling was needed, and the owner is the one who saw why.**
+Looking at the five columns he read them correctly: *"they don't disagree, those sand
+lenses just don't reach section B"*. That is exactly right, and it dissolves the question.
+The cross-section draws lenses inside a silt; the tie draws the silt whole; the lenses
+simply pinch out before reaching the tie, which under the reach ruling (#256) is what
+should happen. Neither THIN nor OUTSIDE was ever needed — both answered a disagreement
+that does not exist.
+
+Testing that reading found one real defect behind it. Reading a SINGLE section merges
+touching slices of one body (`_merge_contiguous`, #257); blending two did not. The split
+survives because a section can record a lens sliced exactly at its own apex —
+`2.650 -> 2.650` at (88 296.3, 164 767.3) — which has no thickness but sits BETWEEN two
+pieces of the host in the list, so the section-level merge cannot join them: they are not
+adjacent. Measured before the fix: **715 of 4,110 sampled blended columns (17.4 %)** held
+touching pieces of one body, **880 joins**, with **0** leftover zero-thickness slivers.
+
+Fixed by merging the blend output too (`d1272ea40`), TDD from the real column because an
+invented fixture passed.
+
+**And it changes nothing in the delivered model** — 81 bodies, 540,958 triangles, drilled
+gate 54 exact / 0 subsequence / 0 wrong / 4 paired / 0 uncovered, every number identical
+before and after. The reason is worth recording: `label_voxels` assigns each cell a body
+id, so a body arriving as four touching intervals labels exactly the cells it would have
+labelled as one. **The fragmentation was real in the STACK and invisible in the MODEL.**
+The five-column companion draws the stack, which is why it looked alarming.
+
+So this entry was never a defect in what the owner receives. What survives is a
+representation fix worth having — diagnostics stop reporting phantom fragmentation, and
+any future consumer that reads the stack directly gets the truth — plus the corrected
+counts above for anyone who reopens the question.
+
+**Superseded — kept only for the record.** Section A genuinely has
 thin units where section B has one thick SILT, so SOMETHING has to happen between them.
 Interleaving produces an alternation neither section shows; the alternatives — thinning
 the one-sided units to nothing inside the matched body, or placing them wholly above or
