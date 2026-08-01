@@ -28,6 +28,14 @@ re-pointed at the voxel-litho value objects:
   blend thickness by weight; a body present on only ONE side pinches to zero
   thickness at the equidistance midline.  PORTED faithfully.
 * ``_stack_at`` — the ``LoftField.stack_at`` 2-nearest + between/beyond rule.
+* ``_blend_stacks_faded`` — the optional replacement for that rule (``fade_sections``,
+  docs/debt.md #260).  Hard-selecting two sections means that walking across the model
+  eventually swaps one for another AT FULL STRENGTH, and the ground jumps in a single
+  step.  Weighting every section by inverse distance instead means a section's influence
+  only grows and shrinks, so the step is never created rather than being detected and
+  smoothed afterwards.  The blend is the same rule generalised — a body's thickness is
+  ``sum_i w_i * th_i`` with ``th_i`` zero where the body is absent — so with two sections
+  it reproduces the reach ruling exactly.  Off by default.
 
 Difference from ``loft_field`` (documented per spec): our ``RegionInput`` has
 NO ``kind`` / ``overlay_tier`` fields, so we do NOT reconstruct band/onlap/lens
@@ -93,6 +101,15 @@ stops about one cell short of fraction 1 rather than reaching it exactly.
 
 _SNAP_MARGIN_CELLS: float = 2.0
 """How many snap cells the edge nudge must clear, so it lands INSIDE the last region."""
+
+_DEFAULT_FADE_POWER: float = 2.0
+"""How sharply a section's influence falls off with distance, as ``p`` in ``1 / d**p``.
+
+A SHAPE, not a length: scaling every distance in the model by the same number leaves all
+the weights unchanged, so this introduces no distance to calibrate and nothing to invent.
+Two is the usual inverse-distance-weighting default — near enough that a far section does
+not smear local detail, far from silencing it.  See :func:`_fade_weights`.
+"""
 
 _CONTIGUOUS_EPS: float = 1e-6
 """How close two slices of one body must be to count as touching, in metres.
@@ -711,6 +728,234 @@ def _blend_stacks(
 
 
 # ---------------------------------------------------------------------------
+# The faded N-section blend (debt #260 — nothing ever swaps)
+# ---------------------------------------------------------------------------
+
+
+def _fade_weights(distances: list[float], power: float) -> list[float]:
+    """How much each section says at a point, from its distance alone.
+
+    Inverse distance, ``w_i ∝ 1 / d_i**p``, normalised to sum to one.  Every section is
+    weighted, so none is ever selected or dropped: a section's influence only grows and
+    shrinks as the query moves, which is what makes the two-nearest rule's step
+    impossible rather than merely small (docs/debt.md #260).
+
+    The exponent introduces NO length.  Multiply every distance in the model by the same
+    number and the weights are unchanged, so there is no scale to calibrate against the
+    section spacing and nothing to invent.  ``p`` only chooses how sharply the near
+    section outweighs the far one; ``p = 2`` is the usual inverse-distance-weighting
+    default, near enough to keep a far section from smearing local detail while never
+    silencing it.
+
+    Computed as ``(d_min / d_i)**p`` rather than ``1 / d_i**p``.  The two are
+    proportional, so they normalise to the same weights, but the ratio form can never
+    overflow (the nearest section's raw weight is exactly one and every other is at most
+    that), which the raw reciprocal can for a query almost on a fence.
+
+    Parameters
+    ----------
+    distances : list of float
+        Perpendicular distance from the query to each section, in metres.
+    power : float
+        The fall-off exponent ``p``; must be positive.
+
+    Returns
+    -------
+    list of float
+        One non-negative weight per section, summing to one.  A query sitting exactly on
+        a fence gives that section all the weight, split evenly if several coincide.
+    """
+    nearest = min(distances)
+    if nearest <= _EPS:
+        # Standing on a section, that section's own column is the answer; nothing farther
+        # away gets to move a contact the query is sitting on.
+        on_fence = {i for i, d in enumerate(distances) if d <= _EPS}
+        share = 1.0 / len(on_fence)
+        return [share if i in on_fence else 0.0 for i in range(len(distances))]
+    raw = [(nearest / d) ** power for d in distances]
+    total = sum(raw)
+    return [r / total for r in raw]
+
+
+def _group_ref(group: dict[int, _Entry], weights: list[float]) -> float:
+    """Where one occurrence group sits vertically — the weighted mean of its own mids.
+
+    Normalised over the group's OWN weights, so a body carried by a single section
+    reports that section's mid rather than a fraction of it.  For two sections whose
+    weights sum to one this is ``w1 * mid1 + w2 * mid2``, the reference elevation
+    :func:`_blend_stacks` already uses.
+
+    The value only ORDERS the placement specs; :func:`_layout` reads thickness and the
+    order, never this number.
+
+    Parameters
+    ----------
+    group : dict of int to _Entry
+        One occurrence of one body, keyed by the index of the section carrying it.
+    weights : list of float
+        The per-section weights.
+
+    Returns
+    -------
+    float
+        The group's reference elevation in mTAW.
+    """
+    if len(group) == 1:
+        return _mid(next(iter(group.values())))
+    total = 0.0
+    weighted = 0.0
+    for i in sorted(group):
+        total += weights[i]
+        weighted += weights[i] * _mid(group[i])
+    if total <= 0.0:
+        # Every section carrying this group has zero weight, so the group has zero
+        # thickness and will be dropped; its position cannot matter.
+        return _mid(group[min(group)])
+    return weighted / total
+
+
+def _occurrence_groups(
+    stacks: list[list[_Entry]], weights: list[float]
+) -> tuple[list[tuple[str, dict[int, _Entry]]], list[tuple[int, _Entry]]]:
+    """Match every body's occurrences across N sections into groups.
+
+    A body can appear several times down one column, and the occurrence on one section
+    has to be matched to the one on another that it actually corresponds to.  Sections
+    are folded in one at a time, nearest first: each new section's occurrences of a body
+    are matched against the groups formed so far by :func:`_pair_occurrences`, with a
+    group standing in as a zero-thickness entry at its blended mid.  A group of one has
+    its own entry's mid, so for exactly two sections this IS
+    ``_pair_occurrences(first_occurrences, second_occurrences)`` — the same nearest-mid
+    rule, not a new one (docs/debt.md #248).
+
+    The fold order is the caller's list order and must NOT depend on the query, or the
+    grouping would change the moment two sections swap rank and the blend would step
+    again for a reason that has nothing to do with the ground.
+
+    Parameters
+    ----------
+    stacks : list of list of _Entry
+        One vertical stack per section, shallow → deep.
+    weights : list of float
+        The per-section weights, in the same order as ``stacks``.
+
+    Returns
+    -------
+    tuple
+        ``(groups, loose)``.  ``groups`` is ``(body_id, {section_index: entry})`` per
+        occurrence, in first-appearance order of the body.  ``loose`` is
+        ``(section_index, entry)`` for every never-correlated minority (``body_id`` is
+        ``None``), which has no identity to match on and is therefore always its own
+        group.
+    """
+    groups_by_body: dict[str, list[dict[int, _Entry]]] = {}
+    body_order: list[str] = []
+    loose: list[tuple[int, _Entry]] = []
+    for section_index, stack in enumerate(stacks):
+        occurrences: dict[str, list[_Entry]] = {}
+        for entry in stack:
+            if entry.body_id is None:
+                loose.append((section_index, entry))
+                continue
+            occurrences.setdefault(entry.body_id, []).append(entry)
+        for body, entries in occurrences.items():
+            existing = groups_by_body.get(body)
+            if existing is None:
+                body_order.append(body)
+                groups_by_body[body] = [{section_index: entry} for entry in entries]
+                continue
+            stand_ins = [
+                _Entry(body, "", ref, ref) for ref in (_group_ref(g, weights) for g in existing)
+            ]
+            # Identity, not equality: two groups at the same elevation would produce
+            # equal stand-ins, and the pairing has to say WHICH group it matched.  Every
+            # stand-in is a fresh object held in the list above, so its id is unique.
+            slot_of = {id(stand_in): k for k, stand_in in enumerate(stand_ins)}
+            fresh: list[dict[int, _Entry]] = []
+            for matched_group, matched_entry in _pair_occurrences(stand_ins, entries):
+                if matched_group is not None and matched_entry is not None:
+                    existing[slot_of[id(matched_group)]][section_index] = matched_entry
+                elif matched_entry is not None:
+                    # No counterpart among the groups so far — a new occurrence, which
+                    # this section carries and the others do not.
+                    fresh.append({section_index: matched_entry})
+            existing.extend(fresh)
+    return [(body, group) for body in body_order for group in groups_by_body[body]], loose
+
+
+def _blend_stacks_faded(stacks: list[list[_Entry]], weights: list[float]) -> list[_Entry]:
+    """Blend N section stacks by weight, so no section is ever switched on or off.
+
+    A body's blended thickness is ``sum_i w_i * th_i``, where ``th_i`` is zero on a
+    section that does not carry it.  That single rule is the whole blend, and it REDUCES
+    to what two sections already do under the owner's reach ruling of 2026-07-31: a body
+    drawn on one section only gets ``w_own``, whole where that section stands and gone
+    where the section that contradicts it stands.  So the ruling is generalised, not
+    replaced — with two stacks this function reproduces
+    ``_blend_stacks(..., reach_to_evidence=True)`` exactly.
+
+    What is blended is the STACK — the contact elevations.  Body ids and lithologies are
+    never averaged: every interval in the result belongs to a body some section drew, so
+    the blend cannot invent material that is in no section.
+
+    The result is laid out cumulatively from the blended top by :func:`_layout`, so it
+    tiles.
+
+    Parameters
+    ----------
+    stacks : list of list of _Entry
+        One non-empty vertical stack per contributing section, shallow → deep.  A section
+        with nothing to say at this point is dropped by the caller rather than blended
+        against, because an empty stack means "this section knows nothing here", not
+        "there is no material here".
+    weights : list of float
+        One non-negative weight per stack, in the same order, summing to one.  Not
+        re-normalised here: the caller owns the weighting rule.
+
+    Returns
+    -------
+    list of _Entry
+        The blended, gap-free stack, shallow → deep.
+
+    Raises
+    ------
+    ValueError
+        If the two lists differ in length, or any stack is empty.
+    """
+    if len(stacks) != len(weights):
+        raise ValueError(f"got {len(stacks)} stacks and {len(weights)} weights")
+    if not stacks:
+        return []
+    if any(not stack for stack in stacks):
+        raise ValueError(
+            "every stack must carry at least one interval; a section that knows nothing "
+            "at this point is dropped by the caller, not blended against"
+        )
+
+    groups, loose = _occurrence_groups(stacks, weights)
+    specs: list[tuple[float, str | None, str, float]] = []
+    for body, group in groups:
+        indices = sorted(group)
+        thickness = 0.0
+        for i in indices:
+            thickness += weights[i] * _th(group[i])
+        # The formation comes from the first stack carrying the body, which for two
+        # sections is stack 1 — the entry ``_blend_stacks`` already reads it from.
+        formation = group[indices[0]].formation_id
+        specs.append((_group_ref(group, weights), body, formation, thickness))
+    for section_index, entry in loose:
+        specs.append((_mid(entry), None, entry.formation_id, weights[section_index] * _th(entry)))
+
+    # Shallow → deep by reference elevation; the body-id tie-break is only for
+    # determinism on exact elevation ties, exactly as in ``_blend_stacks``.
+    specs.sort(key=lambda s: (-s[0], str(s[1])))
+    top = 0.0
+    for i, stack in enumerate(stacks):
+        top += weights[i] * stack[0].top_elev
+    return _layout(specs, top)
+
+
+# ---------------------------------------------------------------------------
 # The per-column stack (LoftField.stack_at, ported)
 # ---------------------------------------------------------------------------
 
@@ -776,6 +1021,9 @@ def _stack_at(
     y: float,
     terminations: dict[str, tuple[Termination, ...]] | None = None,
     reach_to_evidence: bool = False,
+    *,
+    fade_sections: bool = False,
+    fade_power: float = _DEFAULT_FADE_POWER,
 ) -> list[_Entry]:
     """Return the vertical body stack at map-plane point ``(x, y)``.
 
@@ -789,6 +1037,11 @@ def _stack_at(
     toward where the 2-D partition MEASURES it to end; without them it falls back
     to the equidistance midline the builder used to assume (#256).
 
+    With ``fade_sections`` none of that selection happens: every section is weighted by
+    distance and blended together, so no section is ever switched on or off and the
+    column changes continuously as the query moves (docs/debt.md #260).  There is no
+    between/beyond test on that path, because there is no pair to be between.
+
     Ported from ``loft_field.LoftField.stack_at`` minus the band-clipping and
     domain-clipping (the caller clips Z to the domain bbox grid; the footprint
     test gates labelling).
@@ -799,6 +1052,18 @@ def _stack_at(
         The project's cross-sections with their 2-D partitions.
     x, y : float
         Map-plane query coordinates (metres, project CRS).
+    terminations : dict of str to tuple of Termination, optional
+        Every body's measured pinch-outs, or ``None`` to keep the standing rule.  Not
+        read on the faded path, which has no facing section to measure toward; the
+        caller refuses the combination.
+    reach_to_evidence : bool, default False
+        Let a one-sided body reach the section that contradicts it rather than dying at
+        the equidistance midline.  The faded path applies this ruling inherently, so it
+        does not read the flag; the caller refuses ``False`` with the fade on.
+    fade_sections : bool, default False
+        Weight every section by distance instead of hard-picking the two nearest.
+    fade_power : float, default 2.0
+        The fall-off exponent for that weighting; see :func:`_fade_weights`.
 
     Returns
     -------
@@ -816,6 +1081,40 @@ def _stack_at(
     # along that section, not away from it, so the factor must know which that is.
     projs = [(i, s, *_project_to_section_fence(s, x, y)) for i, s in enumerate(sections)]
     projs.sort(key=lambda p: p[4])  # by perpendicular distance
+
+    if fade_sections:
+        # Every section speaks, weighted by distance.  Read the stacks first: a section
+        # with nothing to say here is dropped rather than blended against, exactly as the
+        # two-nearest path defers to the section that does know.
+        #
+        # That drop is the ONE place a section's influence can still change abruptly
+        # under the fade — a section whose projected foot crosses from an unfilled gap
+        # into a filled one enters at whatever weight its distance gives it.  It is the
+        # rule that already governs the two-nearest path, kept unchanged here rather than
+        # ruled on: an empty stack means the section knows nothing, and blending against
+        # it would thin every body in the informed column (the #259 / bottom-clay defect).
+        #
+        # Taken in the sections' own INPUT order, never in distance order.  The stacks are
+        # folded into occurrence groups in the order they arrive, so a distance-ordered
+        # list would make the grouping change the moment two sections swap rank — a hard
+        # selection smuggled back in behind the weights.  The weights carry all the
+        # distance information the blend needs.
+        informed: list[list[_Entry]] = []
+        distances: list[float] = []
+        for _idx, section, gap, frac, dist, _fx, _fy in sorted(projs, key=lambda p: p[0]):
+            stack = _section_stack_at(section, gap, frac)
+            if not stack:
+                continue
+            informed.append(stack)
+            distances.append(dist)
+        if not informed:
+            return []
+        if len(informed) == 1:
+            # Only one section knows anything here — return its column verbatim rather
+            # than re-laying it out, so a partition void inside it stays a void.
+            return informed[0]
+        return _blend_stacks_faded(informed, _fade_weights(distances, fade_power))
+
     i1, s1, gap1, frac1, d1, px1, py1 = projs[0]
 
     between = False
@@ -1509,6 +1808,8 @@ def label_voxels(
     honor_radius_m: float = 0.0,
     measured_pinch: bool = False,
     reach_to_evidence: bool = True,
+    fade_sections: bool = False,
+    fade_power: float = _DEFAULT_FADE_POWER,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -1586,6 +1887,18 @@ def label_voxels(
         exact / 0 wrong, contact-error p90 moves 0.123 → 0.125 m, triangles drop
         8.2 %, and 52,602 m3 goes void → filled with NOT ONE cell going the other way.
         Pass ``False`` to rebuild the old midline behaviour for comparison.
+    fade_sections : bool, default False
+        Weight EVERY section by distance instead of hard-picking the two nearest.  Because
+        exactly two sections are hard-selected today, walking across the model eventually
+        swaps one for another at full strength and the ground jumps in a single step —
+        7.70 m at (88 500.3, 164 925.3) on the owner's model, with 7.4 % of adjacent
+        column pairs changing mode or section pair (docs/debt.md #260).  Under the fade a
+        section's influence only grows and shrinks, so the step is never created rather
+        than being smoothed away afterwards.  Off by default until the real-data A/B has
+        been reviewed.
+    fade_power : float, default 2.0
+        The fall-off exponent for that weighting.  A shape, not a length; see
+        :func:`_fade_weights`.  Ignored while ``fade_sections`` is off.
 
     Returns
     -------
@@ -1598,7 +1911,8 @@ def label_voxels(
     ValueError
         If ``grid_spacing_m`` (or ``vertical_spacing_m`` when set) is not
         positive, or no section carries any region (no elevation range to grid
-        over).
+        over), or ``fade_sections`` is combined with a setting the faded blend has no
+        meaning for (see the guards below).
 
     Notes
     -----
@@ -1621,6 +1935,29 @@ def label_voxels(
         raise ValueError(f"grid_spacing_m must be positive; got {grid_spacing_m}")
     if vertical_spacing_m is not None and vertical_spacing_m <= 0.0:
         raise ValueError(f"vertical_spacing_m must be positive; got {vertical_spacing_m}")
+    if fade_sections:
+        # Refuse the combinations the faded blend has no answer for, rather than
+        # accepting a flag and quietly ignoring it.
+        if fade_power <= 0.0:
+            raise ValueError(f"fade_power must be positive; got {fade_power}")
+        if measured_pinch:
+            raise ValueError(
+                "measured_pinch cannot be combined with fade_sections: a measured pinch "
+                "factor is defined between one section and the one that contradicts it, "
+                "and the faded blend has no such pair"
+            )
+        if not reach_to_evidence:
+            raise ValueError(
+                "reach_to_evidence=False cannot be combined with fade_sections: the "
+                "equidistance midline is a property of a chosen pair, and the faded "
+                "blend applies the reach ruling inherently"
+            )
+        if geo_surfaces:
+            raise ValueError(
+                "fade_sections is not implemented on the geology-bounded path: "
+                "_stack_at_band still picks the two nearest REACHING sections, so the "
+                "flag would be silently ignored (docs/debt.md #260)"
+            )
 
     # When geological band surfaces are supplied, the per-column stack is
     # assembled BAND-BY-BAND (each band filled by the nearest section that
@@ -1772,7 +2109,15 @@ def label_voxels(
                 )
                 labeller = _column_labels_gapped
             else:
-                stack = _stack_at(sections, x, y, terminations, reach_to_evidence)
+                stack = _stack_at(
+                    sections,
+                    x,
+                    y,
+                    terminations,
+                    reach_to_evidence,
+                    fade_sections=fade_sections,
+                    fade_power=fade_power,
+                )
                 labeller = _column_labels
             honored = honored_by_cell.get((i, j))
             if honored is not None:
