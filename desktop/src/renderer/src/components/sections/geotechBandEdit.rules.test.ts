@@ -22,6 +22,7 @@ import {
   canMergeBands,
   clampSplitDepth,
   columnBands,
+  columnIsHandEditable,
   enclosingLithoBody,
 } from './geotechBandEdit'
 
@@ -33,10 +34,10 @@ const DEEPER_LITHO_BODY = { topDepthM: 8, baseDepthM: 14 }
 
 /** Three packing bands stacked inside LITHO_BODY, plus one inside the deeper body. */
 const BANDS = [
-  { layerId: 'b-1', formationId: 'f-c5', topDepthM: 2, baseDepthM: 4 },
-  { layerId: 'b-2', formationId: 'f-c6', topDepthM: 4, baseDepthM: 6 },
-  { layerId: 'b-3', formationId: 'f-c7', topDepthM: 6, baseDepthM: 8 },
-  { layerId: 'b-4', formationId: 'f-c5', topDepthM: 8, baseDepthM: 14 },
+  { layerId: 'b-1', formationId: 'f-c5', anchorIsCpt: true, topDepthM: 2, baseDepthM: 4 },
+  { layerId: 'b-2', formationId: 'f-c6', anchorIsCpt: true, topDepthM: 4, baseDepthM: 6 },
+  { layerId: 'b-3', formationId: 'f-c7', anchorIsCpt: true, topDepthM: 6, baseDepthM: 8 },
+  { layerId: 'b-4', formationId: 'f-c5', anchorIsCpt: true, topDepthM: 8, baseDepthM: 14 },
 ]
 
 describe('a packing boundary moves freely inside its litho body', () => {
@@ -142,5 +143,38 @@ describe('a merge is bounded by the same litho body', () => {
     const result = canMergeBands(BANDS[2], BANDS[1], [LITHO_BODY, DEEPER_LITHO_BODY])
 
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('neither verb applies to a borehole', () => {
+  // Owner ruling A (2026-08-01). Both verbs re-derive the NAD class from cone resistance,
+  // and a borehole records none — its bands' classes were extrapolated from the surrounding
+  // CPTs by "Divide boreholes". So the gesture is not offered there, and the anchor that
+  // decides it is the BAND's own: a borehole standing beside a CPT is still a borehole.
+  const boreholeLayers = [
+    { id: 'p', formation_id: 'f-c5', cpt_id: null, borehole_id: 'bh-1', depth_top_m: 2, depth_base_m: 5 },
+    { id: 'q', formation_id: 'f-c6', cpt_id: null, borehole_id: 'bh-1', depth_top_m: 5, depth_base_m: 8 },
+  ]
+
+  it('AN1 — a band reports the anchor it actually hangs off', () => {
+    const cptBands = columnBands(
+      [{ id: 'x', formation_id: 'f-c6', cpt_id: 'cpt-1', borehole_id: null, depth_top_m: 4, depth_base_m: 6 }],
+      'cpt-1',
+    )
+
+    expect(cptBands[0].anchorIsCpt).toBe(true)
+    expect(columnBands(boreholeLayers, 'bh-1')[0].anchorIsCpt).toBe(false)
+  })
+
+  it('AN2 — a borehole column is not hand-editable', () => {
+    expect(columnIsHandEditable(columnBands(boreholeLayers, 'bh-1'))).toBe(false)
+  })
+
+  it('AN3 — a CPT column is, so the refusal does not swallow the feature', () => {
+    expect(columnIsHandEditable(BANDS)).toBe(true)
+  })
+
+  it('AN4 — and an empty column is not: there is nothing there to edit', () => {
+    expect(columnIsHandEditable([])).toBe(false)
   })
 })

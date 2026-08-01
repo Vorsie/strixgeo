@@ -47,6 +47,7 @@ import {
   canMergeBands,
   clampSplitDepth,
   columnBands,
+  columnIsHandEditable,
   enclosingLithoBody,
 } from './geotechBandEdit'
 import type { PlacedColumn } from './utils'
@@ -189,7 +190,11 @@ export default function GeotechBandEditOverlay({
       const surface = surfaceYForColumn(col, levelToScreen)
       if (surface.surfaceElevationM === null || surface.pxPerMetre === 0) continue
       const bands = columnBands(geotechLayers, item.id)
-      if (bands.length === 0) continue
+      // A borehole's packing bands carry no cone resistance to re-derive a class from, so
+      // neither verb is offered on them — the column keeps the same view-only treatment the
+      // whole geotech axis had before this overlay existed. The bands' OWN anchors decide
+      // it: this column may well be a borehole drawn right beside a CPT.
+      if (!columnIsHandEditable(bands)) continue
       const lithoBodies: DepthInterval[] = columnBands(lithoLayers, item.id).map(b => ({
         topDepthM: b.topDepthM,
         baseDepthM: b.baseDepthM,

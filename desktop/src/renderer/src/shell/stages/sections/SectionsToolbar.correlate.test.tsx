@@ -362,6 +362,9 @@ function makeCtx(overrides: {
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
       handleClearSuggestions: overrides.handleClearSuggestions ?? noopAsync,
+      // Read by the re-subdivide confirmation's hand-edit count. Always an
+      // array on the real bus; this stub predates the field.
+      geotechLayers: [],
       requestCorrelationEdgesRefetch: overrides.requestCorrelationEdgesRefetch ?? vi.fn(),
     },
     sections: {

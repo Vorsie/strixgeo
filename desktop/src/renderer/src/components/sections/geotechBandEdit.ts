@@ -52,6 +52,15 @@ export interface GeotechBandInterval extends DepthInterval {
   layerId: string
   /** The NAD-stamped geotech formation the band currently carries. */
   formationId: string
+  /**
+   * Whether the band hangs off a CPT (``true``) or a borehole (``false``).
+   *
+   * The row's own anchor, not the column's surroundings — the two are not the same thing,
+   * because a borehole often stands a few metres from a CPT and the section draws them as
+   * neighbours. Only the CPT carries cone resistance, which is what
+   * {@link columnIsHandEditable} turns on.
+   */
+  anchorIsCpt: boolean
 }
 
 /** Which wall stopped a proposed split, if any. */
@@ -209,10 +218,40 @@ export function columnBands(
     .map(l => ({
       layerId: l.id,
       formationId: l.formation_id,
+      anchorIsCpt: l.cpt_id !== null && l.cpt_id !== undefined,
       topDepthM: l.depth_top_m,
       baseDepthM: l.depth_base_m,
     }))
     .sort((a, b) => a.topDepthM - b.topDepthM)
+}
+
+/**
+ * Whether a column's packing bands may be hand-edited at all (owner ruling A, 2026-08-01).
+ *
+ * Only on a CPT. Both verbs re-derive the NAD packing class from the cone resistance over
+ * the band's new extent, and a borehole records none — so on a borehole there is nothing to
+ * re-derive the class from, and going ahead would trade the class `Divide boreholes`
+ * extrapolated onto the column from the surrounding CPTs for no class at all. The server
+ * refuses the same edit for the same reason; this is what keeps the gesture from being
+ * offered in the first place, so the refusal is never something the owner discovers by
+ * being told no.
+ *
+ * Not offered rather than offered-and-refused, the way a merge across a litho contact simply
+ * has no handle (see {@link canMergeBands}).
+ *
+ * Parameters
+ * ----------
+ * bands : readonly GeotechBandInterval[]
+ *     The packing bands on one column.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when every band on the column hangs off a CPT. An empty column is not
+ *     editable — there is nothing to edit.
+ */
+export function columnIsHandEditable(bands: readonly GeotechBandInterval[]): boolean {
+  return bands.length > 0 && bands.every(band => band.anchorIsCpt)
 }
 
 /**

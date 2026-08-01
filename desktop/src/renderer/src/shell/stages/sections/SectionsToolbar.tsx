@@ -31,6 +31,7 @@ import {
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
+import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
 
 /**
@@ -117,6 +118,10 @@ export default function SectionsToolbar(): JSX.Element {
       handleSubdivideAllBodies,
       // "Divide boreholes" toolbar verb — post-SAB borehole TIN-division.
       handleDivideBoreholes,
+      // The active geotech model's layer rows (model-wide). Read here only for
+      // the hand-edit count in the re-subdivide confirmation — the rows carry
+      // ``source``, so the warning needs no extra fetch.
+      geotechLayers,
       // Geotech correlation triad: accepting a packing tie moves body_id stamps
       // (requestGeotechLayersRefetch) and dirties the project (markMutated).
       requestGeotechLayersRefetch,
@@ -179,6 +184,16 @@ export default function SectionsToolbar(): JSX.Element {
     const invIds = inCorridorInvestigationIds(selectedSection, visibleCpts, visibleBoreholes)
     return lithoContacts.some(c => invIds.has(c.cpt_id ?? c.borehole_id ?? ''))
   }, [selectedSection, lithoContacts, visibleCpts, visibleBoreholes])
+
+  // Owner ruling B (2026-08-01) — "Subdivide all bodies" rebuilds every packing
+  // band, so it destroys every band the engineer split or merged by hand. The
+  // confirm dialog has to name how many BEFORE it opens; no round trip is
+  // needed because ``geotechLayers`` is already the active geotech model's
+  // full layer list, model-wide, with each row's ``source``.
+  const geotechHandEditCount = useMemo(
+    () => countGeotechHandEdits(geotechLayers),
+    [geotechLayers],
+  )
 
   // Sections need a projected METRIC horizontal CRS — along-distance is
   // a Euclidean distance in CRS units, so degrees (EPSG:4326) silently
@@ -1624,12 +1639,14 @@ export default function SectionsToolbar(): JSX.Element {
       {/* Re-subdivide confirmation (C1, connecting-geotech-units §7) — shown
           before a re-run of "Subdivide all bodies" when a geotech model
           already exists, because the re-run wipes + regenerates all geotech
-          packing connections (manual connections are lost). */}
+          packing connections (manual connections are lost) AND rebuilds every
+          band, destroying the engineer's hand splits/merges (owner ruling B). */}
       <ReSubdivideConfirmDialog
         open={reSubdivideConfirmOpen}
         onCancel={handleReSubdivideCancel}
         onConfirm={handleReSubdivideConfirm}
         busy={subdividingBodies}
+        handEditCount={geotechHandEditCount}
       />
 
       {/* Reset manual points confirmation — clearing every hand-drawn body

@@ -35,13 +35,18 @@ function layer(
   topM: number,
   baseM: number,
   formationId = `f-${id}`,
+  anchorId = 'cpt-1',
+  anchorKind: 'cpt' | 'borehole' = 'cpt',
 ): LithoLayerResponse {
   return {
     id,
     model_id: 'm-1',
     formation_id: formationId,
-    borehole_id: null,
-    cpt_id: 'cpt-1',
+    // The anchor is an XOR in the database (`litho_layer_anchor_xor`) and it is the only
+    // thing that says which kind of investigation a band hangs off — so the fixture models
+    // it as one, rather than inferring the kind from the column it is drawn on.
+    borehole_id: anchorKind === 'borehole' ? anchorId : null,
+    cpt_id: anchorKind === 'cpt' ? anchorId : null,
     depth_top_m: topM,
     depth_base_m: baseM,
     status: 'accepted',
@@ -75,6 +80,24 @@ const COLUMN = {
   width: 40,
   displaced: false,
   proj: { item: { id: 'cpt-1', name: 'CPT-1', elevation_m: 10 } },
+} as unknown as PlacedColumn
+
+/** A borehole standing next to the CPT, with the same litho stack and two packing bands. */
+const BOREHOLE_LITHO_LAYERS = [
+  layer('bh-litho-a', 2, 8, 'f-litho-a', 'bh-1', 'borehole'),
+  layer('bh-litho-b', 8, 14, 'f-litho-b', 'bh-1', 'borehole'),
+]
+const BOREHOLE_GEOTECH_LAYERS = [
+  layer('bh-band-1', 2, 5, 'f-bh-band-1', 'bh-1', 'borehole'),
+  layer('bh-band-2', 5, 8, 'f-bh-band-2', 'bh-1', 'borehole'),
+]
+const BOREHOLE_COLUMN = {
+  kind: 'borehole',
+  trueX: 400,
+  nudgedX: 400,
+  width: 40,
+  displaced: false,
+  proj: { item: { id: 'bh-1', name: 'BH-1', elevation_m: 10 } },
 } as unknown as PlacedColumn
 
 function renderOverlay(
@@ -253,5 +276,46 @@ describe('the overlay yields when another gesture owns the canvas', () => {
 
     expect(screen.queryByTestId('geotech-band-hit-band-2')).toBeNull()
     expect(screen.queryByTestId('geotech-band-boundary-band-2')).toBeNull()
+  })
+})
+
+// Owner ruling A (2026-08-01): a borehole records no cone resistance, and both verbs
+// re-derive the NAD class from qc — so the server refuses them on a borehole-anchored band.
+// The gesture must not be on offer there either, or right-clicking a band earns a 422 for
+// the trouble. The last case is the one that matters most: a borehole standing next to a
+// CPT is still a borehole, so what is consulted is the BAND's anchor, never the column's
+// neighbourhood.
+describe('a borehole column is not offered the gesture at all', () => {
+  const boreholeOnly = {
+    geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+    lithoLayers: BOREHOLE_LITHO_LAYERS,
+    placedColumns: [BOREHOLE_COLUMN],
+  }
+
+  it('GS13 — no split target is drawn on a band that hangs off a borehole', () => {
+    renderOverlay(boreholeOnly)
+
+    expect(screen.queryByTestId('geotech-band-hit-bh-band-1')).toBeNull()
+  })
+
+  it('GS14 — nor a merge handle on the boundary between two of its bands', () => {
+    renderOverlay(boreholeOnly)
+
+    // 5 m is a packing boundary inside one litho body, so the only reason for the handle
+    // to be missing is the anchor.
+    expect(screen.queryByTestId('geotech-band-boundary-bh-band-1')).toBeNull()
+  })
+
+  it('GS15 — while the CPT standing beside it keeps both verbs', () => {
+    renderOverlay({
+      geotechLayers: [...GEOTECH_LAYERS, ...BOREHOLE_GEOTECH_LAYERS],
+      lithoLayers: [...LITHO_LAYERS, ...BOREHOLE_LITHO_LAYERS],
+      placedColumns: [COLUMN, BOREHOLE_COLUMN],
+    })
+
+    expect(screen.queryByTestId('geotech-band-hit-band-2')).not.toBeNull()
+    expect(screen.queryByTestId('geotech-band-boundary-band-2')).not.toBeNull()
+    expect(screen.queryByTestId('geotech-band-hit-bh-band-1')).toBeNull()
+    expect(screen.queryByTestId('geotech-band-boundary-bh-band-1')).toBeNull()
   })
 })
