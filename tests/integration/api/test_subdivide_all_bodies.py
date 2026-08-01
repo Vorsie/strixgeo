@@ -68,6 +68,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
 from groundmodel.application.divide_boreholes import DivideBoreholes
+from groundmodel.application.geotech_tie_reanchor import depth_to_mm
 from groundmodel.application.reconcile_bodies_after_restore import (
     reconcile_bodies_after_restore,
 )
@@ -1099,37 +1100,102 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
 
 
 # ---------------------------------------------------------------------------
-# CASCADE — the known gap in the clean/dirty rule on the geotech axis
+# RE-ANCHOR — an accepted tie survives a re-subdivide (owner ruling 2026-08-01)
+#
+# A tie names two band ids, and the rebuild gives every band a new id, so the
+# FK cascade used to take every accepted tie with the layer wipe.  The ruling:
+# a rebuilt band IS the old band when the investigation, the depth interval and
+# the NAD class all match — exactly, no tolerance.  These tests speak that rule.
 # ---------------------------------------------------------------------------
 
 
+async def _tie_fingerprints(
+    db_session: AsyncSession,
+    geotech_model_id: UUID,
+    *,
+    approved_only: bool,
+) -> set[tuple]:
+    """Describe a model's geotech ties by what they CONNECT, not by row id.
+
+    A tie's fingerprint is its section, its provenance, and both endpoints'
+    three-part band identity (investigation, depth interval in millimetres, NAD
+    class) — everything except the ids the rebuild is free to change.
+
+    Parameters
+    ----------
+    db_session : AsyncSession
+        Active session.
+    geotech_model_id : UUID
+        The geotech model whose ties are described.
+    approved_only : bool
+        Restrict to accepted ties.
+
+    Returns
+    -------
+    set[tuple]
+        ``(section_id, source, frozenset{endpoint fingerprint, ...})`` per tie.
+    """
+    stmt = select(LithoContactCorrelationEdgeOrm).where(
+        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+    )
+    if approved_only:
+        stmt = stmt.where(LithoContactCorrelationEdgeOrm.user_approved.is_(True))
+    edges = list((await db_session.execute(stmt)).scalars().all())
+
+    endpoint_ids = {e.layer_a_id for e in edges} | {e.layer_b_id for e in edges}
+    identity: dict[UUID, tuple] = {}
+    if endpoint_ids:
+        rows = (
+            await db_session.execute(
+                select(
+                    LithoLayerOrm.id,
+                    LithoLayerOrm.cpt_id,
+                    LithoLayerOrm.borehole_id,
+                    LithoLayerOrm.depth_top_m,
+                    LithoLayerOrm.depth_base_m,
+                    GeologicalFormationOrm.nad_class,
+                )
+                .join(
+                    GeologicalFormationOrm,
+                    LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+                )
+                .where(LithoLayerOrm.id.in_(endpoint_ids))
+            )
+        ).all()
+        for r in rows:
+            identity[r.id] = (
+                str(r.borehole_id if r.borehole_id is not None else r.cpt_id),
+                depth_to_mm(r.depth_top_m),
+                depth_to_mm(r.depth_base_m),
+                r.nad_class,
+            )
+
+    return {
+        (
+            e.section_id,
+            e.source,
+            frozenset({identity[e.layer_a_id], identity[e.layer_b_id]}),
+        )
+        for e in edges
+    }
+
+
 @pytest.mark.asyncio
-async def test_re_subdivide_still_destroys_accepted_ties_through_the_cascade(
+async def test_an_accepted_geotech_tie_survives_a_re_subdivide(
     sab_scene: dict,
     db_session: AsyncSession,
 ) -> None:
-    """A KNOWN GAP, pinned so it cannot be mistaken for solved.
+    """The band comes back identical, so the tie comes back — accepted.
 
-    The clean/dirty rule says the machine never deletes what the engineer
-    accepted.  ``_delete_all_geotech_data`` now honours that in its own SQL —
-    its edge delete spares approved rows.  It makes no difference.  The
-    statement that follows removes every geotech ``litho_layer`` for the model,
-    and an accepted tie's two endpoints ARE geotech layers, joined by FKs
-    declared ``ON DELETE CASCADE``.  Postgres deletes the spared tie as a side
-    effect, reporting nothing.
+    Nothing about the scene changes between the two builds, so every rebuilt
+    band lands on the same investigation, over the same depth interval, with
+    the same NAD class.  Under the owner's rule each is the same band, and the
+    tie the engineer accepted must still connect them — still accepted, still
+    carrying the provenance it had.
 
-    This is not something another WHERE clause fixes.  A re-subdivide re-derives
-    every packing band from scratch with a fresh id, so the layers an accepted
-    tie points at genuinely stop existing; keeping the tie means deciding what
-    makes a rebuilt band "the same band" as the old one (investigation + depth
-    interval + NAD class is the obvious candidate) and re-anchoring the edge to
-    the survivor.  That is a design decision, and it is the owner's.
-
-    So this test asserts the damage, deliberately.  When the re-anchoring lands
-    it will go red — and it should: that is the moment the assertion has to be
-    rewritten into the one everybody wants, "the accepted tie is still there".
-    Until then it stops anyone reading the spared-edge predicate and concluding
-    that accepted geotech ties survive a rebuild.  They do not.
+    (This test replaces the one that PINNED the loss.  The pin existed so that
+    nobody read the reset's spare-approved predicate and concluded accepted ties
+    survived; now they do, and the assertion says so.)
     """
     project = sab_scene["project"]
     litho_model_id = UUID(sab_scene["litho_model_id"])
@@ -1140,61 +1206,249 @@ async def test_re_subdivide_still_destroys_accepted_ties_through_the_cascade(
     )
     geotech_model_id = sab_result.geotech_model_id
 
-    async def _edges() -> list[LithoContactCorrelationEdgeOrm]:
-        rows = (
-            (
-                await db_session.execute(
-                    select(LithoContactCorrelationEdgeOrm).where(
-                        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        return list(rows)
-
     # The engineer reviews this run's proposals and accepts them all.
     await AcceptContactCorrelations(db_session).execute(
         project_id=project.id,
         model_id=geotech_model_id,
     )
-    accepted = await _edges()
-    assert accepted, "precondition: SAB must derive at least one geotech tie to accept"
-    assert all(e.user_approved for e in accepted), (
-        "precondition: the accept verb must have approved every derived tie"
-    )
-    accepted_ids = {e.id for e in accepted}
-    endpoint_layer_ids = {e.layer_a_id for e in accepted} | {e.layer_b_id for e in accepted}
-
-    # He re-subdivides.
-    await SubdivideAllBodies(db_session).execute(
-        project_id=project.id,
-        litho_model_id=litho_model_id,
-    )
-
-    surviving_ids = {e.id for e in await _edges()}
-    assert not (accepted_ids & surviving_ids), (
-        "the gap has been closed — accepted geotech ties now survive a "
-        "re-subdivide. Rewrite this test into the positive assertion and "
-        "update _delete_all_geotech_data's warning + docstring, which still "
-        "tell the engineer his accepted ties are lost."
-    )
-
-    # And the reason is the cascade, not the delete: the endpoints went first.
-    surviving_endpoints = (
+    accepted_before = list(
         (
             await db_session.execute(
-                select(LithoLayerOrm.id).where(LithoLayerOrm.id.in_(endpoint_layer_ids))
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
             )
         )
         .scalars()
         .all()
     )
-    assert not list(surviving_endpoints), (
-        "the accepted ties' endpoint layers outlived the reset — then the ties "
-        "were destroyed by something OTHER than the FK cascade, and this test's "
-        "diagnosis (and the comment in _delete_all_geotech_data) is wrong"
+    assert accepted_before, "precondition: SAB must derive at least one geotech tie to accept"
+    fingerprints_before = await _tie_fingerprints(db_session, geotech_model_id, approved_only=True)
+    sources_before = {e.source for e in accepted_before}
+
+    # He re-subdivides.
+    second = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    accepted_after = list(
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fingerprints_after = await _tie_fingerprints(db_session, geotech_model_id, approved_only=True)
+
+    assert fingerprints_after == fingerprints_before, (
+        "every accepted tie must still connect the same two bands after the "
+        f"rebuild. before={len(fingerprints_before)} after={len(fingerprints_after)} "
+        f"missing={fingerprints_before - fingerprints_after} "
+        f"unexpected={fingerprints_after - fingerprints_before}"
+    )
+    assert len(accepted_after) == len(accepted_before)
+    assert all(e.user_approved for e in accepted_after), (
+        "a tie the engineer accepted must come back ACCEPTED, not as a fresh proposal"
+    )
+    assert {e.source for e in accepted_after} == sources_before, (
+        "a re-anchored tie must keep its original provenance — a hand-made tie "
+        "must still read 'manual' after the rebuild"
+    )
+    assert second.reanchored_tie_count == len(accepted_before)
+    assert second.lost_tie_count == 0
+    assert second.lost_tie_reasons == {}
+
+
+@pytest.mark.asyncio
+async def test_an_unaccepted_geotech_tie_does_not_survive_the_rebuild(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A tie the engineer never accepted is dirty — the rebuild regenerates it.
+
+    Only acceptance protects a tie.  The derived proposals from the first build
+    are the machine's own work; the second build throws them away and derives
+    them again, so none of the original rows survive.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    first = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = first.geotech_model_id
+
+    proposals = list(
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert proposals, "precondition: SAB must derive at least one geotech tie"
+    assert not any(e.user_approved for e in proposals), (
+        "precondition: a derived tie is born unaccepted"
+    )
+    proposal_ids = {e.id for e in proposals}
+
+    second = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    surviving_ids = {
+        e.id
+        for e in (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    assert not (proposal_ids & surviving_ids), (
+        "an unaccepted tie must NOT be carried across the rebuild — it is dirty, "
+        "and regenerating it is the whole point of pressing Subdivide again"
+    )
+    assert second.reanchored_tie_count == 0, (
+        "nothing was accepted, so nothing should have been re-anchored"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_tie_whose_band_changed_class_is_not_silently_re_pointed(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """The qc re-derives a different packing class → that tie is lost, not moved.
+
+    CPT-B's deep qc is edited from 22 MPa (ZAND zeer-dicht, class 8) to 12 MPa
+    (ZAND dicht, class 7) between the two builds.  The band comes back over the
+    same depths on the same investigation, but it is a different packing class,
+    so it is NOT the band the engineer tied.  The tie must be reported lost
+    rather than re-pointed at a band the engineer never looked at.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+    cpt_b_id = UUID(sab_scene["cpt_b_id"])
+
+    first = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = first.geotech_model_id
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+    fingerprints_before = await _tie_fingerprints(db_session, geotech_model_id, approved_only=True)
+    assert fingerprints_before, "precondition: at least one accepted tie"
+
+    # The deep half of CPT-B re-reads as 'dicht' instead of 'zeer dicht'.
+    series = (
+        await db_session.execute(select(CptSeriesOrm).where(CptSeriesOrm.cpt_id == cpt_b_id))
+    ).scalar_one()
+    series.qc_mpa = [3.0 if q < 10.0 else 12.0 for q in series.qc_mpa]
+    await db_session.commit()
+
+    second = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    fingerprints_after = await _tie_fingerprints(db_session, geotech_model_id, approved_only=True)
+
+    # Nothing invented: every surviving accepted tie connects exactly the two
+    # bands it connected before — no endpoint quietly slid onto a neighbour.
+    assert fingerprints_after <= fingerprints_before, (
+        "a re-anchored tie must connect the SAME two bands it connected before; "
+        f"invented ties = {fingerprints_after - fingerprints_before}"
+    )
+    assert second.lost_tie_count >= 1, (
+        "CPT-B's deep band changed NAD class, so at least one accepted tie can "
+        "no longer be re-anchored and must be counted as lost"
+    )
+    assert len(fingerprints_after) < len(fingerprints_before), (
+        "the tie into CPT-B's reclassified band must be gone, not re-pointed"
+    )
+    assert second.lost_tie_reasons, "a lost tie must carry a reason the engineer can act on"
+
+
+@pytest.mark.asyncio
+async def test_re_anchoring_never_leaves_two_edges_on_the_same_band_pair(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """The auto pass must not propose a tie the re-anchor just restored.
+
+    Both halves of the rebuild produce ties for the same band pairs: the
+    re-anchor restores what the engineer accepted, and the derivation proposes
+    what the LCS match finds.  They must agree on one edge per pair, not stack
+    an unapproved proposal beside the accepted tie.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    first = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = first.geotech_model_id
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+    accepted_pairs_before = {
+        (e.section_id, e.layer_a_id, e.layer_b_id)
+        for e in (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    assert accepted_pairs_before, "precondition: at least one accepted tie"
+
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    edges_after = list(
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    seen: dict[tuple, int] = defaultdict(int)
+    for e in edges_after:
+        seen[(e.section_id, e.layer_a_id, e.layer_b_id)] += 1
+    doubled = {k: n for k, n in seen.items() if n > 1}
+    assert not doubled, (
+        f"a band pair carries more than one geotech edge after the rebuild: {doubled}"
     )
 
 
