@@ -29,6 +29,14 @@ from groundmodel.api.routers._helpers import (
     get_in_project_or_404,
     require_model_kind,
 )
+from groundmodel.api.schemas.project.geotech_band_edit import (
+    GeotechBandEditPlanResponse,
+    GeotechBandEditResponse,
+    GeotechBandIntervalItem,
+    GeotechBandWarningItem,
+    MergeGeotechBandsRequest,
+    SplitGeotechBandRequest,
+)
 from groundmodel.api.schemas.project.geotech_suggestion import (
     AutoCorrelateGeotechRequest,
     AutoCorrelateGeotechResponse,
@@ -38,7 +46,15 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
 )
 from groundmodel.application.auto_correlate_geotech_edges import AutoCorrelateGeotechEdges
 from groundmodel.application.divide_boreholes import DivideBoreholes
+from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditResult
+from groundmodel.application.merge_geotech_bands import MergeGeotechBands
+from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
+from groundmodel.application.split_geotech_band import SplitGeotechBand
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
+from groundmodel.domain.services.geotech_band_reclassification import (
+    BandEditPlan,
+    GeotechBandEditError,
+)
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -338,3 +354,369 @@ async def auto_correlate_geotech(
         skipped_no_lcs=result.skipped_no_lcs,
         skipped_empty_stack=result.skipped_empty_stack,
     )
+
+
+# ---------------------------------------------------------------------------
+# Hand split / merge of packing sub-bands (owner spec 2026-08-01)
+# ---------------------------------------------------------------------------
+
+
+def _plan_payload(plan: BandEditPlan) -> GeotechBandEditPlanResponse:
+    """Map a domain :class:`BandEditPlan` onto its response schema.
+
+    Parameters
+    ----------
+    plan : BandEditPlan
+        The planned (or committed) edit.
+
+    Returns
+    -------
+    GeotechBandEditPlanResponse
+        The wire shape, identical for preview and commit so the UI renders one
+        component for both.
+    """
+    return GeotechBandEditPlanResponse(
+        kind=plan.kind,
+        parent_top_m=plan.parent_top_m,
+        parent_base_m=plan.parent_base_m,
+        intervals=[
+            GeotechBandIntervalItem(
+                depth_top_m=interval.depth_top_m,
+                depth_base_m=interval.depth_base_m,
+                median_qc_mpa=interval.median_qc_mpa,
+                nad_class=interval.nad_class,
+                previous_nad_class=interval.previous_nad_class,
+                class_changed=interval.class_changed,
+                unclassifiable_reason=interval.unclassifiable_reason,
+            )
+            for interval in plan.intervals
+        ],
+        warnings=[
+            GeotechBandWarningItem(
+                code=warning.code,
+                message=warning.message,
+                depth_top_m=warning.depth_top_m,
+                depth_base_m=warning.depth_base_m,
+                band_id=warning.band_id,
+            )
+            for warning in plan.warnings
+        ],
+    )
+
+
+def _edit_payload(result: GeotechBandEditResult) -> GeotechBandEditResponse:
+    """Map a committed :class:`GeotechBandEditResult` onto its response schema.
+
+    Parameters
+    ----------
+    result : GeotechBandEditResult
+        The committed edit.
+
+    Returns
+    -------
+    GeotechBandEditResponse
+        The wire shape.
+    """
+    return GeotechBandEditResponse(
+        geotech_model_id=result.geotech_model_id,
+        investigation_id=result.investigation_id,
+        plan=_plan_payload(result.plan),
+        layer_ids=list(result.layer_ids),
+        created_layer_ids=list(result.created_layer_ids),
+        deleted_layer_ids=list(result.deleted_layer_ids),
+        deleted_edge_ids=list(result.deleted_edge_ids),
+    )
+
+
+async def _require_geotech_model(
+    session: AsyncSession, project_id: UUID, model_id: UUID, verb: str
+) -> None:
+    """Scope + kind guard shared by the four band-edit endpoints.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Database session.
+    project_id : UUID
+        Project the model must belong to.
+    model_id : UUID
+        The model being addressed.
+    verb : str
+        Short verb name interpolated into the 422 message.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    require_model_kind(model, "geotechnical", verb)
+
+
+def _band_edit_422(exc: GeotechBandEditError) -> HTTPException:
+    """Turn a hierarchy breach into the structured 422 the UI shows verbatim.
+
+    Parameters
+    ----------
+    exc : GeotechBandEditError
+        The domain rejection.
+
+    Returns
+    -------
+    HTTPException
+        A 422 carrying the domain message unaltered.
+    """
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": "geotech_band_edit_rejected", "message": str(exc)},
+    )
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/preview-split",
+    response_model=GeotechBandEditPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Preview splitting a packing band (no write)",
+    tags=["geotech"],
+)
+async def preview_split_geotech_band(
+    project_id: UUID,
+    model_id: UUID,
+    request: SplitGeotechBandRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditPlanResponse:
+    """Answer what a proposed split would do, without writing anything.
+
+    Returns, per resulting half, the representative (MEDIAN) qc, the re-derived
+    NAD class, the class the material carries today, and the plain-language
+    consequence of the move. When the cone resistance cannot answer over a half,
+    that half reports a null class with a reason rather than a guessed class.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the band belongs to.
+    request : SplitGeotechBandRequest
+        Band id + proposed boundary depth.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditPlanResponse
+        The previewed intervals + advisory warnings.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, or the depth falls outside the
+        band's own litho body (the hierarchy is not overrulable).
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-split "
+        f"band={request.band_id} depth={request.split_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/preview-split")
+    try:
+        plan = await PreviewGeotechBandEdit(session).preview_split(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            band_id=request.band_id,
+            split_depth_m=request.split_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    return _plan_payload(plan)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/preview-merge",
+    response_model=GeotechBandEditPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Preview merging two adjacent packing bands (no write)",
+    tags=["geotech"],
+)
+async def preview_merge_geotech_bands(
+    project_id: UUID,
+    model_id: UUID,
+    request: MergeGeotechBandsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditPlanResponse:
+    """Answer what a proposed merge would do, without writing anything.
+
+    The merged interval's class is re-derived from the qc over the UNION, so it
+    may differ from both inputs. The warnings say, per input band, whether the
+    material it now shares a layer with pulls its representative qc DOWN or UP,
+    and what class results.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : MergeGeotechBandsRequest
+        The adjacent pair to merge.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditPlanResponse
+        The previewed merged interval + advisory warnings.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, or the two bands are not adjacent
+        within one geo-bounded litho body.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-merge "
+        f"upper={request.upper_band_id} lower={request.lower_band_id}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/preview-merge")
+    try:
+        plan = await PreviewGeotechBandEdit(session).preview_merge(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            upper_band_id=request.upper_band_id,
+            lower_band_id=request.lower_band_id,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    return _plan_payload(plan)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/split",
+    response_model=GeotechBandEditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Split a packing band by hand and re-derive both halves",
+    tags=["geotech"],
+)
+async def split_geotech_band(
+    project_id: UUID,
+    model_id: UUID,
+    request: SplitGeotechBandRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditResponse:
+    """Commit a hand split. Only the edited column is rewritten.
+
+    Both halves are reclassified from the CPT qc over their own extent; a
+    correlation on the edited band is dropped only where the new class no longer
+    matches its partner. A band thinner than the configured minimum is committed
+    with a warning — a manual edit overrules that rule.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the band belongs to.
+    request : SplitGeotechBandRequest
+        Band id + boundary depth.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditResponse
+        The committed plan, resulting row ids, and dropped correlations.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, or the depth breaches the hierarchy.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/split "
+        f"band={request.band_id} depth={request.split_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/split")
+    try:
+        result = await SplitGeotechBand(session).execute(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            band_id=request.band_id,
+            split_depth_m=request.split_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    logger.info(
+        f"split_geotech_band ok investigation={result.investigation_id} "
+        f"layers={len(result.layer_ids)} dropped_edges={len(result.deleted_edge_ids)}"
+    )
+    return _edit_payload(result)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/merge",
+    response_model=GeotechBandEditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Merge two adjacent packing bands by hand and re-derive the union",
+    tags=["geotech"],
+)
+async def merge_geotech_bands(
+    project_id: UUID,
+    model_id: UUID,
+    request: MergeGeotechBandsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditResponse:
+    """Commit a hand merge. Only the edited column is rewritten.
+
+    The merged band's class is re-derived from the qc over the union. The
+    absorbed band's correlations go with it; the surviving band keeps the
+    correlations whose partner still carries the merged class.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : MergeGeotechBandsRequest
+        The adjacent pair to merge.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditResponse
+        The committed plan, the surviving row id, the absorbed row id, and the
+        dropped correlations.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, or the merge would cross a litho or
+        geological contact.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/merge "
+        f"upper={request.upper_band_id} lower={request.lower_band_id}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/merge")
+    try:
+        result = await MergeGeotechBands(session).execute(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            upper_band_id=request.upper_band_id,
+            lower_band_id=request.lower_band_id,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    logger.info(
+        f"merge_geotech_bands ok investigation={result.investigation_id} "
+        f"absorbed={result.deleted_layer_ids} dropped_edges={len(result.deleted_edge_ids)}"
+    )
+    return _edit_payload(result)
