@@ -7713,9 +7713,16 @@ specs by reference elevation so that two specs crossing swaps two units vertical
 that is **#261 verbatim**. #260's fix attempt is the evidence that #261 is the more likely
 cause, and #261 should be answered first.
 
-**Recommendation: do not ship the fade.** Keep it behind the flag as the evidence for this
-ruling, or delete it once #261 is settled. Shipping it would trade a discontinuity the
-owner can see for a lithology change across 7 % of the model that he cannot.
+**DELETED 2026-08-01 on the owner's word** (reverts of `39127f5a8`, `0c38886d5`,
+`e7261117a`). Shipping it would have traded a discontinuity the owner can see for a
+lithology change across 7 % of the model that he cannot, and leaving a switch nobody should
+flip is worse than leaving nothing. The implementation, its 18 tests and the A/B harness are
+in git history at those three commits if the question ever reopens; the numbers above are
+the reason it will not.
+
+Verified after the revert: 1,582 unit tests green, and the model rebuilds to 81 bodies /
+540,958 triangles — the persisted generation exactly, so `reach_to_evidence` (#256) came
+through untouched.
 
 **When to revisit.** With #261, which is the same shape of question: both are about what
 the builder should do where the sections stop agreeing. Not a patch.
