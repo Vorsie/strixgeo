@@ -1,15 +1,19 @@
 """Geology API — geotechnical subdivision endpoints (body-centric flow).
 
-Two endpoints that expose the shipped body-centric geotech use cases:
+Three endpoints that expose the shipped body-centric geotech use cases:
 
 * ``POST /models/{model_id}/geotech/subdivide-all-bodies`` — classify + materialise
   all in-corridor bodies in one shot (model_id = litho model).
 * ``POST /models/{model_id}/geotech/divide-boreholes`` — TIN-divide borehole
   columns using the CPT geotech layers (model_id = litho model).
+* ``POST /models/{model_id}/geotech/auto-correlate`` — re-propose the automatic
+  packing ties as UNAPPROVED suggestions, adding only (model_id = **geotech**
+  model).
 
-Both require the model to belong to ``project_id`` (scope guard via
+All require the model to belong to ``project_id`` (scope guard via
 ``get_in_project_or_404``); ``subdivide-all-bodies`` additionally requires
-``kind='lithostratigraphic'``.
+``kind='lithostratigraphic'`` and ``auto-correlate`` requires
+``kind='geotechnical'``.
 
 Mounted under ``/projects/{project_id}/geology`` by the package ``__init__``.
 """
@@ -26,10 +30,13 @@ from groundmodel.api.routers._helpers import (
     require_model_kind,
 )
 from groundmodel.api.schemas.project.geotech_suggestion import (
+    AutoCorrelateGeotechRequest,
+    AutoCorrelateGeotechResponse,
     DivideBoreholeResponse,
     SubdivideAllBodiesRequest,
     SubdivideAllBodiesResponse,
 )
+from groundmodel.application.auto_correlate_geotech_edges import AutoCorrelateGeotechEdges
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -236,4 +243,98 @@ async def divide_boreholes(
         single_band_borehole_count=result.single_band_borehole_count,
         layer_count=result.layer_count,
         created_formation_ids=result.created_formation_ids,
+    )
+
+
+@router.post(
+    "/models/{model_id}/geotech/auto-correlate",
+    response_model=AutoCorrelateGeotechResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Auto-propose geotech packing correlations as unapproved suggestions",
+    tags=["geotech"],
+)
+async def auto_correlate_geotech(
+    project_id: UUID,
+    model_id: UUID,
+    body: AutoCorrelateGeotechRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> AutoCorrelateGeotechResponse:
+    """Re-derive the automatic geotech packing ties as UNAPPROVED suggestions.
+
+    The geotech counterpart of the litho ``contact-correlations/auto`` verb.
+    Inside each correlated litho unit, the two columns' NAD packing-class
+    sequences are aligned by the shipped sequence-match rule and each aligned
+    position becomes a proposed edge.  Proposals insert with
+    ``user_approved=False``, so they render as suggestions until the engineer
+    promotes them with the accept verb — nothing enters the body resolver until
+    then.
+
+    **It adds; it does not reconcile.**  Every correlation already on the model
+    — drawn by hand, accepted earlier, or written by ``subdivide-all-bodies`` —
+    is left exactly as it is and reported under ``edges_skipped_existing``.  The
+    endpoint is therefore safe to press at any point during a hand-correlation
+    session, unlike ``subdivide-all-bodies``, which wipes the whole geotech
+    model before rebuilding it.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the model must belong to this project.
+    model_id : UUID
+        The **geotechnical** model whose packing bands are correlated.  Any
+        other kind returns 422.
+    body : AutoCorrelateGeotechRequest | None
+        Optional ``section_id`` to restrict the run to one section; omitted or
+        ``None`` runs across every section of the project.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    AutoCorrelateGeotechResponse
+        Proposed / skipped-existing counts the frontend toasts, plus the two
+        diagnostic skip reasons.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='geotechnical'``, or has no
+        lithostratigraphic parent to read approved correlations from.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/auto-correlate "
+        f"section={body.section_id if body is not None else None}"
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    try:
+        result = await AutoCorrelateGeotechEdges(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            section_id=body.section_id if body is not None else None,
+        )
+    except ValueError as exc:
+        # Non-geotech model, parentless geotech model, or out-of-project — the
+        # use case rejects it with the reason.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "auto_correlate_geotech_error", "message": str(exc)},
+        ) from exc
+
+    logger.info(
+        f"auto_correlate_geotech ok model={model_id} proposed={result.edges_proposed} "
+        f"skipped_existing={result.edges_skipped_existing} "
+        f"sections={result.sections_processed}"
+    )
+    return AutoCorrelateGeotechResponse(
+        edges_proposed=result.edges_proposed,
+        edges_skipped_existing=result.edges_skipped_existing,
+        sections_processed=result.sections_processed,
+        skipped_no_lcs=result.skipped_no_lcs,
+        skipped_empty_stack=result.skipped_empty_stack,
     )

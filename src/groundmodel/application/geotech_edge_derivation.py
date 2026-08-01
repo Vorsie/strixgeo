@@ -25,6 +25,12 @@ edge on another section.
 Extracting this here (rather than copying SAB's method) keeps the LCS-match +
 containment + canonical-ordering logic single-source, per the project's
 "extract on the second copy" rule.
+
+A third caller, ``AutoCorrelateGeotechEdges``, re-runs the same derivation on
+demand without touching any existing geotech data.  It passes
+``user_approved=False`` / ``source='auto'`` so its edges are SUGGESTIONS the
+engineer reviews and promotes, mirroring the litho axis, and preloads
+``seen_layer_pairs`` from every persisted edge so the pass only ever ADDS.
 """
 
 from __future__ import annotations
@@ -59,6 +65,11 @@ class EdgeDerivationCounts:
     skipped_no_litho_depth: int = 0
     skipped_no_lcs: int = 0
     skipped_empty_stack: int = 0
+    # Candidate pairs suppressed by ``seen_layer_pairs`` — either already
+    # persisted (the caller preloaded them) or already emitted earlier in this
+    # same pass. The standalone auto-correlate verb toasts this so the engineer
+    # can tell "nothing new to propose" from "nothing matched".
+    skipped_existing_pair: int = 0
 
     def add(self, other: EdgeDerivationCounts) -> None:
         """Accumulate another pass's counters into this one."""
@@ -66,6 +77,7 @@ class EdgeDerivationCounts:
         self.skipped_no_litho_depth += other.skipped_no_litho_depth
         self.skipped_no_lcs += other.skipped_no_lcs
         self.skipped_empty_stack += other.skipped_empty_stack
+        self.skipped_existing_pair += other.skipped_existing_pair
 
 
 async def load_project_sections(session: AsyncSession, project_id: UUID) -> list[CrossSectionOrm]:
@@ -227,6 +239,8 @@ async def derive_geotech_edges_from_litho(
     litho_layer_depths: dict[UUID, tuple[str, float, float]],
     geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
     seen_layer_pairs: set[tuple[UUID, UUID]],
+    user_approved: bool = True,
+    source: str = "manual",
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by LCS packing match within each correlated litho unit.
 
@@ -263,6 +277,18 @@ async def derive_geotech_edges_from_litho(
     seen_layer_pairs : set[tuple[UUID, UUID]]
         Dedup set, MUTATED in place. Preload with existing edges to add only new
         pairs; pass a fresh set for an independent pass.
+    user_approved : bool
+        Approval flag stamped on each emitted edge. Defaults to ``True`` — the
+        build passes (``SubdivideAllBodies``, ``DivideBoreholes``) derive edges
+        as part of an operation the engineer already asked for, so their edges
+        need no second confirmation. The standalone auto-correlate verb passes
+        ``False`` so its edges are SUGGESTIONS the engineer reviews and promotes
+        with the accept verb, exactly as on the litho axis.
+    source : str
+        Provenance token stamped on each emitted edge, one of ``'manual'`` /
+        ``'auto'`` (DB CHECK). Defaults to ``'manual'`` for the build passes;
+        the auto-correlate verb passes ``'auto'`` so its suggestions are
+        distinguishable from hand-drawn ties.
 
     Returns
     -------
@@ -358,6 +384,7 @@ async def derive_geotech_edges_from_litho(
                 else (geotech_b_id, geotech_a_id)
             )
             if (canonical_a, canonical_b) in seen_layer_pairs:
+                counts.skipped_existing_pair += 1
                 continue
             seen_layer_pairs.add((canonical_a, canonical_b))
 
@@ -370,8 +397,8 @@ async def derive_geotech_edges_from_litho(
                     layer_b_id=canonical_b,
                     layer_a_side="top",
                     layer_b_side="top",
-                    source="manual",
-                    user_approved=True,
+                    source=source,
+                    user_approved=user_approved,
                 )
             )
             counts.edges_emitted += 1

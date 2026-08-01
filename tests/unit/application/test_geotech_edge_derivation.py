@@ -186,6 +186,85 @@ async def test_emits_edge_for_matched_class_within_tolerance() -> None:
 
 
 @pytest.mark.asyncio
+async def test_existing_callers_still_get_approved_manual_edges() -> None:
+    """Called without the approval/source arguments, the derivation writes as before.
+
+    ``SubdivideAllBodies`` and ``DivideBoreholes`` derive edges as part of a
+    build the engineer has already asked for, so their edges are approved and
+    tagged 'manual'.  The standalone auto-correlate verb overrides both; the
+    defaults here are what keeps that override from changing the build.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    ga, gb = uuid4(), uuid4()
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, ga, uuid4(), 5)],
+            "inv-B": [(0.0, 10.0, gb, uuid4(), 5)],
+        },
+        seen_layer_pairs=set(),
+    )
+    edge = session.add.call_args.args[0]
+    assert edge.user_approved is True
+    assert edge.source == "manual"
+
+
+@pytest.mark.asyncio
+async def test_a_caller_can_ask_for_unapproved_auto_edges() -> None:
+    """The standalone auto-correlate verb proposes: unapproved, source 'auto'."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    ga, gb = uuid4(), uuid4()
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, ga, uuid4(), 5)],
+            "inv-B": [(0.0, 10.0, gb, uuid4(), 5)],
+        },
+        seen_layer_pairs=set(),
+        user_approved=False,
+        source="auto",
+    )
+    edge = session.add.call_args.args[0]
+    assert edge.user_approved is False
+    assert edge.source == "auto"
+
+
+@pytest.mark.asyncio
+async def test_a_pair_skipped_because_it_already_exists_is_counted() -> None:
+    """A candidate suppressed by the seen-set is counted, so the verb can toast it."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    ga, gb = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, ga, uuid4(), 5)],
+            "inv-B": [(0.0, 10.0, gb, uuid4(), 5)],
+        },
+        seen_layer_pairs={(min(ga, gb), max(ga, gb))},
+    )
+    assert counts.skipped_existing_pair == 1
+    assert counts.edges_emitted == 0
+
+
+@pytest.mark.asyncio
 async def test_preloaded_seen_pair_is_not_re_emitted() -> None:
     """A pair already in ``seen_layer_pairs`` (a prior pass) is not duplicated."""
     session = _mock_session()
