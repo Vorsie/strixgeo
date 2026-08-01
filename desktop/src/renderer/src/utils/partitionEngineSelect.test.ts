@@ -48,7 +48,9 @@ describe('computeSectionFillActive — engine selection', () => {
     } catch {
       // no localStorage in this context — the pref-set tests skip themselves
     }
-    setPartitionEngineV2(false)
+    // Do NOT call setPartitionEngineV2(false) here: since v2 became the default that
+    // writes an explicit opt-OUT, which is the opposite of the unset state the
+    // default-resolution cases need. localStorage.clear() above is the unset state.
     vi.clearAllMocks()
   })
 
@@ -62,7 +64,21 @@ describe('computeSectionFillActive — engine selection', () => {
     }
   })
 
-  it('defaults to v1 (env unset, pref unset)', () => {
+  it('defaults to v2 (env unset, pref unset)', () => {
+    // A fresh install must get the engine the owner validated. Measured on the real
+    // 14 sections with only the engine differing: the drilled gate is identical at
+    // 54 exact / 0 wrong, contact-error p90 0.125 -> 0.123 m and the WORST contact
+    // error 5.335 -> 3.145 m, with 1.5 % fewer triangles.
+    const out = computeSectionFillActive(COLUMNS)
+    expect(computeSectionFillV2).toHaveBeenCalledTimes(1)
+    expect(computeSectionFill).not.toHaveBeenCalled()
+    expect(out).toBe(V2_SENTINEL)
+  })
+
+  it('falls back to v1 when the device pref opts out', () => {
+    // v1 stays reachable as the beta fallback, now by explicit opt-OUT.
+    setPartitionEngineV2(false)
+    expect(isPartitionEngineV2Active()).toBe(false)
     const out = computeSectionFillActive(COLUMNS)
     expect(computeSectionFill).toHaveBeenCalledTimes(1)
     expect(computeSectionFillV2).not.toHaveBeenCalled()
@@ -100,12 +116,20 @@ describe('computeSectionFillActive — engine selection', () => {
     expect(computeSectionFillV2).not.toHaveBeenCalled()
   })
 
-  it('forwards all four arguments to the chosen engine', () => {
+  it('forwards all four arguments to whichever engine is active', () => {
+    // Pin each engine rather than leaning on the default, so this keeps testing
+    // argument forwarding if the default ever moves again.
     const edges = [{ a: 'x', b: 'y' }] as never[]
     const overrides = new Map()
     const along = [0, 10]
+
+    process.env.STRIX_PARTITION_V2 = '0'
     computeSectionFillActive(COLUMNS, edges, overrides, along)
     expect(computeSectionFill).toHaveBeenCalledWith(COLUMNS, edges, overrides, along)
+
+    process.env.STRIX_PARTITION_V2 = '1'
+    computeSectionFillActive(COLUMNS, edges, overrides, along)
+    expect(computeSectionFillV2).toHaveBeenCalledWith(COLUMNS, edges, overrides, along)
   })
 
   it('diagnostics variant returns v2 conflicts + override status when v2 is active (§8 Q4 + S80)', () => {
@@ -119,7 +143,9 @@ describe('computeSectionFillActive — engine selection', () => {
   })
 
   it('diagnostics variant returns EMPTY conflicts + unsupported status on the v1 engine', () => {
-    // env + pref unset → v1. v1 has no override-rejection model → status is always ``unsupported``.
+    // v1 has no override-rejection model → status is always ``unsupported``. v1 is now
+    // the opt-out fallback rather than the default, so pin it explicitly.
+    process.env.STRIX_PARTITION_V2 = '0'
     const { regions, conflicts, overrideStatus } = computeSectionFillActiveWithDiagnostics(COLUMNS)
     expect(computeSectionFill).toHaveBeenCalledTimes(1)
     expect(classifyOverrideOutcome).not.toHaveBeenCalled()
@@ -130,7 +156,7 @@ describe('computeSectionFillActive — engine selection', () => {
 })
 
 describe('flag resolution without a DOM (no localStorage) does not throw', () => {
-  it('degrades to v1 when localStorage is unavailable', () => {
+  it('takes the default engine when localStorage is unavailable', () => {
     const orig = globalThis.localStorage
     // Simulate a worker / node-without-jsdom context: no localStorage global.
     // Deleting the property makes ``typeof localStorage === 'undefined'``.
@@ -139,7 +165,10 @@ describe('flag resolution without a DOM (no localStorage) does not throw', () =>
     delete process.env.STRIX_PARTITION_V2
     try {
       expect(() => isPartitionEngineV2Active()).not.toThrow()
-      expect(isPartitionEngineV2Active()).toBe(false)
+      // No storage means no opt-out was ever recorded, so the default applies — a
+      // worker or node context must render the same engine as the app, not the
+      // fallback.
+      expect(isPartitionEngineV2Active()).toBe(true)
       expect(() => computeSectionFillActive(COLUMNS)).not.toThrow()
     } finally {
       // Restore for the rest of the suite.
