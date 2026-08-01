@@ -144,10 +144,19 @@ actions:
   destructive button copy to the action ("Delete" / "Discard" /
   "Remove permanently") — never just "OK".
 
-The desktop frontend currently has **no irreversible actions** — the
-old `DELETE /cpt/{id}` flow was removed in favour of project-local
-hide. If you add one, the convention says: confirmation dialog
-required.
+This once claimed the frontend had **no irreversible actions**. It
+does. The close-without-save **Discard** replace-restores the whole
+project in the database from the last-saved `.gmproj`, so every
+correlation, boundary move and accepted suggestion made since that
+save is gone; there is no undo. Its dialog therefore has to *name* the
+loss — kinds of work, and counts where they exist — not describe it as
+"changes". `UnsavedChangesDialog.tsx` is the worked example; the same
+obligation lands on any new destructive flow.
+
+The dialog's text is part of the safety rail, not decoration: a
+confirmation whose copy under-states the damage is worse than none,
+because it buys consent under a false premise. When you change what a
+destructive handler does, re-read its dialog copy in the same commit.
 
 ## Dark mode
 
