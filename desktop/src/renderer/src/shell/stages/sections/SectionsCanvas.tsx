@@ -1724,8 +1724,15 @@ export default function SectionsCanvas(): JSX.Element {
           // sectionAwareCreateContact early-return guard even runs. The previous
           // guard was too late in the callback chain.
           onCreateContact={(isLitho || isGeotech) ? undefined : sectionAwareCreateContact}
-          onUpdateContactDepth={handleLithoSnapAwareUpdateContactDepth}
-          onDeleteContact={handleDeleteContact}
+          // The geotech axis is view-only, and these two are how that leaked. ContactsLayer
+          // renders its drag hit-strip and its right-click delete whenever an edit handler
+          // is present, with no axis check of its own, so passing them here made a geotech
+          // contact draggable and deletable — and the next "Subdivide all bodies" discards
+          // the edit silently, because subdivision rewrites every geotech row in the model.
+          // The sibling above and onRequestDeleteContact on the correlation overlay were
+          // already gated; these two were missed.
+          onUpdateContactDepth={isGeotech ? undefined : handleLithoSnapAwareUpdateContactDepth}
+          onDeleteContact={isGeotech ? undefined : handleDeleteContact}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
           // Geotech axis is view-only; geology sync not applicable.
