@@ -82,13 +82,20 @@ function column(inv: string, along: number, elev: number): PlacedColumn {
 
 // NAD-class colour map that SectionPanel builds when axisMode='geotechnical'.
 // Formation f8 has nad_class=8 (Dicht); formation fNull has nad_class=null.
+// f8b is a SECOND, distinct geotech formation that also came out at class 8 —
+// the everyday geotech case where two separate units share a packing class, so
+// they share a colour and a label while remaining different formations. GN8
+// uses it to make "same label, different body" a real input rather than a
+// same-formation stack (which the partition engine welds into one body).
 const nadColorMap = new Map<string, string>([
   ['f8', nadClassColor(8)],
+  ['f8b', nadClassColor(8)],
   ['fNull', nadClassColor(null)],
 ])
 
 const nadLabelMap = new Map<string, string>([
   ['f8', nadClassName(8)],
+  ['f8b', nadClassName(8)],
   ['fNull', nadClassName(null)],
 ])
 
@@ -197,18 +204,27 @@ describe('PartitionFillOverlay with geotechnical axis colours', () => {
     // 2026-06-24: zoom in → see ALL bands' labels). The per-body rule still
     // applies: each bodyId gets at most one <text> element.
     //
-    // Wide columns (0 and 400) give a 380 px gap — enough for the long NAD label
-    // "ZAND, zeer dicht gp" (20 chars × 8 px × 0.55 ≈ 88 px < 380 px).
-    // Heights: bodyA = 3 m × 10 = 30 px, bodyB = 5 m × 10 = 50 px — both
-    // pass the vertical fit gate (h >= MIN_FONT + margin = 10 px).
+    // The two bodies carry DIFFERENT geotech formations (f8 and f8b) that both
+    // map to nad_class 8, so their label text is identical while the bodies stay
+    // distinct — the shape this claim is actually about, and the shape the
+    // geotech axis produces when two separate units land in the same packing
+    // class. Two units of the SAME formation would not work here: the partition
+    // engine's post-fill body merge welds touching same-formation regions into
+    // one body (owner ruling 8j), so such a fixture describes one body, not two.
+    //
+    // Wide columns (0 and 400) give a 360 px gap — ample for the NAD label
+    // "SAND, very dense" (16 chars × 12 px × 0.55 ≈ 106 px). The un-correlated
+    // contact at 3 m makes the deeper body pinch out toward mid-gap, so its
+    // widest region still spans ~160 px at font 8 (≈ 70 px of text) and both
+    // bodies clear the vertical fit gate (h >= fontSize + margin).
     const wideColumns = [column('L', 0, 10), column('R', 400, 10)]
     const sameTextLayers = [
       // bodyA: shallower (0–3 m) on both columns
       geotechLayer('e1', 'L', 'bodyA', 'f8', 0, 3),
       geotechLayer('f1', 'R', 'bodyA', 'f8', 0, 3),
-      // bodyB: deeper (3–8 m) on both columns
-      geotechLayer('g1', 'L', 'bodyB', 'f8', 3, 8),
-      geotechLayer('h1', 'R', 'bodyB', 'f8', 3, 8),
+      // bodyB: deeper (3–8 m) on both columns, same NAD class → same label text
+      geotechLayer('g1', 'L', 'bodyB', 'f8b', 3, 8),
+      geotechLayer('h1', 'R', 'bodyB', 'f8b', 3, 8),
     ]
     const { container } = render(
       <svg>
