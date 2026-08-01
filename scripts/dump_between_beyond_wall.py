@@ -12,6 +12,15 @@ dimensions before anything is done about it: every in-footprint grid column with
 regime it fell under and the two sections it chose, and every adjacent pair of columns
 whose shared body's top moved by half a metre or more across one step.
 
+It also writes, per body, the surface that body's own roof draws. The first pass drew one
+surface — the shallowest entry in each column — and that lid is nearly flat, a median
+9 mm between neighbouring columns across the whole model, while the steps it carried are
+measured on a body's roof a median 4.55 m beneath it. A riser drawn that far from its
+treads reads as a curtain hanging in the void rather than as a step. The roof of the body
+that actually steps has ground either side of the discontinuity at the discontinuity's own
+elevation, so the step is a step. One surface per body, the top twelve bodies by their
+worst step, each with the steps measured on that surface and nothing else's.
+
 Nothing is measured that the builder does not already do. The stack at each column comes
 from calling ``_stack_at`` itself, at the production settings, so the elevations here are
 the elevations the build labelled. Only the regime and the section pair are recomputed,
@@ -88,7 +97,10 @@ from groundmodel.infrastructure.db.repositories.litho_layer_repository import ( 
 from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E402
 from scripts.diag_build_generations import _sections_from_payload  # noqa: E402
 from scripts.dump_tie_pinch_vs_midline import _name_sections  # noqa: E402
-from scripts.eval_strat_fidelity import _confirm_db_target  # noqa: E402
+from scripts.eval_strat_fidelity import (  # noqa: E402
+    _confirm_db_target,
+    _load_formation_names,
+)
 
 MIN_STEP_M: float = 0.5
 """Smallest jump across one 2 m step that is written out, in metres.
@@ -114,6 +126,14 @@ below covers the difference.
 
 HOTSPOT_TOL_M: float = 3.0
 """How close a step has to land to count as the one #260 measured, in metres."""
+
+TOP_BODIES: int = 12
+"""How many bodies get their roof surface written out, worst step first.
+
+Every body is measured, but only this many are drawn. Twelve is enough to flip through in
+the viewer and small enough that the surfaces stay a few tens of megabytes rather than a
+few hundred; the bodies past it step by less than the ones before it, by construction.
+"""
 
 
 def _mode_and_pair(
@@ -350,6 +370,105 @@ def _worst_shared_jump(
     return tops_a[key], tops_b[key], abs(tops_a[key] - tops_b[key])
 
 
+def _body_roof(
+    body: str,
+    tops_at: dict[tuple[int, int], dict[str, float]],
+    mode_at: dict[tuple[int, int], str],
+) -> list[dict]:
+    """One body's roof surface: where it is carried, and how high its top sits there.
+
+    The roof exists only where the column carries the body, so this is a surface with
+    holes in it rather than a lid over the whole footprint. That is the point — where the
+    body is absent there is nothing of it to draw, and the edge of the surface is the edge
+    of the body.
+
+    Parameters
+    ----------
+    body : str
+        The body key, as :func:`_body_key` forms it.
+    tops_at : dict
+        Grid index to that column's body-to-roof map, from :func:`_tops_by_body`.
+    mode_at : dict
+        Grid index to the regime that column fell under.
+
+    Returns
+    -------
+    list of dict
+        ``{'ix', 'iy', 'z', 'mode'}`` per carrying column, in grid order.
+    """
+    roof: list[dict] = []
+    for (ix, iy), tops in tops_at.items():
+        z = tops.get(body)
+        if z is None:
+            continue
+        roof.append({"ix": ix, "iy": iy, "z": round(z, 3), "mode": mode_at[(ix, iy)]})
+    return roof
+
+
+def _body_steps(
+    body: str,
+    tops_at: dict[tuple[int, int], dict[str, float]],
+    mode_at: dict[tuple[int, int], str],
+    pair_at: dict[tuple[int, int], tuple[int, int] | None],
+    gx: np.ndarray,
+    gy: np.ndarray,
+) -> list[dict]:
+    """Every step of half a metre or more in one body's own roof.
+
+    A step is an adjacent 4-neighbour pair where BOTH columns carry this body and its roof
+    is at different elevations in the two. The body is compared against itself by id, never
+    against whatever happens to sit at the same rank in the neighbouring stack: the between
+    branch emits hairline slivers the beyond branch does not, so equal ranks are routinely
+    different material and comparing them invents metres nothing in the ground moved.
+
+    Parameters
+    ----------
+    body : str
+        The body key.
+    tops_at, mode_at, pair_at : dict
+        The per-column roof maps, regimes and section pairs from the walk.
+    gx, gy : numpy.ndarray
+        The grid axes, for turning indices back into map coordinates.
+
+    Returns
+    -------
+    list of dict
+        One record per step, largest first.
+    """
+    steps: list[dict] = []
+    for (ix, iy), tops_a in tops_at.items():
+        z0 = tops_a.get(body)
+        if z0 is None:
+            continue
+        for jx, jy in ((ix + 1, iy), (ix, iy + 1)):
+            tops_b = tops_at.get((jx, jy))
+            if tops_b is None:
+                continue
+            z1 = tops_b.get(body)
+            if z1 is None:
+                continue
+            dz = abs(z0 - z1)
+            if dz < MIN_STEP_M:
+                continue
+            steps.append(
+                {
+                    "x0": round(float(gx[ix]), 2),
+                    "y0": round(float(gy[iy]), 2),
+                    "x1": round(float(gx[jx]), 2),
+                    "y1": round(float(gy[jy]), 2),
+                    "z0": round(z0, 3),
+                    "z1": round(z1, 3),
+                    "dz": round(dz, 3),
+                    "from": mode_at[(ix, iy)],
+                    "to": mode_at[(jx, jy)],
+                    "modeChanged": mode_at[(ix, iy)] != mode_at[(jx, jy)],
+                    "pairChanged": pair_at[(ix, iy)] != pair_at[(jx, jy)],
+                }
+            )
+    steps.sort(key=lambda s: -s["dz"])
+    return steps
+
+
 async def main() -> None:
     """Walk the grid, record the regime boundary, and write the viewer payload."""
     ap = argparse.ArgumentParser(description=__doc__)
@@ -375,6 +494,7 @@ async def main() -> None:
             raise SystemExit("ABORT: no stored build generation — click Build once.")
         picks = await LithoLayerRepository(session).load_body_picks(gen.model_id)
         stored = list((await session.execute(select(CrossSectionOrm))).scalars().all())
+        formation_names = await _load_formation_names(session, gen.model_id)
 
     # The same setup as every voxel diagnostic that reproduces the persisted build:
     # aliases planned per payload, the hull framed from the sections AS DRAWN unioned
@@ -419,6 +539,9 @@ async def main() -> None:
     mode_at: dict[tuple[int, int], str] = {}
     pair_at: dict[tuple[int, int], tuple[int, int] | None] = {}
     top_at: dict[tuple[int, int], float] = {}
+    # Which formation each body belongs to. Read off the stack rather than off the picks,
+    # so a body is named by the material the labeller actually put in the column.
+    formation_of_body: dict[str, str] = {}
     deferring = 0
     for ix in range(len(gx)):
         x = float(gx[ix])
@@ -441,6 +564,8 @@ async def main() -> None:
             stack_at[key] = tuple(stack)
             tops_at[key] = _tops_by_body(tuple(stack))
             top_at[key] = float(stack[0].top_elev)
+            for entry in stack:
+                formation_of_body.setdefault(_body_key(entry), entry.formation_id)
             columns.append(
                 {
                     "ix": ix,
@@ -472,6 +597,13 @@ async def main() -> None:
     # The hotspot's own step, kept whatever its size: the viewer opens on it, so it has to
     # resolve to a step even when the honest measurement there is small.
     hotspot_step: dict | None = None
+    # Per body, the worst its own roof moved across one step and how many steps of half a
+    # metre or more it has. Scalars only in this pass: the step records themselves are
+    # collected in a second pass, for the handful of bodies that end up drawn, because
+    # keeping every body's every step would be a few hundred thousand dicts for nothing.
+    body_worst: dict[str, float] = {}
+    body_worst_at: dict[str, tuple[float, float]] = {}
+    body_step_count: dict[str, int] = {}
     for (ix, iy), tops_a in tops_at.items():
         for jx, jy in ((ix + 1, iy), (ix, iy + 1)):
             tops_b = tops_at.get((jx, jy))
@@ -493,6 +625,13 @@ async def main() -> None:
             if rank > worst_rank:
                 worst_rank = rank
                 worst_rank_at = (float(gx[ix]), float(gy[iy]))
+            for body in tops_a.keys() & tops_b.keys():
+                body_dz = abs(tops_a[body] - tops_b[body])
+                if body_dz > body_worst.get(body, -1.0):
+                    body_worst[body] = body_dz
+                    body_worst_at[body] = (float(gx[ix]), float(gy[iy]))
+                if body_dz >= MIN_STEP_M:
+                    body_step_count[body] = body_step_count.get(body, 0) + 1
             worst = _worst_shared_jump(tops_a, tops_b)
             if worst is None:
                 # No body in common. Recorded so the viewer can show it, and marked so it
@@ -538,6 +677,27 @@ async def main() -> None:
         steps.append(hotspot_step)
     steps.sort(key=lambda s: -s["dz"])
 
+    # --- the surface each body's own roof draws -----------------------------
+    selected = sorted(body_worst, key=lambda b: -body_worst[b])[:TOP_BODIES]
+    bodies: list[dict] = []
+    for body in selected:
+        roof = _body_roof(body, tops_at, mode_at)
+        at_x, at_y = body_worst_at[body]
+        formation_id = formation_of_body.get(body, "")
+        bodies.append(
+            {
+                "id": body,
+                "short": body[:8],
+                "formation": formation_names.get(formation_id, formation_id or "?"),
+                "worstDz": round(body_worst[body], 3),
+                "worstAt": [round(at_x, 2), round(at_y, 2)],
+                "stepCount": body_step_count.get(body, 0),
+                "columns": len(roof),
+                "roof": roof,
+                "steps": _body_steps(body, tops_at, mode_at, pair_at, gx, gy),
+            }
+        )
+
     beyond = sum(1 for c in columns if c["mode"] == "beyond")
     beyond_share = beyond / max(len(columns), 1)
 
@@ -551,6 +711,7 @@ async def main() -> None:
         },
         "columns": columns,
         "steps": steps,
+        "bodies": bodies,
         "sections": [
             {
                 "index": i,
@@ -636,6 +797,47 @@ async def main() -> None:
             f" ({len(near)} step(s) land near it)."
             "\n  The regime decision reproduced here does not agree with the one that was"
             "\n  measured, so this file draws something other than the wall. Do not use it."
+        )
+
+    print(f"\n  --- the {len(bodies)} bodies whose own roof steps worst ---")
+    print(
+        f"    {'formation':<12} {'body':<10} {'worstDz':>8}  {'steps':>6} {'columns':>8}   worst at"
+    )
+    for body in bodies:
+        print(
+            f"    {body['formation']:<12} {body['short']:<10} {body['worstDz']:>7.2f} m"
+            f"  {body['stepCount']:>6,} {body['columns']:>8,}"
+            f"   ({body['worstAt'][0]:.1f}, {body['worstAt'][1]:.1f})"
+        )
+    if bodies:
+        head = bodies[0]
+        agrees = abs(head["worstDz"] - round(worst_dz, 3)) <= 0.001 and worst_at is not None
+        if agrees:
+            print(
+                f"\n    the worst body-level step, {head['worstDz']:.2f} m at"
+                f" ({head['worstAt'][0]:.1f}, {head['worstAt'][1]:.1f}), is the same step the"
+                " shared-body\n    sweep reports — one body, measured against itself, not a rank"
+                " against a rank."
+            )
+        else:
+            print(
+                f"\n    DISAGREEMENT: the worst body-level step is {head['worstDz']:.2f} m but the"
+                f" shared-body sweep\n    reports {worst_dz:.2f} m. These measure the same thing"
+                " and cannot differ. Do not use this file."
+            )
+
+    distinct_shorts = len({b["short"] for b in bodies})
+    if distinct_shorts < len(bodies):
+        # Body ids are UUIDv7, whose leading hex digits are a creation timestamp, so bodies
+        # resolved in the same second share a prefix. The short form is written as asked,
+        # but it does not identify a body and a picker keyed on it alone will conflate
+        # several. Said here rather than quietly widened, because the width is the caller's
+        # to choose.
+        print(
+            f"\n    NOTE: the 8-character short form is ambiguous — {len(bodies)} distinct"
+            f" bodies share only\n    {distinct_shorts} distinct shorts, because these ids are"
+            " UUIDv7 and the leading digits are a\n    timestamp. A picker needs the formation"
+            " and the row, or a longer prefix, to tell them apart."
         )
 
     size_mb = out_path.stat().st_size / (1024 * 1024)
