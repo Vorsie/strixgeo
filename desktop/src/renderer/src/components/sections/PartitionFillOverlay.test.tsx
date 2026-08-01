@@ -54,8 +54,8 @@ import type {
   LithoContactCorrelationEdge,
   LithoLayerResponse,
 } from '../../api/client'
-import * as partitionFillModule from '../../utils/partitionFill'
 import type { PartitionRegion } from '../../utils/partitionFill'
+import * as partitionEngineSelect from '../../utils/partitionEngineSelect'
 import { setPartitionEngineV2 } from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
@@ -149,6 +149,39 @@ const transforms = {
   screenXToAlong: (x: number) => x,
   screenToLevel: (y: number) => (100 - y) / 10, // inverse of levelToScreen
 }
+
+/**
+ * An approved contact tie between the BASE of ``a`` and the BASE of ``b`` — the
+ * correlation an engineer draws to say "this contact is the same surface on both
+ * columns".
+ *
+ * Why the matched-boundary tests need one. The ``contactEdges`` prop contract is
+ * explicit: the fill bands two units IFF an approved edge connects them, because
+ * ``body_id`` is the resolver's over-lumped signal and not a correlation. The base
+ * fixture gives both columns the same body ids but no edge. The v1 engine banded that
+ * untied pair anyway; the v2 closed-loop engine honours the contract and lets both
+ * clay units terminate mid-gap, so the gap holds TWO sand/clay adjacencies instead of
+ * one matched contact. Every test below whose subject is the MATCHED boundary states
+ * the tie that makes the boundary matched — the fixture then means on v2 what its name
+ * has always claimed, and the assertions are untouched.
+ */
+function contactTie(a: string, b: string): LithoContactCorrelationEdge {
+  return {
+    id: `e-${a}-${b}-base`,
+    layer_a_id: a,
+    layer_b_id: b,
+    layer_a_side: 'base',
+    layer_b_side: 'base',
+    model_id: 'm1',
+    section_id: 's1',
+    source: 'manual',
+    user_approved: true,
+    created_at: '2026-01-01T00:00:00Z',
+  }
+}
+
+/** The base fixture's sand/clay contact, tied across both columns → one matched band pair. */
+const baseMatchedEdges: LithoContactCorrelationEdge[] = [contactTie('a1', 'b1')]
 
 /**
  * S86 press-to-grab gesture: an add-strip press CREATES and GRABS the node in one
@@ -536,6 +569,9 @@ describe('PartitionFillOverlay', () => {
     ]
     const { getByTestId } = renderOverlay({
       lithoLayers: mixedLayers,
+      // The sand/clay contact is tied across both columns, so it IS a matched
+      // boundary and the gap holds exactly one sand/clay adjacency (see contactTie).
+      contactEdges: [contactTie('m3', 'm5')],
       ...transforms,
       onSaveBoundary: vi.fn(),
       boundariesByBodyId: new Map(),
@@ -588,40 +624,58 @@ describe('PartitionFillOverlay', () => {
 
   // --------------------------------------------------------------------------
   // FD1: Two stored nodes → two handles, both polygons gain two vertices
+  //
+  // ENGINE v1 ONLY — deliberately, not incidentally. Multi-node contact freedraw is
+  // the v1 off-engine bend, which inserts EVERY stored node into both incident
+  // polygons. v2 retired the off-engine reshape (see RC3) and consumes contact
+  // control points through ``contactOverrideWiring``, which takes the FIRST in-gap
+  // node as the single control point ("multi-node contact freedraw stays on the
+  // existing per-node handles for now"). So on v2 a second stored node draws its
+  // handle but does not bend the contact. That is a real v2 capability gap worth its
+  // own owner call — it is NOT something this test can express, because asserting
+  // "two interior vertices" against an engine whose contact bend is single-node by
+  // design would contradict RC3. Pin v1, where the behaviour under test lives.
   // --------------------------------------------------------------------------
   it('FD1 — a matched boundary with TWO stored lower_nodes renders two handles and both polygons gain TWO interior vertices', () => {
-    // Two control points at x=40 and x=60 (both inside gap 20..80).
-    const { getByTestId, queryAllByTestId } = renderOverlay({
-      ...transforms,
-      onSaveBoundary: vi.fn(),
-      boundariesByBodyId: new Map([
-        [
-          'sand',
-          {
-            upper_nodes: [],
-            lower_nodes: [
-              { along_m: 40, elevation_m: 4.5 },
-              { along_m: 60, elevation_m: 3.5 },
-            ],
-          } as unknown as BodyBoundaryResponse,
-        ],
-      ]),
-    })
-    // Both handles rendered.
-    expect(getByTestId('partition-boundary-handle-sand-clay-0')).toBeTruthy()
-    expect(getByTestId('partition-boundary-handle-sand-clay-1')).toBeTruthy()
+    const priorEngine = process.env.STRIX_PARTITION_V2
+    process.env.STRIX_PARTITION_V2 = '0'
+    try {
+      // Two control points at x=40 and x=60 (both inside gap 20..80).
+      const { getByTestId, queryAllByTestId } = renderOverlay({
+        ...transforms,
+        onSaveBoundary: vi.fn(),
+        boundariesByBodyId: new Map([
+          [
+            'sand',
+            {
+              upper_nodes: [],
+              lower_nodes: [
+                { along_m: 40, elevation_m: 4.5 },
+                { along_m: 60, elevation_m: 3.5 },
+              ],
+            } as unknown as BodyBoundaryResponse,
+          ],
+        ]),
+      })
+      // Both handles rendered.
+      expect(getByTestId('partition-boundary-handle-sand-clay-0')).toBeTruthy()
+      expect(getByTestId('partition-boundary-handle-sand-clay-1')).toBeTruthy()
 
-    // Sand polygon should have ≥6 vertex commands (4 natural + 2 inserted).
-    const sandPaths = queryAllByTestId('partition-region-sand')
-    const sandD = sandPaths[0].getAttribute('d') ?? ''
-    const sandVertexCount = (sandD.match(/[ML]/g) ?? []).length
-    expect(sandVertexCount).toBeGreaterThanOrEqual(6)
+      // Sand polygon should have ≥6 vertex commands (4 natural + 2 inserted).
+      const sandPaths = queryAllByTestId('partition-region-sand')
+      const sandD = sandPaths[0].getAttribute('d') ?? ''
+      const sandVertexCount = (sandD.match(/[ML]/g) ?? []).length
+      expect(sandVertexCount).toBeGreaterThanOrEqual(6)
 
-    // Clay polygon should also have ≥6 vertex commands.
-    const clayPaths = queryAllByTestId('partition-region-clay')
-    const clayD = clayPaths[0].getAttribute('d') ?? ''
-    const clayVertexCount = (clayD.match(/[ML]/g) ?? []).length
-    expect(clayVertexCount).toBeGreaterThanOrEqual(6)
+      // Clay polygon should also have ≥6 vertex commands.
+      const clayPaths = queryAllByTestId('partition-region-clay')
+      const clayD = clayPaths[0].getAttribute('d') ?? ''
+      const clayVertexCount = (clayD.match(/[ML]/g) ?? []).length
+      expect(clayVertexCount).toBeGreaterThanOrEqual(6)
+    } finally {
+      if (priorEngine === undefined) delete process.env.STRIX_PARTITION_V2
+      else process.env.STRIX_PARTITION_V2 = priorEngine
+    }
   })
 
   // --------------------------------------------------------------------------
@@ -631,6 +685,7 @@ describe('PartitionFillOverlay', () => {
     const onSaveBoundary = vi.fn()
     const { getByTestId } = renderOverlay({
       ...transforms,
+      contactEdges: baseMatchedEdges,
       onSaveBoundary,
       boundariesByBodyId: new Map([
         [
@@ -669,6 +724,7 @@ describe('PartitionFillOverlay', () => {
     const onCorrelateBoundary = vi.fn()
     const { getByTestId } = renderOverlay({
       ...transforms,
+      contactEdges: baseMatchedEdges,
       onSaveBoundary,
       onCorrelateBoundary,
       boundariesByBodyId: new Map([
@@ -778,7 +834,11 @@ describe('PartitionFillOverlay', () => {
 
   it('HP1 — mouseMove ON a matched-boundary edge renders a partition-addnode-preview circle', () => {
     // No nodes stored — the strip is always rendered when onSaveBoundary is wired.
-    const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
+    const { getByTestId, queryByTestId } = renderOverlay({
+      ...transforms,
+      contactEdges: baseMatchedEdges,
+      onSaveBoundary: vi.fn(),
+    })
     // Preview absent before hover.
     expect(queryByTestId('partition-addnode-preview')).toBeNull()
     // Move the pointer ONTO the edge (the strip's midpoint lies on the contact line).
@@ -789,7 +849,11 @@ describe('PartitionFillOverlay', () => {
   })
 
   it('HP2 — mouseLeave the matched-boundary add-strip removes the preview dot', () => {
-    const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
+    const { getByTestId, queryByTestId } = renderOverlay({
+      ...transforms,
+      contactEdges: baseMatchedEdges,
+      onSaveBoundary: vi.fn(),
+    })
     // Hover in (on the edge).
     const strip = getByTestId('partition-boundary-addstrip-sand-clay')
     fireEvent.mouseMove(strip, stripMidpoint(strip))
@@ -820,7 +884,11 @@ describe('PartitionFillOverlay', () => {
     // The edge-only rule: the dot rides the litho line only. A hover deep in the
     // band interior — far below the sand/clay contact — must NOT spawn a dot (the
     // owner's "teal dot in the middle of a band" was the containment-era symptom).
-    const { getByTestId, queryByTestId } = renderOverlay({ ...transforms, onSaveBoundary: vi.fn() })
+    const { getByTestId, queryByTestId } = renderOverlay({
+      ...transforms,
+      contactEdges: baseMatchedEdges,
+      onSaveBoundary: vi.fn(),
+    })
     // The contact runs el5→el6 (y=50→40 across the gap). y=90 is ~40px below it —
     // deep in the clay interior, far beyond the 7px hit tolerance.
     fireEvent.mouseMove(getByTestId('partition-boundary-addstrip-sand-clay'), {
@@ -887,11 +955,18 @@ describe('PartitionFillOverlay', () => {
   // levelToScreen/plotTop/plotBottom skips computeSectionFill entirely.
   // --------------------------------------------------------------------------
   it('TEST-04 — computeSectionFill is NOT called again when only screen-transform props change', () => {
-    // Spy on computeSectionFill through its module binding. Vitest makes ES
-    // module exports mutable so spyOn wraps the real implementation while
-    // counting calls. We call through (no mockImplementation) so the overlay
-    // still renders correctly and the test only asserts call-count behaviour.
-    const spy = vi.spyOn(partitionFillModule, 'computeSectionFill')
+    // Spy on the ACTIVE-ENGINE entry point the overlay actually calls, through its
+    // module binding. Vitest makes ES module exports mutable so spyOn wraps the real
+    // implementation while counting calls. We call through (no mockImplementation) so
+    // the overlay still renders correctly and the test only asserts call-count
+    // behaviour.
+    //
+    // The spy used to sit on ``partitionFill.computeSectionFill`` — the v1 engine
+    // itself — which counted nothing once v2 became the default engine. The property
+    // under test is the overlay's, not any one engine's: a pan/zoom must not re-enter
+    // the partition engine. Counting the selector keeps that guard on whichever engine
+    // is actually shipping.
+    const spy = vi.spyOn(partitionEngineSelect, 'computeSectionFillActiveWithDiagnostics')
 
     const { rerender } = render(
       <svg>
@@ -1217,8 +1292,11 @@ describe('PartitionFillOverlay', () => {
 // freedraw gesture on EITHER engine.
 // ---------------------------------------------------------------------------
 describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
-  // Force the v2 engine for this block only; restore v1 afterward so the rest of
-  // the suite (which pins on v1 shapes) is unaffected.
+  // Force the v2 engine for this block only, then PIN v1 afterward so the rest of
+  // the suite (which asserts v1 shapes) is unaffected. Note the afterEach no longer
+  // "restores" anything: since v2 became the default, setPartitionEngineV2(false)
+  // writes an explicit opt-out rather than clearing the pref, so it selects v1
+  // deliberately instead of returning to whatever was there before.
   beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
     setPartitionEngineV2(false)
