@@ -157,6 +157,11 @@ export type {
   SubdivideAllBodiesResponse,
   // "Divide boreholes" endpoint response.
   DivideBoreholeResponse,
+  // Geotech packing-band hand edits (split / merge) — preview + commit payloads.
+  GeotechBandIntervalItem,
+  GeotechBandWarningItem,
+  GeotechBandEditPlanResponse,
+  GeotechBandEditResponse,
 } from './clients/geology'
 export { DuplicateContactError } from './clients/geology'
 

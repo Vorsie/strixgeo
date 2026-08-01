@@ -52,10 +52,20 @@ export default function ReSubdivideConfirmDialog({
       busy={busy}
       title="Re-subdivide geotech model?"
       body={
-        <p>
-          Re-subdividing regenerates all geotech packing connections &mdash; any manual connections
-          you made will be cleared.
-        </p>
+        <>
+          <p>
+            Re-subdividing regenerates all geotech packing connections &mdash; any manual
+            connections you made will be cleared.
+          </p>
+          {/* The dialog used to be a dead end: wiping the model was the only way to get
+              the automatic ties back. "Correlate packing → Auto-correlate" now proposes
+              them without touching anything, so the alternative belongs at the exact
+              moment the engineer is deciding whether to accept the loss. */}
+          <p className="mt-2 text-text-secondary">
+            To get the automatic ties back <em>without</em> losing your own, cancel and use
+            Correlate packing &rarr; Auto-correlate instead.
+          </p>
+        </>
       }
       confirm={{
         label: 'Re-subdivide',

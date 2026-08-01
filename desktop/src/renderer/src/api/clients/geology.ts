@@ -18,6 +18,7 @@
  * @module clients/geology
  */
 import { _base, del, delReturning, get, getBytes, patch, post, put } from './shared'
+import { geotechBandsClient } from './geotechBands'
 import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
 import type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
@@ -78,6 +79,7 @@ import type {
   ClearBoundariesResponse,
   SubdivideAllBodiesResponse,
   DivideBoreholeResponse,
+  AutoCorrelateGeotechResponse,
 } from './geology.types'
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,10 @@ import type {
 
 /** Typed wrappers for all geology-domain endpoints. */
 export const geologyClient = {
+  // Geotech packing-band hand edits (split / merge, preview + commit) live in their own
+  // module — this file is already past the 500-line god-module line (debt #201).
+  ...geotechBandsClient,
+
   // Download the geological model as a runnable Plaxis 3D
   // plxscripting Python script. Returns the raw bytes so the
   // caller can pipe to the Electron save-dialog + write-file IPC pair.
@@ -778,6 +784,27 @@ export const geologyClient = {
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes`,
       {},
+    ),
+
+  /**
+   * POST .../geotech/auto-correlate — propose the automatic packing ties again.
+   *
+   * ``geotechModelId`` is the GEOTECHNICAL model (every other geotech verb in
+   * this client takes the litho parent — this one does not). Proposals insert
+   * unapproved, so they render as amber suggestions until the engineer accepts
+   * them, and existing correlations are never deleted or re-approved.
+   *
+   * ``sectionId`` scopes the run to one section so the engineer can see what
+   * was proposed; ``null`` proposes across every section of the project.
+   */
+  autoCorrelateGeotech: (
+    projectId: string,
+    geotechModelId: string,
+    sectionId?: string | null,
+  ): Promise<AutoCorrelateGeotechResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${geotechModelId}/geotech/auto-correlate`,
+      { section_id: sectionId ?? null },
     ),
 
   // Delete source='auto' edges for the model. With sectionId (debt #3), only

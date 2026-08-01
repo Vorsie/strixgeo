@@ -1,0 +1,186 @@
+/**
+ * The consequence sheet shown before a hand split or merge of packing sub-bands is
+ * committed.
+ *
+ * Owner ruling 6 (docs/debt.md #227, 2026-08-01): *"if the qc is lower or higher then it
+ * gets a warning that it will pull down or up the avg qc of the layer it is in"*. Owner
+ * ruling 5: *"the user needs to be able to manually overrule everything"*. Together those
+ * fix the shape of this dialog — it TELLS, it never VETOES. The action button is enabled
+ * whatever the warnings say.
+ *
+ * It is deliberately not styled as an irreversible confirmation (``docs/ux.md``): no
+ * destructive colour, focus lands on the action rather than on Cancel, and the action is
+ * named after the verb ("Split band" / "Merge bands"). A split can be merged back and a
+ * merge re-split, so treating it like a delete would read as a bigger commitment than it is.
+ *
+ * The numbers and every warning sentence are authored server-side, so the statistic and its
+ * wording exist in one place. The dialog renders what it was handed and manufactures
+ * nothing — including the phrase "representative qc", which is the MEDIAN. The owner asked
+ * for "avg qc", but ``geotech_subdivision.py`` classifies a band on ``median(in_band)``, so
+ * a consequence computed on the mean would predict a reclassification that never happens.
+ */
+import { useEffect, useRef } from 'react'
+
+import type { GeotechBandEditPlanResponse } from '../../api/client'
+import Button from '../ui/Button'
+import Modal from '../ui/Modal'
+
+/** Props for the split / merge consequence sheet. */
+export interface Props {
+  /** Open when a plan is being previewed. */
+  open: boolean
+  /** What the edit would do, straight from the preview endpoint. */
+  plan: GeotechBandEditPlanResponse
+  /** Commit the edit. Fires even with warnings on screen — that is the point. */
+  onConfirm: () => Promise<void> | void
+  /** Dismiss without committing (Cancel / Esc / backdrop). */
+  onCancel: () => void
+  /** While true the action is disabled and the dialog cannot be dismissed. */
+  busy?: boolean
+}
+
+/** Format a depth range the way the section readouts do. */
+function depthRange(topM: number, baseM: number): string {
+  return `${topM.toFixed(2)}–${baseM.toFixed(2)} m`
+}
+
+/** Render a NAD class for display, naming the null case rather than showing a blank. */
+function classLabel(nadClass: number | null): string {
+  return nadClass === null ? 'needs review' : `class ${nadClass}`
+}
+
+/**
+ * Show what a proposed packing split or merge would do, then let it through.
+ *
+ * Parameters
+ * ----------
+ * props : Props
+ *     The plan to render plus the commit / dismiss handlers.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The modal.
+ */
+export default function GeotechBandEditDialog({
+  open,
+  plan,
+  onConfirm,
+  onCancel,
+  busy = false,
+}: Props): JSX.Element {
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const isMerge = plan.kind === 'merge'
+  const verb = isMerge ? 'Merge bands' : 'Split band'
+
+  // Focus the ACTION, not Cancel. docs/ux.md puts default-focus on Cancel for irreversible
+  // actions; this is not one (a split can be merged back), and defaulting to Cancel here
+  // would read as a warning about danger rather than a statement of consequence.
+  useEffect(() => {
+    if (!open) return
+    const timer = setTimeout(() => confirmRef.current?.focus(), 0)
+    return () => clearTimeout(timer)
+  }, [open])
+
+  return (
+    <Modal
+      open={open}
+      onCancel={onCancel}
+      labelledBy="geotech-band-edit-title"
+      busy={busy}
+      testid="geotech-band-edit-dialog"
+      cardClassName="w-[30rem]"
+    >
+      <div className="p-6">
+        <h2
+          id="geotech-band-edit-title"
+          className="text-base font-semibold text-text-primary mb-1"
+        >
+          {isMerge ? 'Merge these packing bands?' : 'Split this packing band?'}
+        </h2>
+        <p className="text-xs text-text-secondary mb-4">
+          The packing class is re-derived from the cone resistance over each resulting
+          interval, inside the litho body at {depthRange(plan.parent_top_m, plan.parent_base_m)}.
+          Only this column re-derives.
+        </p>
+
+        <ul className="mb-4 space-y-1.5">
+          {plan.intervals.map((interval, i) => (
+            <li
+              key={`${interval.depth_top_m}-${interval.depth_base_m}`}
+              data-testid={`geotech-band-edit-interval-${i}`}
+              className="text-xs text-text-primary border border-border-default rounded px-3 py-2 bg-surface-page"
+            >
+              <div className="flex justify-between gap-3">
+                <span className="font-medium">
+                  {depthRange(interval.depth_top_m, interval.depth_base_m)}
+                </span>
+                <span>
+                  {interval.class_changed ? (
+                    <>
+                      {classLabel(interval.previous_nad_class)}
+                      {' → '}
+                      <span className="font-semibold">{classLabel(interval.nad_class)}</span>
+                    </>
+                  ) : (
+                    <>{classLabel(interval.nad_class)} (unchanged)</>
+                  )}
+                </span>
+              </div>
+              {interval.median_qc_mpa !== null && (
+                <div className="text-text-secondary mt-0.5">
+                  Representative qc {interval.median_qc_mpa.toFixed(1)} MPa
+                </div>
+              )}
+              {interval.unclassifiable_reason !== null && (
+                <div className="text-text-secondary mt-0.5">
+                  {interval.unclassifiable_reason}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        {plan.warnings.length > 0 ? (
+          <ul className="mb-4 space-y-1.5">
+            {plan.warnings.map((warning, i) => (
+              <li
+                key={`${warning.code}-${warning.depth_top_m}-${warning.depth_base_m}`}
+                data-testid={`geotech-band-edit-warning-${i}`}
+                className="text-xs text-amber-700 dark:text-amber-400 border border-amber-500/40 rounded px-3 py-2 bg-amber-500/5"
+              >
+                {warning.message}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p
+            data-testid="geotech-band-edit-no-consequence"
+            className="text-xs text-text-secondary mb-4"
+          >
+            The cone resistance gives the same packing class either way — this edit changes the
+            boundary, not the classification.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="md" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          {/* Never disabled on warnings. Ruling 5: the owner can place a boundary the qc
+              does not support, having been told what it costs. */}
+          <Button
+            ref={confirmRef}
+            variant="primary"
+            size="md"
+            onClick={() => void onConfirm()}
+            disabled={busy}
+            data-testid="geotech-band-edit-confirm"
+          >
+            {verb}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}

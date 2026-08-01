@@ -1,0 +1,269 @@
+/**
+ * Hard-bounds arithmetic for hand editing packing sub-bands on the geotech axis.
+ *
+ * Pure: no React, no network, no DOM. The drag reads {@link clampSplitDepth} every frame,
+ * so the clamp the owner feels in the gesture and the clamp the server enforces on commit
+ * are the same rule stated once.
+ *
+ * The rule (owner ruling 2, docs/debt.md #227, 2026-08-01): *"A packing boundary moves
+ * freely inside its litho body and clamps at the edge. It can never move a litho contact
+ * and never cross a geological one."* Both levels above the geotech stage are hard walls;
+ * the owner overrules the CLASS, never the hierarchy.
+ *
+ * One test covers both walls because a litho body on this axis is already geo-bounded —
+ * the litho model never spans a geological contact — so "inside one litho body" implies
+ * "inside one geological band".
+ *
+ * @module components/sections/geotechBandEdit
+ */
+
+import type { LithoLayerResponse } from '../../api/client'
+
+/**
+ * How far inside the litho body a hand-placed split is allowed to land, in metres.
+ *
+ * Not a geological rule and not the owner's minimum-thickness preference (that one only
+ * warns — see ``geotechSubdivisionPrefs.minimumLayerThicknessM``). This is the structural
+ * floor: layer depths are stored mm-rounded under a no-overlap exclusion constraint, so a
+ * split landing exactly on the litho contact asks for a zero-thickness band and comes back
+ * as a 500 instead of a layer. 1 cm is the frontend clamp that keeps that unreachable.
+ */
+export const SPLIT_EDGE_EPSILON_M = 0.01
+
+/**
+ * How close two band boundaries must be to count as touching, in metres.
+ *
+ * Matches the 1 cm contiguity tolerance the ``trg_litho_column_contiguous`` trigger
+ * enforces, so this walk can never disagree with the database about what is adjacent.
+ */
+export const BAND_ADJACENCY_TOLERANCE_M = 0.01
+
+/** A depth range on one column, positive down. */
+export interface DepthInterval {
+  /** Top of the range in metres below the collar. */
+  topDepthM: number
+  /** Base of the range in metres below the collar. */
+  baseDepthM: number
+}
+
+/** One packing sub-band on one column — a geotech ``litho_layer`` row, reduced. */
+export interface GeotechBandInterval extends DepthInterval {
+  /** The geotech ``litho_layer`` id the split/merge endpoints take. */
+  layerId: string
+  /** The NAD-stamped geotech formation the band currently carries. */
+  formationId: string
+}
+
+/** Which wall stopped a proposed split, if any. */
+export type SplitClampWall = 'none' | 'litho-top' | 'litho-base'
+
+/** A proposed split depth after the hierarchy has had its say. */
+export interface ClampedSplitDepth {
+  /** The depth the split would actually be placed at, in metres. */
+  depthM: number
+  /** The wall that stopped it, or ``'none'`` when the cursor was already inside. */
+  clampedAt: SplitClampWall
+  /** Why it stopped, phrased for the readout; ``null`` when nothing stopped it. */
+  clampReason: string | null
+}
+
+/** Whether two bands may be merged, and if not, the reason to show the owner. */
+export type MergeEligibility = { ok: true } | { ok: false; reason: string }
+
+/**
+ * Clamp a proposed split depth into the litho body that bounds it.
+ *
+ * Inside the body the cursor is followed exactly, including across the owner's own packing
+ * boundaries — those are his subdivision, not a level above him, so crossing one simply
+ * re-targets which band gets split (see {@link bandAtDepth}). At the litho contact the
+ * depth stops, one epsilon short, and reports which edge it hit so the gesture can say why.
+ *
+ * Parameters
+ * ----------
+ * lithoBody : DepthInterval
+ *     The enclosing litho body — the hard wall on both sides.
+ * rawDepthM : number
+ *     The depth under the cursor, in metres, before any bound is applied.
+ * epsilonM : number, optional
+ *     How far inside the wall to stop. Defaults to {@link SPLIT_EDGE_EPSILON_M}.
+ *
+ * Returns
+ * -------
+ * ClampedSplitDepth
+ *     The placed depth, the wall that stopped it, and the reason to display.
+ */
+export function clampSplitDepth(
+  lithoBody: DepthInterval,
+  rawDepthM: number,
+  epsilonM: number = SPLIT_EDGE_EPSILON_M,
+): ClampedSplitDepth {
+  const { topDepthM, baseDepthM } = lithoBody
+  // A body thinner than two epsilons has no legal interior; collapse to its middle so the
+  // gesture degrades to "no room here" rather than inverting the bounds.
+  const room = baseDepthM - topDepthM
+  if (room <= 2 * epsilonM) {
+    return {
+      depthM: topDepthM + room / 2,
+      clampedAt: 'none',
+      clampReason: null,
+    }
+  }
+  const lowest = topDepthM + epsilonM
+  const deepest = baseDepthM - epsilonM
+  if (rawDepthM <= lowest) {
+    return {
+      depthM: lowest,
+      clampedAt: 'litho-top',
+      clampReason:
+        'Stopped at the top of the litho body — a packing boundary never crosses a litho contact.',
+    }
+  }
+  if (rawDepthM >= deepest) {
+    return {
+      depthM: deepest,
+      clampedAt: 'litho-base',
+      clampReason:
+        'Stopped at the base of the litho body — a packing boundary never crosses a litho contact.',
+    }
+  }
+  return { depthM: rawDepthM, clampedAt: 'none', clampReason: null }
+}
+
+/**
+ * Find the litho body a depth falls in.
+ *
+ * Parameters
+ * ----------
+ * lithoBodies : readonly DepthInterval[]
+ *     The litho layers on the edited column, any order.
+ * depthM : number
+ *     Depth in metres below the collar.
+ *
+ * Returns
+ * -------
+ * DepthInterval | null
+ *     The containing body, or ``null`` when the depth is below the deepest litho layer
+ *     (nothing bounds a split there, so none may be placed).
+ */
+export function enclosingLithoBody(
+  lithoBodies: readonly DepthInterval[],
+  depthM: number,
+): DepthInterval | null {
+  for (const body of lithoBodies) {
+    // Half-open [top, base) matches how the build samples a band, so a depth sitting
+    // exactly on a contact belongs to the body below it — one owner, never two.
+    if (depthM >= body.topDepthM && depthM < body.baseDepthM) return body
+  }
+  return null
+}
+
+/**
+ * Find the packing band a depth falls in.
+ *
+ * Parameters
+ * ----------
+ * bands : readonly GeotechBandInterval[]
+ *     The packing bands on the edited column.
+ * depthM : number
+ *     Depth in metres below the collar.
+ *
+ * Returns
+ * -------
+ * GeotechBandInterval | null
+ *     The band that would be split, or ``null`` when no band covers the depth.
+ */
+export function bandAtDepth(
+  bands: readonly GeotechBandInterval[],
+  depthM: number,
+): GeotechBandInterval | null {
+  for (const band of bands) {
+    if (depthM >= band.topDepthM && depthM < band.baseDepthM) return band
+  }
+  return null
+}
+
+/**
+ * Reduce a model-wide layer list to one column's bands, shallowest first.
+ *
+ * Parameters
+ * ----------
+ * layers : readonly LithoLayerResponse[]
+ *     Geotech (or litho) layer rows across every column.
+ * investigationId : string
+ *     The CPT or borehole id whose column is being edited.
+ *
+ * Returns
+ * -------
+ * GeotechBandInterval[]
+ *     The column's bands sorted top to bottom, so the stack matches the drawing.
+ */
+export function columnBands(
+  layers: readonly Pick<
+    LithoLayerResponse,
+    'id' | 'formation_id' | 'cpt_id' | 'borehole_id' | 'depth_top_m' | 'depth_base_m'
+  >[],
+  investigationId: string,
+): GeotechBandInterval[] {
+  return layers
+    .filter(l => (l.cpt_id ?? l.borehole_id) === investigationId)
+    .map(l => ({
+      layerId: l.id,
+      formationId: l.formation_id,
+      topDepthM: l.depth_top_m,
+      baseDepthM: l.depth_base_m,
+    }))
+    .sort((a, b) => a.topDepthM - b.topDepthM)
+}
+
+/**
+ * Decide whether two packing bands may be merged by hand.
+ *
+ * Refuses on the hierarchy and on nothing else. A refusal here is ruling 2 doing its job;
+ * a refusal on qc grounds would be a defect (ruling 5 — manual override always wins), which
+ * is why nothing about the classes is consulted.
+ *
+ * Parameters
+ * ----------
+ * upper : GeotechBandInterval
+ *     The shallower band of the pair.
+ * lower : GeotechBandInterval
+ *     The deeper band of the pair.
+ * lithoBodies : readonly DepthInterval[]
+ *     The litho layers on the edited column.
+ *
+ * Returns
+ * -------
+ * MergeEligibility
+ *     ``{ ok: true }``, or the reason the hierarchy forbids it.
+ */
+export function canMergeBands(
+  upper: GeotechBandInterval,
+  lower: GeotechBandInterval,
+  lithoBodies: readonly DepthInterval[],
+): MergeEligibility {
+  if (Math.abs(upper.baseDepthM - lower.topDepthM) > BAND_ADJACENCY_TOLERANCE_M) {
+    return {
+      ok: false,
+      reason: 'These two bands do not touch — there is other material between them.',
+    }
+  }
+  // Probe each band at its own midpoint: a band that exactly spans its body would otherwise
+  // resolve by its top depth alone and could pick up the body above on a shared contact.
+  const upperBody = enclosingLithoBody(lithoBodies, (upper.topDepthM + upper.baseDepthM) / 2)
+  const lowerBody = enclosingLithoBody(lithoBodies, (lower.topDepthM + lower.baseDepthM) / 2)
+  if (upperBody === null || lowerBody === null) {
+    return {
+      ok: false,
+      reason: 'One of these bands is not inside a litho body, so it has no bounds to merge within.',
+    }
+  }
+  if (upperBody !== lowerBody) {
+    return {
+      ok: false,
+      reason:
+        'These bands sit in different litho bodies. The boundary between them is a litho contact, ' +
+        'and a packing boundary never crosses one — edit it on the litho axis instead.',
+    }
+  }
+  return { ok: true }
+}

@@ -41,6 +41,7 @@ import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
+import GeotechBandEditDialog from '../../../components/sections/GeotechBandEditDialog'
 import NameBodyDialog from '../../../components/sections/NameBodyDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
@@ -52,6 +53,7 @@ import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
+import { useGeotechBandEdit } from './useGeotechBandEdit'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
@@ -854,23 +856,41 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Geotech packing-correlation handlers (spec §5) — extracted to
   // useGeotechPackingCorrelation (debt #201 round 2); behaviour unchanged.
-  const { handleCreateGeotechPackingCorrelation, handleDeleteGeotechPackingCorrelation } =
-    useGeotechPackingCorrelation({
-      activeGeotechModel,
-      projectId: project.id,
-      selectedSectionId,
-      refetchContactEdges,
-      refetchGeotechPackingEdges,
-      requestGeotechLayersRefetch,
-      markMutated,
-      toast,
-      setArmedContactId,
-      setArmedContactSide,
-      setLastTargetTestId,
-      setContactCorrelationEdges,
-      setGeotechPackingEdges,
-      undoStack,
-    })
+  const {
+    handleCreateGeotechPackingCorrelation,
+    handleDeleteGeotechPackingCorrelation,
+    handleAcceptGeotechPackingCorrelation,
+  } = useGeotechPackingCorrelation({
+    activeGeotechModel,
+    projectId: project.id,
+    selectedSectionId,
+    refetchContactEdges,
+    refetchGeotechPackingEdges,
+    requestGeotechLayersRefetch,
+    markMutated,
+    toast,
+    setArmedContactId,
+    setArmedContactSide,
+    setLastTargetTestId,
+    setContactCorrelationEdges,
+    setGeotechPackingEdges,
+    undoStack,
+  })
+
+  // Hand split / merge of packing sub-bands (owner spec 2026-08-01, docs/debt.md #227).
+  //
+  // The one deliberate hole in the geotech axis's view-only gate. Contacts here still
+  // cannot be created, dragged or deleted — these two verbs go through their own endpoints,
+  // which re-derive the NAD class from the cone resistance over the new interval instead of
+  // moving a contact. The hook previews first and commits only on a second, explicit ask.
+  const geotechBandEdit = useGeotechBandEdit({
+    activeGeotechModel,
+    projectId: project.id,
+    refetchGeotechPackingEdges,
+    requestGeotechLayersRefetch,
+    markMutated,
+    toast,
+  })
 
   // Right-click a pending correlation edge â†’ "Accept correlation" (dogfeed
   // 2026-05-31).  Single-edge accept: flips user_approved=True on the server,
@@ -1734,6 +1754,13 @@ export default function SectionsCanvas(): JSX.Element {
           // already gated; these two were missed.
           onUpdateContactDepth={isGeotech ? undefined : handleLithoSnapAwareUpdateContactDepth}
           onDeleteContact={isGeotech ? undefined : handleDeleteContact}
+          // The bounded exception to the line above (owner spec 2026-08-01). Splitting and
+          // merging packing SUB-BANDS is allowed by hand on the geotech axis and nowhere
+          // else: it goes through endpoints that re-derive the NAD class from qc over the
+          // new interval, rather than moving a contact the next Subdivide would discard.
+          // Litho has its own split/merge on ghost suggestions — these two are not it.
+          onRequestGeotechSplitBand={isGeotech ? geotechBandEdit.onRequestSplitBand : undefined}
+          onRequestGeotechMergeBands={isGeotech ? geotechBandEdit.onRequestMergeBands : undefined}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
           // Geotech axis is view-only; geology sync not applicable.
@@ -1819,10 +1846,17 @@ export default function SectionsCanvas(): JSX.Element {
                 : undefined
           }
           // Dogfeed 2026-05-31: right-click a pending edge â†’ "Accept correlation".
-          // Geotech edges have no approval workflow (they are always treated as
-          // approved); the menu item is suppressed on the geotech axis.
+          // On litho: promotes the pending contact edge on the litho model.
+          // On geotech: promotes the pending PACKING tie on the geotech model. The
+          //   geotech axis used to be excluded here because every geotech edge was
+          //   written approved; the standalone geotech auto-correlate proposes them
+          //   unapproved, so the review gesture has to exist on this axis too.
           onRequestAcceptEdge={
-            isLitho ? edge => void handleAcceptContactCorrelation(edge.id) : undefined
+            isLitho
+              ? edge => void handleAcceptContactCorrelation(edge.id)
+              : isGeotech
+                ? edge => void handleAcceptGeotechPackingCorrelation(edge.id)
+                : undefined
           }
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           // S103 correlate-on-drag: a drag on an UN-correlated two-band boundary creates the
@@ -1932,6 +1966,18 @@ export default function SectionsCanvas(): JSX.Element {
           onSubmit={submitBodyName}
           onCancel={() => setNamingBody(null)}
         />
+        {/* What a hand split / merge of packing bands would do, before it is written
+            (owner ruling 6). Advisory: the action stays enabled whatever it says, because
+            the owner overrules the qc — he just does not get to be surprised by it. */}
+        {geotechBandEdit.plan !== null && (
+          <GeotechBandEditDialog
+            open
+            plan={geotechBandEdit.plan}
+            busy={geotechBandEdit.busy}
+            onConfirm={geotechBandEdit.confirm}
+            onCancel={geotechBandEdit.cancel}
+          />
+        )}
       </>
     )
   }

@@ -917,3 +917,110 @@ export interface DivideBoreholeResponse {
   created_formation_ids: string[]
 }
 
+/**
+ * Response of ``POST .../geotech/auto-correlate``.
+ *
+ * The standalone geotech counterpart of the litho auto-correlate verb. It
+ * PROPOSES packing ties as unapproved suggestions and never touches an
+ * existing correlation, so it is safe to press part-way through a manual
+ * correlation session — unlike ``subdivide-all-bodies``, which rewrites the
+ * whole geotech model.
+ */
+export interface AutoCorrelateGeotechResponse {
+  /** Net-new unapproved ties inserted; they render amber until accepted. */
+  edges_proposed: number
+  /** Candidate ties left untouched because an edge already joined those bands. */
+  edges_skipped_existing: number
+  /** Sections that carried an approved litho correlation and were examined. */
+  sections_processed: number
+  /** Correlated litho units whose two packing stacks share no NAD class. */
+  skipped_no_lcs: number
+  /** Correlated litho units where one column carries no geotech bands. */
+  skipped_empty_stack: number
+}
+
+
+/**
+ * One interval a hand split or merge would produce, with its re-derived class.
+ *
+ * The class is DERIVED, never carried (owner ruling 3, docs/debt.md #227): after an edit
+ * the NAD class of each resulting interval is recomputed from the CPT qc over that
+ * interval, so ``nad_class`` may differ from ``previous_nad_class`` on both halves of a
+ * split and from BOTH inputs of a merge.
+ */
+export interface GeotechBandIntervalItem {
+  /** Interval top in metres below the collar. */
+  depth_top_m: number
+  /** Interval base in metres below the collar. */
+  depth_base_m: number
+  /**
+   * Representative qc over the interval in MPa.
+   *
+   * This is the MEDIAN, not the arithmetic mean. The owner asked for "avg qc", but
+   * ``geotech_subdivision.py`` classifies a band on ``median(in_band)``, and a consequence
+   * computed on the mean would promise a reclassification that never happens. Label it
+   * "representative qc" in the UI rather than "average qc".
+   */
+  median_qc_mpa: number | null
+  /** The re-derived NAD packing class, or null when the qc cannot answer. */
+  nad_class: number | null
+  /** The class the interval's material carries today. */
+  previous_nad_class: number | null
+  /** Whether the re-derivation moved the class. */
+  class_changed: boolean
+  /** Why no class could be derived; null on the happy path. */
+  unclassifiable_reason: string | null
+}
+
+/**
+ * One advisory consequence of a hand edit.
+ *
+ * Advisory, never blocking (owner ruling 5 — manual override always wins). Known codes:
+ * ``qc_pull_down`` / ``qc_pull_up`` (the material moving between layers drags the receiving
+ * layer's representative qc, and the message says what class results), ``qc_unavailable``,
+ * and ``below_minimum_thickness``.
+ */
+export interface GeotechBandWarningItem {
+  /** Warning code the UI switches on. */
+  code: string
+  /** Plain-language consequence, authored server-side. */
+  message: string
+  /** Top of the interval the warning names, in metres. */
+  depth_top_m: number
+  /** Base of the interval the warning names, in metres. */
+  depth_base_m: number
+  /** The band the warning names, when it names one. */
+  band_id: string | null
+}
+
+/** What a proposed split or merge would do — the preview payload, no write. */
+export interface GeotechBandEditPlanResponse {
+  /** ``"split"`` or ``"merge"``. */
+  kind: string
+  /** Top of the enclosing litho body in metres — the hard upper wall. */
+  parent_top_m: number
+  /** Base of the enclosing litho body in metres — the hard lower wall. */
+  parent_base_m: number
+  /** Resulting intervals, top to bottom. */
+  intervals: GeotechBandIntervalItem[]
+  /** Advisory consequences; never blocking. */
+  warnings: GeotechBandWarningItem[]
+}
+
+/** Result of a committed hand split or merge. */
+export interface GeotechBandEditResponse {
+  /** The geotechnical model that was written. */
+  geotech_model_id: string
+  /** The only column that changed — recalculation is local (owner ruling 4). */
+  investigation_id: string
+  /** What was committed. */
+  plan: GeotechBandEditPlanResponse
+  /** The resulting band rows on the edited column. */
+  layer_ids: string[]
+  /** Rows inserted. */
+  created_layer_ids: string[]
+  /** Rows removed. */
+  deleted_layer_ids: string[]
+  /** Correlations dropped because the re-derived class no longer matches their partner. */
+  deleted_edge_ids: string[]
+}

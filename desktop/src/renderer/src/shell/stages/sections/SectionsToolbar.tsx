@@ -31,6 +31,7 @@ import {
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
+import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -116,6 +117,10 @@ export default function SectionsToolbar(): JSX.Element {
       handleSubdivideAllBodies,
       // "Divide boreholes" toolbar verb — post-SAB borehole TIN-division.
       handleDivideBoreholes,
+      // Geotech correlation triad: accepting a packing tie moves body_id stamps
+      // (requestGeotechLayersRefetch) and dirties the project (markMutated).
+      requestGeotechLayersRefetch,
+      markMutated,
     },
     visibleCpts,
     coordinator: {
@@ -633,6 +638,24 @@ export default function SectionsToolbar(): JSX.Element {
     if (axis === 'geotechnical' && activeGeotechModel === null) return
     setSectionModelAxis(axis)
   }
+
+  // Geotech correlation triad (auto-correlate + accept) — the geotech axis's
+  // equivalent of the litho Correlate caret items. Extracted to its own hook
+  // because this component is long past the 500-line threshold (debt #201).
+  const {
+    autoCorrelating: autoCorrelatingGeotech,
+    acceptingCorrelations: acceptingGeotechCorrelations,
+    runAutoCorrelate: runAutoCorrelateGeotech,
+    runAcceptCorrelations: runAcceptGeotechCorrelations,
+  } = useGeotechCorrelationVerbs({
+    projectId: project.id,
+    activeGeotechModel,
+    selectedSectionId,
+    toast,
+    markMutated,
+    requestCorrelationEdgesRefetch,
+    requestGeotechLayersRefetch,
+  })
 
   // Suggest split-button — what should the primary half do?
   //   'focused'  → run single-anchor Suggest on the focused column
@@ -1226,7 +1249,7 @@ export default function SectionsToolbar(): JSX.Element {
               Gated on activeGeotechModel: the geotech model must exist (i.e. the
               user has run "Subdivide all bodies" at least once) for there to be
               packing bands to correlate. */}
-          <ToolbarButton
+          <SplitToolbarButton
             icon={<GitMerge size={13} />}
             label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing'}
             onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
@@ -1242,6 +1265,49 @@ export default function SectionsToolbar(): JSX.Element {
             }
             amber={correlateMode}
             testid="geotech-correlate-packing"
+            // The geotech correlation triad, mirroring the litho Correlate caret:
+            // manual gesture on the primary half, machine proposal + accept under
+            // the caret. Both caret verbs are section-scoped, like litho's (whose
+            // "this section has contacts" gate is also false with no section open) —
+            // a proposal the engineer cannot see is not a proposal, and a model-wide
+            // accept would approve pending ties on sections he never reviewed.
+            // They gate on the geotech model rather than on "this section has
+            // packing bands": the geotech axis has no equally cheap check, and the
+            // sibling verbs (Subdivide / Divide boreholes) already gate this way.
+            items={[
+              {
+                icon: <Zap size={13} />,
+                label: autoCorrelatingGeotech ? 'Correlating…' : 'Auto-correlate',
+                onClick: () => { void runAutoCorrelateGeotech() },
+                disabled:
+                  activeGeotechModel === null || !hasSection || autoCorrelatingGeotech,
+                title:
+                  activeGeotechModel === null
+                    ? 'Run "Subdivide all bodies" first to create packing bands'
+                    : !hasSection
+                      ? 'Open a cross-section to propose packing correlations'
+                      : autoCorrelatingGeotech
+                        ? 'Proposing packing correlations…'
+                        : 'Auto-correlate packing: re-propose the automatic same-class ties inside each correlated litho unit on this section — inserts UNAPPROVED edges only. Correlations you drew by hand are never touched. Use "Accept correlations" to approve.',
+                testid: 'geotech-auto-correlate',
+              },
+              {
+                icon: <CheckCheck size={13} />,
+                label: acceptingGeotechCorrelations ? 'Accepting…' : 'Accept correlations',
+                onClick: () => { void runAcceptGeotechCorrelations() },
+                disabled:
+                  activeGeotechModel === null || !hasSection || acceptingGeotechCorrelations,
+                title:
+                  activeGeotechModel === null
+                    ? 'Run "Subdivide all bodies" first to create packing bands'
+                    : !hasSection
+                      ? 'Open a cross-section to accept packing correlations'
+                      : acceptingGeotechCorrelations
+                        ? 'Accepting packing correlations…'
+                        : 'Approve every pending packing correlation on this section — the accepted ties join their bands into one geotech body',
+                testid: 'geotech-accept-correlations',
+              },
+            ]}
           />
           {/* View toggles — strip the NAD fill / correlation ribbons to inspect
               the connectivity (the dense same-class auto-correlation can be busy). */}

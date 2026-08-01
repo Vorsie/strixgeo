@@ -38,6 +38,30 @@ export function makeGeotechModel(id = 'geotech-model-1'): GeologicalModelRespons
   }
 }
 
+/**
+ * The lithostratigraphic parent of {@link makeGeotechModel}.
+ *
+ * Not part of the default context — the geotech verbs that need a litho model
+ * (``Subdivide all bodies``) are the exception, so a suite opts in by overriding
+ * ``geoModel.activeLithoModel`` with this.
+ *
+ * @param id Model id; defaults to the parent id the geotech model points at.
+ */
+export function makeLithoModel(id = 'litho-model-1'): GeologicalModelResponse {
+  return {
+    id,
+    app_project_id: 'proj-1',
+    name: 'Lithostratigraphic Model',
+    description: null,
+    is_active: true,
+    excluded_borehole_ids: [],
+    kind: 'lithostratigraphic',
+    parent_model_id: 'geo-model-1',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
 /** A single straight section with no exclusions, selected by the fixture context. */
 export function makeSection() {
   return {

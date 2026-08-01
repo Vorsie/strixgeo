@@ -100,6 +100,7 @@ import {
   partitionEdgeSource,
   shouldMountCorrelationOverlay,
 } from './sections/correlationOverlayAxis'
+import GeotechBandEditOverlay from './sections/GeotechBandEditOverlay'
 import PartitionFillOverlay, { type GeotechRefinement } from './sections/PartitionFillOverlay'
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
@@ -252,6 +253,18 @@ interface Props {
    * it. Caller deletes the row and prunes the local contacts
    * state so the overlay updates without a refetch. */
   onDeleteContact?: (contactId: string) => Promise<void>
+  /**
+   * Split a packing sub-band by hand at a depth (geotech axis only).
+   *
+   * The bounded exception to this axis being view-only (owner spec 2026-08-01,
+   * docs/debt.md #227). Unlike the contact handlers above, this does not move a contact —
+   * it goes through an endpoint that re-derives the NAD class from the cone resistance over
+   * each resulting interval. Absent → ``GeotechBandEditOverlay`` renders nothing and the
+   * axis stays exactly as view-only as it was.
+   */
+  onRequestGeotechSplitBand?: (bandId: string, depthM: number) => void
+  /** Merge two adjacent packing sub-bands inside one litho body (geotech axis only). */
+  onRequestGeotechMergeBands?: (upperBandId: string, lowerBandId: string) => void
   /** Break the litho↔geo coupling on a lithostratigraphic contact.
    * Forwarded straight to ContactsLayer; absent on the geological axis. */
   onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
@@ -633,6 +646,8 @@ export default function SectionPanel({
   onCreateContact,
   onUpdateContactDepth,
   onDeleteContact,
+  onRequestGeotechSplitBand,
+  onRequestGeotechMergeBands,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
   onBatchUpdateContacts,
@@ -3083,6 +3098,26 @@ export default function SectionPanel({
                 // S1: fade non-matching bodies when a sample dot is selected.
                 // Only meaningful on the geotech axis; harmless (null) on litho.
                 selectedBodyId={axisMode === 'geotechnical' ? selectedGeotechBodyId : null}
+              />
+            )}
+
+            {/* Hand split / merge of packing sub-bands — geotech axis only, and the ONLY
+                editing allowed there (owner spec 2026-08-01, docs/debt.md #227). Mounted
+                above the partition fill so its hit targets receive the clicks, and
+                suspended while correlate mode owns the canvas, exactly as the fill's own
+                handles are. Renders nothing at all when the two handlers are absent, so
+                the axis stays view-only wherever they are not wired. */}
+            {axisMode === 'geotechnical' && refinement !== undefined && (
+              <GeotechBandEditOverlay
+                geotechLayers={refinement.geotechLayers}
+                lithoLayers={lithoLayers ?? []}
+                placedColumns={visibleColumns}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                onRequestSplit={onRequestGeotechSplitBand}
+                onRequestMerge={onRequestGeotechMergeBands}
+                suspended={Boolean(contactGestureState?.contactCorrelateMode)}
               />
             )}
 

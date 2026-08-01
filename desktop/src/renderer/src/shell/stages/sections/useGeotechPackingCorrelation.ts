@@ -67,7 +67,7 @@ export interface UseGeotechPackingCorrelationDeps {
   }
 }
 
-/** Handler pair returned to SectionsCanvas. */
+/** Handlers returned to SectionsCanvas. */
 export interface UseGeotechPackingCorrelationResult {
   handleCreateGeotechPackingCorrelation: (
     layerAId: string,
@@ -81,6 +81,7 @@ export interface UseGeotechPackingCorrelationResult {
     layerASide?: 'top' | 'base',
     layerBSide?: 'top' | 'base',
   ) => Promise<void>
+  handleAcceptGeotechPackingCorrelation: (edgeId: string) => Promise<void>
 }
 
 /**
@@ -321,5 +322,55 @@ export function useGeotechPackingCorrelation(
     ],
   )
 
-  return { handleCreateGeotechPackingCorrelation, handleDeleteGeotechPackingCorrelation }
+  // Right-click a pending packing tie → "Accept correlation".
+  //
+  // Geotech edges used to be written approved, so this gesture had nothing to act on
+  // and was suppressed on this axis. The standalone geotech auto-correlate changed
+  // that: it proposes ties unapproved, and until one is accepted the resolver leaves
+  // it out of the bodies. Accepting is the point at which the tie becomes real, which
+  // is why the geotech layers (the body_id stamp source) are refetched and the
+  // borehole division goes stale — exactly as on the manual connect path.
+  //
+  // No undo entry: the symmetric reverse of an accept is deleting the edge, which the
+  // same context menu offers as its other action.
+  const handleAcceptGeotechPackingCorrelation = useCallback(
+    async (edgeId: string): Promise<void> => {
+      if (!activeGeotechModel) return
+      const modelId = activeGeotechModel.id
+      log.info('section', `packing-accept: edge=${edgeId} on geotech model ${modelId}`)
+      try {
+        const result = await api.geology.acceptSingleContactCorrelation(
+          projectId,
+          modelId,
+          edgeId,
+        )
+        await refetchGeotechPackingEdges()
+        requestGeotechLayersRefetch()
+        markMutated()
+        markBoreholesStale()
+        log.success(
+          'section',
+          `packing-accept: edge=${edgeId} accepted=${result.edges_accepted} ` +
+            `ordinals_changed=${result.ordinals_changed}`,
+        )
+      } catch (err) {
+        log.warn('section', `handleAcceptGeotechPackingCorrelation: POST failed for edge ${edgeId}`, err)
+        toast('error', 'Could not accept the packing correlation. Try again or refresh.')
+      }
+    },
+    [
+      activeGeotechModel,
+      projectId,
+      refetchGeotechPackingEdges,
+      requestGeotechLayersRefetch,
+      markMutated,
+      toast,
+    ],
+  )
+
+  return {
+    handleCreateGeotechPackingCorrelation,
+    handleDeleteGeotechPackingCorrelation,
+    handleAcceptGeotechPackingCorrelation,
+  }
 }
