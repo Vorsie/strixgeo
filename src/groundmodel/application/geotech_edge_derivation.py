@@ -27,10 +27,19 @@ containment + canonical-ordering logic single-source, per the project's
 "extract on the second copy" rule.
 
 A third caller, ``AutoCorrelateGeotechEdges``, re-runs the same derivation on
-demand without touching any existing geotech data.  It passes
-``user_approved=False`` / ``source='auto'`` so its edges are SUGGESTIONS the
-engineer reviews and promotes, mirroring the litho axis, and preloads
+demand without touching any existing geotech data, preloading
 ``seen_layer_pairs`` from every persisted edge so the pass only ever ADDS.
+
+Every edge this module writes, whichever caller asked for it, is a SUGGESTION:
+unapproved, ``source='auto'``.  The clean/dirty rule (owner, 2026-08-01) draws
+the line at acceptance, not at intent — a tie the program worked out is dirty
+even when the engineer asked for the build that produced it, because he has not
+yet looked at this particular tie.  The engineer promotes it with the accept
+verb, mirroring the litho axis.  Until 2026-08-01 the defaults said the
+opposite (``user_approved=True, source='manual'``) and the two build callers
+took them bare, so 217 derived ties on the real model were stamped as though an
+engineer had drawn each one by hand — hand and machine work were
+indistinguishable, and a rebuild destroyed both.
 """
 
 from __future__ import annotations
@@ -43,6 +52,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.domain.services.auto_correlate_contact_edges_constants import AUTO_SOURCE
 from groundmodel.domain.services.geotech_packing_edges import aligned_same_class_pairs
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -239,8 +249,8 @@ async def derive_geotech_edges_from_litho(
     litho_layer_depths: dict[UUID, tuple[str, float, float]],
     geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
     seen_layer_pairs: set[tuple[UUID, UUID]],
-    user_approved: bool = True,
-    source: str = "manual",
+    user_approved: bool = False,
+    source: str = AUTO_SOURCE,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by LCS packing match within each correlated litho unit.
 
@@ -278,17 +288,20 @@ async def derive_geotech_edges_from_litho(
         Dedup set, MUTATED in place. Preload with existing edges to add only new
         pairs; pass a fresh set for an independent pass.
     user_approved : bool
-        Approval flag stamped on each emitted edge. Defaults to ``True`` — the
-        build passes (``SubdivideAllBodies``, ``DivideBoreholes``) derive edges
-        as part of an operation the engineer already asked for, so their edges
-        need no second confirmation. The standalone auto-correlate verb passes
-        ``False`` so its edges are SUGGESTIONS the engineer reviews and promotes
-        with the accept verb, exactly as on the litho axis.
+        Approval flag stamped on each emitted edge. Defaults to ``False``:
+        every edge this function writes was worked out by the program, and
+        under the clean/dirty rule a thing the program made and the engineer
+        has not accepted is DIRTY — the machine may regenerate or discard it,
+        so it must never masquerade as an accepted tie. The engineer promotes
+        it with the accept verb, exactly as on the litho axis. No caller has a
+        reason to pass ``True``; the parameter stays only so a future
+        deliberate exception has to state itself at the call site.
     source : str
         Provenance token stamped on each emitted edge, one of ``'manual'`` /
-        ``'auto'`` (DB CHECK). Defaults to ``'manual'`` for the build passes;
-        the auto-correlate verb passes ``'auto'`` so its suggestions are
-        distinguishable from hand-drawn ties.
+        ``'auto'`` (DB CHECK). Defaults to ``AUTO_SOURCE`` — ``'manual'`` is
+        what the engineer's own boundary-click gesture writes, and a derived
+        tie claiming it is how hand work and machine work became
+        indistinguishable in the first place.
 
     Returns
     -------
