@@ -5815,6 +5815,49 @@ header + gzip + checksum; keep the plaintext-JSON reader for old files. Relates 
 
 ## 227. Geotech-stage manual edits inside a litho body — merge/split/drag/delete sub-bands + small-lens merge suggestion (Tier G-geotech — owner directive 2026-07-06)
 
+**OWNER RULINGS 2026-08-01 — the spec for this entry.** Given while working through the
+geotech stage; recorded here because they are what "the same gesture surface" actually
+means, and several of them are not guessable from the litho side.
+
+1. **The stage is litho subdivided by packing, nothing more.** The owner's framing:
+   *"the geotech stage is literally the same as the litho stage but then each litho body is
+   subdivided by packing"*, and *"the 3d takes the partition and builds the model"*. Read
+   that as the target for every axis below.
+2. **Both levels above are HARD BOUNDS.** A packing boundary moves freely inside its litho
+   body and clamps at the edge. It can never move a litho contact and never cross a
+   geological one — *"litho should be a hard bound … geology too, because it is both
+   combined"*. The hierarchy constrains downward; the owner overrules the CLASS, never the
+   hierarchy.
+3. **The class is DERIVED, not carried.** After a drag, split or merge, the NAD class of the
+   resulting interval is recomputed from the CPT qc over the new depth range —
+   *"you recalculate after drag merge, the qc"*. Editing changes the extent; the data
+   re-classifies what was made.
+4. **Recalculation is LOCAL.** Only the edited column re-derives; other columns keep what
+   they had, and a connection breaks if the new class no longer matches. Editing and
+   correlating stay separate, exactly as on litho.
+5. **Manual override ALWAYS wins.** *"the user needs to be able to manually overrule
+   everything"*. Any refusal on qc grounds is a defect; refusal on hierarchy grounds
+   (ruling 2) is correct. A blocking dialog with no way through fails this ruling.
+6. **The warning is advisory and must not lie.** *"if the qc is lower or higher then it gets
+   a warning that it will pull down or up the avg qc of the layer it is in"* — say which way
+   the representative qc moves and what class results, then let the edit through. It MUST be
+   computed with the same statistic the classifier reads, or it predicts a reclassification
+   that does not happen.
+7. **The representative statistic is SELECTABLE, per geotech model.** Median (today's, chosen
+   as spike-robust), arithmetic, harmonic, geometric. They are ordered
+   harmonic ≤ geometric ≤ arithmetic for the same series, so the choice systematically
+   shifts classes — harmonic is the conservative one, weighted toward the low values that
+   govern bearing and settlement. Per geotech model rather than per project, so the choice is
+   part of that model's provenance.
+8. **Changing the statistic MARKS THE MODEL STALE**, exactly as a litho rebuild does — it
+   does not silently re-derive all 525 bands. Same drift guard the owner chose for the
+   geotech 3-D build on the same day.
+
+Related ruling recorded under #256: a body reaches from its drawn apex until something
+contradicts it. Related measurement under the geotech-agreement work: the 2-D render and the
+3-D build currently disagree over 55.2 % of the section plane, because they are two engines
+over two input sets — which ruling 1 says should not exist.
+
 **What.** The geotech stage needs the same manual gesture surface the litho stage
 has, scoped INSIDE a litho body (the geotech partition is a refinement of the
 litho partition — owner design lock 2026-07-06, brainstorm on real CS1): drag
