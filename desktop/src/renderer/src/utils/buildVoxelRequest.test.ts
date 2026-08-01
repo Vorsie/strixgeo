@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildVoxelRequest } from './buildVoxelRequest'
 import type { FenceSectionInput } from './buildProjectFence'
 import { assembleSectionPartitionInput } from './sectionFenceData'
-import { computeSectionFill } from './partitionFill'
+import { computeSectionFillActive } from './partitionEngineSelect'
 
 // One horizontal section, two columns, one through-going ZAND body correlated
 // across them (shared bodyId ⇒ a band).
@@ -23,20 +23,38 @@ const singleSection: FenceSectionInput[] = [
 ]
 
 describe('buildVoxelRequest', () => {
-  // The payload must NOT alter the partition: its regions are exactly what
-  // computeSectionFill produces on the same assembled columns + edges.
-  it('reproduces computeSectionFill regions verbatim (formations, gaps, polygons)', () => {
+  // The payload must NOT alter the partition: its regions are exactly what the
+  // ACTIVE engine produces on the same assembled columns + edges. The property
+  // under test belongs to the request builder, not to either engine, so the
+  // expectation is taken from `computeSectionFillActive` — the same selector the
+  // builder calls — rather than from v1 or v2 by name. The builder's promise is
+  // that it reshapes the engine's output and never reinterprets it, and that has
+  // to hold whichever engine the selector resolves to. (Pinning v1 here would
+  // have hidden a builder that mangles v2 regions, which is the default engine.)
+  it('reproduces the active engine regions verbatim (formations, gaps, kinds, polygons)', () => {
     const req = buildVoxelRequest(singleSection, 2.0, 1.0)
     expect(req.sections).toHaveLength(1)
 
-    const { columns } = assembleSectionPartitionInput(singleSection[0].projectedColumns, singleSection[0].layers)
-    const expected = computeSectionFill(columns, singleSection[0].edges)
+    const { columns, orderedColumns } = assembleSectionPartitionInput(
+      singleSection[0].projectedColumns,
+      singleSection[0].layers,
+    )
+    // The same four arguments the builder feeds the engine: the assembled columns,
+    // that section's edges, no apex overrides, and the true along-section metres per
+    // column. No drawn boundaries are passed to buildVoxelRequest, so the override map
+    // it derives is empty, and both engines treat an empty map exactly as an absent one.
+    const alongM = orderedColumns.map((c) => c.alongM)
+    const expected = computeSectionFillActive(columns, singleSection[0].edges, undefined, alongM)
 
     const regions = req.sections[0].regions
     expect(regions).toHaveLength(expected.length)
     expect(regions.map((r) => r.formation_id)).toEqual(expected.map((r) => r.formationId))
     expect(regions.map((r) => r.gap_index)).toEqual(expected.map((r) => r.gapIndex))
     expect(regions.map((r) => r.body_id)).toEqual(expected.map((r) => r.bodyId))
+    // The termination classification travels too (debt #256): a band, an onlap and an
+    // enclosed lens can share an outline, so the builder dropping `kind` would be
+    // invisible in the polygon comparison below.
+    expect(regions.map((r) => r.kind)).toEqual(expected.map((r) => r.kind))
 
     // Each polygon entry is a [fraction, elevation] pair equal to the region's
     // (fraction, elevation) points, in order.
