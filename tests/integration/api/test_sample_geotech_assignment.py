@@ -47,6 +47,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -484,8 +485,9 @@ async def test_sample_geotech_assignment(
     SA-5  clay sample geotech_body_id is None (no CPT backing for this KLEI body).
     SA-6  clay sample geotech_assignment_source is non-null.
     SA-7  neither sample has a NAD class that contradicts its own lithology.
-    SA-8  sand sample geotech_body_id is one of the CPT geotech body_ids for
-          the same NAD class (TRUE geotech body, not the litho body_id).
+    SA-8  sand sample geotech_body_id is a TRUE geotech body — a BodyOrm of the
+          geotech model, and the body of the borehole's own sand band — not the
+          litho body_id the band was carved from.
     """
     project = sa_scene["project"]
     litho_model_id = UUID(sa_scene["litho_model_id"])
@@ -595,36 +597,54 @@ async def test_sample_geotech_assignment(
         f"SA-7 (KLEI↔ZAND contamination): clay sample got ZAND NAD class {clay.geotech_nad_class}"
     )
 
-    # --- SA-8: sand sample body_id is one of the TRUE CPT geotech body_ids ---
-    # Query all CPT geotech layers (cpt_id IS NOT NULL) in the geotech model
-    # that share the sand sample's NAD class.  The sand sample's body_id must
-    # come from this set — this proves DivideBoreholes stamped the geotech
-    # resolver body_id (set by ResolveLithoInstances during SAB) instead of
-    # the litho body_id.
-    cpt_layer_rows = (
-        (
-            await db_session.execute(
-                select(LithoLayerOrm.body_id)
-                .join(
-                    GeologicalFormationOrm, LithoLayerOrm.formation_id == GeologicalFormationOrm.id
-                )
-                .where(
-                    LithoLayerOrm.model_id == geotech_model_id,
-                    LithoLayerOrm.cpt_id.is_not(None),
-                    GeologicalFormationOrm.nad_class == sand.geotech_nad_class,
+    # --- SA-8: sand sample body_id is a TRUE geotech body, not the litho one ---
+    # What this guards is provenance: DivideBoreholes must stamp the body the
+    # geotech resolver made, never the litho body the band was carved out of.
+    # So the id has to be a BodyOrm row OF THE GEOTECH MODEL, and specifically
+    # the body of the borehole's own sand band — the band the sample sits in.
+    #
+    # It used to assert something stronger: that the id was one of the CPT
+    # bands' bodies, because the derived packing ties were auto-approved and the
+    # resolver had already merged borehole and CPT into a single body. Since
+    # 2026-08-01 a derived tie is a proposal (clean/dirty rule), so that merge
+    # waits on the engineer's accept and the borehole band is its own body until
+    # then. The provenance question SA-8 exists to answer is unaffected.
+    bh_sand_body_ids = {
+        row
+        for row in (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm.body_id)
+                    .join(
+                        GeologicalFormationOrm,
+                        LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+                    )
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.borehole_id.is_not(None),
+                        GeologicalFormationOrm.nad_class == sand.geotech_nad_class,
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
+        if row is not None
+    }
+    assert bh_sand_body_ids, (
+        f"SA-8 precondition: no borehole geotech layers with "
+        f"nad_class={sand.geotech_nad_class} found — cannot verify body_id provenance"
+    )
+    assert sand.geotech_body_id in bh_sand_body_ids, (
+        f"SA-8: sand sample geotech_body_id={sand.geotech_body_id} is not the body of "
+        f"any borehole sand band {bh_sand_body_ids}"
+    )
+    geotech_body_ids = set(
+        (await db_session.execute(select(BodyOrm.id).where(BodyOrm.model_id == geotech_model_id)))
         .scalars()
         .all()
     )
-    cpt_body_ids = {row for row in cpt_layer_rows if row is not None}
-    assert cpt_body_ids, (
-        f"SA-8 precondition: no CPT geotech layers with nad_class={sand.geotech_nad_class} "
-        "found — cannot verify body_id provenance"
-    )
-    assert sand.geotech_body_id in cpt_body_ids, (
-        f"SA-8: sand sample geotech_body_id={sand.geotech_body_id} "
-        f"is not in CPT geotech body_ids {cpt_body_ids} "
-        f"(expected a TRUE geotech body_id from SAB/ResolveLithoInstances)"
+    assert sand.geotech_body_id in geotech_body_ids, (
+        f"SA-8: sand sample geotech_body_id={sand.geotech_body_id} is not a body of the "
+        f"geotech model — DivideBoreholes stamped a foreign (litho?) body_id"
     )

@@ -66,6 +66,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.reconcile_bodies_after_restore import (
     reconcile_bodies_after_restore,
@@ -926,9 +927,13 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
     ADB-2  After DivideBoreholes, BH-A has ≥1 accepted geotech layer.
     ADB-3  After DivideBoreholes, ≥1 geotech edge references a BH-A geotech
            layer — the borehole-mediated edge that SAB could not derive.
-    ADB-4  BH-A's classified bands connect: a BH-A geotech layer shares a
-           body_id with a CPT-A geotech layer (the resolver joined the chain),
-           and no edge-connected BH-A band is left with a NULL body_id orphan.
+    ADB-3b The derived edges arrive UNACCEPTED (clean/dirty rule, 2026-08-01):
+           the program worked them out, the engineer has not looked at them yet,
+           so they are proposals and connect nothing.
+    ADB-4  Once the engineer accepts them, BH-A's classified bands connect: a
+           BH-A geotech layer shares a body_id with a CPT-A geotech layer (the
+           resolver joined the chain), and no edge-connected BH-A band is left
+           with a NULL body_id orphan.
     """
     project = sab_scene["project"]
     litho_model_id = UUID(sab_scene["litho_model_id"])
@@ -1014,6 +1019,42 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
         f"Found {len(bh_edges)}."
     )
 
+    # ADB-3b: those edges are the program's own proposals, so they arrive
+    # unaccepted and tagged with the program's provenance. Before the engineer
+    # accepts them they join nothing — the resolver reads approved edges only.
+    assert all(not e.user_approved for e in bh_edges), (
+        "ADB-3b: derived borehole-mediated ties must be born unaccepted — "
+        "the engineer has not reviewed them yet. "
+        f"approved={[str(e.id) for e in bh_edges if e.user_approved]}"
+    )
+    assert all(e.source == "auto" for e in bh_edges), (
+        "ADB-3b: derived ties must carry the program's provenance, not 'manual' "
+        f"— sources={sorted({e.source for e in bh_edges})}"
+    )
+
+    # The engineer reviews the proposals and accepts them. This is the step that
+    # turns a proposal into something the machine may never delete — and the step
+    # that makes the bands join, because the resolver unions approved edges only.
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+    # Re-read BH-A's bands: the accept committed, so the body_id stamps the
+    # resolver just wrote are only visible on a fresh query.
+    bh_a_layers_after = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id == bh_a_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     # ADB-4: the resolver connected BH-A to CPT-A — a BH-A band shares a body_id
     # with a CPT-A band, and no edge-connected BH-A band is a NULL orphan.
     cpt_a_body_ids = {
@@ -1055,6 +1096,106 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
                 f"ADB-4: BH-A geotech layer {ll.id} is edge-connected but has a NULL "
                 "body_id — the resolver must have stamped it (no orphan)"
             )
+
+
+# ---------------------------------------------------------------------------
+# CASCADE — the known gap in the clean/dirty rule on the geotech axis
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_re_subdivide_still_destroys_accepted_ties_through_the_cascade(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """A KNOWN GAP, pinned so it cannot be mistaken for solved.
+
+    The clean/dirty rule says the machine never deletes what the engineer
+    accepted.  ``_delete_all_geotech_data`` now honours that in its own SQL —
+    its edge delete spares approved rows.  It makes no difference.  The
+    statement that follows removes every geotech ``litho_layer`` for the model,
+    and an accepted tie's two endpoints ARE geotech layers, joined by FKs
+    declared ``ON DELETE CASCADE``.  Postgres deletes the spared tie as a side
+    effect, reporting nothing.
+
+    This is not something another WHERE clause fixes.  A re-subdivide re-derives
+    every packing band from scratch with a fresh id, so the layers an accepted
+    tie points at genuinely stop existing; keeping the tie means deciding what
+    makes a rebuilt band "the same band" as the old one (investigation + depth
+    interval + NAD class is the obvious candidate) and re-anchoring the edge to
+    the survivor.  That is a design decision, and it is the owner's.
+
+    So this test asserts the damage, deliberately.  When the re-anchoring lands
+    it will go red — and it should: that is the moment the assertion has to be
+    rewritten into the one everybody wants, "the accepted tie is still there".
+    Until then it stops anyone reading the spared-edge predicate and concluding
+    that accepted geotech ties survive a rebuild.  They do not.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    sab_result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = sab_result.geotech_model_id
+
+    async def _edges() -> list[LithoContactCorrelationEdgeOrm]:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    # The engineer reviews this run's proposals and accepts them all.
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+    accepted = await _edges()
+    assert accepted, "precondition: SAB must derive at least one geotech tie to accept"
+    assert all(e.user_approved for e in accepted), (
+        "precondition: the accept verb must have approved every derived tie"
+    )
+    accepted_ids = {e.id for e in accepted}
+    endpoint_layer_ids = {e.layer_a_id for e in accepted} | {e.layer_b_id for e in accepted}
+
+    # He re-subdivides.
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    surviving_ids = {e.id for e in await _edges()}
+    assert not (accepted_ids & surviving_ids), (
+        "the gap has been closed — accepted geotech ties now survive a "
+        "re-subdivide. Rewrite this test into the positive assertion and "
+        "update _delete_all_geotech_data's warning + docstring, which still "
+        "tell the engineer his accepted ties are lost."
+    )
+
+    # And the reason is the cascade, not the delete: the endpoints went first.
+    surviving_endpoints = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.id).where(LithoLayerOrm.id.in_(endpoint_layer_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert not list(surviving_endpoints), (
+        "the accepted ties' endpoint layers outlived the reset — then the ties "
+        "were destroyed by something OTHER than the FK cascade, and this test's "
+        "diagnosis (and the comment in _delete_all_geotech_data) is wrong"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3078,6 +3219,16 @@ async def test_sab_bh1_tin_geometric_division(
         litho_model_id=litho_model_id,
     )
 
+    # The engineer accepts the packing ties both passes proposed. Since
+    # 2026-08-01 a derived tie is a proposal, and the resolver unions approved
+    # edges only — so without this step DivideBoreholes' closing resolver run
+    # gives the borehole band a body of its own instead of joining it to the
+    # CPT band it copied its body_id from (BH1-2 below).
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+
     # Load all accepted geotech layers for BH-S post-DivideBoreholes.
     bh_layers = (
         (
@@ -3613,8 +3764,10 @@ async def test_sab_lcs_connectivity(
 
     LCS-1a  At least one geotech edge exists between CPT-G and CPT-H.
     LCS-1b  Every geotech edge between CPT-G and CPT-H connects same-class bands.
-    LCS-1c  CPT-G and CPT-H share at least one geotech body_id (dense bands end
-            up in the same resolved body).
+    LCS-1c  Once the engineer accepts the tie, CPT-G and CPT-H share at least one
+            geotech body_id (dense bands end up in the same resolved body). The
+            accept step is load-bearing: since 2026-08-01 a derived tie is a
+            proposal, and the resolver unions approved edges only.
     """
     project = sab_lcs_scene["project"]
     litho_model_id = UUID(sab_lcs_scene["litho_model_id"])
@@ -3684,6 +3837,31 @@ async def test_sab_lcs_connectivity(
         f"bands only."
     )
 
+    # The LCS ties arrive as proposals (clean/dirty rule, 2026-08-01) and
+    # connect nothing until the engineer accepts them — the resolver unions
+    # approved edges only. Accept them, then re-read the bands for their fresh
+    # body_id stamps.
+    assert all(not e.user_approved for e in cross_edges), (
+        "LCS-1c precondition: a derived tie must be born unaccepted"
+    )
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+    geotech_layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id.in_([cpt_g_uuid, cpt_h_uuid]),
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     # LCS-1c: CPT-G and CPT-H share at least one geotech body_id.
     g_body_ids = {
         layer.body_id for layer in geotech_layers if layer.cpt_id == cpt_g_uuid and layer.body_id
@@ -3694,8 +3872,8 @@ async def test_sab_lcs_connectivity(
     shared_bodies = g_body_ids & h_body_ids
     assert len(shared_bodies) >= 1, (
         f"LCS-1c: CPT-G and CPT-H have no shared geotech body_id -- "
-        f"dense bands should resolve into the same body after the LCS "
-        f"edge connects them.  CPT-G bodies={g_body_ids}, "
+        f"dense bands should resolve into the same body once the engineer "
+        f"accepts the LCS tie that connects them.  CPT-G bodies={g_body_ids}, "
         f"CPT-H bodies={h_body_ids}."
     )
 

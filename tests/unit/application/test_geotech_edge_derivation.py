@@ -186,13 +186,19 @@ async def test_emits_edge_for_matched_class_within_tolerance() -> None:
 
 
 @pytest.mark.asyncio
-async def test_existing_callers_still_get_approved_manual_edges() -> None:
-    """Called without the approval/source arguments, the derivation writes as before.
+async def test_a_tie_the_program_derived_is_born_unaccepted() -> None:
+    """A tie the program worked out is dirty until the engineer accepts it.
 
-    ``SubdivideAllBodies`` and ``DivideBoreholes`` derive edges as part of a
-    build the engineer has already asked for, so their edges are approved and
-    tagged 'manual'.  The standalone auto-correlate verb overrides both; the
-    defaults here are what keeps that override from changing the build.
+    The owner's rule: anything the program generated that the user has not
+    accepted is DIRTY, and anything the user accepted is CLEAN.  A tie this
+    derivation invents — nobody drew it, the build worked it out from the litho
+    correlations — is therefore born unaccepted, and says so on its face: it
+    carries the program's own provenance token, not the engineer's.
+
+    That must hold for a caller that says nothing about acceptance, because the
+    caller that said nothing is exactly the one that got this wrong: the build
+    stamped 217 derived ties as hand-made, so hand and machine work became
+    indistinguishable and a rebuild destroyed both.
     """
     session = _mock_session()
     la, lb = uuid4(), uuid4()
@@ -211,8 +217,14 @@ async def test_existing_callers_still_get_approved_manual_edges() -> None:
         seen_layer_pairs=set(),
     )
     edge = session.add.call_args.args[0]
-    assert edge.user_approved is True
-    assert edge.source == "manual"
+    assert edge.user_approved is False, (
+        "a tie the program derived must be born unaccepted — the engineer has "
+        "not seen it yet, so it is dirty"
+    )
+    assert edge.source == "auto", (
+        "a tie the program derived must carry the program's provenance, not "
+        "'manual' — 'manual' is what the engineer's own gesture writes"
+    )
 
 
 @pytest.mark.asyncio
