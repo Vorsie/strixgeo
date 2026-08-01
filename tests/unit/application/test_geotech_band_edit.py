@@ -8,12 +8,18 @@ Owner rulings pinned here (2026-08-01):
 * **A connection breaks if the new class no longer matches** — and only then.
 * **Cannot answer beats a plausible answer** — a preview over a column with no
   usable qc reports that it cannot answer rather than inventing a class.
+* **A borehole is refused outright** (ruling A, 2026-08-01) — it records no cone
+  resistance, so there is nothing to re-derive the class from. "Cannot answer"
+  is the right outcome for a CPT interval whose qc happens to be unusable; on a
+  borehole the gesture itself does not apply, and going ahead would trade the
+  class ``DivideBoreholes`` extrapolated onto the column for no class at all.
 
 The DB is mocked out: these pin the decision logic, not SQLAlchemy.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
@@ -32,7 +38,10 @@ from groundmodel.application.geotech_band_edit_helpers import (
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
 from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
 from groundmodel.application.split_geotech_band import SplitGeotechBand
-from groundmodel.domain.services.geotech_band_reclassification import GeotechBand
+from groundmodel.domain.services.geotech_band_reclassification import (
+    GeotechBand,
+    GeotechBandEditError,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -69,13 +78,28 @@ class _FakeSession:
         """No-op refresh."""
 
 
-def _row(row_id: UUID, top: float, base: float, cpt_id: UUID, model_id: UUID) -> LithoLayerOrm:
-    """Build an in-memory geotech band row (no session)."""
+def _row(
+    row_id: UUID,
+    top: float,
+    base: float,
+    model_id: UUID,
+    *,
+    cpt_id: UUID | None = None,
+    borehole_id: UUID | None = None,
+) -> LithoLayerOrm:
+    """Build an in-memory geotech band row (no session).
+
+    The anchor is passed by keyword because the table enforces it as an XOR
+    (``litho_layer_anchor_xor``): a band hangs off a CPT or off a borehole, never
+    off both and never off neither. That column pair is the only thing that says
+    which kind of investigation a band belongs to.
+    """
     return LithoLayerOrm(
         id=row_id,
         model_id=model_id,
         formation_id=uuid4(),
         cpt_id=cpt_id,
+        borehole_id=borehole_id,
         depth_top_m=top,
         depth_base_m=base,
         status="accepted",
@@ -117,6 +141,33 @@ def _context(
     )
 
 
+def _borehole_context(
+    *,
+    model_id: UUID,
+    borehole_id: UUID,
+    bands: list[GeotechBand],
+    rows: dict[str, LithoLayerOrm],
+) -> GeotechColumnContext:
+    """The same column context, anchored on a BOREHOLE instead of a CPT.
+
+    ``depth_m`` / ``qc_mpa`` are empty because that is what the loader produces
+    for a borehole anchor: it only reads a ``cpt_series`` row when the band hangs
+    off a CPT. The emptiness is the consequence, not the cause — the cause is the
+    anchor, and that is what the refusal keys on.
+    """
+    return replace(
+        _context(
+            session_model_id=model_id,
+            cpt_id=borehole_id,
+            bands=bands,
+            rows=rows,
+            depth_m=[],
+            qc_mpa=[],
+        ),
+        anchor_is_cpt=False,
+    )
+
+
 def _band(band_id: str, top: float, base: float, nad_class: int | None) -> GeotechBand:
     """One packing band on the edited column."""
     return GeotechBand(
@@ -155,7 +206,7 @@ async def test_the_context_loads_only_the_edited_columns_bands(
 ) -> None:
     """Only the edited column is read, so only it can be re-derived."""
     model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
-    target = _row(band_id, 0.0, 4.0, cpt_id, model_id)
+    target = _row(band_id, 0.0, 4.0, model_id, cpt_id=cpt_id)
     formation = GeologicalFormationOrm(
         id=target.formation_id,
         app_project_id=uuid4(),
@@ -205,7 +256,7 @@ async def test_a_split_writes_only_rows_of_the_edited_column(
 ) -> None:
     """A split resizes the band it was asked about and inserts one sibling — no more."""
     model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
-    target = _row(band_id, 0.0, 4.0, cpt_id, model_id)
+    target = _row(band_id, 0.0, 4.0, model_id, cpt_id=cpt_id)
     depths, qc = _uniform_series(5.0)
     context = _context(
         session_model_id=model_id,
@@ -248,8 +299,8 @@ async def test_a_merge_extends_the_upper_band_and_deletes_the_lower(
     """The merged band spans the union; the lower row goes away."""
     model_id, cpt_id = uuid4(), uuid4()
     upper_id, lower_id = uuid4(), uuid4()
-    upper = _row(upper_id, 0.0, 2.0, cpt_id, model_id)
-    lower = _row(lower_id, 2.0, 4.0, cpt_id, model_id)
+    upper = _row(upper_id, 0.0, 2.0, model_id, cpt_id=cpt_id)
+    lower = _row(lower_id, 2.0, 4.0, model_id, cpt_id=cpt_id)
     depths, qc = _uniform_series(5.0)
     context = _context(
         session_model_id=model_id,
@@ -326,9 +377,16 @@ def test_a_band_that_can_no_longer_be_classified_loses_every_connection() -> Non
 async def test_the_preview_reports_that_it_cannot_answer_when_qc_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No usable qc → "cannot answer" with a reason, never a plausible class."""
+    """No usable qc → "cannot answer" with a reason, never a plausible class.
+
+    This is also the control for the borehole refusal below: same empty series,
+    CPT anchor. A CPT whose qc happens to be unusable is still answered — with
+    "cannot answer" — because the gesture applies there and the qc simply failed.
+    The refusal keys on the ANCHOR, not on an empty series, so this case must
+    keep going through.
+    """
     model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
-    target = _row(band_id, 0.0, 4.0, cpt_id, model_id)
+    target = _row(band_id, 0.0, 4.0, model_id, cpt_id=cpt_id)
     context = _context(
         session_model_id=model_id,
         cpt_id=cpt_id,
@@ -350,3 +408,142 @@ async def test_the_preview_reports_that_it_cannot_answer_when_qc_is_missing(
 
     assert [iv.nad_class for iv in plan.intervals] == [None, None]
     assert all(iv.unclassifiable_reason for iv in plan.intervals)
+
+
+# ---------------------------------------------------------------------------
+# A borehole is refused outright — ruling A, 2026-08-01
+# ---------------------------------------------------------------------------
+
+
+def _borehole_column(
+    model_id: UUID, borehole_id: UUID, band_ids: list[UUID]
+) -> GeotechColumnContext:
+    """A borehole column carrying ``len(band_ids)`` contiguous 2 m packing bands."""
+    bands = [_band(str(bid), 2.0 * i, 2.0 * (i + 1), 6) for i, bid in enumerate(band_ids)]
+    rows = {
+        str(bid): _row(bid, 2.0 * i, 2.0 * (i + 1), model_id, borehole_id=borehole_id)
+        for i, bid in enumerate(band_ids)
+    }
+    return _borehole_context(model_id=model_id, borehole_id=borehole_id, bands=bands, rows=rows)
+
+
+async def test_the_split_preview_refuses_a_band_on_a_borehole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A borehole has no cone resistance, so the split is refused before it is offered."""
+    model_id, borehole_id, band_id = uuid4(), uuid4(), uuid4()
+    context = _borehole_column(model_id, borehole_id, [band_id])
+    monkeypatch.setattr(
+        preview_module, "load_geotech_column_context", AsyncMock(return_value=context)
+    )
+
+    with pytest.raises(GeotechBandEditError):
+        await PreviewGeotechBandEdit(MagicMock()).preview_split(
+            project_id=context.project_id,
+            geotech_model_id=model_id,
+            band_id=band_id,
+            split_depth_m=1.0,
+        )
+
+
+async def test_the_merge_preview_refuses_bands_on_a_borehole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same refusal for the other gesture — the preview never says yes where a commit says no."""
+    model_id, borehole_id = uuid4(), uuid4()
+    upper_id, lower_id = uuid4(), uuid4()
+    context = _borehole_column(model_id, borehole_id, [upper_id, lower_id])
+    monkeypatch.setattr(
+        preview_module, "load_geotech_column_context", AsyncMock(return_value=context)
+    )
+
+    with pytest.raises(GeotechBandEditError):
+        await PreviewGeotechBandEdit(MagicMock()).preview_merge(
+            project_id=context.project_id,
+            geotech_model_id=model_id,
+            upper_band_id=upper_id,
+            lower_band_id=lower_id,
+        )
+
+
+async def test_the_split_commit_refuses_a_band_on_a_borehole_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The commit refuses too, so the API cannot be driven around the UI."""
+    model_id, borehole_id, band_id = uuid4(), uuid4(), uuid4()
+    context = _borehole_column(model_id, borehole_id, [band_id])
+    _patch_common(monkeypatch, split_module, context)
+
+    session = _FakeSession()
+    use_case = SplitGeotechBand(session)
+    use_case._litho_repo = MagicMock()
+    use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
+
+    with pytest.raises(GeotechBandEditError):
+        await use_case.execute(
+            project_id=context.project_id,
+            geotech_model_id=model_id,
+            band_id=band_id,
+            split_depth_m=1.0,
+        )
+
+    # The class DivideBoreholes extrapolated onto this column is still there: the
+    # refusal happens before any row is touched, so nothing was skeletonised.
+    assert session.added == []
+    assert session.deleted == []
+    assert session.commits == 0
+
+
+async def test_the_merge_commit_refuses_bands_on_a_borehole_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """And the merge commit, for the same reason and with the same blast radius: none."""
+    model_id, borehole_id = uuid4(), uuid4()
+    upper_id, lower_id = uuid4(), uuid4()
+    context = _borehole_column(model_id, borehole_id, [upper_id, lower_id])
+    _patch_common(monkeypatch, merge_module, context)
+
+    session = _FakeSession()
+    use_case = MergeGeotechBands(session)
+    use_case._litho_repo = MagicMock()
+    use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
+
+    with pytest.raises(GeotechBandEditError):
+        await use_case.execute(
+            project_id=context.project_id,
+            geotech_model_id=model_id,
+            upper_band_id=upper_id,
+            lower_band_id=lower_id,
+        )
+
+    assert session.added == []
+    assert session.deleted == []
+    assert session.commits == 0
+
+
+async def test_the_refusal_says_a_borehole_has_no_cone_resistance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engineer is told the CAUSE, not just that he may not.
+
+    The gesture works one column along, on a CPT. "Not allowed here" would leave
+    him guessing; naming the missing cone resistance says why this column is
+    different and what the class on it actually came from.
+    """
+    model_id, borehole_id, band_id = uuid4(), uuid4(), uuid4()
+    context = _borehole_column(model_id, borehole_id, [band_id])
+    monkeypatch.setattr(
+        preview_module, "load_geotech_column_context", AsyncMock(return_value=context)
+    )
+
+    with pytest.raises(GeotechBandEditError) as excinfo:
+        await PreviewGeotechBandEdit(MagicMock()).preview_split(
+            project_id=context.project_id,
+            geotech_model_id=model_id,
+            band_id=band_id,
+            split_depth_m=1.0,
+        )
+
+    message = str(excinfo.value).lower()
+    assert "borehole" in message
+    assert "cone resistance" in message
