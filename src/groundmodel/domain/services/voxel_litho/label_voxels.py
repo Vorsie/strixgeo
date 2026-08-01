@@ -707,7 +707,21 @@ def _blend_stacks(
     # for determinism on exact elevation ties (None bodies sort as "None" — each
     # stays its own spec, they never merge).
     specs.sort(key=lambda s: (-s[0], str(s[1])))
-    return _layout(specs, _blended_top(stack1, stack2, w1))
+    # Rejoin what only nothing divides. Reading a SINGLE section has merged touching
+    # slices of one body since #257; blending two did not, so the same situation got
+    # opposite treatment depending on which path produced it.
+    #
+    # It matters because of how the split arises. A section can record a lens sliced
+    # exactly at its own apex — `2.650 -> 2.650` at (88 296.3, 164 767.3) — which has no
+    # thickness and is not there, but sits BETWEEN two pieces of the host in the list, so
+    # `_merge_contiguous` on that section cannot join them: they are not adjacent. The
+    # pieces arrive here still separate, the spent lens weighs nothing, and the host stays
+    # in pieces a section only ever drew as one.
+    #
+    # Merging is bookkeeping rather than geology — two touching intervals of one body ARE
+    # one interval — and a body that genuinely returns lower, with something of real
+    # thickness between, is untouched because those pieces do not touch.
+    return _merge_contiguous(_layout(specs, _blended_top(stack1, stack2, w1)))
 
 
 # ---------------------------------------------------------------------------
