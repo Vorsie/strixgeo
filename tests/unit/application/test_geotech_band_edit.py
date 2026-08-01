@@ -1,0 +1,352 @@
+"""Tests for the hand split/merge write path on the geotech axis.
+
+Owner rulings pinned here (2026-08-01):
+
+* **Recalculation is local** — only the column edited re-derives; the loader
+  never reaches past that column's anchor, and the writer never touches another
+  column's rows.
+* **A connection breaks if the new class no longer matches** — and only then.
+* **Cannot answer beats a plausible answer** — a preview over a column with no
+  usable qc reports that it cannot answer rather than inventing a class.
+
+The DB is mocked out: these pin the decision logic, not SQLAlchemy.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID, uuid4
+
+import pytest
+
+from groundmodel.application import merge_geotech_bands as merge_module
+from groundmodel.application import preview_geotech_band_edit as preview_module
+from groundmodel.application import split_geotech_band as split_module
+from groundmodel.application.geotech_band_edit_helpers import (
+    EdgeRef,
+    GeotechColumnContext,
+    invalidated_edge_ids,
+    load_geotech_column_context,
+)
+from groundmodel.application.merge_geotech_bands import MergeGeotechBands
+from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
+from groundmodel.application.split_geotech_band import SplitGeotechBand
+from groundmodel.domain.services.geotech_band_reclassification import GeotechBand
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+
+LITHO_FID = uuid4()
+GEO_FID = uuid4()
+
+
+class _FakeSession:
+    """Minimal AsyncSession stand-in that records what the use case wrote."""
+
+    def __init__(self) -> None:
+        self.added: list[Any] = []
+        self.deleted: list[Any] = []
+        self.commits = 0
+
+    def add(self, obj: Any) -> None:
+        """Record an INSERT."""
+        self.added.append(obj)
+
+    async def delete(self, obj: Any) -> None:
+        """Record a DELETE."""
+        self.deleted.append(obj)
+
+    async def flush(self) -> None:
+        """No-op flush."""
+
+    async def commit(self) -> None:
+        """Record a COMMIT."""
+        self.commits += 1
+
+    async def refresh(self, obj: Any) -> None:
+        """No-op refresh."""
+
+
+def _row(row_id: UUID, top: float, base: float, cpt_id: UUID, model_id: UUID) -> LithoLayerOrm:
+    """Build an in-memory geotech band row (no session)."""
+    return LithoLayerOrm(
+        id=row_id,
+        model_id=model_id,
+        formation_id=uuid4(),
+        cpt_id=cpt_id,
+        depth_top_m=top,
+        depth_base_m=base,
+        status="accepted",
+        source="segmenter",
+        confidence="medium",
+    )
+
+
+def _uniform_series(qc: float, base: float = 4.0) -> tuple[list[float], list[float | None]]:
+    """A constant-qc CPT series from 0 m to ``base`` at 0.02 m spacing."""
+    depths = [round(0.02 * i, 4) for i in range(int(base / 0.02) + 1)]
+    return depths, [qc for _ in depths]
+
+
+def _context(
+    *,
+    session_model_id: UUID,
+    cpt_id: UUID,
+    bands: list[GeotechBand],
+    rows: dict[str, LithoLayerOrm],
+    depth_m: list[float],
+    qc_mpa: list[float | None],
+) -> GeotechColumnContext:
+    """Assemble a loaded column context without touching a database."""
+    return GeotechColumnContext(
+        project_id=uuid4(),
+        geotech_model_id=session_model_id,
+        investigation_id=cpt_id,
+        anchor_is_cpt=True,
+        bands=tuple(bands),
+        band_rows=rows,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depth_m,
+        qc_mpa=qc_mpa,
+        min_thickness_m=0.35,
+        source_litho_formation_id=LITHO_FID,
+        source_geo_formation_id=GEO_FID,
+    )
+
+
+def _band(band_id: str, top: float, base: float, nad_class: int | None) -> GeotechBand:
+    """One packing band on the edited column."""
+    return GeotechBand(
+        band_id=band_id,
+        depth_top_m=top,
+        depth_base_m=base,
+        nad_class=nad_class,
+        source_litho_formation_id=str(LITHO_FID),
+        source_geo_formation_id=str(GEO_FID),
+    )
+
+
+def _patch_common(monkeypatch: pytest.MonkeyPatch, module: Any, context: GeotechColumnContext):
+    """Stub the DB-touching collaborators of a commit use case."""
+    monkeypatch.setattr(module, "load_geotech_column_context", AsyncMock(return_value=context))
+    monkeypatch.setattr(module, "load_edges_for_layers", AsyncMock(return_value=[]))
+    monkeypatch.setattr(module, "load_nad_class_by_layer", AsyncMock(return_value={}))
+    monkeypatch.setattr(module, "delete_edges", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        module, "ResolveLithoInstances", MagicMock(return_value=MagicMock(execute=AsyncMock()))
+    )
+    formation = GeologicalFormationOrm(
+        id=uuid4(), app_project_id=uuid4(), name="ZAND (NAD 7)", color="#c2b280", display_order=1
+    )
+    monkeypatch.setattr(module, "formation_for_class", AsyncMock(return_value=formation))
+    return formation
+
+
+# ---------------------------------------------------------------------------
+# Recalculation is local
+# ---------------------------------------------------------------------------
+
+
+async def test_the_context_loads_only_the_edited_columns_bands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the edited column is read, so only it can be re-derived."""
+    model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
+    target = _row(band_id, 0.0, 4.0, cpt_id, model_id)
+    formation = GeologicalFormationOrm(
+        id=target.formation_id,
+        app_project_id=uuid4(),
+        name="ZAND (NAD 6)",
+        color="#c2b280",
+        display_order=1,
+        nad_class=6,
+        litho_main_soil_code="ZAND",
+        source_litho_formation_id=LITHO_FID,
+        source_geo_formation_id=GEO_FID,
+    )
+    session = MagicMock()
+    session.get = AsyncMock(
+        side_effect=lambda model, key: {
+            LithoLayerOrm: target,
+            GeologicalFormationOrm: formation,
+        }.get(model)
+    )
+    repo = MagicMock()
+    repo.list_layers = AsyncMock(return_value=[target])
+    monkeypatch.setattr(
+        "groundmodel.application.geotech_band_edit_helpers.LithoLayerRepository",
+        MagicMock(return_value=repo),
+    )
+    monkeypatch.setattr(
+        "groundmodel.application.geotech_band_edit_helpers.load_project_view_state",
+        AsyncMock(return_value={}),
+    )
+
+    context = await load_geotech_column_context(
+        session,
+        MagicMock(),
+        project_id=uuid4(),
+        geotech_model_id=model_id,
+        band_id=band_id,
+    )
+
+    repo.list_layers.assert_awaited_once()
+    kwargs = repo.list_layers.await_args.kwargs
+    assert kwargs["cpt_id"] == cpt_id
+    assert kwargs["borehole_id"] is None
+    assert [b.band_id for b in context.bands] == [str(band_id)]
+
+
+async def test_a_split_writes_only_rows_of_the_edited_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A split resizes the band it was asked about and inserts one sibling — no more."""
+    model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
+    target = _row(band_id, 0.0, 4.0, cpt_id, model_id)
+    depths, qc = _uniform_series(5.0)
+    context = _context(
+        session_model_id=model_id,
+        cpt_id=cpt_id,
+        bands=[_band(str(band_id), 0.0, 4.0, 6)],
+        rows={str(band_id): target},
+        depth_m=depths,
+        qc_mpa=qc,
+    )
+    _patch_common(monkeypatch, split_module, context)
+
+    session = _FakeSession()
+    use_case = SplitGeotechBand(session)
+    use_case._litho_repo = MagicMock()
+    use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
+
+    result = await use_case.execute(
+        project_id=context.project_id,
+        geotech_model_id=model_id,
+        band_id=band_id,
+        split_depth_m=2.0,
+    )
+
+    assert len(session.added) == 1
+    new_row = session.added[0]
+    assert isinstance(new_row, LithoLayerOrm)
+    assert new_row.cpt_id == cpt_id  # the edited column, nothing else
+    assert new_row.borehole_id is None
+    assert new_row.model_id == model_id
+    assert (new_row.depth_top_m, new_row.depth_base_m) == (2.0, 4.0)
+    assert (target.depth_top_m, target.depth_base_m) == (0.0, 2.0)
+    assert session.deleted == []
+    assert session.commits == 1
+    assert result.investigation_id == cpt_id
+
+
+async def test_a_merge_extends_the_upper_band_and_deletes_the_lower(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The merged band spans the union; the lower row goes away."""
+    model_id, cpt_id = uuid4(), uuid4()
+    upper_id, lower_id = uuid4(), uuid4()
+    upper = _row(upper_id, 0.0, 2.0, cpt_id, model_id)
+    lower = _row(lower_id, 2.0, 4.0, cpt_id, model_id)
+    depths, qc = _uniform_series(5.0)
+    context = _context(
+        session_model_id=model_id,
+        cpt_id=cpt_id,
+        bands=[_band(str(upper_id), 0.0, 2.0, 6), _band(str(lower_id), 2.0, 4.0, 7)],
+        rows={str(upper_id): upper, str(lower_id): lower},
+        depth_m=depths,
+        qc_mpa=qc,
+    )
+    _patch_common(monkeypatch, merge_module, context)
+
+    session = _FakeSession()
+    use_case = MergeGeotechBands(session)
+    use_case._litho_repo = MagicMock()
+    use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
+
+    result = await use_case.execute(
+        project_id=context.project_id,
+        geotech_model_id=model_id,
+        upper_band_id=upper_id,
+        lower_band_id=lower_id,
+    )
+
+    assert (upper.depth_top_m, upper.depth_base_m) == (0.0, 4.0)
+    assert session.deleted == [lower]
+    assert session.added == []
+    assert result.deleted_layer_ids == (lower_id,)
+    # Uniform qc → the union is still ZAND matig; the class is derived, not carried.
+    assert result.plan.intervals[0].nad_class == 6
+
+
+# ---------------------------------------------------------------------------
+# A connection breaks only when the new class no longer matches
+# ---------------------------------------------------------------------------
+
+
+def test_only_the_edges_whose_class_no_longer_matches_are_dropped() -> None:
+    """A correlation survives a re-derivation that still agrees with its partner."""
+    edited = uuid4()
+    same_class_partner, other_class_partner = uuid4(), uuid4()
+    keep = EdgeRef(edge_id=uuid4(), layer_a_id=edited, layer_b_id=same_class_partner)
+    drop = EdgeRef(edge_id=uuid4(), layer_a_id=other_class_partner, layer_b_id=edited)
+
+    dropped = invalidated_edge_ids(
+        edges=[keep, drop],
+        edited_layer_id=edited,
+        new_nad_class=7,
+        class_by_layer_id={same_class_partner: 7, other_class_partner: 6},
+    )
+
+    assert dropped == [drop.edge_id]
+
+
+def test_a_band_that_can_no_longer_be_classified_loses_every_connection() -> None:
+    """A null-class band never matches — the existing rule for skeleton bands."""
+    edited, partner = uuid4(), uuid4()
+    edge = EdgeRef(edge_id=uuid4(), layer_a_id=edited, layer_b_id=partner)
+
+    dropped = invalidated_edge_ids(
+        edges=[edge],
+        edited_layer_id=edited,
+        new_nad_class=None,
+        class_by_layer_id={partner: 7},
+    )
+
+    assert dropped == [edge.edge_id]
+
+
+# ---------------------------------------------------------------------------
+# Cannot answer beats a plausible answer
+# ---------------------------------------------------------------------------
+
+
+async def test_the_preview_reports_that_it_cannot_answer_when_qc_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No usable qc → "cannot answer" with a reason, never a plausible class."""
+    model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
+    target = _row(band_id, 0.0, 4.0, cpt_id, model_id)
+    context = _context(
+        session_model_id=model_id,
+        cpt_id=cpt_id,
+        bands=[_band(str(band_id), 0.0, 4.0, 6)],
+        rows={str(band_id): target},
+        depth_m=[],
+        qc_mpa=[],
+    )
+    monkeypatch.setattr(
+        preview_module, "load_geotech_column_context", AsyncMock(return_value=context)
+    )
+
+    plan = await PreviewGeotechBandEdit(MagicMock()).preview_split(
+        project_id=context.project_id,
+        geotech_model_id=model_id,
+        band_id=band_id,
+        split_depth_m=2.0,
+    )
+
+    assert [iv.nad_class for iv in plan.intervals] == [None, None]
+    assert all(iv.unclassifiable_reason for iv in plan.intervals)
