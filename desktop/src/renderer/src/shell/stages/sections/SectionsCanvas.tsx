@@ -869,6 +869,7 @@ export default function SectionsCanvas(): JSX.Element {
       setLastTargetTestId,
       setContactCorrelationEdges,
       setGeotechPackingEdges,
+      undoStack,
     })
 
   // Right-click a pending correlation edge â†’ "Accept correlation" (dogfeed
