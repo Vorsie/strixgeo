@@ -7711,3 +7711,54 @@ volume (needs a reboot to schedule) and check the drive's SMART reallocated-sect
 Until that comes back clean, treat any single inexplicable local failure — a test that
 fails once and passes on re-run, a package that will not load — as possible disk error
 before spending time on it as a code bug.
+
+## 264. v2 renders a contact-freedraw handle that does nothing (M)
+
+**What.** With the v2 engine now the default, a multi-node contact freedraw only bends the
+polygon at **node 0**. Node 1's handle still renders and is still draggable, and dragging
+it changes nothing. Confirmed by rendering the real fixture on v2: both
+`partition-boundary-handle-sand-clay-0` and `-1` appear, and the resulting sand path
+`M 20,0 L 20,50 L 40,55 L 80,60 L 80,0` carries one inserted vertex, at node 0 only.
+
+The cause is explicit rather than accidental —
+`desktop/src/renderer/src/components/sections/contactOverrideWiring.ts:229` gates on
+`drag.nodeIndex === 0`, reads `nodes[0]` at `:241-242`, and the comment at `:237` says
+"multi-node contact freedraw stays on the existing per-node handles for now".
+
+**Why it matters now.** It was tolerable while v2 was opt-in and only the owner saw it. As
+the default it ships, and a control that responds to the mouse while doing nothing is the
+kind of thing a beta tester reports as "the drag is broken" rather than "this node is not
+implemented yet".
+
+**Why deferred.** Found 2026-08-01 by the adversarial review of the v2-default cutover,
+which also established that no test covers it: the test that named this mechanism is
+pinned to v1, because the v1 behaviour it asserts was deliberately retired on v2.
+
+**When to revisit.** Before the beta goes out, and it is an OWNER CALL which way: either
+wire node 1 (and any further node) so every handle bends the polygon it belongs to, or
+render only the handle that works so nothing invites a drag that cannot land. The second
+is a smaller change and honest; the first is what the gesture implies.
+
+## 265. The always-on CS1 frozen gate fails intermittently (S)
+
+**What.** `desktop/src/renderer/src/utils/partitionFill.cs1frozen.test.ts` — "has no
+cross-formation overlap in any gap (one lithology per point)" — failed once in three
+consecutive full-suite runs on 2026-08-01 and passed in isolation and on re-run. The other
+two full runs were green at 283 files / 2,553 tests.
+
+**It is not the v2 cutover.** This file imports `computeSectionFill` directly rather than
+through `computeSectionFillActive`, so neither the default flip nor an engine pin in a
+sibling file can reach it. Ruled out by reading the imports, not by assuming.
+
+**Why it matters more than one red.** This is an ALWAYS-ON real-data correctness gate on
+the shipped partition. A gate that fails once in three runs teaches everyone to re-run it,
+which is exactly how a real overlap gets waved through later.
+
+**Why deferred.** Out of scope of the cutover it surfaced during, and one observation is
+not a diagnosis.
+
+**When to revisit.** Next time the suite goes red without an obvious cause. Start by
+running the file in a loop to establish a rate, then look for shared state — the overlap
+check's own caches, or fixture mutation across the six cases in the file. Note debt #263:
+this machine has a disk with two confirmed bit-level faults, so a single unreproducible
+failure is not automatically a code bug.
