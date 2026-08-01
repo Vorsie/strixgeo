@@ -7727,7 +7727,7 @@ through untouched.
 **When to revisit.** With #261, which is the same shape of question: both are about what
 the builder should do where the sections stop agreeing. Not a patch.
 
-## 261. The blend fragments a body neither section fragments (M)
+## 261. The blend carries one section's fragmentation across to the other — RETITLED 2026-08-01 (L)
 
 **What.** Reproduced independently 2026-07-31, and the mechanism is NOT the reported
 one. Matched bodies cannot invert under interpolation — if A is above B on both sections
@@ -7753,6 +7753,67 @@ The blend emits it as FOUR, interleaved with one-sided units from section A:
 Detected on 33 of 4,591 sampled between-section columns (0.7 %) by a first-occurrence
 order check — that check is a proxy and over-reports, so 33 is an upper bound on this
 shape, not a count of it.
+
+**⚠ MEASURED 2026-08-01 — the title claim is IMPOSSIBLE, and the count was under-reported
+by two orders of magnitude.** Both corrections point the same way: this is bigger than the
+entry says, and it is not the blend inventing anything.
+
+**The blend can never fragment a body neither section fragments.** A matched body
+contributes `max(runs_A, runs_B)` specs to `_layout`, and `_layout` never splits a spec.
+Measured across all 32,722 blended columns: **0**. Every emitted case has
+`inBlend == max(runs_A, runs_B)` exactly. What actually happens is that the blend carries
+ONE section's fragmentation into a column where the facing section draws a single thick
+unit.
+
+At the entry's own named position, section B carries SILT `019ea170-5cef` as 1 interval
+(12.838 → 9.743, the entry's numbers to the millimetre) and the blend emits 4 — **and
+section A already draws it as 4**, split by three of its own lens bodies. The entry recorded
+one half of that and drew the wrong conclusion from it.
+
+**The real counts**, full sweep at stride 1, reproduced exactly by independently written
+counting code:
+
+| | |
+|---|---|
+| in-footprint columns swept | 37,707 |
+| columns that take a blend at all | 32,722 |
+| columns where a body ends up in more pieces than one section draws | **15,923 (48.7 %)** |
+| of those, carrying the entry's exact mechanism (a one-sided unit laid out inside a host) | 13,480 (41.2 %) |
+| **of those, showing an arrangement NEITHER section draws** | **4,221 (12.9 %)** |
+| resolvable at the generation's 0.25 m voxel | 8,564 (26.2 %) |
+| columns showing more pieces than EITHER section shows | **0** |
+| distinct bodies ever involved | **4** |
+| worst split | 1 interval → 4 |
+
+The entry's "33 of 4,591 (0.7 %), an upper bound" was a first-occurrence proxy. Counting
+maximal runs instead — what the grid and the eye see as one interval — it was not an over-
+report but a miss by roughly two orders of magnitude. The 4,221 row is the honest headline:
+the rest is one section's own interbedding, faithfully carried.
+
+Two further corrections worth having before ruling. The phrase "carrying the NEARER
+section's fragmentation" is the minority case — 10,563 body-instances against 12,708 where
+only the FARTHER section carries it. And the named point (88 022, 164 359) **sits outside
+the built footprint**, so the model labels no ground there at all; the same 1→4 split on the
+same body occurs in-footprint 8 m away at (88 030, 164 363).
+
+**The candidates, and what each costs** — computed in the diagnostic, never in production,
+both restricted to one-sided intruders and both handed to the production `_layout` with the
+same blended top, so top and total thickness are preserved by construction and measured at
+0.0 error across all 9 cases:
+
+* **THIN erases units a section actually draws.** At the named point it removes 6 one-sided
+  units (KLEI, SILT, ZAND) 11.5 m from the section that draws them, collapsing 17 entries to
+  8. Worst case removes 7.
+* **OUTSIDE changes the top lithology** — it puts ZAND at the ground surface where both
+  sections start with SILT — and displaces units vertically by up to **9.01 m**, typically
+  1.3–3.5 m.
+* **Neither fully un-splits.** Where a host is also interrupted by a body BOTH sections
+  carry, it stays split under both rules. That is interpolation between two agreed bodies,
+  which neither rule speaks to.
+
+Shown side by side in `blend_viewer/fragment.html`
+(`scripts/dump_fragmentation_cases.py` writes it): the two drawn sections at the outside,
+TODAY / THIN / OUTSIDE between them, coloured by formation at true elevation.
 
 **Why it is not obviously wrong, and why it needs the owner.** Section A genuinely has
 thin units where section B has one thick SILT, so SOMETHING has to happen between them.
