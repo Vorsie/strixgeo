@@ -1,14 +1,26 @@
-"""Unit tests for the geotech tie re-anchor rule (owner ruling 2026-08-01).
+"""Unit tests for the geotech tie re-anchor rule.
 
-The rule, in the owner's words: a rebuilt packing band IS the band an accepted
-tie used to point at when **the same investigation, the same depth interval and
-the same NAD class** all hold.  Exact — no tolerance was asked for and none is
-applied.
+The original rule (owner, 2026-08-01) matched a rebuilt band to an accepted tie's
+band on **same investigation, same depth interval, same NAD class**, exactly.  On
+the real model that dropped 13 accepted ties, and the owner rejected the outcome
+(2026-08-02): *"you're literally just dragging the anchor to which the tie is
+connected, shouldn't it just move with the anchor?"*
+
+So the rule now has two tiers.  A band that comes back at exactly the same
+interval is still the same band.  Failing that, **a tie follows its band when
+exactly one rebuilt band of the same class overlaps where the old band was** —
+because that is the old band with a moved boundary.  What is still refused is
+guessing: two candidates of the same class is ambiguous, and a different class is
+a different band, so neither re-points.
+
+Measured on the dev model before the change: 12 of the 13 lost endpoints had
+exactly one same-class overlapping band covering 72–100 % of the old interval.
+The 13th had none and is the class-change case below.
 
 These tests exercise the pure planner only (no DB).  They speak the rule's own
-vocabulary: "the band came back exactly as it was", "the boundary moved",
-"the qc re-derived a different class", "the rebuild no longer draws that
-geology there".
+vocabulary: "the band came back exactly as it was", "the boundary moved and the
+tie moved with it", "the qc re-derived a different class", "the rebuild no longer
+draws that geology there".
 """
 
 from __future__ import annotations
@@ -90,11 +102,12 @@ def test_a_band_that_comes_back_identical_re_anchors_the_tie() -> None:
     assert new_b == UUID("33333333-0000-0000-0000-000000000002")
 
 
-def test_the_boundary_moved_so_the_tie_is_lost_not_re_pointed() -> None:
-    """The band's base shifted 20 cm — a different interval, so no match.
+def test_the_boundary_moved_so_the_tie_moves_with_its_band() -> None:
+    """The band's base shifted 20 cm — same band, moved boundary, tie follows.
 
-    The owner was asked directly about a wobble of this size and did not ask
-    for a tolerance.  20 cm is not "the same depth interval".
+    Real case from the dev model: a nad=8 band at 14.110–17.640 came back as
+    14.110–17.840.  Dragging a boundary is not deleting a band, so the tie that
+    was pinned to it travels with it.
     """
     id_a = _identity(_INV_A, 2.0, 4.5, 12)
     id_b = _identity(_INV_B, 2.2, 4.4, 12)
@@ -107,11 +120,102 @@ def test_the_boundary_moved_so_the_tie_is_lost_not_re_pointed() -> None:
         ],
     )
 
+    assert not plan.lost
+    assert len(plan.matched) == 1
+    _matched_tie, new_a, new_b = plan.matched[0]
+    assert new_a == UUID("33333333-0000-0000-0000-000000000001")
+    assert new_b == UUID("33333333-0000-0000-0000-000000000002")
+
+
+def test_a_band_swallowed_by_a_widened_neighbour_still_carries_its_tie() -> None:
+    """The peat above widened and absorbed the band — the tie still follows it.
+
+    Real case: a nad=30 band at 6.150–6.510 came back as 5.098–6.948 after a
+    litho contact was dragged.  The old interval is entirely inside the new one,
+    which is the same band grown, not a new one.
+    """
+    id_a = _identity(_INV_A, 6.150, 6.510, 30)
+    id_b = _identity(_INV_B, 5.300, 6.070, 30)
+    widened = _identity(_INV_A, 5.098, 6.948, 30)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [
+            _band(widened, "33333333-0000-0000-0000-000000000001"),
+            _band(id_b, "33333333-0000-0000-0000-000000000002"),
+        ],
+    )
+
+    assert not plan.lost
+    assert plan.matched[0][1] == UUID("33333333-0000-0000-0000-000000000001")
+
+
+def test_a_band_still_at_its_old_interval_wins_over_one_that_merely_overlaps() -> None:
+    """An exact interval match is preferred — following is only the fallback.
+
+    Without this, a band that came back untouched could be abandoned in favour
+    of a neighbour that happens to overlap it, which would move a tie the owner
+    never touched.
+    """
+    id_a = _identity(_INV_A, 2.0, 4.5, 12)
+    id_b = _identity(_INV_B, 2.2, 4.4, 12)
+    overlapping = _identity(_INV_A, 4.5, 9.0, 12)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [
+            _band(overlapping, "33333333-0000-0000-0000-000000000009"),
+            _band(id_a, "33333333-0000-0000-0000-000000000001"),
+            _band(id_b, "33333333-0000-0000-0000-000000000002"),
+        ],
+    )
+
+    assert not plan.lost
+    assert plan.matched[0][1] == UUID("33333333-0000-0000-0000-000000000001")
+
+
+def test_two_same_class_bands_overlap_it_so_the_tie_is_not_guessed() -> None:
+    """Two candidates of the same class → which one is "the band" is unknowable.
+
+    Following is only safe while the moved band is identifiable.  With two
+    equally valid candidates the planner refuses rather than picking one, and
+    reports the boundary move.
+    """
+    id_a = _identity(_INV_A, 2.0, 6.0, 12)
+    id_b = _identity(_INV_B, 2.2, 4.4, 12)
+    split_upper = _identity(_INV_A, 2.0, 3.9, 12)
+    split_lower = _identity(_INV_A, 4.1, 6.0, 12)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [
+            _band(split_upper, "33333333-0000-0000-0000-000000000001"),
+            _band(split_lower, "33333333-0000-0000-0000-000000000003"),
+            _band(id_b, "33333333-0000-0000-0000-000000000002"),
+        ],
+    )
+
     assert not plan.matched
-    assert len(plan.lost) == 1
     assert plan.lost[0].reason_a == REASON_INTERVAL_MOVED
-    assert plan.lost[0].reason_b is None
-    assert plan.loss_reason_counts() == {REASON_INTERVAL_MOVED: 1}
+
+
+def test_a_band_of_a_different_class_is_a_different_band_and_is_not_followed() -> None:
+    """Overlapping is not enough — the class must still agree.
+
+    Real case: a nad=16 band at 17.640–18.270 came back with nad 6 / 8 / 14 over
+    those depths and no nad=16 anywhere.  Following one of those would silently
+    re-point an accepted tie onto material of a different packing class.
+    """
+    id_a = _identity(_INV_A, 17.640, 18.270, 16)
+    id_b = _identity(_INV_B, 17.400, 18.100, 16)
+    other_class = _identity(_INV_A, 17.840, 18.214, 6)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [
+            _band(other_class, "33333333-0000-0000-0000-000000000001"),
+            _band(id_b, "33333333-0000-0000-0000-000000000002"),
+        ],
+    )
+
+    assert not plan.matched
+    assert plan.lost[0].reason_a == REASON_INTERVAL_MOVED
 
 
 def test_the_qc_re_derived_a_different_class_so_the_tie_is_lost() -> None:
@@ -189,15 +293,21 @@ def test_a_borehole_endpoint_is_reported_as_deferred_not_as_lost_geology() -> No
 
 
 def test_both_endpoints_can_fail_for_different_reasons() -> None:
-    """A tie reports a reason per endpoint, so the loss can be diagnosed."""
-    id_a = _identity(_INV_A, 2.0, 4.5, 12)
+    """A tie reports a reason per endpoint, so the loss can be diagnosed.
+
+    Endpoint A is the ambiguous case — two same-class bands overlap it, so it
+    cannot follow either — and endpoint B was re-classified in place.
+    """
+    id_a = _identity(_INV_A, 2.0, 6.0, 12)
     id_b = _identity(_INV_B, 2.2, 4.4, 12)
-    moved_a = _identity(_INV_A, 2.0, 4.9, 12)
+    split_upper_a = _identity(_INV_A, 2.0, 3.9, 12)
+    split_lower_a = _identity(_INV_A, 4.1, 6.0, 12)
     reclassified_b = _identity(_INV_B, 2.2, 4.4, 17)
     plan = plan_tie_reanchor(
         [_tie(id_a, id_b)],
         [
-            _band(moved_a, "33333333-0000-0000-0000-000000000001"),
+            _band(split_upper_a, "33333333-0000-0000-0000-000000000001"),
+            _band(split_lower_a, "33333333-0000-0000-0000-000000000003"),
             _band(reclassified_b, "33333333-0000-0000-0000-000000000002"),
         ],
     )
