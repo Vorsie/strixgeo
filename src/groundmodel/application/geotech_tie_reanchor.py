@@ -12,12 +12,15 @@ passing through application code.  Sparing accepted edges in the reset's own
 
 The rule
 --------
-Two tiers, tried in order.
+Three tiers, tried in order.
 
 1. **Same investigation, same depth interval, same NAD class** (owner ruling,
-   2026-08-01, verbatim) — the band came back untouched.
+   2026-08-01, verbatim) — the band came back untouched.  Carried clean.
 2. Failing that, **the single band of the same class overlapping where the old
-   band was** — the same band with a boundary dragged.
+   band was** — the same band with a boundary dragged.  Carried clean.
+3. Failing that, **whichever band covers most of where the old one was** —
+   carried, but stamped with a ``review_reason`` for the engineer to confirm or
+   delete.
 
 Tier 2 was added on 2026-08-02, after tier 1 alone dropped 13 accepted ties on the
 real model and the owner rejected that outcome: *"you're literally just dragging
@@ -25,10 +28,15 @@ the anchor to which the tie is connected, shouldn't it just move with the
 anchor?"*  Measured on those 13, 12 had exactly one same-class band overlapping
 72–100 % of the old interval — the boundary had moved by as little as 4 cm.
 
-What is still refused is guessing.  Two same-class candidates is ambiguous, and a
-band of a different class is a different band however much it overlaps, so
-neither re-points.  A tie that cannot follow is counted and logged at WARNING,
-never approximated onto material the engineer did not tie to.
+Tier 3 is the owner's stronger rule from the same day: *"i don't want accepted
+edges to just disappear without any user explicitly deleting it."*  It exists so
+the machine never decides on its own that accepted work is gone.  It does not
+pretend to know the geology: an ambiguous or re-classified anchor produces a
+FLAGGED tie, never a silent one, and only an endpoint with nothing overlapping it
+anywhere is genuinely uncarryable (counted and logged at WARNING).
+
+The full-model consequence, measured on the dev model: 217 of 217 accepted ties
+survive a re-subdivide, with exactly one flagged ``class_changed``.
 
 Depth comparison
 ----------------
@@ -81,6 +89,11 @@ REASON_CLASS_CHANGED = "class_changed"
 REASON_INTERVAL_MOVED = "interval_moved"
 REASON_BAND_ABSENT = "band_absent"
 REASON_BOREHOLE_DEFERRED = "borehole_endpoint_deferred"
+
+# Why a carried tie needs the engineer to look at it again.  Persisted on the
+# edge as ``review_reason`` so the flag survives the session that raised it.
+REVIEW_CLASS_CHANGED = "class_changed"
+REVIEW_AMBIGUOUS_BAND = "ambiguous_band"
 
 # Anchor-kind tokens, mirroring ``litho_layer``'s XOR pair.
 ANCHOR_CPT = "cpt"
@@ -198,6 +211,30 @@ class RebuiltBand:
 
 
 @dataclass(frozen=True)
+class MatchedTie:
+    """A captured tie and the rebuilt bands it will be re-created against.
+
+    Attributes
+    ----------
+    tie : CapturedTie
+        The tie as it was before the reset, carrying its sides and provenance.
+    layer_a_id : UUID
+        New ``litho_layer`` id for ``tie.identity_a``.
+    layer_b_id : UUID
+        New ``litho_layer`` id for ``tie.identity_b``.
+    review_reason : str | None
+        ``None`` when both endpoints resolved cleanly (tiers 1–2).  Otherwise the
+        token saying why the engineer should confirm the tie —
+        :data:`REVIEW_CLASS_CHANGED` or :data:`REVIEW_AMBIGUOUS_BAND`.
+    """
+
+    tie: CapturedTie
+    layer_a_id: UUID
+    layer_b_id: UUID
+    review_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class LostTie:
     """An accepted tie that could not be re-anchored, and why.
 
@@ -245,8 +282,9 @@ class ReanchorPlan:
 
     Attributes
     ----------
-    matched : list[tuple[CapturedTie, UUID, UUID]]
-        ``(tie, new_layer_id_for_identity_a, new_layer_id_for_identity_b)``.
+    matched : list[MatchedTie]
+        Ties that will be re-created, each with its new endpoint ids and its
+        review flag (``None`` when it resolved cleanly).
     lost : list[LostTie]
         Ties with at least one endpoint that found no band.
     skipped_duplicate_pair : int
@@ -255,9 +293,23 @@ class ReanchorPlan:
         instead of raised.
     """
 
-    matched: list[tuple[CapturedTie, UUID, UUID]] = field(default_factory=list)
+    matched: list[MatchedTie] = field(default_factory=list)
     lost: list[LostTie] = field(default_factory=list)
     skipped_duplicate_pair: int = 0
+
+    def review_reason_counts(self) -> dict[str, int]:
+        """Count carried ties per review reason, ignoring the clean ones.
+
+        Returns
+        -------
+        dict[str, int]
+            Review token → number of carried ties flagged with it.
+        """
+        counts: dict[str, int] = {}
+        for match in self.matched:
+            if match.review_reason is not None:
+                counts[match.review_reason] = counts.get(match.review_reason, 0) + 1
+        return counts
 
     def loss_reason_counts(self) -> dict[str, int]:
         """Count lost ties per reason.
@@ -343,25 +395,57 @@ def _endpoint_reason(
     return REASON_BAND_ABSENT
 
 
+def _overlap_mm(identity: BandIdentity, band: RebuiltBand) -> int:
+    """Millimetres of the old interval a rebuilt band covers (0 when disjoint).
+
+    Strict overlap: a band merely abutting the old one at a shared boundary
+    covers nothing of it.
+
+    Parameters
+    ----------
+    identity : BandIdentity
+        The captured endpoint's identity.
+    band : RebuiltBand
+        A candidate band from the rebuild.
+
+    Returns
+    -------
+    int
+        Overlapping depth in whole millimetres.
+    """
+    top = max(identity.depth_top_mm, band.identity.depth_top_mm)
+    base = min(identity.depth_base_mm, band.identity.depth_base_mm)
+    return max(0, base - top)
+
+
 def _follow_moved_band(
     identity: BandIdentity,
     by_investigation: dict[str, list[RebuiltBand]],
-) -> UUID | None:
-    """Find the band this one moved into, when that is unambiguous.
+) -> tuple[UUID | None, str | None]:
+    """Find the band this one moved into, and say whether it needs review.
 
-    Second tier of the rule, applied only after the exact-interval lookup missed.
-    A rebuilt band of the SAME class that overlaps where the old band was is that
-    band with a moved boundary — dragging a contact does not create a new band,
-    it resizes an existing one.
+    Applied only after the exact-interval lookup missed.  A rebuilt band that
+    overlaps where the old band was is that band with a moved boundary —
+    dragging a contact does not create a new band, it resizes an existing one.
 
-    Two conditions keep this from guessing.  The class must still agree, because
-    material of a different packing class is a different band no matter where it
-    sits.  And exactly one candidate must exist: with two, which one inherited
-    the tie is unknowable, and picking either would silently re-point accepted
-    work.
+    Which tier applies depends on how confidently the band can be identified:
 
-    Overlap is strict, so a band that merely abuts the old one at a shared
-    boundary is not a candidate.
+    * exactly one overlapping band of the **same class** → tier 2, carried clean;
+    * several same-class candidates → tier 3, carried with
+      :data:`REVIEW_AMBIGUOUS_BAND`, because which one inherited the tie is
+      unknowable;
+    * no same-class candidate but something overlaps → tier 3, carried with
+      :data:`REVIEW_CLASS_CHANGED`, because the qc re-derived a different
+      packing class over those depths;
+    * nothing overlaps → not carryable here.
+
+    Tier 3 exists because of the owner's rule that an accepted tie never
+    disappears without them deleting it.  It deliberately does not decide the
+    geology: the tie comes back attached to the band covering most of where it
+    used to be, flagged, for the engineer to confirm or delete.
+
+    Ties are broken by shallowest top, so two candidates covering equal depth
+    resolve deterministically rather than by dict ordering.
 
     Parameters
     ----------
@@ -372,20 +456,26 @@ def _follow_moved_band(
 
     Returns
     -------
-    UUID | None
-        The new layer id to re-point at, or ``None`` when no single same-class
-        band overlaps.
+    tuple[UUID | None, str | None]
+        ``(new_layer_id, review_reason)``.  The id is ``None`` only when nothing
+        overlaps; the reason is ``None`` when the match is clean.
     """
-    candidates = [
+    overlapping = [
         band
         for band in by_investigation.get(identity.investigation_id, [])
-        if band.identity.nad_class == identity.nad_class
-        and band.identity.depth_top_mm < identity.depth_base_mm
-        and identity.depth_top_mm < band.identity.depth_base_mm
+        if _overlap_mm(identity, band) > 0
     ]
-    if len(candidates) == 1:
-        return candidates[0].layer_id
-    return None
+    if not overlapping:
+        return None, None
+
+    same_class = [b for b in overlapping if b.identity.nad_class == identity.nad_class]
+    if len(same_class) == 1:
+        return same_class[0].layer_id, None
+
+    pool = same_class or overlapping
+    reason = REVIEW_AMBIGUOUS_BAND if same_class else REVIEW_CLASS_CHANGED
+    best = min(pool, key=lambda b: (-_overlap_mm(identity, b), b.identity.depth_top_mm))
+    return best.layer_id, reason
 
 
 def plan_tie_reanchor(
@@ -426,12 +516,21 @@ def plan_tie_reanchor(
     claimed: set[tuple[UUID, UUID, UUID, str, str]] = set()
 
     for tie in captured:
+        review_a: str | None = None
+        review_b: str | None = None
         new_a = by_identity.get(tie.identity_a)
         if new_a is None:
-            new_a = _follow_moved_band(tie.identity_a, by_investigation)
+            new_a, review_a = _follow_moved_band(tie.identity_a, by_investigation)
         new_b = by_identity.get(tie.identity_b)
         if new_b is None:
-            new_b = _follow_moved_band(tie.identity_b, by_investigation)
+            new_b, review_b = _follow_moved_band(tie.identity_b, by_investigation)
+        # A class change is the more consequential of the two, so it names the
+        # tie when both endpoints are flagged.
+        review = (
+            REVIEW_CLASS_CHANGED
+            if REVIEW_CLASS_CHANGED in (review_a, review_b)
+            else review_a or review_b
+        )
         if new_a is None or new_b is None:
             plan.lost.append(
                 LostTie(
@@ -465,7 +564,9 @@ def plan_tie_reanchor(
             plan.skipped_duplicate_pair += 1
             continue
         claimed.add(key)
-        plan.matched.append((tie, new_a, new_b))
+        plan.matched.append(
+            MatchedTie(tie=tie, layer_a_id=new_a, layer_b_id=new_b, review_reason=review)
+        )
 
     return plan
 
@@ -634,8 +735,11 @@ class GeotechTieReanchor(GroundModelLogger):
         existing = await self._load_existing_keys(geotech_model_id)
 
         written = 0
-        for tie, new_a, new_b in plan.matched:
-            section_id, layer_a_id, layer_b_id, side_a, side_b = _canonical_key(tie, new_a, new_b)
+        for match in plan.matched:
+            tie = match.tie
+            section_id, layer_a_id, layer_b_id, side_a, side_b = _canonical_key(
+                tie, match.layer_a_id, match.layer_b_id
+            )
             if (section_id, layer_a_id, layer_b_id, side_a, side_b) in existing:
                 plan.skipped_duplicate_pair += 1
                 continue
@@ -652,7 +756,13 @@ class GeotechTieReanchor(GroundModelLogger):
                     # Verbatim from the tie that was accepted — a hand-drawn tie
                     # must still read 'manual' after the rebuild.
                     source=tie.source,
+                    # Still accepted: the engineer approved it and has not deleted
+                    # it. A flagged tie is one they are asked to confirm, not one
+                    # demoted to a proposal — demoting it would make the next
+                    # rebuild's dirty-delete pass remove it, which is exactly the
+                    # silent disappearance this whole path exists to prevent.
                     user_approved=True,
+                    review_reason=match.review_reason,
                 )
             )
             written += 1
@@ -667,9 +777,19 @@ class GeotechTieReanchor(GroundModelLogger):
                 f"GeotechTieReanchor.reanchor: {len(plan.lost)} accepted tie(s) could not be "
                 f"re-anchored to a rebuilt band — reasons {reasons}"
             )
+        reviews = plan.review_reason_counts()
+        if reviews:
+            # Carried, not lost — but the engineer has to confirm these, so they
+            # are worth a WARNING rather than being buried in the summary line.
+            self.warning(
+                f"GeotechTieReanchor.reanchor: {sum(reviews.values())} accepted tie(s) were "
+                f"carried onto a band that is not clearly the one they were drawn on and "
+                f"need review — {reviews}"
+            )
         self.success(
             f"GeotechTieReanchor.reanchor: model={geotech_model_id} "
             f"re-anchored={written}/{len(captured)} lost={len(plan.lost)} "
+            f"needs_review={sum(reviews.values())} "
             f"skipped_duplicate={plan.skipped_duplicate_pair} reasons={reasons}"
         )
         return plan
