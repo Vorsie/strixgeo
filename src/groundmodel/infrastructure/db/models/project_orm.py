@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ARRAY, DateTime, Index, Integer, String, Text, func
+from sqlalchemy import ARRAY, BigInteger, DateTime, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -83,6 +83,32 @@ class ProjectOrm(Base):
     # accepts any JSON object. Default ``{}`` so callers can read keys
     # via .get(...) without null-checking the column.
     view_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+    # The manual lumping map from "Fill from boreholes → Apply", in two
+    # slots that mirror the desktop's two-stage save model:
+    #   staged — written the moment Apply runs, so a crash before
+    #            File → Save no longer loses the map.
+    #   saved  — what the last File → Save committed.
+    # ``staged != saved`` is the dirty signal (the renderer derives the
+    # same comparison in memory). Shape is the ``StratigraphyLumping``
+    # sub-object from the bundle schema: schema_version / applied_at / map.
+    #
+    # NULL (not ``{}``) is the "no lumping map at all" state, which is
+    # distinct from a snapshot whose ``map`` is empty — that means the
+    # user ran Fill and grouped nothing. Hence nullable, no server default.
+    stratigraphy_lumping_staged: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    stratigraphy_lumping_saved: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Renderer-owned MONOTONIC counter, bumped on every stage (every Apply)
+    # and written to BOTH this column and the crash-recovery file. It is what
+    # crash-recovery reconciliation compares — never wall-clocks, because
+    # ``updated_at`` moves for unrelated reasons, the recovery file
+    # legitimately lags up to 15 s, and a clock shift would invert the
+    # comparison. Rule (docs/design/autosave-recovery.md §3): file revision
+    # higher ⇒ the PUT never landed, file wins; DB revision higher ⇒ the
+    # crash beat the debounce, DB wins; equal ⇒ no prompt at all.
+    # NULL = never staged (distinct from a project staged once at 0).
+    stratigraphy_lumping_revision: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
