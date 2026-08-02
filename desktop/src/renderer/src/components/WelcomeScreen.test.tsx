@@ -15,12 +15,39 @@ const RECENT_FIXTURE = [
   { path: 'C:/projects/site-B.gmproj', name: 'Site B', lastOpened: '2026-05-10T09:00:00Z' },
 ]
 
+/** One recovery descriptor as ``listRecovery`` returns it. */
+const RECOVERY_DESCRIPTOR = {
+  projectId: '11111111-1111-4111-8111-111111111111',
+  projectName: 'Kanaal Noord',
+  filePath: 'C:/userData/recovery/1111.recovery.json',
+  writtenAt: new Date(2026, 7, 2, 14, 32).toISOString(),
+  appVersion: '0.1.0',
+  sizeBytes: 512,
+}
+
+/** A minimal valid payload — only ``filePath`` matters to the welcome screen. */
+function makeRecoveryPayload(filePath: string | null): unknown {
+  return {
+    snapshot_version: 1,
+    filePath,
+    lumping: { current: null, revision: null },
+    ghosts: [],
+    metadataDraftPatch: {},
+    manifests: { cpt: [], borehole: [], formation: [], section: [] },
+    sessionImports: { cpt: [], borehole: [], formation: [], section: [], contact: [] },
+    hasUnsavedMutations: false,
+  }
+}
+
 beforeEach(() => {
   // Minimal ``window.electron`` stub — only the methods the welcome
   // screen reaches for. Override per-test by re-assigning before the
-  // render call.
+  // render call. The recovery pair defaults to "nothing crashed", which
+  // is the state every pre-existing test in this file assumes.
   ;(globalThis as unknown as { window: { electron: unknown } }).window.electron = {
     getRecentProjects: vi.fn().mockResolvedValue(RECENT_FIXTURE),
+    listRecovery: vi.fn().mockResolvedValue([]),
+    readRecovery: vi.fn().mockResolvedValue(null),
   }
 })
 
@@ -208,6 +235,113 @@ describe('WelcomeScreen', () => {
     )
     // No recent column, but the create/open card still renders.
     expect(screen.queryByText(/Recent projects/i)).not.toBeInTheDocument()
+  })
+
+  // -------------------------------------------------------------------------
+  // Recovered work (docs/design/autosave-recovery.md §4). A recovery file
+  // present at launch means the previous session never reached a clean exit,
+  // so the start screen surfaces it the way Word surfaces a recovered
+  // document — quietly, next to the recent list, not as an alarm.
+  // -------------------------------------------------------------------------
+
+  function installRecovery(
+    descriptors: unknown[],
+    payload: unknown = makeRecoveryPayload('C:/projects/kanaal-noord.strix'),
+  ): void {
+    const electron = window.electron as unknown as Record<string, unknown>
+    electron.listRecovery = vi.fn().mockResolvedValue(descriptors)
+    electron.readRecovery = vi.fn().mockResolvedValue(payload)
+  }
+
+  it('shows the recovered-work section only when a recovery file exists', async () => {
+    installRecovery([RECOVERY_DESCRIPTOR])
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    expect(await screen.findByText(/Recovered work/i)).toBeInTheDocument()
+    expect(screen.getByText('Kanaal Noord')).toBeInTheDocument()
+  })
+
+  it('hides the recovered-work section when the previous session exited cleanly', async () => {
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    await screen.findByText('Site A')
+    expect(screen.queryByText(/Recovered work/i)).not.toBeInTheDocument()
+  })
+
+  it('routes a recovered entry through the normal open path, using the project file it names', async () => {
+    // Opening the project is what makes the restore prompt appear — the
+    // welcome screen never restores anything itself.
+    installRecovery([RECOVERY_DESCRIPTOR])
+    const onOpenRecent = vi.fn().mockResolvedValue(true)
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={onOpenRecent}
+      />,
+    )
+    fireEvent.click(await screen.findByText('Kanaal Noord'))
+    await waitFor(() =>
+      expect(onOpenRecent).toHaveBeenCalledWith('C:/projects/kanaal-noord.strix'),
+    )
+  })
+
+  it('disables a recovered entry whose project file is unknown, and says what to do', async () => {
+    installRecovery([RECOVERY_DESCRIPTOR], makeRecoveryPayload(null))
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    await screen.findByText('Kanaal Noord')
+    const entry = screen.getByTestId(`welcome-recovery-entry-${RECOVERY_DESCRIPTOR.projectId}`)
+    expect(entry).toBeDisabled()
+    expect(entry.textContent).toMatch(/open the project file to restore/i)
+  })
+
+  it('shows how old the recovered work is', async () => {
+    installRecovery([RECOVERY_DESCRIPTOR])
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    const entry = await screen.findByTestId(
+      `welcome-recovery-entry-${RECOVERY_DESCRIPTOR.projectId}`,
+    )
+    expect(entry.textContent).toMatch(/14:32/)
+  })
+
+  it('survives a recovery IPC that is unavailable or failing', async () => {
+    // A broken recovery channel must cost the recovered-work section, never
+    // the create / open buttons the user actually needs.
+    const electron = window.electron as unknown as Record<string, unknown>
+    electron.listRecovery = vi.fn().mockRejectedValue(new Error('IPC down'))
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Create project/i })).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Recovered work/i)).not.toBeInTheDocument()
   })
 
   it('DK1 — root container uses semantic dark-mode-aware token bg-surface-app (debt #105)', () => {
