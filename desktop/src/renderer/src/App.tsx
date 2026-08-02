@@ -6,6 +6,9 @@ import { useGeologicalModel } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
+import { useRecoveryAutosave } from './hooks/useRecoveryAutosave'
+import { useRecoveryOffer } from './hooks/useRecoveryOffer'
+import { useRecoveryRestore } from './hooks/useRecoveryRestore'
 import { useMapState } from './hooks/useMapState'
 import { useShellContextValue } from './hooks/useShellContextValue'
 import { api } from './api/client'
@@ -18,6 +21,7 @@ import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import WelcomeScreen from './components/WelcomeScreen'
+import RecoveryPromptDialog from './components/RecoveryPromptDialog'
 import NewProjectDialog from './components/NewProjectDialog'
 import AppBootError from './components/AppBootError'
 import BackendFailedModal from './components/BackendFailedModal'
@@ -58,6 +62,21 @@ interface FileFilter {
   extensions: string[]
 }
 
+/**
+ * What a recovery file advertises about itself, without its payload.
+ * Mirrors ``main/recoveryStore``'s ``RecoveryDescriptor`` — the renderer
+ * cannot import from main, so the shape is restated here alongside the
+ * other IPC types.
+ */
+interface RecoveryDescriptor {
+  projectId: string
+  projectName: string
+  filePath: string
+  writtenAt: string
+  appVersion: string
+  sizeBytes: number
+}
+
 declare global {
   interface Window {
     electron: {
@@ -79,6 +98,18 @@ declare global {
       writeExportFile: (filePath: string, contents: ArrayBuffer) => Promise<void>
       addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>
       getRecentProjects: () => Promise<RecentProject[]>
+      // Crash-recovery files (docs/design/autosave-recovery.md §5). No path
+      // in any signature: the renderer supplies a project id and main
+      // resolves the location itself, so this surface can neither read nor
+      // write an arbitrary file.
+      writeRecovery: (
+        projectId: string,
+        payload: unknown,
+        options?: { projectName?: string },
+      ) => Promise<RecoveryDescriptor>
+      listRecovery: () => Promise<RecoveryDescriptor[]>
+      readRecovery: (projectId: string) => Promise<unknown>
+      deleteRecovery: (projectId: string) => Promise<boolean>
       setWindowTitle: (title: string | null) => Promise<void>
       onAppBeforeQuit: (cb: () => void) => () => void
       notifyQuitDecision: (allowed: boolean) => Promise<void>
@@ -111,6 +142,8 @@ export default function App() {
     dirty: metadataDirty,
     filePath: projectFilePath,
     currentLumping,
+    savedLumping,
+    lumpingRevision,
     manifestCptIds,
     manifestBoreholeIds,
     manifestFormationIds,
@@ -123,6 +156,8 @@ export default function App() {
     applyMetadataDraft,
     applyViewStatePatch,
     saveProject: saveMetadata,
+    lastSaveWroteFile,
+    recoveryClearAllowed,
     revertToLastSaved,
     saveAsProject,
     closeProject,
@@ -458,6 +493,86 @@ export default function App() {
     discardContacts,
   } = geo
 
+  // Crash-recovery autosave (docs/design/autosave-recovery.md). A crash
+  // loses no interpretation — every gesture is an awaited API call — but it
+  // does lose the session delta: the lumping map, the litho ghost
+  // workspace, the metadata draft, the manifest + session-import sets, and
+  // the unsaved-mutations bit. This hook shadow-copies exactly those six on
+  // a 2 s debounce with a 15 s cap, and deletes the file the moment the
+  // session goes clean.
+  //
+  // ``ghostsByAnchor`` (the whole store) rather than ``bulkGhostsByAnchor``
+  // (the store MINUS the focused anchor): the focused anchor's triage is
+  // the most at-risk of all, since it is the one the user is working on.
+  const { clearRecoveryNow } = useRecoveryAutosave({
+    filePath: projectFilePath,
+    project,
+    saved: savedProject,
+    currentLumping,
+    savedLumping,
+    lumpingRevision,
+    ghostsByAnchor: geo.ghostsByAnchor,
+    manifestCptIds,
+    manifestBoreholeIds,
+    manifestFormationIds,
+    manifestSectionIds,
+    sessionImportCptIds,
+    sessionImportBoreholeIds,
+    sessionImportFormationIds,
+    sessionImportSectionIds,
+    sessionImportContactIds,
+    hasUnsavedMutations,
+    // The save path clears the session sets and the mutations flag even when
+    // the .strix write failed, so the values below can go clean while the
+    // delta is still homeless. Gate the scheduler's clean-transition delete
+    // on the same file-write signal the lifecycle's explicit clear uses
+    // (docs/design/autosave-recovery.md §4).
+    canClearOnClean: recoveryClearAllowed,
+  })
+
+  // The other half of crash recovery: reading a recovery file back and
+  // applying it. ``useRecoveryRestore`` owns WHAT is written back (the six
+  // at-risk items, plus the lumping map's revision reconciliation);
+  // ``useRecoveryOffer`` owns the single detection point — one effect keyed
+  // on the open project's id, rather than a check bolted onto each of the
+  // four open paths.
+  const { restoreFromSnapshot } = useRecoveryRestore({
+    setGhostsByAnchor: geo.setGhostsByAnchor,
+    applyMetadataDraft,
+    addToManifest,
+    setSessionImportCptIds,
+    setSessionImportBoreholeIds,
+    setSessionImportFormationIds,
+    setSessionImportSectionIds,
+    setSessionImportContactIds,
+    setHasUnsavedMutations,
+    currentLumping,
+    lumpingRevision,
+    stageLumping,
+  })
+
+  const {
+    offer: recoveryOffer,
+    restoreOffer,
+    dismissOffer: dismissRecoveryOffer,
+    discardOffer: discardRecoveryOffer,
+  } = useRecoveryOffer({
+    projectId: project?.id ?? null,
+    projectName: project?.name ?? null,
+    onRestore: restoreFromSnapshot,
+  })
+
+  // Closing a project is a DECIDED exit, so it takes the recovery file with
+  // it — a file left behind would make the next launch claim this session
+  // crashed. Wrapping ``closeProject`` here (rather than clearing at each
+  // call site) means every close path — the File menu, the toolbar X's
+  // confirm dialog, and both branches of the unsaved-changes prompt — is
+  // covered by construction.
+  const closeProjectAndClearRecovery = useCallback(() => {
+    void clearRecoveryNow()
+    closeProject()
+  }, [clearRecoveryNow, closeProject])
+
   // Project lifecycle — dirty flag, File menu IPC, close-flow dialogs,
   // Save / Discard / window title / OS quit handshake. Wired here (after
   // useGeologicalModel) because discardSessionImports calls discardContacts
@@ -495,7 +610,7 @@ export default function App() {
     removeFromManifest,
     saveMetadata,
     saveAsProject,
-    closeProject,
+    closeProject: closeProjectAndClearRecovery,
     pickAndOpenProject,
     openProjectFile,
     discardContacts,
@@ -507,6 +622,8 @@ export default function App() {
     revertToLastSaved,
     // No file path = never saved, so Discard has no snapshot to revert to.
     hasSavedSnapshot: projectFilePath !== null,
+    clearRecoveryNow,
+    lastSaveWroteFile,
   })
 
   // CPT + borehole data, import flows, hide/restore, elevation edits.
@@ -1114,8 +1231,25 @@ export default function App() {
         handleUnsavedCancel={handleUnsavedCancel}
         closeConfirmOpen={closeConfirmOpen}
         setCloseConfirmOpen={setCloseConfirmOpen}
-        closeProject={closeProject}
+        closeProject={closeProjectAndClearRecovery}
       />
+      {/* Crash-recovery prompt — shown over the OPENED project, because the
+          lumping map's reconciliation needs the project's live revision to
+          compare against (docs/design/autosave-recovery.md §3). Rendered
+          outside AppDialogs: it is offered by the recovery hooks, not by the
+          save model, and it must survive any future re-grouping of the four
+          save-flow dialogs. */}
+      {recoveryOffer !== null && (
+        <RecoveryPromptDialog
+          open
+          projectName={recoveryOffer.projectName}
+          snapshot={recoveryOffer.snapshot}
+          writtenAt={recoveryOffer.writtenAt}
+          onRestore={restoreOffer}
+          onOpenWithoutRestoring={dismissRecoveryOffer}
+          onDiscard={() => void discardRecoveryOffer()}
+        />
+      )}
       {/* App-level Settings dialog. Lives outside AppDialogs because
           it persists into ``project.view_state`` (per-project sections)
           and localStorage (Appearance) rather than through the metadata
