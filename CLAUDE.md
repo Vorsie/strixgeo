@@ -484,6 +484,7 @@ Current-state design of the interpretation subsystems. Each doc describes ONLY t
 * [docs/design/section-fill.md](docs/design/section-fill.md) — the 2D section partition: the **contact-correlation model** (2→BAND / 1→ONLAP / 0→LENS), the deep-to-deep substrate pass, the **CS1 real-data gate**, dogfeed traps. **Load before touching `partitionFill.ts` / `PartitionFillOverlay` / `computeSectionFill` or the 3D voxel labelling.**
 * [docs/design/body-model.md](docs/design/body-model.md) — bodies as resolver connected-components, the partition fill as single source of truth for body shape, the body-extent retirement summary, lens-detection behavioral rules, the Tier-D export note. **Load before body / correlation / lens work.**
 * [docs/design/geotech-stage.md](docs/design/geotech-stage.md) — geotech subdivision + the **fraction-space refinement** render model + connecting geotech units. **Load before any geotech-stage work (the current milestone).**
+* [docs/design/autosave-recovery.md](docs/design/autosave-recovery.md) — why a crash loses NO interpretation (Postgres outlives Electron; every gesture is an awaited call), the six renderer-only items that ARE lost, the lumping map's new columns + revision reconciliation, and the recovery-file mechanism. **Load before autosave / recovery / stratigraphy-lumping work.**
 * 3D voxel litho builder — `memory/project_voxel_litho_builder.md` (geo-band-bounded voxel labelling from the 2D partition, honor-borehole, greedy meshing, Numba hotspot). **Load before 3D build work.**
 
 ---
