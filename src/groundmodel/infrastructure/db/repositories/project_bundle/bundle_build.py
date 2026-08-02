@@ -314,9 +314,10 @@ async def _build_project_bundle_impl(
         "bodies": [_column_to_json(lens, _SKIP_COLUMNS) for lens in lenses],
         "formation_absences": [_column_to_json(a, _SKIP_COLUMNS) for a in absences],
         # Contact-level correlation edges (#133 Phase 2+3). Each row carries
-        # (model_id, layer_a_id, layer_b_id, source, user_approved).
-        # Additive field: bundles saved before this field existed open cleanly
-        # via the schema's default_factory=list.
+        # (model_id, layer_a_id, layer_b_id, source, user_approved,
+        # review_reason). Additive field: bundles saved before this field existed
+        # open cleanly via the schema's default_factory=list, and a bundle saved
+        # before review_reason existed restores it as NULL (unflagged).
         "litho_contact_correlation_edges": [
             _column_to_json(ce, _SKIP_COLUMNS) for ce in contact_edges
         ],
