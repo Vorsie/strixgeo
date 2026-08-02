@@ -10,6 +10,20 @@ interface RecentProject {
   lastOpened: string
 }
 
+// Descriptor of one crash-recovery file, as returned by ``recovery:list``.
+// Mirrors ``RecoveryDescriptor`` in src/main/recoveryStore.ts — duplicated
+// rather than imported for the same reason as RecentProject above (the
+// preload bundle must stay self-contained). Deliberately carries no payload:
+// the start screen only renders a banner from this.
+interface RecoveryDescriptor {
+  projectId: string
+  projectName: string
+  filePath: string
+  writtenAt: string
+  appVersion: string
+  sizeBytes: number
+}
+
 // Helper: subscribe to a main→renderer event and return an unsubscribe fn.
 // The pattern is identical for every menu signal, so factoring it removes
 // ~5 boilerplate lines per handler.
@@ -66,6 +80,26 @@ contextBridge.exposeInMainWorld('electron', {
 
   getRecentProjects: (): Promise<RecentProject[]> =>
     ipcRenderer.invoke('project:get-recent'),
+
+  // Crash-recovery files — app-managed session state under userData.
+  // Note there is no path in any of these signatures: the main process owns
+  // the location and validates the project id, so the renderer can neither
+  // read nor write an arbitrary file through this surface.
+  writeRecovery: (
+    projectId: string,
+    payload: unknown,
+    options?: { projectName?: string },
+  ): Promise<RecoveryDescriptor> =>
+    ipcRenderer.invoke('recovery:write', projectId, payload, options),
+
+  listRecovery: (): Promise<RecoveryDescriptor[]> =>
+    ipcRenderer.invoke('recovery:list'),
+
+  readRecovery: (projectId: string): Promise<unknown> =>
+    ipcRenderer.invoke('recovery:read', projectId),
+
+  deleteRecovery: (projectId: string): Promise<boolean> =>
+    ipcRenderer.invoke('recovery:delete', projectId),
 
   // Set the OS window title. Used by the App to mirror the project
   // state (name + dirty asterisk) into the title bar.
