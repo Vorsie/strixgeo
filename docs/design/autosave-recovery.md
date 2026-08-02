@@ -1,9 +1,11 @@
 # Autosave + crash recovery
 
-**Status 2026-08-02:** design APPROVED, build IN PROGRESS. The lumping-map columns and the
-Electron recovery-file store are being built; the renderer wiring and the start-screen prompt
-are not started. Load before touching autosave, the recovery file, or the stratigraphy
-lumping map.
+**Status 2026-08-02:** design APPROVED, backend + main-process halves SHIPPED: the three
+lumping columns (`c5b81d7a4e39`), the staged/promote API with the monotonic 409 revision
+guard, and the Electron recovery-file store + IPC (capped, atomic, case-canonical ids).
+NOT STARTED: the renderer wiring (debounce/cap scheduler, ghost serialisation, revision
+increments) and the start-screen prompt. Load before touching autosave, the recovery file,
+or the stratigraphy lumping map.
 
 ---
 
@@ -118,8 +120,12 @@ only copy and there is nothing to reconcile.
 ### Location and format
 
 ```
-<userData>/recovery/<projectId>.recovery.json   (+ .bak)
+<userData>/recovery/<projectId>.recovery.json
 ```
+
+No sibling `.bak`: the write goes through `writeFileAtomic` (temp file, then rename), so a
+reader already sees either the old file or the new one and never a blend — a second copy would
+buy nothing and cost cap, list and skip handling.
 
 One file **per project id**, not per session: recovery is offered per project, the id is the
 natural key, and "which project is this?" becomes unanswerable by mistake. `kind` +
