@@ -747,6 +747,19 @@ export interface LithoContactCorrelationEdge {
   section_id: string
   source: string
   user_approved: boolean
+  /**
+   * Why this edge needs a second look, or `null` when it does not.
+   *
+   * Set by the geotech re-anchor when a re-subdivide could not identify the band
+   * the tie was drawn on: `'class_changed'` (nothing of the tie's own packing
+   * class overlaps its old depths any more) or `'ambiguous_band'` (several
+   * same-class bands do). The tie is carried and flagged rather than deleted —
+   * an accepted edge never disappears without the user deleting it.
+   *
+   * A flagged edge is still `user_approved`: it is awaiting confirmation, not
+   * pending acceptance, so it renders as a warning rather than as a proposal.
+   */
+  review_reason?: string | null
   created_at: string
 }
 
@@ -914,6 +927,15 @@ export interface SubdivideAllBodiesResponse {
    * column, filled by the later Divide-boreholes step).
    */
   lost_tie_reasons?: Record<string, number>
+  /**
+   * Accepted ties the rebuild carried but could not place with confidence,
+   * keyed by why (`class_changed` / `ambiguous_band`).
+   *
+   * NOT losses — these survived and are included in `reanchored_tie_count`.
+   * They render with a badge on the section until the engineer confirms or
+   * deletes them.
+   */
+  review_tie_reasons?: Record<string, number>
 }
 
 /**
