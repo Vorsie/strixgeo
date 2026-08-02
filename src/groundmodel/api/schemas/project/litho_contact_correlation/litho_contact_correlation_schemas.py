@@ -130,6 +130,12 @@ class ContactCorrelationEdgeListItem(BaseModel):
         ``True`` when the edge has been explicitly approved by the user
         (manual gestures + accepted auto edges).  ``False`` for
         auto-proposed edges that are still pending acceptance.
+    review_reason : str | None
+        Why this edge needs a second look, or ``None`` when it does not.  Set by
+        the geotech re-anchor when a re-subdivide could not identify the band the
+        tie was drawn on: the tie is carried and flagged rather than dropped.  A
+        flagged edge is still ``user_approved`` — it is awaiting confirmation,
+        not demoted to a proposal.
     created_at : datetime
         Row creation timestamp.
     """
@@ -145,4 +151,5 @@ class ContactCorrelationEdgeListItem(BaseModel):
     section_id: UUID
     source: str
     user_approved: bool
+    review_reason: str | None = None
     created_at: datetime
