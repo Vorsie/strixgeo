@@ -8082,9 +8082,17 @@ the existing pattern: stamp the geotech model with the parent litho model's revi
 subdivide time and compare on load, reusing the `mark-stale` machinery rather than inventing
 a second one.
 
-## 267. Save As copies the lumping map into the file but not into the new DB slots (S)
+## 267. Save As copies the lumping map into the file but not into the new DB slots — RESOLVED 2026-08-02
 
-**What.** `ProjectRepository.duplicate()` (`project_repository.py:148`) clones the metadata
+**Resolution.** `ProjectRepository.duplicate()` now carries
+`stratigraphy_lumping_staged` / `_saved` / `_revision` **and** `view_state` onto the new
+project (deep-copied, so the clone and its source never share a JSONB dict through the
+identity map). Landed in the same change that wires the renderer to seed its lumping slots
+from `ProjectResponse`, which is the moment the divergence would have become user-visible.
+Pinned by `test_duplicate_carries_lumping_slots_and_view_state` in
+`tests/integration/db/test_project_repository.py` (seen RED before the fix).
+
+**What (original).** `ProjectRepository.duplicate()` (`project_repository.py:148`) clones the metadata
 scalars + the CPT/borehole trees, but not `stratigraphy_lumping_staged` / `_saved` /
 `_revision` (nor `view_state`, which pre-dates this entry and silently resets to `{}` via its
 server default). Meanwhile the desktop's Save-As path writes the new `.gmproj` with the
