@@ -1,11 +1,36 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Clock } from 'lucide-react'
+import { AlertTriangle, Clock, RotateCcw } from 'lucide-react'
 import Button from './ui/Button'
+import { formatRecoveryAge } from '../utils/recoveryAge'
+import { parseRecoverySnapshot } from '../utils/recoverySnapshot'
+import { log } from '../utils/log'
 
 interface RecentEntry {
   path: string
   name: string
   lastOpened: string
+}
+
+/**
+ * One project with unsaved work left behind by a session that never reached
+ * a clean exit (docs/design/autosave-recovery.md §4).
+ *
+ * The start screen only ROUTES: clicking an entry opens the project through
+ * the ordinary recent-open path, and the restore prompt then appears over the
+ * opened project. Nothing is restored from here, because restoring needs the
+ * project's live state to reconcile the lumping map against.
+ */
+interface RecoveredEntry {
+  projectId: string
+  projectName: string
+  /** ISO write time of the recovery file — drives the age line. */
+  writtenAt: string
+  /**
+   * The ``.strix`` the crashed session was editing, out of the snapshot
+   * payload. Null when the project was never saved to a file, or when the
+   * payload is unreadable — either way there is nothing to click.
+   */
+  filePath: string | null
 }
 
 interface Props {
@@ -34,6 +59,7 @@ export default function WelcomeScreen({
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [recent, setRecent] = useState<RecentEntry[]>([])
+  const [recovered, setRecovered] = useState<RecoveredEntry[]>([])
   const [openError, setOpenError] = useState<string | null>(null)
 
   const refreshRecent = useCallback(() => {
@@ -49,6 +75,51 @@ export default function WelcomeScreen({
   useEffect(() => {
     refreshRecent()
   }, [refreshRecent])
+
+  // Recovery files left behind by a session that never reached a clean exit.
+  // Read once on mount: the set cannot change while the welcome screen is up
+  // (nothing is open, so nothing is writing recovery files).
+  //
+  // Wrapped in try/catch rather than ``.catch``: a preload without the
+  // recovery channel throws SYNCHRONOUSLY on the call, and a start screen
+  // that cannot start is a far worse failure than a missing banner.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const descriptors = await window.electron.listRecovery()
+        // The descriptor knows the RECOVERY file's path; the project's
+        // ``.strix`` lives inside the payload, so each entry costs one read.
+        // Bounded by the store's own file cap, and in practice zero or one.
+        const entries = await Promise.all(
+          descriptors.map(async descriptor => {
+            let filePath: string | null = null
+            try {
+              const snapshot = parseRecoverySnapshot(
+                await window.electron.readRecovery(descriptor.projectId),
+              )
+              filePath = snapshot?.filePath ?? null
+            } catch (err) {
+              log.warn('recovery', `could not read ${descriptor.projectId}'s payload`, err)
+            }
+            return {
+              projectId: descriptor.projectId,
+              projectName: descriptor.projectName,
+              writtenAt: descriptor.writtenAt,
+              filePath,
+            }
+          }),
+        )
+        if (!cancelled) setRecovered(entries)
+      } catch (err) {
+        // No recovered-work section, but New + Open still work.
+        log.warn('recovery', 'could not list recovery files', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleCreate(): Promise<void> {
     const trimmed = name.trim()
@@ -96,6 +167,14 @@ export default function WelcomeScreen({
     } finally {
       setBusy(false)
     }
+  }
+
+  // Clicking recovered work is just an open — the restore prompt belongs to
+  // the opened project, where the lumping map can be reconciled against the
+  // database. Reusing ``handleRecent`` also inherits its failure banner.
+  async function handleRecovered(entry: RecoveredEntry): Promise<void> {
+    if (entry.filePath === null) return
+    await handleRecent(entry.filePath)
   }
 
   function handleKey(e: React.KeyboardEvent): void {
@@ -182,11 +261,58 @@ export default function WelcomeScreen({
           </Button>
         </div>
 
-        {/* Recent projects column. Hidden when there are no recent
-            entries — first-launch users shouldn't see an empty
-            placeholder hugging the create card. */}
+        {/* Right column: recovered work above recent projects. Both cards
+            hide when empty — a first-launch user should see neither an empty
+            placeholder nor a recovery banner. */}
+        {(recovered.length > 0 || recent.length > 0) && (
+        <div className="flex flex-col gap-3 w-80">
+        {/* Recovered work. Deliberately QUIET — same card, same muted
+            heading as the recent list, no amber alert styling. The user has
+            just had a crash; the start screen's job is to offer the work
+            back, not to editorialise about it. The copy says "unsaved work"
+            because the project itself was never at risk
+            (docs/design/autosave-recovery.md §1). */}
+        {recovered.length > 0 && (
+          <div className="bg-surface-page border border-border-subtle rounded-lg shadow-sm p-6 flex flex-col">
+            <div className="flex items-center gap-1.5 mb-3">
+              <RotateCcw size={13} className="text-text-muted" />
+              <h2 className="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                Recovered work
+              </h2>
+            </div>
+            <p className="text-[11px] text-text-muted mb-2">
+              These projects closed with unsaved work. Open one to restore it.
+            </p>
+            <ul className="flex flex-col gap-1 -mx-2">
+              {recovered.map(entry => (
+                <li key={entry.projectId}>
+                  <button
+                    onClick={() => void handleRecovered(entry)}
+                    disabled={busy || entry.filePath === null}
+                    title={entry.filePath ?? undefined}
+                    data-testid={`welcome-recovery-entry-${entry.projectId}`}
+                    className="w-full text-left px-2 py-1.5 rounded hover:bg-surface-card disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                  >
+                    <div className="text-sm text-text-primary truncate">
+                      {entry.projectName || 'Untitled project'}
+                    </div>
+                    <div className="text-[10px] text-text-muted truncate">
+                      {entry.filePath === null
+                        ? 'Open the project file to restore'
+                        : `from ${formatRecoveryAge(entry.writtenAt)}`}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Recent projects. Hidden when there are no recent entries —
+            first-launch users shouldn't see an empty placeholder hugging
+            the create card. */}
         {recent.length > 0 && (
-          <div className="bg-surface-page border border-border-subtle rounded-lg shadow-sm p-6 w-80 flex flex-col">
+          <div className="bg-surface-page border border-border-subtle rounded-lg shadow-sm p-6 flex flex-col">
             <div className="flex items-center gap-1.5 mb-3">
               <Clock size={13} className="text-text-muted" />
               <h2 className="text-xs font-medium uppercase tracking-wide text-text-secondary">
@@ -212,6 +338,8 @@ export default function WelcomeScreen({
               ))}
             </ul>
           </div>
+        )}
+        </div>
         )}
         </div>
       </div>
