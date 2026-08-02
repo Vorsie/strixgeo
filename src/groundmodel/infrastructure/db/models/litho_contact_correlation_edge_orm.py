@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -192,6 +193,17 @@ class LithoContactCorrelationEdgeOrm(Base):
         nullable=False,
         server_default="true",
     )
+
+    # Why this edge needs a second look from the engineer, or NULL when it does
+    # not.  Set by the geotech re-anchor when a re-subdivide could not identify
+    # the band an accepted tie was drawn on with confidence: the tie is carried
+    # onto the band covering most of where it used to be and flagged, because the
+    # owner's rule (2026-08-02) is that an accepted edge never disappears without
+    # them deleting it.  Tokens live in
+    # ``application/geotech_tie_reanchor.py`` (``REVIEW_*``); the column is free
+    # text so a new reason does not need a migration.  Cleared when the engineer
+    # confirms the tie.
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
