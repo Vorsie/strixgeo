@@ -605,6 +605,8 @@ interface Props {
    * ``CorrelationEdgesOverlay``. Absent = the Accept item is suppressed.
    */
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
+  /** Confirms a tie the geotech rebuild flagged (clears `review_reason`). */
+  onRequestConfirmEdgeReview?: (edge: LithoContactCorrelationEdge) => void
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
   onSaveLensShape?: (
     bodyId: string,
@@ -675,6 +677,7 @@ export default function SectionPanel({
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
   onRequestAcceptEdge,
+  onRequestConfirmEdgeReview,
   onSaveLensShape,
   onCorrelateBoundary,
   onDeleteLens,
@@ -3042,6 +3045,7 @@ export default function SectionPanel({
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
                 onRequestDeleteEdge={onRequestDeleteEdge}
                 onRequestAcceptEdge={onRequestAcceptEdge}
+                onRequestConfirmEdgeReview={onRequestConfirmEdgeReview}
               />
             )}
             {/* Partition fill — every point belongs to exactly one body, no
