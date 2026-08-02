@@ -733,6 +733,30 @@ export const geologyClient = {
       {},
     ),
 
+  // --- Confirm a flagged edge (2026-08-02) -----------------------------
+  // A re-subdivide that could not place an accepted tie confidently carries it
+  // with a `review_reason` instead of deleting it. Confirming clears that flag;
+  // the other way to resolve one is the existing delete.
+  confirmEdgeReview: (
+    projectId: string,
+    modelId: string,
+    edgeId: string,
+  ): Promise<{ edges_confirmed: number }> =>
+    post(
+      `/projects/${projectId}/geology/models/${modelId}/contact-correlations/${edgeId}/confirm-review`,
+      {},
+    ),
+
+  // Confirm every flagged edge of the model at once.
+  confirmAllEdgeReviews: (
+    projectId: string,
+    modelId: string,
+  ): Promise<{ edges_confirmed: number }> =>
+    post(
+      `/projects/${projectId}/geology/models/${modelId}/contact-correlations/confirm-review`,
+      {},
+    ),
+
   materialiseBodyCompanions: (
     projectId: string,
     modelId: string,
