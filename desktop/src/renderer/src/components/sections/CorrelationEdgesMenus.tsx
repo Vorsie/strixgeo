@@ -178,6 +178,10 @@ export interface EdgeContextMenuProps {
    *  Absent / undefined for an already-approved edge — the Accept row is
    *  then suppressed so the menu doesn't carry a no-op item. */
   onAccept?: () => void
+  /** Confirms a tie the rebuild flagged (clears `review_reason`).
+   *  Absent for an unflagged edge, which has no flag to clear.  This is the
+   *  non-destructive answer to a flag; Delete is the other one. */
+  onConfirmReview?: () => void
   onClose: () => void
 }
 
@@ -185,6 +189,7 @@ export function EdgeContextMenu({
   menu,
   onDelete,
   onAccept,
+  onConfirmReview,
   onClose,
 }: EdgeContextMenuProps): JSX.Element {
   const items: Array<{
@@ -202,6 +207,15 @@ export function EdgeContextMenu({
       testid: 'edge-context-accept',
     })
   }
+  // Confirm sits above Delete for the same reason Accept does: the two are the
+  // engineer's answer to the same question, and the non-destructive one goes first.
+  if (onConfirmReview) {
+    items.push({
+      label: 'Confirm tie',
+      onClick: onConfirmReview,
+      testid: 'edge-context-confirm-review',
+    })
+  }
   items.push({
     label: 'Delete correlation',
     onClick: onDelete,
@@ -214,7 +228,9 @@ export function EdgeContextMenu({
       x={menu.x}
       y={menu.y}
       width={200}
-      height={onAccept ? 80 : 48}
+      // 32 px per row above the base single-row height, so the menu never clips
+      // a row it decided to show.
+      height={48 + (onAccept ? 32 : 0) + (onConfirmReview ? 32 : 0)}
       minWidth={180}
       testid="edge-context-menu"
       onClose={onClose}
