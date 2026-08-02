@@ -8081,3 +8081,24 @@ by hand needs to know when the ground under them has shifted. Cheapest shape tha
 the existing pattern: stamp the geotech model with the parent litho model's revision at
 subdivide time and compare on load, reusing the `mark-stale` machinery rather than inventing
 a second one.
+
+## 267. Save As copies the lumping map into the file but not into the new DB slots (S)
+
+**What.** `ProjectRepository.duplicate()` (`project_repository.py:148`) clones the metadata
+scalars + the CPT/borehole trees, but not `stratigraphy_lumping_staged` / `_saved` /
+`_revision` (nor `view_state`, which pre-dates this entry and silently resets to `{}` via its
+server default). Meanwhile the desktop's Save-As path writes the new `.gmproj` with the
+in-memory lumping map injected. Result: the duplicated project's FILE carries the map while
+its DB slots are NULL — exactly the split the two-slot design exists to prevent. On next
+open the renderer seeds its slots from `ProjectResponse`, sees NULL, and shows no lumping
+until the user re-applies; the recovery-reconciliation revision compare is also meaningless
+for that project until the first fresh stage.
+
+**Why deferred.** Found during review of the autosave/lumping-column work (2026-08-02); the
+renderer half that seeds from `ProjectResponse` is not wired yet, so today nothing reads the
+slots and the divergence is latent. Fixing it is a three-line copy in `duplicate()` plus a
+decision on whether `view_state` should ride along (probably yes — a Save-As losing the
+user's view toggles is the same class of surprise).
+
+**When to revisit.** In the same change that wires the renderer to seed lumping from
+`ProjectResponse` — that is the moment the divergence becomes user-visible.
