@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -47,6 +48,24 @@ def _column_dict(orm: Any, exclude: frozenset[str]) -> dict[str, Any]:
         for col in orm.__class__.__mapper__.column_attrs
         if col.key not in exclude
     }
+
+
+def _json_copy(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Deep-copy a JSONB column value so clone and source stay independent.
+
+    Parameters
+    ----------
+    value : dict[str, Any] | None
+        The source row's JSONB value. ``None`` passes through unchanged —
+        for the lumping slots that is a meaningful state ("no map at all"),
+        distinct from an empty dict.
+
+    Returns
+    -------
+    dict[str, Any] | None
+        A structurally independent copy, or ``None``.
+    """
+    return deepcopy(value) if value is not None else None
 
 
 class ProjectRepository(GroundModelLogger):
@@ -162,7 +181,8 @@ class ProjectRepository(GroundModelLogger):
         ``new_name`` overrides the source's name; defaults to
         ``"Copy of <source name>"``. Lifecycle (status / archived_at)
         does NOT carry across — a fresh copy starts active, like any
-        other new project.
+        other new project. The two lumping slots + their revision and
+        ``view_state`` DO carry across (debt #267).
 
         DB rows only — the .gmproj file write is the caller's
         responsibility (the desktop client knows where the user wants
@@ -185,6 +205,21 @@ class ProjectRepository(GroundModelLogger):
             phase=source.phase,
             status="active",
             archived_at=None,
+            # The lumping map's real home is these three columns (see
+            # docs/design/autosave-recovery.md §3) and the renderer seeds
+            # its in-memory slots from them on open. Leaving them NULL on
+            # a Save-As would hand the copy a .gmproj that carries the map
+            # while its DB does not — the exact split the two-slot design
+            # exists to prevent. ``view_state`` rides along for the same
+            # reason: a Save-As that silently drops the user's view toggles
+            # is the same class of surprise (debt #267). Both are plain
+            # JSON values, so copy them by value — sharing the source's
+            # dict would let a later mutation of one row bleed into the
+            # other through SQLAlchemy's identity map.
+            stratigraphy_lumping_staged=_json_copy(source.stratigraphy_lumping_staged),
+            stratigraphy_lumping_saved=_json_copy(source.stratigraphy_lumping_saved),
+            stratigraphy_lumping_revision=source.stratigraphy_lumping_revision,
+            view_state=_json_copy(source.view_state) or {},
         )
         self._session.add(new_project)
 
