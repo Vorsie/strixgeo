@@ -19,7 +19,7 @@
 // data-loading effects stay dormant. Extending the test to cover a
 // loaded-project mount path is future work (debt #47 escalation).
 
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -79,6 +79,13 @@ function makeUseProjectStub(): UseProject {
     applyMetadataDraft: vi.fn(),
     applyViewStatePatch: vi.fn().mockResolvedValue(true),
     saveProject: vi.fn().mockResolvedValue(true),
+    // Crash recovery asks whether the last save reached the .gmproj file
+    // (docs/design/autosave-recovery.md §4) — the smoke test never saves.
+    lastSaveWroteFile: vi.fn().mockReturnValue(false),
+    // ...and whether a clean transition may delete the recovery file. A
+    // session that never saved has no failed write to distrust, so the
+    // answer is yes — the two flags differ for exactly that reason.
+    recoveryClearAllowed: vi.fn().mockReturnValue(true),
     revertToLastSaved: vi.fn().mockResolvedValue(false),
     saveAsProject: vi.fn().mockResolvedValue(null),
     discardEdits: vi.fn(),
@@ -87,6 +94,7 @@ function makeUseProjectStub(): UseProject {
     stageLumping: vi.fn(),
     currentLumping: null,
     savedLumping: null,
+    lumpingRevision: null,
   }
 }
 
@@ -231,6 +239,27 @@ function installElectronStub(): void {
     onAppBackendFailed: vi.fn().mockReturnValue(noopUnsubscribe),
     getLogsPath: vi.fn().mockResolvedValue('/tmp/strix-logs'),
     logRendererError: vi.fn().mockResolvedValue(undefined),
+    // Crash recovery (docs/design/autosave-recovery.md). The default is
+    // "nothing crashed": no recovery file, so no prompt. The two recovery
+    // tests below override ``readRecovery`` per test.
+    writeRecovery: vi.fn().mockResolvedValue(undefined),
+    listRecovery: vi.fn().mockResolvedValue([]),
+    readRecovery: vi.fn().mockResolvedValue(null),
+    deleteRecovery: vi.fn().mockResolvedValue(true),
+  }
+}
+
+/** A minimally valid recovery payload for the smoke-level trigger tests. */
+function makeRecoveryPayload(): unknown {
+  return {
+    snapshot_version: 1,
+    filePath: 'C:/projects/smoke.strix',
+    lumping: { current: null, revision: null },
+    ghosts: [],
+    metadataDraftPatch: {},
+    manifests: { cpt: [], borehole: [], formation: [], section: [] },
+    sessionImports: { cpt: [], borehole: [], formation: [], section: [], contact: [] },
+    hasUnsavedMutations: true,
   }
 }
 
@@ -292,5 +321,37 @@ describe('App (smoke)', () => {
     expect(spineLabel).toBeInTheDocument()
 
     expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  // -------------------------------------------------------------------------
+  // The App-level recovery trigger (docs/design/autosave-recovery.md §4).
+  // A recovery file present when a project opens means the previous session
+  // never reached a clean exit — and the check lives in ONE effect keyed on
+  // the open project, not in each of the four open paths.
+  // -------------------------------------------------------------------------
+
+  it('offers to restore unsaved work when the opened project has a recovery file', async () => {
+    mockProjectLoaded = true
+    ;(
+      window.electron as unknown as { readRecovery: ReturnType<typeof vi.fn> }
+    ).readRecovery = vi.fn().mockResolvedValue(makeRecoveryPayload())
+
+    const { findByTestId } = render(<App />)
+    expect(await findByTestId('recovery-prompt-dialog')).toBeInTheDocument()
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('offers nothing when the recovery payload is malformed — recovery never breaks an open', async () => {
+    mockProjectLoaded = true
+    ;(
+      window.electron as unknown as { readRecovery: ReturnType<typeof vi.fn> }
+    ).readRecovery = vi.fn().mockResolvedValue({ snapshot_version: 999, junk: true })
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const { findByText, queryByTestId } = render(<App />)
+    // Wait for the shell so the detection effect has had its chance to run.
+    await findByText('Geology')
+    await waitFor(() => expect(consoleWarnSpy).toHaveBeenCalled())
+    expect(queryByTestId('recovery-prompt-dialog')).not.toBeInTheDocument()
   })
 })
