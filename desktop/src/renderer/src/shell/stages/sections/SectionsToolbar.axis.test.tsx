@@ -246,6 +246,8 @@ function makeCtx(overrides: {
               ],
             ])
           : new Map()),
+      // Recovery-only setter (docs/design/autosave-recovery.md §2, item 2).
+      setGhostsByAnchor: () => {},
       focusedSuggestAnchorId:
         overrides.focusedSuggestAnchorId ??
         (overrides.lithoSuggestions && overrides.lithoSuggestions.length > 0
