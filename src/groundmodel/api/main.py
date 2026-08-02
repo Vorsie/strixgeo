@@ -21,6 +21,7 @@ from groundmodel.api.routers import (
     geology,
     investigation_review,
     project,
+    stratigraphy_lumping,
     virtuele_boring,
 )
 from groundmodel.application.resolve_litho_instances_use_case import (
@@ -278,6 +279,7 @@ app.include_router(project.router)
 app.include_router(geology.router)
 app.include_router(cross_section.router)
 app.include_router(investigation_review.router)
+app.include_router(stratigraphy_lumping.router)
 app.include_router(dem.router)
 app.include_router(codelists.router)
 app.include_router(virtuele_boring.catalog_router)
