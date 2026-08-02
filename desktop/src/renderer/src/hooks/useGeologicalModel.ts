@@ -448,6 +448,16 @@ export interface UseGeologicalModelResult {
    */
   ghostsByAnchor: ReadonlyMap<string, BulkAnchorGhost>
   /**
+   * Replace the whole ghost workspace.
+   *
+   * Exposed for crash recovery ONLY (docs/design/autosave-recovery.md §2,
+   * item 2): the ghost store is the one at-risk item with no API traffic
+   * until Accept, so restoring it means writing the decoded Map back
+   * wholesale. Every in-session gesture goes through the named handlers
+   * above — reach for one of those, not for this.
+   */
+  setGhostsByAnchor: (ghosts: ReadonlyMap<string, BulkAnchorGhost>) => void
+  /**
    * The anchor id currently in focus mode (single Suggest target), or
    * null when no focus is set. ``handleSuggestLitho`` flips this;
    * ``clearLithoSuggestions`` clears it; ``handleSuggestAllLitho``
@@ -2379,6 +2389,8 @@ export function useGeologicalModel({
     // + the focused-anchor flag. Consumers compute "focused" and
     // "bulk subset" themselves (see SectionsCanvas + SectionsToolbar).
     ghostsByAnchor,
+    // Crash-recovery restore writes the decoded workspace back wholesale.
+    setGhostsByAnchor,
     focusedSuggestAnchorId,
     handleEditLithoSuggestion,
     lithoSuggesting,
