@@ -37,3 +37,17 @@ class AcceptContactCorrelationsResponse(BaseModel):
 
     edges_accepted: int
     ordinals_changed: int
+
+
+class ConfirmEdgeReviewResponse(BaseModel):
+    """Response from the confirm-review endpoints.
+
+    Attributes
+    ----------
+    edges_confirmed : int
+        How many edges had their ``review_reason`` cleared.  ``0`` is a normal
+        answer — confirming an edge that carries no flag is a no-op, not an
+        error — so the client should not treat it as a failure.
+    """
+
+    edges_confirmed: int
