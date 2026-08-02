@@ -229,6 +229,42 @@ async def test_duplicate_uses_explicit_new_name_when_supplied(
     assert duplicate.name == "Branch A"
 
 
+async def test_duplicate_carries_lumping_slots_and_view_state(
+    db_session: AsyncSession,
+) -> None:
+    """A Save-As keeps the applied lumping map and the user's view toggles.
+
+    Design (docs/design/autosave-recovery.md §3): ``staged``/``saved``/
+    ``revision`` are the lumping map's real home, and the renderer seeds
+    its two in-memory slots from them on open. If the duplicate started
+    with NULL slots, the new project's FILE would carry the map while its
+    DB did not — the exact split the two-slot design exists to prevent.
+    ``view_state`` rides along for the same reason: losing the user's
+    view toggles on Save-As is the same silent surprise (debt #267).
+    """
+    repo = ProjectRepository(db_session)
+    staged = {"schema_version": 1, "applied_at": "2026-08-02T10:00:00Z", "map": {"a": "b"}}
+    saved = {"schema_version": 1, "applied_at": "2026-08-01T09:00:00Z", "map": {}}
+    source = _project(
+        name="Source with lumping",
+        stratigraphy_lumping_staged=staged,
+        stratigraphy_lumping_saved=saved,
+        stratigraphy_lumping_revision=7,
+        view_state={"dem_overlay": {"enabled": True}},
+    )
+    await repo.save(source)
+    await db_session.commit()
+
+    duplicate = await repo.duplicate(source.id)
+    await db_session.commit()
+
+    assert duplicate is not None
+    assert duplicate.stratigraphy_lumping_staged == staged
+    assert duplicate.stratigraphy_lumping_saved == saved
+    assert duplicate.stratigraphy_lumping_revision == 7
+    assert duplicate.view_state == {"dem_overlay": {"enabled": True}}
+
+
 async def test_duplicate_deep_clones_cpt_with_series(db_session: AsyncSession) -> None:
     """Source CPT + its series end up under the new project with fresh ids."""
     from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
