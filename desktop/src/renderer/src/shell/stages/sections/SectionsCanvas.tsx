@@ -860,6 +860,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleCreateGeotechPackingCorrelation,
     handleDeleteGeotechPackingCorrelation,
     handleAcceptGeotechPackingCorrelation,
+    handleConfirmGeotechPackingReview,
   } = useGeotechPackingCorrelation({
     activeGeotechModel,
     projectId: project.id,
@@ -1857,6 +1858,11 @@ export default function SectionsCanvas(): JSX.Element {
               : isGeotech
                 ? edge => void handleAcceptGeotechPackingCorrelation(edge.id)
                 : undefined
+          }
+          // A flagged tie is a geotech-only state: only the re-subdivide raises it,
+          // and only the geotech model carries one.
+          onRequestConfirmEdgeReview={
+            isGeotech ? edge => void handleConfirmGeotechPackingReview(edge.id) : undefined
           }
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           // S103 correlate-on-drag: a drag on an UN-correlated two-band boundary creates the
