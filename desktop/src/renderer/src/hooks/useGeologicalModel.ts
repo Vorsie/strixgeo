@@ -2204,6 +2204,7 @@ export function useGeologicalModel({
           ` sections=${result.section_count ?? 0}` +
           ` ties_reanchored=${result.reanchored_tie_count ?? 0}` +
           ` ties_lost=${result.lost_tie_count ?? 0}` +
+          ` ties_need_review=${JSON.stringify(result.review_tie_reasons ?? {})}` +
           ` ${JSON.stringify(result.lost_tie_reasons ?? {})}`,
       )
       // (a)+(b): re-derive activeGeotechModel so the axis toggle enables and
@@ -2239,15 +2240,27 @@ export function useGeologicalModel({
       const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
       const boreholeOnly = result.borehole_only_count ?? 0
       const boreholeNote = boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''
-      // The rebuild gives every band a new id, so an accepted packing tie only
-      // survives when the band comes back on the same investigation, over the
-      // same depth interval, with the same NAD class. Say how many did — and
-      // warn about the ones that did not, because those are hand work the
-      // engineer now has to redraw and nothing else would tell him.
+      // The rebuild gives every band a new id, so an accepted packing tie has to be
+      // re-anchored: onto the band that came back unchanged, or onto the one it moved
+      // into. Where neither is unambiguous the tie is still carried, but flagged —
+      // an accepted edge never disappears without the engineer deleting it. Report
+      // all three outcomes, because a flag nobody is told about is a flag nobody acts
+      // on, and the section it sits on may not be the one that is open.
       const reanchored = result.reanchored_tie_count ?? 0
       const lostTies = result.lost_tie_count ?? 0
       const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
       toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}${tieNote}.`)
+      const needsReview = Object.values(result.review_tie_reasons ?? {}).reduce(
+        (a, b) => a + b,
+        0,
+      )
+      if (needsReview > 0) {
+        toast(
+          'warning',
+          `${needsReview} accepted packing tie${needsReview === 1 ? '' : 's'} need${needsReview === 1 ? 's' : ''} checking — ` +
+            'the band it was drawn on changed. Look for the ! marks on the geotech sections.',
+        )
+      }
       if (lostTies > 0) {
         toast(
           'error',
