@@ -141,6 +141,15 @@ export interface UseProjectLifecycleResult {
  *     user applies a Fill-from-boreholes confirm with aliases).  Threaded
  *     through the lifecycle slice so ``GeologyToolbar`` can prefill the
  *     ``FormationSelectionDialog`` without a separate file read.
+ * clearRecoveryNow
+ *     From ``useRecoveryAutosave`` — cancels pending recovery writes and
+ *     deletes the open project's recovery file.  Called on every decided
+ *     exit (save / discard / close / quit) because the file's existence is
+ *     what marks the previous session as crashed.
+ * lastSaveWroteFile
+ *     From ``useProject`` — whether the last save's ``.gmproj`` write
+ *     succeeded.  The recovery clear is gated on this, not on the save's
+ *     boolean result.
  *
  * Returns
  * -------
@@ -174,6 +183,8 @@ export function useProjectLifecycle({
   setHasUnsavedMutations,
   revertToLastSaved,
   hasSavedSnapshot,
+  clearRecoveryNow,
+  lastSaveWroteFile,
 }: {
   project: { id: string; name: string } | null
   metadataDirty: boolean
@@ -215,6 +226,18 @@ export function useProjectLifecycle({
   // snapshot to revert to, so Discard deletes the session creates instead —
   // the close dialog has to say which of the two it will do.
   hasSavedSnapshot: boolean
+  // Crash recovery (docs/design/autosave-recovery.md §4). The recovery
+  // file's EXISTENCE is the crash signal — there is no sentinel and no
+  // heartbeat — so every DECIDED exit has to delete it, or the next launch
+  // offers to restore work the user already committed or discarded.
+  // From ``useRecoveryAutosave``: cancels the pending write timers and
+  // deletes the open project's recovery file.
+  clearRecoveryNow: () => Promise<void>
+  // From ``useProject``: did the LAST save reach the .gmproj file?
+  // ``saveMetadata`` swallows a file-write failure and returns true anyway
+  // (defensible for the DB, wrong as a recovery signal), so the clear is
+  // gated on this instead of on the return value.
+  lastSaveWroteFile: () => boolean
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
   // Dialog state
@@ -313,8 +336,30 @@ export function useProjectLifecycle({
     if (!ok) return false
     resetSessionImportSets()
     setHasUnsavedMutations(false)
+    // Crash recovery: the session delta now has a durable home, so the
+    // recovery file may go — but ONLY if the .gmproj write actually
+    // landed. ``saveMetadata`` reports success even when the file write
+    // failed (the DB is still ahead), and in that case the delta is still
+    // homeless, so the recovery file has to survive. Awaited so a
+    // quit-after-save cannot race the delete.
+    //
+    // The two lines above already cleared the session-import sets and the
+    // mutations flag, so a save whose file write failed leaves the session
+    // LOOKING clean — which used to let the scheduler's "everything went
+    // clean mid-session" rule delete the file this branch deliberately
+    // keeps. That hole is closed on the scheduler's side: it takes the same
+    // file-write signal as ``canClearOnClean`` and skips the delete when it
+    // says no. (Making a failed file write leave the project DIRTY would be
+    // a change to the save model, and is still not smuggled in here.)
+    if (lastSaveWroteFile()) await clearRecoveryNow()
     return true
-  }, [saveMetadata, resetSessionImportSets, setHasUnsavedMutations])
+  }, [
+    saveMetadata,
+    resetSessionImportSets,
+    setHasUnsavedMutations,
+    lastSaveWroteFile,
+    clearRecoveryNow,
+  ])
 
   // Discard rollback — drops the session-imported IDs from the
   // manifest so they disappear from view. The DB rows stay (DOV
@@ -462,6 +507,11 @@ export function useProjectLifecycle({
       discardSessionImports()
     }
     setHasUnsavedMutations(false)
+    // Discard means discard: the work the recovery file protects is exactly
+    // what the user just threw away. Awaited before the quit handshake so
+    // the app cannot exit mid-delete and leave a file that offers to
+    // restore discarded work.
+    await clearRecoveryNow()
     if (unsavedDialogMode === 'quit-app') {
       void window.electron.notifyQuitDecision(true)
     } else {
@@ -474,6 +524,7 @@ export function useProjectLifecycle({
     setHasUnsavedMutations,
     closeProject,
     unsavedDialogMode,
+    clearRecoveryNow,
   ])
 
   // Cancel from the unsaved-drafts dialog. In quit-app mode that means
@@ -545,14 +596,22 @@ export function useProjectLifecycle({
   useEffect(() => {
     const off = window.electron.onAppBeforeQuit(() => {
       if (project === null || !projectDirty) {
-        void window.electron.notifyQuitDecision(true)
+        // A clean quit is a DECIDED exit, so the recovery file goes first —
+        // leaving it would make the next launch claim this session crashed.
+        // Deletion deliberately hangs off this renderer-side decision and
+        // NOT off ``app.on('before-quit')`` in main, which fires before the
+        // user has answered and would destroy the file for a cancelled quit.
+        void (async () => {
+          await clearRecoveryNow()
+          await window.electron.notifyQuitDecision(true)
+        })()
         return
       }
       setUnsavedDialogMode('quit-app')
       setUnsavedDialogOpen(true)
     })
     return off
-  }, [project, projectDirty])
+  }, [project, projectDirty, clearRecoveryNow])
 
   // ---------------------------------------------------------------------------
   // Window title
