@@ -397,12 +397,21 @@ def _match_offline(
     for band in after_bands:
         by_inv.setdefault(band[2], []).append(band)
 
+    def _follows(ep: dict[str, Any]) -> bool:
+        """Tier 2: exactly one same-class band overlaps where the old band was.
+
+        Re-derived here from the band table rather than called from the use case,
+        so this stays an independent check of the same rule.
+        """
+        same_class = [c for c in _follow_candidates(ep, by_inv) if c["same_class"]]
+        return len(same_class) == 1
+
     matched = 0
     lost: list[dict[str, Any]] = []
     reasons: Counter[str] = Counter()
     for tie in ties:
-        hit_a = _endpoint_key(tie["a"], exact_float=exact_float) in index
-        hit_b = _endpoint_key(tie["b"], exact_float=exact_float) in index
+        hit_a = _endpoint_key(tie["a"], exact_float=exact_float) in index or _follows(tie["a"])
+        hit_b = _endpoint_key(tie["b"], exact_float=exact_float) in index or _follows(tie["b"])
         if hit_a and hit_b:
             matched += 1
             continue
