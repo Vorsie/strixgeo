@@ -67,6 +67,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
+from groundmodel.application.confirm_correlation_edge_review import (
+    ConfirmCorrelationEdgeReview,
+)
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.geotech_tie_reanchor import depth_to_mm
 from groundmodel.application.reconcile_bodies_after_restore import (
@@ -4230,3 +4233,117 @@ async def test_sab_empty_rebuild_clears_stale_geotech(
     assert await _count(LithoContactCorrelationEdgeOrm) == 0, (
         "stale geotech correlation-edge rows survived an empty rebuild"
     )
+
+
+@pytest.mark.asyncio
+async def test_confirming_a_flagged_tie_clears_the_flag_and_leaves_it_connected(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """The engineer says "that tie is right" → the flag goes, the tie stays.
+
+    The flag is only half a workflow.  A re-subdivide raises it; the engineer
+    resolves it by deleting the tie (the existing right-click delete) or by
+    confirming it, which is this path.  Without the confirm the warning would be
+    permanent and the section would fill up with flags nobody can clear.
+
+    Confirming must not touch anything else: the tie stays approved, keeps its
+    provenance, and still connects the same two bands.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+    cpt_b_id = UUID(sab_scene["cpt_b_id"])
+
+    first = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    geotech_model_id = first.geotech_model_id
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id, model_id=geotech_model_id
+    )
+
+    # Re-classify CPT-B's deep half so the rebuild raises a class_changed flag.
+    series = (
+        await db_session.execute(select(CptSeriesOrm).where(CptSeriesOrm.cpt_id == cpt_b_id))
+    ).scalar_one()
+    series.qc_mpa = [3.0 if q < 10.0 else 12.0 for q in series.qc_mpa]
+    await db_session.commit()
+    second = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    assert second.review_tie_reasons, "precondition: the rebuild flagged at least one tie"
+
+    flagged_before = await _tie_fingerprints(
+        db_session, geotech_model_id, approved_only=True, flagged_only=True
+    )
+    all_before = await _tie_fingerprints(db_session, geotech_model_id, approved_only=True)
+    assert flagged_before, "precondition: at least one flagged tie is persisted"
+
+    result = await ConfirmCorrelationEdgeReview(db_session).execute(model_id=geotech_model_id)
+
+    assert result.edges_confirmed == len(flagged_before)
+    assert not await _tie_fingerprints(
+        db_session, geotech_model_id, approved_only=True, flagged_only=True
+    ), "confirming must clear every flag"
+    assert (
+        await _tie_fingerprints(db_session, geotech_model_id, approved_only=True) == all_before
+    ), "confirming must not move, drop or unapprove any tie"
+
+    # Idempotent: nothing left to confirm, and that is a normal answer.
+    again = await ConfirmCorrelationEdgeReview(db_session).execute(model_id=geotech_model_id)
+    assert again.edges_confirmed == 0
+
+
+@pytest.mark.asyncio
+async def test_confirming_never_reaches_across_models(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """An edge id from another model clears nothing.
+
+    The statement is always constrained by ``model_id``, so a caller passing an
+    edge that belongs elsewhere gets a no-op rather than silently clearing a flag
+    on a model they did not name.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+    cpt_b_id = UUID(sab_scene["cpt_b_id"])
+
+    first = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    geotech_model_id = first.geotech_model_id
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id, model_id=geotech_model_id
+    )
+    series = (
+        await db_session.execute(select(CptSeriesOrm).where(CptSeriesOrm.cpt_id == cpt_b_id))
+    ).scalar_one()
+    series.qc_mpa = [3.0 if q < 10.0 else 12.0 for q in series.qc_mpa]
+    await db_session.commit()
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+
+    flagged = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.review_reason.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert flagged, "precondition: a flagged edge exists"
+
+    # Name the LITHO model but the GEOTECH model's edge.
+    result = await ConfirmCorrelationEdgeReview(db_session).execute(
+        model_id=litho_model_id, edge_id=flagged[0].id
+    )
+
+    assert result.edges_confirmed == 0
+    await db_session.refresh(flagged[0])
+    assert flagged[0].review_reason is not None, "the flag must survive a cross-model confirm"
