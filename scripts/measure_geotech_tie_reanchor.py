@@ -323,6 +323,50 @@ def _diagnose(ep: dict[str, Any], after_by_inv: dict[str, list[tuple]]) -> str:
     return REASON_BAND_ABSENT
 
 
+def _follow_candidates(ep: dict[str, Any], after_by_inv: dict[str, list[tuple]]) -> list[dict]:
+    """Rebuilt bands the endpoint's band could have MOVED into.
+
+    The owner's model of a tie is that it is pinned to a band, so when that band's
+    boundaries move the tie should travel with it rather than be dropped.  That only
+    works if the moved band is identifiable after the rebuild, which is a property of
+    the data and not something to assume: this returns every rebuilt band on the same
+    investigation that overlaps the captured interval, with how much of the old
+    interval each one covers, so ambiguous columns are visible instead of averaged away.
+
+    Parameters
+    ----------
+    ep : dict[str, Any]
+        The endpoint's captured identity (investigation, interval, NAD class).
+    after_by_inv : dict[str, list[tuple]]
+        Rebuilt bands grouped by investigation.
+
+    Returns
+    -------
+    list[dict]
+        One entry per overlapping band, richest overlap first.
+    """
+    old_top, old_base = ep["top_m"], ep["base_m"]
+    old_span = max(old_base - old_top, 1e-9)
+    out: list[dict] = []
+    for layer_id, _kind, _inv, top_m, base_m, nad in after_by_inv.get(ep["inv"], []):
+        overlap = min(old_base, base_m) - max(old_top, top_m)
+        if overlap <= 0:
+            continue
+        out.append(
+            {
+                "layer_id": str(layer_id),
+                "top_m": top_m,
+                "base_m": base_m,
+                "nad": nad,
+                "overlap_m": overlap,
+                "covers_frac": overlap / old_span,
+                "same_class": nad == ep["nad"],
+            }
+        )
+    out.sort(key=lambda c: c["overlap_m"], reverse=True)
+    return out
+
+
 def _match_offline(
     ties: list[dict[str, Any]],
     after_bands: list[tuple],
@@ -527,6 +571,47 @@ async def main() -> None:
             )
         if len(offline["lost_detail"]) > 40:
             print(f"  ... and {len(offline['lost_detail']) - 40} more")
+
+        # --- Would "the tie follows its band" have rescued these? -------------
+        # Tests the owner's model (2026-08-02): dragging a boundary moves the band,
+        # so the tie should move with it.  That is implementable only where the moved
+        # band is unambiguous, so count the cases rather than assert the conclusion.
+        after_by_inv: dict[str, list[tuple]] = {}
+        for band in after_bands:
+            after_by_inv.setdefault(band[2], []).append(band)
+
+        verdicts: Counter[str] = Counter()
+        print("\n--- COULD THE TIE HAVE FOLLOWED ITS BAND? -----------------------")
+        for lost in offline["lost_detail"]:
+            for side in ("a", "b"):
+                if lost[f"reason_{side}"] is None:
+                    continue
+                ep = lost[side]
+                cands = _follow_candidates(ep, after_by_inv)
+                same = [c for c in cands if c["same_class"]]
+                if len(same) == 1:
+                    verdict = "UNIQUE same-class overlap"
+                elif len(same) > 1:
+                    verdict = f"AMBIGUOUS — {len(same)} same-class overlaps"
+                elif len(cands) == 1:
+                    verdict = f"class changed — 1 overlap, nad {cands[0]['nad']}"
+                elif cands:
+                    verdict = f"class changed — {len(cands)} overlaps, no same-class"
+                else:
+                    verdict = "NO overlap at all"
+                verdicts[verdict.split(" —")[0]] += 1
+                print(
+                    f"  {ep['inv']} {ep['top_m']:.3f}-{ep['base_m']:.3f} m "
+                    f"nad={ep['nad']} [{lost[f'reason_{side}']}] -> {verdict}"
+                )
+                for c in cands[:4]:
+                    print(
+                        f"      cand nad={c['nad']:<3} {c['top_m']:.3f}-{c['base_m']:.3f} m "
+                        f"overlap {c['overlap_m']:.3f} m "
+                        f"({c['covers_frac'] * 100:.0f}% of the old band)"
+                        f"{'  <-- same class' if c['same_class'] else ''}"
+                    )
+        print(f"\n  verdict tally: {dict(verdicts)}")
 
     if args.json:
         args.json.write_text(
