@@ -8,6 +8,12 @@
  * @module clients/project
  */
 import { get, patch, post, put } from './shared'
+// Type-only import: the lumping snapshot's shape is owned by the file
+// format, and the staged endpoint takes exactly that shape. Importing the
+// type (never a value) keeps this module free of a runtime dependency on
+// the utils layer, so the mutual `import type` with projectFile.ts stays
+// erased at build time.
+import type { StratigraphyLumping } from '../../utils/projectFile'
 
 // ---------------------------------------------------------------------------
 // Project types
@@ -40,6 +46,26 @@ export interface ProjectResponse {
   // each consumer cares about are documented in their respective
   // utility module (e.g. ``demSources.readDemOverlay``).
   view_state: Record<string, unknown>
+  // The lumping map's durable home (docs/design/autosave-recovery.md §3).
+  // ``staged`` is written the moment Fill-from-boreholes → Apply runs;
+  // ``saved`` is what the last File → Save promoted. ``staged !== saved``
+  // is the same dirty signal the renderer derives in memory.
+  //
+  // Typed as opaque dicts because the READ path on the server is
+  // pass-through (a project whose JSONB fails validation must not 500 the
+  // whole project list) — so the renderer must narrow these itself before
+  // trusting the shape. ``null`` means "no lumping map at all", which is
+  // NOT the same as a snapshot whose ``map`` is empty.
+  //
+  // OPTIONAL, mirroring the backend schema's "additive + optional" stance:
+  // a response serialised before these columns existed carries neither, and
+  // every read site has to handle the null case regardless.
+  stratigraphy_lumping_staged?: Record<string, unknown> | null
+  stratigraphy_lumping_saved?: Record<string, unknown> | null
+  // Renderer-owned monotonic counter, bumped on every stage. It is what
+  // crash-recovery reconciliation compares — never wall-clocks. ``null``
+  // means the project has never been staged by a revision-aware client.
+  stratigraphy_lumping_revision?: number | null
 }
 
 /**
@@ -187,6 +213,31 @@ export const projectClient = {
     patchBody: Record<string, unknown>,
   ): Promise<ProjectResponse> =>
     patch(`/projects/${id}/view-state`, { patch: patchBody }),
+
+  // Write the lumping snapshot to the project's ``staged`` slot — the
+  // Fill-from-boreholes → Apply half of the two-stage model. Whole-value
+  // replace; ``null`` clears the slot and is a stage action like any other.
+  //
+  // ``revision`` is the renderer's monotonic counter. The server rejects a
+  // LOWER one with 409 (a stale writer would silently roll the map back);
+  // an equal one is an idempotent retry; omitting it leaves the stored
+  // counter untouched.
+  stageLumping: (
+    id: string,
+    lumping: StratigraphyLumping | null,
+    revision?: number,
+  ): Promise<ProjectResponse> =>
+    put(`/projects/${id}/stratigraphy-lumping/staged`, {
+      lumping,
+      ...(revision === undefined ? {} : { revision }),
+    }),
+
+  // Copy ``staged`` onto ``saved`` — the File → Save half. Never touches
+  // the revision (that counter tracks Applies, not saves) and never clears
+  // ``staged``, which is what makes ``staged === saved`` read as clean
+  // immediately after a save.
+  promoteLumping: (id: string): Promise<ProjectResponse> =>
+    post(`/projects/${id}/stratigraphy-lumping/promote`),
 }
 
 // ---------------------------------------------------------------------------
