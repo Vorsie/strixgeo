@@ -41,6 +41,7 @@ from groundmodel.api.schemas.project.geological_formation import GeologicalForma
 from groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas import (
     AcceptContactCorrelationsRequest,
     AcceptContactCorrelationsResponse,
+    ConfirmEdgeReviewResponse,
 )
 from groundmodel.api.schemas.project.litho_contact_correlation.auto_schemas import (
     AutoCorrelateContactRequest,
@@ -62,6 +63,9 @@ from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas
 )
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
 from groundmodel.application.auto_correlate_contact_edges import AutoCorrelateContactEdges
+from groundmodel.application.confirm_correlation_edge_review import (
+    ConfirmCorrelationEdgeReview,
+)
 from groundmodel.application.correlate_litho_contacts import (
     CorrelateLithoContacts,
     UncorrelateLithoContacts,
@@ -554,6 +558,101 @@ async def accept_single_contact_correlation(
         edges_accepted=result.edges_accepted,
         ordinals_changed=result.ordinals_changed,
     )
+
+
+@router.post(
+    "/models/{model_id}/contact-correlations/{edge_id}/confirm-review",
+    response_model=ConfirmEdgeReviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Confirm one flagged correlation edge (2026-08-02)",
+)
+async def confirm_single_edge_review(
+    project_id: UUID,
+    model_id: UUID,
+    edge_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ConfirmEdgeReviewResponse:
+    """Clear ``review_reason`` on one edge — the engineer says the tie is right.
+
+    Powers the right-click "Confirm tie" menu item on a flagged edge.  The other
+    half of the same decision is the existing delete: a re-subdivide that could
+    not place an accepted tie confidently carries it with a flag rather than
+    deleting it, and the engineer resolves it one way or the other.
+
+    Changes no geometry and no approval state — a flagged edge is already
+    approved.  Idempotent: confirming an unflagged edge returns
+    ``edges_confirmed=0`` without raising.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param).
+    model_id : UUID
+        The model owning the edge (path param).
+    edge_id : UUID
+        The edge to confirm (path param).
+
+    Returns
+    -------
+    ConfirmEdgeReviewResponse
+        How many flags were cleared (0 or 1).
+
+    Raises
+    ------
+    404
+        When the model does not belong to ``project_id``.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    result = await ConfirmCorrelationEdgeReview(session).execute(model_id=model_id, edge_id=edge_id)
+    return ConfirmEdgeReviewResponse(edges_confirmed=result.edges_confirmed)
+
+
+@router.post(
+    "/models/{model_id}/contact-correlations/confirm-review",
+    response_model=ConfirmEdgeReviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Confirm every flagged correlation edge of a model (2026-08-02)",
+)
+async def confirm_all_edge_reviews(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ConfirmEdgeReviewResponse:
+    """Clear ``review_reason`` on every flagged edge of the model.
+
+    The bulk counterpart of :func:`confirm_single_edge_review`, for when the
+    engineer has looked over the flagged ties and accepts them as a set.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param).
+    model_id : UUID
+        The model whose flags are cleared (path param).
+
+    Returns
+    -------
+    ConfirmEdgeReviewResponse
+        How many flags were cleared.
+
+    Raises
+    ------
+    404
+        When the model does not belong to ``project_id``.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    result = await ConfirmCorrelationEdgeReview(session).execute(model_id=model_id)
+    return ConfirmEdgeReviewResponse(edges_confirmed=result.edges_confirmed)
 
 
 @router.post(
