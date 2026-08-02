@@ -124,6 +124,58 @@ the model's choice from the same place or the warning starts lying.
 ⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
 it silently destroys every hand split and merge. Nothing warns today.
 
+## 5. Carrying accepted ties across a re-subdivide (2026-08-02, develop UNPUSHED)
+
+"Subdivide all bodies" throws every geotech band away and rebuilds it with a
+fresh `uuid7`, and both endpoint FKs on `litho_contact_correlation_edge` are
+`ON DELETE CASCADE`. So Postgres deletes every correlation edge as a side effect
+of the layer wipe — silently, without passing through application code. Sparing
+accepted edges in the reset's own `WHERE` clause makes no difference at all: the
+cascade takes them anyway. Accepted ties survive only because
+`GeotechTieReanchor` captures them before the wipe and re-creates them after the
+rebuild, in the same transaction.
+
+**Owner rule (2026-08-02):** *"i don't want accepted edges to just disappear
+without any user explicitly deleting it."*
+
+Three tiers, tried in order per endpoint:
+
+| tier | condition | outcome |
+|---|---|---|
+| 1 | same investigation, same depth interval (to the mm), same NAD class | carried clean |
+| 2 | exactly one band of the SAME class overlaps where the old band was | carried clean — the band was resized by a litho drag |
+| 3 | anything else overlaps | carried, stamped `review_reason` |
+| — | nothing overlaps anywhere | lost, logged at WARNING |
+
+Tier 2 exists because tier 1 alone dropped 13 accepted ties on the real model:
+12 of them had exactly one same-class band overlapping 72–100 % of the old
+interval, with boundaries that had moved by as little as 4 cm. Tier 3 covers the
+13th, whose packing class had genuinely re-derived.
+
+`review_reason` is `'class_changed'` or `'ambiguous_band'`, free text on the edge
+so a new reason needs no migration. A flagged edge stays `user_approved` **on
+purpose** — demoting it to a proposal would hand it to the next rebuild's
+dirty-delete pass, which is the silent disappearance this whole path prevents.
+
+Real-data measurement (`scripts/measure_geotech_tie_reanchor.py`, dev model):
+**217 of 217 accepted ties survive**, one flagged `class_changed`. The script
+re-derives the rule independently from the band tables and cross-checks the use
+case's counts, so a disagreement is a loud failure rather than a silent one.
+
+**UI.** A flagged tie renders its accepted styling plus a violet `!` badge
+(`components/sections/edgeReviewFlag.tsx`) — deliberately not amber, which
+already means "auto-proposed, pending acceptance", and never colour alone. The
+badge is right-clickable and its menu carries **Confirm tie** above **Delete**.
+Confirming clears the flag (`ConfirmCorrelationEdgeReview`, per-edge and
+model-wide endpoints); deleting is the other answer. A `warning` toast after
+Subdivide reports the count, because the badges only reach someone looking at the
+section they sit on and a re-subdivide is model-wide.
+
+⚠ **No staleness detection between a litho model and its geotech child** —
+debt #266. Drag a litho contact and the geotech bands below it silently describe
+a stack that no longer exists; nothing marks the geotech model stale until the
+next Subdivide re-derives it.
+
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
