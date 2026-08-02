@@ -32,7 +32,7 @@
 // pattern). Recent projects are surfaced from the main-process
 // userData store; users click one to re-open.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type {
@@ -40,7 +40,6 @@ import type {
   ProjectResponse,
   ProjectUpdatePayload,
 } from '../api/client'
-import { arraysEqual } from '../utils/arrays'
 import { log } from '../utils/log'
 import {
   buildProjectFile,
@@ -50,6 +49,14 @@ import {
   serialiseProjectFile,
 } from '../utils/projectFile'
 import type { StratigraphyLumping } from '../utils/projectFile'
+import {
+  lumpingsEqual,
+  nextLumpingRevision,
+  resolveOpenLumping,
+  storedRevisionFromStaleError,
+} from '../utils/stratigraphyLumping'
+import { projectMetadataEqual } from '../utils/projectMetadataFields'
+import type { ProjectMetadataField } from '../utils/projectMetadataFields'
 
 interface UseProjectState {
   /** Live in-memory project state — what the editor sees. */
@@ -75,6 +82,15 @@ interface UseProjectState {
    * lumping independently of metadata if needed.
    */
   savedLumping: StratigraphyLumping | null
+  /**
+   * Monotonic counter for the lumping map, bumped on every stage and
+   * written to BOTH the database and the crash-recovery file. It is what
+   * recovery reconciliation compares — never wall-clocks
+   * (docs/design/autosave-recovery.md §3). Null until this project has
+   * been staged by a revision-aware client. Exposed so the recovery
+   * writer can stamp the same number it staged.
+   */
+  lumpingRevision: number | null
   /** Set of CPT IDs that this project's saved-on-disk .gmproj
    * references. Seeded from the file on open; appended to when the
    * user imports new CPTs; trimmed on discard. NOT persisted to
@@ -133,6 +149,23 @@ interface UseProjectActions {
   applyViewStatePatch: (patch: Record<string, unknown>) => Promise<boolean>
   /** Commit ``project`` to the DB + .gmproj file. No-op silently when clean. */
   saveProject: () => Promise<boolean>
+  /**
+   * Did the LAST ``saveProject`` reach the ``.gmproj`` file?
+   *
+   * ``saveProject`` deliberately treats a file-write failure as success —
+   * the DB is committed and the next save catches up — but crash recovery
+   * needs the stricter signal: a delta whose file write failed still has no
+   * durable home, so the recovery file must survive
+   * (docs/design/autosave-recovery.md §4, "Clearing"). Reads a ref, so the
+   * callback identity is stable and calling it never re-renders.
+   *
+   * Returns
+   * -------
+   * boolean
+   *     ``true`` when the most recent save wrote the file; ``false`` before
+   *     the first save of a session and after a failed write.
+   */
+  lastSaveWroteFile: () => boolean
   /** Revert the DB to the last-saved .gmproj file (replace-restore, #160):
    *  re-read + parse the file and POST it to ``/restore?replace=true`` so the
    *  project's children match the file EXACTLY — session creates, mutations,
@@ -144,48 +177,82 @@ interface UseProjectActions {
    * new .gmproj at a user-chosen path, and switch the hook to point at the
    * new project. Returns the duplicate on success, null on cancel/error. */
   saveAsProject: () => Promise<ProjectResponse | null>
+  /**
+   * May crash recovery delete the recovery file on a clean transition?
+   *
+   * ``lastSaveWroteFile`` alone cannot answer this: it is ``false`` both
+   * before the first save of a session and after a save whose file write
+   * failed, and those two states want opposite answers. A session that has
+   * never saved has no failed write to distrust, so a genuine
+   * dirty→clean transition may clear; after a save, only a landed file
+   * write means the delta reached a durable home
+   * (docs/design/autosave-recovery.md §4, "Clearing").
+   *
+   * Returns
+   * -------
+   * boolean
+   *     ``true`` when the recovery file may go, ``false`` when the last
+   *     save never reached the ``.gmproj``.
+   */
+  recoveryClearAllowed: () => boolean
   /** Revert ``project`` to ``saved`` (drop in-memory edits). */
   discardEdits: () => void
   archiveCurrent: () => Promise<void>
   closeProject: () => void
   /**
-   * Stage a lumping snapshot in-memory and mark the project dirty.
+   * Stage a lumping snapshot and mark the project dirty.
    * Called immediately after a Fill-from-boreholes Apply confirm so the
-   * user's grouping flips the dirty flag and persists only when the user
-   * explicitly File→Saves — exactly like an unsaved metadata edit.
+   * user's grouping flips the dirty flag; it lands on disk only when the
+   * user explicitly File→Saves — exactly like an unsaved metadata edit.
    *
-   * WHY in-memory only (not immediate disk write): the old behaviour
-   * (``writeLumpingSnapshot``) wrote the .gmproj file immediately on Apply,
-   * which violated the two-stage save model — the lumping "stuck" even
-   * without a File→Save.  Aligning it with the save model gives the user
-   * a consistent mental model: close without saving → lumping is gone,
-   * exactly like an unsaved CPT import or an unsaved metadata change.
+   * WHY no .gmproj write: the old behaviour (``writeLumpingSnapshot``)
+   * rewrote the .gmproj immediately on Apply, which violated the two-stage
+   * save model — the lumping "stuck" even without a File→Save. Writing the
+   * project's STAGED COLUMN instead is a different thing entirely, and is
+   * what ``view_state`` already does: the durable slot moves, the user's
+   * saved artefact does not, and ``staged !== saved`` stays the dirty
+   * signal (docs/design/autosave-recovery.md §3).
    *
    * Parameters
    * ----------
    * lumping
-   *     The lumping snapshot to stage.
+   *     The lumping snapshot to stage, or ``null`` to clear the map —
+   *     clearing is a stage action like any other.
+   * revision
+   *     Optional explicit revision, for the crash-recovery REPLAY case only
+   *     (docs/design/autosave-recovery.md §3, "file revision higher"): the
+   *     recovery file already claims a number the database never received,
+   *     so the replay has to stage under THAT number rather than a fresh
+   *     bump, or the two counters stay out of step. Every ordinary Apply
+   *     omits it and gets the monotonic increment.
    *
    * Returns
    * -------
-   * void
+   * Promise<void>
+   *     Resolves once the staged PUT has settled. A failed PUT never rolls
+   *     back the in-memory stage; awaiting is only useful to sequence a
+   *     recovery write behind it.
    */
-  stageLumping: (lumping: StratigraphyLumping) => void
+  stageLumping: (lumping: StratigraphyLumping | null, revision?: number) => Promise<void>
 }
 
 export type UseProject = UseProjectState & UseProjectActions
 
-// Field-by-field equality for the metadata fields we treat as part of
-// the dirty check. ``created_at`` / ``updated_at`` / ``archived_at`` are
-// DB-side timestamps and not user-editable, so they don't participate.
+// Equality for the metadata fields we treat as part of the dirty check.
+// ``created_at`` / ``updated_at`` / ``archived_at`` are DB-side timestamps
+// and not user-editable, so they don't participate.
 //
-// DRIFT WARNING: this function and ``fullPatchFrom`` below enumerate
-// the same field list as ``ProjectMetadataDialog``'s ``toPatch`` /
-// ``isDirty`` and ``utils/projectFile.ts``'s ``buildProjectFile``.
-// Adding a field to ``ProjectResponse`` means: (1) include it here,
-// (2) include it in fullPatchFrom, (3) include it in the editor's diff
-// helpers, (4) include it in buildProjectFile. The compiler can't catch
-// missing entries — silent dirty-tracking failures will result.
+// The field list itself lives in ``utils/projectMetadataFields`` — crash
+// recovery needs the same ten fields to carry the metadata draft
+// (docs/design/autosave-recovery.md §2, item 3), so it stopped being a
+// hand-copied enumeration.
+//
+// DRIFT WARNING: ``ProjectMetadataDialog``'s ``toPatch`` / ``isDirty`` and
+// ``utils/projectFile.ts``'s ``buildProjectFile`` still enumerate the same
+// fields by hand. Adding a field to ``ProjectResponse`` means: (1) add it to
+// PROJECT_METADATA_FIELDS (which the compiler then forces into
+// ``fullPatchFrom``), (2) include it in the editor's diff helpers,
+// (3) include it in buildProjectFile.
 function projectsEqual(
   a: ProjectResponse | null,
   b: ProjectResponse | null,
@@ -193,17 +260,7 @@ function projectsEqual(
   if (a === b) return true
   if (a === null || b === null) return false
   if (a.id !== b.id) return false
-  if (a.name !== b.name) return false
-  if (a.project_number !== b.project_number) return false
-  if (a.client !== b.client) return false
-  if (a.site_label !== b.site_label) return false
-  if (a.description !== b.description) return false
-  if (a.default_horizontal_epsg !== b.default_horizontal_epsg) return false
-  if (a.default_vertical_epsg !== b.default_vertical_epsg) return false
-  if (a.phase !== b.phase) return false
-  if (a.status !== b.status) return false
-  if (!arraysEqual(a.tags, b.tags)) return false
-  return true
+  return projectMetadataEqual(a, b)
 }
 
 // Build a complete patch from a live project. Used when the user hits
@@ -211,8 +268,13 @@ function projectsEqual(
 // editor can change. The backend's PATCH semantics ignore identical
 // values, so this is safe even if a field hasn't changed.
 //
-// See the DRIFT WARNING on ``projectsEqual`` above.
-function fullPatchFrom(project: ProjectResponse): ProjectUpdatePayload {
+// The ``Record<ProjectMetadataField, unknown>`` intersection is a
+// compile-time tie to the shared field list: adding a field there without
+// adding it here is a type error, which is what the old DRIFT WARNING could
+// only ask for in prose.
+function fullPatchFrom(
+  project: ProjectResponse,
+): ProjectUpdatePayload & Record<ProjectMetadataField, unknown> {
   return {
     name: project.name,
     project_number: project.project_number,
@@ -225,32 +287,6 @@ function fullPatchFrom(project: ProjectResponse): ProjectUpdatePayload {
     phase: (project.phase as ProjectUpdatePayload['phase']) ?? null,
     status: project.status as ProjectUpdatePayload['status'],
   }
-}
-
-// Structural equality for two lumping snapshots.  Two nulls are equal;
-// a null vs a non-null are not.  When both are non-null, the maps are
-// compared key-by-key (not reference equality, because stageLumping
-// produces a new object reference each call).
-//
-// schema_version and applied_at are intentionally excluded from the
-// comparison: applied_at is a timestamp that changes on every Apply even
-// when the alias map hasn't changed, and schema_version is structural
-// metadata not an engineering decision.  The engineering decision is the
-// map contents — if the map is identical the user didn't make a new
-// decision and the project shouldn't go dirty.
-function lumpingsEqual(
-  a: StratigraphyLumping | null,
-  b: StratigraphyLumping | null,
-): boolean {
-  if (a === b) return true
-  if (a === null || b === null) return false
-  const keysA = Object.keys(a.map)
-  const keysB = Object.keys(b.map)
-  if (keysA.length !== keysB.length) return false
-  for (const k of keysA) {
-    if (a.map[k] !== b.map[k]) return false
-  }
-  return true
 }
 
 // Extract the string ``id`` field from each bundle row. Filters out
@@ -293,6 +329,91 @@ export function useProject(): UseProject {
   // currentLumping with savedLumping — if they differ the project is dirty.
   const [savedLumping, setSavedLumping] = useState<StratigraphyLumping | null>(null)
 
+  // Monotonic revision for the lumping map. Kept in BOTH a state slot and a
+  // ref on purpose: the state is what re-renders consumers (the recovery
+  // writer needs to see the new number), while the ref is what ``stageLumping``
+  // reads — so the callback keeps a stable identity across stages and can
+  // never bump from a stale closure value, which would replay a revision the
+  // server already stores and earn a 409.
+  // Whether the last save's .gmproj write landed. A ref, not state: the
+  // only reader is the crash-recovery clear, which asks at call time — and
+  // re-rendering the app on a save-outcome flag would buy nothing.
+  const fileWriteSucceededRef = useRef(false)
+  const lastSaveWroteFile = useCallback((): boolean => fileWriteSucceededRef.current, [])
+
+  // Has a save been ATTEMPTED at all this session? Pairs with
+  // ``fileWriteSucceededRef`` to separate the two states that flag conflates:
+  // "no save yet" (nothing to distrust) from "the last save never reached the
+  // file" (the delta is still homeless). Only the second may block the
+  // recovery clear.
+  const saveAttemptedRef = useRef(false)
+  const recoveryClearAllowed = useCallback(
+    (): boolean => !saveAttemptedRef.current || fileWriteSucceededRef.current,
+    [],
+  )
+
+  const [lumpingRevision, setLumpingRevision] = useState<number | null>(null)
+  const lumpingRevisionRef = useRef<number | null>(null)
+  const applyLumpingRevision = useCallback((next: number | null): void => {
+    lumpingRevisionRef.current = next
+    setLumpingRevision(next)
+  }, [])
+
+  // Single writer for the staged slot, shared by Apply and by the discard
+  // path (which re-stages the saved snapshot). Never throws: a stage that
+  // does not reach the server still stands in memory, and the recovery file
+  // carries the higher revision — which is precisely the design's "file
+  // wins" reconciliation case, not a state to unwind.
+  //
+  // It DOES report whether the PUT landed, because the two promote sites care:
+  // promoting copies the database's staged slot onto its saved slot, so
+  // promoting after a stage that never arrived would immortalise whatever
+  // stale map the column still holds.
+  const stageToDatabase = useCallback(
+    async (
+      projectId: string,
+      lumping: StratigraphyLumping | null,
+      revision: number,
+    ): Promise<boolean> => {
+      try {
+        await api.project.stageLumping(projectId, lumping, revision)
+        log.debug('project', `staged lumping rev ${revision} for ${projectId}`)
+        return true
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        const stored = storedRevisionFromStaleError(message)
+        if (stored !== null) {
+          // A 409 means another writer got ahead of this session's counter.
+          // Adopt the server's number so the NEXT stage clears the guard
+          // instead of colliding forever.
+          applyLumpingRevision(stored)
+          log.warn(
+            'project',
+            `stale lumping stage (rev ${revision}); adopted stored rev ${stored}`,
+          )
+          return false
+        }
+        log.warn('project', `staged lumping PUT failed (rev ${revision})`, err)
+        return false
+      }
+    },
+    [applyLumpingRevision],
+  )
+
+  // Copy the staged slot onto the saved slot so the database's dirty
+  // comparison agrees with the one the renderer just cleared. Bookkeeping,
+  // not durability — the staged slot has been safe since Apply, so a failure
+  // costs at most a project that reopens looking dirty, and must never fail
+  // the save that triggered it.
+  const promoteInDatabase = useCallback(async (projectId: string): Promise<void> => {
+    try {
+      await api.project.promoteLumping(projectId)
+      log.debug('project', `promoted lumping to saved for ${projectId}`)
+    } catch (err) {
+      log.warn('project', `promote lumping failed for ${projectId}`, err)
+    }
+  }, [])
+
   const dirty = useMemo(
     () => !projectsEqual(project, saved) || !lumpingsEqual(currentLumping, savedLumping),
     [project, saved, currentLumping, savedLumping],
@@ -313,6 +434,38 @@ export function useProject(): UseProject {
       }
     },
     [],
+  )
+
+  // Seed the two lumping slots + the revision counter when a project opens.
+  //
+  // WHY the database can outrank the file: the staged slot is written the
+  // instant the user hits Apply, whereas the .gmproj is only rewritten on
+  // File → Save. So a project that crashed mid-edit reopens with its staged
+  // map intact and DIRTY (staged !== saved) — that re-seeded dirty state IS
+  // the crash-safety feature, not a bug to normalise away. A project with no
+  // revision has never been staged by a revision-aware client, so the file
+  // stays authoritative exactly as before.
+  //
+  // The read path on the server is pass-through, so the blobs are narrowed
+  // here rather than trusted; a malformed one falls back to the file.
+  const seedLumpingOnOpen = useCallback(
+    (fetched: ProjectResponse, fileLumping: StratigraphyLumping | null): void => {
+      const resolved = resolveOpenLumping(fetched, fileLumping)
+      if (resolved.warning !== null) {
+        log.warn(
+          'project',
+          `lumping columns unusable for ${fetched.id} (${resolved.warning}); seeding from file`,
+        )
+      }
+      setCurrentLumping(resolved.current)
+      setSavedLumping(resolved.saved)
+      applyLumpingRevision(resolved.revision)
+      log.debug(
+        'project',
+        `seeded lumping from ${resolved.source} (rev ${String(resolved.revision)})`,
+      )
+    },
+    [applyLumpingRevision],
   )
 
   const openProjectFile = useCallback(
@@ -341,12 +494,7 @@ export function useProject(): UseProject {
         setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
         setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
         setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
-        // Seed both lumping slots from the file so the dirty flag starts
-        // clean (currentLumping === savedLumping after open).  Bundles
-        // saved before this field existed carry null.
-        const seededLumping = parsed.stratigraphy_lumping ?? null
-        setCurrentLumping(seededLumping)
-        setSavedLumping(seededLumping)
+        seedLumpingOnOpen(fresh, parsed.stratigraphy_lumping ?? null)
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
@@ -383,9 +531,7 @@ export function useProject(): UseProject {
             setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
             setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
             // Seed both lumping slots on restore — same pattern as the happy path.
-            const restoredLumping = parsed.stratigraphy_lumping ?? null
-            setCurrentLumping(restoredLumping)
-            setSavedLumping(restoredLumping)
+            seedLumpingOnOpen(restored, parsed.stratigraphy_lumping ?? null)
             // Sum contacts across every model so the log reports the
             // true interpretation-row count, not just the model count
             // (a model with 0 contacts is functionally empty).
@@ -416,7 +562,7 @@ export function useProject(): UseProject {
         return null
       }
     },
-    [adopt],
+    [adopt, seedLumpingOnOpen],
   )
 
   const pickAndOpenProject = useCallback(async (): Promise<PickAndOpenResult> => {
@@ -469,13 +615,16 @@ export function useProject(): UseProject {
       setManifestFormationIds(new Set())
       setManifestSectionIds(new Set())
       // A new project has no lumping decision — reset both staging and
-      // saved snapshots so prior-project state does not leak in.
+      // saved snapshots so prior-project state does not leak in. The
+      // revision resets with them: a fresh row has never been staged, so
+      // the first Apply must start the counter at 1.
       setCurrentLumping(null)
       setSavedLumping(null)
+      applyLumpingRevision(null)
       log.info('project', `created ${created.name} → ${path}`)
       return created
     },
-    [adopt],
+    [adopt, applyLumpingRevision],
   )
 
   // Manifest mutators — wired into the import handlers + discard path
@@ -560,6 +709,10 @@ export function useProject(): UseProject {
   // silent no-op), ``false`` on failure.
   const saveProject = useCallback(async (): Promise<boolean> => {
     if (project === null || filePath === null) return false
+    // Cleared up front so a failure BEFORE the file write (the metadata
+    // PATCH) can never leave the previous save's ``true`` standing.
+    fileWriteSucceededRef.current = false
+    saveAttemptedRef.current = true
     // Metadata PATCH is gated on the metadata-only ``dirty`` flag so
     // we don't round-trip identical values to the API. The file write
     // below is NOT gated — geological contacts / formations / models /
@@ -636,10 +789,48 @@ export function useProject(): UseProject {
         // clears.  Done INSIDE the inner try so a file-write failure leaves
         // savedLumping unchanged (the project stays dirty for retry).
         setSavedLumping(currentLumping)
+        // The delta now has a durable home on disk. Recorded for the crash-
+        // recovery clear, which must NOT trust this function's return value
+        // (see ``lastSaveWroteFile``).
+        fileWriteSucceededRef.current = true
+        // REPAIR BEFORE PROMOTE. ``stageLumping`` deliberately keeps the
+        // user's map in memory when its PUT fails (the design's "file wins"
+        // case, §3), so a backend blip during Apply leaves the DATABASE
+        // holding an older map under an older revision. Promoting that would
+        // copy the stale slot onto ``saved`` — and the recovery-file clear
+        // that follows this save deletes the only other carrier of the newer
+        // map, so the next open would seed the OLD map from the database
+        // while the .strix just written holds the new one. Re-staging what is
+        // actually in memory closes that window; the backend accepts an EQUAL
+        // revision, so this is a no-op whenever the original stage landed.
+        //
+        // A null revision means no revision-aware client has ever staged this
+        // project, so there is no staged slot to repair and nothing stale to
+        // promote over — the open path seeds from the file in that case.
+        const repairRevision = lumpingRevisionRef.current
+        const stagedSlotIsCurrent =
+          repairRevision === null ||
+          (await stageToDatabase(project.id, currentLumping, repairRevision))
+        // Mirror that alignment into the database. Gated on the file write
+        // for the same reason savedLumping is — a save that never reached
+        // disk is not a save.
+        if (stagedSlotIsCurrent) {
+          await promoteInDatabase(project.id)
+        } else {
+          log.warn(
+            'project',
+            `skipped lumping promote for ${project.id}: the staged slot could not be ` +
+              `repaired to rev ${String(repairRevision)}, and promoting it would make ` +
+              `the database's stale map permanent`,
+          )
+        }
       } catch (err) {
         // File write failure leaves the DB ahead of the file. Log loudly
         // but treat as success — the next save will catch up, and the
-        // DB is the source of truth.
+        // DB is the source of truth. Crash recovery draws the opposite
+        // conclusion from the same event: the session delta is still
+        // homeless, so its recovery file stays.
+        fileWriteSucceededRef.current = false
         log.warn('project', 'file write after saveProject failed', err)
       }
       log.success('project', `saved ${project.name}`)
@@ -657,6 +848,8 @@ export function useProject(): UseProject {
     manifestFormationIds,
     manifestSectionIds,
     currentLumping,
+    stageToDatabase,
+    promoteInDatabase,
   ])
 
   // Revert-to-last-save (#160). Re-read the .gmproj file (the canonical
@@ -699,13 +892,49 @@ export function useProject(): UseProject {
         },
         true,
       )
+      // Discard means discard — including in the database's staged slot.
+      // The replace-restore rewinds the project's children to the file, but
+      // the lumping map lives in its own column and would otherwise keep
+      // holding the map the user just threw away, resurrecting it on the
+      // next open (which now seeds from the database). Re-stage the SAVED
+      // snapshot — possibly null — under a fresh revision so staged == saved
+      // again, and align the in-memory slot with it.
+      const revertRevision = nextLumpingRevision(lumpingRevisionRef.current)
+      applyLumpingRevision(revertRevision)
+      setCurrentLumping(savedLumping)
+      const restaged = await stageToDatabase(project.id, savedLumping, revertRevision)
+      // PROMOTE TOO, not just stage. Re-staging alone only fixes the projects
+      // whose ``saved`` column is already populated. Every project that
+      // pre-dates these columns has the map in its .strix and BOTH columns
+      // NULL: it opens seeded from the file, one Apply stages map M, and a
+      // Discard that only re-stages leaves staged = the file's map while
+      // saved stays NULL — which the open path reads as staged !== saved, so
+      // the project reopens spuriously dirty forever. Promoting makes the
+      // database agree with the artefact the user kept.
+      if (restaged) {
+        await promoteInDatabase(project.id)
+      } else {
+        log.warn(
+          'project',
+          `skipped lumping promote for ${project.id} after discard: the saved snapshot ` +
+            `could not be re-staged (rev ${revertRevision}), so promoting would copy the ` +
+            `discarded map into the saved slot`,
+        )
+      }
       log.success('project', `reverted ${project.name} to last save (${filePath})`)
       return true
     } catch (err) {
       log.error('project', `revertToLastSaved failed for ${filePath}`, err)
       return false
     }
-  }, [project, filePath])
+  }, [
+    project,
+    filePath,
+    savedLumping,
+    applyLumpingRevision,
+    stageToDatabase,
+    promoteInDatabase,
+  ])
 
   // Revert in-memory changes back to the last-saved snapshot. Useful
   // for explicit "Revert" UX (not wired today) and as a building block
@@ -797,9 +1026,27 @@ export function useProject(): UseProject {
     // a project that has a staged (unsaved) lumping would open dirty
     // immediately after Save As, which is wrong.
     setSavedLumping(currentLumping)
+    // The duplicate carries the source's lumping columns forward (the
+    // backend's ``duplicate()`` copies all three — debt #267), so the counter
+    // continues from the COPIED value; restarting at 1 would collide with the
+    // revision the new row already stores and the monotonic guard would 409
+    // it. Stage-then-promote leaves the duplicate's staged and saved slots
+    // both holding exactly what the file we just wrote holds, so the copy
+    // opens clean instead of inheriting the source's older saved snapshot.
+    const dupRevision = nextLumpingRevision(duplicated.stratigraphy_lumping_revision ?? null)
+    applyLumpingRevision(dupRevision)
+    await stageToDatabase(duplicated.id, currentLumping, dupRevision)
+    await promoteInDatabase(duplicated.id)
     log.info('project', `saved-as ${duplicated.name} → ${path}`)
     return duplicated
-  }, [project, adopt, currentLumping])
+  }, [
+    project,
+    adopt,
+    currentLumping,
+    applyLumpingRevision,
+    stageToDatabase,
+    promoteInDatabase,
+  ])
 
   function clearAllManifests(): void {
     setManifestCptIds(new Set())
@@ -808,6 +1055,10 @@ export function useProject(): UseProject {
     setManifestSectionIds(new Set())
     setCurrentLumping(null)
     setSavedLumping(null)
+    // The counter belongs to the project that just closed; leaving it set
+    // would let the next project's first Apply claim a revision it never
+    // earned (and, if that project sits higher, silently lose the guard).
+    applyLumpingRevision(null)
   }
 
   const archiveCurrent = useCallback(async (): Promise<void> => {
@@ -831,22 +1082,47 @@ export function useProject(): UseProject {
     clearAllManifests()
   }, [])
 
-  // Stage a lumping snapshot in-memory and mark the project dirty.
+  // Stage a lumping snapshot and mark the project dirty.
   //
-  // WHY no disk write: the old ``writeLumpingSnapshot`` wrote the .gmproj
+  // WHY no .gmproj write: the old ``writeLumpingSnapshot`` rewrote the file
   // immediately on Apply, which violated the two-stage save model — the
   // lumping survived a close-without-save, defeating the user's "discard
-  // means discard" expectation.  This function is the aligned replacement:
-  // it updates currentLumping (which is included in every subsequent
-  // buildProjectFile call) and because savedLumping is left unchanged,
-  // dirty becomes true — exactly as if the user had edited a metadata field.
-  // File→Save then writes the lumping and aligns savedLumping.
+  // means discard" expectation. This function updates currentLumping (which
+  // rides into every subsequent buildProjectFile call) and leaves
+  // savedLumping alone, so dirty becomes true exactly as if the user had
+  // edited a metadata field. File→Save writes the file and aligns both.
+  //
+  // WHY the staged PUT is nonetheless immediate: the staged COLUMN is a
+  // staging area, not the user's artefact — the same thing ``view_state``
+  // already does. Writing it on Apply is what makes a crash before File→Save
+  // survivable, and ``staged !== saved`` stays the dirty signal either way.
+  //
+  // The in-memory stage is deliberately NOT rolled back when the PUT fails:
+  // the user's decision stands, and the recovery file then carries a higher
+  // revision than the database — which is exactly the reconciliation case
+  // the file-wins rule exists for (docs/design/autosave-recovery.md §3).
   const stageLumping = useCallback(
-    (lumping: StratigraphyLumping): void => {
+    async (lumping: StratigraphyLumping | null, explicitRevision?: number): Promise<void> => {
+      // An explicit revision is the crash-recovery replay path (§3): the
+      // recovery file carries a number the staged PUT never delivered, so the
+      // replay claims exactly that number. Bumping instead would leave the
+      // database permanently one or more revisions behind the file it just
+      // recovered from.
+      const revision = explicitRevision ?? nextLumpingRevision(lumpingRevisionRef.current)
       setCurrentLumping(lumping)
-      log.debug('project', `stageLumping: staged lumping snapshot (map size ${Object.keys(lumping.map).length})`)
+      applyLumpingRevision(revision)
+      const size = lumping === null ? 'cleared' : `map size ${Object.keys(lumping.map).length}`
+      log.debug('project', `stageLumping: staged snapshot (${size}, rev ${revision})`)
+      if (project === null) {
+        // No project id to write against (never happens through the Apply
+        // flow, which requires an open project) — the in-memory stage still
+        // stands and File→Save will carry it to disk.
+        log.warn('project', 'stageLumping: no open project, staged in memory only')
+        return
+      }
+      await stageToDatabase(project.id, lumping, revision)
     },
-    [],
+    [project, applyLumpingRevision, stageToDatabase],
   )
 
   return {
@@ -856,6 +1132,7 @@ export function useProject(): UseProject {
     filePath,
     currentLumping,
     savedLumping,
+    lumpingRevision,
     manifestCptIds,
     manifestBoreholeIds,
     manifestFormationIds,
@@ -868,6 +1145,8 @@ export function useProject(): UseProject {
     applyMetadataDraft,
     applyViewStatePatch,
     saveProject,
+    lastSaveWroteFile,
+    recoveryClearAllowed,
     revertToLastSaved,
     saveAsProject,
     discardEdits,
