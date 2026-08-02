@@ -1,11 +1,22 @@
 # Autosave + crash recovery
 
-**Status 2026-08-02:** design APPROVED, backend + main-process halves SHIPPED: the three
-lumping columns (`c5b81d7a4e39`), the staged/promote API with the monotonic 409 revision
-guard, and the Electron recovery-file store + IPC (capped, atomic, case-canonical ids).
-NOT STARTED: the renderer wiring (debounce/cap scheduler, ghost serialisation, revision
-increments) and the start-screen prompt. Load before touching autosave, the recovery file,
-or the stratigraphy lumping map.
+**Status 2026-08-02:** design APPROVED. SHIPPED: the three lumping columns
+(`c5b81d7a4e39`), the staged/promote API with the monotonic 409 revision guard, the
+Electron recovery-file store + IPC (capped, atomic, case-canonical ids), the renderer's
+revision increments (`utils/stratigraphyLumping` + `useProject`), the CAPTURE half —
+`utils/recoverySnapshot` (the payload codec) plus `hooks/useRecoveryAutosave` (the
+debounce + cap scheduler, and the delete on every decided exit) — and the RESTORE
+surface: `RecoveryPromptDialog` (three choices, per Q3), `hooks/useRecoveryOffer` (the
+single detection point, keyed on the open project's id), `hooks/useRecoveryRestore`
+(applies the six items; `utils/recoveryReconcile` implements §3's table) and the
+`WelcomeScreen` "Recovered work" list.
+OPEN: how long a DECLINED recovery file should live — "Open without restoring" deletes
+nothing, but the scheduler overwrites the file as soon as the new session has anything
+at risk and every decided exit clears it unconditionally, so declining and then closing
+destroys unrestored work silently. Making decline-then-restart work means gating the
+decided-exit clear on "this session owns the file", i.e. a change to the clearing
+contract in §4. Owner decision.
+Load before touching autosave, the recovery file, or the stratigraphy lumping map.
 
 ---
 
@@ -186,8 +197,9 @@ strict UUID regex and resolves the path itself under `userData`. No traversal in
 
 ## 6. Open owner questions
 
-* **Q3** — three choices in the prompt (Restore / Open without restoring / Discard) or two?
-  Three recommended; Word uses three.
+* ~~**Q3** — three choices in the prompt (Restore / Open without restoring / Discard) or
+  two?~~ **ANSWERED (owner, 2026-08-02): three**, plus a Word-style "Recovered work"
+  entry on the start screen. Shipped.
 * **Q4** — add `requestSingleInstanceLock()`? Two instances are already broken by the `:8765`
   bind. Cheap; recommended.
 * **Q6** — gate `View → Reload` and DevTools on `!app.isPackaged` now (debt #200)? It is the
