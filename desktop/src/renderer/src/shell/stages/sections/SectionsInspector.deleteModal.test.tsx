@@ -198,6 +198,8 @@ function makeCtx(overrides: {
       handleDeleteModel: noopAsync,
       ensureActiveGeologicalModel: () => Promise.resolve(null),
       ghostsByAnchor: new Map(),
+      // Recovery-only setter (docs/design/autosave-recovery.md §2, item 2).
+      setGhostsByAnchor: vi.fn(),
       focusedSuggestAnchorId: null,
       handleEditLithoSuggestion: () => {},
       bulkLithoSuggesting: false,
