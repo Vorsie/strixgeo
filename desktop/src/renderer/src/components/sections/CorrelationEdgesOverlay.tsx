@@ -35,6 +35,12 @@ import type {
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { GhostAdmixtureItem } from '../interpretation/LithoGhostCompositionEditor'
 import { contactAnchorId, groupContactsByAnchor } from './contactsLayerGeometry'
+import {
+  EdgeReviewBadge,
+  isFlaggedForReview,
+  REVIEW_FLAG_COLOR,
+  REVIEW_FLAG_DASH,
+} from './edgeReviewFlag'
 import type { PlacedColumn } from './utils'
 
 // ---------------------------------------------------------------------------
@@ -291,6 +297,14 @@ interface Props {
    * an approved edge has nothing to accept.
    */
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
+  /**
+   * Confirms a tie the rebuild flagged — clears its `review_reason`.
+   *
+   * The non-destructive answer to a flag; deleting is the other one. Absent when
+   * the caller has not wired it, in which case a flagged tie still renders its
+   * badge but can only be resolved by deleting.
+   */
+  onRequestConfirmEdgeReview?: (edge: LithoContactCorrelationEdge) => void
 }
 
 
@@ -365,6 +379,7 @@ export default function CorrelationEdgesOverlay({
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
   onRequestAcceptEdge,
+  onRequestConfirmEdgeReview,
 }: Props): JSX.Element {
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
    *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
@@ -775,18 +790,26 @@ export default function CorrelationEdgesOverlay({
             const lithoA = lithoByContactId.get(ce.layer_a_id) ?? null
             const lithoB = lithoByContactId.get(ce.layer_b_id) ?? null
             if (lithoA !== null && lithoB !== null && lithoA !== lithoB) {
+              // Awaiting confirmation outranks the rest: the engineer has to
+              // find these, and a flagged tie is by definition one whose
+              // ordinary styling would be telling them the wrong thing.
+              const needsReview = isFlaggedForReview(ce)
               // Interpretive ties always use BASE_TIE_COLOR; approved top↔top
               // use emerald; pending use amber.
-              const tieColor = isInterpretive
-                ? BASE_TIE_COLOR
-                : approved
-                  ? CONTACT_EDGE_COLOR
-                  : UNAPPROVED_EDGE_COLOR
-              const tieDash = isInterpretive
-                ? BASE_TIE_DASH
-                : approved
-                  ? undefined
-                  : UNAPPROVED_EDGE_DASH
+              const tieColor = needsReview
+                ? REVIEW_FLAG_COLOR
+                : isInterpretive
+                  ? BASE_TIE_COLOR
+                  : approved
+                    ? CONTACT_EDGE_COLOR
+                    : UNAPPROVED_EDGE_COLOR
+              const tieDash = needsReview
+                ? REVIEW_FLAG_DASH
+                : isInterpretive
+                  ? BASE_TIE_DASH
+                  : approved
+                    ? undefined
+                    : UNAPPROVED_EDGE_DASH
               // Anchor at each column's INNER (facing) edge — same as the
               // ribbon — so the tie spans only the gap, not centre-to-centre
               // across the columns (dogfeed 2026-06-08).
@@ -833,6 +856,14 @@ export default function CorrelationEdgesOverlay({
                     strokeDasharray={tieDash}
                     style={{ pointerEvents: 'none' }}
                   />
+                  {needsReview && (
+                    <EdgeReviewBadge
+                      edge={ce}
+                      x={(tieX1 + tieX2) / 2}
+                      y={(yA + yB) / 2}
+                      onContextMenu={onRequestDeleteEdge ? openTieMenu : undefined}
+                    />
+                  )}
                 </g>
               )
             }
@@ -1081,6 +1112,33 @@ export default function CorrelationEdgesOverlay({
                     />
                   )
                 })()}
+                {/* Awaiting-confirmation badge. A flagged tie is APPROVED work
+                    whose anchor the rebuild could not identify with confidence,
+                    so it keeps its accepted styling and gains a marker rather
+                    than being restyled as a proposal. Right-clickable in its own
+                    right — the ribbon can be a sliver at low spacing, and hunting
+                    for the seam to clear a warning is how warnings get ignored. */}
+                {isFlaggedForReview(ce) && (
+                  <EdgeReviewBadge
+                    edge={ce}
+                    x={(xA + xB) / 2}
+                    y={(yA + yB) / 2}
+                    onContextMenu={
+                      onRequestDeleteEdge
+                        ? (e: React.MouseEvent<SVGElement>) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            const r = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                            setEdgeContextMenu({
+                              x: r ? e.clientX - r.left : (xA + xB) / 2,
+                              y: r ? e.clientY - r.top : (yA + yB) / 2,
+                              edge: ce,
+                            })
+                          }
+                        : undefined
+                    }
+                  />
+                )}
               </g>
             )
           })}
@@ -1391,6 +1449,15 @@ export default function CorrelationEdgesOverlay({
                   const { edge } = edgeContextMenu
                   setEdgeContextMenu(null)
                   onRequestAcceptEdge(edge)
+                }
+              : undefined
+          }
+          onConfirmReview={
+            onRequestConfirmEdgeReview && isFlaggedForReview(edgeContextMenu.edge)
+              ? () => {
+                  const { edge } = edgeContextMenu
+                  setEdgeContextMenu(null)
+                  onRequestConfirmEdgeReview(edge)
                 }
               : undefined
           }
