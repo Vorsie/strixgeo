@@ -4,9 +4,7 @@ import { pathToFileURL } from 'url'
 import { spawn, ChildProcess } from 'child_process'
 import {
   readFileSync,
-  renameSync,
   statSync,
-  unlinkSync,
   writeFileSync,
   existsSync,
   mkdirSync,
@@ -15,7 +13,16 @@ import {
   appendFileSync,
 } from 'fs'
 
+import { writeFileAtomic } from './atomicWrite'
 import { rotateIfNeeded, realFsOps } from './logRotation'
+import {
+  configureRecoveryStore,
+  deleteRecovery,
+  listRecovery,
+  readRecovery,
+  writeRecovery,
+  type RecoveryDescriptor,
+} from './recoveryStore'
 
 import {
   buildContentSecurityPolicy,
@@ -664,41 +671,9 @@ ipcMain.handle('project:read-file', (_event, filePath: string): string => {
   return readFileSync(filePath, 'utf-8')
 })
 
-/**
- * Atomic file write — writes to a sibling temp file, then renames into
- * place. Rationale: a project save that gets interrupted (process kill,
- * power loss between two saves, second save racing the first) MUST NOT
- * leave the user's `.strix` file half-overwritten. The dogfeed bug on
- * 2026-05-20 was exactly this — a `\x08` (backspace) byte mid-array
- * with a partially-duplicated value, traced to two writes overlapping.
- *
- * `renameSync` on the same filesystem is atomic at the directory
- * metadata level on both NTFS (Windows) and ext4/APFS — either the old
- * file or the new file is visible to readers, never a half-written
- * blend. The temp lives in the same directory as the target so no
- * cross-filesystem rename fall-back to copy+delete occurs.
- *
- * Crash mid-write leaves a `.<basename>.tmp.<pid>` orphan that the
- * user can safely delete (no automatic cleanup — that path would risk
- * deleting a tmp from a concurrent save that hasn't renamed yet).
- */
-function writeFileAtomic(filePath: string, contents: string): void {
-  const tmpPath = `${filePath}.tmp.${process.pid}`
-  writeFileSync(tmpPath, contents, 'utf-8')
-  try {
-    renameSync(tmpPath, filePath)
-  } catch (renameErr) {
-    // Rename failed — best-effort tmp cleanup so we don't leak. Swallow
-    // unlink errors (the tmp may already be gone, or perms changed)
-    // and re-throw the original rename failure as the user-visible one.
-    try {
-      unlinkSync(tmpPath)
-    } catch {
-      /* swallow */
-    }
-    throw renameErr
-  }
-}
+// ``writeFileAtomic`` lives in ./atomicWrite — shared with the recovery-file
+// store so there is exactly one implementation of the temp-write + rename
+// dance (and one place where its rationale is documented).
 
 ipcMain.handle(
   'project:write-file',
@@ -807,6 +782,39 @@ ipcMain.handle('api:ready', async () => {
   }
   return false
 })
+
+// ---------------------------------------------------------------------------
+// Crash-recovery file IPC — app-managed files under
+// ``<userData>/recovery/<projectId>.recovery.json``.
+//
+// NOTE the deliberate difference from the project-file IPC above: these
+// handlers never take a path. The authorised-path set only covers files the
+// user picked in a native dialog, which recovery files by definition are not,
+// so routing them through ``authorisePath`` would weaken that set. Instead the
+// only input is a project UUID that ``recoveryStore`` validates before it
+// builds the path itself. See the module docstring in ./recoveryStore.ts.
+//
+// The arguments are typed ``unknown`` on purpose: everything here crosses the
+// context bridge from the renderer, where a type annotation is a comment, not
+// a guarantee. The store's entry points take ``unknown`` too and narrow it
+// themselves, so nothing here launders an untrusted value with a cast —
+// ``writeRecovery`` re-validates the id, the options object, and the
+// serialised size before anything touches the disk.
+// ---------------------------------------------------------------------------
+
+ipcMain.handle(
+  'recovery:write',
+  (_event, projectId: unknown, payload: unknown, options: unknown): RecoveryDescriptor =>
+    writeRecovery(projectId, payload, options),
+)
+
+ipcMain.handle('recovery:list', (): RecoveryDescriptor[] => listRecovery())
+
+ipcMain.handle('recovery:read', (_event, projectId: unknown): unknown => readRecovery(projectId))
+
+ipcMain.handle('recovery:delete', (_event, projectId: unknown): boolean =>
+  deleteRecovery(projectId),
+)
 
 // ---------------------------------------------------------------------------
 // #214 — distribution robustness IPC handlers
@@ -920,6 +928,13 @@ app.whenReady().then(() => {
   // this the first "Open Recent" click after launch would hit the
   // path-validation in project:read-file and get refused (debt #37).
   bootstrapAuthorisedPaths()
+  // The recovery store has no Electron dependency of its own (so it stays
+  // unit-testable), so it learns the userData directory and app version here.
+  // Must happen before any renderer can issue a ``recovery:*`` call.
+  configureRecoveryStore({
+    userDataDir: app.getPath('userData'),
+    appVersion: app.getVersion(),
+  })
   startApi()
   createWindow()
 
