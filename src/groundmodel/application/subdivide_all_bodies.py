@@ -222,14 +222,21 @@ class SubdivideAllBodiesResult:
     section_count : int
         Number of project sections processed for edge derivation.
     reanchored_tie_count : int
-        Accepted packing ties carried across the rebuild — the band they point
-        at came back on the same investigation, over the same depth interval,
-        with the same NAD class, so the tie was re-created against it (still
-        accepted, still carrying its original ``source``).
+        Accepted packing ties carried across the rebuild, re-created against the
+        band they point at (still accepted, still carrying their original
+        ``source``).  Includes the ties counted in ``review_tie_reasons``.
+    review_tie_reasons : dict[str, int]
+        Carried ties whose anchor could not be identified with confidence,
+        broken down by why — ``class_changed`` (nothing of the tie's own packing
+        class overlaps its old depths any more) or ``ambiguous_band`` (several
+        same-class bands do).  These are re-created against the band covering
+        most of where the tie used to be and stamped with ``review_reason`` so
+        the engineer confirms or deletes them.  They are NOT losses: the owner's
+        rule is that an accepted tie never disappears without them deleting it.
     lost_tie_count : int
-        Accepted packing ties that could NOT be carried: at least one endpoint's
-        band is not in the rebuild under the owner's exact three-part rule.
-        Each is logged at WARNING with both endpoints' identities.
+        Accepted packing ties that could NOT be carried at all — at least one
+        endpoint has no rebuilt band overlapping it anywhere.  Each is logged at
+        WARNING with both endpoints' identities.
     lost_tie_reasons : dict[str, int]
         Per-reason breakdown of ``lost_tie_count`` — ``class_changed`` (the qc
         re-derived a different packing class over the same depths),
@@ -249,6 +256,7 @@ class SubdivideAllBodiesResult:
     borehole_only_count: int
     section_count: int = 0
     reanchored_tie_count: int = 0
+    review_tie_reasons: dict[str, int] = field(default_factory=dict)
     lost_tie_count: int = 0
     lost_tie_reasons: dict[str, int] = field(default_factory=dict)
 
@@ -770,6 +778,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             borehole_only_count=borehole_only_count,
             section_count=sections_with_edges,
             reanchored_tie_count=len(reanchor_plan.matched),
+            review_tie_reasons=reanchor_plan.review_reason_counts(),
             lost_tie_count=len(reanchor_plan.lost),
             lost_tie_reasons=reanchor_plan.loss_reason_counts(),
         )
