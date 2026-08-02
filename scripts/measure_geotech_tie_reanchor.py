@@ -397,30 +397,53 @@ def _match_offline(
     for band in after_bands:
         by_inv.setdefault(band[2], []).append(band)
 
-    def _follows(ep: dict[str, Any]) -> bool:
-        """Tier 2: exactly one same-class band overlaps where the old band was.
+    def _follows(ep: dict[str, Any]) -> tuple[bool, str | None]:
+        """Tiers 2 and 3, re-derived from the band table.
 
-        Re-derived here from the band table rather than called from the use case,
-        so this stays an independent check of the same rule.
+        Written from the rule rather than by calling the use case, so this stays
+        an independent check.  Returns whether the endpoint can be carried at all
+        and, when it can, why the engineer would have to confirm it.
         """
-        same_class = [c for c in _follow_candidates(ep, by_inv) if c["same_class"]]
-        return len(same_class) == 1
+        cands = _follow_candidates(ep, by_inv)
+        if not cands:
+            return False, None
+        same_class = [c for c in cands if c["same_class"]]
+        if len(same_class) == 1:
+            return True, None
+        return True, ("ambiguous_band" if same_class else "class_changed")
 
     matched = 0
     lost: list[dict[str, Any]] = []
     reasons: Counter[str] = Counter()
+    reviews: Counter[str] = Counter()
     for tie in ties:
-        hit_a = _endpoint_key(tie["a"], exact_float=exact_float) in index or _follows(tie["a"])
-        hit_b = _endpoint_key(tie["b"], exact_float=exact_float) in index or _follows(tie["b"])
+        review_a = review_b = None
+        hit_a = _endpoint_key(tie["a"], exact_float=exact_float) in index
+        if not hit_a:
+            hit_a, review_a = _follows(tie["a"])
+        hit_b = _endpoint_key(tie["b"], exact_float=exact_float) in index
+        if not hit_b:
+            hit_b, review_b = _follows(tie["b"])
         if hit_a and hit_b:
             matched += 1
+            review = (
+                "class_changed" if "class_changed" in (review_a, review_b) else review_a or review_b
+            )
+            if review:
+                reviews[review] += 1
             continue
         reason_a = None if hit_a else _diagnose(tie["a"], by_inv)
         reason_b = None if hit_b else _diagnose(tie["b"], by_inv)
         for reason in {r for r in (reason_a, reason_b) if r is not None}:
             reasons[reason] += 1
         lost.append({**tie, "reason_a": reason_a, "reason_b": reason_b})
-    return {"matched": matched, "lost": len(lost), "reasons": dict(reasons), "lost_detail": lost}
+    return {
+        "matched": matched,
+        "lost": len(lost),
+        "reasons": dict(reasons),
+        "reviews": dict(reviews),
+        "lost_detail": lost,
+    }
 
 
 async def main() -> None:
@@ -545,9 +568,11 @@ async def main() -> None:
     print(f"  accepted ties before the rebuild : {len(copy_ties)}")
     print(f"  bands before / after             : {len(copy_bands)} / {len(after_bands)}")
     print(f"  RE-ANCHORED (use case)           : {result.reanchored_tie_count}")
+    print(f"  needs review (use case)          : {result.review_tie_reasons}")
     print(f"  LOST        (use case)           : {result.lost_tie_count}")
     print(f"  loss reasons (use case)          : {result.lost_tie_reasons}")
     print(f"  RE-ANCHORED (independent check)  : {offline['matched']}")
+    print(f"  needs review (independent check) : {offline['reviews']}")
     print(f"  LOST        (independent check)  : {offline['lost']}")
     print(f"  loss reasons (independent check) : {offline['reasons']}")
     print(f"  accepted ties persisted after    : {len(after_accepted)}")
@@ -558,6 +583,7 @@ async def main() -> None:
 
     agree = (
         result.reanchored_tie_count == offline["matched"]
+        and result.review_tie_reasons == offline["reviews"]
         and result.lost_tie_count == offline["lost"]
         and result.lost_tie_reasons == offline["reasons"]
         and len(after_accepted) == offline["matched"]

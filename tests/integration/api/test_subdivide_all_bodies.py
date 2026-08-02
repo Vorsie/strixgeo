@@ -1114,6 +1114,7 @@ async def _tie_fingerprints(
     geotech_model_id: UUID,
     *,
     approved_only: bool,
+    flagged_only: bool = False,
 ) -> set[tuple]:
     """Describe a model's geotech ties by what they CONNECT, not by row id.
 
@@ -1129,6 +1130,9 @@ async def _tie_fingerprints(
         The geotech model whose ties are described.
     approved_only : bool
         Restrict to accepted ties.
+    flagged_only : bool
+        Restrict to ties carrying a ``review_reason`` — the ones the re-anchor
+        could not place with confidence and is asking the engineer about.
 
     Returns
     -------
@@ -1140,6 +1144,8 @@ async def _tie_fingerprints(
     )
     if approved_only:
         stmt = stmt.where(LithoContactCorrelationEdgeOrm.user_approved.is_(True))
+    if flagged_only:
+        stmt = stmt.where(LithoContactCorrelationEdgeOrm.review_reason.is_not(None))
     edges = list((await db_session.execute(stmt)).scalars().all())
 
     endpoint_ids = {e.layer_a_id for e in edges} | {e.layer_b_id for e in edges}
@@ -1334,13 +1340,19 @@ async def test_a_tie_whose_band_changed_class_is_not_silently_re_pointed(
     sab_scene: dict,
     db_session: AsyncSession,
 ) -> None:
-    """The qc re-derives a different packing class → that tie is lost, not moved.
+    """The qc re-derives a different packing class → that tie is FLAGGED, not moved silently.
 
     CPT-B's deep qc is edited from 22 MPa (ZAND zeer-dicht, class 8) to 12 MPa
     (ZAND dicht, class 7) between the two builds.  The band comes back over the
     same depths on the same investigation, but it is a different packing class,
-    so it is NOT the band the engineer tied.  The tie must be reported lost
-    rather than re-pointed at a band the engineer never looked at.
+    so it is not obviously the band the engineer tied.
+
+    The owner's rule (2026-08-02) is that an accepted tie never disappears
+    without them deleting it, so the tie is carried onto that band and stamped
+    with a ``review_reason``.  What must never happen is the silent version: a
+    tie that quietly connects two different bands than it did before, with
+    nothing on it to say so.  That is what this test pins — every tie whose
+    endpoints changed carries a flag.
     """
     project = sab_scene["project"]
     litho_model_id = UUID(sab_scene["litho_model_id"])
@@ -1372,20 +1384,29 @@ async def test_a_tie_whose_band_changed_class_is_not_silently_re_pointed(
 
     fingerprints_after = await _tie_fingerprints(db_session, geotech_model_id, approved_only=True)
 
-    # Nothing invented: every surviving accepted tie connects exactly the two
-    # bands it connected before — no endpoint quietly slid onto a neighbour.
-    assert fingerprints_after <= fingerprints_before, (
-        "a re-anchored tie must connect the SAME two bands it connected before; "
-        f"invented ties = {fingerprints_after - fingerprints_before}"
+    assert second.lost_tie_count == 0, (
+        "an accepted tie must not disappear on its own — the reclassified band "
+        "is still there to carry it"
     )
-    assert second.lost_tie_count >= 1, (
-        "CPT-B's deep band changed NAD class, so at least one accepted tie can "
-        "no longer be re-anchored and must be counted as lost"
+    assert len(fingerprints_after) == len(fingerprints_before), (
+        "every accepted tie must survive the rebuild"
     )
-    assert len(fingerprints_after) < len(fingerprints_before), (
-        "the tie into CPT-B's reclassified band must be gone, not re-pointed"
+    assert second.review_tie_reasons.get("class_changed", 0) >= 1, (
+        "CPT-B's deep band changed NAD class, so the tie into it must be flagged "
+        "for the engineer rather than carried as though nothing happened"
     )
-    assert second.lost_tie_reasons, "a lost tie must carry a reason the engineer can act on"
+
+    # The guarantee that makes the flag meaningful: no tie changed what it
+    # connects without saying so.  Ties whose fingerprint is unchanged need no
+    # flag; every one that moved must carry one.
+    moved = fingerprints_after - fingerprints_before
+    flagged = await _tie_fingerprints(
+        db_session, geotech_model_id, approved_only=True, flagged_only=True
+    )
+    assert moved <= flagged, (
+        "a tie that connects different bands than before must carry a "
+        f"review_reason; silently re-pointed = {moved - flagged}"
+    )
 
 
 @pytest.mark.asyncio
