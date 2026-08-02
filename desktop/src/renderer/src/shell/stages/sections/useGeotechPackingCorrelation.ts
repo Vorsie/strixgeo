@@ -82,6 +82,8 @@ export interface UseGeotechPackingCorrelationResult {
     layerBSide?: 'top' | 'base',
   ) => Promise<void>
   handleAcceptGeotechPackingCorrelation: (edgeId: string) => Promise<void>
+  /** Clears a flagged tie's `review_reason` — the engineer confirms it is right. */
+  handleConfirmGeotechPackingReview: (edgeId: string) => Promise<void>
 }
 
 /**
@@ -368,9 +370,48 @@ export function useGeotechPackingCorrelation(
     ],
   )
 
+  // Confirm a tie the rebuild flagged — "yes, that one is right".
+  //
+  // A re-subdivide that could not identify the band an accepted tie was drawn on
+  // carries the tie with a `review_reason` instead of deleting it, so the flag needs
+  // a way out. Deleting is the other way out and already exists on the same menu.
+  //
+  // Nothing about the model changes: the tie is already approved and already points
+  // where it points, so unlike accept there is no reason to refetch the geotech layers
+  // or mark the borehole division stale. Only the flag is dropped.
+  //
+  // No undo entry: re-flagging an edge is not an operation the app has, and inventing
+  // one to satisfy symmetry would mean writing a review_reason the engine never
+  // raised. The recoverable half is the destructive one, and that is the delete path.
+  const handleConfirmGeotechPackingReview = useCallback(
+    async (edgeId: string): Promise<void> => {
+      if (!activeGeotechModel) return
+      const modelId = activeGeotechModel.id
+      log.info('section', `packing-confirm-review: edge=${edgeId} on geotech model ${modelId}`)
+      try {
+        const result = await api.geology.confirmEdgeReview(projectId, modelId, edgeId)
+        await refetchGeotechPackingEdges()
+        markMutated()
+        log.success(
+          'section',
+          `packing-confirm-review: edge=${edgeId} cleared=${result.edges_confirmed}`,
+        )
+      } catch (err) {
+        log.warn(
+          'section',
+          `handleConfirmGeotechPackingReview: POST failed for edge ${edgeId}`,
+          err,
+        )
+        toast('error', 'Could not confirm the tie. Try again or refresh.')
+      }
+    },
+    [activeGeotechModel, projectId, refetchGeotechPackingEdges, markMutated, toast],
+  )
+
   return {
     handleCreateGeotechPackingCorrelation,
     handleDeleteGeotechPackingCorrelation,
     handleAcceptGeotechPackingCorrelation,
+    handleConfirmGeotechPackingReview,
   }
 }
