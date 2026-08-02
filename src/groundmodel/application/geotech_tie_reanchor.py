@@ -10,15 +10,25 @@ Postgres removes the edge as a side effect of the layer wipe — silently, witho
 passing through application code.  Sparing accepted edges in the reset's own
 ``WHERE`` clause made no difference at all: the cascade took them anyway.
 
-The rule (owner ruling, 2026-08-01, verbatim)
----------------------------------------------
-Re-anchor by **"same investigation, same depth interval, same NAD class"**.
+The rule
+--------
+Two tiers, tried in order.
 
-A rebuilt band *is* the old band when all three hold.  The match is EXACT — the
-owner was asked directly about a 20 cm wobble and did not ask for a tolerance,
-so none is applied.  A tie whose band moved, changed class, or vanished is
-genuinely un-re-anchorable; it is counted and logged at WARNING, never
-approximated onto a neighbour.
+1. **Same investigation, same depth interval, same NAD class** (owner ruling,
+   2026-08-01, verbatim) — the band came back untouched.
+2. Failing that, **the single band of the same class overlapping where the old
+   band was** — the same band with a boundary dragged.
+
+Tier 2 was added on 2026-08-02, after tier 1 alone dropped 13 accepted ties on the
+real model and the owner rejected that outcome: *"you're literally just dragging
+the anchor to which the tie is connected, shouldn't it just move with the
+anchor?"*  Measured on those 13, 12 had exactly one same-class band overlapping
+72–100 % of the old interval — the boundary had moved by as little as 4 cm.
+
+What is still refused is guessing.  Two same-class candidates is ambiguous, and a
+band of a different class is a different band however much it overlaps, so
+neither re-points.  A tie that cannot follow is counted and logged at WARNING,
+never approximated onto material the engineer did not tie to.
 
 Depth comparison
 ----------------
@@ -333,16 +343,65 @@ def _endpoint_reason(
     return REASON_BAND_ABSENT
 
 
+def _follow_moved_band(
+    identity: BandIdentity,
+    by_investigation: dict[str, list[RebuiltBand]],
+) -> UUID | None:
+    """Find the band this one moved into, when that is unambiguous.
+
+    Second tier of the rule, applied only after the exact-interval lookup missed.
+    A rebuilt band of the SAME class that overlaps where the old band was is that
+    band with a moved boundary — dragging a contact does not create a new band,
+    it resizes an existing one.
+
+    Two conditions keep this from guessing.  The class must still agree, because
+    material of a different packing class is a different band no matter where it
+    sits.  And exactly one candidate must exist: with two, which one inherited
+    the tie is unknowable, and picking either would silently re-point accepted
+    work.
+
+    Overlap is strict, so a band that merely abuts the old one at a shared
+    boundary is not a candidate.
+
+    Parameters
+    ----------
+    identity : BandIdentity
+        The captured endpoint's identity.
+    by_investigation : dict[str, list[RebuiltBand]]
+        Every rebuilt band, grouped by investigation.
+
+    Returns
+    -------
+    UUID | None
+        The new layer id to re-point at, or ``None`` when no single same-class
+        band overlaps.
+    """
+    candidates = [
+        band
+        for band in by_investigation.get(identity.investigation_id, [])
+        if band.identity.nad_class == identity.nad_class
+        and band.identity.depth_top_mm < identity.depth_base_mm
+        and identity.depth_top_mm < band.identity.depth_base_mm
+    ]
+    if len(candidates) == 1:
+        return candidates[0].layer_id
+    return None
+
+
 def plan_tie_reanchor(
     captured: list[CapturedTie],
     rebuilt_bands: list[RebuiltBand],
 ) -> ReanchorPlan:
     """Match captured accepted ties onto the bands the rebuild produced.
 
-    Implements the owner's rule exactly: an endpoint re-anchors when a rebuilt
-    band shares its investigation, its depth interval (to the millimetre the DB
-    stores) and its NAD class.  Nothing is approximated — a tie that fails is
-    reported with the reason it failed.
+    Two tiers, in order.  An endpoint re-anchors when a rebuilt band shares its
+    investigation, its depth interval (to the millimetre the DB stores) and its
+    NAD class — the band came back untouched.  Failing that it re-anchors onto
+    the single same-class band overlapping where it used to be, which is the same
+    band with a boundary dragged (:func:`_follow_moved_band`).
+
+    The exact tier is tried first for every endpoint, so a band that came back
+    unchanged is never abandoned for a neighbour that happens to overlap it.
 
     Parameters
     ----------
@@ -368,7 +427,11 @@ def plan_tie_reanchor(
 
     for tie in captured:
         new_a = by_identity.get(tie.identity_a)
+        if new_a is None:
+            new_a = _follow_moved_band(tie.identity_a, by_investigation)
         new_b = by_identity.get(tie.identity_b)
+        if new_b is None:
+            new_b = _follow_moved_band(tie.identity_b, by_investigation)
         if new_a is None or new_b is None:
             plan.lost.append(
                 LostTie(
