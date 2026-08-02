@@ -8029,3 +8029,55 @@ compare the reported overlap against the determinism probe's zero. If it is a ti
 rather than an assertion, that is a different bug and the margin is large — the test runs
 in ~209 ms against a 5,000 ms default. Independently, #263's `chkdsk` is now doubly
 warranted.
+
+## 266. A geotech model does not notice when the litho model under it moves (M)
+
+**What.** `litho_layer` and the geotech bands derived from it have no dependency link. Drag
+one litho contact and every geotech band inside that column is silently describing a
+lithology stack that no longer exists. Nothing marks the geotech model stale, nothing warns,
+and the UI keeps rendering the old bands as though they were current. The litho→3-D direction
+already has this guard (`hasStaleGeotechSolid` / `hasStaleSolid`); the litho→geotech-bands
+direction does not.
+
+**How it surfaced.** Measuring tie re-anchor (#227) on the dev model: 204 of 217 accepted
+ties survived a re-subdivide and 13 did not, all `interval_moved`, all on two columns
+(`GEO-23/125-S17`, `GEO-23/125-S9`). The owner's objection was exactly right — the ties
+should only break when an interval is edited, and none had been edited recently.
+
+**The diagnosis, proven rather than inferred.** Feeding today's code the geo-bounded segment
+windows that the STORED bands imply reproduces every stored band exactly, on both columns
+(`scripts/diag_geotech_implied_litho_segments.py`). Same algorithm, earlier input. The
+alternatives are dead, not merely unlikely:
+
+| candidate | ruled out by |
+|---|---|
+| segmenter non-determinism | 44 columns / 338 segments reproduced bit-identically across separate processes under `PYTHONHASHSEED` 0 and 999983; no RNG, cache or global state in the segmenter |
+| `.strix` bundle loss | all 943 litho-layer depths bit-exact through a round-trip, 0 drifted, 0 missing |
+| older code / a different entry point | today's code reproduces the stored bands byte-for-byte given the old windows |
+| geological surfaces moving the segment bounds | every moved contact is 1.8–5.1 m from the nearest geo surface |
+
+**The provenance test that separates a hand edit from segmenter output.** Old boundaries sit
+exactly on CPT sample depths (delta 0.0000 mm); the ones that replaced them are off-grid by
+2.093 / 1.628 / 4.173 mm. Two single-column `formation_contact` writes on S17 at
+`18:43:57.292444` and `18:44:02.738104` widened a peat from 0.36 m to 1.85 m — 90 minutes
+after the restore that wrote the bands.
+
+**A trap worth writing down: `created_at` here dates the RESTORE, not the work.** Every
+project row shares one microsecond (`2026-07-28 17:13:46.210117`) because the project was
+replace-restored from a `.strix`. "No litho layer touched since 07-28" was true and
+completely vacuous, and it cost a full round of wrong theorising. Worse, `litho_layer.
+depth_base_m` is DERIVED — the FC→LL trigger rebuilds it as `LEAD(depth_top_m)` and writes
+the row's OWN contact timestamp, so moving a NEIGHBOUR's contact rewrites this row's base
+and leaves its `updated_at` untouched (demonstrated in a rolled-back transaction on the
+integration DB). **`updated_at` on `litho_layer` is not a depth-change signal.** Use
+`formation_contact` timestamps. This is why S9's history could not be attributed either way.
+
+**The 13 lost ties are correct behaviour.** Re-anchor did its job; those two columns' litho
+stacks genuinely moved, so the intervals genuinely no longer match. The defect is that the
+owner was never told the litho stack had moved out from under the geotech model.
+
+**When to revisit.** Before the geotech stage is dogfed — an owner correlating packing bands
+by hand needs to know when the ground under them has shifted. Cheapest shape that matches
+the existing pattern: stamp the geotech model with the parent litho model's revision at
+subdivide time and compare on load, reusing the `mark-stale` machinery rather than inventing
+a second one.
