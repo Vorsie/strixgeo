@@ -6,16 +6,21 @@ the real model that dropped 13 accepted ties, and the owner rejected the outcome
 (2026-08-02): *"you're literally just dragging the anchor to which the tie is
 connected, shouldn't it just move with the anchor?"*
 
-So the rule now has two tiers.  A band that comes back at exactly the same
+So the rule now has three tiers.  A band that comes back at exactly the same
 interval is still the same band.  Failing that, **a tie follows its band when
 exactly one rebuilt band of the same class overlaps where the old band was** —
-because that is the old band with a moved boundary.  What is still refused is
-guessing: two candidates of the same class is ambiguous, and a different class is
-a different band, so neither re-points.
+that is the old band with a moved boundary.  Failing THAT, the tie is carried
+onto whichever band covers most of where it used to be and **flagged for review**,
+because of the owner's stronger rule (2026-08-02): *"i don't want accepted edges
+to just disappear without any user explicitly deleting it."*
 
-Measured on the dev model before the change: 12 of the 13 lost endpoints had
-exactly one same-class overlapping band covering 72–100 % of the old interval.
-The 13th had none and is the class-change case below.
+The flag is what keeps tier 3 honest.  Nothing is silently re-pointed: an
+ambiguous or re-classified anchor produces a tie the engineer is asked about, and
+only an endpoint with nothing overlapping it at all is genuinely uncarryable.
+
+Measured on the dev model: tier 2 rescued 12 of 13 lost ties (the boundary had
+moved as little as 4 cm), and tier 3 covers the 13th — a nad=16 band whose column
+came back as nad 6 / 8 / 14.
 
 These tests exercise the pure planner only (no DB).  They speak the rule's own
 vocabulary: "the band came back exactly as it was", "the boundary moved and the
@@ -30,8 +35,8 @@ from uuid import UUID
 from groundmodel.application.geotech_tie_reanchor import (
     REASON_BAND_ABSENT,
     REASON_BOREHOLE_DEFERRED,
-    REASON_CLASS_CHANGED,
-    REASON_INTERVAL_MOVED,
+    REVIEW_AMBIGUOUS_BAND,
+    REVIEW_CLASS_CHANGED,
     BandIdentity,
     CapturedTie,
     RebuiltBand,
@@ -96,8 +101,9 @@ def test_a_band_that_comes_back_identical_re_anchors_the_tie() -> None:
 
     assert not plan.lost
     assert len(plan.matched) == 1
-    matched_tie, new_a, new_b = plan.matched[0]
-    assert matched_tie.source == "manual"
+    match = plan.matched[0]
+    new_a, new_b = match.layer_a_id, match.layer_b_id
+    assert match.tie.source == "manual"
     assert new_a == UUID("33333333-0000-0000-0000-000000000001")
     assert new_b == UUID("33333333-0000-0000-0000-000000000002")
 
@@ -122,7 +128,7 @@ def test_the_boundary_moved_so_the_tie_moves_with_its_band() -> None:
 
     assert not plan.lost
     assert len(plan.matched) == 1
-    _matched_tie, new_a, new_b = plan.matched[0]
+    new_a, new_b = plan.matched[0].layer_a_id, plan.matched[0].layer_b_id
     assert new_a == UUID("33333333-0000-0000-0000-000000000001")
     assert new_b == UUID("33333333-0000-0000-0000-000000000002")
 
@@ -146,7 +152,7 @@ def test_a_band_swallowed_by_a_widened_neighbour_still_carries_its_tie() -> None
     )
 
     assert not plan.lost
-    assert plan.matched[0][1] == UUID("33333333-0000-0000-0000-000000000001")
+    assert plan.matched[0].layer_a_id == UUID("33333333-0000-0000-0000-000000000001")
 
 
 def test_a_band_still_at_its_old_interval_wins_over_one_that_merely_overlaps() -> None:
@@ -169,15 +175,30 @@ def test_a_band_still_at_its_old_interval_wins_over_one_that_merely_overlaps() -
     )
 
     assert not plan.lost
-    assert plan.matched[0][1] == UUID("33333333-0000-0000-0000-000000000001")
+    assert plan.matched[0].layer_a_id == UUID("33333333-0000-0000-0000-000000000001")
 
 
-def test_two_same_class_bands_overlap_it_so_the_tie_is_not_guessed() -> None:
+def test_a_clean_match_carries_no_review_flag() -> None:
+    """A band that came back unchanged needs no second look from the engineer."""
+    id_a = _identity(_INV_A, 2.0, 4.5, 12)
+    id_b = _identity(_INV_B, 2.2, 4.4, 12)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [
+            _band(id_a, "33333333-0000-0000-0000-000000000001"),
+            _band(id_b, "33333333-0000-0000-0000-000000000002"),
+        ],
+    )
+
+    assert plan.matched[0].review_reason is None
+
+
+def test_two_same_class_bands_overlap_it_so_the_tie_is_flagged_not_guessed() -> None:
     """Two candidates of the same class → which one is "the band" is unknowable.
 
-    Following is only safe while the moved band is identifiable.  With two
-    equally valid candidates the planner refuses rather than picking one, and
-    reports the boundary move.
+    The tie is still carried — the engineer accepted it and has not deleted it —
+    but onto the band covering most of where it used to be, and flagged so the
+    choice is theirs to confirm rather than the machine's to make silently.
     """
     id_a = _identity(_INV_A, 2.0, 6.0, 12)
     id_b = _identity(_INV_B, 2.2, 4.4, 12)
@@ -192,16 +213,20 @@ def test_two_same_class_bands_overlap_it_so_the_tie_is_not_guessed() -> None:
         ],
     )
 
-    assert not plan.matched
-    assert plan.lost[0].reason_a == REASON_INTERVAL_MOVED
+    assert not plan.lost
+    assert plan.matched[0].review_reason == REVIEW_AMBIGUOUS_BAND
+    # 2.0–3.9 covers 1.9 m of the old 2.0–6.0; 4.1–6.0 covers 1.9 m too, and the
+    # tie-break is the first in depth order — deterministic either way.
+    assert plan.matched[0].layer_a_id == UUID("33333333-0000-0000-0000-000000000001")
 
 
-def test_a_band_of_a_different_class_is_a_different_band_and_is_not_followed() -> None:
-    """Overlapping is not enough — the class must still agree.
+def test_a_band_whose_class_changed_is_flagged_for_review_not_dropped() -> None:
+    """The class re-derived, so the tie needs a human — but it is not deleted.
 
     Real case: a nad=16 band at 17.640–18.270 came back with nad 6 / 8 / 14 over
-    those depths and no nad=16 anywhere.  Following one of those would silently
-    re-point an accepted tie onto material of a different packing class.
+    those depths and no nad=16 anywhere.  The owner's rule is that an accepted
+    tie never disappears without them deleting it, so it is carried onto the band
+    that now occupies those depths and flagged, never silently re-pointed.
     """
     id_a = _identity(_INV_A, 17.640, 18.270, 16)
     id_b = _identity(_INV_B, 17.400, 18.100, 16)
@@ -214,16 +239,41 @@ def test_a_band_of_a_different_class_is_a_different_band_and_is_not_followed() -
         ],
     )
 
-    assert not plan.matched
-    assert plan.lost[0].reason_a == REASON_INTERVAL_MOVED
+    assert not plan.lost
+    assert plan.matched[0].review_reason == REVIEW_CLASS_CHANGED
+    assert plan.matched[0].layer_a_id == UUID("33333333-0000-0000-0000-000000000001")
 
 
-def test_the_qc_re_derived_a_different_class_so_the_tie_is_lost() -> None:
-    """Same investigation, same interval, different NAD class → no match.
+def test_the_band_covering_most_of_the_old_one_is_the_one_carried() -> None:
+    """Among differently-classed overlaps, the deepest overlap wins.
 
-    This is the case that must never silently re-point: the band occupies the
-    same depths but the rebuild classified it differently, so it is not the
-    band the engineer tied.
+    Real case: nad=6 covers 0.374 m of the old band, nad=8 covers 0.200 m and
+    nad=14 covers 0.056 m.  Picking the largest is deterministic and is the band
+    a reviewer would look at first.
+    """
+    id_a = _identity(_INV_A, 17.640, 18.270, 16)
+    id_b = _identity(_INV_B, 17.400, 18.100, 16)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [
+            _band(_identity(_INV_A, 14.110, 17.840, 8), "33333333-0000-0000-0000-00000000000a"),
+            _band(_identity(_INV_A, 17.840, 18.214, 6), "33333333-0000-0000-0000-00000000000b"),
+            _band(_identity(_INV_A, 18.214, 19.190, 14), "33333333-0000-0000-0000-00000000000c"),
+            _band(id_b, "33333333-0000-0000-0000-000000000002"),
+        ],
+    )
+
+    assert plan.matched[0].layer_a_id == UUID("33333333-0000-0000-0000-00000000000b")
+    assert plan.matched[0].review_reason == REVIEW_CLASS_CHANGED
+
+
+def test_the_qc_re_derived_a_different_class_in_place_and_the_tie_is_flagged() -> None:
+    """Same investigation, same interval, different NAD class → carried, flagged.
+
+    The band occupies exactly the depths the engineer tied, so nothing about the
+    connection's geometry changed; only the derived class did.  That is a
+    judgement call for the engineer, so the tie survives with the flag rather
+    than being decided either way by the machine.
     """
     id_a = _identity(_INV_A, 2.0, 4.5, 12)
     id_b = _identity(_INV_B, 2.2, 4.4, 12)
@@ -236,10 +286,9 @@ def test_the_qc_re_derived_a_different_class_so_the_tie_is_lost() -> None:
         ],
     )
 
-    assert not plan.matched
-    assert plan.lost[0].reason_a is None
-    assert plan.lost[0].reason_b == REASON_CLASS_CHANGED
-    assert plan.loss_reason_counts() == {REASON_CLASS_CHANGED: 1}
+    assert not plan.lost
+    assert plan.matched[0].review_reason == REVIEW_CLASS_CHANGED
+    assert plan.matched[0].layer_b_id == UUID("33333333-0000-0000-0000-000000000002")
 
 
 def test_the_rebuild_draws_no_geology_there_at_all() -> None:
@@ -295,28 +344,23 @@ def test_a_borehole_endpoint_is_reported_as_deferred_not_as_lost_geology() -> No
 def test_both_endpoints_can_fail_for_different_reasons() -> None:
     """A tie reports a reason per endpoint, so the loss can be diagnosed.
 
-    Endpoint A is the ambiguous case — two same-class bands overlap it, so it
-    cannot follow either — and endpoint B was re-classified in place.
+    Only endpoints with nothing overlapping them at all can still be lost, so
+    both sides here are that case: A's column was rebuilt but draws nothing over
+    those depths, and B is a borehole whose bands come later in the build.
     """
-    id_a = _identity(_INV_A, 2.0, 6.0, 12)
+    id_a = _identity(_INV_A, 2.0, 4.5, 12)
     id_b = _identity(_INV_B, 2.2, 4.4, 12)
-    split_upper_a = _identity(_INV_A, 2.0, 3.9, 12)
-    split_lower_a = _identity(_INV_A, 4.1, 6.0, 12)
-    reclassified_b = _identity(_INV_B, 2.2, 4.4, 17)
+    elsewhere_a = _identity(_INV_A, 20.0, 24.0, 12)
     plan = plan_tie_reanchor(
-        [_tie(id_a, id_b)],
-        [
-            _band(split_upper_a, "33333333-0000-0000-0000-000000000001"),
-            _band(split_lower_a, "33333333-0000-0000-0000-000000000003"),
-            _band(reclassified_b, "33333333-0000-0000-0000-000000000002"),
-        ],
+        [_tie(id_a, id_b, kind_b="borehole")],
+        [_band(elsewhere_a, "33333333-0000-0000-0000-000000000001")],
     )
 
     assert not plan.matched
-    assert plan.lost[0].reason_a == REASON_INTERVAL_MOVED
-    assert plan.lost[0].reason_b == REASON_CLASS_CHANGED
+    assert plan.lost[0].reason_a == REASON_BAND_ABSENT
+    assert plan.lost[0].reason_b == REASON_BOREHOLE_DEFERRED
     # One tie, counted once per distinct reason it carries.
-    assert plan.loss_reason_counts() == {REASON_INTERVAL_MOVED: 1, REASON_CLASS_CHANGED: 1}
+    assert plan.loss_reason_counts() == {REASON_BAND_ABSENT: 1, REASON_BOREHOLE_DEFERRED: 1}
 
 
 def test_two_ties_never_re_anchor_onto_the_same_pair_of_bands() -> None:
