@@ -62,6 +62,8 @@ function makeArgs(overrides: Record<string, unknown> = {}) {
     setHasUnsavedMutations: vi.fn(),
     revertToLastSaved: vi.fn().mockResolvedValue(true),
     hasSavedSnapshot: true,
+    clearRecoveryNow: vi.fn().mockResolvedValue(undefined),
+    lastSaveWroteFile: vi.fn().mockReturnValue(true),
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any
@@ -181,5 +183,81 @@ describe('useProjectLifecycle — unsavedSummary feeds the discard prompt', () =
     )
 
     expect(result.current.unsavedSummary.hasSavedSnapshot).toBe(false)
+  })
+})
+
+// Crash detection has no sentinel: "a file present at launch means the
+// previous session reached no clean exit" (docs/design/autosave-recovery.md
+// §4). That only holds if every DECIDED exit deletes the file — and the
+// delete after a save is gated on the FILE write, not on saveProject's
+// return value, because "a failed file write means the delta still has no
+// durable home".
+describe('useProjectLifecycle — every decided exit clears the recovery file', () => {
+  it('clears after a save that actually reached the file', async () => {
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const args = makeArgs({ clearRecoveryNow })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.saveProject()
+    })
+
+    expect(clearRecoveryNow).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the recovery file when the save never reached the file', async () => {
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const args = makeArgs({
+      clearRecoveryNow,
+      lastSaveWroteFile: vi.fn().mockReturnValue(false),
+    })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.saveProject()
+    })
+
+    expect(clearRecoveryNow).not.toHaveBeenCalled()
+  })
+
+  it('clears after Discard — the user threw the unsaved work away', async () => {
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const args = makeArgs({ clearRecoveryNow })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(clearRecoveryNow).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears before telling main it may quit, so the exit is not raced', async () => {
+    const order: string[] = []
+    const clearRecoveryNow = vi.fn().mockImplementation(async () => {
+      order.push('clear')
+    })
+    const notifyQuitDecision = vi.fn().mockImplementation(async () => {
+      order.push('quit')
+    })
+    ;(globalThis as unknown as { window: { electron: Record<string, unknown> } }).window.electron
+      .notifyQuitDecision = notifyQuitDecision
+    const onAppBeforeQuit = (
+      globalThis as unknown as {
+        window: { electron: { onAppBeforeQuit: ReturnType<typeof vi.fn> } }
+      }
+    ).window.electron.onAppBeforeQuit
+
+    // A clean project: main asks, the renderer agrees straight away — and
+    // that agreement IS the decided exit.
+    renderHook(() => useProjectLifecycle(makeArgs({ clearRecoveryNow })))
+    const beforeQuitCb = onAppBeforeQuit.mock.calls[0][0] as () => void
+
+    await act(async () => {
+      beforeQuitCb()
+      await Promise.resolve()
+    })
+
+    expect(order).toEqual(['clear', 'quit'])
   })
 })
