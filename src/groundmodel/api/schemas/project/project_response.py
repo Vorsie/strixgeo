@@ -42,3 +42,29 @@ class ProjectResponse(BaseModel):
     # Always a dict — the column default is ``{}`` so reads never see
     # null. Schema discipline for keys lives at the PATCH endpoint.
     view_state: dict[str, Any] = Field(default_factory=dict)
+    # The two-stage home for the "Fill from boreholes" lumping map.
+    # ``staged`` is written on Apply; ``saved`` is what the last
+    # File → Save committed. Both are exposed on every project read so
+    # the desktop can seed its two in-memory slots on open and keep
+    # deriving dirty from the pair. ``None`` means "no lumping map",
+    # which is NOT the same as a snapshot with an empty ``map``.
+    #
+    # PASS-THROUGH dicts, deliberately NOT typed as ``StratigraphyLumping``.
+    # WHY: ``ProjectResponse`` serialises straight off the ORM row and
+    # ``GET /projects/`` is a ``list[ProjectResponse]``. A single row whose
+    # restored JSONB fails validation would raise ResponseValidationError and
+    # 500 the ENTIRE project list — i.e. one poisoned project takes down the
+    # start screen for every project. Validation belongs on the WRITE path
+    # (``PUT .../staged`` already validates via
+    # ``StratigraphyLumpingStageRequest``); the read path stays
+    # pass-through, exactly like ``view_state``.
+    #
+    # Additive + optional: bundles and clients written before these
+    # columns existed neither send nor read them.
+    stratigraphy_lumping_staged: dict[str, Any] | None = None
+    stratigraphy_lumping_saved: dict[str, Any] | None = None
+    # Renderer-owned monotonic counter bumped on every stage. Exposed so the
+    # crash-recovery prompt can compare it against the revision in the
+    # recovery file (docs/design/autosave-recovery.md §3 — revision wins,
+    # never the clock). ``None`` = never staged.
+    stratigraphy_lumping_revision: int | None = None
