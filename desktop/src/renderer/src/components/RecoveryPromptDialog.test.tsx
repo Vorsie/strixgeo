@@ -81,7 +81,7 @@ describe('RecoveryPromptDialog', () => {
   it('names the destructive action rather than saying OK', () => {
     renderDialog()
     // docs/ux.md: an irreversible action's button names the action.
-    expect(screen.getByTestId('recovery-discard').textContent).toMatch(/Discard unsaved work/i)
+    expect(screen.getByTestId('recovery-discard').textContent).toMatch(/Delete backup/i)
     expect(screen.queryByRole('button', { name: /^OK$/i })).not.toBeInTheDocument()
   })
 
@@ -100,27 +100,22 @@ describe('RecoveryPromptDialog', () => {
     expect(text).not.toMatch(/recover your project/i)
   })
 
-  it('says what actually happens to the copy if the user opens without restoring', () => {
+  it('explains each button in one line, in the owner-approved wording', () => {
     renderDialog()
     const text = dialogText()
-    // Owner decision 2026-08-03: declining PRESERVES the copy, so the dialog
-    // now promises the one thing it previously had to withhold — that the
-    // offer comes back. It is worth promising in as many words: without it,
-    // "Open without restoring" reads like a choice that quietly forfeits the
-    // work, and the engineer clicks Restore defensively.
-    expect(text).toMatch(/offered it again/i)
-    // What a newer crash actually does is TAKE PRECEDENCE, not replace: the
-    // reader prefers the primary slot while it exists, and this copy resurfaces
-    // once that newer one has been answered for. "Replaced only if this session
-    // crashes" described a file the crash overwrites — it does not; the two
-    // copies sit in different slots, and the only thing that overwrites this
-    // one is a second decline.
-    expect(text).toMatch(/offered first/i)
-    expect(text).toMatch(/only .*discard/i)
+    // Owner dogfeed 2026-08-03: the prose version was "too long and unclear
+    // what happens". The body is now a legend — one line per button. The
+    // Restore line's file sentence is the owner's own dictation.
+    expect(text).toMatch(/nothing is saved to the file until you click save in the app/i)
+    // Not-now keeps the copy and promises the re-offer — without that promise
+    // the choice reads as quietly forfeiting the work, and the engineer
+    // clicks Restore defensively.
+    expect(text).toMatch(/offered again next launch/i)
+    // Delete-backup says it is permanent.
+    expect(text).toMatch(/permanently discards/i)
+    // The slot-mechanics prose is gone with everything it explained.
+    expect(text).not.toMatch(/offered first/i)
     expect(text).not.toMatch(/replaced only if/i)
-    // The old copy said this session would overwrite the file. It no longer
-    // can — the declined copy sits in a slot the autosave scheduler never
-    // writes — so saying so would now be the false statement.
     expect(text).not.toMatch(/replaced by this session/i)
   })
 
