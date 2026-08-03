@@ -14,6 +14,18 @@
 //   * Ordering trap: the clear path cancels the pending timers FIRST. A late
 //     timer firing after a clean save resurrects the file and produces a
 //     false recovery offer on the next launch.
+//   * Every clear here is a PRIMARY-SLOT clear
+//     (``deletePrimaryRecovery``), never the both-slots ``deleteRecovery``.
+//     "Open without restoring" preserves the declined copy until the user
+//     discards it (owner decision 2026-08-03), and this scheduler must not be
+//     able to reach that slot: it would otherwise delete a declined copy the
+//     moment this session saved, which is exactly the silent loss the second
+//     slot was added to end. The both-slots delete belongs to the prompt's
+//     Discard button alone.
+//   * The whole scheduler is SUSPENDED while a recovery prompt is up and
+//     unanswered (``suspended``). For that window the files on disk belong to
+//     the crashed session, not this one — see the option's docstring for the
+//     two races that opens.
 //   * The clear is gated on the FILE WRITE, not on a save's return value —
 //     hence ``canClearOnClean``. A save that never reached the ``.strix``
 //     still resets the session sets and the mutations flag, so the watched
@@ -66,15 +78,40 @@ export interface UseRecoveryAutosaveOptions extends RecoverySnapshotInputs {
    * caller with no save model behind it (tests, future embedders).
    */
   canClearOnClean?: () => boolean
+  /**
+   * Hold every write AND every clear — set while a recovery prompt is up and
+   * unanswered.
+   *
+   * For that window only, the recovery files on disk are NOT this session's:
+   * they hold the crashed session's work, and the user's answer is about to
+   * move them between slots. Two races follow from letting the scheduler run
+   * into it:
+   *
+   *   * a debounced write lands between the answer handler's two IPC calls and
+   *     replaces the crashed copy with this session's much thinner delta —
+   *     which the decline then dutifully preserves, keeping the promise in
+   *     name only;
+   *   * a decided exit (quit, close, save) taken while the prompt is still
+   *     up runs the ordinary clear and DELETES a crash copy the user never
+   *     answered for. Quitting mid-question must lose nothing; the offer comes
+   *     back next launch.
+   *
+   * Nothing is scheduled at all while this is true — a gate inside the timer
+   * callback would still leave the timers armed across the answer sequence,
+   * and the effect re-evaluates on the flip back to false, which re-arms.
+   */
+  suspended?: boolean
 }
 
 /** What the lifecycle needs from the scheduler. */
 export interface UseRecoveryAutosaveResult {
   /**
-   * Cancel every pending write and delete this project's recovery file.
+   * Cancel every pending write and delete this session's recovery file.
    *
    * Called on each DECIDED exit — save, discard, clean close — because the
-   * file's existence is the crash signal.
+   * file's existence is the crash signal. Clears the primary slot only: a
+   * copy the user declined in an earlier session is not this session's to
+   * throw away.
    */
   clearRecoveryNow: () => Promise<void>
 }
@@ -124,6 +161,7 @@ export function useRecoveryAutosave(
 ): UseRecoveryAutosaveResult {
   const projectId = opts.project?.id ?? null
   const atRisk = projectId !== null && hasStateAtRisk(opts)
+  const suspended = opts.suspended === true
 
   // The timer callbacks must see the CURRENT values, not the ones captured
   // when the timer was armed — otherwise a debounced write would persist the
@@ -186,6 +224,16 @@ export function useRecoveryAutosave(
 
   useEffect(() => {
     if (projectId === null) return
+    if (suspended) {
+      // Nothing scheduled and nothing cleared while the prompt is unanswered.
+      // Cancelling here matters as much as not arming: a timer armed just
+      // before the prompt appeared would otherwise fire straight into the
+      // answer sequence. ``wasAtRisk`` is deliberately left alone, so a clean
+      // transition that happened under the prompt still clears once the user
+      // has answered.
+      cancelTimers()
+      return
+    }
     if (!atRisk) {
       if (wasAtRisk.current) {
         // Ordering trap (§4): kill the timers BEFORE deleting, or a late
@@ -204,7 +252,7 @@ export function useRecoveryAutosave(
           return
         }
         void window.electron
-          .deleteRecovery(projectId)
+          .deletePrimaryRecovery(projectId)
           .then(() => log.debug('recovery', `cleared recovery file for ${projectId}`))
           .catch(err => log.warn('recovery', `recovery delete failed for ${projectId}`, err))
       }
@@ -227,6 +275,7 @@ export function useRecoveryAutosave(
   }, [
     projectId,
     atRisk,
+    suspended,
     cancelTimers,
     writeNow,
     // The watched values, by identity — each of these changes reference when
@@ -252,16 +301,31 @@ export function useRecoveryAutosave(
   ])
 
   const clearRecoveryNow = useCallback(async (): Promise<void> => {
+    // Timers die whatever else happens: a late write after a decided exit
+    // resurrects the file and fakes a crash at the next launch.
     cancelTimers()
+    if (suspended) {
+      // A decided exit taken while a recovery prompt is still unanswered. The
+      // file on disk is the crashed session's, not this one's, so deleting it
+      // would destroy work the user was in the middle of being asked about —
+      // and never be offered again. INFO, not DEBUG: this is the line that
+      // explains "I quit and it kept asking me", which is the intended
+      // behaviour rather than a bug.
+      log.info(
+        'recovery',
+        `exit while the recovery prompt for ${projectId} is unanswered — keeping the copy`,
+      )
+      return
+    }
     wasAtRisk.current = false
     if (projectId === null) return
     try {
-      await window.electron.deleteRecovery(projectId)
+      await window.electron.deletePrimaryRecovery(projectId)
       log.debug('recovery', `cleared recovery file for ${projectId}`)
     } catch (err) {
       log.warn('recovery', `recovery delete failed for ${projectId}`, err)
     }
-  }, [projectId, cancelTimers])
+  }, [projectId, suspended, cancelTimers])
 
   return { clearRecoveryNow }
 }
