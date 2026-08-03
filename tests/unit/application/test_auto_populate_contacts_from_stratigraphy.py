@@ -824,6 +824,7 @@ async def test_execute_unselected_formation_deleted():
             model_id=model_id,
             borehole_ids=[],
             selected_keys=["Boom Klei"],  # "diest zand" not in selected set
+            mode="overwrite",
         )
 
     assert old_formation.id in outcome.deleted_formation_ids
@@ -875,6 +876,7 @@ async def test_execute_selected_canonical_variant_not_deleted():
             model_id=model_id,
             borehole_ids=[],
             selected_keys=[expected_key],
+            mode="overwrite",
         )
 
     assert formation.id not in outcome.deleted_formation_ids
@@ -915,6 +917,7 @@ async def test_execute_deleted_ids_returned_in_outcome():
             model_id=model_id,
             borehole_ids=[],
             selected_keys=["boom klei"],  # only "boom klei" canonical key
+            mode="overwrite",
         )
 
     assert set(outcome.deleted_formation_ids) == {deleted_a.id, deleted_b.id}
@@ -976,6 +979,7 @@ async def test_execute_sibling_model_formation_not_deleted():
             # Only "boom klei" is selected; "diest zand" and "sibling only formation"
             # are not in the set.
             selected_keys=["boom klei"],
+            mode="overwrite",
         )
 
     # The in-this-model unselected formation IS deleted.
@@ -985,6 +989,134 @@ async def test_execute_sibling_model_formation_not_deleted():
     # The selected in-model formation is NOT deleted.
     assert in_model_formation.id not in outcome.deleted_formation_ids
     assert len(outcome.deleted_formation_ids) == 1
+
+
+# ---------------------------------------------------------------------------
+# execute — add / overwrite mode (2026-08-03 data-loss ruling)
+#
+# The owner opened "Fill from boreholes" to ADD one unit and lost four saved
+# geological units, because passing ``selected_keys`` implied "delete
+# everything else".  The ruling: Apply asks "add to existing model, or
+# overwrite model", and ADD is the safe default so an omitted field can
+# never mass-delete.
+#
+# The tests below are phrased in the ruling's own words, not the impl's.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_add_mode_never_deletes_an_unselected_formation():
+    """In ADD mode a formation the user did not select is left alone.
+
+    The user picked one unit to add; the four units already in the model that
+    are not in that selection must still be there afterwards.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    untouched = _formation_stub(name="Diest Zand")
+
+    session = _make_session_with_formations(boreholes=[], existing_formations=[untouched])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            selected_keys=["Boom Klei"],  # "diest zand" deliberately unselected
+            mode="add",
+        )
+
+    assert outcome.deleted_formation_ids == []
+    assert outcome.deleted_formation_names == []
+    assert outcome.mode == "add"
+
+
+@pytest.mark.asyncio
+async def test_execute_without_a_mode_defaults_to_add_and_deletes_nothing():
+    """Omitting the mode is the same as asking to add — nothing is deleted.
+
+    An old client that never learned about the mode field must not be able to
+    mass-delete the user's model by omission.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    untouched = _formation_stub(name="Diest Zand")
+
+    session = _make_session_with_formations(boreholes=[], existing_formations=[untouched])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            selected_keys=["Boom Klei"],
+            # no mode argument at all
+        )
+
+    assert outcome.deleted_formation_ids == []
+    assert outcome.mode == "add"
+
+
+@pytest.mark.asyncio
+async def test_execute_overwrite_mode_names_the_formations_it_deleted():
+    """In OVERWRITE mode the outcome names what died, not just its ids.
+
+    A toast that says "removes 4 units" without naming them is useless to the
+    engineer deciding whether to go through with it.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    kept = _formation_stub(name="Boom Klei")
+    doomed_a = _formation_stub(name="Diest Zand")
+    doomed_b = _formation_stub(name="Quartair")
+
+    session = _make_session_with_formations(
+        boreholes=[],
+        existing_formations=[kept, doomed_a, doomed_b],
+    )
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            selected_keys=["boom klei"],
+            mode="overwrite",
+        )
+
+    assert set(outcome.deleted_formation_ids) == {doomed_a.id, doomed_b.id}
+    assert set(outcome.deleted_formation_names) == {"Diest Zand", "Quartair"}
+    assert outcome.mode == "overwrite"
 
 
 # ---------------------------------------------------------------------------
