@@ -133,11 +133,14 @@ function installStoreBackedElectron(initial: {
   return stub as unknown as ElectronStub & { slots: { primary: unknown; declined: unknown } }
 }
 
-function mount(projectId: string | null = PROJECT_ID) {
+function mount(
+  projectId: string | null = PROJECT_ID,
+  onDiscardResidue?: () => Promise<void>,
+) {
   const onRestore = vi.fn()
   const hook = renderHook(
     ({ id }: { id: string | null }) =>
-      useRecoveryOffer({ projectId: id, projectName: 'Site A', onRestore }),
+      useRecoveryOffer({ projectId: id, projectName: 'Site A', onRestore, onDiscardResidue }),
     { initialProps: { id: projectId } },
   )
   return { hook, onRestore }
@@ -462,6 +465,45 @@ describe('useRecoveryOffer', () => {
     })
     expect(electron.deleteRecovery).toHaveBeenCalledWith(PROJECT_ID)
     expect(onRestore).not.toHaveBeenCalled()
+    expect(hook.result.current.offer).toBeNull()
+  })
+
+  it('discard destroys the residue too — no traces of the backup left', async () => {
+    // Owner ruling 2026-08-03: "fully delete, no traces of backup left". The
+    // lumping map is the one backup item with a second home (the database's
+    // staged slot); Delete backup must reset it, AFTER the file is gone, so
+    // a residue failure can never leave the file alive behind a "deleted"
+    // answer.
+    const electron = installElectron()
+    const order: string[] = []
+    electron.deleteRecovery.mockImplementation(async () => {
+      order.push('delete')
+      return true
+    })
+    const onDiscardResidue = vi.fn(async () => {
+      order.push('residue')
+    })
+    const { hook } = mount(PROJECT_ID, onDiscardResidue)
+    await waitFor(() => expect(hook.result.current.offer).not.toBeNull())
+    await act(async () => {
+      await hook.result.current.discardOffer()
+    })
+    expect(order).toEqual(['delete', 'residue'])
+    expect(hook.result.current.offer).toBeNull()
+  })
+
+  it('closes the prompt even when the residue cleanup fails', async () => {
+    installElectron()
+    const onDiscardResidue = vi.fn(async () => {
+      throw new Error('backend unreachable')
+    })
+    const { hook } = mount(PROJECT_ID, onDiscardResidue)
+    await waitFor(() => expect(hook.result.current.offer).not.toBeNull())
+    await act(async () => {
+      await hook.result.current.discardOffer()
+    })
+    // Answered is answered — the user is not stranded in a dialog because a
+    // secondary cleanup failed; the failure is logged instead.
     expect(hook.result.current.offer).toBeNull()
   })
 
