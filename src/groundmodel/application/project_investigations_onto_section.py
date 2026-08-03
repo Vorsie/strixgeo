@@ -11,11 +11,12 @@ across the three callers.
 
 Deliberately NOT used by two structurally-different projection sites:
 
-* ``BuildSectionSnapshot`` additionally drops projections whose along-distance
-  falls outside ``[0, section_length]`` and builds rich
-  ``SectionInvestigationProjection`` objects (surface elevation, contacts), and
-  raises ``ParseError`` on a missing section — a richer superset, not the same
-  block.
+* ``BuildSectionSnapshot`` builds rich ``SectionInvestigationProjection``
+  objects (surface elevation, contacts) and raises ``ParseError`` on a missing
+  section — a richer superset, not the same block. It applies the SAME
+  on-the-section rule: both call
+  ``infrastructure.gis.section_projection.project_onto_section_corridor``, which
+  is the single definition of "inside the corridor and between the endpoints".
 * ``MaterializeWedgeTipsForFormation`` projects per contact-row across multiple
   sections, combining each with an elevation, and consumes the lower-level
   ``project_point_onto_line`` directly — it never builds this dict.
@@ -34,7 +35,7 @@ from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.gis.section_projection import (
     SectionEndpoints,
-    project_point_onto_line,
+    project_onto_section_corridor,
 )
 
 
@@ -116,7 +117,14 @@ async def project_investigations_onto_section(
         for row in (await session.execute(stmt)).all():
             if row.id in excluded:
                 continue
-            res = project_point_onto_line(endpoints, row.location_x, row.location_y)
-            if res is not None and abs(res.offset) <= section.projection_buffer_m:
+            # Same on-the-section rule the section view / DXF / PDF render with
+            # (BuildSectionSnapshot) and the renderer draws with
+            # (sectionProjection.ts): inside the corridor AND between the two
+            # endpoints. A lateral-offset-only filter would hand the adjacency
+            # consumers a column that is not drawn on this section.
+            res = project_onto_section_corridor(
+                endpoints, row.location_x, row.location_y, section.projection_buffer_m
+            )
+            if res is not None:
                 along[row.id] = res.along
     return along
