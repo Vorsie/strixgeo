@@ -45,7 +45,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import Geolog
 from groundmodel.infrastructure.db.repositories.project_repository import ProjectRepository
 from groundmodel.infrastructure.gis.section_projection import (
     SectionEndpoints,
-    project_point_onto_line,
+    project_onto_section_corridor,
     section_length,
 )
 from groundmodel.shared.exceptions import ParseError
@@ -151,12 +151,10 @@ class BuildSectionSnapshot(GroundModelLogger):
         for cpt in cpts:
             if cpt.id in excluded_cpt_ids:
                 continue
-            proj = project_point_onto_line(endpoints, cpt.location_x, cpt.location_y)
+            proj = project_onto_section_corridor(
+                endpoints, cpt.location_x, cpt.location_y, buffer_m
+            )
             if proj is None:
-                continue
-            if proj.along < 0 or proj.along > length:
-                continue
-            if abs(proj.offset) > buffer_m:
                 continue
             investigations.append(
                 SectionInvestigationProjection(
@@ -171,12 +169,8 @@ class BuildSectionSnapshot(GroundModelLogger):
         for bh in boreholes:
             if bh.id in excluded_borehole_ids:
                 continue
-            proj = project_point_onto_line(endpoints, bh.location_x, bh.location_y)
+            proj = project_onto_section_corridor(endpoints, bh.location_x, bh.location_y, buffer_m)
             if proj is None:
-                continue
-            if proj.along < 0 or proj.along > length:
-                continue
-            if abs(proj.offset) > buffer_m:
                 continue
             investigations.append(
                 SectionInvestigationProjection(
