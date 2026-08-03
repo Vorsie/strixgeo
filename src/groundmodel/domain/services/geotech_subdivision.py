@@ -25,7 +25,7 @@ from groundmodel.shared.constants.litho_constants import BaseLithology
 # so a single dropout never flags. Kept next to their sole caller (they encode this
 # service's policy, not a shared vocabulary).
 QC_REVIEW_MISSING_FRACTION = 0.40  # >40% of unit thickness lacking valid qc → review
-QC_REVIEW_MAX_GAP_M = 0.05  # a continuous ≥5 cm span with no valid qc → review
+QC_REVIEW_MAX_GAP_M = 0.05  # a ≥5 cm continuous RUN of bad readings → review
 
 
 def _is_valid_qc(q: float | None) -> bool:
@@ -51,11 +51,28 @@ def _missing_qc_coverage(
 ) -> tuple[float, float]:
     """Measure how much of a segment lacks valid qc, from its in-range samples.
 
-    Coverage is judged only over the depth span the CPT actually reaches (first to
-    last in-range sample): a gap is the depth between two consecutive *valid* samples
-    beyond the nominal sample spacing — i.e. the stretch a dropout/void run leaves
-    with no usable reading. Sub-CPT-coverage at the segment ends is NOT counted as
-    missing (that is coverage limit, not corrupt data).
+    The two review rules measure two different things, so this returns two
+    independently-derived numbers:
+
+    * ``max_gap_m`` — the depth actually SPANNED by a run of bad readings, first
+      invalid sample to last invalid sample of that run. Measuring the run itself
+      (rather than the distance between the valid samples bracketing it) is what
+      makes the owner's rule "one isolated bad point never flags a unit" hold at
+      every sample spacing: a single dropout spans 0 m whether the CPT logs at
+      2 cm or at 20 cm. Under the old spacing-relative formula the same single
+      dropout on a 5 cm logger measured exactly 5 cm and voided the whole unit.
+    * ``missing_fraction`` — how much of the unit's thickness has NO reading,
+      accumulated PER INVALID SAMPLE (each one covers its own nominal sample
+      interval). Deriving this from the run span too would make scattered
+      dropouts free: a cone returning every other sample void has runs of length
+      one, span 0 m, and would score 0 % missing while having given the engineer
+      half a unit's worth of data.
+
+    Only samples the cone wrote and the validator rejected count; a stretch the
+    cone simply did not sample (a coarser logging interval, a rod-change depth
+    jump, an electric→mechanical increment change mid-test) contributes nothing,
+    because nothing there is corrupt. Sub-CPT-coverage at the segment ends is NOT
+    counted as missing either (that is coverage limit, not corrupt data).
 
     Parameters
     ----------
@@ -67,23 +84,43 @@ def _missing_qc_coverage(
     Returns
     -------
     tuple[float, float]
-        ``(missing_fraction, max_gap_m)`` — the summed gap length as a fraction of
-        segment thickness, and the single longest continuous gap (metres). When no
-        sample carries valid qc, returns ``(1.0, thickness)`` (fully missing).
+        ``(missing_fraction, max_gap_m)`` — the summed nominal interval of the
+        invalid samples as a fraction of segment thickness, and the single longest
+        continuous run span (metres). When no sample carries valid qc, returns
+        ``(1.0, thickness)`` (fully missing).
     """
     thickness = max(segment_base_m - segment_top_m, 1e-9)
-    valid_depths = sorted(d for d, q in in_range if _is_valid_qc(q))
-    if not valid_depths:
+    if not any(_is_valid_qc(q) for _d, q in in_range):
         return 1.0, thickness
-    nominal = _median_increment([d for d, _q in in_range])
-    total_missing = 0.0
+    ordered = sorted(in_range, key=lambda dq: dq[0])
+    # Each invalid sample stands for one logging interval of unread profile. The
+    # median spacing is the honest nominal for that: it is immune to the rod-change
+    # jumps and method switches that a mean would smear across the whole unit.
+    nominal = _median_increment([d for d, _q in ordered])
+    invalid_counted = 0  # invalid samples inside a counted (bracketed) run
     max_gap = 0.0
-    for a, b in zip(valid_depths, valid_depths[1:]):
-        gap = (b - a) - nominal  # depth with no valid reading beyond normal spacing
-        if gap > 0.0:
-            total_missing += gap
-            max_gap = max(max_gap, gap)
-    return total_missing / thickness, max_gap
+    run_start: float | None = None  # depth of the first invalid sample of the run
+    run_end: float | None = None  # depth of the last invalid sample seen so far
+    run_len = 0  # invalid samples in the run so far
+    seen_valid = False  # a leading bad run is coverage limit, not a gap
+    for depth, q in ordered:
+        if _is_valid_qc(q):
+            if run_start is not None and run_end is not None:
+                max_gap = max(max_gap, run_end - run_start)
+                invalid_counted += run_len
+            run_start = run_end = None
+            run_len = 0
+            seen_valid = True
+            continue
+        if not seen_valid:
+            continue
+        if run_start is None:
+            run_start = depth
+        run_end = depth
+        run_len += 1
+    # A trailing bad run (no valid sample after it) is left uncounted for the
+    # same reason as a leading one: the segment simply stops being covered.
+    return min(invalid_counted * nominal / thickness, 1.0), max_gap
 
 
 def _persistence_filter(mask: list[bool], persist: int) -> list[bool]:
