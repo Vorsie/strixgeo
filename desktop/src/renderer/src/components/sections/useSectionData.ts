@@ -42,6 +42,7 @@ import {
   type DemSamplePoint,
 } from '../../api/client'
 import { log } from '../../utils/log'
+import { implausibleSectionCoordinates } from '../../utils/sectionCoordinatePlausibility'
 import {
   investigationsOnSection,
   type ProjectedInvestigation,
@@ -198,6 +199,17 @@ export function useSectionData(
     const dy = section.end_y - section.start_y
     if (dx * dx + dy * dy < 1) {
       log.debug('dem', `skipping fetch — degenerate section (length<1m) ${section.id}`)
+      return
+    }
+    // Endpoints that cannot be map coordinates never reach the network. The
+    // length guard above cannot see them (the dev DB's junk rows are exactly
+    // 1.0 m long, and 1 < 1 is false) — see sectionCoordinatePlausibility.ts
+    // for the SELECT that named the two offending rows. WARN, not debug: a
+    // section whose coordinates are not map coordinates is a data defect the
+    // engineer must see, and SectionsCanvas raises the matching toast.
+    const implausible = implausibleSectionCoordinates(section)
+    if (implausible) {
+      log.warn('dem', `skipping fetch for section ${section.id} — ${implausible}`)
       return
     }
     api.dem
