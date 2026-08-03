@@ -37,10 +37,14 @@ import { useShell } from '../../ShellContext'
 import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
+import ConfirmDialog from '../../../components/ui/ConfirmDialog'
 import DedupeContactsConfirmDialog from '../../../components/DedupeContactsConfirmDialog'
 import { useDedupeContactsConfirm } from '../../../hooks/useDedupeContactsConfirm'
 import { countDuplicateContacts } from '../../../utils/duplicateContacts'
+import { computeDoomedFormations } from '../../../utils/formationDeletionScope'
+import type { DoomedFormation } from '../../../utils/formationDeletionScope'
 import FormationSelectionDialog from './FormationSelectionDialog'
+import type { AutoPopulateMode } from '../../../api/client'
 import type { FormationCandidate } from '../../../hooks/useGeologicalModel'
 import {
   resetCameraCallback,
@@ -91,6 +95,14 @@ export default function GeologyToolbar(): JSX.Element {
   // after manual_map changes and when applying the confirmed selection.
   const [pendingBoreholeIds, setPendingBoreholeIds] = useState<string[]>([])
   const [applying, setApplying] = useState(false)
+  // A confirmed selection waiting on the add-vs-overwrite answer. Non-null
+  // ONLY when the selection would remove something; a pure addition never
+  // parks here. Carries the doomed units so the copy can name them.
+  const [pendingApply, setPendingApply] = useState<{
+    selectedKeys: ReadonlySet<string>
+    manualMap: Record<string, string>
+    doomed: DoomedFormation[]
+  } | null>(null)
   // True while a map-change re-discover is in flight — drives the "Updating…"
   // label on the collision panel so the user sees feedback during the debounce
   // window and the subsequent network round-trip.
@@ -229,10 +241,17 @@ export default function GeologyToolbar(): JSX.Element {
   //    time.  The SAME map used for the last preview is forwarded directly to
   //    the apply call — no re-discover between dialog confirm and the API call.
   //    This preserves the discover ≡ apply invariant the backend enforces.
-  async function handleSelectionConfirm(
+  //
+  //    Apply is where the 2026-08-03 data loss happened: a run meant to ADD one
+  //    unit removed four saved ones, because a selection was, by itself, an
+  //    instruction to delete everything else.  So Apply now asks — but ONLY
+  //    when something would actually be removed.  A pure addition is harmless
+  //    and gets no dialog; putting one there would train the engineer to click
+  //    through the prompt that matters.
+  function handleSelectionConfirm(
     selectedKeys: ReadonlySet<string>,
     manualMap: Record<string, string>,
-  ): Promise<void> {
+  ): void {
     setSelectionDialogOpen(false)
     // Cancel any pending debounce timer — the dialog is closing; stale
     // collision updates arriving after this point would be discarded by the
@@ -242,12 +261,29 @@ export default function GeologyToolbar(): JSX.Element {
       mapChangeDebounceRef.current = null
     }
     setUpdatingCollisions(false)
+    const doomed = computeDoomedFormations(formations, contacts, selectedKeys)
+    if (doomed.length === 0) {
+      void runApply(selectedKeys, manualMap, 'add')
+      return
+    }
+    setPendingApply({ selectedKeys, manualMap, doomed })
+  }
+
+  // Fire the actual apply once the mode is settled — either because nothing
+  // would be removed, or because the user answered the prompt.
+  async function runApply(
+    selectedKeys: ReadonlySet<string>,
+    manualMap: Record<string, string>,
+    mode: AutoPopulateMode,
+  ): Promise<void> {
+    setPendingApply(null)
     setApplying(true)
     try {
       await applyBoreholeFormationSelection(
         selectedKeys,
         pendingBoreholeIds,
         Object.keys(manualMap).length > 0 ? manualMap : undefined,
+        mode,
       )
       // Stage-on-apply is handled inside applyBoreholeFormationSelection:
       // it calls stageLumping (injected into useGeologicalModel from App.tsx)
@@ -443,7 +479,7 @@ export default function GeologyToolbar(): JSX.Element {
         currentContacts={contacts}
         collisionsUpdating={updatingCollisions}
         onManualMapChange={handleManualMapChange}
-        onConfirm={(selectedKeys, manualMap) => void handleSelectionConfirm(selectedKeys, manualMap)}
+        onConfirm={handleSelectionConfirm}
         onCancel={() => {
           setSelectionDialogOpen(false)
           setPendingBoreholeIds([])
@@ -453,6 +489,70 @@ export default function GeologyToolbar(): JSX.Element {
             clearTimeout(mapChangeDebounceRef.current)
             mapChangeDebounceRef.current = null
           }
+        }}
+      />
+
+      {/* Add-vs-overwrite prompt (2026-08-03 data-loss ruling).
+          Shown ONLY when the selection would remove existing units — a pure
+          addition applies without asking.  Cancel is default-focused and
+          leftmost (docs/ux.md irreversible-action rules); the destructive
+          option is the middle button and names every unit it would remove, so
+          the choice is made against facts rather than a count. */}
+      <ConfirmDialog
+        open={pendingApply !== null}
+        labelledBy="fill-mode-title"
+        testid="fill-mode-confirm-dialog"
+        cardClassName="w-[26rem]"
+        title="Add to this model, or replace it?"
+        body={
+          <>
+            <p>
+              Your selection does not include{' '}
+              <span className="font-medium text-text-primary">
+                {pendingApply?.doomed.length ?? 0} unit
+                {(pendingApply?.doomed.length ?? 0) === 1 ? '' : 's'}
+              </span>{' '}
+              already in this model.
+            </p>
+            <p className="mt-2">
+              <span className="font-medium text-text-primary">Add to model</span> keeps
+              them and only adds what you selected.
+            </p>
+            <p className="mt-1 text-status-danger">
+              <span className="font-medium">Overwrite model</span> permanently removes{' '}
+              {pendingApply?.doomed.length ?? 0} unit
+              {(pendingApply?.doomed.length ?? 0) === 1 ? '' : 's'} not in your selection:{' '}
+              {(pendingApply?.doomed ?? []).map(f => f.name).join(', ')}
+              {' — '}and every contact on them.
+            </p>
+          </>
+        }
+        secondary={{
+          label: 'Overwrite model',
+          variant: 'danger',
+          testid: 'fill-mode-overwrite',
+          onClick: () => {
+            if (pendingApply === null) return
+            void runApply(pendingApply.selectedKeys, pendingApply.manualMap, 'overwrite')
+          },
+        }}
+        confirm={{
+          label: 'Add to model',
+          variant: 'primary',
+          testid: 'fill-mode-add',
+          onClick: () => {
+            if (pendingApply === null) return
+            void runApply(pendingApply.selectedKeys, pendingApply.manualMap, 'add')
+          },
+        }}
+        cancelTestid="fill-mode-cancel"
+        onCancel={() => {
+          // Cancel abandons the whole Apply — nothing is created and nothing is
+          // removed. The selection dialog is already closed; reopening Fill
+          // restores it from the persisted lumping snapshot.
+          setPendingApply(null)
+          setPendingBoreholeIds([])
+          setCollisions([])
         }}
       />
 
