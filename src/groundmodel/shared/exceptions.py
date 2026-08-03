@@ -34,6 +34,83 @@ class DuplicateCptError(GroundModelError):
         self.existing_id = existing_id
 
 
+class CptRefreshConfirmationRequiredError(GroundModelError):
+    """Raised when re-importing a CPT would overwrite stored data unconfirmed.
+
+    Replacing an existing CPT's series is IRREVERSIBLE — the previous parse is
+    gone and every contact anchored on it now sits against different depths.
+    ``docs/ux.md`` ("Reversible vs irreversible") makes a confirmation dialog
+    the only protection against that class of mistake, so the import refuses
+    until the caller re-posts with ``confirm_refresh=true``.
+
+    Carries the diff the dialog shows, so the engineer decides on numbers
+    rather than on a filename.
+
+    Parameters
+    ----------
+    existing_id : UUID
+        Row that would be overwritten.
+    name : str
+        Display name of the stored CPT.
+    old_max_depth_m, new_max_depth_m : float | None
+        Deepest reading before and after, in metres.
+    old_n_rows, new_n_rows : int | None
+        Row counts before and after.
+    n_errors, n_warnings : int
+        Issue counts from the FRESH parse.
+    """
+
+    def __init__(
+        self,
+        existing_id: UUID,
+        name: str,
+        *,
+        old_max_depth_m: float | None,
+        new_max_depth_m: float | None,
+        old_n_rows: int | None,
+        new_n_rows: int | None,
+        n_errors: int,
+        n_warnings: int,
+    ) -> None:
+        """Initialise with the row identity and the old-vs-new diff."""
+        super().__init__(
+            f"CPT {name!r} is already in this project; re-importing replaces its stored "
+            f"data ({old_n_rows} rows to {old_max_depth_m} m → {new_n_rows} rows to "
+            f"{new_max_depth_m} m). Confirm to replace."
+        )
+        self.existing_id = existing_id
+        self.name = name
+        self.old_max_depth_m = old_max_depth_m
+        self.new_max_depth_m = new_max_depth_m
+        self.old_n_rows = old_n_rows
+        self.new_n_rows = new_n_rows
+        self.n_errors = n_errors
+        self.n_warnings = n_warnings
+
+
+class CptRefreshRefusedError(GroundModelError):
+    """Raised when a fresh parse is too broken to overwrite stored data with.
+
+    A refresh is destructive and has no undo, so a file that parsed to nothing
+    usable must never replace a good series — a truncated download or the wrong
+    revision of a file would otherwise silently destroy the stored measurement.
+    Refused regardless of confirmation: the engineer cannot consent their way
+    into overwriting good data with an empty parse.
+
+    Parameters
+    ----------
+    reason : str
+        Machine-readable reason (``"no_rows"`` / ``"parse_errors"``).
+    message : str
+        Human-readable refusal naming what is wrong with the file.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        """Initialise with the named reason and the human-readable message."""
+        super().__init__(message)
+        self.reason = reason
+
+
 class LithoLayerOverlapError(GroundModelError):
     """Raised when a litho-layer edit would overlap an accepted sibling on its column.
 
@@ -92,3 +169,59 @@ class CrossLithoBodyCorrelationError(GroundModelError):
             "these bands are in different litho bodies — "
             "correlate the lithology first in the litho stage"
         )
+
+
+class DemExtentRefusedError(GroundModelError):
+    """Raised when a DEM tile request's extent cannot be a real place.
+
+    Guards the WCS providers against extents that no upstream can answer:
+    coordinates outside the project CRS's own area of use (the classic case is
+    an extent anchored at (0,0) — section-space or zeroed coordinates that were
+    never map coordinates), a non-finite bound, or a span so large the tile
+    would be hundreds of megapixels.
+
+    Deliberately NOT an ``httpx`` error: this request never reaches the
+    network. The router maps it to HTTP 422 (Unprocessable Entity) with the
+    refused extent quoted, so the caller sees WHICH numbers were wrong instead
+    of a generic "DEM service unavailable".
+
+    Parameters
+    ----------
+    message : str
+        Human-readable refusal naming the extent and the accepted domain.
+    extent : tuple[float, float, float, float]
+        The refused ``(min_x, min_y, max_x, max_y)``, echoed to the client.
+    """
+
+    def __init__(self, message: str, extent: tuple[float, float, float, float]) -> None:
+        """Initialise with the refusal message and the offending extent."""
+        super().__init__(message)
+        self.extent = extent
+
+
+class DemUpstreamRecentlyFailedError(GroundModelError):
+    """Raised when a DEM tile key failed upstream a short time ago.
+
+    The negative cache (see ``dem_negative_cache.py``) remembers the exact tile
+    key a PERMANENT upstream request failure occurred for. Re-asking for the
+    same key inside the TTL raises this instead of re-issuing the request — a UI
+    that re-mounts and re-fetches cannot turn one bad extent into a request
+    flood.
+
+    The routers map it to 502 on ``/dem/sample`` (the section's surface line is
+    optional — the panel renders without it) and to 503 on the ground-surface
+    build (the build cannot proceed and the caller should retry later). Both are
+    documented in ``docs/api.md``.
+
+    Parameters
+    ----------
+    message : str
+        Human-readable message naming the key and how long ago it failed.
+    retry_after_seconds : float
+        Seconds until the key is retried against the network.
+    """
+
+    def __init__(self, message: str, retry_after_seconds: float) -> None:
+        """Initialise with the message and the remaining suppression window."""
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
