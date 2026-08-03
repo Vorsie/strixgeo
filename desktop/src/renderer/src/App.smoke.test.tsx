@@ -86,7 +86,10 @@ function makeUseProjectStub(): UseProject {
     // session that never saved has no failed write to distrust, so the
     // answer is yes — the two flags differ for exactly that reason.
     recoveryClearAllowed: vi.fn().mockReturnValue(true),
-    revertToLastSaved: vi.fn().mockResolvedValue(false),
+    // Discriminated outcome, not a boolean: this stub is the never-saved
+    // project, whose Discard deletes the session creates. A refusal or a
+    // failure is a different arm entirely (see useProjectLifecycle.test.ts).
+    revertToLastSaved: vi.fn().mockResolvedValue('no-snapshot'),
     saveAsProject: vi.fn().mockResolvedValue(null),
     discardEdits: vi.fn(),
     archiveCurrent: vi.fn().mockResolvedValue(undefined),
