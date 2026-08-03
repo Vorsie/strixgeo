@@ -292,6 +292,32 @@ def test_absent_formation_at_column_inherits_next_deeper_top() -> None:
     assert "# absent — zero thickness" in script
 
 
+def test_deepest_layer_gets_a_base_level_at_the_column_bottom() -> None:
+    """A borehole with N soil layers has N+1 level boundaries.
+
+    Boundary N is the BASE of the deepest layer — the bottom of the model.
+    Without it the deepest unit runs to whatever base PLAXIS defaults to
+    rather than to the depth the investigation actually reached.
+    """
+    snapshot = _snapshot(
+        layers=[
+            _layer(formation_name="A", top=0.0, base=2.0, x=0.0, y=0.0, surface_z=10.0),
+            _layer(formation_name="B", top=2.0, base=8.0, x=0.0, y=0.0, surface_z=10.0),
+        ],
+        formations=[
+            FormationDisplay(name="A", code=None, display_order=1, color="#ccc"),
+            FormationDisplay(name="B", code=None, display_order=0, color="#ccc"),
+        ],
+    )
+
+    script = _decode(PlaxisExporter().export(snapshot))
+
+    # Two layers → three boundaries: 10.0 (top), 8.0 (contact), 2.0 (base
+    # of B = surface 10 − deepest base 8).
+    assert script.count("g_i.setsoillayerlevel(") == 3
+    assert "g_i.setsoillayerlevel(bh_0, 2, 2.0)" in script
+
+
 # ---------------------------------------------------------------------------
 # Script-level invariants
 # ---------------------------------------------------------------------------
