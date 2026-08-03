@@ -477,9 +477,29 @@ export default function SectionsCanvas(): JSX.Element {
   // Phase 2+3); the formation-level body-click surface was removed in Task 21.
   const contactCorrelateMode = correlateMode
 
+  // WHICH section the edges currently in state were fetched for.
+  //
+  // Sections SHARE investigations, so section A's edges reference layer ids that also
+  // appear in section B's columns: a late A response landing after the user switched to
+  // B does not look wrong to the partition — it silently draws A's bands and lenses on
+  // B. Every response is therefore checked against the section that is selected NOW
+  // before it is allowed to touch state, and a fetch that FAILS for a newly-selected
+  // section clears the previous section's edges instead of leaving them on screen.
+  // (``useSectionData`` uses the ``let cancelled`` form of this guard; these two fetches
+  // are also called imperatively after a gesture, so they need a ref, not a closure.)
+  const currentSectionIdRef = useRef(selectedSectionId)
+  // Assigned during render on purpose (React documents against ref writes here):
+  // the imperative refetches fire straight from a gesture handler and need the
+  // CURRENT section id before any effect has flushed. The write is idempotent —
+  // the same value on a StrictMode double-render — so it cannot tear.
+  currentSectionIdRef.current = selectedSectionId
+  const contactEdgesSectionIdRef = useRef<string | null>(null)
+  const geotechEdgesSectionIdRef = useRef<string | null>(null)
+
   const refetchContactEdges = useCallback(async () => {
     if (correlationModelId === null) {
       setContactCorrelationEdges([])
+      contactEdgesSectionIdRef.current = selectedSectionId
       return
     }
     log.debug(
@@ -492,7 +512,15 @@ export default function SectionsCanvas(): JSX.Element {
         correlationModelId,
         selectedSectionId,
       )
+      if (currentSectionIdRef.current !== selectedSectionId) {
+        log.info(
+          'section',
+          `listContactCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} â€” ${currentSectionIdRef.current} is selected now`,
+        )
+        return
+      }
       setContactCorrelationEdges(edges)
+      contactEdgesSectionIdRef.current = selectedSectionId
       // INFO (not DEBUG) on purpose: the correlation count the section actually
       // received is the fastest signal for "why are no bands connecting" â€” keep
       // it visible in the default console (the 2026-06-25 wrong-DB incident).
@@ -501,7 +529,17 @@ export default function SectionsCanvas(): JSX.Element {
         `listContactCorrelations: ${edges.length} edge(s) for model=${correlationModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
-      log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
+      // A failure leaves whatever is in state. That is only safe while it belongs to
+      // the section on screen — if it belongs to a section we just left, drop it
+      // rather than draw one section's ties on another.
+      if (
+        currentSectionIdRef.current === selectedSectionId &&
+        contactEdgesSectionIdRef.current !== selectedSectionId
+      ) {
+        setContactCorrelationEdges([])
+        contactEdgesSectionIdRef.current = selectedSectionId
+      }
+      log.error('section', 'refetchContactEdges: listContactCorrelations failed', err)
     }
   }, [correlationModelId, project.id, selectedSectionId])
 
@@ -512,6 +550,7 @@ export default function SectionsCanvas(): JSX.Element {
   const refetchGeotechPackingEdges = useCallback(async () => {
     if (!isGeotech || geotechPackingModelId === null) {
       setGeotechPackingEdges([])
+      geotechEdgesSectionIdRef.current = selectedSectionId
       return
     }
     log.debug(
@@ -524,7 +563,16 @@ export default function SectionsCanvas(): JSX.Element {
         geotechPackingModelId,
         selectedSectionId,
       )
+      // Same stale-response guard as refetchContactEdges — see the comment there.
+      if (currentSectionIdRef.current !== selectedSectionId) {
+        log.info(
+          'section',
+          `listGeotechPackingCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} â€” ${currentSectionIdRef.current} is selected now`,
+        )
+        return
+      }
       setGeotechPackingEdges(edges)
+      geotechEdgesSectionIdRef.current = selectedSectionId
       // INFO (not DEBUG) on purpose â€” mirrors refetchContactEdges: the geotech
       // packing-edge count is the fastest "why aren't packing ribbons drawing"
       // signal in the default console.
@@ -533,7 +581,14 @@ export default function SectionsCanvas(): JSX.Element {
         `listGeotechPackingCorrelations: ${edges.length} edge(s) for geotechModel=${geotechPackingModelId} section=${selectedSectionId}`,
       )
     } catch (err) {
-      log.warn(
+      if (
+        currentSectionIdRef.current === selectedSectionId &&
+        geotechEdgesSectionIdRef.current !== selectedSectionId
+      ) {
+        setGeotechPackingEdges([])
+        geotechEdgesSectionIdRef.current = selectedSectionId
+      }
+      log.error(
         'section',
         'refetchGeotechPackingEdges: listContactCorrelations failed',
         err,
@@ -542,6 +597,15 @@ export default function SectionsCanvas(): JSX.Element {
   }, [isGeotech, geotechPackingModelId, project.id, selectedSectionId])
 
   useEffect(() => {
+    // Drop the previous section's packing edges BEFORE the fetch goes out. The
+    // late-response guard only stops a stale answer from landing; it leaves the
+    // old section's ribbons on screen for the whole in-flight window (seconds
+    // while a build is running). A section whose ties nobody has read yet shows
+    // NOTHING — never another section's.
+    if (geotechEdgesSectionIdRef.current !== selectedSectionId) {
+      setGeotechPackingEdges([])
+      geotechEdgesSectionIdRef.current = null
+    }
     void refetchGeotechPackingEdges()
     // reason: the effect's deps (isGeotech + geotechPackingModelId +
     // selectedSectionId + correlationEdgesRefetchNonce) are the same axes that
@@ -556,6 +620,12 @@ export default function SectionsCanvas(): JSX.Element {
     if (!isLitho && !isGeotech) {
       setContactCorrelationEdges([])
       return
+    }
+    // Same rule as the geotech effect above: render nothing rather than the
+    // previous section's ties while this section's own fetch is in flight.
+    if (contactEdgesSectionIdRef.current !== selectedSectionId) {
+      setContactCorrelationEdges([])
+      contactEdgesSectionIdRef.current = null
     }
     void refetchContactEdges()
     // reason: (isLitho || isGeotech) + correlationModelId + selectedSectionId are
