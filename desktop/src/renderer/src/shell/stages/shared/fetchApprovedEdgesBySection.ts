@@ -8,10 +8,14 @@
 // LithologyCanvas / GeotechnicalCanvas (fence effect + voxel callback in each)
 // — extracted per audit 2026-07-12 FE-SHELL-CLIENTS-11.
 //
-// A failed per-section fetch degrades to no edges for that section rather than
-// aborting the whole fan-out (the partition still fills, just without that
-// section's correlations); the failed ids are reported so callers can log
-// which sections came back empty due to error vs genuinely no edges.
+// A failed per-section fetch resolves to no edges for that section so the
+// fan-out completes, but the failure is NOT lost: the failed ids come back in
+// ``failedSectionIds`` and every caller MUST act on them. An empty edge list is
+// indistinguishable from "this section genuinely has no correlations", so a
+// caller that ignores the list builds a differently-tied model and cannot tell
+// (audit 2026-08-02, Class 1) — the 3-D build path refuses outright and the
+// Fence view warns, naming the sections. Any new consumer either refuses or
+// reports the count to the user; logging it is not enough.
 
 import { api } from '../../../api/client'
 
