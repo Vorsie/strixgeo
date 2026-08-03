@@ -64,3 +64,50 @@ describe('useLithoSolids — BR1: a refused build reaches the user', () => {
     expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('check the connection'))
   })
 })
+
+// A build that built NOTHING also DELETED the stored 3-D model. It must never
+// read as a build that happened.
+describe('useLithoSolids — BR2: an empty build is never a green success', () => {
+  const request = { sections: [{}] }
+  const builder = (): Promise<unknown> => Promise.resolve(request)
+
+  it('warns, names the cause, and says the stored model was cleared', async () => {
+    const toast = vi.fn()
+    buildVoxelLithoModel.mockResolvedValue({
+      bodies_built: 0,
+      bodies_flagged: 0,
+      solids: [],
+      empty_reason:
+        'the investigations do not frame an area — a footprint needs at least 3 that do not sit on one line',
+    })
+
+    const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    const [severity, message] = toast.mock.calls.at(-1) as [string, string]
+    expect(severity).toBe('warning')
+    expect(message).toContain('one line')
+    expect(message).toMatch(/cleared|removed|gone/i)
+  })
+
+  it('leaves a build that produced bodies on the plain success copy', async () => {
+    const toast = vi.fn()
+    buildVoxelLithoModel.mockResolvedValue({
+      bodies_built: 4,
+      bodies_flagged: 0,
+      solids: [],
+      empty_reason: null,
+    })
+
+    const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('Built 4 bodies'))
+  })
+})
