@@ -17,7 +17,18 @@
  *
  * @module clients/geology
  */
-import { _base, del, delReturning, get, getBytes, patch, post, put } from './shared'
+import {
+  _base,
+  del,
+  delReturning,
+  detailMessage,
+  fetchTracked,
+  get,
+  getBytes,
+  patch,
+  post,
+  put,
+} from './shared'
 import { geotechBandsClient } from './geotechBands'
 import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
@@ -195,7 +206,7 @@ export const geologyClient = {
     layerId: string,
     patchPayload: LithoLayerUpdatePayload,
   ): Promise<LithoLayerResponse | null> => {
-    const res = await fetch(
+    const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}`,
       {
         method: 'PATCH',
@@ -206,20 +217,20 @@ export const geologyClient = {
     if (res.status === 404) return null
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `updateLayer failed (${res.status})`)
+      throw new Error(detailMessage(detail.detail) ?? `updateLayer failed (${res.status})`)
     }
     return res.json()
   },
 
   /** DELETE /models/{mid}/layers/{lid} — hard delete. */
   deleteLayer: async (projectId: string, modelId: string, layerId: string): Promise<void> => {
-    const res = await fetch(
+    const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}`,
       { method: 'DELETE' },
     )
     if (!res.ok && res.status !== 404) {
       const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `deleteLayer failed (${res.status})`)
+      throw new Error(detailMessage(detail.detail) ?? `deleteLayer failed (${res.status})`)
     }
   },
 
@@ -269,13 +280,13 @@ export const geologyClient = {
     modelId: string,
     layerId: string,
   ): Promise<LithoLayerResponse | null> => {
-    const res = await fetch(
+    const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/layers/${layerId}/link-geo`,
       { method: 'POST' },
     )
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `linkLayerToGeo failed (${res.status})`)
+      throw new Error(detailMessage(detail.detail) ?? `linkLayerToGeo failed (${res.status})`)
     }
     // 200 with a JSON `null` body is the no-match-in-range outcome.
     const text = await res.text()
@@ -292,7 +303,7 @@ export const geologyClient = {
     // helper because we need to surface the 409 ``existing_contact_id``
     // as a typed DuplicateContactError so the caller can route to a
     // "move existing" PATCH instead of an opaque toast.
-    const res = await fetch(
+    const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/contacts`,
       {
         method: 'POST',
@@ -310,7 +321,7 @@ export const geologyClient = {
         throw new DuplicateContactError(detail.detail.existing_contact_id)
       }
       throw new Error(
-        detail.detail?.message ?? detail.detail ?? `Create contact failed: ${res.status}`,
+        detailMessage(detail.detail) ?? `Create contact failed: ${res.status}`,
       )
     }
     return res.json()
@@ -327,7 +338,7 @@ export const geologyClient = {
     // throws a SyntaxError on an empty body — handle 204 explicitly here
     // so callers can detect absorption and prune local state.
     log.debug('api', '[api.updateContact] →', { contactId, modelId, patch: body })
-    const res = await fetch(
+    const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
       {
         method: 'PATCH',
@@ -338,7 +349,7 @@ export const geologyClient = {
     log.debug('api', '[api.updateContact] ←', { contactId, status: res.status })
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `PATCH contacts/${contactId} → ${res.status}`)
+      throw new Error(detailMessage(detail.detail) ?? `PATCH contacts/${contactId} → ${res.status}`)
     }
     if (res.status === 204) return null
     return res.json()
@@ -352,14 +363,14 @@ export const geologyClient = {
     projectId: string,
     modelId: string,
   ): Promise<{ contacts: number; edges: number; surfaces: number; formations: number }> => {
-    const res = await fetch(
+    const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/contacts`,
       { method: 'DELETE' },
     )
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
       throw new Error(
-        detail.detail?.message ?? detail.detail ?? `Clear litho model failed: ${res.status}`,
+        detailMessage(detail.detail) ?? `Clear litho model failed: ${res.status}`,
       )
     }
     return res.json()
@@ -587,7 +598,7 @@ export const geologyClient = {
     layerBSide: 'top' | 'base' = 'top',
   ): Promise<void> => {
     const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations`
-    const res = await fetch(`${_base}${path}`, {
+    const res = await fetchTracked(`${_base}${path}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -600,7 +611,7 @@ export const geologyClient = {
     })
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      throw new Error(detailMessage(detail.detail) ?? `DELETE ${path} → ${res.status}`)
     }
   },
 
@@ -848,13 +859,13 @@ export const geologyClient = {
     const path =
       `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto` +
       (sectionId ? `?section_id=${sectionId}` : '')
-    const res = await fetch(`${_base}${path}`, {
+    const res = await fetchTracked(`${_base}${path}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
     })
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}))
-      throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      throw new Error(detailMessage(detail.detail) ?? `DELETE ${path} → ${res.status}`)
     }
     return res.json() as Promise<DeleteAutoCorrelationsResult>
   },
