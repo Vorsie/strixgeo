@@ -21,6 +21,7 @@ import type {
   CptResponse,
 } from '../api/client'
 import { addAllToSet } from '../utils/sets'
+import { dovSubPhaseFailures } from '../utils/dovImportFailures'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
 import type { DovImportState, PendingPin } from './useDovImportStream'
@@ -879,10 +880,30 @@ export function useInvestigationData({
         extras.push(`${bhResult.grain_sizes_attached} grain-size`)
       const summary = parts.join(', ') || 'No boreholes found in this area'
       const detail = extras.length > 0 ? ` (+ ${extras.join(', ')})` : ''
-      toast(
-        bhResult.failed > 0 && bhResult.imported === 0 ? 'error' : 'success',
-        summary + detail,
-      )
+      // A dead sub-phase (the interpretaties WFS is routinely down) comes back
+      // as a COUNTER, not an error — so the severity has to be derived from it
+      // or 40 boreholes with every driller's log missing toast exactly like a
+      // clean import, and the engineer never re-runs (audit 2026-08-02).
+      const subPhaseFailures = dovSubPhaseFailures(bhResult)
+      // Labels are used verbatim — one of them contains "DOV", which
+      // lowercasing turned into "dov". The retry advice is gated on a real
+      // FAILURE: a WFS gap is DOV contradicting its own catalogue, and
+      // re-running fetches the same nothing, so telling the engineer to retry
+      // would send them round a loop.
+      const retryable = subPhaseFailures.some(f => f.retryable)
+      const failureDetail =
+        subPhaseFailures.length > 0
+          ? ` — DOV did not return ${subPhaseFailures
+              .map(f => `${f.count} × ${f.label}`)
+              .join(', ')}${retryable ? '; re-run the import to retry' : ''}`
+          : ''
+      const severity =
+        bhResult.failed > 0 && bhResult.imported === 0
+          ? 'error'
+          : subPhaseFailures.length > 0
+            ? 'warning'
+            : 'success'
+      toast(severity, summary + detail + failureDetail)
       unhideBoreholes(bhResult.borehole_ids)
       addToManifest('borehole', bhResult.borehole_ids)
       addAllToSet(
