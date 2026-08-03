@@ -8,21 +8,22 @@
 // It restores UNSAVED WORK: the session delta of six items that only ever
 // lived in renderer memory.
 //
-// Three choices, per the design's §6 Q3 (owner approved):
+// Three choices, per the design's §6 Q3 (owner approved). COPY SHAPE (owner
+// dogfeed 2026-08-03): the first version explained the slot mechanics in
+// prose and the owner could not tell what the buttons would do — so the body
+// is now a three-line legend, one line per button, and the mechanics prose is
+// gone. The one sentence the owner dictated verbatim: "nothing is saved to
+// the file until you click Save in the app."
 //
-//   * Restore unsaved work — apply the snapshot; the file STAYS, because the
-//     restored state is at risk all over again and the scheduler keeps it
-//     fresh from here on.
-//   * Open without restoring — PRESERVES the copy (owner decision
-//     2026-08-03, Word-style) and is the safe answer to an accidental Enter,
-//     so it holds default focus. The wording may now say so: the caller moves
-//     the copy to a slot the autosave scheduler never writes, so the next
-//     launch offers the same unsaved work again. It used to say the opposite
-//     — that this session would overwrite the copy within seconds — because
-//     that was then the truth; the sentence changed when the behaviour did.
-//   * Discard unsaved work — deletes the file. Irreversible, so docs/ux.md
-//     applies: destructive styling, the button names the action, and it is
-//     NOT the default-focused control.
+//   * Restore — apply the snapshot; the file STAYS, because the restored
+//     state is at risk all over again and the scheduler keeps it fresh.
+//   * Not now — PRESERVES the copy (owner decision 2026-08-03, Word-style)
+//     and is the safe answer to an accidental Enter, so it holds default
+//     focus: the caller moves the copy to a slot the autosave scheduler
+//     never writes, so the next launch offers the same unsaved work again.
+//   * Delete backup — deletes the file. Irreversible, so docs/ux.md applies:
+//     destructive styling, the button names the action, and it is NOT the
+//     default-focused control.
 //
 // Presentational only: every decision is the caller's, exactly like
 // UnsavedChangesDialog, whose itemised-loss structure this mirrors.
@@ -93,7 +94,7 @@ function restoreBullets(snapshot: RecoverySnapshotV1): string[] {
   const columns = snapshot.ghosts.length
   if (columns > 0) {
     bullets.push(
-      `Litho suggestion triage on ${columns} ${columns === 1 ? 'column' : 'columns'} — the layers you accepted, rejected, edited and split.`,
+      `Litho suggestion triage on ${columns} ${columns === 1 ? 'column' : 'columns'}`,
     )
   }
 
@@ -101,14 +102,14 @@ function restoreBullets(snapshot: RecoverySnapshotV1): string[] {
   if (imports !== null) bullets.push(imports)
 
   if (Object.keys(snapshot.metadataDraftPatch).length > 0) {
-    bullets.push('Unsaved edits in the project metadata editor.')
+    bullets.push('unsaved project-metadata edits')
   }
 
   const lumping = snapshot.lumping.current
   if (lumping !== null) {
     const entries = Object.keys(lumping.map).length
     bullets.push(
-      `The stratigraphy lumping map (${entries} ${entries === 1 ? 'grouping' : 'groupings'}), applied ${formatRecoveryAge(lumping.applied_at)}.`,
+      `the stratigraphy lumping map (${entries} ${entries === 1 ? 'grouping' : 'groupings'})`,
     )
   }
 
@@ -116,10 +117,9 @@ function restoreBullets(snapshot: RecoverySnapshotV1): string[] {
     // Item 6 of §2, and the nastiest of the six: without this bit the project
     // reopens looking clean, and a later Discard silently reverts the
     // database to the file — destroying pre-crash work the crash never
-    // touched. Worth its own line so the engineer knows why it matters.
-    bullets.push(
-      'The unsaved-changes marker, so a later Discard cannot silently revert work made before the crash.',
-    )
+    // touched. Kept in the list but no longer explained in the dialog — the
+    // explanation made the copy longer than the decision (owner dogfeed).
+    bullets.push('the unsaved-changes marker')
   }
 
   return bullets
@@ -153,7 +153,7 @@ export default function RecoveryPromptDialog({
       // place, so a dismissal by reflex costs nothing.
       onCancel={onOpenWithoutRestoring}
       busy={busy}
-      cancelLabel="Open without restoring"
+      cancelLabel="Not now"
       cancelTestid="recovery-open-without-restoring"
       cardClassName="w-[30rem]"
       title={
@@ -164,45 +164,42 @@ export default function RecoveryPromptDialog({
       body={
         <>
           <p>
+            StrixGeo closed unexpectedly{age === null ? '' : ` ${age}`}. A backup of
+            your unsaved work was kept
+            {bullets.length > 0 ? <> &mdash; {bullets.join(' · ')}.</> : '.'}{' '}
             <span className="font-semibold text-text-primary">
-              {projectName} itself is intact.
-            </span>{' '}
-            Everything you interpreted was saved to the database as you worked. What the
-            last session did not finish writing is a copy of your in-progress work
-            {age === null ? '' : `, from ${age}`}
-            {bullets.length > 0 ? ':' : '.'}
+              Your saved project is untouched.
+            </span>
           </p>
-          {bullets.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-4">
-              {bullets.map(bullet => (
-                <li key={bullet}>{bullet}</li>
-              ))}
-            </ul>
-          )}
-          {/* What the two slots actually do, in one sentence. An earlier
-              version said the copy would be "replaced only if this session
-              crashes with newer unsaved work" — but a newer crash does not
-              overwrite this copy, it queues ahead of it: the reader prefers
-              the primary slot while one exists, and this copy resurfaces once
-              that newer one has been answered for. Only a second decline
-              overwrites it; only Discard deletes it. */}
-          <p className="mt-2">
-            Open without restoring keeps the project as it is and keeps this copy
-            safe &mdash; you will be offered it again next time you open{' '}
-            {projectName}; a newer crash is offered first and this copy comes back
-            after it, opening without restoring again replaces it, and only
-            Discard deletes it &mdash; now, and not undoably.
-          </p>
+          {/* One line per button, in button order. This legend IS the body —
+              the owner's dogfeed verdict on the prose version was "text is
+              too long and it is unclear what happens". */}
+          <ul className="mt-3 space-y-1.5">
+            <li>
+              <span className="font-semibold text-text-primary">Restore</span> &mdash;
+              puts the unsaved work back. Nothing is saved to the file until you
+              click Save in the app.
+            </li>
+            <li>
+              <span className="font-semibold text-text-primary">Not now</span> &mdash;
+              opens the project as last saved. The backup is offered again next
+              launch.
+            </li>
+            <li>
+              <span className="font-semibold text-text-primary">Delete backup</span>{' '}
+              &mdash; permanently discards the unsaved work.
+            </li>
+          </ul>
         </>
       }
       secondary={{
-        label: 'Discard unsaved work',
+        label: 'Delete backup',
         onClick: onDiscard,
         variant: 'danger',
         testid: 'recovery-discard',
       }}
       confirm={{
-        label: 'Restore unsaved work',
+        label: 'Restore',
         onClick: onRestore,
         variant: 'primary',
         testid: 'recovery-restore',
