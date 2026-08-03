@@ -36,6 +36,11 @@ export interface CrossingsValidation {
   /** True when surfaces are stale: validation was deliberately
    * skipped and the user must Build before crossings can be trusted. */
   pendingBuild: boolean
+  /** True when the validation request itself FAILED. ``crossingIssues`` is
+   * empty in that case for the same reason it is empty on a clean model, so a
+   * consumer that only reads the issue list cannot tell the two apart — it must
+   * read this before treating an empty list as "no crossings". */
+  validationFailed: boolean
 }
 
 /**
@@ -66,6 +71,9 @@ export function useCrossingsValidation(
   staleSurfaceCount: number,
 ): CrossingsValidation {
   const [crossingIssues, setCrossingIssues] = useState<GapIssueResponse[]>([])
+  // A failed check is NOT a clean model. Kept as its own flag because an empty
+  // issue list is the shape of BOTH outcomes.
+  const [validationFailed, setValidationFailed] = useState(false)
 
   // pendingBuild is derived, not state — it is a pure function of the
   // inputs, so deriving it avoids a second render + any risk of it
@@ -78,6 +86,7 @@ export function useCrossingsValidation(
       // crossings. Clearing keeps a previous fresh result from
       // lingering once an edit makes the model stale.
       setCrossingIssues([])
+      setValidationFailed(false)
       return
     }
     let cancelled = false
@@ -86,15 +95,20 @@ export function useCrossingsValidation(
       .then(resp => {
         if (cancelled) return
         setCrossingIssues(resp.issues)
+        setValidationFailed(false)
       })
       .catch(err => {
-        log.warn('geology', `validateCrossings failed for ${modelId}`, err)
-        if (!cancelled) setCrossingIssues([])
+        // ERROR, not WARN: the model went unchecked and the engineer is about to
+        // Build + export on the assumption that it was checked.
+        log.error('geology', `validateCrossings failed for ${modelId}`, err)
+        if (cancelled) return
+        setCrossingIssues([])
+        setValidationFailed(true)
       })
     return () => {
       cancelled = true
     }
   }, [projectId, modelId, refreshSignal, staleSurfaceCount])
 
-  return { crossingIssues, pendingBuild }
+  return { crossingIssues, pendingBuild, validationFailed }
 }
