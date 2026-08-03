@@ -21,13 +21,15 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_NO_OVERLAP_CONSTRAINT
 from groundmodel.shared.exceptions import LithoLayerOverlapError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # The exclusion constraint added in f7a8b9c0d1e2 — its name appears verbatim in
 # the asyncpg error text, so we can tell it apart from any other integrity
-# violation and translate only this one into a clean domain error.
-_NO_OVERLAP_CONSTRAINT = "litho_layer_accepted_no_overlap"
+# violation and translate only this one into a clean domain error. Shared with
+# the API layer's translation of the same violation (routers/_helpers.py).
+_NO_OVERLAP_CONSTRAINT = LITHO_LAYER_NO_OVERLAP_CONSTRAINT
 
 
 class UpdateLithoLayer(GroundModelLogger):
