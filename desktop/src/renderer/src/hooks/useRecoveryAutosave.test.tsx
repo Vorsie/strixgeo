@@ -24,6 +24,11 @@ import type { BulkAnchorGhost } from './useGeologicalModel'
 //     and produces a false recovery offer next launch."
 //   * A recovery file kept via "Open without restoring" must survive a
 //     session that never gets dirty — so a clean MOUNT deletes nothing.
+//   * ...and it must survive a session that DOES get dirty and then reaches a
+//     clean exit. Declining preserves the copy until the user discards it
+//     (owner decision 2026-08-03), so every clear on this side of the app
+//     clears THIS session's slot only. The both-slots delete belongs to the
+//     prompt's Discard button and to nothing else.
 
 const PROJECT: ProjectResponse = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -45,6 +50,7 @@ const PROJECT: ProjectResponse = {
 
 const writeRecovery = vi.fn()
 const deleteRecovery = vi.fn()
+const deletePrimaryRecovery = vi.fn()
 
 /** One anchor of ghost triage — the irreproducible half of the delta. */
 function ghost(acceptedIdx: number): BulkAnchorGhost {
@@ -90,7 +96,12 @@ beforeEach(() => {
   vi.useFakeTimers()
   writeRecovery.mockReset().mockResolvedValue({})
   deleteRecovery.mockReset().mockResolvedValue(true)
-  ;(window as unknown as { electron: unknown }).electron = { writeRecovery, deleteRecovery }
+  deletePrimaryRecovery.mockReset().mockResolvedValue(true)
+  ;(window as unknown as { electron: unknown }).electron = {
+    writeRecovery,
+    deleteRecovery,
+    deletePrimaryRecovery,
+  }
 })
 
 afterEach(() => {
@@ -178,7 +189,10 @@ describe('useRecoveryAutosave clearing', () => {
       vi.advanceTimersByTime(1_000)
     })
     rerender(cleanOptions())
-    expect(deleteRecovery).toHaveBeenCalledWith(PROJECT.id)
+    expect(deletePrimaryRecovery).toHaveBeenCalledWith(PROJECT.id)
+    // A copy the user declined in an earlier session is NOT this session's to
+    // clear: it lives on until they answer Discard in the prompt.
+    expect(deleteRecovery).not.toHaveBeenCalled()
 
     // The ordering trap: a timer armed before the clean transition must not
     // fire afterwards and resurrect the file.
@@ -204,6 +218,7 @@ describe('useRecoveryAutosave clearing', () => {
     rerender({ ...cleanOptions(), canClearOnClean })
 
     expect(canClearOnClean).toHaveBeenCalled()
+    expect(deletePrimaryRecovery).not.toHaveBeenCalled()
     expect(deleteRecovery).not.toHaveBeenCalled()
     // The timers still die: a late write after the user reached a clean-
     // looking state is the ordering trap regardless of the file's fate.
@@ -223,7 +238,7 @@ describe('useRecoveryAutosave clearing', () => {
     })
     rerender({ ...cleanOptions(), canClearOnClean })
 
-    expect(deleteRecovery).toHaveBeenCalledWith(PROJECT.id)
+    expect(deletePrimaryRecovery).toHaveBeenCalledWith(PROJECT.id)
   })
 
   it('leaves a kept recovery file alone when the session never gets dirty', () => {
@@ -234,6 +249,7 @@ describe('useRecoveryAutosave clearing', () => {
     act(() => {
       vi.advanceTimersByTime(RECOVERY_MAX_LATENCY_MS * 2)
     })
+    expect(deletePrimaryRecovery).not.toHaveBeenCalled()
     expect(deleteRecovery).not.toHaveBeenCalled()
     expect(writeRecovery).not.toHaveBeenCalled()
   })
@@ -248,7 +264,8 @@ describe('useRecoveryAutosave clearing', () => {
     await act(async () => {
       await result.current.clearRecoveryNow()
     })
-    expect(deleteRecovery).toHaveBeenCalledWith(PROJECT.id)
+    expect(deletePrimaryRecovery).toHaveBeenCalledWith(PROJECT.id)
+    expect(deleteRecovery).not.toHaveBeenCalled()
     act(() => {
       vi.advanceTimersByTime(RECOVERY_MAX_LATENCY_MS * 2)
     })
@@ -269,6 +286,128 @@ describe('useRecoveryAutosave clearing', () => {
       vi.advanceTimersByTime(RECOVERY_MAX_LATENCY_MS * 2)
     })
     expect(writeRecovery).not.toHaveBeenCalled()
+    expect(deletePrimaryRecovery).not.toHaveBeenCalled()
     expect(deleteRecovery).not.toHaveBeenCalled()
+  })
+
+  // The sequence the owner decision turns on: a crashed session's copy was
+  // declined ("Open without restoring"), so it sits in the declined slot while
+  // this session works and then saves. Nothing on this side of the app may
+  // reach that slot — the moment a clear here did, declining would again lose
+  // the work seconds later, which is the behaviour the second slot exists to
+  // end.
+  it('never reaches the declined slot, on either clearing path', async () => {
+    const { result, rerender } = renderHook(opts => useRecoveryAutosave(opts), {
+      initialProps: dirtyOptions(0),
+    })
+    act(() => {
+      vi.advanceTimersByTime(1_000)
+    })
+    rerender(cleanOptions())
+    await act(async () => {
+      await result.current.clearRecoveryNow()
+    })
+    expect(deleteRecovery).not.toHaveBeenCalled()
+    expect(deletePrimaryRecovery).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Suspension while a recovery prompt is unanswered.
+//
+// The window between "the prompt goes up" and "the user clicks something" is
+// the one moment when the recovery files on disk do NOT belong to this
+// session: they hold the crashed session's work, and the answer sequence is
+// about to move them between slots. A scheduler write landing in that window
+// overwrites the crashed copy with this session's much thinner delta — and the
+// decline then preserves THAT, keeping the promise in name only. A decided
+// exit in that window is worse: it deletes a crash copy the user never
+// answered for.
+//
+// So App suspends the scheduler for exactly as long as an offer is pending
+// (``suspended={recoveryOffer !== null}``), and the answer handlers finish
+// their IPC work before clearing the offer.
+// ---------------------------------------------------------------------------
+
+describe('useRecoveryAutosave suspension (an unanswered recovery prompt)', () => {
+  it('writes nothing while the prompt is up, however dirty the session gets', () => {
+    const { rerender } = renderHook(opts => useRecoveryAutosave(opts), {
+      initialProps: { ...dirtyOptions(0), suspended: true },
+    })
+    for (const idx of [1, 2, 3]) {
+      act(() => {
+        vi.advanceTimersByTime(1_000)
+      })
+      rerender({ ...dirtyOptions(idx), suspended: true })
+    }
+    act(() => {
+      vi.advanceTimersByTime(RECOVERY_MAX_LATENCY_MS * 2)
+    })
+    expect(writeRecovery).not.toHaveBeenCalled()
+  })
+
+  it('resumes writing as soon as the prompt is answered', () => {
+    const { rerender } = renderHook(opts => useRecoveryAutosave(opts), {
+      initialProps: { ...dirtyOptions(0), suspended: true },
+    })
+    act(() => {
+      vi.advanceTimersByTime(RECOVERY_MAX_LATENCY_MS)
+    })
+    expect(writeRecovery).not.toHaveBeenCalled()
+
+    rerender({ ...dirtyOptions(0), suspended: false })
+    act(() => {
+      vi.advanceTimersByTime(RECOVERY_DEBOUNCE_MS)
+    })
+    expect(writeRecovery).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not clear the crashed copy when the session goes clean under the prompt', () => {
+    // Save-while-the-prompt-is-up. The clean transition is about THIS
+    // session's delta; the file on disk is the crashed session's, still
+    // unanswered for.
+    const { rerender } = renderHook(opts => useRecoveryAutosave(opts), {
+      initialProps: { ...dirtyOptions(0), suspended: true },
+    })
+    act(() => {
+      vi.advanceTimersByTime(1_000)
+    })
+    rerender({ ...cleanOptions(), suspended: true })
+    expect(deletePrimaryRecovery).not.toHaveBeenCalled()
+    expect(deleteRecovery).not.toHaveBeenCalled()
+  })
+
+  it('keeps the copy when the user quits with the prompt still unanswered', async () => {
+    // A decided exit (quit / close / save) mid-prompt used to run the ordinary
+    // clear, destroying a crash copy the user had not answered for and would
+    // never be offered again. Suspended, the clear does nothing — so the next
+    // launch offers the same work, which is the whole promise.
+    const { result } = renderHook(opts => useRecoveryAutosave(opts), {
+      initialProps: { ...dirtyOptions(0), suspended: true },
+    })
+    await act(async () => {
+      await result.current.clearRecoveryNow()
+    })
+    expect(deletePrimaryRecovery).not.toHaveBeenCalled()
+    expect(deleteRecovery).not.toHaveBeenCalled()
+  })
+
+  it('still kills pending timers on a suspended clear — the ordering trap holds', () => {
+    // Whatever happens to the file, a timer armed before the exit must not
+    // fire afterwards: a late write resurrects a file the next launch reads as
+    // a crash signal.
+    const { result } = renderHook(opts => useRecoveryAutosave(opts), {
+      initialProps: dirtyOptions(0),
+    })
+    act(() => {
+      vi.advanceTimersByTime(1_000)
+    })
+    // The prompt appears (a second project's offer, a re-detect) and the user
+    // quits before answering.
+    void result.current.clearRecoveryNow()
+    act(() => {
+      vi.advanceTimersByTime(RECOVERY_MAX_LATENCY_MS * 2)
+    })
+    expect(writeRecovery).not.toHaveBeenCalled()
   })
 })
