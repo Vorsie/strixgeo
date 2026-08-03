@@ -49,6 +49,17 @@ absent at a borehole emit a zero-thickness layer (top z inherits
 the next-deeper present formation's top z). Endpoint:
 `GET /projects/{pid}/geology/models/{mid}/export/plaxis3d`.
 
+**Level boundaries are N+1, not N.** A PLAXIS borehole with `N` soil
+layers has `N + 1` `setsoillayerlevel` boundaries: index `0` is the
+top of layer 0, index `i` is the base of layer `i-1` / top of layer
+`i`, and index `N` is the **base of the deepest layer — the bottom of
+the model**. Both exporters emit all `N + 1` through
+`emit_borehole_layer_levels`; the final line is tagged
+`# column bottom` and clamped so it can never sit above the deepest
+layer's own top. Omitting it left the deepest unit — usually the
+founding layer — running to whatever base PLAXIS defaults to instead
+of to the depth the investigation reached (audit 2026-08-02).
+
 **Plaxis 2D per-section exporter — shipped 2026-05-16 (debt #29).**
 `PlaxisSectionExporter` consumes a `SectionSnapshot` (investigations
 already projected onto the section line) and emits the same shape of
@@ -57,7 +68,8 @@ single-coordinate `g_i.borehole(x)` placed at each column's
 along-section distance. Columns without a surface elevation are
 dropped (without Z the column cannot be placed on the level axis —
 every `setsoillayerlevel` is an absolute level) and counted in
-the script's print summary. **Neither Plaxis exporter sets a borehole
+the script's print summary. Like the 3D exporter it emits `N + 1`
+level boundaries per borehole (see above). **Neither Plaxis exporter sets a borehole
 `Head`**: in PLAXIS that property is the water head (phreatic level),
 not the soil-column top, and writing the surface elevation into it
 made every exported model fully saturated (audit 2026-08-02). Both
