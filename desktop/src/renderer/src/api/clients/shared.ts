@@ -10,6 +10,7 @@
  * @module clients/shared
  */
 import { log } from '../../utils/log'
+import { noteNetworkFailure, noteNetworkSuccess } from '../networkHealth'
 
 /** Mutable backend origin — reconfigured once at boot by `setBaseUrl`. */
 export let _base = 'http://127.0.0.1:8765'
@@ -116,6 +117,133 @@ export function isApiStatus(err: unknown, status: number): boolean {
 }
 
 /**
+ * Read a structured (object) server ``detail`` off a rejection.
+ *
+ * ~20 routes send ``detail`` as an object carrying a machine-readable
+ * ``code`` plus whatever the client needs to offer a retry
+ * (``suggested_horizontal_m``, ``layer_id``, ...). Callers that want to
+ * branch on the code must read the object, never the prose — that is the
+ * whole reason the backend sends a number instead of a sentence.
+ *
+ * Parameters
+ * ----------
+ * err : unknown
+ *     The caught rejection value.
+ *
+ * Returns
+ * -------
+ * Record<string, unknown> | null
+ *     The parsed detail object, or ``null`` when the rejection is not an
+ *     ``ApiError``, carries no detail, or carries a plain-string detail
+ *     (the majority case).
+ */
+export function apiErrorDetail(err: unknown): Record<string, unknown> | null {
+  if (!(err instanceof ApiError)) return null
+  const detail = err.detail
+  if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) return null
+  return detail as Record<string, unknown>
+}
+
+/**
+ * Best human sentence for a server ``detail`` of unknown shape.
+ *
+ * Exported because the bare-``fetch`` endpoints listed on
+ * :func:`isApiStatus` build their own error text and hit exactly the same
+ * object details (``litho_layer_overlap`` on the layer/contact PATCHes).
+ * They call this instead of re-deriving the rule.
+ *
+ * WHY this exists: ``super(detailObject)`` stringifies an object to the
+ * literal text ``"[object Object]"``. Live 2026-08-02 that swallowed a
+ * ``voxel_grid_too_large`` refusal whole — the reason, the retry spacing and
+ * the fact that nothing had been written were all on the wire and none of
+ * them reached the engineer. An object detail keeps its ``message`` when it
+ * has one (every structured producer in this backend writes one) and is
+ * serialised otherwise, so the body is never silently destroyed.
+ *
+ * Parameters
+ * ----------
+ * detail : unknown
+ *     The parsed ``detail`` field, any shape.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     Prose for the ``Error`` message, or ``null`` when there is no detail
+ *     at all and the caller should use its own fallback copy.
+ */
+export function detailMessage(detail: unknown): string | null {
+  if (detail === undefined || detail === null) return null
+  if (typeof detail === 'string') return detail
+  if (typeof detail === 'object' && !Array.isArray(detail)) {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === 'string' && message.length > 0) return message
+  }
+  // No `message` key — serialise rather than drop. Unlovely prose beats a
+  // toast that says nothing.
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * ``fetch`` with the backend-reachability signal attached.
+ *
+ * THE single transport boundary of the renderer. Everything that talks to the
+ * backend goes through here — the typed wrappers below via {@link request},
+ * and the hand-rolled clients that need their own status/body handling
+ * (``geology.updateContact``, ``cpt.import``, …) directly.
+ *
+ * WHY it exists separately from {@link request}: the signal used to be taken
+ * inside ``request()`` only, and nine endpoints used a bare ``fetch`` — among
+ * them the everyday litho editing gestures (create/update contact,
+ * update/delete layer, disconnect a tie). A session spent editing contacts
+ * against a dead backend could therefore rack up dozens of transport failures
+ * without ever reaching the threshold, so the banner — the whole point of the
+ * feature — never appeared.
+ *
+ * Semantics, unchanged from ``request()``: a REJECTED fetch means nothing
+ * answered; ANY response — including a 500 — means the backend is alive and the
+ * app must stop claiming otherwise. An ``AbortError`` is the app's own doing
+ * (unmount, superseded fetch) and never counts.
+ *
+ * Parameters
+ * ----------
+ * url : string
+ *   Absolute URL to fetch.
+ * init : RequestInit, optional
+ *   Standard ``fetch`` init.
+ *
+ * Returns
+ * -------
+ * Promise<Response>
+ *   The response, whatever its status — status handling stays with the caller.
+ *
+ * Throws
+ * ------
+ * unknown
+ *   Re-throws whatever ``fetch`` rejected with, after counting it.
+ */
+export async function fetchTracked(url: string, init?: RequestInit): Promise<Response> {
+  let res: Response
+  try {
+    res = await fetch(url, init)
+  } catch (err) {
+    // The abort branch is forward-looking: no caller passes a signal today, so
+    // it cannot fire yet. It stays because the alternative — adding it later,
+    // after the first cancelling caller lands — means shipping a build where
+    // navigating away reads as "the backend died".
+    if (!(err instanceof DOMException && err.name === 'AbortError')) {
+      noteNetworkFailure()
+    }
+    throw err
+  }
+  noteNetworkSuccess()
+  return res
+}
+
+/**
  * Single request core — every typed wrapper funnels through here.
  *
  * Performs the fetch, and on non-2xx parses the server ``detail``,
@@ -157,14 +285,16 @@ export async function request(
     init.headers = { 'Content-Type': 'application/json' }
     init.body = JSON.stringify(body)
   }
-  const res = await fetch(`${_base}${path}`, init)
+  // Reachability is measured at the transport boundary, not in a poller — see
+  // fetchTracked above for why, and for the abort exclusion.
+  const res = await fetchTracked(`${_base}${path}`, init)
   if (!res.ok) {
     // Surface the server's `detail` (e.g. the 409 "delete the dependent
     // model first" guard) instead of an opaque "→ 409".
     const detail = await res.json().catch(() => ({}))
     log.error('api', method, stripQuery(path), res.status, detail.detail)
     throw new ApiError(
-      detail.detail ??
+      detailMessage(detail.detail) ??
         (errorLabel ? `${errorLabel} (${res.status})` : `${method} ${path} → ${res.status}`),
       res.status,
       { detail: detail.detail, method, path },
