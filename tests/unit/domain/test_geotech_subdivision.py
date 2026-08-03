@@ -2,6 +2,11 @@
 
 import pytest
 
+from groundmodel.domain.services.geotech_band_reclassification import (
+    GeotechBand,
+    ProposedInterval,
+    reclassify_intervals,
+)
 from groundmodel.domain.services.geotech_subdivision import (
     _conservative_merge,
     _gradient_snap,
@@ -94,8 +99,8 @@ def test_uniform_segment_one_band():
     assert splits[0].depth_top_m == 0.0 and splits[0].depth_base_m == 2.0
 
 
-def test_no_samples_returns_fallback_band():
-    """A segment with no CPT samples (borehole-only) → one fallback band, never empty."""
+def test_no_samples_returns_one_band_spanning_the_segment():
+    """A segment with no CPT samples still returns exactly one band — never empty."""
     splits = suggest_geotech_subdivision(
         soil="ZAND",
         admixtures=(),
@@ -117,12 +122,18 @@ def test_no_samples_returns_fallback_band():
 #   3. A unit "needs review" (nad_class None — NOT a guessed class) if EITHER
 #      more than ~40% of its thickness lacks valid qc OR there is a >=5 cm
 #      continuous gap with no valid qc.
-#   4. No CPT at all (borehole-only) → loosest class, conservative default.
+#   4. No qc in the window at all → needs review (nad_class None), NOT a class.
+#      (Revised 2026-08-03: rule 4 used to read "borehole-only → loosest class".
+#      Only CPT segments ever reach this function, so an empty window means the
+#      cone did not read here — see the no-cone-readings block at the bottom.)
 
 
-def test_no_cpt_at_all_falls_back_to_loosest_class():
-    """No CPT samples at all (borehole-only) → the loosest NAD class (los = 5 for sand),
-    the conservative default. Guards the existing branch against regression."""
+def test_no_cpt_series_at_all_needs_review_not_a_class():
+    """An empty qc series answers "needs review" — the same as any unread window.
+
+    A class asserted from zero readings is an invented value; the caller
+    (SubdivideAllBodies) already routes a genuinely series-less investigation to
+    a skeleton band before this function is reached."""
     splits = suggest_geotech_subdivision(
         soil="ZAND",
         admixtures=(),
@@ -132,7 +143,7 @@ def test_no_cpt_at_all_falls_back_to_loosest_class():
         segment_base_m=10.0,
         min_thickness_m=0.35,
     )
-    assert [s.nad_class for s in splits] == [5]
+    assert [s.nad_class for s in splits] == [None]
 
 
 def test_isolated_void_sample_is_dropped_and_unit_still_classifies():
@@ -307,3 +318,84 @@ def test_gradient_snap_refuses_less_conservative_move():
     bands = [[0.0, 1.7, 6], [1.7, 3.0, 8]]  # boundary already deep
     snapped = _gradient_snap(bands, depths, qc, window_m=0.5, min_thickness_m=0.35)
     assert snapped[0][1] == 1.7  # peak at 1.5 is shallower -> not applied
+
+
+# --- no cone readings in the window -----------------------------------------
+# ``suggest_geotech_subdivision`` is only ever reached for CPT segments
+# (``subdivide_all_bodies.py``: ``cpt_segs = [s for s in group_segs if
+# anchor_kind.get(...) == "cpt"]``, and a CPT with no series row is routed to a
+# skeleton band before this function is called). So "no samples in the window"
+# never means "this is a borehole"; it means the cone did not read over this
+# interval — a contact placed above the CPT's first sample (pre-drill start), or
+# a sliver produced by the geo-bounding divide.
+
+
+def test_cpt_window_with_no_cone_readings_needs_review_not_a_packing_class():
+    """A window the cone never read gets NO packing class — it is flagged for review.
+
+    The class is *derived from the cone resistance*. With no cone resistance in
+    the interval there is nothing to derive it from, so the answer is "needs
+    review", never a plausible number. "Loose sand" is the most consequential
+    packing answer in a BE/NL deliverable; it must never come from zero readings.
+    """
+    depths = _depths(1.0, 5.0, 0.02)  # the cone starts reading at 1.0 m
+    qc = [12.0] * len(depths)
+
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,  # contact placed above the first sample
+        segment_base_m=0.8,
+        min_thickness_m=0.35,
+    )
+
+    assert len(splits) == 1
+    assert splits[0].depth_top_m == 0.0 and splits[0].depth_base_m == 0.8
+    assert splits[0].nad_class is None
+
+
+def test_build_and_band_edit_agree_that_an_unread_window_cannot_be_classified():
+    """Parity: the build and the band-edit preview give the SAME answer for one interval.
+
+    The band-edit dialog already refuses ("the class cannot be re-derived here").
+    The build must not answer a question the preview says is unanswerable —
+    otherwise the two surfaces disagree about the same metres of soil.
+    """
+    depths = _depths(1.0, 5.0, 0.02)
+    qc: list[float | None] = [12.0] * len(depths)
+    top_m, base_m = 0.0, 0.8
+
+    build = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=top_m,
+        segment_base_m=base_m,
+        min_thickness_m=0.35,
+    )
+
+    band = GeotechBand(
+        band_id="band-1",
+        depth_top_m=top_m,
+        depth_base_m=base_m,
+        nad_class=5,
+        source_litho_formation_id="litho-1",
+        source_geo_formation_id=None,
+    )
+    preview = reclassify_intervals(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        intervals=[ProposedInterval(depth_top_m=top_m, depth_base_m=base_m, sources=(band,))],
+    )
+
+    assert preview[0].nad_class is None
+    assert preview[0].unclassifiable_reason is not None
+    assert [s.nad_class for s in build] == [o.nad_class for o in preview], (
+        "the build and the band-edit preview disagree about whether this interval "
+        "can be classified from the cone resistance"
+    )
