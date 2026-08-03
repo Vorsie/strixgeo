@@ -308,6 +308,13 @@ export function useGeotechPackingCorrelation(
         // Refresh geotech layers too (mirrors the success path) so body_id
         // stamps stay consistent even if an intermediate mutation changed them.
         requestGeotechLayersRefetch()
+        // The removal was OPTIMISTIC and has just been rolled back by the two
+        // refetches above, so the tie reappears on the canvas with no
+        // explanation. Dogfeed 2026-08-02: the backend had gone away, the edge
+        // flickered out and back, and the only record was a log.warn nobody was
+        // watching — the engineer kept clicking for minutes. Name the gesture
+        // that did not take; error toasts are sticky, so this waits to be read.
+        toast('error', 'Could not disconnect the bands — the tie is still there. Try again.')
       }
     },
     [
@@ -320,6 +327,7 @@ export function useGeotechPackingCorrelation(
       markMutated,
       setContactCorrelationEdges,
       setGeotechPackingEdges,
+      toast,
       undoStack,
     ],
   )
