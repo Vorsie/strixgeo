@@ -47,6 +47,7 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
 from groundmodel.shared.bundle_format import BUNDLE_FORMAT_VERSION
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
+from .bundle_collections import assert_bundle_keys_registered
 from .bundle_serialization import (
     _SKIP_COLUMNS,
     _borehole_to_dict,
@@ -335,6 +336,11 @@ async def _build_project_bundle_impl(
         # default_factory=list. Pre-ship amnesty — no format_version bump.
         "litho_solids": [_column_to_json(s, _SKIP_COLUMNS) for s in litho_solids],
     }
+    # Every copy path (Save As, restore, revert) is driven off the registry
+    # rather than its own list of tables. Checking the bundle against it here
+    # means a collection added above but never registered fails at save time,
+    # loudly, instead of being silently skipped by each of those paths.
+    assert_bundle_keys_registered(bundle)
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
         f"+ {len(formations)} formations "
