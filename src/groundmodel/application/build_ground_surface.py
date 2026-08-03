@@ -173,9 +173,16 @@ class BuildGroundSurface(GroundModelLogger):
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
 
-        self.debug(
-            f"build ground surface: bbox ({min_x:.1f},{min_y:.1f})→"
-            f"({max_x:.1f},{max_y:.1f}) provider={self._provider.provider_id}"
+        # INFO, not DEBUG: this is the line that names WHERE the DEM tile was
+        # asked for. The 2026-08-02 dogfeed flood (a 1000 m × 4 m strip at the
+        # origin, 404ing forever) could not be attributed to a caller because
+        # the only record of the extent was a DEBUG line nobody had enabled.
+        # It costs one line per build and it identifies the offending model.
+        self.info(
+            f"build ground surface: hull {len(hull_points)} point(s), bbox "
+            f"({min_x:.1f},{min_y:.1f})→({max_x:.1f},{max_y:.1f}) "
+            f"span={max_x - min_x:.1f}×{max_y - min_y:.1f} m "
+            f"provider={self._provider.provider_id} model={model_id}"
         )
 
         grid: DemZGrid = await self._provider.fetch_grid(
