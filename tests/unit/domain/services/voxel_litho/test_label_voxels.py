@@ -28,7 +28,12 @@ import numpy as np
 
 from groundmodel.domain.services.model_domain import DomainTest, build_model_domain
 from groundmodel.domain.services.surface_bound import SurfaceBound
-from groundmodel.domain.services.voxel_litho.label_voxels import label_voxels
+from groundmodel.domain.services.voxel_litho.label_voxels import (
+    _column_labels,
+    _column_labels_gapped,
+    _Entry,
+    label_voxels,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     RegionInput,
@@ -672,11 +677,19 @@ def test_a_litho_contact_within_tolerance_of_a_geo_surface_snaps_to_it():
     )
     shallow = _section_shallow_zand_only(40.0, "S", base_elev=-1.0)
     surfaces = (_flat_geo_surface(-5.0),)
-    # A fine 0.1 m grid so the would-be 0.1 m KLEI sliver between the litho
-    # contact (-4.9) and the geological surface (-5.0) is a full voxel — visible
-    # ONLY if the contact failed to snap.
+    # A fine 0.1 m VERTICAL step so the would-be 0.1 m KLEI sliver between the
+    # litho contact (-4.9) and the geological surface (-5.0) is a full voxel —
+    # visible ONLY if the contact failed to snap.  The sliver is a vertical
+    # question, so only Z needs the fine step: asking for 0.1 m horizontally too
+    # resolved to 108 M cells (435 MB of labels) for a test that reads two of
+    # them, which is now over the build's voxel budget.
     grid = label_voxels(
-        domain, 0.1, [deep, shallow], geo_surfaces=surfaces, litho_snap_tolerance_m=0.20
+        domain,
+        2.0,
+        [deep, shallow],
+        vertical_spacing_m=0.1,
+        geo_surfaces=surfaces,
+        litho_snap_tolerance_m=0.20,
     )
 
     # The contact snaps DOWN to the -5 surface, so the [-5.0, -4.9] interval that
@@ -944,3 +957,138 @@ def test_between_two_cpts_in_one_voxel_the_deeper_one_is_honored():
         supplied = [column.investigation_id for column in order]
         assert seq[0] == _VEEN, f"order {supplied} honored the shallower cone"
         assert _SAND not in seq, f"order {supplied} kept the shallower log"
+
+
+# ---------------------------------------------------------------------------
+# What the partition leaves UNKNOWN stays unknown in 3-D.
+#
+# Owner ruling 2026-07-30, quoted in ``BuildVoxelLithoModel``: *"the voids below
+# td are always filled through correlations from other tests the left or right
+# (as in fill bands) if that is not the case then you leave it unkown."*  The
+# 2-D engine already decides that; the builder's job is to take its answer
+# INCLUDING its voids, never to supply a second opinion.
+# ---------------------------------------------------------------------------
+
+
+def _section_with_an_unfilled_middle() -> SectionPartitionInput:
+    """Section A, but the interval +4 → -4 is UNKNOWN — no region fills it.
+
+    Same envelope as :func:`_section_a` (+10 surface, -10 base) with the SAND
+    lens simply absent: nothing correlated across that interval, so the 2-D
+    engine drew nothing there.
+    """
+    columns = (
+        SectionColumnInput("A0", along_m=0.0, world_x=0.0, world_y=0.0),
+        SectionColumnInput("A1", along_m=80.0, world_x=80.0, world_y=0.0),
+    )
+    regions = (
+        RegionInput(_KLEI, "kleiTop", ((0.0, 10.0), (1.0, 10.0), (1.0, 4.0), (0.0, 4.0)), 0),
+        RegionInput(_KLEI, "kleiBot", ((0.0, -4.0), (1.0, -4.0), (1.0, -10.0), (0.0, -10.0)), 0),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=0.0, end_x=80.0, end_y=0.0, columns=columns, regions=regions
+    )
+
+
+def _formations_between(grid, x: float, y: float, low: float, high: float) -> set[str | None]:
+    """Every formation (``None`` for void) the column at ``(x, y)`` shows in a band."""
+    i = int(np.argmin(np.abs(grid.gx - x)))
+    j = int(np.argmin(np.abs(grid.gy - y)))
+    out: set[str | None] = set()
+    for k, z in enumerate(grid.gz):
+        if not (low < float(z) < high):
+            continue
+        label = int(grid.labels[i, j, k])
+        out.add(None if label < 0 else grid.formation_by_body[grid.body_id_by_index[label]])
+    return out
+
+
+def test_an_unfilled_interval_stays_unknown_instead_of_taking_the_body_above():
+    """The clay above an unknown interval must not be extruded down through it.
+
+    Read beyond the sections (nearer A than B, outside the band between them) so
+    the column is A's own partition extended sideways — the answer A actually
+    drew, voids and all.
+    """
+    domain = _domain_for_two_sections()
+    sections = [_section_with_an_unfilled_middle(), _section_b()]
+
+    grid = label_voxels(domain, 2.0, sections)
+
+    assert _formations_between(grid, x=40.0, y=-3.0, low=-4.0, high=4.0) == {None}
+
+
+def test_the_bodies_around_an_unfilled_interval_stay_exactly_where_they_are():
+    """Nothing above or below the unknown interval moves to close it up."""
+    domain = _domain_for_two_sections()
+    sections = [_section_with_an_unfilled_middle(), _section_b()]
+
+    grid = label_voxels(domain, 2.0, sections)
+
+    assert _formations_between(grid, x=40.0, y=-3.0, low=4.0, high=10.0) == {_KLEI}
+    assert _formations_between(grid, x=40.0, y=-3.0, low=-10.0, high=-4.0) == {_KLEI}
+
+
+# ---------------------------------------------------------------------------
+# A void is what the 2-D engine LEFT BLANK, not what its 1 mm snap grid rounded
+# ---------------------------------------------------------------------------
+# The 2-D partition engine snaps every polygon coordinate to a 1 mm grid, so two
+# regions meeting at one contact can come back a fraction of a millimetre apart.
+# That is rounding, not a statement that the interval is unknown.
+
+
+_TWO_BODIES = {"upper": 0, "lower": 1}
+
+
+def _stack_split_at(upper_base: float, lower_top: float) -> list[_Entry]:
+    """A two-body column, shallow → deep, whose contact is written twice."""
+    return [
+        _Entry("upper", _KLEI, top_elev=10.0, base_elev=upper_base),
+        _Entry("lower", _SAND, top_elev=lower_top, base_elev=0.0),
+    ]
+
+
+def test_a_contact_that_snaps_a_fraction_of_a_millimetre_apart_is_still_a_contact():
+    """Half a millimetre between two regions is the snap grid, not an unknown interval.
+
+    A voxel sitting in that sliver must take the body above it — the way it did
+    before voids were preserved — rather than become a thread of void voxels
+    drifting through a contact the engineer drew as flush.
+    """
+    stack = _stack_split_at(upper_base=4.0005, lower_top=4.0)
+    gz = np.array([4.0002], dtype=float)
+
+    col = _column_labels(stack, gz, _TWO_BODIES, {})
+
+    assert col.tolist() == [0]
+
+
+def test_an_interval_wider_than_the_snap_grid_is_still_a_void():
+    """The near-miss: 2 mm is more than the engine's rounding, so it stays unknown.
+
+    This is the case the void slot exists for — the 2-D engine deliberately left
+    the interval blank and the grid must not invent lithology in it.
+    """
+    stack = _stack_split_at(upper_base=4.002, lower_top=4.0)
+    gz = np.array([4.001], dtype=float)
+
+    col = _column_labels(stack, gz, _TWO_BODIES, {})
+
+    assert col.tolist() == [-1]
+
+
+def test_both_labellers_agree_on_a_voxel_sitting_exactly_on_a_contact():
+    """One boundary rule, two implementations — a shared contact goes to the body above.
+
+    The fast searchsorted labeller and the gap-tolerant one are two consumers of
+    the same half-open convention; a voxel landing exactly on a global boundary
+    must not depend on which one the caller passed.
+    """
+    stack = _stack_split_at(upper_base=4.0, lower_top=4.0)
+    # Every boundary of the stack plus a point inside each body.
+    gz = np.array([0.0, 2.0, 4.0, 7.0, 10.0], dtype=float)
+
+    fast = _column_labels(stack, gz, _TWO_BODIES, {})
+    gapped = _column_labels_gapped(stack, gz, _TWO_BODIES, {})
+
+    assert fast.tolist() == gapped.tolist()
