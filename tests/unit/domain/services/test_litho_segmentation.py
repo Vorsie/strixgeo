@@ -370,3 +370,58 @@ def test_borehole_merge_structural_error_unknown_code() -> None:
 def test_borehole_empty_series_returns_no_layers() -> None:
     """No borehole layers → no suggestions, never a crash."""
     assert segment_borehole([], [], []) == []
+
+
+def test_a_two_metre_clay_bed_described_as_one_log_layer_survives_the_minimum() -> None:
+    """A real bed thicker than the minimum must survive, even when the driller
+    described it as ONE layer.
+
+    This is the normal shape of a DOV description log: one observation layer per
+    lithology change (XZ 0–1.5 m, KL 1.5–3.5 m, XZ 3.5–8 m). The 2 m clay bed is
+    more than ten times the 0.15 m default minimum, so the engineer must be shown
+    a KLEI ghost between two ZAND ghosts — not a single sand column.
+    """
+    tops = [0.0, 1.5, 3.5]
+    bases = [1.5, 3.5, 8.0]
+    codes = [["XZ"], ["KL"], ["XZ"]]
+
+    layers = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.15)
+
+    assert [s.suggested_lithology for s in layers] == ["ZAND", "KLEI", "ZAND"]
+    klei = layers[1]
+    assert klei.depth_top_m == 1.5
+    assert klei.depth_base_m == 3.5
+
+
+def test_alternating_single_layer_log_is_not_collapsed_into_one_layer() -> None:
+    """Every layer a different lithology → every layer survives, none absorbed.
+
+    The degenerate case of the same rule: when no two consecutive log layers
+    share a lithology, each run is a single observation layer. Measuring those
+    runs by anything other than their real bounds collapses the whole borehole
+    into one layer of whichever lithology happened to survive.
+    """
+    tops = [0.0, 1.0, 2.0, 3.0]
+    bases = [1.0, 2.0, 3.0, 4.0]
+    codes = [["XZ"], ["KL"], ["LE"], ["XZ"]]
+
+    layers = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.15)
+
+    assert len(layers) == 4
+    assert layers[0].depth_top_m == 0.0
+    assert layers[-1].depth_base_m == 4.0
+
+
+def test_a_genuinely_thin_single_log_layer_is_still_absorbed() -> None:
+    """The near-miss: a 5 cm drape below the 0.15 m minimum still merges away.
+
+    Fixing the thickness measure must not turn the minimum into a no-op.
+    """
+    tops = [0.0, 1.50, 1.55]
+    bases = [1.50, 1.55, 4.0]
+    codes = [["XZ"], ["KL"], ["XZ"]]
+
+    layers = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.15)
+
+    assert [s.suggested_lithology for s in layers] == ["ZAND"]
+    assert layers[0].depth_top_m == 0.0 and layers[0].depth_base_m == 4.0
