@@ -195,13 +195,14 @@ async def test_cptm_has_no_fs_no_u2(filename: str, db_session: AsyncSession) -> 
 
 
 # ---------------------------------------------------------------------------
-# PostGIS point — populated because all DOV files carry EPSG 32000
+# PostGIS point — populated because all DOV files carry a translatable CRS
+# (GEF code 32000 → EPSG:31370, Belgian Lambert 72)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("filename", ALL_FILES)
 async def test_location_point_is_stored(filename: str, db_session: AsyncSession) -> None:
-    """PostGIS geometry point is populated for every DOV file (all carry EPSG 32000)."""
+    """PostGIS geometry point is populated for every DOV file (GEF 32000 → EPSG:31370)."""
     result = await ImportCpt(db_session).execute(DATA_DIR / filename)
     repo = CptRepository(db_session)
     cpt = await repo.get_by_id(result.cpt_id)
