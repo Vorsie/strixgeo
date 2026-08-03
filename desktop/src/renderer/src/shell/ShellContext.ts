@@ -223,11 +223,12 @@ export interface ShellContextValue {
   project: ProjectResponse
   /** Project lifecycle — dirty flag, dialogs, save/close actions.
    *
-   *  ``unsavedSummary`` is omitted on purpose: it exists to write the
-   *  close-without-save dialog's body copy, which App renders directly via
-   *  AppDialogs. No stage reads it, and carrying it here would oblige every
-   *  stage test fixture to fabricate a summary it never uses. */
-  lifecycle: Omit<UseProjectLifecycleResult, 'unsavedSummary'>
+   *  ``unsavedSummary`` and ``unsavedError`` are omitted on purpose: both
+   *  exist to write the close-without-save dialog's body copy, which App
+   *  renders directly via AppDialogs. No stage reads either, and carrying
+   *  them here would oblige every stage test fixture to fabricate values it
+   *  never uses. */
+  lifecycle: Omit<UseProjectLifecycleResult, 'unsavedSummary' | 'unsavedError'>
   /** CPT + borehole data, import flows, hide/restore, elevation edits. */
   investigations: UseInvestigationDataResult
   /**
@@ -250,8 +251,14 @@ export interface ShellContextValue {
   sections: UseSectionsResult
   /** DEM hillshade + Virtuele Boring overlay state and handlers. */
   overlays: UseMapOverlaysResult
-  /** Toast notification stack and ``toast`` action. */
-  toasts: UseToastsResult
+  /**
+   * Toast notification stack and the ``toast`` action.
+   *
+   * ``dismissToast`` is omitted for the same reason as the lifecycle fields
+   * above: the close button that calls it is rendered by AppDialogs, which
+   * sits outside this context and reads the hook directly.
+   */
+  toasts: Omit<UseToastsResult, 'dismissToast'>
   /** Undo / redo stack — push + undo + redo + clear + canUndo + canRedo + busy. */
   undo: UseUndoStackResult
   /** API boot — ``ready`` and ``apiError`` (stable refs; rarely needed by stages). */
