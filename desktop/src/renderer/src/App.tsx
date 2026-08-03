@@ -178,6 +178,7 @@ export default function App() {
     lastSaveWroteFile,
     recoveryClearAllowed,
     revertToLastSaved,
+    resetStagedLumpingToSaved,
     saveAsProject,
     closeProject,
     stageLumping,
@@ -546,6 +547,10 @@ export default function App() {
     projectId: project?.id ?? null,
     projectName: project?.name ?? null,
     onRestore: restoreFromSnapshot,
+    // Delete backup means "no traces" (owner ruling 2026-08-03): the lumping
+    // map's staged DB slot — the one backup item with a second home — is put
+    // back onto the saved snapshot when the backup dies.
+    onDiscardResidue: resetStagedLumpingToSaved,
   })
 
   // Crash-recovery autosave (docs/design/autosave-recovery.md). A crash
