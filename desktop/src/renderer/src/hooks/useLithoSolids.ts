@@ -15,9 +15,62 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type { LithoBodySolidResponse } from '../api/client'
+import { apiErrorDetail } from '../api/clients/shared'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import { log } from '../utils/log'
 import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
+
+// ---------------------------------------------------------------------------
+// Failure copy
+// ---------------------------------------------------------------------------
+
+/**
+ * The sentence shown when a build does not complete.
+ *
+ * Three failures are genuinely different and must not read alike:
+ *
+ * * **Inputs refused** (``VoxelBuildInputsError``) — the builder stopped
+ *   before POSTing; its message already names the sections that failed to
+ *   load, so it is shown verbatim.
+ * * **Grid budget refused** (HTTP 422, ``code='voxel_grid_too_large'``) — the
+ *   server declined a spacing that would not fit in memory and sent back the
+ *   spacing to retry at *as a number*. Live on 2026-08-02 this arrived as
+ *   "ApiError: [object Object]" and the engineer had no way to know the model
+ *   was untouched or what to change. The retry spacing is stated because the
+ *   backend went to the trouble of computing it.
+ * * **Anything else** — an unexpected failure, where "check the connection" is
+ *   still the honest guess.
+ *
+ * Parameters
+ * ----------
+ * err : unknown
+ *     The caught rejection from the build attempt.
+ *
+ * Returns
+ * -------
+ * string
+ *     Toast copy for the engineer.
+ */
+export function buildFailureMessage(err: unknown): string {
+  if (err instanceof VoxelBuildInputsError) return err.message
+
+  const detail = apiErrorDetail(err)
+  if (detail?.code === 'voxel_grid_too_large') {
+    const reason =
+      typeof detail.message === 'string' && detail.message.length > 0
+        ? detail.message
+        : 'The requested grid is too large to build.'
+    const suggested = detail.suggested_horizontal_m
+    // Nothing was written server-side on this path, and saying so stops the
+    // engineer hunting for a half-built model before retrying.
+    const untouched = 'The stored 3-D model was not changed.'
+    return typeof suggested === 'number'
+      ? `${reason} Try again with a horizontal spacing of at least ${suggested} m. ${untouched}`
+      : `${reason} ${untouched}`
+  }
+
+  return 'Could not build body solids — check the connection.'
+}
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -261,16 +314,7 @@ export function useLithoSolids(
         }
       } catch (err) {
         log.error('useLithoSolids', 'build voxel solids failed', err)
-        // A VoxelBuildInputsError means the builder REFUSED because an input
-        // did not load — its message names the sections/inputs and is written
-        // for the engineer, so it is shown verbatim. Anything else is an
-        // unexpected failure and gets the generic connection copy.
-        toast(
-          'error',
-          err instanceof VoxelBuildInputsError
-            ? err.message
-            : 'Could not build body solids — check the connection.',
-        )
+        toast('error', buildFailureMessage(err))
       } finally {
         setBuilding(false)
       }
