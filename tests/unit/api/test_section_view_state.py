@@ -101,3 +101,22 @@ def test_cross_section_update_request_view_state_optional() -> None:
     """``view_state`` omitted entirely → ``None`` (do-not-touch sentinel)."""
     req = CrossSectionUpdateRequest()
     assert req.view_state is None
+
+
+def test_section_view_state_accepts_dismissed_review_flags() -> None:
+    """ "Keep separate" must be storable — the dismissal rides the section row.
+
+    The review-flag surface persists dismissals through this PATCH body. While
+    ``review_flags`` was missing from the allowlist every dismissal came back
+    422 and the flag nagged again on the next reload (audit F8 follow-on).
+    """
+    state = SectionViewState(review_flags={"dismissed": ["L1|2|left"]})
+    assert state.review_flags is not None
+    assert state.review_flags.dismissed == ["L1|2|left"]
+
+
+def test_section_view_state_rejects_unknown_review_flag_key() -> None:
+    """The strict-model contract still holds inside the new sub-shape."""
+    with pytest.raises(ValidationError) as exc_info:
+        SectionViewState(review_flags={"dismised": ["L1|2|left"]})  # typo
+    assert "dismised" in str(exc_info.value)
