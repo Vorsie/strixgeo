@@ -452,7 +452,7 @@ See [docs/api.md](docs/api.md) for the full endpoint catalogue (CPT, borehole, p
 
 Conflict semantics worth knowing without opening the catalogue:
 
-* `409 Conflict` on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
+* **Re-importing a CPT refreshes it — but the overwrite is CONSENTED.** `POST /cpt/import` for a file already in the project (same GEF project_id + test_id) can update the EXISTING row in place — series + header replaced from the fresh parse, **same `cpt_id`**, manual elevation kept, derived 3-D caches staled — which is the "Idempotency on ingest" rule: a parser fix must reach a project the user already imported into without a delete + re-import that would destroy every interpretation anchored on the row. Because that write is irreversible it is never automatic: without `confirm_refresh=true` the endpoint answers `409` with `code = "cpt_refresh_confirmation_required"` + the old-vs-new diff and writes NOTHING; with it, `200` + `refreshed: true` (a genuinely new CPT still answers `201`). A fresh parse with 0 rows or ERROR-level issues is refused `422` (`code = "cpt_refresh_refused"`) even when confirmed — a broken file must never overwrite good data. The desktop shows the diff in a ConfirmDialog (Cancel default-focused, "Replace data"). The legacy `409` carrying only the existing `cpt_id` survives for callers that pass `refresh_existing=False`.
 
 ---
 
