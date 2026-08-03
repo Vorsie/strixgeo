@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from groundmodel.shared.constants.auto_populate_mode import AutoPopulateMode
+
 # manual_map / selected_keys originate from a .gmproj file's lumping
 # snapshot, which is attacker-controlled on the restore path. Bound them so
 # a crafted payload cannot allocate an arbitrarily large dict/list during
@@ -34,6 +36,11 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     is the mechanism used by the "Fill from boreholes" curated-selection
     dialog — the caller passes the keys the user checked, and the
     auto-populate creates ONLY those formations.
+
+    ``mode`` decides what happens to the formations the caller did NOT
+    select.  ``"add"`` (the default) leaves them completely alone;
+    ``"overwrite"`` deletes them.  Sending ``selected_keys`` no longer
+    implies consent to delete — see the field docstring.
 
     When ``None`` (omitted), all in-scope layers are walked.  Whether an
     unmatched layer creates a formation is then governed by
@@ -83,4 +90,22 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     only for formations the user already curated and never creates one;
     unmatched layers are reported in ``skipped_not_in_model``.  Additive +
     defaulted so the Fill path and any existing client are unaffected.
+    """
+    mode: AutoPopulateMode = AutoPopulateMode.ADD
+    """What to do with formations the caller did NOT select.
+
+    ``"add"`` (DEFAULT) — create / update the selected keys only.  Existing
+    formations outside ``selected_keys`` are never touched; the deletion pass
+    is skipped entirely.
+
+    ``"overwrite"`` — the model becomes exactly the selection: every formation
+    with a contact in this model whose key is not in ``selected_keys`` is
+    deleted in the same transaction.  Only send this after the user has
+    confirmed it against a list of the units that will be removed.
+
+    WHY the default is the SAFE one: on 2026-08-03 a Fill run meant to add a
+    single unit deleted four saved geological units, because ``selected_keys``
+    alone authorised the delete.  With ``add`` as the default, a client that
+    omits this field — including every build that pre-dates it — can no longer
+    mass-delete a model.
     """
