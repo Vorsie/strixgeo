@@ -149,6 +149,7 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     visibleCpts,
     visibleBoreholes,
     sections: { visibleSections },
+    toasts: { toast },
   } = useShell()
 
   const projectId = project?.id ?? null
@@ -253,6 +254,23 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
       if (cancelled) return
       setApprovedEdgesBySectionId(result.edgesBySectionId)
       setFenceLoading(false)
+      // A section whose edge fetch failed resolves to ZERO edges, which is
+      // indistinguishable from "this section genuinely has no correlations" —
+      // so the fence renders untied panels and looks complete. The build path
+      // refuses outright; a view cannot refuse, so it says so (audit
+      // 2026-08-02, Class 1; fetchApprovedEdgesBySection's header makes acting
+      // on ``failedSectionIds`` a caller obligation).
+      if (result.failedSectionIds.length > 0) {
+        const nameById = new Map(visibleSections.map(s => [s.id, s.name]))
+        const names = result.failedSectionIds.map(id => nameById.get(id) ?? id)
+        const n = result.failedSectionIds.length
+        toast(
+          'warning',
+          `${n} cross-section${n === 1 ? '' : 's'} could not load ${n === 1 ? 'its' : 'their'} ` +
+            `correlations — the fence is incomplete and shows those panels untied: ` +
+            `${names.join(', ')}. Reopen Fence view to retry.`,
+        )
+      }
     })
 
     return () => {
@@ -261,6 +279,10 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
       // the buttons permanently disabled when the effect re-fires.
       setFenceLoading(false)
     }
+    // reason: ``toast`` is the ref-stable action from useToasts — adding it
+    // would not change identity, and listing it invites the impression that a
+    // toast change should refire the fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, modelId, fenceActive, viewMode, visibleSections])
 
   // Null the voxel-build ref on unmount.  Unlike the synchronous reset
