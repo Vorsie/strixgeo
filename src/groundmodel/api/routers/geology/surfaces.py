@@ -44,6 +44,10 @@ from groundmodel.infrastructure.dem.dem_provider_factory import (
     build_dem_provider,
 )
 from groundmodel.shared.config import settings
+from groundmodel.shared.exceptions import (
+    DemExtentRefusedError,
+    DemUpstreamRecentlyFailedError,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -405,6 +409,24 @@ async def build_ground_surface(
     try:
         async with provider:
             result = await BuildGroundSurface(session, provider).execute(project_id, model_id)
+    # The model's investigation hull produced an extent that cannot be a real
+    # place (coordinates outside the CRS domain, a runaway span). That is a
+    # data problem in THIS model, not a DEM outage — 422 with the numbers.
+    except DemExtentRefusedError as exc:
+        logger.warning(
+            f"ground-surface build: refused extent for model={model_id}: {exc} "
+            f"(check the investigation coordinates anchoring this model)"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except DemUpstreamRecentlyFailedError as exc:
+        logger.warning(f"ground-surface build: suppressed for model={model_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     except httpx.HTTPStatusError as exc:
         logger.error(
             f"ground-surface build: WCS request failed "
