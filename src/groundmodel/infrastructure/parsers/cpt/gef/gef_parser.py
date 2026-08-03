@@ -10,14 +10,20 @@ from groundmodel.domain.value_objects.derived_value_source import DerivedValueSo
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_constants import (
+    DEFAULT_COLUMN_SEPARATORS,
     MVAR_CONE_TYPE,
     MVAR_NET_AREA_RATIO,
     MVAR_PRE_DRILL,
     MVAR_STOP_CRITERION,
     MVAR_WATER_DEPTH,
+    NUMERIC_CHARACTERS,
     PRESSURE_COLUMNS,
     QUANTITY_TO_COLUMN,
     UNIT_TO_MPA,
+)
+from groundmodel.infrastructure.parsers.cpt.gef.gef_crs_codes import (
+    horizontal_epsg_from_gef_code,
+    vertical_epsg_from_gef_code,
 )
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
@@ -25,6 +31,121 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import V
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+_SEPARATOR_KEYS = ("#COLUMNSEPARATOR", "#RECORDSEPARATOR")
+
+
+def _declares_separator(line: str) -> bool:
+    """Return whether *line* is a ``#COLUMNSEPARATOR=``/``#RECORDSEPARATOR=`` header.
+
+    Parameters
+    ----------
+    line : str
+        A stripped header line, including its leading ``#``.
+
+    Returns
+    -------
+    bool
+        ``True`` for the two separator declarations. They are the only header
+        lines where a ``;`` must be read as the declared value rather than as
+        the start of an inline comment.
+    """
+    upper = line.upper()
+    return any(upper.startswith(key) for key in _SEPARATOR_KEYS)
+
+
+def _value_split_pattern(column_separator: str | None) -> re.Pattern[str]:
+    """Build the regex that splits a data line into values.
+
+    Parameters
+    ----------
+    column_separator : str | None
+        The character declared by ``#COLUMNSEPARATOR=``, or ``None`` when the
+        file declared none.
+
+    Returns
+    -------
+    re.Pattern[str]
+        A character-class split on the declared separator plus the historic
+        defaults (semicolon and whitespace). The defaults stay in even when a
+        separator is declared: real files declare ``;`` and then also pad with
+        spaces, and widening the split can only merge separators that were
+        never data. Characters that can occur inside a number are dropped —
+        see :data:`NUMERIC_CHARACTERS`.
+    """
+    escaped = "".join(re.escape(c) for c in sorted(_effective_column_separators(column_separator)))
+    return re.compile(f"[{escaped}\\s]+")
+
+
+def _effective_column_separators(column_separator: str | None) -> set[str]:
+    """Return every character that actually splits a data line into values.
+
+    The historic defaults always apply; a declared separator adds to them,
+    minus any character that can occur inside a number.
+
+    Parameters
+    ----------
+    column_separator : str | None
+        The character declared by ``#COLUMNSEPARATOR=``, or ``None``.
+
+    Returns
+    -------
+    set[str]
+        The value-splitting characters (whitespace is handled separately by
+        the regex's ``\\s`` class and is therefore not listed here).
+    """
+    chars = set(DEFAULT_COLUMN_SEPARATORS)
+    if column_separator:
+        chars.update(c for c in column_separator if c not in NUMERIC_CHARACTERS)
+    return chars
+
+
+def _effective_record_separator(
+    record_separator: str | None, column_separator: str | None
+) -> tuple[str | None, str | None]:
+    """Decide whether a declared record separator may be applied to data lines.
+
+    The mirror image of the guard :func:`_value_split_pattern` already applies
+    to the COLUMN separator. A record separator is used to cut each data line
+    (``line.split(sep)[0]``), so a declaration the file should not have made is
+    far more destructive than a bad column separator: every line is truncated
+    to whatever precedes the first occurrence, the frame still comes back with
+    its full set of correctly-named columns padded with ``None``, no row is
+    counted as skipped, and the parser reports success on a file it silently
+    emptied.
+
+    Two declarations are refused:
+
+    * a character that can occur inside a number (see
+      :data:`NUMERIC_CHARACTERS`) — ``-`` would cut every line at its first
+      negative value, including the ``-9999.0`` void marker;
+    * a character that also splits values apart — a file declaring
+      ``#RECORDSEPARATOR=;`` names the same character DOV declares as its
+      column separator, so honouring it keeps only the first value of each row.
+
+    Parameters
+    ----------
+    record_separator : str | None
+        The value declared by ``#RECORDSEPARATOR=``, or ``None``.
+    column_separator : str | None
+        The value declared by ``#COLUMNSEPARATOR=``, or ``None``.
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        ``(separator to apply, refusal reason)``. Exactly one is ever
+        non-``None``; both are ``None`` when the file declared no record
+        separator. The reason is a sentence fragment for the caller's WARNING.
+    """
+    if not record_separator:
+        return None, None
+    splitters = _effective_column_separators(column_separator)
+    for char in record_separator:
+        if char in NUMERIC_CHARACTERS:
+            return None, "it can occur inside a number"
+        if char in splitters or char.isspace():
+            return None, "it also separates values within a record"
+    return record_separator, None
 
 
 class GEFParser(GroundModelLogger):
@@ -53,13 +174,13 @@ class GEFParser(GroundModelLogger):
         """
         lines = content.splitlines()
         header, eoh_index = self._parse_header(lines)
-        raw_df = self._parse_data(lines[eoh_index + 1 :], header)
+        raw_df, skipped_rows = self._parse_data(lines[eoh_index + 1 :], header)
         cpt_type = self._detect_cpt_type(header)
 
         df = self._apply_void_values(raw_df, header)
         df = self._rename_columns(df, header)
         df = self._normalise_units(df, header)
-        df = self._ensure_depth_column(df)
+        df, depth_from_length = self._ensure_depth_column(df)
 
         # Provenance: capture rf source BEFORE we maybe compute Rf, so we can
         # tell "the GEF file gave us Rf directly" (qty 4 → MEASURED) apart from
@@ -73,7 +194,7 @@ class GEFParser(GroundModelLogger):
             df = self._calculate_rf(df)
             rf_source = DerivedValueSource.COMPUTED
 
-        issues = self._validate(header, df, cpt_type)
+        issues = self._validate(header, df, cpt_type, depth_from_length, skipped_rows)
         # When the GEF file's ``#ZID=`` header provided an elevation we
         # stamp ``GEF``; when it didn't, we stamp ``NONE`` so the row
         # surfaces as "no Z known" through the same code path used by
@@ -136,7 +257,11 @@ class GEFParser(GroundModelLogger):
             line = raw_line.strip()
             if not line.startswith("#"):
                 continue
-            if ";" in line:
+            # A ';' normally opens an inline comment — except on the two
+            # separator declarations, where ';' is the most common declared
+            # VALUE. ``#COLUMNSEPARATOR=;`` truncated as a comment would
+            # silently leave the file's own separator undeclared.
+            if ";" in line and not _declares_separator(line):
                 line = line[: line.index(";")].strip()
             if line.upper().startswith("#EOH"):
                 self.debug(
@@ -175,6 +300,10 @@ class GEFParser(GroundModelLogger):
                     self._parse_zid(header, value)
                 case "MEASUREMENTVAR":
                     self._parse_measurementvar(header, value)
+                case "COLUMNSEPARATOR":
+                    header.column_separator = value
+                case "RECORDSEPARATOR":
+                    header.record_separator = value
         except (ValueError, IndexError) as exc:
             self.warning(f"Could not parse GEF header field {key}={value!r}: {exc}")
 
@@ -203,14 +332,31 @@ class GEFParser(GroundModelLogger):
     def _parse_xyid(self, header: GEFHeader, value: str) -> None:
         parts = [p.strip() for p in value.split(",")]
         if len(parts) >= 3:
-            header.epsg = int(parts[0]) if parts[0] else None
+            # Keep the raw GEF code, then translate. The two are separate
+            # fields because they are separate things — the raw code is what
+            # the file said, ``epsg`` is what it means.
+            header.xy_code = int(parts[0]) if parts[0] else None
+            header.epsg = horizontal_epsg_from_gef_code(header.xy_code)
+            if header.xy_code is not None and header.epsg is None:
+                self.warning(
+                    f"GEF #XYID declares coordinate-system code {header.xy_code}, "
+                    "which is neither a known GEF code nor a supported EPSG — "
+                    "no CRS assigned"
+                )
             header.x = float(parts[1]) if parts[1] else None
             header.y = float(parts[2]) if parts[2] else None
 
     def _parse_zid(self, header: GEFHeader, value: str) -> None:
         parts = [p.strip() for p in value.split(",")]
         if len(parts) >= 1 and parts[0]:
-            header.z_epsg = int(parts[0])
+            header.z_code = int(parts[0])
+            header.z_epsg = vertical_epsg_from_gef_code(header.z_code)
+            if header.z_epsg is None:
+                self.warning(
+                    f"GEF #ZID declares vertical-datum code {header.z_code}, "
+                    "which is neither a known GEF code nor a labelled vertical "
+                    "EPSG — elevations stay datum-less"
+                )
         if len(parts) >= 2 and parts[1]:
             header.z = float(parts[1])
 
@@ -236,27 +382,82 @@ class GEFParser(GroundModelLogger):
     # Data
     # ------------------------------------------------------------------
 
-    def _parse_data(self, lines: list[str], header: GEFHeader) -> pl.DataFrame:
+    def _parse_data(self, lines: list[str], header: GEFHeader) -> tuple[pl.DataFrame, int]:
+        """Parse the data block into a raw ``col_N`` frame.
+
+        Parameters
+        ----------
+        lines : list[str]
+            Every line after ``#EOH=``.
+        header : GEFHeader
+            Supplies the declared column/record separators and column count.
+
+        Returns
+        -------
+        tuple[pl.DataFrame, int]
+            The raw frame and the number of data lines that could not be read
+            as numbers. The count is returned rather than swallowed so the
+            caller can surface it — a silently dropped row is a hole in the
+            depth series nobody sees.
+
+        Raises
+        ------
+        ParseError
+            If no row parsed. The message distinguishes "the file has no data
+            block" from "the data block is there but unreadable", and in the
+            latter case quotes the first offending line.
+        """
+        split_pattern = _value_split_pattern(header.column_separator)
+        record_separator, refusal = _effective_record_separator(
+            header.record_separator, header.column_separator
+        )
+        if refusal is not None:
+            self.warning(
+                f"GEF: ignoring #RECORDSEPARATOR= {header.record_separator!r} — {refusal}; "
+                "applying it would truncate every data line and the frame would still "
+                "come back full-width (padded with nulls). Records are read to the end "
+                "of the line."
+            )
         rows: list[list[float | None]] = []
+        skipped: list[str] = []
         for raw_line in lines:
             line = raw_line.strip()
             if not line or line.startswith("#") or line.startswith("!"):
                 continue
-            parts = re.split(r"[;\s]+", line)
+            # A declared record separator terminates the record — everything
+            # from it onwards belongs to the file's framing, not the data.
+            if record_separator:
+                line = line.split(record_separator)[0].strip()
+                if not line:
+                    continue
+            parts = split_pattern.split(line)
             try:
                 row: list[float | None] = [float(p) for p in parts if p]
                 if row:
                     rows.append(row)
             except ValueError:
+                skipped.append(line)
                 self.trace(f"Skipping unparseable data line: {raw_line!r}")
 
         if not rows:
+            if skipped:
+                raise ParseError(
+                    f"GEF data block has {len(skipped)} line(s); none could be "
+                    f"parsed as numbers — first: {skipped[0]!r}. "
+                    "Check the #COLUMNSEPARATOR= / #RECORDSEPARATOR= declarations."
+                )
             raise ParseError("GEF file contains no data rows")
+        if skipped:
+            self.warning(
+                f"GEF: {len(skipped)} of {len(rows) + len(skipped)} data line(s) "
+                f"could not be parsed and were dropped — first: {skipped[0]!r}"
+            )
 
         n_cols = header.n_columns or max(len(r) for r in rows)
         col_names = [f"col_{i + 1}" for i in range(n_cols)]
         padded = [r[:n_cols] + [None] * max(0, n_cols - len(r)) for r in rows]
-        return pl.DataFrame(padded, schema={c: pl.Float64 for c in col_names}, orient="row")
+        frame = pl.DataFrame(padded, schema={c: pl.Float64 for c in col_names}, orient="row")
+        return frame, len(skipped)
 
     # ------------------------------------------------------------------
     # Post-processing
@@ -272,12 +473,50 @@ class GEFParser(GroundModelLogger):
         return df
 
     def _rename_columns(self, df: pl.DataFrame, header: GEFHeader) -> pl.DataFrame:
+        """Rename ``col_N`` to the standard column for its declared quantity.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            Raw frame with positional ``col_N`` names.
+        header : GEFHeader
+            Supplies ``column_map`` (column number → GEF quantity number).
+
+        Returns
+        -------
+        pl.DataFrame
+            The frame with standard column names.
+
+        Raises
+        ------
+        ParseError
+            If two columns declare the same quantity. Two channels claiming
+            to be the same measurement means the file does not say which is
+            which — a refusal naming the quantity is the only honest answer,
+            and it keeps the failure inside the ``ParseError`` contract every
+            caller already handles instead of a Polars ``DuplicateError``
+            escaping to a 500.
+        """
         rename: dict[str, str] = {}
-        for col_num, qty_num in header.column_map.items():
+        columns_by_quantity: dict[int, list[int]] = {}
+        for col_num, qty_num in sorted(header.column_map.items()):
             src = f"col_{col_num}"
             dst = QUANTITY_TO_COLUMN.get(qty_num)
             if src in df.columns and dst:
                 rename[src] = dst
+                columns_by_quantity.setdefault(qty_num, []).append(col_num)
+
+        duplicates = {q: cols for q, cols in columns_by_quantity.items() if len(cols) > 1}
+        if duplicates:
+            detail = "; ".join(
+                f"quantity {qty} ({QUANTITY_TO_COLUMN[qty]}) on columns "
+                f"{', '.join(str(c) for c in cols)}"
+                for qty, cols in sorted(duplicates.items())
+            )
+            raise ParseError(
+                f"GEF declares the same quantity on more than one column — {detail}. "
+                "The file does not say which column holds which measurement."
+            )
         return df.rename(rename)
 
     def _normalise_units(self, df: pl.DataFrame, header: GEFHeader) -> pl.DataFrame:
@@ -295,13 +534,31 @@ class GEFParser(GroundModelLogger):
             self.debug(f"Normalised {std_col}: {unit} → MPa (×{factor})")
         return df
 
-    def _ensure_depth_column(self, df: pl.DataFrame) -> pl.DataFrame:
+    def _ensure_depth_column(self, df: pl.DataFrame) -> tuple[pl.DataFrame, bool]:
+        """Guarantee a ``depth_m`` column, falling back to penetration length.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            Frame with standard column names.
+
+        Returns
+        -------
+        tuple[pl.DataFrame, bool]
+            The frame, and whether ``depth_m`` is really the penetration
+            length (GEF qty 1) standing in for a corrected depth the file
+            never supplied. The flag is returned rather than only logged so
+            the substitution reaches the engineer as a validation issue —
+            an uncorrected depth is systematically too deep.
+        """
         if "depth_m" not in df.columns and "length_m" in df.columns:
             df = df.rename({"length_m": "depth_m"})
             self.warning(
-                "GEF uses penetration length (qty 11) — inclination correction not applied"
+                "GEF supplies only penetration length (qty 1), no corrected "
+                "depth (qty 11) — depths are along-rod, not inclination-corrected"
             )
-        return df
+            return df, True
+        return df, False
 
     def _calculate_rf(self, df: pl.DataFrame) -> pl.DataFrame:
         df = df.with_columns(
@@ -332,10 +589,18 @@ class GEFParser(GroundModelLogger):
     # ------------------------------------------------------------------
 
     def _validate(
-        self, header: GEFHeader, df: pl.DataFrame, cpt_type: CPTType
+        self,
+        header: GEFHeader,
+        df: pl.DataFrame,
+        cpt_type: CPTType,
+        depth_from_length: bool,
+        skipped_rows: int,
     ) -> list[ValidationIssue]:
         checks = [
             self._check_coordinates(header),
+            self._check_crs_codes(header),
+            self._check_uncorrected_depth(depth_from_length),
+            self._check_skipped_rows(skipped_rows, df.height),
             self._check_required_columns(df, cpt_type),
             self._check_depth_monotonic(df),
             self._check_negative_values(df),
@@ -370,7 +635,11 @@ class GEFParser(GroundModelLogger):
                     "Coordinates are (0, 0) — likely not recorded, not a real origin",
                 )
             )
-        if header.x is not None and header.epsg is None:
+        # Only "no code at all" belongs here. A code that was written but not
+        # recognised is a different, more specific story told by
+        # ``_check_crs_codes`` — saying "no EPSG code" about a file that
+        # declares one would send the reader looking for the wrong thing.
+        if header.x is not None and header.xy_code is None:
             issues.append(
                 ValidationIssue(
                     ValidationLevel.WARNING,
@@ -387,6 +656,100 @@ class GEFParser(GroundModelLogger):
                 )
             )
         return issues
+
+    def _check_crs_codes(self, header: GEFHeader) -> list[ValidationIssue]:
+        """Report GEF coordinate-system codes we could not translate to EPSG.
+
+        Parameters
+        ----------
+        header : GEFHeader
+            Carries the raw ``#XYID``/``#ZID`` codes and their translations.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            ``UNKNOWN_CRS_CODE`` (WARNING) when a horizontal code was written
+            but not recognised — the import will be refused downstream, and
+            this says why. ``UNKNOWN_VERTICAL_CRS_CODE`` (INFO) for the same
+            on the vertical datum, which only costs the datum label.
+        """
+        issues: list[ValidationIssue] = []
+        if header.xy_code is not None and header.epsg is None:
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "UNKNOWN_CRS_CODE",
+                    f"#XYID coordinate-system code {header.xy_code} is not a known "
+                    "GEF code or supported EPSG — coordinates cannot be placed",
+                )
+            )
+        if header.z_code is not None and header.z_epsg is None:
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.INFO,
+                    "UNKNOWN_VERTICAL_CRS_CODE",
+                    f"#ZID vertical-datum code {header.z_code} is not a known GEF "
+                    "code — elevations are stored without a named datum",
+                )
+            )
+        return issues
+
+    def _check_uncorrected_depth(self, depth_from_length: bool) -> list[ValidationIssue]:
+        """Flag a depth series that is really an uncorrected penetration length.
+
+        Parameters
+        ----------
+        depth_from_length : bool
+            ``True`` when the file supplied only GEF qty 1 (sondeerlengte)
+            and the parser used it as ``depth_m``.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            One ``UNCORRECTED_DEPTH`` WARNING, or empty. The measurement is
+            usable, but it is length along a rod that deviates from vertical,
+            so every depth is biased deep — the engineer has to know that
+            before a contact drawn on it goes into a model.
+        """
+        if not depth_from_length:
+            return []
+        return [
+            ValidationIssue(
+                ValidationLevel.WARNING,
+                "UNCORRECTED_DEPTH",
+                "File supplies penetration length (qty 1) but no corrected depth "
+                "(qty 11) — depths are measured along the rod and are deeper than "
+                "true vertical depth by the rod's deviation",
+            )
+        ]
+
+    def _check_skipped_rows(self, skipped_rows: int, kept_rows: int) -> list[ValidationIssue]:
+        """Report data lines dropped because they did not parse as numbers.
+
+        Parameters
+        ----------
+        skipped_rows : int
+            Count of unparseable data lines.
+        kept_rows : int
+            Count of rows that made it into the frame.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            One ``SKIPPED_ROWS`` WARNING, or empty. A dropped row is a hole in
+            the depth series; without this the import reports success and the
+            hole only shows up as an unexplained gap in a chart.
+        """
+        if skipped_rows <= 0:
+            return []
+        return [
+            ValidationIssue(
+                ValidationLevel.WARNING,
+                "SKIPPED_ROWS",
+                f"{skipped_rows} of {skipped_rows + kept_rows} data line(s) could not "
+                "be read as numbers and were dropped — the depth series has gaps",
+            )
+        ]
 
     def _check_required_columns(self, df: pl.DataFrame, cpt_type: CPTType) -> list[ValidationIssue]:
         required = {"depth_m", "qc_mpa"}
