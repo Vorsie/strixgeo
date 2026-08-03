@@ -25,6 +25,11 @@ What the DXF carries
    to know where each soil unit begins. Each formation gets its
    own DXF layer named ``"GeoModel-<formation_name>"`` with the
    formation's colour mapped to the nearest AutoCAD Color Index.
+   Formation names are NOT unique in this app and DXF layer keys
+   are case-folded, so two formations can want the same layer
+   name; the second one is given a short-id suffix instead of
+   crashing the export (see ``_setup_layers``). Contacts are
+   grouped by formation ID, never by name.
 2. **Per-investigation columns** — for each projected column emit
    a vertical line from the surface elevation down to
    ``surface - total_depth``. Each carries a TEXT entity at the
@@ -54,6 +59,8 @@ What the DXF intentionally does NOT carry yet
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
+from uuid import UUID
 
 import ezdxf
 from ezdxf.colors import RGB
@@ -71,6 +78,12 @@ _INVESTIGATIONS_LAYER = "Investigations"
 # per-layer so we don't have to round-trip through AutoCAD's
 # 256-entry palette.
 _FORMATION_LAYER_PREFIX = "GeoModel-"
+
+# AutoCAD truncates layer names at 255 characters. Applied by
+# ``_formation_layer_name`` and honoured by the collision disambiguator so a
+# very long formation name can't push its own disambiguating suffix off the
+# end (which would reproduce the collision it exists to resolve).
+_MAX_LAYER_NAME_LEN = 255
 
 
 class DxfSectionExporter(SectionExporter):
@@ -103,9 +116,11 @@ class DxfSectionExporter(SectionExporter):
         # section the file came from without renaming it.
         doc.header["$PROJECTNAME"] = snapshot.project_name[:255]
 
-        self._setup_layers(doc, snapshot)
+        layer_by_formation_id = self._setup_layers(doc, snapshot)
         self._draw_investigation_columns(msp, snapshot)
-        dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(msp, snapshot)
+        dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(
+            msp, snapshot, layer_by_formation_id
+        )
         self._draw_title_block(msp, snapshot)
 
         # ezdxf writes to a text stream; we wrap in StringIO and
@@ -149,14 +164,37 @@ class DxfSectionExporter(SectionExporter):
     # Layer setup — one per formation + the Investigations layer.
     # ------------------------------------------------------------------
 
-    def _setup_layers(self, doc: ezdxf.document.Drawing, snapshot: SectionSnapshot) -> None:
-        """Register DXF layers up front.
+    def _setup_layers(
+        self, doc: ezdxf.document.Drawing, snapshot: SectionSnapshot
+    ) -> dict[UUID, str]:
+        """Register DXF layers up front, one per formation.
 
         Drawing entities reference layer names; if a layer isn't
         defined ezdxf creates one with default colour. We define
         every layer we use so each formation lands with its true
         colour from the editor — engineers reading the DXF see the
         same colour-coding as the section editor.
+
+        Two formations can want the SAME layer name — duplicate
+        formation names are an expected state in this app (the
+        seed-from-stratigraphy flow leaves the duplicate for the
+        engineer to resolve, and nothing in the schema or the create
+        endpoint enforces uniqueness), DXF layer keys are case-folded
+        so ``"Zand"`` and ``"ZAND"`` collide, and stripping the
+        forbidden characters can collapse two distinct names onto one.
+        ``LayerTable.add`` raises ``DXFTableEntryError`` on a repeat,
+        which used to escape the export endpoint as an unexplained
+        HTTP 500. Colliding formations are given a disambiguated layer
+        instead, so each keeps a surface of its own in CAD.
+
+        Returns
+        -------
+        dict[UUID, str]
+            ``formation_id -> layer name``. The drawing pass reads the
+            layer from this map rather than re-deriving it from the
+            formation name, which is what keeps two same-named
+            formations on two separate layers (and two separate
+            polylines).
         """
         # Black-on-white CAD default. Use the layer's true_color
         # (24-bit RGB) per-formation rather than the legacy 256-entry
@@ -164,9 +202,25 @@ class DxfSectionExporter(SectionExporter):
         invest_layer = doc.layers.add(name=_INVESTIGATIONS_LAYER)
         invest_layer.color = 7  # 7 = black/white (theme-aware in CAD)
 
+        layer_by_formation_id: dict[UUID, str] = {}
         for f in snapshot.formations:
             layer_name = _formation_layer_name(f.name)
+            if doc.layers.has_entry(layer_name):
+                layer_name = _disambiguated_layer_name(
+                    layer_name, f.formation_id, doc.layers.has_entry
+                )
+                # Loud, because the engineer sees two near-identical layers in
+                # CAD and needs to know it is a duplicate in HIS model, not an
+                # exporter quirk.
+                self.warning(
+                    f"DXF layer name collision on formation {f.name!r} "
+                    f"(formation_id={f.formation_id}) — a second formation already "
+                    f"claims that layer name; exporting it as {layer_name!r}. "
+                    f"Likely a duplicate formation in the model. "
+                    f"project_id={snapshot.project_id} section_id={snapshot.section_id}"
+                )
             layer = doc.layers.add(name=layer_name)
+            layer_by_formation_id[f.formation_id] = layer_name
             rgb = _parse_hex_color(f.color)
             if rgb is not None:
                 layer.rgb = rgb
@@ -176,6 +230,7 @@ class DxfSectionExporter(SectionExporter):
                 layer.description = f"Formation '{f.name}' (code {f.code})"
             else:
                 layer.description = f"Formation '{f.name}'"
+        return layer_by_formation_id
 
     # ------------------------------------------------------------------
     # Investigation columns — vertical line + name label per column.
@@ -215,7 +270,12 @@ class DxfSectionExporter(SectionExporter):
     # Formation top surfaces — one polyline per formation.
     # ------------------------------------------------------------------
 
-    def _draw_formation_surfaces(self, msp, snapshot: SectionSnapshot) -> tuple[int, int]:  # type: ignore[no-untyped-def]
+    def _draw_formation_surfaces(  # type: ignore[no-untyped-def]
+        self,
+        msp,
+        snapshot: SectionSnapshot,
+        layer_by_formation_id: dict[UUID, str],
+    ) -> tuple[int, int]:
         """For each formation with contacts on the section, emit one
         LWPOLYLINE through (along_distance_m, level_m) sorted by
         along-distance.
@@ -224,6 +284,18 @@ class DxfSectionExporter(SectionExporter):
         None) are skipped — without an absolute Y we can't place the
         contact on the level-axis DXF. Future work could emit a
         depth-axis variant of the export for that case.
+
+        Parameters
+        ----------
+        msp
+            The ezdxf modelspace to draw into.
+        snapshot : SectionSnapshot
+            Materialised section geometry.
+        layer_by_formation_id : dict[UUID, str]
+            ``formation_id -> layer name`` from ``_setup_layers``.
+            Grouping on the id — not the name — is what keeps two
+            same-named formations as two separate surfaces instead of
+            welding their contacts into one zig-zag polyline.
 
         Returns
         -------
@@ -235,24 +307,24 @@ class DxfSectionExporter(SectionExporter):
         """
         dropped_no_level = 0
         dropped_no_formation = 0
-        # Group contacts by formation.
-        by_formation: dict[str, list[tuple[float, float]]] = {}
+        # Group contacts by formation ID — the only stable identity a
+        # formation has (names are not unique, see _setup_layers).
+        by_formation: dict[UUID, list[tuple[float, float]]] = {}
         for c in snapshot.contacts:
             if c.level_m is None:
                 dropped_no_level += 1
                 continue
-            # Use the formation name as the dict key — we already
-            # have the layer registered under that name and don't
-            # need to re-walk the formations list.
-            formation_name = _formation_name_for_contact(c, snapshot)
-            if formation_name is None:
+            if c.formation_id not in layer_by_formation_id:
+                # Defensive: a contact referencing a formation that isn't in
+                # the snapshot (deleted between assembly and export).
                 dropped_no_formation += 1
                 continue
-            by_formation.setdefault(formation_name, []).append((c.along_distance_m, c.level_m))
+            by_formation.setdefault(c.formation_id, []).append((c.along_distance_m, c.level_m))
 
-        for formation_name, points in by_formation.items():
+        for formation_id, points in by_formation.items():
             if len(points) < 1:
                 continue
+            layer_name = layer_by_formation_id[formation_id]
             points.sort(key=lambda p: p[0])
             if len(points) == 1:
                 # Single-point "surface" — emit a circle marker
@@ -262,12 +334,12 @@ class DxfSectionExporter(SectionExporter):
                 msp.add_circle(
                     center=(x, y),
                     radius=0.3,
-                    dxfattribs={"layer": _formation_layer_name(formation_name)},
+                    dxfattribs={"layer": layer_name},
                 )
                 continue
             msp.add_lwpolyline(
                 points,
-                dxfattribs={"layer": _formation_layer_name(formation_name)},
+                dxfattribs={"layer": layer_name},
             )
 
         return dropped_no_level, dropped_no_formation
@@ -338,25 +410,57 @@ def _formation_layer_name(formation_name: str) -> str:
     # AutoCAD truncates layer names at 255 chars; we use the prefix
     # + a generous body so the user sees ``GeoModel-Formation name``
     # in CAD without surprise truncation on common names.
-    return (_FORMATION_LAYER_PREFIX + safe.strip())[:255]
+    return (_FORMATION_LAYER_PREFIX + safe.strip())[:_MAX_LAYER_NAME_LEN]
 
 
-def _formation_name_for_contact(
-    contact,
-    snapshot: SectionSnapshot,  # type: ignore[no-untyped-def]
-) -> str | None:
-    """Lookup the formation name for a contact's ``formation_id``.
+def _disambiguated_layer_name(
+    taken_name: str,
+    formation_id: UUID,
+    is_taken: Callable[[str], bool],
+) -> str:
+    """Derive a free layer name for a formation whose name is already claimed.
 
-    Returns ``None`` when the formation isn't in the snapshot's
-    formations list — a defensive guard for the unlikely case where
-    a contact references a formation that's been deleted between
-    snapshot assembly and this method (shouldn't happen inside one
-    transaction; here as belt-and-braces).
+    Appends the formation's short id (first 8 hex chars of the UUID) so
+    the two colliding layers are told apart in CAD by something stable
+    and traceable back to the model, rather than by an arbitrary ``(2)``.
+    Re-derives through ``_formation_layer_name`` so the result is still
+    DXF-safe and still truncated at 255 characters.
+
+    Parameters
+    ----------
+    taken_name : str
+        The already-claimed candidate layer name (prefix included).
+    formation_id : UUID
+        The formation whose layer is being renamed.
+    is_taken : Callable[[str], bool]
+        Predicate answering "does the layer table already hold this
+        name?" — ``doc.layers.has_entry`` in production. Passed in so
+        this helper stays pure and unit-testable.
+
+    Returns
+    -------
+    str
+        A layer name no existing layer holds.
     """
-    for f in snapshot.formations:
-        if f.formation_id == contact.formation_id:
-            return f.name
-    return None
+    short_id = str(formation_id).replace("-", "")[:8]
+    # Strip the prefix before re-deriving so it isn't applied twice.
+    body = taken_name[len(_FORMATION_LAYER_PREFIX) :]
+
+    def _with_suffix(suffix: str) -> str:
+        # Trim the BODY, not the finished name: truncating afterwards would
+        # cut the suffix off a 255-char name and reproduce the collision.
+        budget = _MAX_LAYER_NAME_LEN - len(_FORMATION_LAYER_PREFIX) - len(suffix)
+        return _formation_layer_name(body[:budget].rstrip() + suffix)
+
+    candidate = _with_suffix(f" ({short_id})")
+    # Two formations sharing the first 8 hex chars of their UUID is not a
+    # real-world case, but a name collision must never crash the export —
+    # widen the suffix until the name is free.
+    counter = 2
+    while is_taken(candidate):
+        candidate = _with_suffix(f" ({short_id}-{counter})")
+        counter += 1
+    return candidate
 
 
 def _parse_hex_color(hex_str: str) -> RGB | None:
