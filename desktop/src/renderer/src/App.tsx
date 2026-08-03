@@ -185,7 +185,7 @@ export default function App() {
 
   // Toast notifications — extracted to useToasts so ``toast`` is
   // importable by the other hooks that receive it as a dep-injection param.
-  const { toasts, toast } = useToasts()
+  const { toasts, toast, dismissToast } = useToasts()
 
   // API boot sequence — extracted to useAppBoot.
   const { ready, apiError } = useAppBoot()
@@ -618,6 +618,7 @@ export default function App() {
     setCloseConfirmOpen,
     unsavedDialogOpen,
     unsavedSaving,
+    unsavedError,
     saveProject,
     discardSessionImports,
     handleCloseProjectRequest,
@@ -654,6 +655,8 @@ export default function App() {
     hasSavedSnapshot: projectFilePath !== null,
     clearRecoveryNow,
     lastSaveWroteFile,
+    projectFilePath,
+    toast,
   })
 
   // CPT + borehole data, import flows, hide/restore, elevation edits.
@@ -1245,6 +1248,7 @@ export default function App() {
           is pure presentational. */}
       <AppDialogs
         toasts={toasts}
+        dismissToast={dismissToast}
         newProjectOpen={newProjectOpen}
         setNewProjectOpen={setNewProjectOpen}
         newProject={newProject}
@@ -1256,6 +1260,7 @@ export default function App() {
         unsavedDialogOpen={unsavedDialogOpen}
         unsavedSummary={unsavedSummary}
         unsavedSaving={unsavedSaving}
+        unsavedError={unsavedError}
         handleUnsavedSave={handleUnsavedSave}
         handleUnsavedDiscard={handleUnsavedDiscard}
         handleUnsavedCancel={handleUnsavedCancel}
