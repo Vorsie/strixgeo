@@ -67,6 +67,34 @@ describe('useCrossingsValidation (debt #18)', () => {
     expect(mockValidate).toHaveBeenCalledTimes(1)
   })
 
+  // A validation that never ran must NOT read as "no crossings found". The engineer
+  // relies on the banner's silence to mean the model is clean before Build + export.
+  it('a validation that FAILED does not read as a clean model', async () => {
+    mockValidate.mockRejectedValue(new Error('500'))
+    const { result } = renderHook(() => useCrossingsValidation('p1', 'm1', 0, 0))
+    await waitFor(() => expect(result.current.validationFailed).toBe(true))
+    expect(result.current.crossingIssues).toEqual([])
+    expect(result.current.pendingBuild).toBe(false)
+  })
+
+  it('a retry that succeeds clears the failed state', async () => {
+    mockValidate.mockRejectedValueOnce(new Error('500'))
+    const { result, rerender } = renderHook(
+      ({ signal }: { signal: number }) => useCrossingsValidation('p1', 'm1', signal, 0),
+      { initialProps: { signal: 0 } },
+    )
+    await waitFor(() => expect(result.current.validationFailed).toBe(true))
+    mockValidate.mockResolvedValue({ model_id: 'm1', issues: [issue] })
+    rerender({ signal: 1 })
+    await waitFor(() => expect(result.current.validationFailed).toBe(false))
+    expect(result.current.crossingIssues).toHaveLength(1)
+  })
+
+  it('a stale model reports neither issues nor a failure — it was never checked', () => {
+    const { result } = renderHook(() => useCrossingsValidation('p1', 'm1', 0, 3))
+    expect(result.current.validationFailed).toBe(false)
+  })
+
   it('no model → inert (no fetch, not pending)', () => {
     const { result } = renderHook(() =>
       useCrossingsValidation('p1', null, 0, 0),
