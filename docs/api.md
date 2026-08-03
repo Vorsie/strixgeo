@@ -702,4 +702,33 @@ POST   /projects/{pid}/geology/formations/{fid}/absences
                                 override).
 ```
 
-409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
+Re-import semantics for `POST /cpt/import`: a file whose CPT is already in the
+project (same GEF project_id + test_id) can REFRESH the existing row — series
+and header replaced from the fresh parse, same `cpt_id`, review + every
+referencing row untouched, a manual collar elevation kept, the derived
+TIN/solid caches flipped to stale. That write is irreversible, so it is
+**consented, never automatic**:
+
+* duplicate, no `confirm_refresh` → `409 Conflict` with
+  `detail.code = "cpt_refresh_confirmation_required"`, `cpt_id`, `name`, and
+  the diff (`old_max_depth_m` / `new_max_depth_m`, `old_n_rows` /
+  `new_n_rows`, `n_errors`, `n_warnings`). **Nothing is written.**
+* duplicate + `confirm_refresh=true` (form field) → `200` with
+  `refreshed: true` and `name`.
+* a genuinely new CPT → `201` with `refreshed: false`.
+* duplicate whose fresh parse has 0 rows or ERROR-level issues → `422` with
+  `detail.code = "cpt_refresh_refused"` and a named `detail.reason`
+  (`no_rows` / `parse_errors`), **even with `confirm_refresh=true`** — a
+  broken file must never overwrite good data. (On the GEF path a 0-row file is
+  already rejected earlier with `400 "GEF file contains no data rows"`.)
+
+The legacy `409` whose body carries only `cpt_id` + `message` is reachable
+only when a caller opts out with `ImportCpt.persist(refresh_existing=False)`.
+
+DEM endpoints refuse an impossible extent locally: `GET /dem/sample` (and the
+ground-surface build) answers `422` naming the extent when the requested
+coordinates fall outside the project CRS's own domain, carry a non-finite
+bound, or span beyond the per-tile cap — no upstream request is made. A tile
+key that just failed upstream is suppressed for a few minutes and answers `502`
+(sample) / `503` (ground-surface) with the retry window, instead of re-hitting
+the WCS.
