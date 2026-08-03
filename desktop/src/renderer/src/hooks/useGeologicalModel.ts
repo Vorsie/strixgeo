@@ -50,6 +50,7 @@ import { useLithoModelOps } from './useLithoModelOps'
 import { useLithoSuggestions } from './useLithoSuggestions'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit, isGeotechUnit } from '../utils/formationKind'
+import { lostTieMessage } from '../utils/lostTieMessage'
 import { log } from '../utils/log'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
@@ -2272,11 +2273,10 @@ export function useGeologicalModel({
         )
       }
       if (lostTies > 0) {
-        toast(
-          'error',
-          `${lostTies} accepted packing tie${lostTies === 1 ? '' : 's'} could not be kept — ` +
-            'the band changed and the tie has to be redrawn. See the console for which.',
-        )
+        // NAMES, not just a count: an accepted tie the engineer has to redraw
+        // is unfindable from "3 ties were lost", and the ids only ever reached
+        // a console a packaged build does not show (audit 2026-08-02).
+        toast('error', lostTieMessage(lostTies, result.lost_tie_labels))
       }
     },
     // reason: activeLithoModelRef is a ref (always current) so listing it would
@@ -2316,7 +2316,11 @@ export function useGeologicalModel({
         `divideBoreholes ok geotech_model=${result.geotech_model_id}` +
           ` divided=${result.divided_borehole_count}` +
           ` single=${result.single_band_borehole_count}` +
-          ` layers=${result.layer_count}`,
+          ` layers=${result.layer_count}` +
+          ` ties_reanchored=${result.reanchored_tie_count ?? 0}` +
+          ` ties_lost=${result.lost_tie_count ?? 0}` +
+          ` ties_need_review=${JSON.stringify(result.review_tie_reasons ?? {})}` +
+          ` ${JSON.stringify(result.lost_tie_reasons ?? {})}`,
       )
       // Refresh geotech layers so the section canvas picks up the new borehole bands.
       requestGeotechLayersRefetch()
@@ -2326,11 +2330,32 @@ export function useGeologicalModel({
       markMutated()
       // Boreholes now match the current bodies — clear the stale flag.
       clearBoreholesStale()
+      // Re-dividing throws every borehole band away and rebuilds it with a new
+      // id, so an accepted packing tie on a borehole has to be re-anchored:
+      // onto the band that came back unchanged, or onto the one it moved into.
+      // Where neither is unambiguous the tie is still carried, but flagged —
+      // an accepted edge never disappears without the engineer deleting it.
+      // Report all three outcomes; the section a flag sits on may not be open.
+      const reanchored = result.reanchored_tie_count ?? 0
+      const lostTies = result.lost_tie_count ?? 0
+      const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
       toast(
         'success',
         `Boreholes divided — ${result.divided_borehole_count} split, ` +
-          `${result.single_band_borehole_count} single-band.`,
+          `${result.single_band_borehole_count} single-band${tieNote}.`,
       )
+      const needsReview = Object.values(result.review_tie_reasons ?? {}).reduce((a, b) => a + b, 0)
+      if (needsReview > 0) {
+        toast(
+          'warning',
+          `${needsReview} accepted packing tie${needsReview === 1 ? '' : 's'} need${needsReview === 1 ? 's' : ''} checking — ` +
+            'the borehole band it was drawn on changed. Look for the ! marks on the geotech sections.',
+        )
+      }
+      if (lostTies > 0) {
+        // See the Subdivide branch: the engineer needs to know WHICH ties.
+        toast('error', lostTieMessage(lostTies, result.lost_tie_labels))
+      }
     },
     // reason: activeLithoModelRef and activeGeotechModel are refs / stable
     // objects; the other deps are all stable callbacks.
