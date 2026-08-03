@@ -48,6 +48,22 @@ class BoreholeChannels(_StrictModel):
     informal_strat: bool | None = None
 
 
+class ReviewFlags(_StrictModel):
+    """Dismissed litho review flags persisted into ``view_state``.
+
+    A review flag marks an uncorrelated same-litho neighbour the safe-default
+    repair had to re-emit as an onlap; "Keep separate" dismisses one. The
+    dismissal is a per-project engineering decision, so it rides the section row
+    (and therefore the ``.gmproj`` bundle) rather than localStorage — see
+    ``desktop/src/renderer/src/utils/reviewFlagPrefs.ts``.
+
+    Without this key on the allowlist the PATCH is rejected 422 and every
+    dismissal is silently lost, so the flag nags again on the next reload.
+    """
+
+    dismissed: list[str] | None = None
+
+
 class SectionViewState(_StrictModel):
     """Validated shape of the ``cross_section.view_state`` JSONB bag.
 
@@ -63,6 +79,7 @@ class SectionViewState(_StrictModel):
     borehole_channels: BoreholeChannels | None = None
     column_spacing: float | None = Field(default=None, ge=0.0, le=1.0)
     snap_to_stratigraphy: bool | None = None
+    review_flags: ReviewFlags | None = None
 
 
 class CrossSectionCreateRequest(BaseModel):
@@ -75,18 +92,26 @@ class CrossSectionCreateRequest(BaseModel):
     """
 
     name: str = Field(min_length=1, max_length=200)
-    start_x: float
-    start_y: float
-    end_x: float
-    end_y: float
+    # ``allow_inf_nan=False`` is load-bearing, not decoration: JSON carries a
+    # bare ``NaN`` literal, Pydantic v2 accepts it into a float by default, and
+    # ``NaN != NaN`` walks straight through the distinct-endpoints guard below —
+    # the one check that exists to stop unusable geometry. A section persisted
+    # with a NaN endpoint poisons every later projection, snapshot and export
+    # and can only be repaired by deleting it, so it is refused at the door.
+    start_x: float = Field(allow_inf_nan=False)
+    start_y: float = Field(allow_inf_nan=False)
+    end_x: float = Field(allow_inf_nan=False)
+    end_y: float = Field(allow_inf_nan=False)
     epsg: int
     description: str | None = None
-    projection_buffer_m: float = Field(default=50.0, gt=0.0)
-    vertical_exaggeration: float = Field(default=1.0, gt=0.0)
+    projection_buffer_m: float = Field(default=50.0, gt=0.0, allow_inf_nan=False)
+    vertical_exaggeration: float = Field(default=1.0, gt=0.0, allow_inf_nan=False)
     excluded_borehole_ids: list[UUID] = Field(default_factory=list)
     excluded_cpt_ids: list[UUID] = Field(default_factory=list)
-    min_depth_m: float | None = None
-    max_depth_m: float | None = None
+    # A NaN clamp silently disables the depth window it is meant to define —
+    # the ordering validator below is an inequality and NaN fails every one.
+    min_depth_m: float | None = Field(default=None, allow_inf_nan=False)
+    max_depth_m: float | None = Field(default=None, allow_inf_nan=False)
     display_order: int = 0
     view_state: dict[str, Any] | None = None
     # seeded_formation_contact_ids is NOT in the create request.
@@ -124,17 +149,20 @@ class CrossSectionUpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
-    start_x: float | None = None
-    start_y: float | None = None
-    end_x: float | None = None
-    end_y: float | None = None
+    # Same finiteness block as the create body — PATCH is the other door into
+    # the same columns, and the router's post-update invariant repeats the same
+    # equality test that NaN slips through.
+    start_x: float | None = Field(default=None, allow_inf_nan=False)
+    start_y: float | None = Field(default=None, allow_inf_nan=False)
+    end_x: float | None = Field(default=None, allow_inf_nan=False)
+    end_y: float | None = Field(default=None, allow_inf_nan=False)
     epsg: int | None = None
-    projection_buffer_m: float | None = Field(default=None, gt=0.0)
-    vertical_exaggeration: float | None = Field(default=None, gt=0.0)
+    projection_buffer_m: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
+    vertical_exaggeration: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
     excluded_borehole_ids: list[UUID] | None = None
     excluded_cpt_ids: list[UUID] | None = None
-    min_depth_m: float | None = None
-    max_depth_m: float | None = None
+    min_depth_m: float | None = Field(default=None, allow_inf_nan=False)
+    max_depth_m: float | None = Field(default=None, allow_inf_nan=False)
     display_order: int | None = None
     # Sentinel: ``None`` means "do not touch view_state"; an explicit
     # empty dict ``{}`` clears the bag. The router applies a shallow
