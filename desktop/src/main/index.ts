@@ -23,6 +23,11 @@ import {
 } from './localClientToken'
 import { QuitHandshake } from './quitHandshake'
 import {
+  consoleMethodForLevel,
+  formatRendererMessage,
+  shouldForwardRendererMessage,
+} from './rendererConsoleForwarding'
+import {
   configureRecoveryStore,
   declineRecovery,
   deleteDeclinedRecovery,
@@ -163,13 +168,23 @@ function startApi(): void {
   // In dev: __dirname = desktop/out/main/ → 3 levels up = repo root (Strix/).
   // In packaged build: adjust this path to point at the bundled venv.
   const repoRoot = join(__dirname, '..', '..', '..')
-  const uvExe = join(repoRoot, '.venv', 'Scripts', 'uvicorn.exe')
+  // The backend is started through its own entrypoint module rather than
+  // `uvicorn.exe`, because the event loop has to be pinned through uvicorn's
+  // own `loop` factory hook — and uvicorn's CLI has no flag for a custom one.
+  //
+  // Observed 2026-08-02 (dogfeed): `OSError [WinError 64]` out of
+  // `asyncio/windows_events.py finish_accept` logged "Accept failed on a
+  // socket", after which the process kept running while every connection to
+  // :8765 was refused. CPython's proactor loop closes the listening socket on
+  // an accept error and never re-arms it; the selector loop logs and keeps
+  // serving. `groundmodel.api.serve` pins the selector loop on Windows (and
+  // installs the loud CRITICAL diagnostics either way) — see its docstring.
+  const pythonExe = join(repoRoot, '.venv', 'Scripts', 'python.exe')
 
-  apiProcess = spawn(uvExe, [
-    'groundmodel.api.main:app',
+  apiProcess = spawn(pythonExe, [
+    '-m', 'groundmodel.api.serve',
     '--host', '127.0.0.1',
     '--port', String(API_PORT),
-    '--no-access-log',
   ], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -498,6 +513,24 @@ function createWindow(): void {
     // eslint-disable-next-line no-console
     console.error('[main] renderer unresponsive (likely infinite loop or stuck await)')
   })
+
+  // Mirror the renderer console into the terminal — DEV ONLY.
+  //
+  // A pasted bug report used to carry uvicorn's `[api]` lines and the main
+  // process's `[main]` lines but nothing from the renderer, because those live
+  // in a separate DevTools window. Interleaving them here means one paste shows
+  // the click, the request it made and the reply, in order.
+  //
+  // Never in a packaged build: there is no terminal to write to, and renderer
+  // output is untrusted text that a shipped app has no reason to re-emit.
+  if (!app.isPackaged) {
+    win.webContents.on('console-message', details => {
+      if (!shouldForwardRendererMessage(details)) return
+      const method = consoleMethodForLevel(details.level)
+      // eslint-disable-next-line no-console
+      console[method](formatRendererMessage(details))
+    })
+  }
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
