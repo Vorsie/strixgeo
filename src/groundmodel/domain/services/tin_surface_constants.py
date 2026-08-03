@@ -71,3 +71,12 @@ from __future__ import annotations
 #                      decoupled; the only cost is the surface bridging
 #                      real data voids (flat, not droopy).
 CONCAVE_HULL_ALPHA_FACTOR = 6.0
+
+# Boundary tolerance (metres) for ModelDomain's footprint-coverage check.
+# ``build_model_domain`` asks, for each input test, whether the returned hull
+# contains it — but every hull VERTEX is an input test lying exactly ON the
+# ring, and strict ray-cast parity flips roughly half of those to "outside".
+# 1 mm is far below any real survey precision and far above float noise, so the
+# check reports only genuine exclusion (a dropped alpha-shape component, tens to
+# hundreds of metres away) and never boundary parity.
+MODEL_DOMAIN_COVERAGE_TOL_M = 0.001
