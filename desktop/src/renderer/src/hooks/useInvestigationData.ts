@@ -11,6 +11,7 @@ import type { Dispatch, SetStateAction } from 'react'
 
 import {
   api,
+  CptRefreshConfirmationRequiredError,
   DuplicateCptError,
 } from '../api/client'
 import type {
@@ -18,7 +19,9 @@ import type {
   BoreholeListItem,
   CptListItem,
   CptPlotResponse,
+  CptRefreshDiff,
   CptResponse,
+  ImportCptResponse,
 } from '../api/client'
 import { addAllToSet } from '../utils/sets'
 import { dovSubPhaseFailures } from '../utils/dovImportFailures'
@@ -308,6 +311,15 @@ export interface UseInvestigationDataResult {
   ) => Promise<void>
   // Import
   handleImportCpt: () => Promise<void>
+  /** Non-null while a GEF import is waiting for the engineer to agree that an
+   * existing CPT's stored data may be replaced. The consumer renders the
+   * confirmation dialog from this; the import is parked until one of
+   * ``confirmRefreshImport`` / ``cancelRefreshImport`` is called. */
+  refreshConfirm: { fileName: string; diff: CptRefreshDiff } | null
+  /** "Replace data" — re-posts the parked file with the confirmation. */
+  confirmRefreshImport: () => void
+  /** Cancel — the stored CPT is left exactly as it was. */
+  cancelRefreshImport: () => void
   handleImportDov: () => void
   handleImportBoreholeDov: () => void
   handleBboxDrawn: (
@@ -374,6 +386,7 @@ export function useInvestigationData({
   selectedBoreholeId,
   setSelectedBoreholeId,
   setView,
+  markMutated,
 }: {
   project: { id: string; name: string } | null
   ready: boolean
@@ -387,6 +400,12 @@ export function useInvestigationData({
   selectedBoreholeId: string | null
   setSelectedBoreholeId: (id: string | null) => void
   setView: (view: 'map' | 'chart') => void
+  /** Project-level dirty flag from App (``markMutated``). Used for changes to
+   * rows that were ALREADY in the project — a CPT refresh replaces stored data
+   * without any new id joining the project, so the session-import set (which
+   * drives discard-on-close deletion) is the wrong lever for it. Optional so
+   * existing test mounts keep working. */
+  markMutated?: () => void
 }): UseInvestigationDataResult {
   // ---------------------------------------------------------------------------
   // State
@@ -724,6 +743,42 @@ export function useInvestigationData({
   // Import — GEF file
   // ---------------------------------------------------------------------------
 
+  // --- Refresh confirmation (one file at a time) -----------------------------
+  //
+  // The import parks on a promise the dialog resolves. A ref holds the resolver
+  // rather than state because it is a continuation, not something to render;
+  // the RENDERED half is ``refreshConfirm``.
+  const [refreshConfirm, setRefreshConfirm] = useState<{
+    fileName: string
+    diff: CptRefreshDiff
+  } | null>(null)
+  const refreshConfirmResolveRef = useRef<((agreed: boolean) => void) | null>(null)
+
+  const askRefreshConfirmation = useCallback(
+    (fileName: string, diff: CptRefreshDiff): Promise<boolean> =>
+      new Promise<boolean>(resolve => {
+        refreshConfirmResolveRef.current = resolve
+        setRefreshConfirm({ fileName, diff })
+      }),
+    [],
+  )
+
+  const settleRefreshConfirm = useCallback((agreed: boolean) => {
+    const resolve = refreshConfirmResolveRef.current
+    refreshConfirmResolveRef.current = null
+    setRefreshConfirm(null)
+    resolve?.(agreed)
+  }, [])
+
+  const confirmRefreshImport = useCallback(
+    () => settleRefreshConfirm(true),
+    [settleRefreshConfirm],
+  )
+  const cancelRefreshImport = useCallback(
+    () => settleRefreshConfirm(false),
+    [settleRefreshConfirm],
+  )
+
   const handleImportCpt = useCallback(async () => {
     if (!project) return
     const filePaths = await window.electron.openFiles([
@@ -738,25 +793,61 @@ export function useInvestigationData({
         filePaths.map(fp => api.cpt.import(fp, project.id)),
       )
 
+      // Files whose CPT is already in the project come back refused with the
+      // old-vs-new diff and NOTHING written. Replacing a stored series is
+      // irreversible, so each one is put to the engineer on its numbers
+      // (docs/ux.md "Reversible vs irreversible") and only then re-posted.
+      // Asked sequentially: two dialogs at once is not a question, it is a
+      // pile-up.
+      const declinedNames: string[] = []
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]
+        if (r.status !== 'rejected') continue
+        if (!(r.reason instanceof CptRefreshConfirmationRequiredError)) continue
+        const diff = r.reason.diff
+        const fileName = filePaths[i].split(/[\\/]/).pop() ?? filePaths[i]
+        const agreed = await askRefreshConfirmation(fileName, diff)
+        if (!agreed) {
+          declinedNames.push(diff.name)
+          log.info('import', `refresh declined for ${diff.name} — row left untouched`)
+          continue
+        }
+        results[i] = await api.cpt
+          .import(filePaths[i], project.id, true)
+          .then(value => ({ status: 'fulfilled', value }) as PromiseSettledResult<ImportCptResponse>)
+          .catch(reason => ({ status: 'rejected', reason }) as PromiseSettledResult<ImportCptResponse>)
+      }
+
       let imported = 0,
         warnings = 0,
+        refreshed = 0,
         duplicates = 0,
         errors = 0
       let firstId: string | null = null
       const touchedIds: string[] = []
-      // IDs created in this import (not duplicates) — tagged as session-
+      // IDs created in this import (not refreshes) — tagged as session-
       // imports so the sidebar paints the amber asterisk and the project
-      // becomes dirty until File → Save.
+      // becomes dirty until File → Save. A refreshed CPT is already in the
+      // manifest: its row was updated in place, no new id joined the project.
       const newIds: string[] = []
+      // Display names of the CPTs that were refreshed rather than created —
+      // the toast names them so the user can see WHICH file replaced WHAT.
+      const refreshedNames: string[] = []
 
       for (const r of results) {
         if (r.status === 'fulfilled') {
-          if (r.value.has_errors) warnings++
-          else imported++
           firstId ??= r.value.cpt_id
           touchedIds.push(r.value.cpt_id)
-          newIds.push(r.value.cpt_id)
+          if (r.value.refreshed) {
+            refreshed++
+            refreshedNames.push(r.value.name || r.value.cpt_id)
+          } else {
+            if (r.value.has_errors) warnings++
+            else imported++
+            newIds.push(r.value.cpt_id)
+          }
         } else if (r.reason instanceof DuplicateCptError) {
+          // Only reachable against a backend that predates refresh-on-reimport.
           duplicates++
           firstId ??= r.reason.cptId
           touchedIds.push(r.reason.cptId)
@@ -769,15 +860,28 @@ export function useInvestigationData({
       const parts: string[] = []
       if (ok > 0)
         parts.push(`${ok} imported${warnings > 0 ? ` (${warnings} with warnings)` : ''}`)
+      if (refreshed === 1)
+        parts.push(`Refreshed existing CPT ${refreshedNames[0]} from file`)
+      else if (refreshed > 1) parts.push(`${refreshed} refreshed from file`)
       if (duplicates > 0) parts.push(`${duplicates} already existed`)
+      if (declinedNames.length === 1) parts.push(`${declinedNames[0]} left unchanged`)
+      else if (declinedNames.length > 1)
+        parts.push(`${declinedNames.length} left unchanged`)
       if (errors > 0) parts.push(`${errors} failed`)
-      toast(errors > 0 && ok === 0 ? 'error' : 'success', parts.join(', '))
+      toast(errors > 0 && ok === 0 && refreshed === 0 ? 'error' : 'success', parts.join(', '))
 
       unhideCpts(touchedIds)
       // Append to the manifest (visibility gate) AND the session-imports
       // tracking set (drives project-level dirty + discard rollback).
       addToManifest('cpt', newIds)
-      addAllToSet(setSessionImportCptIds, newIds)
+      // Guarded: a refresh-only import has no new ids, and the session-imports
+      // set must stay untouched then — see the comment below.
+      if (newIds.length > 0) addAllToSet(setSessionImportCptIds, newIds)
+      // A refresh changed stored data without any new id joining the project,
+      // so it must dirty the project through the project-level flag — NOT by
+      // joining the session-imports set, whose discard-on-close path would then
+      // DELETE a CPT that was in the project before this session started.
+      if (refreshed > 0) markMutated?.()
       await refreshList()
       if (firstId) {
         setSelectedId(firstId)
@@ -796,6 +900,9 @@ export function useInvestigationData({
     setSessionImportCptIds,
     setSelectedId,
     setView,
+    askRefreshConfirmation,
+    markMutated,
+    toast,
   ])
 
   // ---------------------------------------------------------------------------
@@ -984,6 +1091,9 @@ export function useInvestigationData({
     handlePatchCptElevation,
     handlePatchBoreholeElevation,
     handleImportCpt,
+    refreshConfirm,
+    confirmRefreshImport,
+    cancelRefreshImport,
     handleImportDov,
     handleImportBoreholeDov,
     handleBboxDrawn,
