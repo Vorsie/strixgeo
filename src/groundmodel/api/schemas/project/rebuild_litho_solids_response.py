@@ -49,6 +49,12 @@ class RebuildLithoSolidsResponse(BaseModel):
         the toast's severity is derived from this list, the same way the
         geotech verbs derive theirs from ``lost_tie_count`` /
         ``review_tie_reasons``.  Empty on the happy path.
+    empty_reason : str | None
+        Why the build produced no bodies, when it produced none.  A degenerate
+        build DELETES the stored 3-D model, yet its counts read exactly like a
+        happy build of zero bodies — so without this the client can only report
+        a green "Built 0 bodies" over a model that was just erased.  ``None``
+        whenever at least one body was built.
     """
 
     bodies_considered: int
@@ -61,3 +67,5 @@ class RebuildLithoSolidsResponse(BaseModel):
     """Investigation ids dropped from the model floor (too shallow); UI marks them."""
     uncovered_test_ids: list[str] = Field(default_factory=list)
     """Investigations outside the model footprint — they got no 3-D model at all."""
+    empty_reason: str | None = None
+    """Why an empty build is empty; ``None`` when at least one body was built."""
