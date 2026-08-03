@@ -53,6 +53,26 @@ from __future__ import annotations
 DEFAULT_GWT_DEPTH_M: float = 0.0
 
 # ---------------------------------------------------------------------------
+# Unit weights the effective-stress profile is built on
+# ---------------------------------------------------------------------------
+# Same single-source rule as the water table above, and for the same reason:
+# ``stress_profile`` normalises against sigma'v0, so a surface that draws Ic or
+# an SBT zone under gamma_unsat = 16 while the segmenter proposed boundaries
+# under the engineer's 19 shows a disagreement it will attribute to something
+# else entirely. Settings -> Litho segmenter writes the value; every consumer
+# defaults and bounds it HERE, so the two cannot drift apart.
+#
+# Defaults are the .sce prompt defaults (Verastegui, CPTE_2025.sce). The bounds
+# are physical plausibility, not preference: 8 kN/m3 is soft peat, 25 is dense
+# gravel, and water is 9.0-10.5 (fresh to brine).
+DEFAULT_GUNSAT_KNM3: float = 16.0
+DEFAULT_GWATER_KNM3: float = 9.81
+GUNSAT_KNM3_MIN: float = 8.0
+GUNSAT_KNM3_MAX: float = 25.0
+GWATER_KNM3_MIN: float = 9.0
+GWATER_KNM3_MAX: float = 10.5
+
+# ---------------------------------------------------------------------------
 # Zone boundary polylines — X = log10(F [%]), Y = log10(Qtn [-])
 # Values copied VERBATIM from CPTE_2025.sce lines 249-262.
 # Boundary semantics: a data point at (F, Qtn) lies ABOVE boundary i when
