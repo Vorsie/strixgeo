@@ -67,6 +67,11 @@ from groundmodel.domain.services.voxel_litho.pinch_terminations import (
     body_terminations,
     pinch_factor,
 )
+from groundmodel.domain.services.voxel_litho.snap_grid import (
+    SNAP_GRID_M,
+    gap_edge_fraction_margin,
+)
+from groundmodel.domain.services.voxel_litho.voxel_grid_budget import check_voxel_grid_budget
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
@@ -79,21 +84,6 @@ __all__ = ["label_voxels"]
 # partition pipeline's EPS; intervals thinner than this are dropped.
 _EPS: float = 1e-9
 
-# Fraction nudge: slicing a region polygon exactly on a column edge (fraction 0
-# or 1) hits vertices and vertical edges; nudge the query fraction this far into
-# the gap interior so every relevant edge strictly straddles the slice line.
-_FRAC_EPS: float = 1e-6
-
-_SNAP_GRID_M: float = 0.001
-"""The grid the 2-D engine snaps polygon coordinates to, in metres.
-
-Mirrors ``SNAP_GRID_M`` in ``partitionFillV2``. A region spanning a whole gap therefore
-stops about one cell short of fraction 1 rather than reaching it exactly.
-"""
-
-_SNAP_MARGIN_CELLS: float = 2.0
-"""How many snap cells the edge nudge must clear, so it lands INSIDE the last region."""
-
 _CONTIGUOUS_EPS: float = 1e-6
 """How close two slices of one body must be to count as touching, in metres.
 
@@ -101,6 +91,17 @@ Measured on the real partitions the gap is exactly zero — a slice's base IS th
 slice's top — so this is a float-noise guard, not a tunable.  Widening it would start
 joining intervals across genuinely thin layers of another body, which is the #228
 sliver problem and must be fixed there rather than absorbed here.
+"""
+
+CONTACT_GOES_TO_THE_BODY_ABOVE = """A voxel exactly on a contact belongs to the SHALLOWER body.
+
+One rule, two implementations (:func:`_column_labels` and
+:func:`_column_labels_gapped`): each stack interval is half-open ``[base, top)``,
+so where one entry's base equals the next entry's top the upper entry wins.  The
+column's global base is closed (the deepest entry owns a voxel exactly on it) and
+its global top is open (a voxel exactly on the surface is void) — a benign
+measure-zero asymmetry on the grid, but the SAME asymmetry in both labellers, so
+which one the caller passes never changes a voxel's answer.
 """
 
 
@@ -375,24 +376,14 @@ def _section_stack_at(
     if gap_index < 0 or gap_index + 1 >= len(section.columns):
         return []
     # Nudge off the column edges so the scanline strictly straddles every edge.
-    #
-    # The nudge must clear a SNAP CELL. The 2-D engine snaps polygon coordinates to a
-    # 1 mm grid, so a region spanning the whole gap still stops about one cell short of
-    # fraction 1 — 8.9e-5 on an 11 m gap. A fixed 1e-6 nudge landed BEYOND that edge and
-    # the scanline found nothing: 33 of 69 gaps on the owner's model read EMPTY at
-    # fraction 1 and 15 at fraction 0, while all 69 are non-empty at 0.5 (#259). It hid
-    # because ``_stack_at`` defers to the other section when one stack is empty, so the
-    # build quietly dropped a section's contribution instead of leaving a void.
-    #
-    # One millimetre of GROUND is a different fraction on every gap — 8.9e-5 across 11 m
-    # but 3e-6 across 333 m — so the margin is measured in this gap's own space rather
-    # than fixed.
+    # The nudge must clear a SNAP CELL — see
+    # :mod:`~groundmodel.domain.services.voxel_litho.snap_grid`, which owns that rule
+    # and the measurements (#259) behind it, and which the cross-section body merge
+    # reads the same polygons through.
     left = section.columns[gap_index]
     right = section.columns[gap_index + 1]
     width_m = math.hypot(right.world_x - left.world_x, right.world_y - left.world_y)
-    edge_eps = (
-        _FRAC_EPS if width_m <= 0.0 else max(_FRAC_EPS, _SNAP_MARGIN_CELLS * _SNAP_GRID_M / width_m)
-    )
+    edge_eps = gap_edge_fraction_margin(width_m)
     f = min(max(fraction, edge_eps), 1.0 - edge_eps)
     raw: list[_Entry] = []
     for r in section.regions:
@@ -473,6 +464,19 @@ def _layout(specs: list[tuple[float, str | None, str, float]], top: float | None
     gap-free by construction; zero-thickness specs (a fully pinched body) are
     dropped from the output but still advance the running elevation (by zero),
     keeping the stack a true partition.
+
+    ⚠ Gap-free BY CONSTRUCTION also means a void on either input stack is closed
+    up here: a void is not a spec, so it contributes nothing and everything below
+    it shifts UP by its height.  The sibling paths preserve voids
+    (:func:`_column_labels`, :func:`_column_labels_gapped`); this one cannot,
+    because what "unknown on one section, clay on the other" should look like
+    between them is a geological ruling nobody has given yet.
+
+    It DOES fire today, on the geotech axis: ``scripts/diag_section_stack_voids.py``
+    finds 4 interior voids in the captured geotech payload's section stacks (worst
+    2.420 m, section 2 gap 3) against 0 in the litho payload, and none of them
+    reaches :func:`_column_labels` — this function closed every one.  See
+    docs/debt.md #268 — do NOT invent an answer here.
 
     Ported from ``loft_field._layout``.
 
@@ -1291,22 +1295,43 @@ def _column_labels(
     body_index: dict[str, int],
     none_body_ids: dict[str, str],
 ) -> np.ndarray:
-    """Label one voxel column's ``gz`` axis from a gap-free shallow→deep stack.
+    """Label one voxel column's ``gz`` axis from a shallow→deep stack.
 
-    The stack is a gap-free partition ordered shallow → deep, so its entries'
-    contiguous ``[base, top]`` intervals share boundary elevations.  A voxel at
-    elevation ``z`` belongs to the entry whose interval contains it.  Found with
-    one ``np.searchsorted`` over the ascending boundary edges (deep → shallow) —
-    O(nz log m), ``m`` = stack height.  The half-open convention assigns a shared
-    contact elevation to the SHALLOWER body (the upper entry's base == the lower
-    entry's top → the upper wins).  The base is closed (the lowest entry owns a
-    voxel exactly on the global base) and the top is open (a voxel exactly on the
-    global top is void) — a benign measure-zero asymmetry on the grid.
+    A voxel at elevation ``z`` belongs to the entry whose ``[base, top)``
+    interval contains it, and to NOTHING when no entry does.  Found with one
+    ``np.searchsorted`` over the ascending boundary edges (deep → shallow) —
+    O(nz log m), ``m`` = stack height.  Boundary convention:
+    :data:`CONTACT_GOES_TO_THE_BODY_ABOVE`.
+
+    **An interval no entry covers is VOID, not the body above it.**  The edge
+    array used to carry only the entries' tops plus the deepest base, which
+    silently made every entry reach down to the next one: a voxel inside an
+    interval the 2-D partition deliberately left blank took the overlying body,
+    and everything the partition said was UNKNOWN came back as invented
+    lithology.  That contradicts the owner's ruling of 2026-07-30 (quoted in
+    ``BuildVoxelLithoModel``): *"the voids below td are always filled through
+    correlations from other tests the left or right (as in fill bands) if that is
+    not the case then you leave it unkown."*
+
+    A void has to be WIDER THAN THE 2-D ENGINE'S SNAP GRID to count.  The
+    polygons are snapped to a millimetre, so two regions the engineer drew flush
+    can come back a fraction of a millimetre apart; opening a void there would
+    thread a line of void voxels through a contact.  Sub-millimetre is rounding,
+    not a statement that the interval is unknown.
+
+    Measured on BOTH captured payloads (``scripts/diag_section_stack_voids.py``):
+    the litho payload's section stacks are hole-free at every sampled fraction,
+    and the geotech payload's 4 interior voids never arrive here — :func:`_layout`
+    closes them upstream (debt #268).  Of 30 802 labelled geotech columns, 0
+    carried a gap over a millimetre and 8 carried one below it, so this guard is
+    what the change is worth on today's data.  Both builds are byte-identical
+    (label-grid SHA-256) to before the void slot existed.
 
     Parameters
     ----------
     stack : list of _Entry
-        The vertical body intervals, shallow → deep (a gap-free partition).
+        The vertical body intervals, shallow → deep.  Contiguous entries tile;
+        an elevation range no entry covers stays void.
         An empty stack yields an all-void column.
     gz : numpy.ndarray
         The Z (elevation) grid-node coordinates, ascending.
@@ -1325,26 +1350,31 @@ def _column_labels(
     col = np.full(nz, -1, dtype=np.int32)
     if not stack:
         return col
-    # Boundary edges ascending: [deepest base, ..., shallowest top].
-    edges = np.empty(len(stack) + 1, dtype=float)
-    edges[0] = stack[-1].base_elev
-    for k, e in enumerate(stack):
-        edges[len(stack) - k] = e.top_elev
-    # Body index per interval, deep → shallow (matches ``edges`` gaps).
-    interval_idx = np.array(
-        [
+    # Boundary edges ascending, walking the stack deep → shallow.  An entry whose
+    # base sits ABOVE the previous entry's top by MORE THAN ONE SNAP CELL opens an
+    # extra slot for the elevation range between them, and that slot is labelled
+    # -1 (void) — the partition said nothing there, so neither does the grid.
+    # Below one snap cell the separation is the 2-D engine's own mm rounding of a
+    # contact, not an unknown interval, so the entries stay flush.
+    edges: list[float] = [stack[-1].base_elev]
+    interval_labels: list[int] = []
+    for e in reversed(stack):
+        if e.base_elev > edges[-1] + SNAP_GRID_M:
+            edges.append(e.base_elev)
+            interval_labels.append(-1)  # unknown: no region covers this interval
+        edges.append(e.top_elev)
+        interval_labels.append(
             body_index[e.body_id if e.body_id is not None else none_body_ids[e.formation_id]]
-            for e in reversed(stack)
-        ],
-        dtype=np.int32,
-    )
+        )
+    edge_arr = np.asarray(edges, dtype=float)
+    interval_idx = np.asarray(interval_labels, dtype=np.int32)
     # ``searchsorted(side='right')`` maps z → its interval slot in ``edges``;
     # slot 0 (z below the column) and slot len(edges) (z at or above the column
     # top) are void.  Any z that yields a valid slot is already below
-    # ``edges[-1]`` (the open top), so no separate top clamp is needed — the
-    # base is closed via slot >= 1, the top open via slot <= len(stack).
-    slot = np.searchsorted(edges, gz, side="right")
-    inside = (slot >= 1) & (slot <= len(stack))
+    # ``edge_arr[-1]`` (the open top), so no separate top clamp is needed — the
+    # base is closed via slot >= 1, the top open via slot <= len(interval_idx).
+    slot = np.searchsorted(edge_arr, gz, side="right")
+    inside = (slot >= 1) & (slot <= len(interval_idx))
     sel = slot[inside] - 1
     col[inside] = interval_idx[sel]
     return col
@@ -1366,11 +1396,11 @@ def _column_labels_gapped(
 
     Each entry is point-located independently: a voxel ``z`` with
     ``base_elev <= z < top_elev`` takes that entry's body.  Entries are applied
-    shallow → deep, and a voxel keeps the FIRST (shallowest) entry that claims it,
-    so a shared contact elevation goes to the shallower body (matching
-    :func:`_column_labels`' half-open convention).  Any voxel claimed by no entry
-    stays void — the faithful representation of a pinched-out litho between two
-    geological bands.
+    shallow → deep, and a voxel keeps the FIRST (shallowest) entry that claims it.
+    Boundary convention: :data:`CONTACT_GOES_TO_THE_BODY_ABOVE` — the same rule
+    :func:`_column_labels` encodes, stated once so the two cannot drift.  Any
+    voxel claimed by no entry stays void — the faithful representation of a
+    pinched-out litho between two geological bands.
 
     Parameters
     ----------
@@ -1613,6 +1643,13 @@ def label_voxels(
         If ``grid_spacing_m`` (or ``vertical_spacing_m`` when set) is not
         positive, or no section carries any region (no elevation range to grid
         over).
+    VoxelGridTooLargeError
+        If the hull extent and the requested spacings resolve to more voxels than
+        one build may allocate (see
+        :mod:`~groundmodel.domain.services.voxel_litho.voxel_grid_budget`).
+        Raised BEFORE any allocation, and deliberately not a ``ValueError`` so
+        the caller's "unbuildable model" path — which clears the stored 3-D
+        solids — cannot swallow a spacing the engineer can simply retype.
 
     Notes
     -----
@@ -1676,6 +1713,11 @@ def label_voxels(
     gy = np.arange(ymin, ymax + h / 2.0, h)
     gz = np.arange(zmin, zmax + v / 2.0, v)
     nx, ny, nz = len(gx), len(gy), len(gz)
+
+    # Refuse an unaffordable grid BEFORE the first allocation — the axis arrays
+    # above are kilobytes, everything after this line is gigabytes.  See
+    # :mod:`~groundmodel.domain.services.voxel_litho.voxel_grid_budget`.
+    check_voxel_grid_budget(nx=nx, ny=ny, nz=nz, horizontal_m=h, vertical_m=v)
 
     labels = np.full((nx, ny, nz), -1, dtype=np.int32)
 
