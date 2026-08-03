@@ -538,6 +538,31 @@ export default function App() {
     stageLumping,
   })
 
+  // Delete backup = the crashed session NEVER HAPPENED (owner ruling
+  // 2026-08-03, from dogfeeding a destructive crash-session Apply): before
+  // the backup dies, the DATABASE reverts to the last save through the same
+  // anchored replace-restore the close dialog's Discard uses. Returning
+  // false keeps the backup — after an aborted revert it is the only
+  // remaining record of the session the user asked to erase.
+  const revertBeforeDiscardBackup = useCallback(async (): Promise<boolean> => {
+    const outcome = await revertToLastSaved()
+    if (outcome === 'reverted' || outcome === 'no-snapshot') return true
+    toast(
+      'error',
+      outcome === 'refused-not-latest-save'
+        ? 'Could not revert: this file is not the project’s latest save. The backup was kept.'
+        : 'Could not revert the project to its last save — the backup was kept.',
+    )
+    return false
+  }, [revertToLastSaved, toast])
+
+  // After a successful discard, reload the project from its file so the
+  // reverted database state is what the user is looking at — the in-memory
+  // session still holds the crashed session's leftovers otherwise.
+  const reloadAfterDiscardBackup = useCallback(async (): Promise<void> => {
+    if (projectFilePath !== null) await openProjectFile(projectFilePath)
+  }, [projectFilePath, openProjectFile])
+
   const {
     offer: recoveryOffer,
     restoreOffer,
@@ -547,10 +572,12 @@ export default function App() {
     projectId: project?.id ?? null,
     projectName: project?.name ?? null,
     onRestore: restoreFromSnapshot,
+    onBeforeDiscard: revertBeforeDiscardBackup,
     // Delete backup means "no traces" (owner ruling 2026-08-03): the lumping
     // map's staged DB slot — the one backup item with a second home — is put
     // back onto the saved snapshot when the backup dies.
     onDiscardResidue: resetStagedLumpingToSaved,
+    onAfterDiscard: reloadAfterDiscardBackup,
   })
 
   // Crash-recovery autosave (docs/design/autosave-recovery.md). A crash
