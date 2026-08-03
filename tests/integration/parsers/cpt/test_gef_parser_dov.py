@@ -83,8 +83,17 @@ def test_all_files_parse_without_error(filename: str) -> None:
     ],
 )
 def test_all_files_have_belgian_lambert_epsg(filename: str) -> None:
+    """Every DOV file writes GEF code 32000, which means EPSG:31370.
+
+    The raw code is preserved as ``xy_code``; ``epsg`` carries the
+    translation, so a GEF-imported sounding and the same sounding imported
+    through the DOV XML path agree on their CRS.
+    """
     result = _parse(filename)
-    assert result.header.epsg == 32000
+    assert result.header.xy_code == 32000
+    assert result.header.epsg == 31370
+    assert result.header.z_code == 32001
+    assert result.header.z_epsg == 5710
 
 
 @pytest.mark.parametrize(
@@ -154,10 +163,31 @@ class TestCPTE_GEO25_S22:
         assert len(_parse(self.FILE).data) == 1011
 
     def test_both_depth_and_length_columns_present(self) -> None:
-        # qty 1 → depth_m, qty 11 → length_m; depth_m already present so no rename
+        # qty 1 (Lengte) → length_m, qty 11 (Diepte) → depth_m; no fallback rename
         cols = _parse(self.FILE).data.columns
         assert "depth_m" in cols
         assert "length_m" in cols
+
+    def test_depth_is_the_corrected_diepte_not_the_pushed_lengte(self) -> None:
+        """The file's own header names its columns; depth must follow Diepte.
+
+        ``#COLUMNINFO= 1, m, Lengte, 1`` and ``#COLUMNINFO= 5, m, Diepte, 11``.
+        The last row reads 20.22 (Lengte) against 20.212 (Diepte) — the
+        inclination-corrected value is 8 mm shallower over a 20 m push, and it
+        is the one every contact, correlation and 3D body must sit on.
+        """
+        df = _parse(self.FILE).data
+        assert df["depth_m"][-1] == pytest.approx(20.212)
+        assert df["length_m"][-1] == pytest.approx(20.22)
+
+    def test_no_depth_row_is_deeper_than_its_penetration_length(self) -> None:
+        import polars as pl
+
+        df = _parse(self.FILE).data
+        assert df.filter(pl.col("depth_m") > pl.col("length_m")).height == 0
+
+    def test_corrected_depth_present_so_not_flagged_uncorrected(self) -> None:
+        assert "UNCORRECTED_DEPTH" not in _codes(_parse(self.FILE))
 
     def test_negative_fs_raises_warning(self) -> None:
         # MEASUREMENTTEXT notes fs lower than expected; top rows contain negative values
@@ -243,6 +273,20 @@ class TestCPTM_TM4_1804723:
 
     def test_max_depth(self) -> None:
         assert _parse(self.FILE).data["depth_m"].max() == pytest.approx(6.80)
+
+    def test_length_only_file_is_flagged_uncorrected(self) -> None:
+        """This mechanical CPT declares only Lengte (qty 1), never Diepte.
+
+        Its ``depth_m`` is therefore penetration length standing in for a
+        corrected depth the file never measured. Usable, but the engineer is
+        told, because the depths are biased deep by the rod's deviation.
+        """
+        assert "UNCORRECTED_DEPTH" in _warning_codes(_parse(self.FILE))
+
+    def test_declared_column_separator_is_read(self) -> None:
+        # ``#COLUMNSEPARATOR=;`` — the ';' is the declared value, not the
+        # start of an inline comment.
+        assert _parse(self.FILE).header.column_separator == ";"
 
 
 # ---------------------------------------------------------------------------
