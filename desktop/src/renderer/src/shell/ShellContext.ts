@@ -55,6 +55,17 @@ export interface Coordinator {
   setView: (v: 'map' | 'chart') => void
   /** Select a CPT: sets selectedId, clears borehole + section, loads detail, switches to chart. */
   handleSelect: (id: string) => Promise<void>
+  /**
+   * Select a CPT WITHOUT touching the Data stage's view mode.
+   *
+   * Same selection + detail/plot warming as ``handleSelect``, minus the
+   * ``setView('chart')``. Stages other than Data select a CPT to render it in
+   * their OWN surface (Parameters plots it in the inspector); firing the
+   * Data-stage view switch there silently rewrites where Data lands the next
+   * time the engineer goes back to it — a side effect he never asked for and
+   * cannot see happen.
+   */
+  handleSelectWithoutView: (id: string) => Promise<void>
   /** Select a borehole: sets selectedBoreholeId, clears CPT + section, loads detail, switches to chart. */
   handleSelectBorehole: (id: string) => Promise<void>
   /** Export the section's geological model to DXF (owns the save-dialog + file-write flow). */
@@ -191,6 +202,21 @@ export interface Coordinator {
   setSectionsDeepLinkTarget: (
     target: { sectionId: string; contactIds: readonly string[] } | null,
   ) => void
+  /**
+   * Flag the project as having unsaved MUTATIONS of pre-existing rows.
+   *
+   * ``projectDirty`` is ``metadataDirty || hasUnsavedMutations || the
+   * session-import sets``. An edit that changes a row which never flowed
+   * through the session-import manifest — a dragged contact depth, an
+   * engineer-typed water table — contributes to none of those sets, so
+   * without this call the title bar shows no unsaved marker, File → Save is
+   * never prompted, and the next open of the .gmproj (which replace-restores
+   * the DB from the file) silently drops the edit.
+   *
+   * Lives in Coordinator because App owns the flag and writers are spread
+   * across hooks and stage inspectors alike.
+   */
+  markMutated: () => void
   /**
    * Monotonic nonce bumped after a successful auto-correlate (#163c).
    *
