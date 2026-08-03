@@ -228,6 +228,121 @@ def test_cpt_present_but_all_qc_void_needs_review_not_loosest():
     assert splits[0].nad_class is None
 
 
+def test_one_isolated_bad_point_never_flags_a_coarse_cpt():
+    """Rule 2 ("one isolated bad point never flags a unit") must hold at ANY spacing.
+
+    The same single void reading that is irrelevant on a 2 cm CPT is still one
+    isolated bad point on a logger writing at 5 cm — the engineer's qc is good
+    everywhere else, so the unit must classify, not come back unnamed.
+    """
+    depths = _depths(0.0, 2.0, 0.05)  # coarser, uniform CPT: 5 cm spacing
+    qc: list = [8.0] * len(depths)
+    qc[20] = None  # exactly one void reading in the middle
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6]
+
+
+def test_a_change_of_sampling_interval_alone_never_flags_a_unit():
+    """Every qc reading is good — a hybrid CPT changing its step must still classify.
+
+    An electric cone at 2 cm continued mechanically at 20 cm reads valid qc over
+    the whole unit. Nothing is missing, so "needs review" would be telling the
+    engineer his data is bad because the rig changed method.
+    """
+    depths = _depths(0.0, 1.0, 0.02) + _depths(1.2, 3.0, 0.20)
+    qc: list = [8.0] * len(depths)
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6]
+
+
+def test_a_cone_that_returned_half_its_readings_scattered_still_needs_review():
+    """Half the cone's readings are unusable, spread out one at a time — review.
+
+    Rule 3's first half ("more than ~40% of the unit's thickness lacks valid qc")
+    is about HOW MUCH of the unit has no reading, not about whether the bad
+    readings happen to sit next to each other. A cone that came back with every
+    other sample void gave the engineer half a unit's worth of data; a NAD class
+    stamped "CPT-derived estimate" from that is an invented value.
+    """
+    depths = _depths(0.0, 2.0, 0.02)  # 101 samples over 2 m at CPT density
+    qc: list = [8.0] * len(depths)
+    for i in range(1, len(depths), 2):  # every other reading void, never two in a row
+        qc[i] = None
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [None]
+
+
+def test_a_few_scattered_dropouts_well_under_the_fraction_still_classify():
+    """The near-miss to the rule above: a handful of one-off dropouts is not half a unit.
+
+    Five isolated void readings on a 2 cm logger leave ~10 cm of a 2 m unit
+    unread (5%) — nowhere near the 40% bound, and no run long enough to trip the
+    gap rule either. The unit must still come back with a class.
+    """
+    depths = _depths(0.0, 2.0, 0.02)
+    qc: list = [8.0] * len(depths)
+    for i in (7, 23, 41, 67, 89):  # five scattered dropouts, none adjacent
+        qc[i] = None
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [6]
+
+
+def test_a_run_of_voids_on_a_coarse_cpt_still_needs_review():
+    """The relaxation must not swallow a real void run: several dropouts in a row
+    leave a stretch with no usable reading, and that unit stays unnamed."""
+    depths = _depths(0.0, 2.0, 0.05)
+    qc: list = [8.0] * len(depths)
+    for i in range(20, 25):  # ~25 cm of continuous void
+        qc[i] = None
+    splits = suggest_geotech_subdivision(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=2.0,
+        min_thickness_m=0.35,
+        gradient_snap=False,
+    )
+    assert [s.nad_class for s in splits] == [None]
+
+
 # --- persistence filter -----------------------------------------------------
 
 
