@@ -26,6 +26,7 @@ from groundmodel.domain.services.litho_segmentation import (
     segment_borehole,
     segment_cpt,
 )
+from groundmodel.domain.services.robertson_2015_constants import DEFAULT_GWT_DEPTH_M
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -167,13 +168,20 @@ class SuggestLithoContacts(GroundModelLogger):
         # defaults to 0 (the segmenter result is still valid relative to depth).
         niveau_m: float = cpt.elevation_m if cpt.elevation_m is not None else 0.0
         # ``water_depth_m`` is depth below ground surface (positive); convert to
-        # TAW by subtracting from niveau. Defaults to water at the surface (0 m
-        # depth → yw = niveau) — conservative assumption when unknown.
-        yw_m: float = niveau_m - cpt.water_depth_m if cpt.water_depth_m is not None else niveau_m
+        # TAW by subtracting from niveau. When it is not recorded (every
+        # DOV-imported CPT) fall back to ``DEFAULT_GWT_DEPTH_M`` — the SAME
+        # constant the Ic chart uses (``api/routers/cpt.py``), so the curve the
+        # engineer reads and the ghosts he is offered share one assumption.
+        gwt_depth_m: float = (
+            cpt.water_depth_m if cpt.water_depth_m is not None else DEFAULT_GWT_DEPTH_M
+        )
+        yw_m: float = niveau_m - gwt_depth_m
 
         self.debug(
             f"[cpt={cpt.name}] niveau={niveau_m:.2f}m TAW, "
-            f"yw={yw_m:.2f}m TAW, n_rows={len(series.depths_m)}"
+            f"yw={yw_m:.2f}m TAW (gwt={gwt_depth_m:.2f}m below surface, "
+            f"{'recorded' if cpt.water_depth_m is not None else 'ASSUMED — not recorded'}), "
+            f"n_rows={len(series.depths_m)}"
         )
 
         suggestions = segment_cpt(
