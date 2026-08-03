@@ -60,6 +60,7 @@ from groundmodel.infrastructure.exporters.section_pdf_report_exporter_constants 
     COLUMN_BAND_WIDTH_M,
     COLUMN_EDGE_GAP_M,
     DEFAULT_DEPTH_M,
+    DEPTH_AXIS_LABEL,
     FIG_H_INCH,
     FIG_W_INCH,
     MAP_INSET_SIZE_INCH,
@@ -283,7 +284,13 @@ def _render_section_figure(snapshot: SectionSnapshot) -> io.BytesIO:
     ax.set_xlim(0, snapshot.section_length_m if snapshot.section_length_m > 0 else 1.0)
     ax.set_ylim(y_max, 0)  # depth increases downward
     ax.set_xlabel("Distance along section (m)", fontsize=9)
-    ax.set_ylabel(f"Depth ({snapshot.vertical_datum_label})", fontsize=9)
+    # The figure plots DEPTH below each column's own surface (every column
+    # starts at 0, every contact is drawn at ``depth_m``), so the caption must
+    # not name the vertical datum — ``m TAW`` / ``m NAP`` label absolute
+    # LEVELS, and reading 8 on this axis as +8 m TAW is a metres-scale error
+    # (audit 2026-08-02).  The datum stays in the metadata table above the
+    # figure, where it describes the project rather than the plotted values.
+    ax.set_ylabel(DEPTH_AXIS_LABEL, fontsize=9)
     ax.tick_params(axis="both", labelsize=8)
     ax.grid(True, linestyle="--", linewidth=0.4, color="#e5e7eb")
     if legend_handles:
