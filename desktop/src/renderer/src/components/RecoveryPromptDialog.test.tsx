@@ -111,8 +111,11 @@ describe('RecoveryPromptDialog', () => {
     // the choice reads as quietly forfeiting the work, and the engineer
     // clicks Restore defensively.
     expect(text).toMatch(/offered again next launch/i)
-    // Delete-backup says it is permanent.
-    expect(text).toMatch(/permanently discards/i)
+    // Delete-backup says it is permanent AND that the project reverts —
+    // owner ruling 2026-08-03: "the 4 original saved ones and the saved
+    // geological model should come back" after Delete backup.
+    expect(text).toMatch(/permanently discarded/i)
+    expect(text).toMatch(/returns to its last save/i)
     // The slot-mechanics prose is gone with everything it explained.
     expect(text).not.toMatch(/offered first/i)
     expect(text).not.toMatch(/replaced only if/i)
