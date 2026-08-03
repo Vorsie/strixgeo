@@ -33,11 +33,17 @@ Invariants checked
    ``litho_main_soil_code``.  A mismatch means a sand band was labelled with
    a clay class (or vice versa), which is a hard correctness defect.
 
-2. **null-class == 0 on CPT bands** — No CPT geotech band has ``nad_class``
-   null.  CPTs have qc series and must always receive a concrete class;
-   null-class on a CPT band means the segmenter or materialiser failed.
-   Boreholes may legitimately receive null-class when no same-lithology CPT
-   data is available (rare fallback), so they are excluded from this assertion.
+2. **no CPT band with usable qc coverage has a null class** — A null
+   ``nad_class`` on a CPT band is a DELIBERATE answer, not a failure, when the
+   qc gives nothing to derive a class from (owner rule 2026-07-25): the cone
+   read nothing inside the band's interval, or the valid readings leave a
+   material gap (>40 % of the thickness, or a ≥5 cm continuous span).  Both are
+   "needs review", and the segmenter says so rather than asserting the loosest
+   packing class from no evidence.  What would still be a hard defect is a null
+   class on a band the qc DOES cover — that means the segmenter or materialiser
+   failed.  The gate therefore joins each null CPT band against the CPT series
+   over its own interval and asserts the coverage genuinely fails the
+   segmenter's own thresholds.  Boreholes carry no qc at all and are excluded.
 
 3. **every sample assigned** — Every borehole sample in the CS1 corridor has
    a non-null ``geotech_assignment_source`` that is not ``"unresolved"``.
@@ -65,6 +71,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from groundmodel.domain.services.geotech_subdivision import (
+    QC_REVIEW_MAX_GAP_M,
+    QC_REVIEW_MISSING_FRACTION,
+)
 
 _INPUT = Path(__file__).parent.parent / "scripts" / "cs1_geotech_gate.json"
 _GATE_VAR = "CS1_GEOTECH_GATE"
@@ -169,25 +180,61 @@ def test_litho_ne_class_zero() -> None:
 
 
 @_skip
-def test_null_class_zero_on_cpt_bands() -> None:
-    """Every CPT geotech band must have a concrete NAD class (never null).
+def test_null_class_on_a_cpt_band_means_the_qc_could_not_classify_it() -> None:
+    """A CPT band may only be unclassified where its own qc gives no answer.
 
-    CPTs carry a qc series; SubdivideAllBodies segments them through
-    ``suggest_geotech_subdivision`` which must always assign a class.
-    A null-class on a CPT band means the segmenter failed or the
-    formation lookup returned no soil code — both are defects.
+    ``suggest_geotech_subdivision`` returns ``nad_class=None`` for exactly two
+    conditions, both of them "needs review, do not guess" (owner rule
+    2026-07-25):
+
+    * no cone reading at all inside the band's depth interval — a contact placed
+      above the CPT's first sample, or a sliver from the geo-bounding divide;
+    * valid qc missing over a material span — more than
+      ``QC_REVIEW_MISSING_FRACTION`` of the thickness, or a continuous gap of at
+      least ``QC_REVIEW_MAX_GAP_M``.
+
+    Any OTHER null class on a CPT band is the defect this invariant guards: the
+    band is covered by usable qc and still came back unclassified, which means
+    the segmenter or the materialiser failed.
+
+    The extract carries the same three coverage numbers the segmenter decided
+    on, computed with the segmenter's own helpers over each band's interval, so
+    this check asks the real question rather than the proxy "is it null".
     """
     data = _load()
     null_cpt = [b for b in data["bands"] if b["kind"] == "cpt" and b["nad_class"] is None]
-    assert len(null_cpt) == 0, (
-        f"{len(null_cpt)} CPT geotech band(s) have nad_class=null:\n"
+
+    stale = [b for b in null_cpt if "qc_missing_fraction" not in b]
+    assert not stale, (
+        f"{len(stale)} null-class CPT band(s) carry no qc-coverage fields — the gate "
+        "JSON predates this invariant. Regenerate it: uv run python "
+        "scripts/rematerialise_dev_geotech.py then uv run python "
+        "scripts/throwaway_cs1_geotech_gate_extract.py"
+    )
+
+    unjustified = [
+        b
+        for b in null_cpt
+        if b["qc_valid_samples_in_band"] > 0
+        and b["qc_missing_fraction"] <= QC_REVIEW_MISSING_FRACTION
+        and b["qc_max_gap_m"] < QC_REVIEW_MAX_GAP_M
+    ]
+    assert len(unjustified) == 0, (
+        f"{len(unjustified)} CPT geotech band(s) have nad_class=null although their "
+        f"qc covers them:\n"
         + "\n".join(
             f"  band {b['layer_id']} inv={b['inv_id']} "
-            f"depth=[{b['depth_top_m']},{b['depth_base_m']}]"
-            for b in null_cpt[:10]
+            f"depth=[{b['depth_top_m']},{b['depth_base_m']}] "
+            f"valid_qc={b['qc_valid_samples_in_band']}/{b['qc_samples_in_band']} "
+            f"missing={b['qc_missing_fraction']:.3f} max_gap={b['qc_max_gap_m']:.3f} m"
+            for b in unjustified[:10]
         )
-        + ("\n  ... (truncated)" if len(null_cpt) > 10 else "")
+        + ("\n  ... (truncated)" if len(unjustified) > 10 else "")
     )
+
+    # Not an assertion: how many bands legitimately need review is a property of
+    # the data, not of the code. Print it so a jump in the number is visible.
+    print(f"\n  {len(null_cpt)} CPT band(s) unclassified for want of usable qc (all justified)")
 
 
 @_skip
