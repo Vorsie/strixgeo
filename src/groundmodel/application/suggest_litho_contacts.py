@@ -21,12 +21,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.domain.services.gwt_resolution import resolve_gwt
 from groundmodel.domain.services.litho_segmentation import (
     LithoLayerSuggestion,
     segment_borehole,
     segment_cpt,
 )
-from groundmodel.domain.services.robertson_2015_constants import DEFAULT_GWT_DEPTH_M
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -168,19 +168,17 @@ class SuggestLithoContacts(GroundModelLogger):
         # defaults to 0 (the segmenter result is still valid relative to depth).
         niveau_m: float = cpt.elevation_m if cpt.elevation_m is not None else 0.0
         # ``water_depth_m`` is depth below ground surface (positive); convert to
-        # TAW by subtracting from niveau. When it is not recorded (every
-        # DOV-imported CPT) fall back to ``DEFAULT_GWT_DEPTH_M`` — the SAME
-        # constant the Ic chart uses (``api/routers/cpt.py``), so the curve the
-        # engineer reads and the ghosts he is offered share one assumption.
-        gwt_depth_m: float = (
-            cpt.water_depth_m if cpt.water_depth_m is not None else DEFAULT_GWT_DEPTH_M
-        )
-        yw_m: float = niveau_m - gwt_depth_m
+        # TAW by subtracting from niveau. The fallback for a CPT with none
+        # recorded (every DOV import) lives in ``resolve_gwt`` — the SAME
+        # resolver the Ic chart and the SBT-profile endpoint use, so the curve
+        # the engineer reads and the ghosts he is offered share one water table.
+        gwt = resolve_gwt(cpt.water_depth_m, cpt.water_depth_source)
+        yw_m: float = niveau_m - gwt.gwt_m
 
         self.debug(
             f"[cpt={cpt.name}] niveau={niveau_m:.2f}m TAW, "
-            f"yw={yw_m:.2f}m TAW (gwt={gwt_depth_m:.2f}m below surface, "
-            f"{'recorded' if cpt.water_depth_m is not None else 'ASSUMED — not recorded'}), "
+            f"yw={yw_m:.2f}m TAW (gwt={gwt.gwt_m:.2f}m below surface, "
+            f"{gwt.source}), "
             f"n_rows={len(series.depths_m)}"
         )
 
