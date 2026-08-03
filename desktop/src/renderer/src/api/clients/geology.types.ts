@@ -672,6 +672,14 @@ export interface RebuildLithoSolidsResponse {
    * backend built before this field existed simply omits it.
    */
   uncovered_test_ids?: string[]
+  /**
+   * Why the build produced no bodies, when it produced none.  A degenerate
+   * build DELETES the stored 3-D model, yet its counts read exactly like a
+   * happy build of zero bodies — so this is what stops the client reporting a
+   * green "Built 0 bodies" over a model that was just erased.  ``null`` /
+   * absent whenever at least one body was built.
+   */
+  empty_reason?: string | null
 }
 
 /**
