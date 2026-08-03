@@ -46,6 +46,13 @@ export interface LithoLayerLike {
 /** Minimal section shape needed to project columns + read exclusions. */
 export interface SectionLike {
   id: string
+  /**
+   * Section name, when the caller has it.
+   *
+   * Not used for geometry — it is what a build-cancelled message names so the
+   * engineer knows WHICH cross-section failed to load (audit 2026-08-02).
+   */
+  name?: string
   start_x: number
   start_y: number
   end_x: number
