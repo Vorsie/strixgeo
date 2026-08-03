@@ -119,7 +119,9 @@ async def _run(
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
         patch(
             f"{_PATH}.build_domain_from_sections",
-            return_value=SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0))),
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
         ),
         patch(f"{_PATH}.label_voxels", side_effect=_capture_label),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
@@ -268,7 +270,9 @@ async def _run_capturing_domain(
     def _capture_domain(*args: Any, **kwargs: Any) -> Any:
         captured["domain_args"] = args
         captured["domain_kwargs"] = kwargs
-        return SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)))
+        return SimpleNamespace(
+            polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+        )
 
     repo = AsyncMock()
     repo.load_body_picks = AsyncMock(return_value=picks)
@@ -423,7 +427,9 @@ async def test_the_investigation_kind_reaches_the_labeller() -> None:
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
         patch(
             f"{_PATH}.build_domain_from_sections",
-            return_value=SimpleNamespace(polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0))),
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
         ),
         patch(f"{_PATH}.label_voxels", side_effect=_capture_label),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
@@ -468,3 +474,44 @@ def test_the_kind_is_folded_into_the_build_checksum() -> None:
     assert _partition_checksum([_section()], 1.0, as_cpt) != _partition_checksum(
         [_section()], 1.0, as_borehole
     )
+
+
+@pytest.mark.asyncio
+async def test_investigations_outside_the_footprint_ride_out_on_the_outcome() -> None:
+    """A build that models only part of the project must say so to the CLIENT.
+
+    ``build_domain_from_sections`` keeps only the LARGEST alpha-shape ring, so a
+    project whose investigations fall into two clusters further apart than the
+    alpha distance loses the smaller cluster entirely — those columns get no
+    3-D model at all. A server-side WARNING is invisible in a packaged desktop
+    build, so the engineer who clicked "Build model" would see an unqualified
+    success. The names have to reach the response.
+    """
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)),
+                uncovered_test_ids=("B#drilled", "A"),
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+    ):
+        outcome = await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+            uuid4(),
+            [_section()],
+            grid_spacing_m=1.0,
+            force=True,
+        )
+
+    # The "#drilled" suffix is an internal token of the footprint check, not
+    # something the engineer ever typed — the outcome names investigations.
+    assert outcome.uncovered_test_ids == ["A", "B"]
