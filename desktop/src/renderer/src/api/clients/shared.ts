@@ -32,6 +32,90 @@ export function setBaseUrl(url: string): void {
 const stripQuery = (p: string): string => p.split('?')[0]
 
 /**
+ * HTTP failure carrying the status code as a typed field.
+ *
+ * WHY a class and not an error string: callers used to decide "the project
+ * is gone" by matching the thrown message for ``'→ 404'``, which the client
+ * only ever emits when the server sends NO ``detail``. FastAPI's 404s DO
+ * send one (``"Project not found"``), so the match was dead code and the
+ * .strix disaster-recovery restore behind it never fired. A cross-boundary
+ * decision must read a field, never an incidental string.
+ *
+ * ``message`` is unchanged from the previous ``Error`` (server ``detail``
+ * first, then the historical fallbacks), so every existing consumer that
+ * shows ``err.message`` in a toast keeps its copy verbatim.
+ *
+ * Attributes
+ * ----------
+ * status : number
+ *     HTTP status code of the failed response.
+ * detail : unknown
+ *     Parsed ``detail`` field from the server body, when present.
+ * method : string
+ *     HTTP verb of the failed request.
+ * path : string
+ *     Request path (query string included) of the failed request.
+ */
+export class ApiError extends Error {
+  readonly status: number
+  readonly detail: unknown
+  readonly method: string
+  readonly path: string
+
+  constructor(
+    message: string,
+    status: number,
+    options: { detail?: unknown; method?: string; path?: string } = {},
+  ) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = options.detail
+    this.method = options.method ?? ''
+    this.path = options.path ?? ''
+  }
+}
+
+/**
+ * Narrow an unknown rejection to an ``ApiError`` with a given status.
+ *
+ * WHAT IT CANNOT NARROW (audit 2026-08-02): only rejections raised by
+ * :func:`request` are ``ApiError``s. A handful of clients bypass it and
+ * ``throw new Error(...)`` by hand, so this predicate is permanently
+ * ``false`` for them — a caller that gates disaster recovery on
+ * ``isApiStatus(err, 404)`` there gets a dead branch, which is exactly the
+ * shape the ApiError class was introduced to kill. The bare-``fetch``
+ * endpoints today are:
+ *
+ * * ``clients/cpt.ts`` — ``importFiles`` (multipart upload).
+ * * ``clients/geology.ts`` — ``updateLayer``, ``deleteLayer``,
+ *   ``linkLayerToGeo``, ``createContact``, ``updateContact``,
+ *   ``clearLithoModel``, ``deleteContactCorrelation``,
+ *   ``deleteAutoCorrelations``.
+ *
+ * They use a bare ``fetch`` because they carry a non-JSON body, read a
+ * non-JSON response, or fold a 404 into a ``null`` return of their own.
+ * Routing them through ``request`` is debt, not a one-liner; until then,
+ * do not branch on their status.
+ *
+ * Parameters
+ * ----------
+ * err : unknown
+ *     The caught rejection value.
+ * status : number
+ *     The HTTP status to test for.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when ``err`` is an ``ApiError`` carrying exactly ``status``.
+ *     Always ``false`` for the bare-``fetch`` endpoints listed above.
+ */
+export function isApiStatus(err: unknown, status: number): boolean {
+  return err instanceof ApiError && err.status === status
+}
+
+/**
  * Single request core — every typed wrapper funnels through here.
  *
  * Performs the fetch, and on non-2xx parses the server ``detail``,
@@ -58,8 +142,9 @@ const stripQuery = (p: string): string => p.split('?')[0]
  *
  * Throws
  * ------
- * Error
- *   On non-2xx HTTP status; includes server `detail` when parseable.
+ * ApiError
+ *   On non-2xx HTTP status; message includes server `detail` when
+ *   parseable, and `.status` carries the HTTP status code.
  */
 export async function request(
   method: string,
@@ -78,9 +163,11 @@ export async function request(
     // model first" guard) instead of an opaque "→ 409".
     const detail = await res.json().catch(() => ({}))
     log.error('api', method, stripQuery(path), res.status, detail.detail)
-    throw new Error(
+    throw new ApiError(
       detail.detail ??
         (errorLabel ? `${errorLabel} (${res.status})` : `${method} ${path} → ${res.status}`),
+      res.status,
+      { detail: detail.detail, method, path },
     )
   }
   return res
