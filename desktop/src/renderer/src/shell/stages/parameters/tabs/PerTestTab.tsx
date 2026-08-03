@@ -34,6 +34,7 @@ import { ArrowUpDown, Beaker } from 'lucide-react'
 import { EmptyState } from '../../../EmptyState'
 import { useShell } from '../../../ShellContext'
 import CptIcSbtChart from '../CptIcSbtChart'
+import { sbtZoneFromIc } from '../../../../utils/robertsonSbt'
 
 type Row = {
   id: string
@@ -50,20 +51,11 @@ type Row = {
 
 type SortKey = 'name' | 'kind' | 'depth_m' | 'ic_avg'
 
-// Tiny Robertson-1990 SBT zone classifier (1..7+) keyed off Ic value.
-// Matches the breakpoints in domain/services/cpt_interpretation.py
-// (kept inline so the Phase-5 wiring doesn't need to wait for a
-// frontend port; once the Parameters stage takes a real backend route
-// this gets retired in favour of server-computed dominant zone).
-function sbtZoneFromIc(ic: number): string | null {
-  if (ic <= 0 || !Number.isFinite(ic)) return null
-  if (ic < 1.31) return 'Gravelly sand'
-  if (ic < 2.05) return 'Sand'
-  if (ic < 2.6) return 'Sand mix'
-  if (ic < 2.95) return 'Silt mix'
-  if (ic < 3.6) return 'Clay'
-  return 'Organic'
-}
+// The Robertson SBT classifier lives in utils/robertsonSbt.ts — the SAME table
+// the Ic chart below this table draws its bands from. It used to be declared
+// here, and the chart declared its own; the two drifted by a full band (audit
+// 2026-08-02). Once the Parameters stage takes a real backend route this gets
+// retired in favour of the server-computed dominant zone.
 
 function modeNonNull(values: (string | null)[]): string | null {
   const counts = new Map<string, number>()
