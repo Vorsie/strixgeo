@@ -68,6 +68,12 @@ vi.mock('../../../api/client', async () => {
       geology: {
         buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
+        // The build fetches every body's hand-drawn boundary and now CANCELS
+        // when that fetch fails (audit 2026-08-02) — an unmocked listLenses
+        // used to land in the silent-degradation branch this suite was
+        // unknowingly exercising.
+        listLenses: vi.fn().mockResolvedValue([]),
+        getBodyBoundary: vi.fn().mockResolvedValue({ nodes: [] }),
         listLithoSolids: vi.fn().mockResolvedValue([]),
         buildVoxelLithoModel: vi.fn().mockResolvedValue({
           bodies_considered: 0,
@@ -685,6 +691,40 @@ describe('LithologyCanvas (Slice D, #55)', () => {
       'litho-1',
       'sec-1',
     )
+  })
+
+  // C6b: A section whose correlation fetch FAILS resolves to zero edges, which
+  //      looks exactly like "this section has no correlations" — so the fence
+  //      would render untied panels and claim to be complete. The rule, in the
+  //      rule's own words: if the fence is missing correlations it could not
+  //      load, the engineer is told which sections (audit 2026-08-02, Class 1;
+  //      fetchApprovedEdgesBySection makes acting on failedSectionIds a caller
+  //      obligation, and this consumer used to drop them on the floor).
+  it('C6b -- warns the engineer, naming the sections, when a fence correlation fetch fails', async () => {
+    const solid = makeSolid('b-1', 'f-built')
+    const toast = vi.fn()
+    const ctx = makeCtx({
+      lithoSolids: [solid],
+      hasLithoSolids: true,
+      visibleSections: [makeSection('sec-1'), makeSection('sec-2')],
+      toast,
+    })
+    vi.mocked(api.geology.listContactCorrelations).mockImplementation(
+      async (_p: string, _m: string, sectionId?: string | null) => {
+        if (sectionId === 'sec-2') throw new Error('network down')
+        return [] as LithoContactCorrelationEdge[]
+      },
+    )
+    renderCanvas(ctx)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
+    })
+
+    const warnings = toast.mock.calls.filter(call => call[0] === 'warning')
+    expect(warnings).toHaveLength(1)
+    expect(String(warnings[0][1])).toContain('Section sec-2')
+    expect(String(warnings[0][1])).not.toContain('Section sec-1')
   })
 
   // C7: Empty-fence pill renders when Fence mode is active, the fetch has
