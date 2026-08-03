@@ -29,7 +29,7 @@ persistence contract separable from the build logic.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import NAMESPACE_OID, UUID, uuid5
 
@@ -128,6 +128,14 @@ class LithoSolidsOutcome:
         Investigation ids the build dropped/marked.  Always empty for the
         voxel + strat paths; retained for API-shape parity with the loft
         contract (``RebuildLithoSolidsResponse.marked_test_ids``).
+    uncovered_test_ids : list[str]
+        Investigation ids that fall OUTSIDE the model footprint and therefore
+        received no 3-D model at all.  Non-empty means the data footprint
+        fragmented (clusters further apart than the alpha distance) and only
+        the largest component was modelled.  Carried out of the use case
+        because a server-side WARNING is invisible in a packaged desktop
+        build: the engineer clicked Build and must be told that N of his
+        investigations are not in the result.  Empty on the happy path.
     """
 
     bodies_considered: int
@@ -136,6 +144,10 @@ class LithoSolidsOutcome:
     bodies_flagged: int
     orphans_deleted: int
     marked_test_ids: list[str]
+    # Defaulted so the strat/loft construction sites, which cannot compute it,
+    # stay untouched — an absent value means "nothing was reported", not "the
+    # coverage was not checked".
+    uncovered_test_ids: list[str] = field(default_factory=list)
 
 
 def storage_body_id(mesh_body_id: str) -> UUID:
