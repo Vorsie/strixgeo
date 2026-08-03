@@ -481,11 +481,12 @@ SBT zone bands, zone labels, second x-axis tick row, Ic legend entry,
 and SBT colour-key strip were all removed. ``CptChart`` renders only the
 measured channels (qc / fs / Rf / u2 / Qt).
 
-The Ic curve + SBT zone bands live in a new dedicated component:
-``desktop/src/renderer/src/shell/stages/parameters/CptIcSbtChart.tsx``.
-It is embedded in the Parameters stage's per-test tab
-(``PerTestTab.tsx``) — clicking a CPT row with a loaded Ic series
-expands the chart in a panel below the table.
+The Ic curve + SBT zone bands live in a dedicated component in the
+Parameters stage. (Superseded 2026-08-03: the owner killed the squished
+inline chart; ``CptIcSbtChart.tsx`` was deleted and its band palette moved
+to ``shell/stages/parameters/icBands.ts``, drawn by
+``CptSbtDepthPanels.tsx`` in the stage's right inspector. Clicking a CPT
+row in ``PerTestTab.tsx`` now selects the CPT and plots it there.)
 
 Data source unchanged: the same ``plot.ic`` field from the
 ``/cpt/{id}/plot`` endpoint, sourced from
