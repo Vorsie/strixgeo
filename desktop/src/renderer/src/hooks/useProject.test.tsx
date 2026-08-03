@@ -2,6 +2,13 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useProject } from './useProject'
+// The REAL error class the HTTP layer throws. Imported from the defining
+// module (not the ``../api/client`` barrel, which these tests mock) so the
+// rejections constructed below are byte-for-byte what production produces.
+// A hand-written ``new Error('… → 404')`` is a shape the client CANNOT
+// emit (the server's ``detail`` always wins), which is exactly why the
+// old version of these tests stayed green over a dead restore branch.
+import { ApiError } from '../api/clients/shared'
 import type { StratigraphyLumping } from '../utils/projectFile'
 
 // Tests for the file-aware ``useProject`` hook. We mock the two
@@ -262,8 +269,15 @@ describe('useProject', () => {
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify(ghostFile),
     )
+    // The real rejection: FastAPI answers a missing project with
+    // ``detail: "Project not found"``, and the client's message is that
+    // detail — the ``→ 404`` fallback never appears.
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('GET /projects/01k-MISSING → 404'),
+      new ApiError('Project not found', 404, {
+        detail: 'Project not found',
+        method: 'GET',
+        path: '/projects/01k-MISSING',
+      }),
     )
     const restored = { ...created, id: '01k-MISSING', name: 'Ghost' }
     ;(api.project.restore as ReturnType<typeof vi.fn>).mockResolvedValue(restored)
@@ -322,7 +336,7 @@ describe('useProject', () => {
       }),
     )
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('GET /projects/01k-MISSING → 404'),
+      new ApiError('Project not found', 404, { detail: 'Project not found' }),
     )
     ;(api.project.restore as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('network unreachable'),
