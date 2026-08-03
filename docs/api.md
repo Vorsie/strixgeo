@@ -26,6 +26,27 @@ GET    /cpt/{id}                CPT metadata (location, elevation, cone props, s
                                 cross-project id enumeration guard).
 GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt).
                                 Requires ``?project_id=UUID`` (VULN-4).
+GET    /cpt/{id}/sbt-profile    Per-depth soil-behaviour-type profile — BOTH
+                                classifiers. Returns ``depths_m``, ``ic`` +
+                                ``zone_normalised`` (full Robertson-2015
+                                pipeline, incl. the extended organic/peat
+                                boundary), ``i_sbt`` + ``zone_non_normalised``
+                                (Robertson 2010 closed form), and the
+                                PROVENANCE of the water table the normalised
+                                columns used: ``gwt_m`` +
+                                ``gwt_source ∈ {recorded, engineer, assumed}``.
+                                Derived on read — nothing is stored. The GWT is
+                                resolved by ``domain/services/gwt_resolution.py``,
+                                the SAME resolver the Ic chart and the litho
+                                segmenter use. Optional ``&gunsat_kNm3=`` /
+                                ``&gwater_kNm3=`` (defaults 16 / 9.81, bounds
+                                8–25 / 9–10.5 — the SAME domain constants
+                                ``LithoSuggestionRequest`` validates against):
+                                the client sends the engineer's Settings →
+                                Litho segmenter values so the strip and the
+                                ghost boundaries normalise under one
+                                effective-stress profile.
+                                Requires ``?project_id=UUID``.
 DELETE /cpt/{id}                Delete CPT and its series (cascade). NOTE: the
                                 desktop frontend no longer calls this — sidebar
                                 "remove from project" is project-local
@@ -46,6 +67,25 @@ PATCH  /cpt/{id}/elevation      Phase 3a manual surface-elevation editor.
                                 the id is unknown or belongs to a different
                                 project. Requires ``?project_id=UUID``
                                 (VULN-2).
+PATCH  /cpt/{id}/water-table    Engineer-set depth to groundwater. JSON body:
+                                ``{water_depth_m: float | null}`` (metres below
+                                ground surface, positive down; 0–500).
+                                Stamps ``water_depth_source = 'engineer'``,
+                                which the refresh-on-reimport path will NOT
+                                overwrite — the whole Robertson normalisation
+                                hangs off this number, so engineer judgement
+                                outranks a re-parse. The FIRST override of a
+                                recorded depth SNAPSHOTS it
+                                (``original_water_depth_m/_source``, mirroring
+                                ``original_elevation_*``), so ``null`` restores
+                                the file's value; with no snapshot it clears
+                                back to "nothing recorded" → consumers fall
+                                back to the assumption and label it as
+                                assumed. Out-of-range depths 422. Returns
+                                the full ``CptResponse``. No cached geometry is
+                                staled: the water table moves only
+                                derived-on-read values.
+                                Requires ``?project_id=UUID``.
 
 POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + samples
                                 + grain-size + Atterberg + CaCO3 + organic-C + water-content
