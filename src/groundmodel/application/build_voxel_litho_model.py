@@ -59,6 +59,7 @@ frozen domain value objects (``SectionPartitionInput``) before calling
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import struct
 import time
@@ -104,6 +105,20 @@ from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
 )
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.timing import phase_timer
+
+_BUILD_CPU_LOCK = asyncio.Lock()
+"""Serialises the two CPU phases so the voxel grid budget stays a PER-PROCESS bound.
+
+``voxel_grid_budget.MAX_VOXEL_CELLS`` is sized on the peak memory of ONE build
+(~550 MB: the int32 label grid plus the mesher's full-grid bool arrays). Before
+those phases moved to ``asyncio.to_thread`` the single event loop serialised them
+for free; off the loop they can run side by side in the default thread pool, and
+nothing re-checks the budget for a second occupant. A second Build therefore
+WAITS here — which is also the behaviour engineers already experienced.
+
+If concurrency is ever wanted, the budget constant has to be divided by the
+permitted concurrency; say so in ``voxel_grid_budget`` before changing this.
+"""
 
 
 def _generation_payload(sections: list[SectionPartitionInput]) -> dict[str, object]:
@@ -480,7 +495,13 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
 
         if not sections:
             self.warning(f"BuildVoxelLithoModel: model={model_id} — no sections; clearing cache")
-            return await self._handle_empty(model_id)
+            return await self._handle_empty(
+                model_id,
+                reason=(
+                    "no cross-section carried a 2-D partition, so there was nothing to "
+                    "build from — draw or fill a section first"
+                ),
+            )
 
         # --- Honor each investigation's OWN observed log at its true location --
         # The section blend at a borehole's true (x, y) can disagree with the
@@ -582,7 +603,13 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"BuildVoxelLithoModel: model={model_id} domain unbuildable — {err}; "
                 "clearing cache (need ≥3 non-collinear columns)"
             )
-            return await self._handle_empty(model_id)
+            return await self._handle_empty(
+                model_id,
+                reason=(
+                    "the investigations do not frame an area — a footprint needs at least "
+                    "3 that do not sit on one line"
+                ),
+            )
         self.debug(
             f"BuildVoxelLithoModel: model={model_id} — domain footprint "
             f"{len(domain.polygon)}-vertex hull"
@@ -683,39 +710,60 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 uncovered_test_ids=uncovered,
             )
 
-        # --- Phase 2: label the 3-D voxel grid --------------------------------
-        try:
-            with phase_timer(self, "BuildVoxelLithoModel phase-2 label_voxels"):
-                grid = label_voxels(
-                    domain,
-                    grid_spacing_m,
-                    sections,
-                    vertical_spacing_m=vertical_spacing_m,
-                    investigation_columns=investigation_columns,
-                    honor_radius_m=honor_radius_m,
+        # --- Phases 2 + 3: the CPU work, OFF THE EVENT LOOP -------------------
+        # The desktop app runs exactly one uvicorn worker, and this route is
+        # ``async def``, so a synchronous call here holds the loop for the whole
+        # build: every other request the engineer makes meanwhile — drag a contact,
+        # accept a suggestion, Ctrl+S — queues behind it and the app looks hung,
+        # with no spinner and no error. Both phases are pure functions over
+        # in-memory value objects and touch no session, so a thread is safe; the DB
+        # work stays on the loop. A thread rather than a process: the numpy-heavy
+        # mesher releases the GIL freely, while a separate process would re-JIT the
+        # Numba kernel per worker and copy the whole label grid back across the
+        # boundary. Measured event-loop responsiveness and the phase split are in
+        # docs/benchmarks-journal.md → "Build responsiveness (2026-08-03)".
+        # ``_BUILD_CPU_LOCK`` keeps the grid budget a per-process bound (see its
+        # docstring): a second Build waits here rather than competing for memory.
+        async with _BUILD_CPU_LOCK:
+            try:
+                with phase_timer(self, "BuildVoxelLithoModel phase-2 label_voxels"):
+                    grid = await asyncio.to_thread(
+                        label_voxels,
+                        domain,
+                        grid_spacing_m,
+                        sections,
+                        vertical_spacing_m=vertical_spacing_m,
+                        investigation_columns=investigation_columns,
+                        honor_radius_m=honor_radius_m,
+                    )
+            except ValueError as err:
+                self.warning(
+                    f"BuildVoxelLithoModel: model={model_id} label_voxels failed — {err}; "
+                    "clearing cache (no elevation range to grid over)"
                 )
-        except ValueError as err:
-            self.warning(
-                f"BuildVoxelLithoModel: model={model_id} label_voxels failed — {err}; "
-                "clearing cache (no elevation range to grid over)"
+                return await self._handle_empty(
+                    model_id,
+                    uncovered_test_ids=uncovered,
+                    reason=f"the 3-D grid could not be built — {err}",
+                )
+            self.info(
+                f"BuildVoxelLithoModel: model={model_id} — labelled "
+                f"{len(grid.gx)}x{len(grid.gy)}x{len(grid.gz)} grid, "
+                f"{len(grid.body_id_by_index)} body slots"
             )
-            return await self._handle_empty(model_id, uncovered_test_ids=uncovered)
-        self.info(
-            f"BuildVoxelLithoModel: model={model_id} — labelled "
-            f"{len(grid.gx)}x{len(grid.gy)}x{len(grid.gz)} grid, "
-            f"{len(grid.body_id_by_index)} body slots"
-        )
 
-        # --- Phase 3: extract the greedy-meshed watertight per-body solids ----
-        try:
-            with phase_timer(self, "BuildVoxelLithoModel phase-3 extract_body_solids"):
-                meshes = extract_body_solids(grid)  # greedy=True (production default)
-        except Exception as err:
-            self.exception(
-                f"BuildVoxelLithoModel: model={model_id} extract_body_solids raised "
-                f"{type(err).__name__} — {err}"
-            )
-            raise
+            # Phase 3: extract the greedy-meshed watertight per-body solids. Inside
+            # the same lock as phase 2 — it holds the label grid AND the mesher's
+            # full-grid scratch arrays, the peak the budget is sized on.
+            try:
+                with phase_timer(self, "BuildVoxelLithoModel phase-3 extract_body_solids"):
+                    meshes = await asyncio.to_thread(extract_body_solids, grid)  # greedy=True
+            except Exception as err:
+                self.exception(
+                    f"BuildVoxelLithoModel: model={model_id} extract_body_solids raised "
+                    f"{type(err).__name__} — {err}"
+                )
+                raise
         # An empty body slot (no voxel labelled with it) yields no mesh — drop it.
         meshes = [m for m in meshes if m.vertices and m.triangles]
         self.info(f"BuildVoxelLithoModel: model={model_id} — extracted {len(meshes)} body solid(s)")
@@ -729,7 +777,13 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             # Reuse the already-loaded existing rows — ``_handle_empty`` only
             # reads the keys, so no second read is needed for the empty path.
             return await self._handle_empty(
-                model_id, existing_by_body=existing_by_body, uncovered_test_ids=uncovered
+                model_id,
+                existing_by_body=existing_by_body,
+                uncovered_test_ids=uncovered,
+                reason=(
+                    "the labelling produced no body at all — every voxel came out empty, "
+                    "so nothing could be meshed"
+                ),
             )
 
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
@@ -878,6 +932,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         existing_by_body: dict[str, _SolidMeta] | None = None,
         *,
         uncovered_test_ids: list[str] | None = None,
+        reason: str,
     ) -> LithoSolidsOutcome:
         """Clear every solid row for the model and return a zero outcome.
 
@@ -900,19 +955,27 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             far enough to be known. Carried through so an empty build still
             tells the engineer WHY it is empty for those columns. ``None``
             (default) for the call sites that fail before the domain exists.
+        reason : str
+            Why this build is empty, in the engineer's own terms. Required, not
+            defaulted: this path DELETES the stored 3-D model, and its counts are
+            indistinguishable from a happy build of zero bodies, so a call site
+            that cannot say why must not compile rather than silently produce a
+            green "Built 0 bodies" over an erased model.
 
         Returns
         -------
         LithoSolidsOutcome
-            All counts zero except ``orphans_deleted``.
+            All counts zero except ``orphans_deleted``, carrying ``reason`` as
+            ``empty_reason``.
         """
         if existing_by_body is None:
             existing_by_body = await self._load_existing(model_id)
         orphans_deleted = await self._delete_orphans(model_id, existing_by_body, set())
         await self._session.commit()
-        self.success(
-            f"BuildVoxelLithoModel: model={model_id} — empty payload, "
-            f"{orphans_deleted} orphan(s) deleted"
+        # WARNING, not SUCCESS: nothing was built and the stored solids are gone.
+        self.warning(
+            f"BuildVoxelLithoModel: model={model_id} — built NOTHING ({reason}); "
+            f"the stored 3-D model was cleared, {orphans_deleted} orphan(s) deleted"
         )
         return LithoSolidsOutcome(
             bodies_considered=0,
@@ -922,6 +985,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             orphans_deleted=orphans_deleted,
             marked_test_ids=[],
             uncovered_test_ids=uncovered_test_ids or [],
+            empty_reason=reason,
         )
 
     #: Identifies the builder behind a stored generation.  Bump when a change
