@@ -18,6 +18,12 @@ class ImportBoreholeDovResponse(BaseModel):
     failed: int
     interpretations_attached: int = 0
     interpretations_failed: int = 0
+    # Boreholes the Boringen WFS flags as HAVING an interpretation stream that
+    # the per-stream ``interpretaties:*`` layer then did not return. Nothing
+    # failed — the rows are simply absent upstream — but the panel must count
+    # them or the import reads as "DOV holds no descriptions for these"
+    # (audit 2026-08-02). Additive with a 0 default.
+    interpretations_wfs_gaps: int = 0
     samples_attached: int = 0
     samples_failed: int = 0
     grain_sizes_attached: int = 0
