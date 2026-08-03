@@ -422,3 +422,53 @@ Next candidates, in payoff order: (1) `_split_pinched_edges_by_midpoint`;
 (2) a bounding-box lower bound in the per-column section ranking so a column only
 projects onto sections that could be in its nearest two — exact, not approximate;
 (3) Numba on the labelling loop (the long-standing candidate).
+
+## 2026-08-03 — build responsiveness: the event loop during a build
+
+Why this section exists: the two CPU phases of `BuildVoxelLithoModel` moved to
+`asyncio.to_thread`, and the numbers justifying that move lived only in code
+comments, with no committed reproducer — unre-measurable after any later change to
+the labelling or the mesher. The reproducer now exists:
+`scripts/diag_build_event_loop_stall.py` (offline, no database).
+
+**Method.** Run phases 2 (`label_voxels`) and 3 (`extract_body_solids`) both ways —
+inline, as the route used to, and through `asyncio.to_thread` — with a 10 ms
+`asyncio.sleep` heartbeat task ticking alongside. A dead loop cannot tick, so the
+tick count and the longest gap between two ticks measure exactly what the engineer
+feels. `to_thread` runs first so the Numba mesh kernel is already JIT-compiled and
+the compile time is not charged to the inline row.
+
+Windows 11, Python 3.11, same machine as the 2026-07-28 section.
+
+`scripts/throwaway_v2_voxel_payload.json` — 14 sections, h 2.0 m, v 2.0 m:
+
+| phases | label | extract | total | heartbeat ticks | worst stall |
+|---|---|---|---|---|---|
+| `asyncio.to_thread` | 4.7 s | 2.5 s | 7.2 s | 211 | 137 ms |
+| inline | 4.6 s | 2.4 s | 7.1 s | **1** | **7 067 ms** |
+
+`scripts/throwaway_geotech_voxel_payload.json` — 12 sections, h 2.0 m, v 0.25 m:
+
+| phases | label | extract | total | heartbeat ticks | worst stall |
+|---|---|---|---|---|---|
+| `asyncio.to_thread` | 6.0 s | 49.2 s | 55.2 s | 2 360 | 84 ms |
+| inline | 6.1 s | 49.8 s | 55.8 s | **1** | **55 829 ms** |
+
+Two things to carry forward:
+
+* **Off the loop costs nothing and buys everything.** Total wall clock is
+  unchanged either way (within noise); the loop goes from one tick per build to
+  ticking throughout, worst stall from the whole build to well under 150 ms.
+* **`extract_body_solids` is the expensive half, and it scales with vertical
+  spacing** — 2.5 s at v = 2.0 m against 49.2 s at v = 0.25 m, while labelling
+  barely moves (4.7 → 6.0 s). Same shape as the 2026-07-28 spacing sweep; the
+  mesher is where any future build-time work belongs.
+
+The earlier in-code claim ("12 ticks in 19.2 s inline against 725 ticks, worst
+stall 155 ms") shipped without a reproducer and does not correspond to either
+captured payload; these rows replace it.
+
+The behaviour — not the numbers — is pinned by
+`tests/unit/application/test_build_voxel_litho_model.py::test_another_request_is_served_while_the_labelling_runs`.
+A second Build now WAITS on `_BUILD_CPU_LOCK` rather than running alongside the
+first, so every figure above describes one build at a time by construction.
