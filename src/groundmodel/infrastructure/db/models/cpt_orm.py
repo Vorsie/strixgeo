@@ -75,6 +75,21 @@ class CptOrm(Base):
     # Cone properties
     pre_drill_m: Mapped[float] = mapped_column(Double, default=0.0)
     water_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    # Provenance for ``water_depth_m`` — see ``WaterDepthSource``. NULL when no
+    # water table is recorded (the row then falls back to the project-wide
+    # assumption, labelled as assumed at the UI boundary). ``'engineer'``
+    # outranks the file on a refresh-on-duplicate re-import, the same contract
+    # ``elevation_source = 'manual'`` gives the surveyed collar (debt #8).
+    water_depth_source: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Rollback snapshot for the water table — the exact counterpart of the
+    # ``original_elevation_*`` triple above, captured on the FIRST engineer
+    # override of a recorded depth so clearing his value restores the file's
+    # number instead of dropping the row to the assumption. NULL depth = no
+    # snapshot held (the source alone cannot be the sentinel: a legacy row
+    # carries a real depth with a NULL source). Logic lives in
+    # ``domain.services.water_table_rollback``.
+    original_water_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    original_water_depth_source: Mapped[str | None] = mapped_column(String(8), nullable=True)
     # Net area ratio (a-value) — parsed directly from GEF MEASUREMENTVAR 3.
     # No fallback is ever inferred: the a-value is a physical cone property
     # (manufacturer-stated or calibrated) and must not be invented.  Using the
