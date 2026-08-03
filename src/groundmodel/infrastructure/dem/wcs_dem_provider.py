@@ -26,16 +26,22 @@ providers (and so this base) inherit ``GroundModelLogger`` directly.
 
 from __future__ import annotations
 
+import math
 from io import BytesIO
 from typing import ClassVar, Self
 
 import httpx
 from PIL import Image
 
+from groundmodel.infrastructure.dem.dem_negative_cache import (
+    DEM_NEGATIVE_CACHE,
+    make_tile_key,
+)
 from groundmodel.infrastructure.dem.dem_provider import DemProvider, DemZGrid
 from groundmodel.infrastructure.dem.dem_tile_cache import DemTileCache
 from groundmodel.infrastructure.dem.dem_wcs_constants import (
     WCS_BBOX_PADDING_M,
+    WCS_MAX_EXTENT_SPAN_M,
     WCS_TIMEOUT_SECONDS,
     WCS_VERSION,
 )
@@ -43,7 +49,37 @@ from groundmodel.infrastructure.dem.dhmvii_sampler import (
     SamplePoint,
     sample_geotiff_along_line,
 )
+from groundmodel.shared.exceptions import (
+    DemExtentRefusedError,
+    DemUpstreamRecentlyFailedError,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+def _is_permanent_upstream_failure(exc: BaseException) -> bool:
+    """Return True when re-asking upstream for the same tile cannot help.
+
+    Only permanent shapes may be negative-cached (see the caller): a 4xx status
+    means the coverage does not answer for this extent, and an undecodable body
+    (an OWS ExceptionReport served with 200) means the same. Connection errors,
+    timeouts and 5xx statuses are the failures that self-heal, so they are
+    retried on the next request rather than suppressed for the TTL.
+
+    Parameters
+    ----------
+    exc : BaseException
+        The exception raised by the WCS round-trip or the GeoTIFF decode.
+
+    Returns
+    -------
+    bool
+        True for a permanent failure, False for a transient one.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return 400 <= exc.response.status_code < 500
+    # ``_extract_tiff`` raises ValueError when the body carries no decodable
+    # GeoTIFF. httpx.HTTPStatusError is not a ValueError, so ordering is safe.
+    return isinstance(exc, ValueError)
 
 
 class WcsDemProvider(DemProvider, GroundModelLogger):
@@ -70,6 +106,9 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
     AXIS_NAMES: ClassVar[tuple[str, str]]
     #: Native cell size in metres, used when the caller omits ``resolution_m``.
     DEFAULT_RESOLUTION_M: ClassVar[float]
+    #: Plausible domain of this source's CRS as (min_x, min_y, max_x, max_y).
+    #: NOT the coverage footprint — see the constants module for why.
+    VALID_EXTENT: ClassVar[tuple[float, float, float, float]]
     #: Short label for log lines (e.g. ``"DHMVII"`` / ``"AHN4 PDOK"``).
     LOG_LABEL: ClassVar[str]
 
@@ -314,11 +353,38 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
             On network transport failures / non-2xx WCS responses.
         ValueError
             When the response body carries no decodable GeoTIFF.
+        DemExtentRefusedError
+            When the extent cannot be a real place in this provider's CRS.
+        DemUpstreamRecentlyFailedError
+            When this exact tile key failed upstream within the TTL.
         """
         cached = self._cache.get(padded_min_x, padded_min_y, padded_max_x, padded_max_y, res)
         if cached is not None:
             self.debug(f"{self.LOG_LABEL} tile cache: warm hit ({len(cached)} B)")
             return cached, True
+
+        # Everything below issues a network request, so both guards sit here:
+        # a cached tile is still served for an odd-looking extent (we have the
+        # bytes, the question is settled), but nothing walks to the WCS for an
+        # extent that cannot exist or one that just failed.
+        self._refuse_impossible_extent(padded_min_x, padded_min_y, padded_max_x, padded_max_y)
+
+        key = make_tile_key(
+            self.provider_id, padded_min_x, padded_min_y, padded_max_x, padded_max_y, res
+        )
+        suppressed_for = DEM_NEGATIVE_CACHE.seconds_until_retry(key)
+        if suppressed_for > 0.0:
+            self.warning(
+                f"{self.LOG_LABEL} tile suppressed: "
+                f"({padded_min_x:.1f},{padded_min_y:.1f})→({padded_max_x:.1f},{padded_max_y:.1f}) "
+                f"failed upstream recently — not retrying for {suppressed_for:.0f} s"
+            )
+            raise DemUpstreamRecentlyFailedError(
+                f"DEM tile ({padded_min_x:.1f},{padded_min_y:.1f})→"
+                f"({padded_max_x:.1f},{padded_max_y:.1f}) failed upstream recently; "
+                f"retrying in {suppressed_for:.0f} s",
+                retry_after_seconds=suppressed_for,
+            )
 
         x_axis, y_axis = self.AXIS_NAMES
         params = {
@@ -337,17 +403,109 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
             f"{x_axis}({padded_min_x:.3f},{padded_max_x:.3f}) "
             f"{y_axis}({padded_min_y:.3f},{padded_max_y:.3f})"
         )
-        resp = await self._client.get(self.WCS_URL, params=params)
-        self.debug(
-            f"{self.LOG_LABEL} WCS response: status={resp.status_code} size={len(resp.content)} B"
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self._client.get(self.WCS_URL, params=params)
+            self.debug(
+                f"{self.LOG_LABEL} WCS response: "
+                f"status={resp.status_code} size={len(resp.content)} B"
+            )
+            resp.raise_for_status()
+            tiff_bytes = self._extract_tiff(resp.content)
+        except (httpx.HTTPError, ValueError) as exc:
+            # Remember the exact key so a caller that re-fires on every
+            # re-mount cannot turn one bad tile into a request flood — but ONLY
+            # for failures that asking again cannot fix. A dropped connection,
+            # a timeout or a 5xx is exactly the failure that self-heals; a
+            # 5-minute local blackout on those would answer 503 over a network
+            # that is already healthy again.
+            if _is_permanent_upstream_failure(exc):
+                DEM_NEGATIVE_CACHE.record_failure(key)
+            else:
+                self.warning(
+                    f"{self.LOG_LABEL} transient upstream failure "
+                    f"({type(exc).__name__}: {exc}) — not suppressed, the next "
+                    "request retries immediately"
+                )
+            raise
 
-        tiff_bytes = self._extract_tiff(resp.content)
         self.debug(f"{self.LOG_LABEL} WCS: TIFF blob {len(tiff_bytes)} B")
 
         self._cache.put(padded_min_x, padded_min_y, padded_max_x, padded_max_y, res, tiff_bytes)
         return tiff_bytes, False
+
+    def _refuse_impossible_extent(
+        self,
+        min_x: float,
+        min_y: float,
+        max_x: float,
+        max_y: float,
+    ) -> None:
+        """Raise when this extent cannot correspond to a real place upstream.
+
+        Three refusals, each one an extent no upstream can ever answer:
+
+        1. a non-finite bound (NaN / inf) — arithmetic on a missing coordinate;
+        2. an extent outside the CRS's own area of use — the observed
+           origin-anchored strip from the 2026-08-02 dogfeed lives here;
+        3. a span beyond ``WCS_MAX_EXTENT_SPAN_M`` — hundreds of megapixels,
+           and always a caller bug rather than a project hull.
+
+        A zero-height (or zero-width) extent is deliberately NOT refused: an
+        exactly east–west section line has a zero-height envelope and is a
+        perfectly legal request.
+
+        Parameters
+        ----------
+        min_x, min_y, max_x, max_y : float
+            The padded extent about to be requested.
+
+        Raises
+        ------
+        DemExtentRefusedError
+            With the extent echoed on the exception so the API layer can name
+            the offending numbers back to the caller.
+        """
+        extent = (min_x, min_y, max_x, max_y)
+        if not all(math.isfinite(v) for v in extent):
+            self.warning(f"{self.LOG_LABEL} extent refused: non-finite bound {extent}")
+            raise DemExtentRefusedError(
+                f"DEM extent {extent} has a non-finite bound — the caller's "
+                "coordinates are not usable",
+                extent=extent,
+            )
+
+        valid_min_x, valid_min_y, valid_max_x, valid_max_y = self.VALID_EXTENT
+        outside = (
+            max_x < valid_min_x or min_x > valid_max_x or max_y < valid_min_y or min_y > valid_max_y
+        )
+        if outside:
+            self.warning(
+                f"{self.LOG_LABEL} extent refused: "
+                f"({min_x:.3f},{min_y:.3f})→({max_x:.3f},{max_y:.3f}) lies outside "
+                f"the CRS domain {self.VALID_EXTENT} — the caller passed coordinates "
+                "that are not map coordinates in this CRS"
+            )
+            raise DemExtentRefusedError(
+                f"DEM extent ({min_x:.3f},{min_y:.3f})→({max_x:.3f},{max_y:.3f}) is "
+                f"outside the {self.LOG_LABEL} CRS domain "
+                f"({valid_min_x:.0f},{valid_min_y:.0f})→({valid_max_x:.0f},{valid_max_y:.0f}). "
+                "The request carries coordinates that are not map coordinates in "
+                "this project's CRS.",
+                extent=extent,
+            )
+
+        span_x = max_x - min_x
+        span_y = max_y - min_y
+        if span_x > WCS_MAX_EXTENT_SPAN_M or span_y > WCS_MAX_EXTENT_SPAN_M:
+            self.warning(
+                f"{self.LOG_LABEL} extent refused: span {span_x:.0f}×{span_y:.0f} m "
+                f"exceeds the {WCS_MAX_EXTENT_SPAN_M:.0f} m cap"
+            )
+            raise DemExtentRefusedError(
+                f"DEM extent spans {span_x:.0f}×{span_y:.0f} m, beyond the "
+                f"{WCS_MAX_EXTENT_SPAN_M:.0f} m per-axis cap for one tile.",
+                extent=extent,
+            )
 
     def _decode_tiff(
         self,
