@@ -103,16 +103,25 @@ describe('RecoveryPromptDialog', () => {
   it('says what actually happens to the copy if the user opens without restoring', () => {
     renderDialog()
     const text = dialogText()
-    // A crash-reopened project is at risk from the moment it mounts (the
-    // localStorage session sets survive, and staged != saved re-seeds the
-    // dirty flag), so the scheduler overwrites the declined file about two
-    // seconds after the open — while this dialog may still be up. The copy
-    // must say that, not that declining leaves the copy safe "for now".
-    expect(text).toMatch(/replaced by this session/i)
-    expect(text).not.toMatch(/leaves this copy alone/i)
-    // And still no promise that a restart re-offers it — every decided exit
-    // deletes the file too. Promising otherwise would be worse than silence.
-    expect(text).not.toMatch(/restart/i)
+    // Owner decision 2026-08-03: declining PRESERVES the copy, so the dialog
+    // now promises the one thing it previously had to withhold — that the
+    // offer comes back. It is worth promising in as many words: without it,
+    // "Open without restoring" reads like a choice that quietly forfeits the
+    // work, and the engineer clicks Restore defensively.
+    expect(text).toMatch(/offered it again/i)
+    // What a newer crash actually does is TAKE PRECEDENCE, not replace: the
+    // reader prefers the primary slot while it exists, and this copy resurfaces
+    // once that newer one has been answered for. "Replaced only if this session
+    // crashes" described a file the crash overwrites — it does not; the two
+    // copies sit in different slots, and the only thing that overwrites this
+    // one is a second decline.
+    expect(text).toMatch(/offered first/i)
+    expect(text).toMatch(/only .*discard/i)
+    expect(text).not.toMatch(/replaced only if/i)
+    // The old copy said this session would overwrite the file. It no longer
+    // can — the declined copy sits in a slot the autosave scheduler never
+    // writes — so saying so would now be the false statement.
+    expect(text).not.toMatch(/replaced by this session/i)
   })
 
   it('shows how old the recovery copy is', () => {
