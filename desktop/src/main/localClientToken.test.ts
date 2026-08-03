@@ -61,44 +61,84 @@ describe('a filter that matches nothing must announce itself', () => {
   // no request, the token is never attached, the backend 403s everything, and the
   // engineer sees "failed to fetch" with the reason only in a backend log he
   // cannot see in a packaged build. The absence of a log line is not a signal —
-  // so the audit turns it into one.
+  // so the audit turns it into one. It arms on an OBSERVED API request, never
+  // on a wall clock: the first version alarmed on any session that sat on the
+  // start screen without opening a project (owner dogfeed 2026-08-03), where
+  // zero API requests exist and the filter was never asked to match anything.
+
+  /** Audit whose grace timer fires the moment we ask it to. */
+  function makeAudit(urls: string[], errors: string[]): {
+    audit: ReturnType<typeof createTokenInjectionAudit>
+    fireChecks: () => void
+  } {
+    const pending: Array<() => void> = []
+    const audit = createTokenInjectionAudit(urls, { error: m => errors.push(m) }, check =>
+      pending.push(check),
+    )
+    return { audit, fireChecks: () => pending.splice(0).forEach(fn => fn()) }
+  }
 
   it('says nothing while the token is being attached', () => {
     const errors: string[] = []
-    const audit = createTokenInjectionAudit(['http://127.0.0.1:8765/*'], {
-      error: m => errors.push(m),
-    })
-    audit.noteInjection('http://127.0.0.1:8765/projects')
+    const { audit, fireChecks } = makeAudit(['http://127.0.0.1:8765/*'], errors)
 
-    audit.reportIfSilent()
+    audit.noteApiRequestObserved('http://127.0.0.1:8765/projects')
+    audit.noteInjection('http://127.0.0.1:8765/projects')
+    fireChecks()
 
     expect(errors).toEqual([])
   })
 
-  it('reports an error naming the filter patterns when nothing was ever attached', () => {
+  it('stays silent on a session that never talks to the API at all', () => {
+    // The idle-start-screen case: no project opened, no API request, nothing
+    // for the filter to match — an alarm here is the cry-wolf the owner hit.
     const errors: string[] = []
-    const audit = createTokenInjectionAudit(
+    makeAudit(['http://127.0.0.1:8765/*'], errors)
+
+    // No observation, so no check is ever armed; nothing to fire.
+
+    expect(errors).toEqual([])
+  })
+
+  it('reports an error naming the filter patterns when an observed request got no token', () => {
+    const errors: string[] = []
+    const { audit, fireChecks } = makeAudit(
       ['http://127.0.0.1:8765/*', 'http://127.0.0.1/*'],
-      { error: m => errors.push(m) },
+      errors,
     )
 
-    audit.reportIfSilent()
+    audit.noteApiRequestObserved('http://127.0.0.1:8765/projects')
+    fireChecks()
 
     expect(errors).toHaveLength(1)
     expect(errors[0]).toContain('http://127.0.0.1:8765/*')
     expect(errors[0]).toContain('http://127.0.0.1/*')
+    expect(errors[0]).toContain('http://127.0.0.1:8765/projects')
   })
 
-  it('reports once, not once per check', () => {
+  it('tolerates the injection landing after the observation, within the grace', () => {
+    // onBeforeRequest (observation) fires moments before onBeforeSendHeaders
+    // (injection) for the SAME request — the grace exists for that ordering.
+    const errors: string[] = []
+    const { audit, fireChecks } = makeAudit(['http://127.0.0.1:8765/*'], errors)
+
+    audit.noteApiRequestObserved('http://127.0.0.1:8765/projects')
+    audit.noteInjection('http://127.0.0.1:8765/projects')
+    fireChecks()
+
+    expect(errors).toEqual([])
+  })
+
+  it('reports once, not once per observed request', () => {
     // The renderer reloads (dev HMR, the ErrorBoundary's Reload button); a
     // repeated alarm for one condition trains the engineer to ignore it.
     const errors: string[] = []
-    const audit = createTokenInjectionAudit(['http://127.0.0.1:8765/*'], {
-      error: m => errors.push(m),
-    })
+    const { audit, fireChecks } = makeAudit(['http://127.0.0.1:8765/*'], errors)
 
-    audit.reportIfSilent()
-    audit.reportIfSilent()
+    audit.noteApiRequestObserved('http://127.0.0.1:8765/projects')
+    fireChecks()
+    audit.noteApiRequestObserved('http://127.0.0.1:8765/cpt/plot-batch')
+    fireChecks()
 
     expect(errors).toHaveLength(1)
   })
