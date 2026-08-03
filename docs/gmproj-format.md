@@ -119,3 +119,47 @@ The schema lives in ``desktop/src/renderer/src/utils/projectFile.ts``
 require keeping the old reader alive and writing an explicit
 ``upgrade_vN_to_vN+1`` function — see "Backwards Compatibility" at the
 top of CLAUDE.md.
+
+## The bundle collection registry — one list, every copy path
+
+Four write paths used to enumerate the project's child tables by hand:
+``ProjectRepository.duplicate`` (File → Save As), ``restore_project_bundle``,
+the renderer's save-time formation trim, and the geotech rebuild. Each was one
+forgotten branch from dropping a collection in silence, and Save As actually
+did — it cloned the CPTs and boreholes and left the entire three-level
+interpretation behind, then reported success.
+
+``bundle_build`` already enumerates every project-scoped table once, to
+serialise it. That enumeration is now the registry the copy paths read:
+
+* ``project_bundle/bundle_collections.py`` — ``BUNDLE_COLLECTION_KEYS`` (every
+  child-collection key, in restore order), ``BUNDLE_RESTORE_KWARGS`` (the
+  keyword each travels under into the restore), and
+  ``assert_bundle_keys_registered``, which ``_build_project_bundle_impl`` calls
+  on every build. **Adding a collection to the bundle without registering it
+  raises at save time** instead of being quietly skipped by every copy path.
+* ``project_bundle/bundle_clone.py`` — ``clone_project_children`` copies one
+  project's whole tree onto another project id by building the source's bundle,
+  re-keying it, and feeding it to the SAME restore. Re-keying replaces ids **by
+  value across the whole document** (FK columns, UUID arrays, JSON map keys), so
+  a reference is carried wherever it lives; an id that is not a row of this
+  bundle is left alone, which is right for a reference pointing outside the
+  project. Two shapes need explicit care afterwards: geological models are
+  ordered parents-first (``parent_model_id`` is a self-referential FK with no
+  ORM relationship behind it, so the unit of work cannot reorder them), and
+  correlation edges are put back into ``layer_a_id < layer_b_id`` order with
+  their sides swapped along.
+* The copy is **verified, not assumed**: the clone's bundle is re-read and
+  compared to the source's, per collection and counting rows at every depth. A
+  short copy raises ``BundleCloneIncompleteError`` and the endpoint rolls back —
+  a Save As that quietly loses the interpretation is worse than one that fails,
+  because the client adopts the copy the moment the call returns.
+* Two contracts the copy inherits from the restore: ``litho_layer.body_id`` is
+  dropped for the resolver to re-stamp (so the duplicate endpoint runs the same
+  ``reconcile_bodies_after_restore`` the restore endpoint runs), and the
+  restore's size caps apply.
+
+Gate: ``tests/integration/db/test_project_duplicate_full_tree.py`` parametrises
+over ``BUNDLE_COLLECTION_KEYS``, so a collection added tomorrow is checked
+tomorrow — plus a guard that the fixture actually seeds every registered
+collection, or an empty-vs-empty comparison would pass while carrying nothing.
