@@ -180,9 +180,12 @@ def test_basic_export_structure() -> None:
     assert "g_i.borehole(40.0)" in script
     assert "g_i.borehole(0.0, " not in script  # not the 3D two-arg form
 
-    # Head set to the column surface elevation.
-    assert "bh_0.Head = 5.0" in script
-    assert "bh_1.Head = 4.0" in script
+    # The column's surface elevation annotates the borehole line — it is NOT
+    # written as a water Head (rewritten 2026-08-03; the old assertions pinned
+    # the audit's fully-saturated-model finding instead of catching it).
+    assert "surface z = 5.0" in script
+    assert "surface z = 4.0" in script
+    assert ".Head" not in script
 
     # One setsoillayerlevel per (borehole, layer) pair = 2 columns × 2 layers.
     assert script.count("g_i.setsoillayerlevel(") == 4
@@ -261,3 +264,38 @@ def test_material_variable_name_sanitisation() -> None:
     assert material_variable_name("Diest  Zand") == "mat_diest_zand"  # collapsed double space
     assert material_variable_name("Kortrijk (Ieper)") == "mat_kortrijk_ieper"
     assert material_variable_name("///") == "mat_unnamed"
+
+
+# ---------------------------------------------------------------------------
+# The exported script must not plant a water table (audit 2026-08-02)
+# ---------------------------------------------------------------------------
+
+
+def test_export_does_not_set_a_water_head_at_the_ground_surface() -> None:
+    """A borehole's ``Head`` is the PHREATIC level, not the soil-column top.
+
+    Strix does not know the section's water table, and the exporter's
+    own contract is "geometry only — no phreatic line".  Writing
+    ``Head = surface_z`` planted the water table at ground level at
+    every column, so every model imported from Strix came out fully
+    saturated.  The soil-column top is already communicated by
+    ``setsoillayerlevel``; the water table must be left for the
+    engineer to set, and the script must SAY that it was not set.
+    """
+    f = _formation(fid=uuid4(), name="Boom Klei", order=0)
+    i1 = uuid4()
+    snapshot = _snapshot(
+        investigations=[_inv(iid=i1, name="CPT-1", along=0.0, surface=5.0)],
+        formations=[f],
+        contacts=[_contact(fid=f.formation_id, iid=i1, along=0.0, depth=2.0, surface=5.0)],
+    )
+    script = _script(snapshot)
+
+    assert ".Head" not in script, (
+        "the exporter must not set a water head — Head is the phreatic level, "
+        "and the surface elevation is not it"
+    )
+    assert "water table" in script.lower(), (
+        "the script must state that no water table was set so the engineer "
+        "knows to set one before computing stresses"
+    )
