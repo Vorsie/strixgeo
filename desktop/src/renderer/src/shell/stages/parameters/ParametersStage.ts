@@ -19,15 +19,15 @@ import { Calculator } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import ParametersCanvas from './ParametersCanvas'
+import ParametersInspector from './ParametersInspector'
 
 /**
- * No-op placeholders — the stage's toolbar + inspector are scoped to
- * Phase 5 work. The canvas alone is the surface this scaffold opens.
+ * No-op placeholder — the stage's toolbar is scoped to Phase 5 work.
+ *
+ * The INSPECTOR is no longer a placeholder: owner ruling (dogfeed
+ * 2026-08-03) made the right-hand pane the per-CPT plot surface.
  */
 function ParametersToolbar(): null {
-  return null
-}
-function ParametersInspector(): null {
   return null
 }
 
