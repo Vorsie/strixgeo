@@ -44,6 +44,12 @@ class SubdivideAllBodiesResponse(BaseModel):
         and the NAD class all match (owner ruling 2026-08-01), so the tie is
         re-created against it — still accepted, still carrying its original
         provenance.
+    review_tie_reasons : dict[str, int]
+        Carried ties that need the engineer to confirm them, per reason:
+        ``class_changed`` = the qc re-derived a different packing class over
+        those depths; ``ambiguous_band`` = several same-class bands overlap
+        where the old one was.  They are included in ``reanchored_tie_count``
+        — flagged, not lost.
     lost_tie_count : int
         Accepted packing ties that could not be carried because at least one
         endpoint's band is not in the rebuild.  Surface this to the engineer:
@@ -54,6 +60,11 @@ class SubdivideAllBodiesResponse(BaseModel):
         boundary shifted; ``band_absent`` = the rebuild no longer draws that
         geology; ``borehole_endpoint_deferred`` = the endpoint is a borehole
         column, whose bands are materialised by the later DivideBoreholes step.
+        Only THIS verb can report ``borehole_endpoint_deferred``: past
+        DivideBoreholes the same endpoint reads ``band_absent``.
+    lost_tie_labels : list[str]
+        One line per lost tie naming both investigations and each endpoint's
+        depth range, so the engineer can find them in the section.
     """
 
     geotech_model_id: UUID = Field(
@@ -98,6 +109,15 @@ class SubdivideAllBodiesResponse(BaseModel):
             "(same investigation, same depth interval, same NAD class)."
         ),
     )
+    review_tie_reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Carried ties the engineer must confirm, per reason: class_changed / "
+            "ambiguous_band. These are NOT losses — they survived and are counted "
+            "in reanchored_tie_count — but the band they came back on is not "
+            "clearly the one they were drawn on, so they carry a review flag."
+        ),
+    )
     lost_tie_count: int = Field(
         0,
         description=(
@@ -110,5 +130,14 @@ class SubdivideAllBodiesResponse(BaseModel):
         description=(
             "Why the lost ties were lost: class_changed / interval_moved / "
             "band_absent / borehole_endpoint_deferred."
+        ),
+    )
+    lost_tie_labels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "One line per lost tie naming BOTH investigations and each endpoint's "
+            "depth range, e.g. 'GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m'. "
+            "A count alone tells the engineer accepted work vanished and nothing "
+            "about where to redraw it; the ids were only ever in a server log."
         ),
     )
