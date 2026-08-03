@@ -23,6 +23,10 @@ from groundmodel.infrastructure.dem.dem_provider_factory import (
     build_dem_provider,
 )
 from groundmodel.shared.config import settings
+from groundmodel.shared.exceptions import (
+    DemExtentRefusedError,
+    DemUpstreamRecentlyFailedError,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -85,6 +89,11 @@ async def sample_along_line(
     HTTPException(400)
         When ``epsg`` has no DEM provider (``NoDemProviderError``), or the
         two endpoints are identical (zero-length line).
+    HTTPException(422)
+        When the line's extent cannot be a real place in the project CRS —
+        origin-anchored / section-space coordinates, a non-finite bound, or a
+        span beyond the per-tile cap. The refused extent is named in the
+        detail; no upstream request is made.
     HTTPException(502)
         When the upstream provider returns an error or a malformed /
         non-TIFF response.
@@ -119,6 +128,21 @@ async def sample_along_line(
                 end_y=end_y,
                 n_samples=n_samples,
             )
+    # An impossible extent is the CALLER's bug, not the DEM service's — say so
+    # with the numbers, at 422, so the next occurrence is diagnosable from the
+    # response alone instead of looking like an upstream outage.
+    except DemExtentRefusedError as err:
+        logger.warning(f"DEM sample refused: {err}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+    except DemUpstreamRecentlyFailedError as err:
+        logger.warning(f"DEM sample suppressed: {err}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(err),
+        ) from err
     # User-facing detail stays category-only; the specific httpx
     # exception + message lives in the server-side log (debt #43).
     except httpx.ConnectError as err:
