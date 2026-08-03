@@ -8152,3 +8152,53 @@ user's view toggles is the same class of surprise).
 
 **When to revisit.** In the same change that wires the renderer to seed lumping from
 `ProjectResponse` — that is the moment the divergence becomes user-visible.
+
+## 268. Blending two section stacks cannot represent "unknown" — a void between them is closed up (high — fires on the geotech axis today; needs an owner ruling)
+
+**What.** `label_voxels._blend_stacks` matches the two nearest sections' bodies and hands the
+result to `_layout`, which lays every entry out cumulatively (`base = cur - thickness;
+cur = base`). A void is not an entry, so it contributes nothing and everything below it
+shifts UP by the gap height. The two SIBLING paths now preserve voids — the beyond /
+deferral path since 2026-08-03 (`_column_labels` labels an interval no entry covers `-1`
+instead of extruding the body above it down through it), and the geology-band path via
+`_column_labels_gapped`. The between-two-sections blend is the one place left where an
+interval the 2-D partition deliberately left UNKNOWN comes back as material.
+
+**Why deferred.** The fix needs a geological ruling, not a code decision. The owner's rule
+(2026-07-30, quoted at `build_voxel_litho_model.py`) is *"the voids below td are always
+filled through correlations from other tests the left or right (as in fill bands) if that is
+not the case then you leave it unkown"* — which says what a SINGLE section means, not what
+two sections mean when one says "clay here" and the other says "unknown here". The
+candidate answers are all defensible and all different: (a) treat unknown as a body-less
+interval that blends by thickness like any other, so the void narrows toward the section
+that fills it; (b) let the known side win outright, i.e. the current behaviour but stated
+on purpose; (c) let the unknown side win, so anything either section leaves unknown is
+unknown between them; (d) hold the void at its own absolute elevations and blend only
+around it. **Do not pick one without asking.**
+
+**How big it is today.** It fires TODAY, on the geotech axis. Measured with
+`scripts/diag_section_stack_voids.py` (slice every gap at 21 fractions, read the stack
+`label_voxels._section_stack_at` itself reads):
+
+| payload | sections | non-empty stacks | interior voids |
+|---|---|---|---|
+| `scripts/throwaway_v2_voxel_payload.json` (litho) | 14 | 1449 | **0** |
+| `scripts/throwaway_geotech_voxel_payload.json` (geotech) | 12 | 1071 | **4** |
+
+The four geotech voids are 2.420 / 2.318 / 2.216 m (section index 2, gap 3, fractions
+0.55–0.65) and 0.345 m (section 2, gap 4). The first measurement of this item only swept
+the litho payload, which is why it read "does not fire on the current model" — it does, and
+the worst case shifts a geotech 3-D column up by **2.42 m**.
+
+None of the four reaches `_column_labels`: instrumenting a full offline label of the geotech
+payload counted 30 802 labelled columns, **0** with a gap over a millimetre. `_layout` closed
+every one of them upstream — which is this item, observed directly rather than predicted. (8
+columns carried a SUB-millimetre gap; those are the 2-D engine's snap rounding, and
+`_column_labels` deliberately does not open a void for them.) The label grids are
+byte-identical (SHA-256) across all three void-threshold variants, so the collapse is not a
+build-output *change* — it is a build output that has been silently wrong on the geotech axis
+all along.
+
+**When to revisit.** Now, as a live wrong-geometry defect rather than a deferred design
+question — but the ASK is unchanged: the four candidate rulings still need the owner. Ask
+them one at a time, with a section screenshot of section 2 gap 3, before writing any code.
