@@ -12,10 +12,15 @@ import { api } from '../api/client'
 import type { ProjectResponse } from '../api/client'
 import { log } from '../utils/log'
 import { noteCloseFlow } from '../utils/closeFlowNote'
-import type { PickAndOpenResult } from './useProject'
+import type { PickAndOpenResult, RevertToLastSavedResult } from './useProject'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { buildUnsavedWorkSummary } from '../utils/unsavedWorkSummary'
 import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
+import {
+  failedRevertMessage,
+  failedSaveMessage,
+  refusedRevertMessage,
+} from '../utils/closeFlowMessages'
 
 /** Shape of the active geological model (id only — enough for contact cleanup). */
 interface ActiveModel {
@@ -36,6 +41,15 @@ export interface UseProjectLifecycleResult {
   setCloseConfirmOpen: (open: boolean) => void
   unsavedDialogOpen: boolean
   unsavedSaving: boolean
+  /**
+   * User-facing reason the last close attempt did not go through, or null.
+   *
+   * Rendered inside the unsaved-changes dialog. A failed save and a refused
+   * revert both LEAVE THE DIALOG OPEN, and an open dialog with no explanation
+   * reads as an unresponsive button — the engineer clicks it again, gets the
+   * same silence, and force-quits (audit 2026-08-02).
+   */
+  unsavedError: string | null
   /** Commit metadata + clear session-imports sets. */
   saveProject: () => Promise<boolean>
   /** Roll back session imports without touching the DB rows. */
@@ -151,6 +165,13 @@ export interface UseProjectLifecycleResult {
  *     From ``useProject`` — whether the last save's ``.gmproj`` write
  *     succeeded.  The recovery clear is gated on this, not on the save's
  *     boolean result.
+ * projectFilePath
+ *     From ``useProject`` — the ``.strix`` path, or null for a never-saved
+ *     project.  Names the file in the save-failed / revert-refused copy.
+ * toast
+ *     From ``useToasts`` — the only surface a failed Save or a refused
+ *     Discard has.  Both used to end in a ``log.error`` the engineer
+ *     never sees.
  *
  * Returns
  * -------
@@ -186,6 +207,8 @@ export function useProjectLifecycle({
   hasSavedSnapshot,
   clearRecoveryNow,
   lastSaveWroteFile,
+  projectFilePath,
+  toast,
 }: {
   project: { id: string; name: string } | null
   metadataDirty: boolean
@@ -222,7 +245,7 @@ export function useProjectLifecycle({
   // never-saved project, where the caller deletes the session creates).
   hasUnsavedMutations: boolean
   setHasUnsavedMutations: (v: boolean) => void
-  revertToLastSaved: () => Promise<boolean>
+  revertToLastSaved: () => Promise<RevertToLastSavedResult>
   // True once the project has a .gmproj path. A never-saved project has no
   // snapshot to revert to, so Discard deletes the session creates instead —
   // the close dialog has to say which of the two it will do.
@@ -239,6 +262,15 @@ export function useProjectLifecycle({
   // (defensible for the DB, wrong as a recovery signal), so the clear is
   // gated on this instead of on the return value.
   lastSaveWroteFile: () => boolean
+  // From ``useProject``: the .strix path this project saves to, or null for a
+  // never-saved project. Only used to NAME the file in failure copy — a save
+  // that could not be written and a revert that was refused are both about a
+  // specific file on disk, and "could not save" without the path is a message
+  // the engineer cannot act on.
+  projectFilePath: string | null
+  // From ``useToasts``. Ref-stable (it reads a ref, not state), so it is
+  // deliberately absent from the dep arrays below.
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
   // Dialog state
@@ -260,6 +292,9 @@ export function useProjectLifecycle({
   const [unsavedDialogMode, setUnsavedDialogMode] = useState<'close-project' | 'quit-app'>(
     'close-project',
   )
+  // Why the last Save / Discard did not close the project. Cleared whenever a
+  // new attempt starts so a stale reason never sits under a fresh click.
+  const [unsavedError, setUnsavedError] = useState<string | null>(null)
 
   // ---------------------------------------------------------------------------
   // Dirty flag
@@ -333,8 +368,22 @@ export function useProjectLifecycle({
   ])
 
   const saveProject = useCallback(async (): Promise<boolean> => {
+    setUnsavedError(null)
     const ok = await saveMetadata()
-    if (!ok) return false
+    if (!ok) {
+      // A FAILED SAVE MUST REACH THE ENGINEER. ``saveMetadata`` already
+      // returns false for a failed bundle fetch or a failed .strix write,
+      // and every caller (Ctrl+S, File → Save, the StageToolbar button, the
+      // close dialog's Save) simply discarded that boolean — the only trace
+      // was a ``log.error`` in a console a packaged build does not show. The
+      // project stays dirty and the title keeps its asterisk, but nothing
+      // says WHY, and the engineer's next move after a silent Ctrl+S is to
+      // close the project (audit 2026-08-02).
+      const message = failedSaveMessage(projectFilePath)
+      setUnsavedError(message)
+      toast('error', message)
+      return false
+    }
     resetSessionImportSets()
     setHasUnsavedMutations(false)
     // Crash recovery: the session delta now has a durable home, so the
@@ -354,12 +403,16 @@ export function useProjectLifecycle({
     // a change to the save model, and is still not smuggled in here.)
     if (lastSaveWroteFile()) await clearRecoveryNow()
     return true
+    // reason: ``toast`` is the ref-stable action from useToasts (declared as a
+    // plain function there precisely so it never belongs in a dep array).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     saveMetadata,
     resetSessionImportSets,
     setHasUnsavedMutations,
     lastSaveWroteFile,
     clearRecoveryNow,
+    projectFilePath,
   ])
 
   // Discard rollback — drops the session-imported IDs from the
@@ -489,7 +542,14 @@ export function useProjectLifecycle({
     setUnsavedSaving(true)
     try {
       const ok = await saveProject()
-      if (!ok) return
+      // The dialog STAYS OPEN on failure — the live state is intact and the
+      // retry lives here. ``saveProject`` has already published the reason
+      // into ``unsavedError``, which the dialog renders, so the open dialog
+      // now explains itself instead of looking like a dead button.
+      if (!ok) {
+        noteCloseFlow('unsaved dialog: Save failed — dialog kept open for retry')
+        return
+      }
       setUnsavedDialogOpen(false)
       setMetadataEditorOpen(false)
       if (unsavedDialogMode === 'quit-app') {
@@ -512,17 +572,46 @@ export function useProjectLifecycle({
   // file to revert to, so we fall back to discardSessionImports, which
   // DB-deletes the session-created rows. Either way the mutations flag is
   // cleared and the project closes. The .gmproj file is never touched.
+  //
+  // THE FOUR OUTCOMES ARE NOT INTERCHANGEABLE (audit 2026-08-02). This branch
+  // used to read a bare boolean and treat every falsy answer as "never-saved
+  // project", so a refused revert (the file on disk is not this project's
+  // latest save) ran the DB-DELETE fallback: the session's created contacts
+  // were destroyed while every session MUTATION stayed in the database, and
+  // the engineer was told nothing. Only ``'no-snapshot'`` licenses the delete;
+  // a refusal or a failure changes nothing and keeps the project open.
   const handleUnsavedDiscard = useCallback(async () => {
     // The line that answers "it discarded without asking": it is emitted from
     // the dialog's own button handler, so its presence proves a dialog was up
     // and its absence proves the loss came from somewhere else entirely.
     noteCloseFlow(`unsaved dialog answered: Discard (mode=${unsavedDialogMode})`)
+    setUnsavedError(null)
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
-    const reverted = await revertToLastSaved()
-    if (reverted) {
+    const outcome = await revertToLastSaved()
+    noteCloseFlow(`revertToLastSaved outcome: ${outcome}`)
+    if (outcome === 'refused-not-latest-save' || outcome === 'failed') {
+      // Abort the close. Deleting the session's creates here would throw away
+      // work the file on disk does not hold, and closing would hide it.
+      const message =
+        outcome === 'refused-not-latest-save'
+          ? refusedRevertMessage(projectFilePath)
+          : failedRevertMessage(projectFilePath)
+      setUnsavedError(message)
+      toast('error', message)
+      setUnsavedDialogOpen(true)
+      if (unsavedDialogMode === 'quit-app') {
+        // Main is waiting on an answer; a cancelled quit is the honest one.
+        void window.electron.notifyQuitDecision(false)
+        setUnsavedDialogMode('close-project')
+      }
+      return
+    }
+    if (outcome === 'reverted') {
       resetSessionImportSets()
     } else {
+      // 'no-snapshot' — never saved, so nothing on disk can bring the
+      // session's creates back and deleting them IS the discard.
       discardSessionImports()
     }
     setHasUnsavedMutations(false)
@@ -536,6 +625,9 @@ export function useProjectLifecycle({
     } else {
       closeProject()
     }
+    // reason: ``toast`` is ref-stable (see useToasts) and deliberately kept
+    // out of dep arrays.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     revertToLastSaved,
     resetSessionImportSets,
@@ -544,12 +636,14 @@ export function useProjectLifecycle({
     closeProject,
     unsavedDialogMode,
     clearRecoveryNow,
+    projectFilePath,
   ])
 
   // Cancel from the unsaved-drafts dialog. In quit-app mode that means
   // 'don't exit the app'; we tell main to abort the close.
   const handleUnsavedCancel = useCallback(() => {
     noteCloseFlow(`unsaved dialog answered: Cancel (mode=${unsavedDialogMode})`)
+    setUnsavedError(null)
     setUnsavedDialogOpen(false)
     if (unsavedDialogMode === 'quit-app') {
       void window.electron.notifyQuitDecision(false)
@@ -673,6 +767,7 @@ export function useProjectLifecycle({
     setCloseConfirmOpen,
     unsavedDialogOpen,
     unsavedSaving,
+    unsavedError,
     saveProject,
     discardSessionImports,
     handleCloseProjectRequest,
