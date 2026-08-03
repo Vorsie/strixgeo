@@ -1074,12 +1074,35 @@ function CrossingsBanner({
   // hook exposes pendingBuild so we show a neutral "Build to check"
   // line instead of an untrustworthy amber warning, and re-validates
   // automatically once Build clears staleSurfaceCount.
-  const { crossingIssues: issues, pendingBuild } = useCrossingsValidation(
+  const { crossingIssues: issues, pendingBuild, validationFailed } = useCrossingsValidation(
     projectId,
     modelId,
     refreshSignal,
     staleSurfaceCount,
   )
+
+  // A failed check produces an EMPTY issue list — the same shape as a clean model.
+  // Say so, rather than letting silence read as "no crossings" (audit F10).
+  if (validationFailed) {
+    return (
+      <div className="px-3 py-2 border-b border-border-subtle">
+        <div
+          className="rounded border border-status-amber/40 bg-status-amber/10 px-2 py-1.5 text-[11px] text-text-primary dark:text-status-amber"
+          role="alert"
+          aria-label="Surface validation failed"
+          data-testid="crossings-check-failed"
+        >
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={12} />
+            <span>
+              Surface crossings could NOT be checked — this is not a clean
+              result. Rebuild or reopen the project to check again.
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (pendingBuild) {
     return (
