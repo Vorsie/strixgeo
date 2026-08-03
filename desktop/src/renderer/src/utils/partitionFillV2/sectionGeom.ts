@@ -25,6 +25,7 @@ import {
   type PartitionUnit,
 } from '../partitionFill'
 import { closeColumnGaps } from '../partitionFill/columnReduce'
+import { enforceMinimumColumnSeparation } from './columnSeparation'
 import { buildTieContactElevs, interbedContactTied } from './tieContacts'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 
@@ -357,6 +358,7 @@ export function buildSectionInput(
     geom[survivor].x = hasAlong ? (alongM as readonly number[])[oi] : survivor
     survivor++
   }
+  enforceMinimumColumnSeparation(geom) // paired CPT+borehole share one along-metre
   return { columns: geom, edges, lensApexOverrides, rawLayerContacts }
 }
 
