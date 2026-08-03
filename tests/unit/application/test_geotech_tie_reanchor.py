@@ -341,6 +341,29 @@ def test_a_borehole_endpoint_is_reported_as_deferred_not_as_lost_geology() -> No
     assert plan.loss_reason_counts() == {REASON_BOREHOLE_DEFERRED: 1}
 
 
+def test_when_the_borehole_bands_are_final_a_missing_one_is_an_absent_band() -> None:
+    """``DivideBoreholes`` IS the later verb, so nothing is deferred past it.
+
+    ``SubdivideAllBodies`` may honestly say "the borehole bands come back one
+    verb later".  ``DivideBoreholes`` cannot: it is that verb.  A borehole that
+    still carries no band once it has run (excluded, outside every litho body,
+    or nothing materialised for it) has permanently lost the tie, and reporting
+    that as "deferred" tells the engineer to wait for a step that already
+    happened.
+    """
+    id_a = _identity(_INV_A, 2.0, 4.5, 12)
+    id_b = _identity(_INV_B, 2.2, 4.4, 12)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b, kind_b="borehole")],
+        [_band(id_a, "33333333-0000-0000-0000-000000000001")],
+        borehole_bands_are_final=True,
+    )
+
+    assert not plan.matched
+    assert plan.lost[0].reason_b == REASON_BAND_ABSENT
+    assert plan.loss_reason_counts() == {REASON_BAND_ABSENT: 1}
+
+
 def test_both_endpoints_can_fail_for_different_reasons() -> None:
     """A tie reports a reason per endpoint, so the loss can be diagnosed.
 
@@ -407,3 +430,96 @@ def test_depth_key_is_the_millimetre_grain_the_database_itself_uses() -> None:
     assert depth_to_mm(2.4569999999999999) == 2457
     assert depth_to_mm(2.457) == depth_to_mm(2.4570000000001)
     assert depth_to_mm(2.457) != depth_to_mm(2.467)
+
+
+# ---------------------------------------------------------------------------
+# The band index both rebuilds hand to the re-anchor
+# ---------------------------------------------------------------------------
+
+
+def test_both_rebuilds_describe_their_bands_through_the_same_helper() -> None:
+    """SubdivideAllBodies and DivideBoreholes keep the same band accumulator.
+
+    Its entries start ``(top_m, base_m, layer_id, formation_id, nad_class)``;
+    DivideBoreholes appends the resolver's ``body_id`` as a sixth element. Both
+    shapes must describe the same band, or the verb with the longer tuple would
+    silently re-anchor nothing.
+    """
+    from groundmodel.application.geotech_tie_reanchor import rebuilt_bands_from_layer_index
+
+    layer_id = UUID("11111111-1111-1111-1111-111111111111")
+    formation_id = UUID("22222222-2222-2222-2222-222222222222")
+    body_id = UUID("33333333-3333-3333-3333-333333333333")
+
+    five = rebuilt_bands_from_layer_index({"inv-1": [(0.0, 2.5, layer_id, formation_id, 14)]})
+    six = rebuilt_bands_from_layer_index(
+        {"inv-1": [(0.0, 2.5, layer_id, formation_id, 14, body_id)]}
+    )
+
+    assert len(five) == 1
+    assert five == six
+    assert five[0].layer_id == layer_id
+    assert five[0].identity == BandIdentity(
+        investigation_id="inv-1", depth_top_mm=0, depth_base_mm=2500, nad_class=14
+    )
+
+
+# ---------------------------------------------------------------------------
+# Naming the losses (audit 2026-08-02).
+#
+# "3 accepted packing ties could not be kept — see the console for which" is
+# not actionable: the engineer must redraw them and has no way to find them,
+# and a packaged build shows no console at all.  The rule, in the rule's own
+# words: when the app says an accepted tie is gone, it says WHICH borehole and
+# WHICH depth.
+# ---------------------------------------------------------------------------
+
+
+def test_a_lost_tie_is_labelled_with_both_investigations_and_their_depths() -> None:
+    """The label names the two investigations and each endpoint's interval."""
+    from groundmodel.application.geotech_tie_reanchor import label_lost_ties
+
+    # Endpoint B's band is gone from the rebuild entirely, so the tie is lost.
+    id_a = _identity(_INV_A, 4.2, 6.1, 12)
+    id_b = _identity(_INV_B, 4.0, 5.9, 12)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [_band(id_a, "33333333-0000-0000-0000-000000000001")],
+        borehole_bands_are_final=True,
+    )
+    assert len(plan.lost) == 1
+
+    labels = label_lost_ties(plan.lost, {_INV_A: "GEO-22/115-S10", _INV_B: "BH-3"})
+
+    assert labels == ["GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"]
+
+
+def test_an_unknown_investigation_falls_back_to_its_full_id() -> None:
+    """A missing name shows the WHOLE id — a truncated UUID is worse than none."""
+    from groundmodel.application.geotech_tie_reanchor import label_lost_ties
+
+    id_a = _identity(_INV_A, 1.0, 2.0, 6)
+    id_b = _identity(_INV_B, 1.0, 2.0, 6)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [_band(id_a, "33333333-0000-0000-0000-000000000001")],
+        borehole_bands_are_final=True,
+    )
+
+    labels = label_lost_ties(plan.lost, {_INV_A: "CPT-1"})
+
+    assert _INV_B in labels[0]
+
+
+def test_the_pure_planner_leaves_the_labels_to_the_caller() -> None:
+    """Names need a session, so the planner reports ids and stays pure."""
+    id_a = _identity(_INV_A, 1.0, 2.0, 6)
+    id_b = _identity(_INV_B, 1.0, 2.0, 6)
+    plan = plan_tie_reanchor(
+        [_tie(id_a, id_b)],
+        [_band(id_a, "33333333-0000-0000-0000-000000000001")],
+        borehole_bands_are_final=True,
+    )
+
+    assert plan.lost
+    assert plan.lost_tie_labels == []
