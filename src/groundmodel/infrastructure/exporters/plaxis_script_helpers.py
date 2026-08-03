@@ -115,6 +115,20 @@ def emit_borehole_layer_levels(
     Previously duplicated between the 2D and 3D exporters (keyed by
     formation name vs formation UUID — hence the generic key type).
 
+    N layers, N+1 boundaries
+    ------------------------
+    A PLAXIS borehole with ``N`` soil layers has ``N + 1`` level
+    boundaries: index ``0`` is the top of layer 0, index ``i`` is the
+    base of layer ``i-1`` / top of layer ``i``, and index ``N`` is the
+    base of the deepest layer — the bottom of the model.  Emitting only
+    indices ``0..N-1`` left that last boundary at whatever PLAXIS
+    defaults it to, so the deepest unit (usually the founding layer)
+    did not run to the depth the investigation actually reached (audit
+    2026-08-02).  The final line is clamped with ``min(...)`` so a
+    column whose ``bottom_z`` was derived from a shallower recorded
+    total depth than its deepest contact collapses to a zero-thickness
+    deepest layer instead of an inverted one.
+
     Parameters
     ----------
     bh_var : str
@@ -132,8 +146,14 @@ def emit_borehole_layer_levels(
     Returns
     -------
     list[str]
-        One ``g_i.setsoillayerlevel(...)`` line per formation.
+        One ``g_i.setsoillayerlevel(...)`` line per formation, plus a
+        final line for the base of the deepest layer. Empty when
+        ``keys_top_down`` is empty (a borehole with no layers has no
+        boundaries at all).
     """
+    if not keys_top_down:
+        return []
+
     top_levels: list[float] = [bottom_z] * len(keys_top_down)
     running_next = bottom_z
     for idx in range(len(keys_top_down) - 1, -1, -1):
@@ -149,6 +169,15 @@ def emit_borehole_layer_levels(
     for idx, key in enumerate(keys_top_down):
         tag = "" if key in depth_top_by_key else "  # absent — zero thickness"
         lines.append(f"g_i.setsoillayerlevel({bh_var}, {idx}, {top_levels[idx]!r}){tag}")
+
+    # Boundary N — the base of the deepest layer. ``min`` guards the case
+    # where bottom_z (recorded total depth) is shallower than the deepest
+    # contact's top: the deepest layer then collapses to zero thickness
+    # rather than inverting.
+    base_z = min(bottom_z, top_levels[-1])
+    lines.append(
+        f"g_i.setsoillayerlevel({bh_var}, {len(keys_top_down)}, {base_z!r})  # column bottom"
+    )
     return lines
 
 
