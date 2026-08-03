@@ -27,6 +27,14 @@ FIG_W_INCH: float = 7.8
 # Overall figure height in inches.
 FIG_H_INCH: float = 5.6
 
+# Caption of the section figure's vertical axis.  The figure draws every
+# column from 0 downwards and plots contacts at ``depth_m``, i.e. depth
+# below each column's OWN surface — never an absolute level.  The caption
+# must therefore never name the vertical datum (``m TAW`` / ``m NAP``):
+# that datum belongs to levels, and a reader who takes an 8 on this axis
+# for +8 m TAW is out by the collar elevation (audit 2026-08-02, Class 5).
+DEPTH_AXIS_LABEL: str = "Depth (m below surface)"
+
 # Default maximum depth when the snapshot has no contacts AND no surface
 # elevation on any investigation, in metres.  Used only as a fallback
 # y-axis limit so the figure always renders a sensible scale.
