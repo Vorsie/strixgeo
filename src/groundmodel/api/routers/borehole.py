@@ -33,12 +33,10 @@ from groundmodel.api.schemas.borehole.import_borehole_dov_response import (
 from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
+from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     LAB_TEST_RELATIONSHIPS,
     BoreholeRepository,
-)
-from groundmodel.infrastructure.db.repositories.geology_repository import (
-    GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -544,16 +542,16 @@ async def patch_borehole_elevation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Borehole {borehole_id} not found",
         )
-    # Debt #34: changing this borehole's elevation shifts the absolute z
-    # of every contact anchored here (z = elevation_m − depth_top_m), so
-    # flip the dependent TIN surfaces stale in the same transaction —
-    # otherwise the viewer keeps rendering the old geometry as fresh.
-    flipped = await GeologyRepository(session).stale_surfaces_for_investigation(
-        borehole_id=borehole_id
-    )
-    if flipped:
+    # Debt #34: changing this borehole's elevation shifts the absolute z of
+    # every contact anchored here (z = elevation_m − depth_top_m), so flip the
+    # dependent TIN surfaces AND the cached 3-D solids stale in the same
+    # transaction — otherwise the viewer keeps rendering the old geometry as
+    # fresh. Same use case as the CPT handler so the two cannot drift.
+    stale = await StaleInvestigationCaches(session).execute(borehole_id=borehole_id)
+    if stale.surfaces or stale.solids:
         logger.info(
-            f"PATCH /borehole/{borehole_id}/elevation: staled {flipped} dependent surface(s)"
+            f"PATCH /borehole/{borehole_id}/elevation: staled {stale.surfaces} dependent "
+            f"surface(s) and {stale.solids} 3-D solid(s)"
         )
     await session.commit()
     return BoreholeListItem.model_validate(borehole)
