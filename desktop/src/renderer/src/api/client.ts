@@ -132,6 +132,7 @@ export type {
   BatchAcceptLithoSuggestionsRequest,
   BatchAcceptLithoAnchorResult,
   BatchAcceptLithoSuggestionsResponse,
+  AutoPopulateMode,
   AutoPopulateFromStratigraphyResponse,
   FormationCandidateItem,
   LumpingCollisionItem,
