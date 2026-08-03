@@ -26,6 +26,10 @@ beforeEach(() => {
     onAppBeforeQuit: vi.fn().mockReturnValue(noopUnsub),
     notifyQuitDecision: vi.fn(),
     setWindowTitle: vi.fn(),
+    // The close-flow notes' second destination. Present here because their
+    // whole purpose is reaching the MAIN process console — a stub without it
+    // would let a regression that silently drops them stay green.
+    closeFlowNote: vi.fn().mockResolvedValue(undefined),
   }
 })
 
@@ -259,5 +263,149 @@ describe('useProjectLifecycle — every decided exit clears the recovery file', 
     })
 
     expect(order).toEqual(['clear', 'quit'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Close-flow instrumentation.
+//
+// The failure this answers is a dogfeed report of the shape "it discarded my
+// work without asking". Nothing in the close flow reaches the API, so a bug
+// report about it is otherwise unfalsifiable — there is no server log to read
+// and the user cannot reproduce a thing they did once. One INFO line at each
+// decision point makes the next paste of the console the whole answer: which
+// surface asked to close, whether the project was dirty, whether a dialog went
+// up, and which button ended it. INFO not DEBUG on purpose — DEBUG is stripped
+// from production builds, which is exactly where these reports come from.
+// ---------------------------------------------------------------------------
+
+describe('useProjectLifecycle — the close flow is legible from the log', () => {
+  /** Everything the hook logged, flattened into one greppable string. */
+  function loggedText(spy: ReturnType<typeof vi.spyOn>): string {
+    const calls = spy.mock.calls as unknown as unknown[][]
+    return calls.map(call => call.map(arg => String(arg)).join(' ')).join('\n')
+  }
+
+  it('records that a dirty close request opened the dialog rather than closing', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { result } = renderHook(() =>
+      useProjectLifecycle(makeArgs({ hasUnsavedMutations: true })),
+    )
+
+    act(() => {
+      result.current.handleCloseProjectRequest()
+    })
+
+    const text = loggedText(info)
+    expect(text).toMatch(/close requested/i)
+    expect(text).toMatch(/dirty=true/)
+    expect(text).toMatch(/close-project/)
+  })
+
+  it('records which button answered the dialog', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { result } = renderHook(() => useProjectLifecycle(makeArgs()))
+
+    act(() => {
+      result.current.handleUnsavedCancel()
+    })
+
+    expect(loggedText(info)).toMatch(/cancel/i)
+  })
+
+  it('records that a Discard was answered by the user, not taken silently', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { result } = renderHook(() => useProjectLifecycle(makeArgs()))
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(loggedText(info)).toMatch(/discard/i)
+  })
+
+  it('records which branch a quit took — the clean one leaves no dialog', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const onAppBeforeQuit = (
+      globalThis as unknown as {
+        window: { electron: { onAppBeforeQuit: ReturnType<typeof vi.fn> } }
+      }
+    ).window.electron.onAppBeforeQuit
+    renderHook(() => useProjectLifecycle(makeArgs()))
+    const beforeQuitCb = onAppBeforeQuit.mock.calls[0][0] as () => void
+
+    await act(async () => {
+      beforeQuitCb()
+      await Promise.resolve()
+    })
+
+    const text = loggedText(info)
+    expect(text).toMatch(/quit/i)
+    expect(text).toMatch(/clean/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ...and the notes have to reach the process whose console the report shows.
+//
+// The renderer-side ``log.info`` lines above are invisible in a packaged
+// build: DevTools is disabled there (debt #200) and the renderer console goes
+// nowhere. Dogfeed reports are pasted TERMINAL output, which shows the main
+// process — the same place ``[main] close intercepted`` and ``[main] quit
+// decision`` already print. Half a handshake in the log answers nothing.
+// ---------------------------------------------------------------------------
+
+describe('useProjectLifecycle — close-flow notes reach the main process', () => {
+  /** The stubbed IPC bridge the notes are mirrored through. */
+  function bridge(): ReturnType<typeof vi.fn> {
+    return (
+      globalThis as unknown as { window: { electron: { closeFlowNote: ReturnType<typeof vi.fn> } } }
+    ).window.electron.closeFlowNote
+  }
+
+  it('mirrors the dirty-close decision, not just the renderer console', () => {
+    const { result } = renderHook(() =>
+      useProjectLifecycle(makeArgs({ hasUnsavedMutations: true })),
+    )
+
+    act(() => {
+      result.current.handleCloseProjectRequest()
+    })
+
+    const sent = bridge().mock.calls.map(call => String(call[0])).join('\n')
+    expect(sent).toMatch(/close requested/i)
+    expect(sent).toMatch(/dirty=true/)
+    expect(sent).toMatch(/close-project/)
+  })
+
+  it('mirrors which button answered the dialog', async () => {
+    const { result } = renderHook(() => useProjectLifecycle(makeArgs()))
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(bridge().mock.calls.map(call => String(call[0])).join('\n')).toMatch(/discard/i)
+  })
+
+  it('survives a preload without the channel — a note may never break a close', () => {
+    // An older preload, or any embedder that does not expose the bridge. The
+    // close still has to happen, and the renderer-side line still has to land.
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const electron = (globalThis as unknown as { window: { electron: Record<string, unknown> } })
+      .window.electron
+    delete electron.closeFlowNote
+    const { result } = renderHook(() => useProjectLifecycle(makeArgs()))
+
+    act(() => {
+      result.current.handleCloseProjectRequest()
+    })
+
+    // The close still reached its next step (the mis-click confirm)...
+    expect(result.current.closeConfirmOpen).toBe(true)
+    // ...and the renderer-side half of the note still landed.
+    expect(info.mock.calls.map(call => call.map(String).join(' ')).join('\n')).toMatch(
+      /clean close from the sidebar/i,
+    )
   })
 })
