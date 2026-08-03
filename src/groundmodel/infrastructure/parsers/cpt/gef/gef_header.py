@@ -16,8 +16,22 @@ class GEFHeader:
     x: float | None = None
     y: float | None = None
     z: float | None = None
-    epsg: int | None = None  # horizontal CRS from #XYID (e.g. 32000 = Belgian Lambert 72)
-    z_epsg: int | None = None  # vertical datum from #ZID (e.g. 32001 = Belgian mTAW/NGF)
+    # Raw GEF codelist codes, kept exactly as the file wrote them. These are
+    # NOT EPSG codes (GEF 32000 = Belgian Lambert 72 = EPSG 31370); they are
+    # source-format tokens, preserved so a translation can always be audited
+    # back to what the file actually said.
+    xy_code: int | None = None  # first field of #XYID
+    z_code: int | None = None  # first field of #ZID
+    # Translated EPSG codes — ``None`` when the raw code could not be
+    # identified. Every downstream consumer (PostGIS SRID, DEM provider,
+    # section CRS) reads these, never the raw codes above.
+    epsg: int | None = None
+    z_epsg: int | None = None
+
+    # Data-block separators declared by #COLUMNSEPARATOR= / #RECORDSEPARATOR=.
+    # ``None`` means the file declared none and the parser's defaults apply.
+    column_separator: str | None = None
+    record_separator: str | None = None
 
     pre_drill_m: float = 0.0
     # MVAR 14 — unreliable in practice; prefer piezometer data for pore pressure normalisation.
