@@ -72,8 +72,10 @@ def classify_nad(
         Pass an empty tuple for a clean unit.
     qc_mpa : float | None
         Cone resistance at the segment in MPa (raw qc, not normalised). Must be
-        a finite, non-negative number; ``0.0`` is the valid borehole-only
-        sentinel (→ loosest class).
+        a finite, non-negative number. ``0.0`` is a physically valid reading
+        (→ loosest class) and stays accepted; it is NOT a "no data" sentinel —
+        a caller with no qc to classify must produce ``nad_class=None`` (needs
+        review) instead of calling this function.
 
     Returns
     -------
