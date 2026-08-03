@@ -171,6 +171,28 @@ model-wide endpoints); deleting is the other answer. A `warning` toast after
 Subdivide reports the count, because the badges only reach someone looking at the
 section they sit on and a re-subdivide is model-wide.
 
+**"Divide boreholes" carries ties the same way.** Phase 7 of `DivideBoreholes`
+deletes every borehole `litho_layer` in the geotech model, so the same cascade
+takes every accepted tie with a borehole endpoint — and the button is one click,
+ambered on purpose after any packing correlation, so re-clicking it is the normal
+flow. It therefore runs the SAME `GeotechTieReanchor`: `capture(...,
+restrict_to_anchor_kind='borehole')` before the delete, `reanchor(...)` after the
+borehole fill and BEFORE the Phase-8.5 derivation (so that pass's per-section
+dedup set already holds the carried ties). CPT↔CPT ties are deliberately not
+captured — Phase 7 does not touch their endpoints, so their rows survive
+untouched and counting them would overstate what the verb did. The re-anchor sees
+both the surviving CPT bands and the freshly written borehole bands, because both
+live in the `geotech_layer_by_inv_depth` index the phase already builds.
+`DivideBoreholeResult` / `DivideBoreholeResponse` carry `reanchored_tie_count`,
+`review_tie_reasons`, `lost_tie_count` and `lost_tie_reasons`, and
+`handleDivideBoreholes` reports all three outcomes in the same three toasts
+Subdivide uses.
+
+This is also why `REASON_BOREHOLE_DEFERRED` exists: Subdivide materialises CPT
+bands only, so a borehole endpoint finds no band there. That is a build-order
+fact, not geology the rebuild stopped drawing — the borehole bands come back one
+verb later.
+
 ⚠ **No staleness detection between a litho model and its geotech child** —
 debt #266. Drag a litho contact and the geotech bands below it silently describe
 a stack that no longer exists; nothing marks the geotech model stale until the
