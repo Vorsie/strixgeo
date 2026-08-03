@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from groundmodel.application.lumping_collision import LumpingCollision
+from groundmodel.shared.constants.auto_populate_mode import AutoPopulateMode
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,15 @@ class AutoPopulateOutcome:
         contacts (from a prior Fill or manual draw) are also seeded, not
         only the ones created in this run.  Empty when no ``section_id``
         was passed to the use case (the Fill-from-boreholes path).
+    deleted_formation_names : list[str]
+        Display names of the formations in ``deleted_formation_ids``, in the
+        same order.  Ids alone are useless in a toast — the engineer needs to
+        read WHICH units were removed.  Always empty in ``add`` mode.
+    mode : str
+        The ``AutoPopulateMode`` this run executed under, echoed back so the
+        caller can assert the server honoured the mode it asked for rather
+        than inferring it from an empty deletion list (which is also what a
+        no-op overwrite looks like).
     """
 
     created_contact_ids: list[UUID]
@@ -76,3 +86,9 @@ class AutoPopulateOutcome:
     # seeded set — so pre-existing Fill contacts are also seeded, not
     # just the ones created in this run.
     found_contact_ids: list[UUID] = dataclasses.field(default_factory=list)
+    # Names parallel to deleted_formation_ids so the client can name what
+    # died in a toast. Defaulted so every existing constructor stays valid.
+    deleted_formation_names: list[str] = dataclasses.field(default_factory=list)
+    # Echo of the AutoPopulateMode this run used. Defaults to the safe mode
+    # for the same reason the use case does: an omission must never delete.
+    mode: str = AutoPopulateMode.ADD.value
