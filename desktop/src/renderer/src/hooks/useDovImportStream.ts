@@ -99,6 +99,17 @@ export interface BoreholeImportDonePayload {
   borehole_ids: string[]
   interpretations_attached: number
   interpretations_failed: number
+  /**
+   * Boreholes DOV's Boringen WFS says HAVE an interpretation stream that the
+   * per-stream ``interpretaties:*`` layer then returned nothing for.
+   *
+   * Not a failure — DOV's WFS lags behind its own database — but exactly the
+   * case the engineer must see: the import went cleanly and the descriptions
+   * are still missing, which "Import complete" reads as "DOV has none for
+   * these boreholes" (audit 2026-08-02). Optional so a payload from a backend
+   * that predates the field still parses.
+   */
+  interpretations_wfs_gaps?: number
   samples_attached: number
   samples_failed: number
   grain_sizes_attached: number
