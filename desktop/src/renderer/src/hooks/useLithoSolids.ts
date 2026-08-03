@@ -17,6 +17,7 @@ import { api } from '../api/client'
 import type { LithoBodySolidResponse } from '../api/client'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import { log } from '../utils/log'
+import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -217,17 +218,46 @@ export function useLithoSolids(
         setSolids(result.solids)
 
         const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
-        if (result.bodies_flagged > 0) {
-          toast(
-            'warning',
-            `${builtMsg} — ${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 CPT/borehole traces — slab approximation)`,
+        // Severity is DERIVED from what the build reported, not fixed at
+        // 'success': a build that modelled only part of the project succeeded
+        // technically and failed the engineer.  ``uncovered_test_ids`` is the
+        // harder of the two — those investigations have no 3-D model at all —
+        // so it leads the message.
+        const uncovered = result.uncovered_test_ids ?? []
+        const problems: string[] = []
+        if (uncovered.length > 0) {
+          const named = uncovered.slice(0, 3).join(', ')
+          const rest = uncovered.length > 3 ? `, +${uncovered.length - 3} more` : ''
+          problems.push(
+            `${uncovered.length} investigation${uncovered.length === 1 ? '' : 's'} outside the model footprint, with NO 3-D model: ${named}${rest}`,
           )
+          log.warn(
+            'useLithoSolids',
+            `build left ${uncovered.length} investigation(s) outside the footprint: ${uncovered.join(', ')}`,
+          )
+        }
+        if (result.bodies_flagged > 0) {
+          problems.push(
+            `${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 CPT/borehole traces — slab approximation)`,
+          )
+        }
+        if (problems.length > 0) {
+          toast('warning', `${builtMsg} — ${problems.join('; ')}`)
         } else {
           toast('success', builtMsg)
         }
       } catch (err) {
         log.error('useLithoSolids', 'build voxel solids failed', err)
-        toast('error', 'Could not build body solids — check the connection.')
+        // A VoxelBuildInputsError means the builder REFUSED because an input
+        // did not load — its message names the sections/inputs and is written
+        // for the engineer, so it is shown verbatim. Anything else is an
+        // unexpected failure and gets the generic connection copy.
+        toast(
+          'error',
+          err instanceof VoxelBuildInputsError
+            ? err.message
+            : 'Could not build body solids — check the connection.',
+        )
       } finally {
         setBuilding(false)
       }
