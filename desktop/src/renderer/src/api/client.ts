@@ -21,6 +21,12 @@
 // ---------------------------------------------------------------------------
 
 export { setBaseUrl } from './clients/shared'
+// Typed HTTP failure. Consumers that need to branch on an HTTP status
+// (e.g. "the project row is gone → restore it from the .strix") import the
+// class from ``clients/shared`` DIRECTLY rather than through this barrel:
+// a unit test that ``vi.mock``s this module would otherwise hand them an
+// undefined binding and break ``instanceof`` at runtime.
+export { ApiError, isApiStatus } from './clients/shared'
 
 // ---------------------------------------------------------------------------
 // CPT domain
