@@ -59,9 +59,11 @@ so nothing inherits ``GroundModelLogger``.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import replace
 
+from groundmodel.domain.services.voxel_litho.snap_grid import gap_edge_fraction_margin
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionPartitionInput,
@@ -69,18 +71,15 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 
 __all__ = ["plan_body_aliases", "apply_body_aliases"]
 
-#: Fraction tolerance for "this region reaches the column". Output fractions are
-#: snapped to 1e-6 by the frontend slicer, so a region that genuinely reaches a
-#: column edge lands byte-equal on 0 or 1.
-_FRACTION_TOUCH = 1e-6
-
 #: Minimum elevation overlap (m) for two spans to count as the same unit. Strict
 #: overlap, not contact: 1 mm is the arrangement snap grid, so float slop never
 #: merges but a genuinely shared band (identical spans) always does.
 _ELEV_OVERLAP_M = 1e-3
 
 
-def _span_at_fraction(region: RegionInput, fraction: float) -> tuple[float, float] | None:
+def _span_at_fraction(
+    region: RegionInput, fraction: float, touch: float
+) -> tuple[float, float] | None:
     """Return the elevation span a region covers at a gap-local ``fraction``.
 
     Parameters
@@ -89,6 +88,15 @@ def _span_at_fraction(region: RegionInput, fraction: float) -> tuple[float, floa
         The partition region to measure.
     fraction : float
         Gap-local horizontal position: ``0.0`` = left column, ``1.0`` = right.
+    touch : float
+        How close a vertex has to be, in gap-local fraction, to count as ON the
+        column. This is the SNAP-CELL MARGIN (``SNAP_MARGIN_CELLS`` cells)
+        expressed in this gap's own fraction space —
+        :mod:`~groundmodel.domain.services.voxel_litho.snap_grid` owns the cell
+        count and the reason for it, so it is not restated here. A fixed 1e-6
+        was wrong: the engine snaps to a 1 mm grid in METRES, so a band drawn
+        across an 11 m gap stops 8.9e-5 short of fraction 1 and was read as
+        never touching the column (#259, measured on 33 of 69 real gaps).
 
     Returns
     -------
@@ -97,10 +105,21 @@ def _span_at_fraction(region: RegionInput, fraction: float) -> tuple[float, floa
         that column at all — a wedge that pinches out mid-gap touches only one
         of its two columns.
     """
-    elevations = [e for f, e in region.polygon if abs(f - fraction) <= _FRACTION_TOUCH]
+    elevations = [e for f, e in region.polygon if abs(f - fraction) <= touch]
     if not elevations:
         return None
     return min(elevations), max(elevations)
+
+
+def _gap_touch_fraction(section: SectionPartitionInput, gap_index: int) -> float:
+    """The snap-cell margin (``SNAP_MARGIN_CELLS`` cells), in this gap's fraction space."""
+    if gap_index < 0 or gap_index + 1 >= len(section.columns):
+        return gap_edge_fraction_margin(0.0)
+    left = section.columns[gap_index]
+    right = section.columns[gap_index + 1]
+    return gap_edge_fraction_margin(
+        math.hypot(right.world_x - left.world_x, right.world_y - left.world_y)
+    )
 
 
 def _spans_at_fraction(region: RegionInput, fraction: float) -> list[tuple[float, float]]:
@@ -195,10 +214,11 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
         for region in section.regions:
             if region.body_id is None:
                 continue
+            touch = _gap_touch_fraction(section, region.gap_index)
             for fraction, column_index in ((0.0, region.gap_index), (1.0, region.gap_index + 1)):
                 if column_index >= len(section.columns):
                     continue
-                span = _span_at_fraction(region, fraction)
+                span = _span_at_fraction(region, fraction, touch)
                 if span is None:
                     continue
                 reaches.append(
