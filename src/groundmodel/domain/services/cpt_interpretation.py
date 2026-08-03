@@ -40,29 +40,41 @@ def calculate_ic(qtn: float, fr: float) -> float:
 
 
 def classify_soil_ic(ic: float) -> str:
-    """Return the Robertson (1990) soil class label for a given Ic value.
+    """Return the Robertson soil class label for a given Ic value.
+
+    The breakpoints are the SAME ones ``robertson_sbt_non_normalised`` maps to
+    SBT zones 7..2, and the labels are pinned against
+    ``tests/fixtures/contracts/robertson_sbt_bands.json`` — the one arbiter the
+    renderer's ``utils/robertsonSbt.ts`` also checks itself against.
+
+    Corrected 2026-08-02 (audit, Class 4): every band was one step too coarse
+    (Ic 3.2 read "Organic soils" where Robertson gives clay) and Ic > 3.60
+    returned "Sensitive fine-grained", which is not an Ic band at all —
+    Robertson's zone 1 is read off the Qtn-Fr chart position, never off the
+    index. Bands are half-open ``[ic_min, ic_max)``, so a value exactly on a
+    breakpoint belongs to the band ABOVE it.
 
     Parameters
     ----------
     ic : float
-        Soil behaviour type index from calculate_ic.
+        Soil behaviour type index from :func:`calculate_ic`.
 
     Returns
     -------
     str
         Human-readable soil class (e.g. 'Sands: clean sand to silty sand').
     """
-    if ic > 3.60:
-        return "Sensitive fine-grained"
-    if ic > 2.95:
-        return "Organic soils"
-    if ic > 2.60:
-        return "Clays: silty clay to clay"
-    if ic > 2.05:
-        return "Silt mixtures: clayey silt to silty clay"
-    if ic > 1.31:
-        return "Sand mixtures: silty sand to sandy silt"
-    return "Sands: clean sand to silty sand"
+    if ic < 1.31:
+        return "Gravelly sand to dense sand"  # zone 7
+    if ic < 2.05:
+        return "Sands: clean sand to silty sand"  # zone 6
+    if ic < 2.60:
+        return "Sand mixtures: silty sand to sandy silt"  # zone 5
+    if ic < 2.95:
+        return "Silt mixtures: clayey silt to silty clay"  # zone 4
+    if ic < 3.60:
+        return "Clays: silty clay to clay"  # zone 3
+    return "Organic soils: clay to peat"  # zone 2
 
 
 def calculate_ic_series(
