@@ -5,7 +5,6 @@ import { spawn, ChildProcess } from 'child_process'
 import {
   readFileSync,
   statSync,
-  writeFileSync,
   existsSync,
   mkdirSync,
   createWriteStream,
@@ -15,6 +14,14 @@ import {
 
 import { writeFileAtomic } from './atomicWrite'
 import { rotateIfNeeded, realFsOps } from './logRotation'
+import {
+  LOCAL_CLIENT_TOKEN_ENV_VAR,
+  LOCAL_CLIENT_TOKEN_HEADER,
+  createTokenInjectionAudit,
+  localApiRequestFilter,
+  mintLocalClientToken,
+} from './localClientToken'
+import { QuitHandshake } from './quitHandshake'
 import {
   configureRecoveryStore,
   declineRecovery,
@@ -111,6 +118,18 @@ interface RecentProject {
 const API_PORT = 8765
 const API_BASE = `http://127.0.0.1:${API_PORT}`
 
+// How long after a document loads before "no token was ever attached" counts as
+// a fault rather than a renderer that simply has not called the API yet. Long
+// enough to cover a cold first paint on a slow laptop; short enough that a
+// genuinely broken build says so while the engineer is still looking.
+const TOKEN_INJECTION_GRACE_MS = 15_000
+
+// Secret shared with THIS launch's backend child, proving that a request
+// claiming the ``null`` origin really comes from our window and not from a
+// sandboxed iframe on some site the user has open (see ./localClientToken).
+// Minted once at module load, before anything can spawn or fetch.
+const localClientToken = mintLocalClientToken()
+
 // Log rotation constants (#214c) — 5 MB max, 3 backup generations.
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const LOG_MAX_FILES = 3
@@ -122,10 +141,15 @@ let apiProcess: ChildProcess | null = null
 // walking ``BrowserWindow.getAllWindows()``.
 let mainWindow: BrowserWindow | null = null
 
-// True once the user has confirmed they want to exit. Without this flag,
-// programmatic ``app.quit()`` would re-trigger the close handler in a
-// loop because the BrowserWindow's close emits before the app's quit.
-let confirmedQuit = false
+// Close-handshake state for the main window (see ./quitHandshake). Holds the
+// "the user already confirmed the exit" flag that keeps programmatic
+// ``app.quit()`` from re-triggering the close handler in a loop, plus the two
+// escapes from a renderer that never answers.
+//
+// Replaced per window rather than kept for the app's lifetime: on macOS the
+// app survives its last window, and a state carried over ("quit approved",
+// "renderer gone") would make the NEXT window close without ever asking.
+let quitHandshake = new QuitHandshake()
 
 // Absolute path to the main log file. Set once in startApi (packaged) or
 // left null in dev. Exposed to the main-process crash handlers so they can
@@ -159,7 +183,15 @@ function startApi(): void {
     // so the backend would default to "development" and only WARN on a
     // default SECRET_KEY. Force ENVIRONMENT=production for packaged builds so
     // the backend's hard SECRET_KEY guard actually fires (audit #16 Gap A).
-    env: { ...process.env, ...(app.isPackaged ? { ENVIRONMENT: 'production' } : {}) }
+    // The launch token goes to the child only — it is never written to disk,
+    // never handed to the renderer, and dies with the process. A backend
+    // started by hand (dev shell, e2e harness, scripts) simply doesn't get one
+    // and keeps its pre-token behaviour.
+    env: {
+      ...process.env,
+      [LOCAL_CLIENT_TOKEN_ENV_VAR]: localClientToken,
+      ...(app.isPackaged ? { ENVIRONMENT: 'production' } : {}),
+    }
   })
 
   // Backend stdout/stderr carry the asyncpg DSN (groundmodel:groundmodel@…)
@@ -265,6 +297,39 @@ function createWindow(): void {
   // can only stop loads after the parser hits it). Production CSP is
   // strict (``script-src 'self'``); dev CSP allows Vite's HMR
   // ``unsafe-eval``. Debt #36.
+  // Attach this launch's token to every renderer request that goes to the
+  // local API. Done here rather than in the renderer's API client so the
+  // renderer never holds the secret (an XSS-escalated page inside our own
+  // window cannot read it back out) and no call site can forget it. Headers
+  // added at this layer are invisible to the renderer's fetch, so they do not
+  // change any CORS preflight behaviour.
+  //
+  // The first injection is logged because the failure mode is invisible
+  // otherwise: a URL filter that matches nothing would strip the token from
+  // every request and leave a packaged build unable to reach its own backend,
+  // with the backend's 403 as the only clue. One line, once per launch.
+  let loggedTokenInjection = false
+  const tokenFilter = localApiRequestFilter(API_BASE)
+  // eslint-disable-next-line no-console
+  const tokenAudit = createTokenInjectionAudit(tokenFilter.urls, { error: console.error })
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    tokenFilter,
+    (details, callback) => {
+      tokenAudit.noteInjection(details.url)
+      if (!loggedTokenInjection) {
+        loggedTokenInjection = true
+        // eslint-disable-next-line no-console
+        console.info(`[main] launch token attached to local API requests (${details.url})`)
+      }
+      callback({
+        requestHeaders: {
+          ...details.requestHeaders,
+          [LOCAL_CLIENT_TOKEN_HEADER]: localClientToken,
+        },
+      })
+    },
+  )
+
   const csp = buildContentSecurityPolicy(isDev)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -306,6 +371,7 @@ function createWindow(): void {
     },
   })
   mainWindow = win
+  quitHandshake = new QuitHandshake()
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -352,12 +418,45 @@ function createWindow(): void {
   // whether it answered, or what it answered. These two lines make the
   // sequence readable in the same terminal as the rest of the main-process
   // diagnostics.
+  //
+  // The decision itself lives in ./quitHandshake so it can be unit-tested
+  // without Electron — including its two escapes from a renderer that never
+  // answers (a second close offers a native force-close; a dead renderer
+  // process closes straight away).
   win.on('close', (event) => {
-    if (confirmedQuit) return
-    event.preventDefault()
+    const decision = quitHandshake.requestClose()
     // eslint-disable-next-line no-console
-    console.info('[main] close intercepted -> app:before-quit sent to renderer')
-    win.webContents.send('app:before-quit')
+    console.info(`[main] close requested -> ${decision.action} (${decision.reason})`)
+    if (decision.action === 'close') return
+    event.preventDefault()
+    if (decision.action === 'ask-renderer') {
+      win.webContents.send('app:before-quit')
+      return
+    }
+    // The renderer was asked and never answered — the user is pressing X
+    // against a window that appears frozen. Offer the way out, defaulting to
+    // Keep open because forcing the close can discard unsaved work.
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Keep open', 'Close anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Close StrixGeo?',
+      message: 'StrixGeo has not responded to the close request.',
+      detail:
+        'The app was asked to close and did not answer — it may have hit an ' +
+        'error. Closing anyway skips the usual save prompt, so anything not ' +
+        'yet written to the project file stays unsaved. The crash-recovery ' +
+        'copy of this session is kept and offered on the next launch.',
+    })
+    if (choice === 1) {
+      quitHandshake.noteForceCloseConfirmed()
+      // ``destroy`` rather than ``close``: we are inside the close handler and
+      // the renderer is unresponsive, so there is nothing left to ask.
+      win.destroy()
+    } else {
+      quitHandshake.noteForceCloseDeclined()
+    }
   })
 
   // Log renderer-process death to the main-process stdout (the same
@@ -373,6 +472,24 @@ function createWindow(): void {
       `[main] renderer process gone — reason=${details.reason} ` +
         `exitCode=${details.exitCode}`,
     )
+    // Nobody is left to answer the close handshake, and a dead renderer holds
+    // no unsaved state worth prompting about — stop intercepting closes so the
+    // window doesn't become un-closable on top of the crash.
+    quitHandshake.noteRendererGone()
+  })
+  // A document finished loading — the window has a working renderer again, with
+  // its own ``app:before-quit`` subscriber. Re-arm the handshake: after a crash
+  // + reload (View → Reload in dev, the ErrorBoundary's Reload button) the app
+  // holds the project once more, and closing it without the save prompt would
+  // discard everything done since the reload.
+  win.webContents.on('did-finish-load', () => {
+    quitHandshake.noteRendererAlive()
+    // A positive assertion that the token injection is working. Deliberately
+    // NOT immediate: the document has loaded, but React has not necessarily
+    // made its first API call yet, so checking now would cry wolf on every
+    // launch. After this grace window a working build has certainly talked to
+    // its backend, and silence means the filter matched nothing.
+    setTimeout(() => tokenAudit.reportIfSilent(), TOKEN_INJECTION_GRACE_MS)
   })
   win.webContents.on('unresponsive', () => {
     // eslint-disable-next-line no-console
@@ -749,7 +866,14 @@ ipcMain.handle(
         `export:write-file refused — path not authorised: ${filePath}`,
       )
     }
-    writeFileSync(filePath, Buffer.from(contents))
+    // Atomic, exactly like the project-file write. An export almost always
+    // overwrites the previous export of the same section (the suggested
+    // filename is derived from the section name), and that previous file is a
+    // deliverable the engineer may already have sent out. A plain
+    // ``writeFileSync`` truncates the destination first, so a failure after
+    // truncation — disk full, the file open in AutoCAD, a network share
+    // dropping — replaces a good DXF with an empty or half-written one.
+    writeFileAtomic(filePath, Buffer.from(contents))
   },
 )
 
@@ -790,8 +914,8 @@ ipcMain.handle('app:quit-decision', (_event, allowed: boolean) => {
   // together they show whether the renderer answered at all, and with what.
   // eslint-disable-next-line no-console
   console.info(`[main] quit decision from renderer: allowed=${allowed}`)
+  quitHandshake.noteRendererDecision(allowed)
   if (!allowed || mainWindow === null) return
-  confirmedQuit = true
   mainWindow.close()
 })
 
