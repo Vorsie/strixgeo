@@ -215,6 +215,11 @@ interface UseProjectActions {
    *  See ``RevertToLastSavedResult`` for what each outcome obliges the caller
    *  to do — only ``'no-snapshot'`` licenses deleting the session's creates. */
   revertToLastSaved: () => Promise<RevertToLastSavedResult>
+  /** Put the lumping's staged slot (DB + in-memory) back onto the saved
+   *  snapshot — the "discard means discard" tail shared by the close dialog's
+   *  Discard (via ``revertToLastSaved``) and the recovery prompt's Delete
+   *  backup, which must leave no trace of the discarded map. */
+  resetStagedLumpingToSaved: () => Promise<void>
   /** Deep-duplicate the current project (DB + all CPTs/boreholes), write a
    * new .gmproj at a user-chosen path, and switch the hook to point at the
    * new project. Returns the duplicate on success, null on cancel/error. */
@@ -1112,6 +1117,34 @@ export function useProject(): UseProject {
     writeSaveAnchor,
   ])
 
+  // Put the lumping's staged slot back onto the saved snapshot — the shared
+  // "discard means discard" tail of BOTH discard surfaces: the close dialog's
+  // "Discard all changes" (via revertToLastSaved) and the recovery prompt's
+  // "Delete backup" (owner ruling 2026-08-03: "fully delete, no traces of
+  // backup left" — without this, the one item the prompt itemises walks out
+  // alive through its database home and the project reopens dirty with a map
+  // the user just discarded). Re-stages the SAVED snapshot — possibly null —
+  // under a fresh revision so staged == saved again, aligns the in-memory
+  // slot, and PROMOTES: re-staging alone leaves every pre-columns project
+  // (map in .strix, both columns NULL) reading staged !== saved forever.
+  const resetStagedLumpingToSaved = useCallback(async (): Promise<void> => {
+    if (project === null) return
+    const revertRevision = nextLumpingRevision(lumpingRevisionRef.current)
+    applyLumpingRevision(revertRevision)
+    setCurrentLumping(savedLumping)
+    const restaged = await stageToDatabase(project.id, savedLumping, revertRevision)
+    if (restaged) {
+      await promoteInDatabase(project.id)
+    } else {
+      log.warn(
+        'project',
+        `skipped lumping promote for ${project.id} after discard: the saved snapshot ` +
+          `could not be re-staged (rev ${revertRevision}), so promoting would copy the ` +
+          `discarded map into the saved slot`,
+      )
+    }
+  }, [project, savedLumping, applyLumpingRevision, stageToDatabase, promoteInDatabase])
+
   // Revert-to-last-save (#160). Re-read the .gmproj file (the canonical
   // last-saved snapshot) and POST it to /restore?replace=true so the DB's
   // child collections are wiped + re-inserted to match the file EXACTLY —
@@ -1171,45 +1204,15 @@ export function useProject(): UseProject {
       // The replace-restore rewinds the project's children to the file, but
       // the lumping map lives in its own column and would otherwise keep
       // holding the map the user just threw away, resurrecting it on the
-      // next open (which now seeds from the database). Re-stage the SAVED
-      // snapshot — possibly null — under a fresh revision so staged == saved
-      // again, and align the in-memory slot with it.
-      const revertRevision = nextLumpingRevision(lumpingRevisionRef.current)
-      applyLumpingRevision(revertRevision)
-      setCurrentLumping(savedLumping)
-      const restaged = await stageToDatabase(project.id, savedLumping, revertRevision)
-      // PROMOTE TOO, not just stage. Re-staging alone only fixes the projects
-      // whose ``saved`` column is already populated. Every project that
-      // pre-dates these columns has the map in its .strix and BOTH columns
-      // NULL: it opens seeded from the file, one Apply stages map M, and a
-      // Discard that only re-stages leaves staged = the file's map while
-      // saved stays NULL — which the open path reads as staged !== saved, so
-      // the project reopens spuriously dirty forever. Promoting makes the
-      // database agree with the artefact the user kept.
-      if (restaged) {
-        await promoteInDatabase(project.id)
-      } else {
-        log.warn(
-          'project',
-          `skipped lumping promote for ${project.id} after discard: the saved snapshot ` +
-            `could not be re-staged (rev ${revertRevision}), so promoting would copy the ` +
-            `discarded map into the saved slot`,
-        )
-      }
+      // next open (which now seeds from the database).
+      await resetStagedLumpingToSaved()
       log.success('project', `reverted ${project.name} to last save (${filePath})`)
       return 'reverted'
     } catch (err) {
       log.error('project', `revertToLastSaved failed for ${filePath}`, err)
       return 'failed'
     }
-  }, [
-    project,
-    filePath,
-    savedLumping,
-    applyLumpingRevision,
-    stageToDatabase,
-    promoteInDatabase,
-  ])
+  }, [project, filePath, resetStagedLumpingToSaved])
 
   // Revert in-memory changes back to the last-saved snapshot. Useful
   // for explicit "Revert" UX (not wired today) and as a building block
@@ -1433,6 +1436,7 @@ export function useProject(): UseProject {
     lastSaveWroteFile,
     recoveryClearAllowed,
     revertToLastSaved,
+    resetStagedLumpingToSaved,
     saveAsProject,
     discardEdits,
     archiveCurrent,
