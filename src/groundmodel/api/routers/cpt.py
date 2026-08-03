@@ -10,7 +10,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +52,12 @@ from groundmodel.infrastructure.db.repositories.investigation_review_repository 
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import WfsIndexEntry
-from groundmodel.shared.exceptions import DuplicateCptError, ParseError
+from groundmodel.shared.exceptions import (
+    CptRefreshConfirmationRequiredError,
+    CptRefreshRefusedError,
+    DuplicateCptError,
+    ParseError,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 if TYPE_CHECKING:
@@ -69,32 +83,65 @@ router = APIRouter(prefix="/cpt", tags=["cpt"])
 @router.post("/import", response_model=ImportCptResponse, status_code=status.HTTP_201_CREATED)
 async def import_cpt(
     file: UploadFile,
+    response: Response,
     project_id: str | None = Form(None),
+    confirm_refresh: bool = Form(False),
     session: AsyncSession = Depends(get_session),
 ) -> ImportCptResponse:
-    """Import a CPT file and persist it to the database.
+    """Import a CPT file and persist it, refreshing the row if it already exists.
+
+    Re-importing a file that is already in this project (same GEF
+    ``#PROJECTID`` + ``#TESTID``) does not have to fail: the existing row can be
+    refreshed in place — new series, new header values, SAME ``cpt_id`` — so a
+    parser fix reaches a project the user already imported into without them
+    having to delete and re-import (which would destroy every interpretation
+    anchored on the row).
+
+    That overwrite is IRREVERSIBLE, so it is CONSENTED, never automatic:
+
+    * duplicate + no ``confirm_refresh`` → **409** with
+      ``code = "cpt_refresh_confirmation_required"`` and the old-vs-new diff
+      (``old_/new_max_depth_m``, ``old_/new_n_rows``, ``n_errors``,
+      ``n_warnings``). Nothing is written; the client shows the diff and asks.
+    * duplicate + ``confirm_refresh=true`` → **200** with ``refreshed=true``.
+    * a genuinely new CPT → **201**.
+    * duplicate + a fresh parse with 0 rows or ERROR-level issues → **422**
+      with ``code = "cpt_refresh_refused"`` and a named ``reason``, EVEN with
+      confirmation: a broken file must never overwrite good data.
 
     Parameters
     ----------
     file:
         Uploaded CPT file.  GEF format is supported in Phase 1.
+    response:
+        Injected so the handler can answer 200 (refreshed) instead of the
+        route's declared 201 (created).
     project_id:
         UUID of the active app-level project.  CPT is tagged with this ID so
         it only appears in that project's list.  None = unscoped (tests/admin).
+    confirm_refresh:
+        The user has seen the diff and asked for the replacement. Defaults to
+        False, which is what makes the 409 the safe default.
     session:
         Database session injected by FastAPI dependency injection.
 
     Returns
     -------
     ImportCptResponse
-        UUID of the created record plus any validation issues found during
-        parsing.  The CPT is persisted even when ``has_errors`` is True.
+        UUID of the created (or refreshed) record plus any validation issues
+        found during parsing.  The CPT is persisted even when ``has_errors``
+        is True.
 
     Raises
     ------
     HTTPException(400)
-        When the file extension is not supported, or the file is a duplicate
-        (same contract number + test number already in the database).
+        When the file extension is not supported or the file cannot be parsed.
+    HTTPException(409)
+        When the CPT already exists and the refresh was not confirmed.
+    HTTPException(413)
+        When the upload exceeds the per-file byte cap.
+    HTTPException(422)
+        When the fresh parse is too broken to replace the stored data.
     """
     logger.info(f"POST /cpt/import: file={file.filename!r} project_id={project_id}")
     suffix = Path(file.filename or "").suffix.lower()
@@ -141,20 +188,67 @@ async def import_cpt(
         tmp_path = Path(tmp.name)
 
     try:
-        result = await ImportCpt(session).execute(tmp_path, app_project_uuid)
+        result = await ImportCpt(session).execute(
+            tmp_path, app_project_uuid, confirm_refresh=confirm_refresh
+        )
+    # ``ImportCpt`` refreshes duplicates in place by default, so this branch is
+    # only reachable if a future caller opts out (``refresh_existing=False``).
+    # Kept so that choice still produces a 409 with the existing id rather than
+    # a 500.
     except DuplicateCptError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"cpt_id": str(exc.existing_id), "message": str(exc)},
+        )
+    # The consent gate. ``cpt_id`` stays at the top level of the detail so the
+    # client can still auto-load the existing row (the historical duplicate
+    # contract), and the diff rides alongside for the confirmation dialog.
+    except CptRefreshConfirmationRequiredError as exc:
+        logger.info(
+            f"POST /cpt/import: refresh of {exc.name!r} ({exc.existing_id}) "
+            "awaits confirmation — nothing written"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "cpt_refresh_confirmation_required",
+                "cpt_id": str(exc.existing_id),
+                "name": exc.name,
+                "message": str(exc),
+                "old_max_depth_m": exc.old_max_depth_m,
+                "new_max_depth_m": exc.new_max_depth_m,
+                "old_n_rows": exc.old_n_rows,
+                "new_n_rows": exc.new_n_rows,
+                "n_errors": exc.n_errors,
+                "n_warnings": exc.n_warnings,
+            },
+        )
+    except CptRefreshRefusedError as exc:
+        logger.warning(f"POST /cpt/import: refresh refused ({exc.reason}) — {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "cpt_refresh_refused",
+                "reason": exc.reason,
+                "message": str(exc),
+            },
         )
     except ParseError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    # 201 Created is the route default; a refresh created nothing, so it
+    # answers 200 OK with the same body shape plus ``refreshed=true``.
+    if result.refreshed:
+        response.status_code = status.HTTP_200_OK
+        logger.info(f"POST /cpt/import: refreshed existing CPT {result.cpt_id} in place")
+
     return ImportCptResponse(
         cpt_id=result.cpt_id,
         has_errors=result.has_errors,
+        refreshed=result.refreshed,
+        name=result.name,
         issues=[
             ValidationIssueSchema(
                 level=i.level.value,
