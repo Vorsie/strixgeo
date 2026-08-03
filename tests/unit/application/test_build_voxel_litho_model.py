@@ -19,6 +19,9 @@ keyword arguments ``label_voxels`` actually received.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
@@ -515,3 +518,228 @@ async def test_investigations_outside_the_footprint_ride_out_on_the_outcome() ->
     # The "#drilled" suffix is an internal token of the footprint check, not
     # something the engineer ever typed — the outcome names investigations.
     assert outcome.uncovered_test_ids == ["A", "B"]
+
+
+# ---------------------------------------------------------------------------
+# A build that built NOTHING must say why — it also deleted the model.
+#
+# Every empty path funnels into ``_handle_empty``, which orphan-deletes every
+# stored solid row for the model and commits.  The outcome it returns is
+# indistinguishable from a happy build of zero bodies, so the renderer's only
+# possible reading is "Built 0 bodies" in green — while the 3-D model the
+# engineer had is gone from the database.
+# ---------------------------------------------------------------------------
+
+
+async def _run_empty(*, domain: Any, meshes: list[Any]) -> Any:
+    """Execute the use case with a chosen degenerate domain / mesh result."""
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    domain_patch = (
+        patch(f"{_PATH}.build_domain_from_sections", side_effect=domain)
+        if isinstance(domain, Exception)
+        else patch(f"{_PATH}.build_domain_from_sections", return_value=domain)
+    )
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        domain_patch,
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=meshes),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+    ):
+        return await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+            uuid4(),
+            [_section()],
+            grid_spacing_m=1.0,
+            force=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_build_on_investigations_that_sit_on_one_line_says_why_it_is_empty() -> None:
+    """A linear-works project (road / quay alignment) cannot form a footprint.
+
+    The engineer must be told that, not shown a zero-body result he will read as
+    a build that happened.
+    """
+    outcome = await _run_empty(
+        domain=ValueError("need at least 3 non-collinear columns"), meshes=[]
+    )
+
+    assert outcome.bodies_built == 0
+    assert outcome.empty_reason is not None, "an empty build must name its cause"
+    assert "one line" in outcome.empty_reason, "the cause must be said in the engineer's terms"
+
+
+@pytest.mark.asyncio
+async def test_a_labelling_that_produced_no_body_says_why_it_is_empty() -> None:
+    """Every voxel came out void — nothing to mesh, and the stored model is cleared."""
+    outcome = await _run_empty(
+        domain=SimpleNamespace(
+            polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+        ),
+        meshes=[],
+    )
+
+    assert outcome.bodies_built == 0
+    assert outcome.empty_reason is not None, "an empty build must name its cause"
+
+
+@pytest.mark.asyncio
+async def test_a_build_that_produced_bodies_carries_no_empty_reason() -> None:
+    """The happy path stays unqualified — the marker is only for empty results."""
+    mesh = SimpleNamespace(
+        body_id=str(uuid4()),
+        vertices=[(0.0, 0.0, 0.0)],
+        triangles=[(0, 0, 0)],
+    )
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=[mesh]),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(BuildVoxelLithoModel, "_write_generation", new=AsyncMock()),
+        patch.object(BuildVoxelLithoModel, "_mesh_rows", return_value=[{}]),
+        patch.object(BuildVoxelLithoModel, "_batch_upsert", new=AsyncMock(return_value=1)),
+    ):
+        outcome = await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+            uuid4(),
+            [_section()],
+            grid_spacing_m=1.0,
+            force=True,
+        )
+
+    assert outcome.bodies_built == 1
+    assert outcome.empty_reason is None
+
+
+# ---------------------------------------------------------------------------
+# The app stays usable while a build runs.
+#
+# The desktop app runs exactly ONE uvicorn worker, and the build's two CPU
+# phases were plain synchronous calls inside an ``async def`` route — so every
+# other request the engineer made during a build (drag a contact, accept a
+# suggestion, Ctrl+S) queued behind the whole build on the single event loop.
+# The app appeared hung: no spinner, no error, edits that just did nothing.
+# Measured heartbeat counts and the phase split: docs/benchmarks-journal.md →
+# "Build responsiveness (2026-08-03)".
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_another_request_is_served_while_the_labelling_runs() -> None:
+    """A request arriving mid-build gets a turn instead of queueing behind it."""
+    labelling_started = threading.Event()
+    other_request_served = threading.Event()
+
+    def _label_until_the_loop_answers(*_args: Any, **_kwargs: Any) -> LabelGrid:
+        labelling_started.set()
+        assert other_request_served.wait(timeout=5.0), (
+            "the event loop never got a turn while the build was labelling — "
+            "the whole app is frozen for the duration of a build"
+        )
+        return _empty_grid()
+
+    async def _another_api_request() -> None:
+        """Anything else the engineer does during the build."""
+        while not labelling_started.is_set():
+            await asyncio.sleep(0.005)
+        other_request_served.set()
+
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", side_effect=_label_until_the_loop_answers),
+        patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+    ):
+        await asyncio.gather(
+            BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+                uuid4(), [_section()], grid_spacing_m=1.0, force=True
+            ),
+            _another_api_request(),
+        )
+
+    assert other_request_served.is_set()
+
+
+# ---------------------------------------------------------------------------
+# One build at a time.
+#
+# ``voxel_grid_budget.MAX_VOXEL_CELLS`` is sized on the peak memory of ONE
+# build. Once the two CPU phases moved off the event loop, the loop stopped
+# being the thing that serialised them: an engineer who double-clicks Build, or
+# builds the litho model and then the geotech model, could run two of them in
+# the default thread pool at once and double a budget nothing re-checks.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_second_build_waits_instead_of_labelling_alongside_the_first() -> None:
+    """Two builds started together never hold the grid budget at the same time."""
+    counter_lock = threading.Lock()
+    in_flight = 0
+    peak_in_flight = 0
+
+    def _label_slowly(*_args: Any, **_kwargs: Any) -> LabelGrid:
+        nonlocal in_flight, peak_in_flight
+        with counter_lock:
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+        # Long enough that a second build with no lock would overlap this one.
+        time.sleep(0.05)
+        with counter_lock:
+            in_flight -= 1
+        return _empty_grid()
+
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", side_effect=_label_slowly),
+        patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+    ):
+        await asyncio.gather(
+            BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+                uuid4(), [_section()], grid_spacing_m=1.0, force=True
+            ),
+            BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+                uuid4(), [_section()], grid_spacing_m=1.0, force=True
+            ),
+        )
+
+    assert peak_in_flight == 1
