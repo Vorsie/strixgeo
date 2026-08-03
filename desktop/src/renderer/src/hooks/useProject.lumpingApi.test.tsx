@@ -328,6 +328,33 @@ describe('useProject — lumping map in its database home', () => {
     expect(result.current.dirty).toBe(false)
   })
 
+  // LA-6c: the recovery prompt's Delete backup runs the SAME discard tail
+  // directly (owner ruling 2026-08-03: "fully delete, no traces of backup
+  // left"). Without it, the map the prompt itemised survives through its
+  // staged database home and the project reopens dirty with discarded work.
+  it('LA-6c: resetStagedLumpingToSaved alone re-stages, promotes and un-dirties', async () => {
+    const { api } = await import('../api/client')
+    const fileMap = lumping({ 'klei stijf': 'KLEI' })
+    const { result } = await openWith({}, fileMap)
+
+    await act(async () => {
+      await result.current.stageLumping(lumping({ 'zand fijn': 'ZAND' }))
+    })
+    expect(result.current.dirty).toBe(true)
+    await act(async () => {
+      await result.current.resetStagedLumpingToSaved()
+    })
+
+    expect(api.project.stageLumping).toHaveBeenLastCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({ map: { 'klei stijf': 'KLEI' } }),
+      2,
+    )
+    expect(api.project.promoteLumping).toHaveBeenCalledWith(PROJECT_ID)
+    expect(result.current.currentLumping?.map).toEqual({ 'klei stijf': 'KLEI' })
+    expect(result.current.dirty).toBe(false)
+  })
+
   // LA-6b: a re-stage that never lands must NOT be promoted — promoting then
   // copies the discarded map (still sitting in ``staged``) into ``saved``.
   it('LA-6b: a failed discard re-stage skips the promote', async () => {
