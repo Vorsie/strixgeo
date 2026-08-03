@@ -1242,12 +1242,23 @@ export function useGeologicalModel({
         setContacts(conts)
         setSurfacesByFormationId(indexSurfacesByFormationId(surfs))
         // #55: populate the model list + active-litho pointer for the
-        // picker. Non-fatal — a list-fetch failure must not blank the
-        // (already-resolved) geological flow, so it is awaited inside
-        // the same try but its own failure is swallowed by the outer
-        // catch only if it throws before the geological state is set
-        // (it is set above, so the picker just stays empty on failure).
-        await refreshModels()
+        // picker. Non-fatal, and now ACTUALLY non-fatal: the old comment
+        // claimed the outer catch would leave the resolved geological
+        // state alone, but the catch wipes activeGeologicalModel +
+        // formations + contacts + surfaces — so one flaky picker fetch
+        // blanked the whole geology stage ("the units are gone and the
+        // model is gone too", owner dogfeed 2026-08-03) until the project
+        // was closed and reopened. Isolate it: the picker stays empty on
+        // failure, the geological flow keeps what it already loaded.
+        try {
+          await refreshModels()
+        } catch (refreshErr) {
+          log.warn(
+            'geology',
+            `model-picker refresh failed for ${project.id} — geological state kept`,
+            refreshErr,
+          )
+        }
       } catch (err) {
         log.warn('geology', `model bootstrap failed for ${project.id}`, err)
         if (!cancelled) {
