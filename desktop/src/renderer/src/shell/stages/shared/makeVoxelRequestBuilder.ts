@@ -7,7 +7,9 @@
 // section-scoped and fetched fresh at click time (Solid mode — the default —
 // keeps no edges cache, so the build cannot rely on the fence-mode state).
 // Resolves to null when there is nothing to build (no model / no sections),
-// which the Build handler surfaces as a "nothing to build" toast.
+// which the Build handler surfaces as a "nothing to build" toast — and THROWS
+// a VoxelBuildInputsError when an input it needs failed to load, so a model is
+// never built from a partial correlation / boundary set (audit 2026-08-02).
 
 import {
   assembleLithoSectionInputs,
@@ -20,7 +22,13 @@ import type { BodyBoundaryResponse } from '../../../api/clients/geology.types'
 import { buildVoxelRequest, type VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
+import { VoxelBuildInputsError } from '../../../utils/voxelBuildInputsError'
 import { fetchApprovedEdgesBySection } from './fetchApprovedEdgesBySection'
+
+/** Human-readable name for a section id, for a message the engineer reads. */
+function sectionLabel(sections: readonly SectionLike[], id: string): string {
+  return sections.find(s => s.id === id)?.name ?? id
+}
 
 /** Inputs captured by the voxel-request builder closure. */
 export interface VoxelRequestBuilderParams {
@@ -56,6 +64,13 @@ export interface VoxelRequestBuilderParams {
  * -------
  * () => Promise<VoxelBuildRequest | null>
  *     The builder; null result means "nothing to build".
+ *
+ * Raises
+ * ------
+ * VoxelBuildInputsError
+ *     When any input the build needs failed to load (a section's correlation
+ *     edges, or the body boundary shapes). The build is cancelled rather than
+ *     run on a partial input set, and ``useLithoSolids`` shows the message.
  */
 export function makeVoxelRequestBuilder(
   params: VoxelRequestBuilderParams,
@@ -66,19 +81,31 @@ export function makeVoxelRequestBuilder(
   return async (): Promise<VoxelBuildRequest | null> => {
     if (!projectId || !modelId || visibleSections.length === 0) return null
 
-    // Fetch each section's approved correlation edges fresh (section-scoped;
-    // a failed fetch degrades to no edges for that section rather than
-    // aborting the whole build — the partition still fills, just without that
-    // section's correlations).
+    // Fetch each section's approved correlation edges fresh (section-scoped).
+    // A failed fetch yields an EMPTY edge list for that section, which is
+    // indistinguishable downstream from "this section has no correlations" —
+    // so the build must not run on it. Until 2026-08-02 it did, and the only
+    // trace was a console.debug while the fragmented model was persisted
+    // behind a green "Built N bodies" toast (audit Class 1).
     const { edgesBySectionId, failedSectionIds, totalApprovedEdges } =
       await fetchApprovedEdgesBySection(projectId, modelId, visibleSections)
     log.debug(
       logLabel,
-      `assembled ${edgesBySectionId.size} sections, ${totalApprovedEdges} approved edges` +
-        (failedSectionIds.length > 0
-          ? `; ${failedSectionIds.length} section(s) failed → empty: ${failedSectionIds.join(', ')}`
-          : ''),
+      `assembled ${edgesBySectionId.size} sections, ${totalApprovedEdges} approved edges`,
     )
+    if (failedSectionIds.length > 0) {
+      const named = failedSectionIds.map(id => sectionLabel(visibleSections, id))
+      log.error(
+        logLabel,
+        `build cancelled: ${failedSectionIds.length} of ${visibleSections.length} ` +
+          `section(s) failed to load their correlations — ${named.join(', ')}`,
+      )
+      throw new VoxelBuildInputsError(
+        `Could not build — correlations failed to load for ${named.length} of ` +
+          `${visibleSections.length} cross-section(s): ${named.join(', ')}. ` +
+          'Nothing was changed; retry the build.',
+      )
+    }
 
     const sectionInputs = assembleLithoSectionInputs({
       visibleSections,
@@ -92,9 +119,11 @@ export function makeVoxelRequestBuilder(
     // from the no-override partition while the user looked at the overridden one
     // (owner 2026-07-30: "the bottom clay is not made 3D" while Fill bands was
     // correct). Same fetch shape as SectionsCanvas' refetchLensData: one list call
-    // plus one GET per body. A failure degrades to no overrides — the old
-    // behaviour — rather than aborting the build, and says so loudly.
-    let boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse> | undefined
+    // plus one GET per body. ONE failing body used to discard ALL overrides with
+    // only a console warning; it now cancels the build, because a model silently
+    // built from the no-override partition is indistinguishable from a correct
+    // one in the viewer and in every downstream export (audit 2026-08-02).
+    let boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse>
     try {
       const bodies = await api.geology.listLenses(projectId, modelId)
       boundariesByBodyId = new Map(
@@ -107,11 +136,16 @@ export function makeVoxelRequestBuilder(
       )
       log.debug(logLabel, `loaded ${boundariesByBodyId.size} body boundary shape(s) for the build`)
     } catch (err) {
-      log.warn(
+      log.error(
         logLabel,
-        'body boundaries failed to load — building WITHOUT hand-drawn overrides, so a ' +
-          'reshaped contact will not match the 2-D view',
+        'build cancelled: body boundary shapes failed to load — building without them ' +
+          'would put reshaped contacts in the 3-D model that do not match the 2-D view',
         err,
+      )
+      throw new VoxelBuildInputsError(
+        'Could not build — the hand-drawn body boundaries failed to load, and ' +
+          'building without them would not match the cross-sections. Nothing was ' +
+          'changed; retry the build.',
       )
     }
 
