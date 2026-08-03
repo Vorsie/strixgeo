@@ -109,3 +109,48 @@ def section_length(section: SectionEndpoints) -> float:
     dx = section.end_x - section.start_x
     dy = section.end_y - section.start_y
     return math.sqrt(dx * dx + dy * dy)
+
+
+def project_onto_section_corridor(
+    section: SectionEndpoints,
+    point_x: float,
+    point_y: float,
+    buffer_m: float,
+) -> ProjectionResult | None:
+    """Project a point and keep it only when it is ON the section.
+
+    THE single definition of "this investigation is on this section": inside the
+    lateral corridor AND between the two endpoints the engineer drew. Every
+    backend consumer of that question must call this — a consumer that filters
+    on lateral offset alone treats an investigation past the end of the line as
+    one of the section's columns, so it can be auto-correlated or merged to a
+    neighbour on a section where it is not drawn.
+
+    Mirrors ``desktop/src/renderer/src/utils/sectionProjection.ts``
+    (``investigationsOnSection``), which applies exactly these two filters to
+    produce the columns the engineer sees.
+
+    Parameters
+    ----------
+    section : SectionEndpoints
+        Section start + end in the section's CRS.
+    point_x, point_y : float
+        Investigation location in the same CRS as ``section``.
+    buffer_m : float
+        Lateral corridor half-width in metres (``projection_buffer_m``).
+
+    Returns
+    -------
+    ProjectionResult | None
+        The projection when the point is on the section; ``None`` when the
+        section is degenerate, the point projects off either end, or it lies
+        further than ``buffer_m`` from the line.
+    """
+    res = project_point_onto_line(section, point_x, point_y)
+    if res is None:
+        return None
+    if res.along < 0.0 or res.along > section_length(section):
+        return None
+    if abs(res.offset) > buffer_m:
+        return None
+    return res
