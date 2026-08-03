@@ -175,4 +175,77 @@ describe('DovImportProgressPanel', () => {
     const alert = screen.getByRole('alert')
     expect(alert).toHaveAttribute('aria-live', 'assertive')
   })
+
+  // -------------------------------------------------------------------------
+  // Audit 2026-08-02, Class 1: a whole failed sub-phase used to render the
+  // IDENTICAL markup to a clean import that genuinely had no observations —
+  // the engineer concluded DOV holds no descriptions for these boreholes and
+  // never re-ran the import that would have brought in 40 driller's logs.
+  //
+  // The rule: an import whose sub-phase failed does not present itself as a
+  // clean import — the failure count is on screen with what to do about it.
+  // -------------------------------------------------------------------------
+
+  const boreholeInterpretationsFailed: DovImportState = {
+    ...boreholeDone,
+    result: {
+      ...(boreholeDone as { result: import('../hooks/useDovImportStream').BoreholeImportDonePayload }).result,
+      imported: 40,
+      interpretations_attached: 0,
+      interpretations_failed: 40,
+      samples_attached: 0,
+      samples_failed: 40,
+      grain_sizes_attached: 0,
+    },
+  } as DovImportState
+
+  it('shows the observations-failed count when the interpretation phase failed', () => {
+    render(<DovImportProgressPanel state={boreholeInterpretationsFailed} />)
+    expect(screen.getByText(/observations failed/i)).toBeInTheDocument()
+    expect(screen.getByText(/samples failed/i)).toBeInTheDocument()
+  })
+
+  it('tells the engineer to re-run the import when a sub-phase failed', () => {
+    render(<DovImportProgressPanel state={boreholeInterpretationsFailed} />)
+    expect(screen.getByText(/re-run the import/i)).toBeInTheDocument()
+  })
+
+  it('does not claim a plain "Import complete" when a sub-phase failed', () => {
+    render(<DovImportProgressPanel state={boreholeInterpretationsFailed} />)
+    expect(screen.queryByText(/^Import complete$/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the clean import clean — no failure rows, no re-run hint', () => {
+    render(<DovImportProgressPanel state={boreholeDone} />)
+    expect(screen.queryByText(/observations failed/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/re-run the import/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/^Import complete$/)).toBeInTheDocument()
+  })
+
+  // The ninth signal: DOV's Boringen WFS flags a borehole as HAVING formal
+  // stratigraphy and its own interpretaties layer returns nothing (confirmed
+  // live with permkey 2024-216503). Nothing failed — and the import is still
+  // not the clean one the old panel drew.
+  const boreholeWfsGaps: DovImportState = {
+    ...boreholeDone,
+    result: {
+      ...(boreholeDone as { result: import('../hooks/useDovImportStream').BoreholeImportDonePayload }).result,
+      imported: 40,
+      interpretations_attached: 0,
+      interpretations_wfs_gaps: 12,
+    },
+  } as DovImportState
+
+  it('gives the WFS gap its own row and does not call it a failure', () => {
+    render(<DovImportProgressPanel state={boreholeWfsGaps} />)
+    expect(screen.getByText(/DOV lists but did not return/i)).toBeInTheDocument()
+    expect(screen.queryByText(/observations failed/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Import complete$/)).not.toBeInTheDocument()
+  })
+
+  it('does not send the engineer round a retry loop for a WFS gap', () => {
+    render(<DovImportProgressPanel state={boreholeWfsGaps} />)
+    expect(screen.queryByText(/re-run the import over the same area/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/dov\.vlaanderen\.be/i)).toBeInTheDocument()
+  })
 })
