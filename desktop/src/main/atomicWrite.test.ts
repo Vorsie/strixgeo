@@ -81,6 +81,34 @@ describe('writeFileAtomic', () => {
     expect(tempOrphans()).toEqual([])
   })
 
+  // Binary callers: the DXF/Plaxis export IPC hands over an ArrayBuffer, and an
+  // export that fails must not destroy the deliverable the engineer already
+  // shipped. Both rules below were unreachable while the helper only accepted
+  // a string — the export handler wrote with a plain truncating writeFileSync.
+  it('writes binary contents byte-for-byte', () => {
+    const target = join(dir, 'section.dxf')
+    // Bytes that no UTF-8 round-trip survives: a NUL, a lone continuation byte
+    // and 0xFF. If the helper ever stringifies its input these come back as
+    // U+FFFD replacement characters instead.
+    const bytes = new Uint8Array([0x00, 0x80, 0xff, 0x41])
+    writeFileAtomic(target, bytes)
+    expect(Array.from(readFileSync(target))).toEqual([0x00, 0x80, 0xff, 0x41])
+  })
+
+  it('leaves the previously exported file intact when the new export fails', () => {
+    const target = join(dir, 'section.dxf')
+    writeFileAtomic(target, new Uint8Array([0x67, 0x6f, 0x6f, 0x64])) // "good"
+    // Force the replacement to fail the same way a locked / full disk does.
+    const tmpPath = tempPathFor(target)
+    writeFileSync(tmpPath, 'partial', 'utf-8')
+    chmodSync(tmpPath, 0o444)
+
+    expect(() => writeFileAtomic(target, new Uint8Array([0x62, 0x61, 0x64]))).toThrow()
+    // The deliverable the engineer already sent out is still on disk, whole.
+    expect(Array.from(readFileSync(target))).toEqual([0x67, 0x6f, 0x6f, 0x64])
+    expect(tempOrphans()).toEqual([])
+  })
+
   // The failure this test pins: an earlier revision wrapped only the rename, so
   // a write that died (disk full, quota, revoked permission) left its
   // ``.tmp.<pid>`` behind forever. The recovery directory is enumerated at every
