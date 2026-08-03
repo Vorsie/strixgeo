@@ -303,6 +303,7 @@ function makeCtx(): ShellContextValue {
       view: 'map',
       setView: vi.fn(),
       handleSelect: noopAsync,
+      handleSelectWithoutView: noopAsync,
       handleSelectBorehole: noopAsync,
       handleExportSectionDxf: noopAsync,
       handleExportSectionPlaxis2d: noopAsync,
@@ -324,6 +325,7 @@ function makeCtx(): ShellContextValue {
       sectionsDeepLinkTarget: null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
+      markMutated: vi.fn(),
     },
   }
 }
