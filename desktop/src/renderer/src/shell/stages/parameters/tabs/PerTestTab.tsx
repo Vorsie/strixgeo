@@ -1,40 +1,38 @@
 // Per-test tab — table of every CPT / borehole in the project; columns
 // are computed parameters.
 //
+// Owner ruling (dogfeed 2026-08-03) reshaped this tab twice:
+//   * the inline expanded Ic/SBT chart is GONE — "all horizontal and squished";
+//     a depth series reads TALL, so it moved to the stage's right inspector
+//     (``ParametersInspector`` → ``CptSbtDepthPanels``);
+//   * the "SBT (dominant)" column is GONE — a single dominant zone over a whole
+//     profile is geotechnically meaningless. A CPT through 4 m of sand, 8 m of
+//     clay and 3 m of sand has no dominant soil, it has a SEQUENCE, and the
+//     sequence is what the strips in the inspector show.
+//
+// So a row click now SELECTS the CPT (``coordinator.handleSelectWithoutView``,
+// which also warms the plot cache) and the inspector plots it. The
+// WithoutView variant is deliberate: plain ``handleSelect`` also fires
+// ``setView('chart')``, a Data-stage view mode, so plotting a CPT here would
+// silently rewrite where the Data stage lands next time.
+//
 // Populated TODAY:
-//   - Inventory columns (id, name, kind, depth, location, n_rows)
-//     from useShell().investigations.cpts + .boreholes.
-//   - Parameter columns:
-//       Ic_avg     — mean Ic across the test's depth series (when the
-//                    /cpt/{id}/plot endpoint has been fetched into the
-//                    plotMap; "—" otherwise).
-//       SBT_dom    — dominant SBT zone over the series (heuristic:
-//                    Ic via Robertson 2015 from robertson_2015.py via the
-//                    plot endpoint; mode of zone-from-Ic per row).
-//   - Ic curve + SBT zone chart: click a CPT row to expand the
-//     CptIcSbtChart below the table (debt #22 — lifted from CptChart).
-//     Borehole rows collapse the chart (no Ic series available).
+//   - Inventory columns (id, name, kind, depth, location).
+//   - Ic̄ — mean Ic across the test's depth series, once ``/cpt/{id}/plot``
+//     has been fetched into the plotMap ("—" otherwise).
 //
 // Phase 5 fills in (placeholder columns shown muted with "Phase 5"):
 //   - φ′, c′, cu, E50, OCR, Vs, G0, M.
 //   - The "method" tag per cell (Robertson 1986 / Mayne 2007 / Kulhawy
 //     2014 / Uzielli 2013 / NAD-NEN xlsx / lab-derived / ML / manual).
-//   - Click-to-expand: raincloud plot of source data + per-correlation
-//     comparison + probabilistic-distribution wiring.
 //   - Cross-test comparison: shift-click rows to overlay raincloud
 //     densities side-by-side.
-//
-// This is a sketch — the columns + sort + future-column structure are
-// the contract the Phase-5 work will fill in. Lab-test rows slot into
-// the same table when the per-sample lab parameters land.
 
 import { useMemo, useRef, useState } from 'react'
 import { ArrowUpDown, Beaker } from 'lucide-react'
 
 import { EmptyState } from '../../../EmptyState'
 import { useShell } from '../../../ShellContext'
-import CptIcSbtChart from '../CptIcSbtChart'
-import { sbtZoneFromIc } from '../../../../utils/robertsonSbt'
 
 type Row = {
   id: string
@@ -45,58 +43,28 @@ type Row = {
   location_y: number
   // Computed (today: Ic average from plotMap when fetched; null otherwise).
   ic_avg: number | null
-  // Dominant SBT zone label — null when Ic not yet computed.
-  sbt_dom: string | null
 }
 
 type SortKey = 'name' | 'kind' | 'depth_m' | 'ic_avg'
 
-// The Robertson SBT classifier lives in utils/robertsonSbt.ts — the SAME table
-// the Ic chart below this table draws its bands from. It used to be declared
-// here, and the chart declared its own; the two drifted by a full band (audit
-// 2026-08-02). Once the Parameters stage takes a real backend route this gets
-// retired in favour of the server-computed dominant zone.
-
-function modeNonNull(values: (string | null)[]): string | null {
-  const counts = new Map<string, number>()
-  for (const v of values) {
-    if (v === null) continue
-    counts.set(v, (counts.get(v) ?? 0) + 1)
-  }
-  let best: string | null = null
-  let bestCount = 0
-  for (const [k, v] of counts) {
-    if (v > bestCount) {
-      best = k
-      bestCount = v
-    }
-  }
-  return best
-}
-
 export default function PerTestTab(): JSX.Element {
   const {
     investigations: { cpts, boreholes, plotMap },
+    coordinator: { selectedId, handleSelectWithoutView },
   } = useShell()
 
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [sortAsc, setSortAsc] = useState(true)
-  // Expanded CPT row — clicking a CPT row opens the Ic/SBT chart below the
-  // table. Clicking the same row again collapses it. Borehole rows don't
-  // carry an Ic series, so they always collapse the chart.
-  const [expandedCptId, setExpandedCptId] = useState<string | null>(null)
 
-  // Derived-stats cache: { ic_avg, sbt_dom } per CPT id.
+  // Derived-stats cache: { ic_avg } per CPT id.
   //
-  // The filter+reduce+sbtZoneFromIc pipeline is O(series_length) per CPT.
-  // Without a cache, every setPlotMap(prev => new Map(prev).set(id, plot))
-  // creates a new Map reference and forces the rows useMemo to rerun the
-  // pipeline across ALL previously-loaded CPTs — O(N × series) per chart open.
+  // The filter+reduce pipeline is O(series_length) per CPT. Without a cache,
+  // every setPlotMap(prev => new Map(prev).set(id, plot)) creates a new Map
+  // reference and forces the rows useMemo to rerun the pipeline across ALL
+  // previously-loaded CPTs — O(N × series) per selection.
   //
   // The ref persists across renders without triggering re-renders itself.
-  // The rows useMemo reads from it and adds new entries as plotMap grows;
-  // entries already in the cache are never recomputed.
-  type DerivedStats = { ic_avg: number | null; sbt_dom: string | null }
+  type DerivedStats = { ic_avg: number | null }
   const derivedStatsCacheRef = useRef<Map<string, DerivedStats>>(new Map())
 
   // Derived stats useMemo — only computes for CPT ids not yet in the cache.
@@ -108,15 +76,13 @@ export default function PerTestTab(): JSX.Element {
       if (cache.has(id)) continue
       const plot = plotMap.get(id)
       let icAvg: number | null = null
-      let sbtDom: string | null = null
       if (plot && plot.ic && plot.ic.length > 0) {
         const vals = plot.ic.filter((v): v is number => v !== null && v > 0)
         if (vals.length > 0) {
           icAvg = vals.reduce((s, v) => s + v, 0) / vals.length
-          sbtDom = modeNonNull(plot.ic.map(v => (v === null ? null : sbtZoneFromIc(v))))
         }
       }
-      cache.set(id, { ic_avg: icAvg, sbt_dom: sbtDom })
+      cache.set(id, { ic_avg: icAvg })
       updated = true
     }
     // Return a new Map only when entries were added so rows useMemo can
@@ -127,7 +93,7 @@ export default function PerTestTab(): JSX.Element {
   const rows = useMemo<Row[]>(() => {
     const cptRows: Row[] = cpts.map(c => {
       // Read from the per-CPT cache — O(1), never recomputes a loaded series.
-      const stats = derivedStatsByCpt.get(c.id) ?? { ic_avg: null, sbt_dom: null }
+      const stats = derivedStatsByCpt.get(c.id) ?? { ic_avg: null }
       return {
         id: c.id,
         name: c.name,
@@ -136,7 +102,6 @@ export default function PerTestTab(): JSX.Element {
         location_x: c.location_x,
         location_y: c.location_y,
         ic_avg: stats.ic_avg,
-        sbt_dom: stats.sbt_dom,
       }
     })
     const bhRows: Row[] = boreholes.map(b => ({
@@ -151,7 +116,6 @@ export default function PerTestTab(): JSX.Element {
       location_x: b.location_x,
       location_y: b.location_y,
       ic_avg: null,
-      sbt_dom: null,
     }))
     const all = [...cptRows, ...bhRows]
     const cmp = (a: Row, b: Row): number => {
@@ -187,18 +151,14 @@ export default function PerTestTab(): JSX.Element {
     )
   }
 
-  const expandedPlot = expandedCptId !== null ? plotMap.get(expandedCptId) ?? null : null
-  const expandedName = expandedCptId !== null
-    ? (rows.find(r => r.id === expandedCptId)?.name ?? undefined)
-    : undefined
-
+  // Clicking a CPT row selects it — ``handleSelectWithoutView`` fetches the
+  // detail AND the plot series on demand, so the inspector plots it even on a
+  // cold cache, without touching the Data stage's view mode.
+  // Boreholes have no Ic series and no SBT profile, so their rows stay inert
+  // rather than selecting something the inspector cannot draw.
   function handleRowClick(r: Row): void {
-    if (r.kind !== 'CPT') {
-      // Boreholes have no Ic series — clicking collapses any open chart.
-      setExpandedCptId(null)
-      return
-    }
-    setExpandedCptId(prev => (prev === r.id ? null : r.id))
+    if (r.kind !== 'CPT') return
+    void handleSelectWithoutView(r.id)
   }
 
   return (
@@ -233,7 +193,6 @@ export default function PerTestTab(): JSX.Element {
                 asc={sortAsc}
                 onClick={() => toggleSort('ic_avg')}
               />
-              <th className="px-2 py-1.5 text-left font-medium">SBT (dominant)</th>
               {/* Phase 5 columns — visible but muted so the engineer sees
                   the surface that will populate later. */}
               <PhaseFiveHeader label="φ′" />
@@ -246,36 +205,22 @@ export default function PerTestTab(): JSX.Element {
           </thead>
           <tbody>
             {rows.map(r => {
-              const isExpanded = expandedCptId === r.id
-              const hasSeries  = r.kind === 'CPT' && plotMap.has(r.id)
+              const isSelected = r.kind === 'CPT' && selectedId === r.id
               return (
                 <tr
                   key={r.id}
-                  // CPT rows with a loaded series are clickable to expand the
-                  // Ic/SBT chart. Rows without a series still register the click
-                  // so the user can see the "open the CPT once" hint in the footer.
                   className={
                     'border-b border-border-subtle ' +
                     (r.kind === 'CPT'
-                      ? 'cursor-pointer hover:bg-surface-sunken/60 ' + (isExpanded ? 'bg-surface-sunken' : 'hover:bg-surface-sunken/40')
+                      ? 'cursor-pointer ' +
+                        (isSelected ? 'bg-surface-sunken' : 'hover:bg-surface-sunken/40')
                       : 'hover:bg-surface-sunken/40')
                   }
-                  aria-selected={isExpanded}
+                  aria-selected={isSelected}
                   onClick={() => handleRowClick(r)}
                   data-testid={`parameters-row-${r.id}`}
                 >
-                  <td className="px-2 py-1 font-medium">
-                    {r.name}
-                    {/* Expansion caret for CPT rows — visual affordance */}
-                    {r.kind === 'CPT' && hasSeries && (
-                      <span
-                        className="ml-1 text-text-muted text-[9px]"
-                        aria-hidden="true"
-                      >
-                        {isExpanded ? '▲' : '▼'}
-                      </span>
-                    )}
-                  </td>
+                  <td className="px-2 py-1 font-medium">{r.name}</td>
                   <td className="px-2 py-1 text-text-secondary">{r.kind}</td>
                   <td className="px-2 py-1 tabular-nums">
                     {r.depth_m === null ? '—' : r.depth_m.toFixed(1)}
@@ -285,9 +230,6 @@ export default function PerTestTab(): JSX.Element {
                   </td>
                   <td className="px-2 py-1 tabular-nums">
                     {r.ic_avg === null ? <span className="text-text-muted">—</span> : r.ic_avg.toFixed(2)}
-                  </td>
-                  <td className="px-2 py-1 text-text-secondary">
-                    {r.sbt_dom ?? <span className="text-text-muted">—</span>}
                   </td>
                   <PhaseFiveCell />
                   <PhaseFiveCell />
@@ -301,28 +243,11 @@ export default function PerTestTab(): JSX.Element {
           </tbody>
         </table>
         <div className="px-3 py-2 text-[10px] text-text-muted border-t border-border-subtle">
-          {rows.length} test{rows.length === 1 ? '' : 's'} · Ic̄ shown when
-          the plot data is loaded (open the CPT once to populate). Click a CPT
-          row to expand the Ic / SBT zone chart. Future: raincloud plot,
-          correlation method picker, probabilistic distribution, cross-test
-          comparison.
+          {rows.length} test{rows.length === 1 ? '' : 's'} · click a CPT row to
+          plot its depth series and soil-behaviour-type profile in the inspector
+          on the right. Ic̄ appears once that CPT&apos;s series has been loaded.
         </div>
       </div>
-
-      {/* Ic / SBT zone chart — shown when a CPT row with a loaded series is expanded */}
-      {expandedPlot && expandedPlot.ic && expandedPlot.ic.length > 0 && (
-        <div
-          className="border-t-2 border-status-amber shrink-0 bg-surface-app overflow-auto"
-          style={{ maxHeight: 440 }}
-          data-testid="parameters-ic-sbt-panel"
-        >
-          <CptIcSbtChart
-            plot={expandedPlot}
-            title={expandedName}
-            heightPx={380}
-          />
-        </div>
-      )}
     </div>
   )
 }
