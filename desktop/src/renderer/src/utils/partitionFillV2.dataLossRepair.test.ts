@@ -54,7 +54,16 @@ describe('safe-default repair: flooded drilled units render their own litho (rea
       const sec = raw.sections.find((s: any) => s.name === c.s)
       const keep = sec.columns.filter((col: any) => col.surfaceElevM != null && col.units.length > 0)
       const columns: PartitionColumn[] = keep.map((col: any) => ({ investigationId: col.investigationId, surfaceElevM: col.surfaceElevM, units: col.units }))
-      const alongM = sec.columns.map((_: any, i: number) => sec.alongM[i]).slice(0, keep.length)
+      // Each KEPT column's own along-section position — pair the index to the column that
+      // survived the filter, never the first N positions. `keep` drops columns with no surface
+      // elevation or no accepted units, which this fixture (regenerated from the live dev DB)
+      // regularly contains; taking the first N would hand every kept column its left
+      // neighbour's position and silently move the geometry these 5 assertions probe.
+      const alongM = sec.columns
+        .map((col: any, i: number) => ({ col, i }))
+        .filter(({ col }: any) => col.surfaceElevM != null && col.units.length > 0)
+        .map(({ i }: any) => sec.alongM[i])
+      expect(alongM, 'one along-section position per kept column').toHaveLength(columns.length)
       const edges: CorrelationEdge[] = sec.edges.map((e: any) => ({ a: e.a, b: e.b, aSide: e.aSide ?? 'top', bSide: e.bSide ?? 'top' }))
       const prev = setTwoSidedTerminations(true)
       let regions: SectionRegion[]
