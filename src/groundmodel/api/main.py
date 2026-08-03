@@ -26,6 +26,7 @@ from groundmodel.api.routers import (
     stratigraphy_lumping,
     virtuele_boring,
 )
+from groundmodel.api.serve import install_accept_failure_diagnostics
 from groundmodel.api.validation_error_handler import validation_error_handler
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
@@ -145,7 +146,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     so the DOV CPT router can access it via ``request.app.state.parse_pool``.
     The pool is shut down gracefully (``wait=True``) on application exit so
     in-flight parse tasks complete before the process exits.
+
+    Also instruments the running loop so a listener-killing accept failure is
+    CRITICAL rather than a stray asyncio ERROR — see ``api/serve.py``. Done
+    here as well as in the entrypoint because a backend started by hand
+    (``uvicorn.exe``, the e2e harness, a dev shell) never runs ``serve.main``
+    and would otherwise lose its listener silently.
     """
+    install_accept_failure_diagnostics(asyncio.get_running_loop())
+
     # Pre-import the worker module in the main process so the pickled
     # function reference is resolvable when the child processes start.
     import groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker  # noqa: F401
