@@ -211,17 +211,50 @@ async def test_location_point_is_stored(filename: str, db_session: AsyncSession)
 
 
 # ---------------------------------------------------------------------------
-# Duplicate detection — same file within a project raises; different projects allowed
+# Duplicate detection — same file within a project REFRESHES the existing row;
+# different projects still get their own copy
 # ---------------------------------------------------------------------------
 
 
-async def test_same_file_same_project_raises_duplicate(db_session: AsyncSession) -> None:
-    """Importing the same GEF file into the same project raises DuplicateCptError."""
+async def test_same_file_same_project_refreshes_the_existing_row(
+    db_session: AsyncSession,
+) -> None:
+    """Re-importing the same GEF file updates the row it created, keeping its id.
+
+    Refresh-on-reimport (2026-08-02): a duplicate import is how a parser fix
+    reaches a project, so it updates in place instead of raising. The overwrite
+    is irreversible, so it needs the caller's consent — an unconfirmed
+    re-import writes nothing and raises
+    ``CptRefreshConfirmationRequiredError`` instead (pinned in
+    ``test_import_cpt_idempotent.py``). The ``DuplicateCptError`` path survives
+    only for callers that explicitly opt out — pinned below.
+    """
     file_path = DATA_DIR / "1778056769825.gef"  # TM4 — tiny file, fast
     project_id = uuid7()
-    await ImportCpt(db_session).execute(file_path, project_id)
+    first = await ImportCpt(db_session).execute(file_path, project_id)
+    second = await ImportCpt(db_session).execute(file_path, project_id, confirm_refresh=True)
+
+    assert second.cpt_id == first.cpt_id
+    assert second.refreshed is True
+    repo = CptRepository(db_session)
+    assert len(await repo.list_all()) == 1
+
+
+async def test_opting_out_of_refresh_still_raises_duplicate(db_session: AsyncSession) -> None:
+    """``persist(refresh_existing=False)`` keeps the old raise-on-duplicate contract."""
+    file_path = DATA_DIR / "1778056769825.gef"  # TM4 — tiny file, fast
+    project_id = uuid7()
+    importer = ImportCpt(db_session)
+    await importer.execute(file_path, project_id)
+
+    parsed = GEFParser().parse_bytes(file_path.read_bytes())
     with pytest.raises(DuplicateCptError):
-        await ImportCpt(db_session).execute(file_path, project_id)
+        await importer.persist(
+            parsed,
+            parsed.header.test_id.strip(),
+            project_id,
+            refresh_existing=False,
+        )
 
 
 async def test_same_file_different_projects_creates_two_rows(db_session: AsyncSession) -> None:
