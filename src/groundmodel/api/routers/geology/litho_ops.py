@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
     get_in_project_or_404,
+    litho_layer_write_conflict,
     require_model_kind,
 )
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
@@ -793,25 +794,19 @@ async def accept_litho_suggestions(
             detail={"code": "accept_litho_error", "message": str(exc)},
         ) from exc
     except IntegrityError as exc:
-        # The ``litho_layer_accepted_no_overlap`` exclusion constraint fires when
-        # the accepted layers would overlap existing accepted layers on the same
-        # investigation column. This happens when pre-seeded contacts (from manual
-        # or fixture scenarios) and segmenter-derived contacts share the same
+        # The no-overlap exclusion fires when the accepted layers would overlap
+        # existing accepted layers on the same investigation column — pre-seeded
+        # contacts (manual or fixture) and segmenter-derived contacts sharing a
         # formation key (same litho_main_soil_code + empty admixture signature)
-        # and produce overlapping depth intervals. Return 409 so callers can detect
-        # the conflict without hitting an unhandled 500.
-        orig = str(exc.orig) if exc.orig else str(exc)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "litho_layer_overlap",
-                "message": (
-                    "Accepted layers would overlap an existing accepted layer on the same "
-                    "investigation column. Re-clear the column (DELETE /contacts) or choose "
-                    "a different anchor before re-accepting."
-                ),
-                "detail": orig[:400],
-            },
+        # produce overlapping depth intervals. Any OTHER violation is a rejected
+        # write, not a conflict; the helper tells them apart.
+        raise litho_layer_write_conflict(
+            exc,
+            overlap_message=(
+                "Accepted layers would overlap an existing accepted layer on the same "
+                "investigation column. Re-clear the column (DELETE /contacts) or choose "
+                "a different anchor before re-accepting."
+            ),
         ) from exc
 
     # Explicit-content invariant: seed section after the use case committed.
@@ -922,23 +917,15 @@ async def batch_accept_litho_suggestions(
             couple_tolerance_m=request.couple_tolerance_m,
         )
     except IntegrityError as exc:
-        # The ``litho_layer_accepted_no_overlap`` exclusion constraint fires when
-        # accepted layers for one or more anchors would overlap existing accepted
-        # layers on the same investigation column. The whole batch-transaction is
-        # rolled back. Return 409 so callers can detect the conflict rather than
-        # seeing an unhandled 500.
-        orig = str(exc.orig) if exc.orig else str(exc)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "litho_layer_overlap",
-                "message": (
-                    "One or more anchors produced accepted layers that would overlap "
-                    "existing accepted layers on the same investigation column. "
-                    "Re-clear affected CPTs (DELETE /contacts) before re-accepting."
-                ),
-                "detail": orig[:400],
-            },
+        # Same translation as the single-anchor accept above; the whole
+        # batch-transaction is rolled back either way.
+        raise litho_layer_write_conflict(
+            exc,
+            overlap_message=(
+                "One or more anchors produced accepted layers that would overlap "
+                "existing accepted layers on the same investigation column. "
+                "Re-clear affected CPTs (DELETE /contacts) before re-accepting."
+            ),
         ) from exc
 
     # Aggregate the created/found contact ids across all anchors and seed the
