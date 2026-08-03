@@ -3014,50 +3014,6 @@ export default function SectionPanel({
               )}
 
 
-            {/* Correlation overlay: body chips, contact-level edges, and
-                contact gesture hit-targets (#133 Phase 1 + #135; geotech
-                Phase 1 2026-06-25).
-                Mounted on the litho AND geotech axes; absent on the geological
-                axis so the overlay never intercepts geological-axis
-                interactions. On the geotech axis it draws the "Correlate
-                packing" gesture surface + ribbons, fed the SEPARATE
-                geotechCorrelationEdges list (the litho-framed contactEdges still
-                drive the partition — never mix the two; commit 7329738b). Litho-
-                only features (lens inspect, admixture propagation, crossing
-                pinch-outs) are suppressed on the geotech axis.
-                pointerEvents=none at the group level — the component
-                enables pointer-events only for gesture rects when
-                contactCorrelateMode is active. Kept mounted while correlate
-                mode is on even if correlations are hidden — the overlay also
-                hosts the correlate-gesture hit-targets, so unmounting it would
-                silently break correlate clicks. */}
-            {shouldMountCorrelationOverlay(
-              axisMode,
-              showCorrelations,
-              contactGestureState?.contactCorrelateMode,
-            ) && (
-              <CorrelationEdgesOverlay
-                contacts={correlateContacts}
-                crossingPinchOuts={axisMode === 'geotechnical' ? [] : crossingPinchOuts}
-                formations={formations}
-                placedColumns={visibleColumns}
-                levelToScreen={levelToScreen}
-                plotTop={MARGIN.top}
-                plotBottom={MARGIN.top + plotHeight}
-                pulsingFormationIds={pulsingFormationIds}
-                onInspectLensBody={axisMode === 'geotechnical' ? undefined : onInspectLensBody}
-                onPropagateAdmixtures={
-                  axisMode === 'geotechnical' ? undefined : onPropagateAdmixtures
-                }
-                contactEdges={overlayEdgeSource(axisMode, contactEdges, geotechCorrelationEdges)}
-                contactGestureState={contactGestureState}
-                onUnapprovedDragStart={onUnapprovedDragStart}
-                unapprovedEdgeDrag={unapprovedEdgeDrag}
-                onRequestDeleteEdge={onRequestDeleteEdge}
-                onRequestAcceptEdge={onRequestAcceptEdge}
-                onRequestConfirmEdgeReview={onRequestConfirmEdgeReview}
-              />
-            )}
             {/* Partition fill — every point belongs to exactly one body, no
                 overlaps + no gaps (owner directive 2026-06-05; the 2D section
                 defines the 3D model). Renders the tiled partition + labels +
@@ -3214,6 +3170,87 @@ export default function SectionPanel({
                   />
                 )
               })}
+
+            {/* PAINT ORDER (fix 2026-08-02): this overlay used to be mounted
+                BEFORE the fill overlays, and SVG paints in document order with no
+                z-index to appeal to — so PartitionFillOverlay's 0.62-opacity bands
+                painted straight over it. The violet review-flag badge came out
+                tinted to near-invisibility and the edge context menu (which lives
+                inside this component) was occluded outright, which made "Confirm
+                tie" undiscoverable on the geotech axis. It now sits above every
+                fill, alongside BodyContextMenu below.
+
+                POINTER PRECEDENCE — this move DOES change hit-testing outside
+                correlate mode, and the new order is the intended one: where they
+                overlap, the interaction layer wins over the fill's own gestures.
+                Four surfaces in CorrelationEdgesOverlay re-enable pointer events
+                unconditionally and now sit on top of PartitionFillOverlay's
+                per-region path (which is interactive whenever correlate mode is
+                OFF): the ``edge-hit-<id>`` polygon (a ~14 px band riding each
+                approved seam between two columns), the ``edge-grab-a/b`` strokes
+                on pending edges, ``EdgeReviewBadge``, and ``BodyChip``. So a
+                right-click ON or within ~7 px of a seam opens the EDGE menu
+                rather than the band's BodyContextMenu, and a right-click on a
+                body chip opens the chip menu.
+
+                That is the whole point of the finding: under the fill, the
+                review badge and the edge menu were unreachable — "Confirm tie"
+                could not be clicked at all — while the band right-click is
+                available across the entire rest of the region. A gesture that
+                yields on a 14 px seam is a trade; a gesture that cannot be
+                performed anywhere is a bug. No fill gesture became fully
+                unreachable: every region is far larger than the seam band it
+                touches.
+
+                OWNER'S EYES (no unit test settles it): whether losing the band
+                right-click within ~7 px of a seam is acceptable in practice, and
+                whether the violet badge reads legibly over a 0.62-opacity fill.
+                Per CLAUDE.local.md the badges appear only after re-running
+                Subdivide. */}
+            {/* Correlation overlay: body chips, contact-level edges, and
+                contact gesture hit-targets (#133 Phase 1 + #135; geotech
+                Phase 1 2026-06-25).
+                Mounted on the litho AND geotech axes; absent on the geological
+                axis so the overlay never intercepts geological-axis
+                interactions. On the geotech axis it draws the "Correlate
+                packing" gesture surface + ribbons, fed the SEPARATE
+                geotechCorrelationEdges list (the litho-framed contactEdges still
+                drive the partition — never mix the two; commit 7329738b). Litho-
+                only features (lens inspect, admixture propagation, crossing
+                pinch-outs) are suppressed on the geotech axis.
+                pointerEvents=none at the group level — the component
+                enables pointer-events only for gesture rects when
+                contactCorrelateMode is active. Kept mounted while correlate
+                mode is on even if correlations are hidden — the overlay also
+                hosts the correlate-gesture hit-targets, so unmounting it would
+                silently break correlate clicks. */}
+            {shouldMountCorrelationOverlay(
+              axisMode,
+              showCorrelations,
+              contactGestureState?.contactCorrelateMode,
+            ) && (
+              <CorrelationEdgesOverlay
+                contacts={correlateContacts}
+                crossingPinchOuts={axisMode === 'geotechnical' ? [] : crossingPinchOuts}
+                formations={formations}
+                placedColumns={visibleColumns}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                pulsingFormationIds={pulsingFormationIds}
+                onInspectLensBody={axisMode === 'geotechnical' ? undefined : onInspectLensBody}
+                onPropagateAdmixtures={
+                  axisMode === 'geotechnical' ? undefined : onPropagateAdmixtures
+                }
+                contactEdges={overlayEdgeSource(axisMode, contactEdges, geotechCorrelationEdges)}
+                contactGestureState={contactGestureState}
+                onUnapprovedDragStart={onUnapprovedDragStart}
+                unapprovedEdgeDrag={unapprovedEdgeDrag}
+                onRequestDeleteEdge={onRequestDeleteEdge}
+                onRequestAcceptEdge={onRequestAcceptEdge}
+                onRequestConfirmEdgeReview={onRequestConfirmEdgeReview}
+              />
+            )}
 
             {/* Axis labels. */}
             <text
