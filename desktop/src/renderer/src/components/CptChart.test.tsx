@@ -158,8 +158,10 @@ describe('CptChart — legend / panel dispatch per cone kind', () => {
 
   it('does NOT render the Ic legend or SBT strip even when ic series is populated (debt #22)', () => {
     // Debt #22 resolved 2026-06-01: Ic/SBT moved to the Parameters stage
-    // (CptIcSbtChart). CptChart is now raw-only — the Ic legend entry and
-    // the SBT zone key are absent regardless of whether plot.ic is populated.
+    // (today shell/stages/parameters/CptSbtDepthPanels.tsx — the original
+    // CptIcSbtChart was deleted 2026-08-03). CptChart is now raw-only: the Ic
+    // legend entry and the SBT zone key are absent regardless of whether
+    // plot.ic is populated.
     render(
       <CptChart
         plot={makePlot({ ic: [2.0, 2.0, 2.5, 2.5, 3.0, 3.0] })}
