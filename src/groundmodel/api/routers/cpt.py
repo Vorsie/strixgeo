@@ -35,6 +35,7 @@ from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
 from groundmodel.domain.services.robertson_2015 import ic_series_2015
+from groundmodel.domain.services.robertson_2015_constants import DEFAULT_GWT_DEPTH_M
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -658,7 +659,12 @@ def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
             depths_m=s.depths_m,
             qc_mpa=s.qc_mpa,
             fs_mpa=s.fs_mpa,
-            gwt_m=cpt.water_depth_m if cpt.water_depth_m is not None else 1.0,
+            # No recorded water table → the ONE project-wide assumption, shared
+            # with the litho segmenter (``suggest_litho_contacts``). Two
+            # different defaults would put the Ic curve the engineer validates
+            # against and the ghost boundaries he is offered on different
+            # effective-stress profiles.
+            gwt_m=cpt.water_depth_m if cpt.water_depth_m is not None else DEFAULT_GWT_DEPTH_M,
         )
         if s.fs_mpa is not None
         else None
