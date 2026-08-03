@@ -33,13 +33,11 @@ from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchem
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
+from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
 from groundmodel.domain.services.robertson_2015 import ic_series_2015
 from groundmodel.domain.services.robertson_2015_constants import DEFAULT_GWT_DEPTH_M
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
-from groundmodel.infrastructure.db.repositories.geology_repository import (
-    GeologyRepository,
-)
 from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
     InvestigationReviewRepository,
 )
@@ -575,15 +573,18 @@ async def patch_cpt_elevation(
     if cpt is None:
         logger.warning(f"PATCH /cpt/{cpt_id}/elevation → 404 (not found)")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
-    # Debt #34: a contact's absolute z is elevation_m − depth_top_m, so
-    # changing this CPT's elevation invalidates every cached TIN that
-    # has a contact anchored here. Flip those surfaces stale in the SAME
-    # transaction as the elevation write so the section editor / 3D
-    # viewer correctly show "needs rebuild" instead of rendering the
-    # old geometry as fresh.
-    flipped = await GeologyRepository(session).stale_surfaces_for_investigation(cpt_id=cpt_id)
-    if flipped:
-        logger.info(f"PATCH /cpt/{cpt_id}/elevation: staled {flipped} dependent surface(s)")
+    # Debt #34: a contact's absolute z is elevation_m − depth_top_m, so changing
+    # this CPT's elevation invalidates every cached geometry with a contact
+    # anchored here — the geological TINs AND the 3-D litho/geotech solids. Flip
+    # both stale in the SAME transaction as the elevation write so the section
+    # editor / 3-D viewer show "needs rebuild" instead of rendering the old
+    # geometry as fresh.
+    stale = await StaleInvestigationCaches(session).execute(cpt_id=cpt_id)
+    if stale.surfaces or stale.solids:
+        logger.info(
+            f"PATCH /cpt/{cpt_id}/elevation: staled {stale.surfaces} dependent surface(s) "
+            f"and {stale.solids} 3-D solid(s)"
+        )
     await session.commit()
     return _cpt_response(cpt)
 
