@@ -7,7 +7,7 @@ import tempfile
 from collections.abc import AsyncGenerator
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
 from fastapi import (
@@ -15,6 +15,7 @@ from fastapi import (
     Depends,
     Form,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
@@ -34,9 +35,11 @@ from groundmodel.api.schemas.cpt.cpt_list_item import CptListItem
 from groundmodel.api.schemas.cpt.cpt_plot_batch_request import CptPlotBatchRequest
 from groundmodel.api.schemas.cpt.cpt_plot_response import CptPlotResponse
 from groundmodel.api.schemas.cpt.cpt_response import CptResponse
+from groundmodel.api.schemas.cpt.cpt_sbt_profile_response import CptSbtProfileResponse
 from groundmodel.api.schemas.cpt.import_cpt_response import ImportCptResponse
 from groundmodel.api.schemas.cpt.import_dov_request import ImportDovRequest
 from groundmodel.api.schemas.cpt.import_dov_response import ImportDovResponse
+from groundmodel.api.schemas.cpt.water_table_patch_request import WaterTablePatchRequest
 from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
@@ -44,8 +47,17 @@ from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
+from groundmodel.domain.services.cpt_sbt_profile import compute_sbt_profile
+from groundmodel.domain.services.gwt_resolution import resolve_gwt
 from groundmodel.domain.services.robertson_2015 import ic_series_2015
-from groundmodel.domain.services.robertson_2015_constants import DEFAULT_GWT_DEPTH_M
+from groundmodel.domain.services.robertson_2015_constants import (
+    DEFAULT_GUNSAT_KNM3,
+    DEFAULT_GWATER_KNM3,
+    GUNSAT_KNM3_MAX,
+    GUNSAT_KNM3_MIN,
+    GWATER_KNM3_MAX,
+    GWATER_KNM3_MIN,
+)
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
     InvestigationReviewRepository,
@@ -584,6 +596,8 @@ def _cpt_response(cpt: CptOrm) -> CptResponse:
         elevation_source=cpt.elevation_source,
         pre_drill_m=cpt.pre_drill_m,
         cone_area_ratio=cpt.cone_area_ratio,
+        water_depth_m=cpt.water_depth_m,
+        water_depth_source=cpt.water_depth_source,
         max_depth_m=cpt.max_depth_m,
         n_rows=cpt.n_rows,
     )
@@ -683,6 +697,64 @@ async def patch_cpt_elevation(
     return _cpt_response(cpt)
 
 
+@router.patch("/{cpt_id}/water-table", response_model=CptResponse)
+async def patch_cpt_water_table(
+    cpt_id: UUID,
+    project_id: UUID,
+    request: WaterTablePatchRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CptResponse:
+    """Set (or clear) the engineer's depth to groundwater for a CPT.
+
+    Called by the Parameters stage's per-CPT inspector when the engineer clicks
+    the water-table line and types a value. Setting a depth stamps
+    ``WaterDepthSource.ENGINEER``, which a later re-import of the same file will
+    NOT overwrite — the whole Robertson normalisation hangs off this number, so
+    engineer judgement outranks a re-parse. The FIRST override of a recorded
+    depth snapshots it, so sending ``water_depth_m = null`` RESTORES the file's
+    value; with no snapshot (a DOV CPT) it returns the CPT to "nothing
+    recorded" and consumers fall back to the assumption and say so.
+
+    No cached geometry is staled: the water table moves only DERIVED-ON-READ
+    values (the Ic curve, the SBT strips, future segmenter suggestions).
+    Contacts, litho layers and the 3-D solids are anchored on depths the
+    engineer already committed, and re-deriving them is his gesture to make.
+
+    Parameters
+    ----------
+    cpt_id : UUID
+        Primary key of the CPT record.
+    project_id : UUID
+        Required project scope guard (VULN-2 class).
+    request : WaterTablePatchRequest
+        Body carrying ``water_depth_m`` (metres below ground surface) or null.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CptResponse
+        The updated CPT header, so the client can refresh its detail cache
+        without a follow-up GET.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no CPT with the given id exists, or it belongs to a different
+        project.
+    """
+    logger.info(f"PATCH /cpt/{cpt_id}/water-table: water_depth_m={request.water_depth_m}")
+    repo = CptRepository(session)
+    # Scope guard before any mutation: reject cross-project ids.
+    await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
+    cpt = await repo.set_water_table(cpt_id, request.water_depth_m)
+    if cpt is None:
+        logger.warning(f"PATCH /cpt/{cpt_id}/water-table → 404 (not found)")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    await session.commit()
+    return _cpt_response(cpt)
+
+
 @router.delete("/{cpt_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cpt(
     cpt_id: UUID,
@@ -755,11 +827,11 @@ def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
             qc_mpa=s.qc_mpa,
             fs_mpa=s.fs_mpa,
             # No recorded water table → the ONE project-wide assumption, shared
-            # with the litho segmenter (``suggest_litho_contacts``). Two
-            # different defaults would put the Ic curve the engineer validates
-            # against and the ghost boundaries he is offered on different
-            # effective-stress profiles.
-            gwt_m=cpt.water_depth_m if cpt.water_depth_m is not None else DEFAULT_GWT_DEPTH_M,
+            # with the litho segmenter (``suggest_litho_contacts``) and the SBT
+            # profile endpoint via ``resolve_gwt``. Two different defaults would
+            # put the Ic curve the engineer validates against and the ghost
+            # boundaries he is offered on different effective-stress profiles.
+            gwt_m=resolve_gwt(cpt.water_depth_m, cpt.water_depth_source).gwt_m,
         )
         if s.fs_mpa is not None
         else None
@@ -823,6 +895,105 @@ async def get_cpt_plot(
         return _plot_response_from_cpt(cpt)
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+
+@router.get("/{cpt_id}/sbt-profile", response_model=CptSbtProfileResponse)
+async def get_cpt_sbt_profile(
+    cpt_id: UUID,
+    project_id: UUID,
+    # ``Annotated[...] = <plain default>`` rather than ``= Query(default=...)``:
+    # the parity gate calls this handler DIRECTLY (no FastAPI dependency
+    # resolution), and a bare ``Query`` default would reach ``stress_profile``
+    # as a Query object instead of a float.
+    gunsat_kNm3: Annotated[
+        float, Query(ge=GUNSAT_KNM3_MIN, le=GUNSAT_KNM3_MAX)
+    ] = DEFAULT_GUNSAT_KNM3,
+    gwater_kNm3: Annotated[
+        float, Query(ge=GWATER_KNM3_MIN, le=GWATER_KNM3_MAX)
+    ] = DEFAULT_GWATER_KNM3,
+    session: AsyncSession = Depends(get_session),
+) -> CptSbtProfileResponse:
+    """Return both Robertson SBT classifications per depth point for one CPT.
+
+    Drives the Parameters stage's per-CPT plot surface (owner ruling, dogfeed
+    2026-08-03): the full normalised Robertson-2015 pipeline's zone strip — the
+    one that carries the extended organic/peat boundary — AND the non-normalised
+    ``I_SBT`` strip alongside it, so the engineer can see where
+    stress-normalisation changes the answer.
+
+    The normalised columns are computed under the SAME effective-stress profile
+    the litho segmenter uses: the same water table (``resolve_gwt``) AND the
+    same unit weights, which the client passes from Settings → Litho segmenter.
+    Anything less is not parity — moving γ_unsat 16 → 19 moves SBTn zones, and
+    the strip would attribute that shift to normalisation instead. The response
+    says which water table it used and where that number came from (Data
+    Integrity Rule 1). Nothing is stored — the profile is derived on read.
+
+    Parameters
+    ----------
+    cpt_id : UUID
+        Primary key of the CPT record.
+    project_id : UUID
+        Required project scope guard — the CPT must belong to this project.
+        Prevents cross-project id enumeration (VULN-1 class).
+    gunsat_kNm3 : float
+        Unit weight of soil above the water table in kN/m³. Defaults and bounds
+        mirror ``LithoSuggestionRequest`` (both read the same domain constants),
+        so a value the segmenter accepts is a value this endpoint accepts.
+    gwater_kNm3 : float
+        Unit weight of water in kN/m³, same defaults and bounds.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    CptSbtProfileResponse
+        Ic + zone series (normalised), I_SBT + zone series (non-normalised),
+        and the water-table provenance.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no CPT with the given id exists, it belongs to a different
+        project, or it has no series data.
+    """
+    repo = CptRepository(session)
+    cpt = await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
+    series = cpt.series
+    if series is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Series data not found for this CPT",
+        )
+
+    gwt = resolve_gwt(cpt.water_depth_m, cpt.water_depth_source)
+    # A CPTM has no friction sleeve at all, so the column is NULL rather than an
+    # array of NULLs. Widening it here keeps the classifier's "no fs → no zone"
+    # path the single place that decides what an unmeasurable point looks like.
+    fs = series.fs_mpa if series.fs_mpa is not None else [None] * len(series.depths_m)
+    profile = compute_sbt_profile(
+        depths_m=series.depths_m,
+        qc_mpa=series.qc_mpa,
+        fs_mpa=fs,
+        gwt=gwt,
+        gunsat_kNm3=gunsat_kNm3,
+        gwater_kNm3=gwater_kNm3,
+    )
+    logger.info(
+        f"GET /cpt/{cpt_id}/sbt-profile → {len(profile.depths_m)} points, "
+        f"gwt={profile.gwt_m} m ({profile.gwt_source}), "
+        f"γunsat={gunsat_kNm3} γwater={gwater_kNm3} kN/m³"
+    )
+    return CptSbtProfileResponse(
+        cpt_id=cpt.id,
+        depths_m=profile.depths_m,
+        ic=profile.ic,
+        zone_normalised=profile.zone_normalised,
+        i_sbt=profile.i_sbt,
+        zone_non_normalised=profile.zone_non_normalised,
+        gwt_m=profile.gwt_m,
+        gwt_source=profile.gwt_source,
+    )
 
 
 @router.post("/plot-batch", response_model=list[CptPlotResponse])
