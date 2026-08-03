@@ -23,7 +23,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404, merge_view_state
+from groundmodel.api.routers._helpers import (
+    apply_view_state_patch,
+    get_in_project_or_404,
+)
 from groundmodel.api.schemas.project.investigation_review import (
     InvestigationReviewResponse,
     InvestigationReviewUpsertRequest,
@@ -303,12 +306,12 @@ async def patch_project_view_state(
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    # Shallow merge via shared helper (mirrors PATCH /sections/{id}
-    # view_state semantics). Assigning the returned dict back gives
-    # SQLAlchemy a new object reference so the JSONB column flags dirty.
-    project.view_state = merge_view_state(project.view_state, request.patch)
+    # Shallow merge in ONE statement (mirrors PATCH /sections/{id} view_state
+    # semantics). Read-merge-write in Python would let two overlapping PATCHes
+    # drop a key — and the save flow keeps its save anchor in this same bag, so
+    # the lost key can be the anchor. See ``apply_view_state_patch``.
+    await apply_view_state_patch(session, ProjectOrm, project_id, request.patch)
 
-    await session.flush()
     await session.commit()
     await session.refresh(project)
     return project
