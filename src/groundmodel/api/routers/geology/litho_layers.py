@@ -18,9 +18,13 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import (
+    get_in_project_or_404,
+    litho_layer_write_conflict,
+)
 from groundmodel.api.schemas.project.litho_layer import (
     LithoLayerBatchStatusRequest,
     LithoLayerBatchStatusResponse,
@@ -181,7 +185,13 @@ async def bulk_create_layers(
     ------
     HTTPException(404)
         When the model does not exist or does not belong to
-        ``project_id``.
+        ``project_id``, or when a ``formation_id`` in the body is unknown
+        or belongs to another project (the use case's scope guard).
+    HTTPException(409)
+        When the layers would overlap an accepted layer on the same
+        investigation column (``litho_layer_overlap``).
+    HTTPException(422)
+        When any other database constraint rejects the write.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -206,7 +216,28 @@ async def bulk_create_layers(
         )
         for item in request.layers
     ]
-    created = await use_case.execute(model_id, payloads, project_id=project_id)
+    try:
+        created = await use_case.execute(model_id, payloads, project_id=project_id)
+    except ValueError as err:
+        # The application-layer scope guard's contract: an unknown or
+        # cross-project formation_id is "not found", deliberately not
+        # distinguishing the two so a caller cannot probe another project.
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    except IntegrityError as err:
+        # The deferred no-overlap exclusion (and any other constraint) fires at
+        # commit, i.e. after the response would otherwise have been built.
+        # Roll back explicitly: the session is poisoned and the seeding call
+        # below would fail on it.
+        await session.rollback()
+        raise litho_layer_write_conflict(
+            err,
+            overlap_message=(
+                "These layers would overlap an accepted layer on the same "
+                "investigation. Move the neighbouring boundary first, or delete "
+                "the overlapping layer, before creating them."
+            ),
+        ) from err
     if request.section_id is not None and created:
         # The created layers' ids are valid contact ids by Shape A's
         # UUID-preservation rule (LL→FC trigger materialises accepted
@@ -321,8 +352,12 @@ async def batch_update_status(
     HTTPException(404)
         When the model does not exist or does not belong to
         ``project_id``.
+    HTTPException(409)
+        When accepting the batch would overlap an accepted layer on the same
+        investigation column (``litho_layer_overlap``).
     HTTPException(422)
-        When the batch status update is invalid (``BatchUpdateError``).
+        When the batch status update is invalid (``BatchUpdateError``), or when
+        any other database constraint rejects the write.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -339,6 +374,20 @@ async def batch_update_status(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(err),
+        ) from err
+    except IntegrityError as err:
+        # Accept-all promotes rows to 'accepted', which is exactly what the
+        # deferred no-overlap exclusion guards — and it fires at the use case's
+        # COMMIT, after every validation the batch does itself has passed. Roll
+        # back explicitly: the session is poisoned for anything after this.
+        await session.rollback()
+        raise litho_layer_write_conflict(
+            err,
+            overlap_message=(
+                "One or more of these layers would overlap an accepted layer on "
+                "the same investigation. Clear the column or move the neighbouring "
+                "boundary before accepting the batch."
+            ),
         ) from err
     return LithoLayerBatchStatusResponse(
         updated_count=result.updated_count,
@@ -384,8 +433,12 @@ async def batch_update_layers(
     HTTPException(404)
         When the model does not exist or does not belong to
         ``project_id``.
+    HTTPException(409)
+        When the patched depths would overlap an accepted layer on the same
+        investigation column (``litho_layer_overlap``).
     HTTPException(422)
-        When the batch update is invalid (``BatchUpdateError``).
+        When the batch update is invalid (``BatchUpdateError``), or when any
+        other database constraint rejects the write.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -405,6 +458,19 @@ async def batch_update_layers(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(err),
+        ) from err
+    except IntegrityError as err:
+        # A batch patch can move depths and/or set status='accepted', both of
+        # which the deferred no-overlap exclusion guards; it fires at the use
+        # case's COMMIT. Same handling as the batch-status sibling above.
+        await session.rollback()
+        raise litho_layer_write_conflict(
+            err,
+            overlap_message=(
+                "One or more of these layers would overlap an accepted layer on "
+                "the same investigation. Clear the column or move the neighbouring "
+                "boundary before applying the batch."
+            ),
         ) from err
     return LithoLayerBatchUpdateResponse(
         updated_count=result.updated_count,
