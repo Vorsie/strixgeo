@@ -539,16 +539,32 @@ export interface BatchAcceptLithoSuggestionsResponse {
   updated_section: CrossSectionResponse | null
 }
 
+/**
+ * What auto-populate may do to the formations the caller did NOT select.
+ *
+ * ``'add'`` — create / update the selected keys only; nothing is ever deleted.
+ * ``'overwrite'`` — the model becomes exactly the selection.
+ *
+ * Both the server default and every client default are ``'add'``: sending
+ * ``selected_keys`` is a statement about what to create, never consent to
+ * delete (2026-08-03 data-loss ruling).
+ */
+export type AutoPopulateMode = 'add' | 'overwrite'
+
 /** Response from ``POST .../contacts/auto-populate``. */
 export interface AutoPopulateFromStratigraphyResponse {
   created_contact_ids: string[]
   created_formation_ids: string[]
   /**
    * Formation ids deleted server-side because their canonical key was not in
-   * the selected_keys set. Populated only on the Fill-from-boreholes path
-   * (selected_keys provided). Empty on the unfiltered Seed path.
+   * the selected_keys set. Populated only in ``overwrite`` mode on the
+   * Fill-from-boreholes path. Empty otherwise.
    */
   deleted_formation_ids: string[]
+  /** Display names of ``deleted_formation_ids``, same order — toast material. */
+  deleted_formation_names?: string[]
+  /** The mode the server actually ran under. */
+  mode?: AutoPopulateMode
   skipped_existing: number
   skipped_unmatched: number
   skipped_no_stratigraphy: number
