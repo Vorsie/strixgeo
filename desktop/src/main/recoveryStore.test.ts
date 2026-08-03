@@ -18,11 +18,18 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  RECOVERY_CORRUPT_FILE_SUFFIX,
+  RECOVERY_DECLINED_FILE_SUFFIX,
   RECOVERY_DIR_NAME,
   RECOVERY_FILE_SUFFIX,
   RECOVERY_FORMAT_VERSION,
   RECOVERY_KIND,
   configureRecoveryStore,
+  corruptRecoveryFilePath,
+  declineRecovery,
+  declinedRecoveryFilePath,
+  deleteDeclinedRecovery,
+  deletePrimaryRecovery,
   deleteRecovery,
   isValidProjectId,
   listRecovery,
@@ -57,9 +64,13 @@ function plantRawFile(fileName: string, contents: string): void {
  * disk can only come from corruption, an older build, or a hand edit, which
  * is exactly what this simulates.
  */
-function plantOversizedFile(projectId: string, fillerChars: number): void {
+function plantOversizedFile(
+  projectId: string,
+  fillerChars: number,
+  suffix: string = RECOVERY_FILE_SUFFIX,
+): void {
   plantRawFile(
-    `${projectId}${RECOVERY_FILE_SUFFIX}`,
+    `${projectId}${suffix}`,
     JSON.stringify({
       kind: RECOVERY_KIND,
       format_version: RECOVERY_FORMAT_VERSION,
@@ -463,14 +474,21 @@ describe('readRecovery', () => {
     expect(readRecovery(PROJECT_A)).toBe(null)
   })
 
-  it('refuses a file above the read cap instead of loading it into memory', () => {
+  it('never loads a file above the read cap into memory — it quarantines it', () => {
+    // This used to throw. It no longer does, because a primary file that
+    // cannot be read is garbage rather than state: leaving it in place made it
+    // shadow a perfectly good declined copy forever (see the quarantine block
+    // below). The property the test was written for is unchanged — the cap is
+    // decided from ``statSync``, so the bytes are never read.
     configureRecoveryStore({
       userDataDir,
       appVersion: '9.9.9-test',
       fileCapBytes: 200,
     })
     plantOversizedFile(PROJECT_A, 500)
-    expect(() => readRecovery(PROJECT_A)).toThrow(/cap/i)
+    expect(readRecovery(PROJECT_A)).toBe(null)
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(false)
+    expect(existsSync(corruptRecoveryFilePath(PROJECT_A))).toBe(true)
   })
 })
 
@@ -655,5 +673,383 @@ describe('deleteRecovery', () => {
     writeRecovery(PROJECT_B, { b: 2 })
     deleteRecovery(PROJECT_A)
     expect(listRecovery().map(d => d.projectId)).toEqual([PROJECT_B])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// declineRecovery — the declined slot
+//
+// Owner decision 2026-08-03: "Open without restoring" must PRESERVE the
+// recovery copy, Word-style, so a restart re-offers the same unsaved work.
+// The copy dies only when the user picks Discard in the prompt. Moving the
+// file to a second slot is what makes that possible: the autosave scheduler
+// owns the primary slot and would otherwise overwrite (or, on a clean exit,
+// delete) the declined session's only copy.
+// ---------------------------------------------------------------------------
+
+describe('declineRecovery', () => {
+  it('moves the recovery file onto the declined slot', () => {
+    writeRecovery(PROJECT_A, { generation: 1 }, { projectName: 'Kanaal Noord' })
+
+    expect(declineRecovery(PROJECT_A)).toBe(true)
+
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(false)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_A))).toBe(true)
+    expect(readdirSync(recoveryDir())).toEqual([
+      `${PROJECT_A}${RECOVERY_DECLINED_FILE_SUFFIX}`,
+    ])
+  })
+
+  it('reports false when there is nothing to decline', () => {
+    expect(declineRecovery(PROJECT_A)).toBe(false)
+    writeRecovery(PROJECT_B, { b: 1 })
+    expect(declineRecovery(PROJECT_A)).toBe(false)
+  })
+
+  it('overwrites an older declined copy — the newest decline wins', () => {
+    // Declining twice without an intervening Discard is ordinary: open,
+    // decline, work, crash, open, decline again. The second decline carries
+    // the newer session state, so the older copy must not survive alongside it
+    // and must not be the one a later restart offers.
+    writeRecovery(PROJECT_A, { generation: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_A, { generation: 2 })
+
+    expect(declineRecovery(PROJECT_A)).toBe(true)
+
+    expect(readdirSync(recoveryDir())).toEqual([
+      `${PROJECT_A}${RECOVERY_DECLINED_FILE_SUFFIX}`,
+    ])
+    expect(readRecovery(PROJECT_A)).toEqual({ generation: 2 })
+  })
+
+  it('refuses a traversal-shaped id rather than renaming an arbitrary file', () => {
+    expect(() => declineRecovery('../../../../Windows/System32/foo')).toThrow(/project id/i)
+  })
+
+  it('declines whichever spelling of the id asks for it', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    expect(declineRecovery(PROJECT_A.toUpperCase())).toBe(true)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_A))).toBe(true)
+  })
+
+  it('leaves other projects untouched', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    writeRecovery(PROJECT_B, { b: 2 })
+    declineRecovery(PROJECT_A)
+    expect(existsSync(recoveryFilePath(PROJECT_B))).toBe(true)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_B))).toBe(false)
+  })
+})
+
+describe('reading a declined recovery copy', () => {
+  it('falls back to the declined copy when no primary file exists', () => {
+    // This is the whole point of the slot: after "Open without restoring",
+    // a restart must still be offered the same unsaved work.
+    writeRecovery(PROJECT_A, { ghosts: [1, 2, 3] }, { projectName: 'Kanaal Noord' })
+    declineRecovery(PROJECT_A)
+    expect(readRecovery(PROJECT_A)).toEqual({ ghosts: [1, 2, 3] })
+  })
+
+  it('prefers the primary copy when both slots exist', () => {
+    // A crash AFTER a decline produced newer work than the declined session.
+    writeRecovery(PROJECT_A, { generation: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_A, { generation: 2 })
+    expect(readRecovery(PROJECT_A)).toEqual({ generation: 2 })
+  })
+
+  it('lists a declined-only project, flagged as declined', () => {
+    writeRecovery(PROJECT_A, { a: 1 }, { projectName: 'Kanaal Noord' })
+    declineRecovery(PROJECT_A)
+
+    const list = listRecovery()
+    expect(list).toHaveLength(1)
+    expect(list[0].projectId).toBe(PROJECT_A)
+    expect(list[0].projectName).toBe('Kanaal Noord')
+    expect(list[0].declined).toBe(true)
+    expect(list[0].filePath).toBe(declinedRecoveryFilePath(PROJECT_A))
+  })
+
+  it('lists one entry — the primary — when both slots exist', () => {
+    writeRecovery(PROJECT_A, { generation: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_A, { generation: 2 })
+
+    const list = listRecovery()
+    expect(list).toHaveLength(1)
+    expect(list[0].declined).toBe(false)
+    expect(list[0].filePath).toBe(recoveryFilePath(PROJECT_A))
+  })
+
+  it('flags a freshly written file as not declined', () => {
+    expect(writeRecovery(PROJECT_A, { a: 1 }).declined).toBe(false)
+    expect(listRecovery()[0].declined).toBe(false)
+  })
+
+  it('refuses a declined file above the read cap, exactly like a primary one', () => {
+    // The cap is a property of the read path, not of the slot — a corrupt
+    // declined copy must not be loadable into the main process either.
+    configureRecoveryStore({ userDataDir, appVersion: '9.9.9-test', fileCapBytes: 200 })
+    plantOversizedFile(PROJECT_A, 500, RECOVERY_DECLINED_FILE_SUFFIX)
+    expect(() => readRecovery(PROJECT_A)).toThrow(/cap/i)
+  })
+
+  it('skips an over-cap declined file on list rather than parsing it', () => {
+    configureRecoveryStore({ userDataDir, appVersion: '9.9.9-test', fileCapBytes: 400 })
+    writeRecovery(PROJECT_A, { small: 1 })
+    plantOversizedFile(PROJECT_B, 2000, RECOVERY_DECLINED_FILE_SUFFIX)
+    expect(listRecovery().map(d => d.projectId)).toEqual([PROJECT_A])
+  })
+
+  it('skips a declined file whose envelope id disagrees with its filename', () => {
+    plantRawFile(
+      `${PROJECT_B}${RECOVERY_DECLINED_FILE_SUFFIX}`,
+      JSON.stringify({
+        kind: RECOVERY_KIND,
+        format_version: RECOVERY_FORMAT_VERSION,
+        project_id: PROJECT_A,
+        project_name: 'x',
+        written_at: new Date().toISOString(),
+        app_version: '1.0.0',
+        payload: {},
+      }),
+    )
+    expect(listRecovery()).toEqual([])
+    expect(readRecovery(PROJECT_B)).toBe(null)
+  })
+})
+
+describe('deleteRecovery clears both slots', () => {
+  it('removes the declined copy as well as the primary one', () => {
+    // Discard is the ONE path that kills the copy, so it must not leave a
+    // declined file behind to be re-offered at the next launch.
+    writeRecovery(PROJECT_A, { generation: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_A, { generation: 2 })
+
+    expect(deleteRecovery(PROJECT_A)).toBe(true)
+    expect(readdirSync(recoveryDir())).toEqual([])
+    expect(readRecovery(PROJECT_A)).toBe(null)
+    expect(listRecovery()).toEqual([])
+  })
+
+  it('removes a declined-only copy and reports that it did', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    declineRecovery(PROJECT_A)
+    expect(deleteRecovery(PROJECT_A)).toBe(true)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_A))).toBe(false)
+    expect(deleteRecovery(PROJECT_A)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deletePrimaryRecovery — the autosave scheduler's clear
+//
+// Two different clears exist for two different intents, and conflating them
+// was the bug this block pins. The prompt's Discard means "destroy this work"
+// and clears BOTH slots. Every other clear — a save, a discard-and-close, a
+// clean close, a quit, the scheduler's dirty→clean transition — only means
+// "THIS session's delta now has a home", and must leave a copy the user
+// declined in an earlier session exactly where it is, or "Open without
+// restoring" would again lose the work within seconds of the next save.
+// ---------------------------------------------------------------------------
+
+describe('deletePrimaryRecovery', () => {
+  it('removes the primary file and reports that it did', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    expect(deletePrimaryRecovery(PROJECT_A)).toBe(true)
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(false)
+  })
+
+  it('leaves a declined copy in place — only Discard may destroy that', () => {
+    // The sequence the owner decision describes: a previous session's work is
+    // declined, the new session gets dirty (so the scheduler writes again) and
+    // then reaches a clean exit. The declined copy has to survive it.
+    writeRecovery(PROJECT_A, { generation: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_A, { generation: 2 })
+
+    expect(deletePrimaryRecovery(PROJECT_A)).toBe(true)
+
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(false)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_A))).toBe(true)
+    // And the declined copy is still what a restart would be offered.
+    expect(readRecovery(PROJECT_A)).toEqual({ generation: 1 })
+    expect(listRecovery().map(d => d.declined)).toEqual([true])
+  })
+
+  it('reports false when only a declined copy exists', () => {
+    // A session that never got dirty clears nothing — the return value is the
+    // caller's signal that it did not, in fact, touch the kept copy.
+    writeRecovery(PROJECT_A, { a: 1 })
+    declineRecovery(PROJECT_A)
+    expect(deletePrimaryRecovery(PROJECT_A)).toBe(false)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_A))).toBe(true)
+  })
+
+  it('is a no-op when nothing was ever written', () => {
+    expect(existsSync(recoveryDir())).toBe(false)
+    expect(deletePrimaryRecovery(PROJECT_A)).toBe(false)
+  })
+
+  it('refuses a traversal-shaped id', () => {
+    expect(() => deletePrimaryRecovery('../../etc/passwd')).toThrow()
+  })
+
+  it('leaves other projects untouched', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    writeRecovery(PROJECT_B, { b: 2 })
+    deletePrimaryRecovery(PROJECT_A)
+    expect(listRecovery().map(d => d.projectId)).toEqual([PROJECT_B])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deleteDeclinedRecovery — the third clear
+//
+// Restoring a copy that CAME from the declined slot has to end the decline, or
+// the same work is offered at every launch forever: the restore writes the
+// primary slot, the declined file stays behind it, and the next clean exit
+// clears only the primary — leaving the declined copy to re-offer. One verb
+// per intent (primary / declined / both) rather than a flag, matching the
+// channel-per-verb shape of the IPC surface.
+// ---------------------------------------------------------------------------
+
+describe('deleteDeclinedRecovery', () => {
+  it('removes the declined copy and reports that it did', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    declineRecovery(PROJECT_A)
+    expect(deleteDeclinedRecovery(PROJECT_A)).toBe(true)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_A))).toBe(false)
+  })
+
+  it('leaves the primary file alone — the restored work still needs a copy', () => {
+    // The order the restore path uses: write the primary first (so the
+    // restored, at-risk content has a durable home), only then end the
+    // decline. The declined clear must not touch what that write just made.
+    writeRecovery(PROJECT_A, { generation: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_A, { generation: 2 })
+
+    expect(deleteDeclinedRecovery(PROJECT_A)).toBe(true)
+
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(true)
+    expect(readRecovery(PROJECT_A)).toEqual({ generation: 2 })
+  })
+
+  it('is a no-op when the copy never came from the declined slot', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    expect(deleteDeclinedRecovery(PROJECT_A)).toBe(false)
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(true)
+  })
+
+  it('is a no-op when the recovery directory has never been created', () => {
+    expect(existsSync(recoveryDir())).toBe(false)
+    expect(deleteDeclinedRecovery(PROJECT_A)).toBe(false)
+  })
+
+  it('refuses a traversal-shaped id', () => {
+    expect(() => deleteDeclinedRecovery('../../etc/passwd')).toThrow(/project id/i)
+  })
+
+  it('leaves other projects untouched', () => {
+    writeRecovery(PROJECT_A, { a: 1 })
+    declineRecovery(PROJECT_A)
+    writeRecovery(PROJECT_B, { b: 1 })
+    declineRecovery(PROJECT_B)
+    deleteDeclinedRecovery(PROJECT_A)
+    expect(existsSync(declinedRecoveryFilePath(PROJECT_B))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Quarantining an unreadable primary
+//
+// "Presence wins" is the right rule for a READABLE primary: a primary
+// alongside a declined copy is strictly newer work. It is the wrong rule for
+// garbage. An unparseable, foreign, stale or over-cap primary is not state —
+// and left in place it hid a valid declined copy at every launch, forever,
+// with no path that ever cleaned it up. So an unreadable primary is moved
+// aside and the resolve continues to the declined slot.
+// ---------------------------------------------------------------------------
+
+describe('an unreadable primary is quarantined, not left to shadow the declined copy', () => {
+  it('offers the declined copy and moves the corrupt primary aside', () => {
+    writeRecovery(PROJECT_A, { ghosts: [1, 2, 3] }, { projectName: 'Kanaal Noord' })
+    declineRecovery(PROJECT_A)
+    plantRawFile(`${PROJECT_A}${RECOVERY_FILE_SUFFIX}`, '{"kind": "strixgeo.rec')
+
+    expect(readRecovery(PROJECT_A)).toEqual({ ghosts: [1, 2, 3] })
+
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(false)
+    expect(existsSync(corruptRecoveryFilePath(PROJECT_A))).toBe(true)
+    // And the start screen sees the same single, declined-flagged offer.
+    const list = listRecovery()
+    expect(list).toHaveLength(1)
+    expect(list[0].declined).toBe(true)
+    expect(list[0].filePath).toBe(declinedRecoveryFilePath(PROJECT_A))
+  })
+
+  it('reports nothing to restore — and still quarantines — when the primary is alone', () => {
+    plantRawFile(`${PROJECT_A}${RECOVERY_FILE_SUFFIX}`, 'not json at all')
+
+    expect(readRecovery(PROJECT_A)).toBe(null)
+
+    expect(existsSync(recoveryFilePath(PROJECT_A))).toBe(false)
+    expect(existsSync(corruptRecoveryFilePath(PROJECT_A))).toBe(true)
+    expect(listRecovery()).toEqual([])
+  })
+
+  it('quarantines a primary from a format version we do not speak', () => {
+    plantRawFile(
+      `${PROJECT_A}${RECOVERY_FILE_SUFFIX}`,
+      JSON.stringify({
+        kind: RECOVERY_KIND,
+        format_version: RECOVERY_FORMAT_VERSION - 1,
+        project_id: PROJECT_A,
+        project_name: 'x',
+        written_at: new Date().toISOString(),
+        app_version: '0.0.1',
+        payload: { a: 1 },
+      }),
+    )
+    expect(readRecovery(PROJECT_A)).toBe(null)
+    expect(existsSync(corruptRecoveryFilePath(PROJECT_A))).toBe(true)
+  })
+
+  it('overwrites an older quarantine with the newer corrupt primary', () => {
+    // The quarantine is a diagnostic, not an archive. Keeping every corrupt
+    // file would grow the directory without bound in exactly the situation
+    // where something is repeatedly writing garbage.
+    plantRawFile(`${PROJECT_A}${RECOVERY_FILE_SUFFIX}`, 'first corruption')
+    readRecovery(PROJECT_A)
+    plantRawFile(`${PROJECT_A}${RECOVERY_FILE_SUFFIX}`, 'second corruption')
+    readRecovery(PROJECT_A)
+
+    expect(readFileSync(corruptRecoveryFilePath(PROJECT_A), 'utf-8')).toBe('second corruption')
+    expect(
+      readdirSync(recoveryDir()).filter(n => n.endsWith(RECOVERY_CORRUPT_FILE_SUFFIX)),
+    ).toHaveLength(1)
+  })
+
+  it('is never listed as a recoverable entry in its own right', () => {
+    // The quarantine suffix is disjoint from both slot suffixes, so the
+    // directory scan cannot mistake it for an offer.
+    plantRawFile(`${PROJECT_A}${RECOVERY_CORRUPT_FILE_SUFFIX}`, 'garbage')
+    writeRecovery(PROJECT_B, { b: 1 })
+    expect(listRecovery().map(d => d.projectId)).toEqual([PROJECT_B])
+  })
+
+  it('goes with the rest when the user discards the work', () => {
+    // Discard means "nothing about this project's unsaved work survives".
+    // A quarantined file left behind is clutter the user has no UI for.
+    writeRecovery(PROJECT_A, { a: 1 })
+    declineRecovery(PROJECT_A)
+    plantRawFile(`${PROJECT_A}${RECOVERY_FILE_SUFFIX}`, 'corrupt')
+    readRecovery(PROJECT_A)
+
+    expect(deleteRecovery(PROJECT_A)).toBe(true)
+    expect(readdirSync(recoveryDir())).toEqual([])
   })
 })
