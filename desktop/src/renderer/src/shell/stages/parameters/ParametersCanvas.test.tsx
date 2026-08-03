@@ -14,15 +14,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import ParametersCanvas from './ParametersCanvas'
 
 // Mock useShell to return the minimal slices the three tabs read.
-// PerTestTab reads investigations.{cpts, boreholes, plotMap};
-// PerUnitTab reads geoModel.lithoFormations; MethodConfigTab reads
-// nothing from the bus.
+// PerTestTab reads investigations.{cpts, boreholes, plotMap} and
+// coordinator.{selectedId, handleSelect} (a row click selects the CPT so the
+// stage inspector plots it); PerUnitTab reads geoModel.lithoFormations;
+// MethodConfigTab reads nothing from the bus.
 vi.mock('../../ShellContext', () => ({
   useShell: () => ({
     investigations: {
       cpts: [],
       boreholes: [],
       plotMap: new Map(),
+    },
+    coordinator: {
+      selectedId: null,
+      handleSelect: async () => {},
     },
     geoModel: {
       lithoFormations: [],
