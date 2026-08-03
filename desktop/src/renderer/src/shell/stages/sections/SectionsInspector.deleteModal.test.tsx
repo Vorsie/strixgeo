@@ -378,6 +378,8 @@ function makeCtx(overrides: {
       sectionsDeepLinkTarget: null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
+    handleSelectWithoutView: vi.fn(),
+    markMutated: vi.fn(),
     },
   }
 }
