@@ -25,6 +25,27 @@ class DivideBoreholeResponse(BaseModel):
         Geotech ``geological_formation`` rows created in this call (find-or-create;
         a re-run lists only rows not already in the DB from a prior SAB or
         DivideBoreholes run).
+    reanchored_tie_count : int
+        Accepted packing ties touching a borehole column that were carried onto
+        the rebuilt bands.  Deleting the borehole bands cascades their edges
+        away, so without this pass a hand-drawn tie would vanish on every
+        re-divide.  Includes the ties counted in ``review_tie_reasons``.
+    review_tie_reasons : dict[str, int]
+        Carried ties the engineer must confirm, per reason: ``class_changed`` /
+        ``ambiguous_band``.  Flagged, not lost.
+    lost_tie_count : int
+        Accepted ties on a borehole column that could not be carried — the
+        rebuild draws nothing where they were anchored.  Surface this: only the
+        engineer can redraw them.
+    lost_tie_reasons : dict[str, int]
+        Breakdown of ``lost_tie_count``: ``class_changed`` / ``interval_moved``
+        / ``band_absent``.  Never ``borehole_endpoint_deferred`` — that token
+        means "the borehole bands come back one verb later", and this verb IS
+        that later step, so a borehole endpoint with no band here reads
+        ``band_absent``.
+    lost_tie_labels : list[str]
+        One line per lost tie naming both investigations and each endpoint's
+        depth range, so the engineer can find them in the section.
     """
 
     geotech_model_id: UUID = Field(
@@ -48,4 +69,41 @@ class DivideBoreholeResponse(BaseModel):
     created_formation_ids: list[UUID] = Field(
         default_factory=list,
         description="Newly created geotech geological_formation rows.",
+    )
+    reanchored_tie_count: int = Field(
+        0,
+        description=(
+            "Accepted packing ties on a borehole column that were carried onto "
+            "the rebuilt bands (includes the flagged ones)."
+        ),
+    )
+    review_tie_reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Carried ties the engineer must confirm, per reason: class_changed / "
+            "ambiguous_band. Not losses — they survived, flagged."
+        ),
+    )
+    lost_tie_count: int = Field(
+        0,
+        description=(
+            "Accepted ties on a borehole column whose band is not in the rebuild, "
+            "so they could not be carried. The engineer has to redraw them."
+        ),
+    )
+    lost_tie_reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Why the lost ties were lost: class_changed / interval_moved / band_absent. "
+            "Never borehole_endpoint_deferred — this verb is the step that token defers to."
+        ),
+    )
+    lost_tie_labels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "One line per lost tie naming BOTH investigations and each endpoint's "
+            "depth range, e.g. 'GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m'. "
+            "A count alone tells the engineer accepted work vanished and nothing "
+            "about where to redraw it; the ids were only ever in a server log."
+        ),
     )
