@@ -17,7 +17,11 @@ The emitted script:
    (youngest first = highest ``display_order`` first). Assigns the
    matching material to each.
 5. Creates one ``borehole`` per investigation column with a known
-   surface elevation. Sets ``Head`` to the surface z.
+   surface elevation.  It does NOT set ``Head``: in PLAXIS that is
+   the borehole's water head (phreatic level), which Strix does not
+   know — the column top is communicated by ``setsoillayerlevel``
+   below.  The script header tells the engineer the water table was
+   left unset (audit 2026-08-02).
 6. For each (borehole, global layer) pair, calls
    ``g_i.setsoillayerlevel`` with the contact's absolute z
    (``surface_elevation - depth_top``). Formations absent at a
@@ -187,6 +191,10 @@ class PlaxisExporter(ProjectExporter):
                 "  with per-formation parameters (Phase 5).",
                 "* Stratigraphic order follows display_order from Strix",
                 "  (oldest first → PLAXIS layer 0 = topmost = youngest).",
+                "* NO WATER TABLE IS SET. This script writes geometry only —",
+                "  it does not set any borehole Head (phreatic level), so",
+                "  PLAXIS uses its own default. Set the water table before",
+                "  generating initial stresses; Strix does not export one.",
                 "* Boreholes without a recorded surface elevation are not",
                 "  exportable to PLAXIS 3D and were dropped during snapshot",
                 "  assembly. Set Z on those investigations in Strix to",
@@ -242,8 +250,13 @@ class PlaxisExporter(ProjectExporter):
             deepest_base_m = max(ly.base_depth_m for ly in column_layers)
 
             bh_var = f"bh_{i}"
+            # No ``.Head`` here on purpose: a PLAXIS borehole's Head is the
+            # WATER head (phreatic level), not the top of the soil column.
+            # Setting it to the surface elevation generated a fully saturated
+            # model at every column (audit 2026-08-02). The column top is
+            # emitted by setsoillayerlevel below; the water table stays the
+            # engineer's to set, and the header says so.
             lines.append(f"{bh_var} = g_i.borehole({x!r}, {y!r})  # surface z = {surface_z}")
-            lines.append(f"{bh_var}.Head = {surface_z!r}")
 
             lines.extend(
                 emit_borehole_layer_levels(
