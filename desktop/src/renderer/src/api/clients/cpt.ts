@@ -54,8 +54,50 @@ export interface CptResponse {
   elevation_source: string
   pre_drill_m: number
   cone_area_ratio: number | null
+  // Depth to groundwater below ground surface (positive down), or null when
+  // none is recorded — every DOV-imported CPT is in that state.
+  water_depth_m: number | null
+  // Provenance — ``"gef"`` (parsed from MEASUREMENTVAR 14) or ``"engineer"``
+  // (typed in the Parameters inspector; NOT overwritten by a re-import).
+  water_depth_source: string | null
   max_depth_m: number | null
   n_rows: number | null
+}
+
+/** Where the water table a derived profile used came from. */
+export type GwtProvenance = 'recorded' | 'engineer' | 'assumed'
+
+/**
+ * Both Robertson SBT classifications per depth point, from
+ * ``GET /cpt/{id}/sbt-profile``.
+ *
+ * All arrays are parallel to ``depths_m`` and ordered shallow → deep, matching
+ * ``CptPlotResponse`` so both render on one shared depth axis. ``null`` marks a
+ * depth point neither classifier could evaluate (missing sleeve friction) —
+ * never a filled-in guess.
+ *
+ * ``gwt_m`` / ``gwt_source`` are the provenance of the NORMALISED columns: any
+ * surface drawing them must say which water table they were derived under
+ * (Data Integrity Rule 1). The non-normalised columns do not use it.
+ */
+export interface CptSbtProfileResponse {
+  cpt_id: string
+  depths_m: number[]
+  /** Normalised Ic (Robertson 2015 pipeline) — identical to ``plot.ic``. */
+  ic: (number | null)[]
+  /** Robertson (2009) chart zone 1–9, incl. the extended organic/peat outcome. */
+  zone_normalised: (number | null)[]
+  /** Non-normalised index I_SBT (Robertson 2010) — no stress profile needed. */
+  i_sbt: (number | null)[]
+  /** SBT zone 2–7 from ``i_sbt``; zones 1/8/9 are not identifiable from it. */
+  zone_non_normalised: (number | null)[]
+  gwt_m: number
+  gwt_source: GwtProvenance
+}
+
+/** Body of ``PATCH /cpt/{id}/water-table``. ``null`` clears the value. */
+export interface WaterTablePatchBody {
+  water_depth_m: number | null
 }
 
 /**
@@ -155,6 +197,39 @@ export const cptClient = {
 
   plot: (id: string, projectId: string): Promise<CptPlotResponse> =>
     get(`/cpt/${id}/plot?project_id=${projectId}`),
+
+  // Both Robertson classifications per depth point — drives the Parameters
+  // stage's per-CPT plot surface. Derived on read; nothing is stored, so this
+  // is always fetched fresh after a water-table edit.
+  //
+  // ``unitWeights`` MUST carry the engineer's Settings → Litho segmenter
+  // values, the same ones ``buildSuggestBody`` sends to suggest-litho. The
+  // normalised strip and the ghost boundaries are then normalised against ONE
+  // effective-stress profile; omit them and moving γ_unsat 16 → 19 makes the
+  // two surfaces disagree for a reason the strip cannot show.
+  sbtProfile: (
+    id: string,
+    projectId: string,
+    unitWeights?: { gunsatKNm3?: number; gwaterKNm3?: number },
+  ): Promise<CptSbtProfileResponse> => {
+    const params = new URLSearchParams({ project_id: projectId })
+    if (unitWeights?.gunsatKNm3 !== undefined) {
+      params.set('gunsat_kNm3', String(unitWeights.gunsatKNm3))
+    }
+    if (unitWeights?.gwaterKNm3 !== undefined) {
+      params.set('gwater_kNm3', String(unitWeights.gwaterKNm3))
+    }
+    return get(`/cpt/${id}/sbt-profile?${params.toString()}`)
+  },
+
+  // The engineer's own water table. Stamps provenance ``engineer`` server-side,
+  // which a later re-import of the same file will not overwrite. Sending
+  // ``water_depth_m: null`` clears it back to "nothing recorded".
+  patchWaterTable: (
+    id: string,
+    projectId: string,
+    body: WaterTablePatchBody,
+  ): Promise<CptResponse> => patch(`/cpt/${id}/water-table?project_id=${projectId}`, body),
 
   // Batched plot fetch for the cross-section panel. Folds N
   // per-CPT round-trips into one. Order of the response isn't
