@@ -96,6 +96,47 @@ function aggregateConfidence(
   return 'high'
 }
 
+/** Where a unit's NAD class came from, for the provenance badge. */
+type ClassProvenance = 'cpt' | 'partial' | 'none'
+
+/**
+ * Classify where a unit's NAD class came from.
+ *
+ * The confidence a band persists IS its provenance: ``subdivide_all_bodies`` and the
+ * ``cpt_interpolated`` borehole fill write 'medium' / 'high' from a real qc window,
+ * while the borehole fallbacks (``body_min``, ``absolute_min`` — see
+ * ``divide_boreholes._BOREHOLE_CONFIDENCE_MAP``) write 'low'.
+ *
+ * Aggregation is NOT worst-wins here, and that is the point. Worst-wins is right for
+ * the confidence badge (one weak band weakens the unit) and wrong for provenance: a
+ * unit with 141 cone bands and one fallback has emphatically had a cone in it, and
+ * labelling it "No CPT" is as untrue as stamping "CPT est." on a pure fallback. The
+ * mixture gets its own answer instead of being rounded to either end.
+ *
+ * Parameters
+ * ----------
+ * layers
+ *     All geotech layers in the active model.
+ * formationId
+ *     The unit to classify.
+ *
+ * Returns
+ * -------
+ * ClassProvenance
+ *     ``'cpt'`` when every band came from a qc window, ``'partial'`` when some did,
+ *     ``'none'`` when none did (or the unit has no bands at all).
+ */
+function classifyClassProvenance(
+  layers: readonly LithoLayerResponse[],
+  formationId: string,
+): ClassProvenance {
+  const fLayers = layers.filter(l => l.formation_id === formationId)
+  if (fLayers.length === 0) return 'none'
+  const fromCone = fLayers.some(l => l.confidence === 'high' || l.confidence === 'medium')
+  if (!fromCone) return 'none'
+  return fLayers.some(l => l.confidence === 'low') ? 'partial' : 'cpt'
+}
+
 // ---------------------------------------------------------------------------
 // GeotechnicalUnitRow — one NAD unit row (module scope — inner component
 // re-identifies every parent render and React would unmount/remount it)
@@ -111,6 +152,8 @@ interface GeotechnicalUnitRowProps {
    * layers exist (no badge rendered).
    */
   confidenceLevel: 'low' | 'medium' | 'high' | null
+  /** Where this unit's NAD class came from — drives the provenance badge. */
+  classProvenance: ClassProvenance
   /**
    * Whether this row is the currently-selected body's formation (S2 — blue
    * selection tint + ring so the roster highlights the selected body).
@@ -132,6 +175,8 @@ interface GeotechnicalUnitRowProps {
  *     All contacts in the active geotech model for per-unit contact counting.
  * confidenceLevel
  *     Aggregated confidence, or null to suppress the badge.
+ * classProvenance
+ *     Where the unit's class came from — ``'cpt'`` / ``'partial'`` / ``'none'``.
  *
  * Returns
  * -------
@@ -142,6 +187,7 @@ function GeotechnicalUnitRow({
   f,
   geotechContacts,
   confidenceLevel,
+  classProvenance,
   isSelected = false,
 }: GeotechnicalUnitRowProps): JSX.Element {
   const contactCount = geotechContacts.filter(c => c.formation_id === f.id).length
@@ -179,16 +225,48 @@ function GeotechnicalUnitRow({
         {label}
       </span>
 
-      {/* "CPT est." badge — only on CPT-classified units (nad_class !== null).
-          A null nad_class is a degenerate fallback (no CPTs for the lithology);
-          the row shows a neutral swatch + no label, never a "No qc" text. */}
-      {f.nad_class !== null && (
+      {/* Provenance badge — keyed on where the BANDS came from, not on
+          ``nad_class !== null``.
+          A non-null NAD class does NOT imply a cone touched the soil: the
+          borehole packing fill also emits ``body_min`` (the weakest class seen
+          elsewhere in the body) and ``absolute_min`` (a hard-coded lithology
+          floor from ``geotech_subdivision_constants``, used when the body holds
+          no same-lithology CPT data at all). Both persist as confidence 'low'
+          (``divide_boreholes._BOREHOLE_CONFIDENCE_MAP``), while CPT-derived
+          bands persist 'high' / 'medium'. Stamping "derived from CPT qc series"
+          on a fallback presents an invented value as a measured one — Data
+          Integrity rules 1 and 2.
+          The MIXTURE gets its own badge rather than being rounded to either
+          end: on the dev model 9 of 14 units carry a single fallback band among
+          dozens of cone-derived ones, and calling those "No CPT" is its own
+          untrue statement (and would erase the honest badge from the roster).
+          A null nad_class stays badge-free: the row is degenerate and shows a
+          neutral swatch with no label. */}
+      {f.nad_class !== null && classProvenance === 'cpt' && (
         <span
           className="text-[10px] rounded px-1 py-0 bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 flex-shrink-0"
           title="Classification derived from CPT qc series"
           data-testid={`cpt-est-badge-${f.id}`}
         >
           CPT est.
+        </span>
+      )}
+      {f.nad_class !== null && classProvenance === 'partial' && (
+        <span
+          className="text-[10px] rounded px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 flex-shrink-0"
+          title="Most bands derived from CPT qc series, but at least one is a conservative fallback (no cone in that body). Check the low-confidence bands before use."
+          data-testid={`partial-cpt-badge-${f.id}`}
+        >
+          CPT est. (partial)
+        </span>
+      )}
+      {f.nad_class !== null && classProvenance === 'none' && (
+        <span
+          className="text-[10px] rounded px-1 py-0 bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300 flex-shrink-0"
+          title="No CPT data behind this class — conservative fallback (weakest class in the body, or the lithology floor). Verify before use."
+          data-testid={`no-cpt-badge-${f.id}`}
+        >
+          No CPT
         </span>
       )}
 
@@ -276,6 +354,7 @@ function GeotechnicalUnitRoster({
           f={f}
           geotechContacts={geotechContacts}
           confidenceLevel={aggregateConfidence(geotechLayers, f.id)}
+          classProvenance={classifyClassProvenance(geotechLayers, f.id)}
           isSelected={selectedFormationId !== undefined && selectedFormationId !== null && f.id === selectedFormationId}
         />
       ))}
