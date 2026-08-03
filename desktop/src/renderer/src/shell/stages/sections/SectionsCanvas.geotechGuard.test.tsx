@@ -110,8 +110,19 @@ describe('handleCreateGeotechPackingCorrelation — guard rejection UX', () => {
     // GG0a: no API call — the guard returned before reaching the endpoint.
     expect(mockCreateContactCorrelation).not.toHaveBeenCalled()
 
-    // GG0b: no toast of any kind — the guard is truly silent (log.warn only).
-    expect(ctx.toasts.toast).not.toHaveBeenCalled()
+    // GG0b: the guard is truly silent (log.warn only) — no correlation toast.
+    // Scoped to correlation toasts rather than "no toast at all": the fixture
+    // section is a synthetic (0,0)→(100,0) line in EPSG:31370, which the
+    // coordinate-plausibility guard rightly flags on mount. That toast is a
+    // different subject and its own tests cover it.
+    expect(ctx.toasts.toast).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('correlation'),
+    )
+    expect(ctx.toasts.toast).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('packing'),
+    )
   })
 
   it('GG1 — 422 cross-body error surfaces the server message verbatim, not a generic fallback', async () => {
@@ -163,7 +174,12 @@ describe('handleCreateGeotechPackingCorrelation — guard rejection UX', () => {
 
     // GG2: no success toast — the edge was NOT optimistically added.
     expect(ctx.toasts.toast).not.toHaveBeenCalledWith('success', expect.any(String))
-    // Only one toast call total (the error one).
-    expect(ctx.toasts.toast).toHaveBeenCalledTimes(1)
+    // Exactly one ERROR toast, and it is the server's. (Counting ALL toasts
+    // would also catch the coordinate-plausibility toast the synthetic
+    // (0,0)→(100,0) fixture section legitimately raises on mount.)
+    const errorToasts = vi
+      .mocked(ctx.toasts.toast)
+      .mock.calls.filter(([type]) => type === 'error')
+    expect(errorToasts).toEqual([['error', serverMessage]])
   })
 })
