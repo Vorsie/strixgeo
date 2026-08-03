@@ -39,6 +39,14 @@ export interface UseRecoveryOfferOptions {
   projectName: string | null
   /** Called with the validated snapshot when the user chooses Restore. */
   onRestore: (snapshot: RecoverySnapshotV1) => void | Promise<void>
+  /**
+   * Called after Delete backup removes the file, to destroy whatever of the
+   * backup's contents ALSO lives outside it — today the lumping map's staged
+   * database slot. Owner ruling 2026-08-03: Delete backup means "no traces",
+   * and without this the one item the prompt itemises survives through its
+   * second home and the project reopens dirty with a discarded map.
+   */
+  onDiscardResidue?: () => Promise<void>
 }
 
 /** The offer plus the three answers the design allows. */
@@ -69,6 +77,7 @@ export function useRecoveryOffer({
   projectId,
   projectName,
   onRestore,
+  onDiscardResidue,
 }: UseRecoveryOfferOptions): UseRecoveryOfferResult {
   const [offer, setOffer] = useState<RecoveryOffer | null>(null)
 
@@ -292,6 +301,22 @@ export function useRecoveryOffer({
     try {
       await window.electron.deleteRecovery(current.projectId)
       log.info('recovery', `discarded the recovery file for ${current.projectId}`)
+      // "No traces" (owner ruling 2026-08-03) extends past the file: whatever
+      // of the backup's contents lives in a second home dies with it too.
+      // AFTER the delete, not before — a residue failure must not leave the
+      // file alive when the user was told it is gone.
+      if (onDiscardResidue !== undefined) {
+        try {
+          await onDiscardResidue()
+        } catch (err) {
+          log.warn(
+            'recovery',
+            `discard residue cleanup failed for ${current.projectId} — the backup file ` +
+              `is gone but its database-homed contents may linger until the next save`,
+            err,
+          )
+        }
+      }
     } catch (err) {
       // A failed delete must not strand the user in a dialog they explicitly
       // answered (hence the ``finally``). The offer reappears next launch,
@@ -300,7 +325,7 @@ export function useRecoveryOffer({
     } finally {
       closeOffer(current.projectId)
     }
-  }, [offer, claimAnswer, closeOffer])
+  }, [offer, claimAnswer, closeOffer, onDiscardResidue])
 
   return { offer, restoreOffer, dismissOffer, discardOffer }
 }
