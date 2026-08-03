@@ -27,22 +27,38 @@ class TestCalculateIc:
 
 
 class TestClassifySoilIc:
+    """Ic classification names the soil Robertson's bands name.
+
+    The old table was one step too coarse in every band and invented a
+    "Sensitive fine-grained" class above Ic 3.60 — zone 1 is read off the
+    Qtn-Fr chart, not off Ic, so no Ic value may produce it (audit
+    2026-08-02).  The cases below are written in the domain's own words: an
+    Ic of 3.2 is a CLAY, an Ic of 2.8 is a SILT MIXTURE.
+    """
+
     @pytest.mark.parametrize(
         "ic, expected",
         [
-            (3.7, "Sensitive fine-grained"),
-            (3.2, "Organic soils"),
-            (2.8, "Clays: silty clay to clay"),
-            (2.3, "Silt mixtures: clayey silt to silty clay"),
-            (1.6, "Sand mixtures: silty sand to sandy silt"),
-            (1.0, "Sands: clean sand to silty sand"),
+            (3.7, "Organic soils: clay to peat"),
+            (3.2, "Clays: silty clay to clay"),
+            (2.8, "Silt mixtures: clayey silt to silty clay"),
+            (2.3, "Sand mixtures: silty sand to sandy silt"),
+            (1.6, "Sands: clean sand to silty sand"),
+            (1.0, "Gravelly sand to dense sand"),
         ],
     )
     def test_classification_zones(self, ic: float, expected: str) -> None:
         assert classify_soil_ic(ic) == expected
 
+    def test_no_ic_value_is_ever_sensitive_fine_grained(self) -> None:
+        # Sweep the whole plausible Ic range: zone 1 must be unreachable.
+        labels = {classify_soil_ic(ic / 100.0) for ic in range(1, 601)}
+        assert not any("Sensitive" in label for label in labels)
+
     def test_boundary_at_3_60_is_organic(self) -> None:
-        assert classify_soil_ic(3.60) == "Organic soils"
+        # Bands are half-open [min, max): a value on a breakpoint belongs to
+        # the band above it.
+        assert classify_soil_ic(3.60) == "Organic soils: clay to peat"
 
     def test_boundary_at_1_31_is_sands(self) -> None:
         assert classify_soil_ic(1.31) == "Sands: clean sand to silty sand"
