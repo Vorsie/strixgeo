@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
+from groundmodel.shared.constants.auto_populate_mode import AutoPopulateMode
 
 from .lumping_collision_item import LumpingCollisionItem
 
@@ -24,8 +25,14 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     frontend surfaces this count so the dropped borehole data isn't
     silently lost.  Always ``0`` on the Fill-from-boreholes path.
 
-    ``deleted_formation_ids`` is populated only when ``selected_keys``
-    was provided (the Fill-from-boreholes confirm path).  These
+    ``mode`` echoes the ``AutoPopulateMode`` the server ran under, so the
+    client can assert the run it asked for is the run it got.  ``add`` never
+    deletes; ``overwrite`` does.  ``deleted_formation_names`` names those
+    deletions in the same order as ``deleted_formation_ids`` — the toast the
+    engineer reads must say WHICH units were removed, and an id says nothing.
+
+    ``deleted_formation_ids`` is populated only in ``overwrite`` mode with
+    ``selected_keys`` provided (the Fill-from-boreholes confirm path).  These
     formations were deleted server-side because their canonical key was
     not in the selected set.  The client uses this list to update its
     local manifest / session-import state without issuing separate
@@ -48,6 +55,11 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     created_contact_ids: list[UUID]
     created_formation_ids: list[UUID]
     deleted_formation_ids: list[UUID] = []
+    # Parallel to deleted_formation_ids. Additive + defaulted; empty in add mode.
+    deleted_formation_names: list[str] = []
+    # Echo of the executed mode. Defaulted to the safe value so a response
+    # from an older server deserialises as "nothing was deleted".
+    mode: AutoPopulateMode = AutoPopulateMode.ADD
     skipped_existing: int
     skipped_unmatched: int
     skipped_no_stratigraphy: int
