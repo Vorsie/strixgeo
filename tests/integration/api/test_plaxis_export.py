@@ -192,8 +192,12 @@ async def test_plaxis_export_happy_path(async_client: AsyncClient, seeded_model:
     # Boreholes — one per investigation.
     assert script.count("g_i.borehole(") == 2
 
-    # setsoillayerlevel — 2 boreholes × 2 layers = 4 calls.
-    assert script.count("g_i.setsoillayerlevel(") == 4
+    # setsoillayerlevel — N layers have N+1 level boundaries (the last is the
+    # base of the deepest layer, i.e. the model bottom), so
+    # 2 boreholes × (2 layers + 1) = 6 calls.
+    assert script.count("g_i.setsoillayerlevel(") == 6
+    # Every borehole must carry a defined bottom.
+    assert script.count("# column bottom") == 2
 
 
 async def test_plaxis_export_404_unknown_model(
