@@ -31,6 +31,7 @@ from __future__ import annotations
 from groundmodel.infrastructure.dem.dem_wcs_constants import (
     DHMVII_COVERAGE_ID,
     DHMVII_NODATA,
+    DHMVII_VALID_EXTENT,
     DHMVII_WCS_URL,
 )
 from groundmodel.infrastructure.dem.dhmvii_sampler import parse_wcs_multipart
@@ -44,6 +45,7 @@ class DhmviiDemProvider(WcsDemProvider):
     COVERAGE_ID = DHMVII_COVERAGE_ID
     AXIS_NAMES = ("X", "Y")
     DEFAULT_RESOLUTION_M = 1.0
+    VALID_EXTENT = DHMVII_VALID_EXTENT
     LOG_LABEL = "DHMVII"
 
     @property
