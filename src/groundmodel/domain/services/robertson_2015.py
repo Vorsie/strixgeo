@@ -37,6 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from groundmodel.domain.services.robertson_2015_constants import (
+    DEFAULT_GWT_DEPTH_M,
     ZONE_X1,
     ZONE_X2,
     ZONE_X3,
@@ -556,7 +557,7 @@ def ic_series_2015(
     depths_m: Sequence[float],
     qc_mpa: Sequence[float],
     fs_mpa: Sequence[float | None],
-    gwt_m: float = 1.0,
+    gwt_m: float = DEFAULT_GWT_DEPTH_M,
 ) -> list[float | None]:
     """High-level wrapper: per-depth-point Ic via the Robertson 2015 pipeline.
 
@@ -579,8 +580,10 @@ def ic_series_2015(
     fs_mpa : Sequence[float | None]
         Sleeve friction in MPa; ``None`` rows yield ``None`` in the output.
     gwt_m : float
-        Depth to groundwater below ground surface in metres (default 1.0,
-        matching the older ``calculate_ic_series`` default).
+        Depth to groundwater below ground surface in metres.  Defaults to
+        ``DEFAULT_GWT_DEPTH_M`` — the single project-wide assumption used by
+        every consumer that has no recorded water table (see the constant's
+        comment for why the chart and the segmenter must not diverge here).
 
     Returns
     -------
