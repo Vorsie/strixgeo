@@ -26,6 +26,7 @@ import type { UseLithoSolidsResult } from './useLithoSolids'
 import { useLithoSolids } from './useLithoSolids'
 import type {
   AcceptLithoSuggestionsResponse,
+  AutoPopulateMode,
   CrossingPinchOut,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
@@ -405,11 +406,11 @@ export interface UseGeologicalModelResult {
     boreholeIds: readonly string[],
     manualMap?: Record<string, string>,
   ) => Promise<{ candidates: FormationCandidate[]; collisions: LumpingCollision[] }>
-  // Fill-from-boreholes: apply the curated selection (destructive).
-  // Calls auto-populate with selected stable keys (server creates only
-  // those formations), then refetches the fresh formation list and
-  // deletes any formation whose stable key is NOT in the selected set.
-  // The confirm gate lives in FormationSelectionDialog.
+  // Fill-from-boreholes: apply the curated selection.
+  // Calls auto-populate with the selected stable keys; the server creates only
+  // those formations, and — in ``overwrite`` mode ONLY — deletes the ones whose
+  // stable key is not in the set. ``mode`` defaults to the additive, harmless
+  // half; the destructive half is gated by the GeologyToolbar prompt.
   // ``manualMap`` is the SAME map that was used for the last preview call —
   // never re-discovered between dialog confirm and the apply call, preserving
   // the discover ≡ apply invariant the backend enforces.
@@ -417,6 +418,7 @@ export interface UseGeologicalModelResult {
     selectedKeys: ReadonlySet<string>,
     boreholeIds: readonly string[],
     manualMap?: Record<string, string>,
+    mode?: AutoPopulateMode,
   ) => Promise<void>
   // Geology toolbar: delete the active geological model (irreversible).
   handleDeleteModel: () => Promise<void>
@@ -1768,6 +1770,7 @@ export function useGeologicalModel({
       selectedKeys: ReadonlySet<string>,
       boreholeIds: readonly string[],
       manualMap?: Record<string, string>,
+      mode: AutoPopulateMode = 'add',
     ): Promise<void> => {
       if (!project) return
       const activeModel = await ensureActiveGeologicalModel()
@@ -1777,7 +1780,7 @@ export function useGeologicalModel({
       const mapSize = manualMap ? Object.keys(manualMap).length : 0
       log.info(
         'geology',
-        `applyBoreholeFormationSelection entry ` +
+        `applyBoreholeFormationSelection entry mode=${mode} ` +
           `selected=${selectedKeys.size} boreholes=${boreholeIds.length} map_entries=${mapSize}`,
       )
       try {
@@ -1794,6 +1797,9 @@ export function useGeologicalModel({
           boreholeIds,
           Array.from(selectedKeys),
           mapSize > 0 ? manualMap : undefined,
+          null,
+          undefined,
+          mode,
         )
         log.debug(
           'geology',
@@ -1816,6 +1822,27 @@ export function useGeologicalModel({
             'error',
             `Nothing created — ${outcome.skipped_existing} layer(s) already ` +
               `populated. Use Dedupe or Delete model to reset, then retry.`,
+          )
+        }
+
+        // Step 2b: report what the server actually removed, by NAME.
+        //
+        // WHY this is not redundant with the confirmation the user just
+        // accepted (2026-08-03): that prompt showed the client's PREDICTION of
+        // the delete scope, computed from the formation + contact lists this
+        // renderer happens to hold. This reads the server's RECORD of what it
+        // did. When the two disagree — a stale list, a divergent key, a second
+        // window — the disagreement is the thing worth seeing, and the whole
+        // incident was that a deletion produced no message at all.
+        //
+        // Names, never ids: "removed 4 units" is not something an engineer can
+        // check, and a UUID is not something they can recognise.
+        if (outcome.deleted_formation_names && outcome.deleted_formation_names.length > 0) {
+          const removed = outcome.deleted_formation_names
+          toast(
+            'warning',
+            `Removed ${removed.length} unit${removed.length === 1 ? '' : 's'} ` +
+              `not in your selection: ${removed.join(', ')}.`,
           )
         }
 
@@ -1857,13 +1884,21 @@ export function useGeologicalModel({
         // Stage-on-apply: update the in-memory lumping snapshot and mark
         // the project dirty so the alias map is persisted on the next
         // File→Save (two-stage save model parity with metadata edits).
-        // An empty or absent manualMap writes a cleared snapshot
-        // (schema_version kept; map = {}) so the dialog does not prefill
-        // stale aliases on reopen.
+        //
+        // The snapshot follows the mode, for the same reason the deletion
+        // does (2026-08-03):
+        //
+        //   add       — MERGE. This run spoke only about the units it named;
+        //               the groupings it never mentioned are still the user's.
+        //               Later entries win on their own keys only.  Replacing
+        //               the whole map here is how a 13-entry map got staged
+        //               back as 0 during a run that touched one unit.
+        //   overwrite — REPLACE. The user asked for the model to become this
+        //               selection, aliases included; an empty map is then a
+        //               deliberate clear, not an accident.
+        const appliedMap = manualMap ?? {}
         const lumpingMap =
-          manualMap != null && Object.keys(manualMap).length > 0
-            ? manualMap
-            : {}
+          mode === 'overwrite' ? appliedMap : { ...(currentLumping?.map ?? {}), ...appliedMap }
         stageLumping({
           schema_version: 1,
           applied_at: new Date().toISOString(),
@@ -1883,6 +1918,8 @@ export function useGeologicalModel({
       addToSessionImports,
       removeFromSessionImports,
       stageLumping,
+      // Read in the add-mode merge below — the snapshot this run extends.
+      currentLumping,
     ],
   )
 
