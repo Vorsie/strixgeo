@@ -184,6 +184,79 @@ else:
     ]
 
 # ---------------------------------------------------------------------------
+# Step 2b — qc coverage per CPT geotech band.
+#
+# ``suggest_geotech_subdivision`` answers ``nad_class=None`` when it cannot
+# derive a class from qc: either the cone never read inside the band's interval,
+# or the valid readings leave a material gap (>40% of the thickness, or a ≥5 cm
+# continuous span).  The gate has to be able to tell a legitimate null-class band
+# from a defect, so each CPT band carries the same three numbers the segmenter
+# decided on, computed here with the segmenter's OWN helpers rather than a
+# re-implementation in SQL.
+# ---------------------------------------------------------------------------
+from groundmodel.domain.services.geotech_subdivision import (  # noqa: E402
+    _is_valid_qc,
+    _missing_qc_coverage,
+)
+
+
+def _parse_pg_float_array(text: str) -> list[float | None]:
+    """Parse a Postgres ``double precision[]`` literal into Python floats.
+
+    Parameters
+    ----------
+    text : str
+        The array as psql prints it, e.g. ``{0.02,1.5,NULL}``.
+
+    Returns
+    -------
+    list[float | None]
+        One entry per element; ``None`` for SQL NULL.
+    """
+    body = text.strip().strip("{}")
+    if not body:
+        return []
+    out: list[float | None] = []
+    for token in body.split(","):
+        token = token.strip().strip('"')
+        out.append(None if token.upper() == "NULL" else float(token))
+    return out
+
+
+cpt_series: dict[str, tuple[list[float], list[float | None]]] = {}
+if cpt_ids:
+    cpt_id_list = ", ".join(f"'{i}'" for i in cpt_ids)
+    series_rows = psql(
+        f"""
+        SELECT cs.cpt_id::text, cs.depths_m::text, cs.qc_mpa::text
+        FROM cpt_series cs
+        WHERE cs.cpt_id::text IN ({cpt_id_list});
+        """
+    )
+    for row in series_rows:
+        depths = [d for d in _parse_pg_float_array(row[1]) if d is not None]
+        qc = _parse_pg_float_array(row[2])
+        cpt_series[row[0]] = (depths, qc)
+
+print(f"Loaded qc series for {len(cpt_series)}/{len(cpt_ids)} corridor CPTs")
+
+for band in bands_data:
+    if band["kind"] != "cpt":
+        continue
+    depths, qc = cpt_series.get(band["inv_id"], ([], []))
+    top, base = band["depth_top_m"], band["depth_base_m"]
+    in_range = [(d, q) for d, q in zip(depths, qc) if top - 1e-9 <= d <= base + 1e-9]
+    missing_fraction, max_gap_m = (
+        _missing_qc_coverage(in_range, top, base) if in_range else (1.0, max(base - top, 0.0))
+    )
+    band["qc_samples_in_band"] = len(in_range)
+    band["qc_valid_samples_in_band"] = sum(1 for _d, q in in_range if _is_valid_qc(q))
+    band["qc_missing_fraction"] = missing_fraction
+    band["qc_max_gap_m"] = max_gap_m
+    band["has_series"] = band["inv_id"] in cpt_series
+
+
+# ---------------------------------------------------------------------------
 # Step 3 — litho bands per borehole (for the sample-contradiction check).
 # Query: litho_layer in the LITHO model (not geotech) for each corridor borehole.
 # ---------------------------------------------------------------------------
