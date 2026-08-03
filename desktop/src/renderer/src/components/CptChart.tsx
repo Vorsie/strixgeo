@@ -237,7 +237,8 @@ export default function CptChart({
     qt:      plot.q_total_mpa ? (plot.q_total_mpa[i] ?? null) : null,
     // Ic is intentionally absent here — Ic/SBT is interpretation, not a
     // raw measurement. The Ic curve + SBT zone bands live in the Parameters
-    // stage's per-test tab (CptIcSbtChart.tsx). See debt #22 (2026-06-01).
+    // stage's inspector (shell/stages/parameters/CptSbtDepthPanels.tsx, bands
+    // from icBands.ts). See debt #22 (2026-06-01).
   }))
   // Inject null-sentinel rows at depth discontinuities so the chart
   // lines break instead of interpolating across real no-data gaps
@@ -716,7 +717,9 @@ function ChartLabel({ left, right }: { left: LabelEntry; right?: LabelEntry; bot
   )
 }
 
-// IcZoneLabelsOverlay and IC_ZONE_SHORT removed — moved to CptIcSbtChart.tsx (debt #22, 2026-06-01).
+// IcZoneLabelsOverlay and IC_ZONE_SHORT removed — the Ic band table now lives
+// in shell/stages/parameters/icBands.ts and is drawn by CptSbtDepthPanels.tsx
+// (debt #22, 2026-06-01; CptIcSbtChart.tsx deleted 2026-08-03).
 
 function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
   return (
