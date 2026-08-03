@@ -18,7 +18,11 @@ The emitted script:
    (youngest first = highest ``display_order`` first), each assigned
    its placeholder material.
 5. Creates one ``borehole`` per projected column at its along-section
-   x; sets ``Head`` to the column's surface elevation.
+   x.  It does NOT set ``Head``: in PLAXIS that is the borehole's
+   water head (phreatic level), which Strix does not know — the
+   column top is communicated by ``setsoillayerlevel`` below.  The
+   script header tells the engineer the water table was left unset
+   (audit 2026-08-02).
 6. For each (borehole, global layer) pair, calls
    ``g_i.setsoillayerlevel`` with the contact's absolute level
    (``surface_elevation - depth_top``). Formations absent at a column
@@ -35,7 +39,8 @@ What this exporter intentionally does NOT do:
   The script header tells the engineer to adjust if a line errors.
 
 Columns whose investigation has no recorded surface elevation are
-dropped (a Plaxis borehole needs an absolute Head). The script's
+dropped (without Z the column cannot be placed on the level axis —
+every ``setsoillayerlevel`` is an absolute level). The script's
 print summary reports how many were skipped so the engineer knows to
 set Z on those investigations in Strix and re-export.
 
@@ -180,11 +185,15 @@ class PlaxisSectionExporter(SectionExporter):
             "  per-formation parameters (Phase 5).",
             "* Stratigraphic order follows display_order from Strix",
             "  (oldest first -> PLAXIS layer 0 = topmost = youngest).",
+            "* NO WATER TABLE IS SET. This script writes geometry only —",
+            "  it does not set any borehole Head (phreatic level), so",
+            "  PLAXIS uses its own default. Set the water table before",
+            "  generating initial stresses; Strix does not export one.",
         ]
         if skipped_no_z:
             notes.append(f"* {skipped_no_z} column(s) lacked a surface elevation and")
-            notes.append("  were dropped — a Plaxis borehole needs an absolute Head.")
-            notes.append("  Set Z on those investigations in Strix and re-export.")
+            notes.append("  were dropped — without Z the column cannot be placed")
+            notes.append("  on the level axis. Set Z in Strix and re-export.")
         notes.extend(
             [
                 "* If a plxscripting line errors against your PLAXIS",
@@ -257,11 +266,16 @@ class PlaxisSectionExporter(SectionExporter):
 
             bh_var = f"bh_{i}"
             x = inv.along_distance_m
+            # No ``.Head`` here on purpose: a PLAXIS borehole's Head is the
+            # WATER head (phreatic level), not the top of the soil column.
+            # Setting it to the surface elevation generated a fully saturated
+            # model at every column (audit 2026-08-02). The column top is
+            # emitted by setsoillayerlevel below; the water table stays the
+            # engineer's to set, and the header says so.
             lines.append(
                 f"{bh_var} = g_i.borehole({x!r})  "
                 f"# {inv.name} @ along={x:.3f} m, surface z = {surface_z!r}"
             )
-            lines.append(f"{bh_var}.Head = {surface_z!r}")
 
             lines.extend(
                 emit_borehole_layer_levels(
