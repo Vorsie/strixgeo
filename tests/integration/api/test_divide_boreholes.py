@@ -39,6 +39,9 @@ from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
@@ -602,4 +605,158 @@ async def test_db3_no_geotech_model(
     body = resp.json()
     assert body.get("detail", {}).get("code") == "geotech_model_not_found", (
         f"DB3: unexpected error detail: {body}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_db4_accepted_borehole_tie_survives_a_re_divide(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """DB4: an accepted packing tie on a borehole band is still there afterwards.
+
+    The engineer hand-ties a borehole packing band to the neighbouring CPT's
+    band — the tie the machine did not propose is exactly the one worth
+    keeping — and then clicks "Divide boreholes" again (the button ambers
+    after any packing correlation, so re-clicking it is the normal flow).
+
+    The rule, in the owner's words for the sibling verb: *an accepted edge
+    never disappears without the engineer deleting it.*  So after the second
+    run the tie must still be there, still accepted, still joining the same
+    borehole to the same CPT — re-anchored onto whichever band came back in
+    its place — and the operation must SAY how many it carried.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = UUID(divide_boreholes_scene["litho_model_id"])
+    section_id = UUID(divide_boreholes_scene["section_id"])
+    bh_s_id = divide_boreholes_scene["bh_s_id"]
+    cpt_a_id = divide_boreholes_scene["cpt_a_id"]
+
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    first = await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = first.geotech_model_id
+
+    # The engineer's gesture: tie BH-S's shallowest packing band to CPT-A's
+    # shallowest one, by hand, and accept it.
+    bh_band = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id == bh_s_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    cpt_band = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id == cpt_a_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert bh_band is not None and cpt_band is not None, (
+        "DB4 setup: expected both a borehole band and a CPT band to tie together"
+    )
+    layer_a_id = min(bh_band.id, cpt_band.id)
+    layer_b_id = max(bh_band.id, cpt_band.id)
+    # Phase 8.5 may already have PROPOSED this pair; accepting a proposal and
+    # drawing one by hand both end at the same place — an edge the engineer
+    # owns (``user_approved=True``).
+    existing = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.layer_a_id == layer_a_id,
+                    LithoContactCorrelationEdgeOrm.layer_b_id == layer_b_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        existing.user_approved = True
+        existing.source = "manual"
+    else:
+        db_session.add(
+            LithoContactCorrelationEdgeOrm(
+                id=uuid7(),
+                model_id=geotech_model_id,
+                section_id=section_id,
+                layer_a_id=layer_a_id,
+                layer_b_id=layer_b_id,
+                layer_a_side="top",
+                layer_b_side="top",
+                source="manual",
+                user_approved=True,
+            )
+        )
+    await db_session.commit()
+
+    # Re-click "Divide boreholes".
+    second = await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+
+    # The tie must still join BH-S to CPT-A, and still be accepted.
+    surviving = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    endpoint_ids = {e.layer_a_id for e in surviving} | {e.layer_b_id for e in surviving}
+    anchors = (
+        await db_session.execute(
+            select(LithoLayerOrm.id, LithoLayerOrm.cpt_id, LithoLayerOrm.borehole_id).where(
+                LithoLayerOrm.id.in_(endpoint_ids or {uuid7()})
+            )
+        )
+    ).all()
+    anchor_by_layer = {r.id: (r.cpt_id, r.borehole_id) for r in anchors}
+    joined_pairs = {
+        frozenset(
+            (
+                anchor_by_layer.get(e.layer_a_id, (None, None)),
+                anchor_by_layer.get(e.layer_b_id, (None, None)),
+            )
+        )
+        for e in surviving
+    }
+    expected_pair = frozenset(((None, bh_s_id), (cpt_a_id, None)))
+    assert expected_pair in joined_pairs, (
+        "DB4: the accepted BH-S↔CPT-A packing tie did not survive the re-divide — "
+        f"{len(surviving)} accepted tie(s) remain, joining {joined_pairs}"
+    )
+
+    # And the app must say so rather than reporting a bare success.
+    assert second.reanchored_tie_count == 1, (
+        f"DB4: expected the result to report 1 carried tie, "
+        f"got reanchored={second.reanchored_tie_count} lost={second.lost_tie_count}"
     )
