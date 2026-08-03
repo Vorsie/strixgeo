@@ -33,6 +33,14 @@ class ImportBoreholeDovResult:
         Per-row failures during interpretation download / parse / persist.
         Counted separately from ``failed`` because they don't roll back
         the parent borehole row.
+    interpretations_wfs_gaps : int
+        Interpretations DOV's Boringen WFS SAYS exist (``has_<type>=True``)
+        but whose per-stream ``interpretaties:*`` layer returned no row —
+        one count per ``(borehole, observation_type)``.  A ROUTINE upstream
+        condition, not a failure of ours, and precisely the case the engineer
+        must be told about: nothing failed, the descriptions are simply not
+        there, and "Import complete" over that reads as "DOV has none"
+        (audit 2026-08-02).  Confirmed live with permkey 2024-216503.
     samples_attached : int
         Number of ``Sample`` rows attached to newly-imported boreholes
         by the Phase C3 sample orchestrator. Same idempotency rule as
@@ -68,6 +76,7 @@ class ImportBoreholeDovResult:
     failed: int
     interpretations_attached: int = 0
     interpretations_failed: int = 0
+    interpretations_wfs_gaps: int = 0
     samples_attached: int = 0
     samples_failed: int = 0
     grain_sizes_attached: int = 0
