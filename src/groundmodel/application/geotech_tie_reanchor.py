@@ -62,18 +62,38 @@ captures before the reset and re-anchors after the rebuild, inside the same
 transaction, so a failure leaves neither half applied.  The re-anchored ties are
 inserted BEFORE the auto-derivation pass so that pass's per-section dedup set
 already contains them and never proposes a duplicate.
+
+:class:`~groundmodel.application.divide_boreholes.DivideBoreholes` does the same
+around ITS rebuild, which deletes and re-materialises the borehole bands only.
+It therefore captures with ``restrict_to_anchor_kind='borehole'`` — a CPT↔CPT
+tie's endpoints are untouched by that delete, so its row survives and there is
+nothing to carry.  The two verbs together are why an accepted tie on a borehole
+column outlives the whole build: SubdivideAllBodies cannot re-anchor it (it
+materialises CPT bands only, and reports the endpoint as
+:data:`REASON_BOREHOLE_DEFERRED`), and DivideBoreholes is where the borehole
+bands come back.
+
+Because DivideBoreholes IS that later step, it re-anchors with
+``borehole_bands_are_final=True``: past it, a borehole endpoint with no band has
+nothing coming, and the loss is reported as :data:`REASON_BAND_ABSENT` rather
+than as deferred.  :data:`REASON_BOREHOLE_DEFERRED` is therefore emitted by
+SubdivideAllBodies only.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -210,6 +230,46 @@ class RebuiltBand:
     layer_id: UUID
 
 
+def rebuilt_bands_from_layer_index(
+    layers_by_investigation: Mapping[str, Sequence[tuple[Any, ...]]],
+) -> list[RebuiltBand]:
+    """Describe the bands a rebuild wrote, for the re-anchor to match against.
+
+    Both geotech rebuilds accumulate their freshly-written bands in the same
+    per-investigation index — the one they also hand to
+    ``derive_geotech_edges_from_litho`` — whose entries begin
+    ``(depth_top_m, depth_base_m, layer_id, formation_id, nad_class, ...)``.
+    SubdivideAllBodies stops at five elements; DivideBoreholes carries a sixth
+    (the resolver's ``body_id``).  Only positions 0, 1, 2 and 4 are read here,
+    so the same helper serves both and a seventh element would ride along
+    harmlessly.
+
+    Parameters
+    ----------
+    layers_by_investigation : Mapping[str, Sequence[tuple[Any, ...]]]
+        Investigation id (stringified) → the bands written for it.
+
+    Returns
+    -------
+    list[RebuiltBand]
+        One entry per band, carrying the owner's three-part identity and the
+        band's new ``litho_layer`` id.
+    """
+    return [
+        RebuiltBand(
+            identity=BandIdentity(
+                investigation_id=investigation_id,
+                depth_top_mm=depth_to_mm(entry[0]),
+                depth_base_mm=depth_to_mm(entry[1]),
+                nad_class=entry[4],
+            ),
+            layer_id=entry[2],
+        )
+        for investigation_id, entries in layers_by_investigation.items()
+        for entry in entries
+    ]
+
+
 @dataclass(frozen=True)
 class MatchedTie:
     """A captured tie and the rebuilt bands it will be re-created against.
@@ -291,11 +351,23 @@ class ReanchorPlan:
         Matched ties dropped because an earlier tie already claimed the same
         ``(section, layer pair, sides)`` — the DB uniqueness made visible
         instead of raised.
+    lost_tie_labels : list[str]
+        One human-readable line per lost tie, naming BOTH investigations and
+        the depth of each endpoint — e.g.
+        ``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``.
+
+        Populated by :meth:`GeotechTieReanchor.reanchor`, which is where the
+        session to resolve an investigation id into its name lives; the pure
+        planner leaves it empty.  It exists because a count alone is not
+        actionable: the engineer is told "3 accepted ties could not be kept"
+        and has no way to find WHICH three, and the ids sit only in a
+        renderer console a packaged build does not show (audit 2026-08-02).
     """
 
     matched: list[MatchedTie] = field(default_factory=list)
     lost: list[LostTie] = field(default_factory=list)
     skipped_duplicate_pair: int = 0
+    lost_tie_labels: list[str] = field(default_factory=list)
 
     def review_reason_counts(self) -> dict[str, int]:
         """Count carried ties per review reason, ignoring the clean ones.
@@ -339,10 +411,58 @@ def _describe_identity(identity: BandIdentity) -> str:
     )
 
 
+def _label_endpoint(identity: BandIdentity, names: Mapping[str, str]) -> str:
+    """Render one endpoint for the ENGINEER: investigation name + depth range.
+
+    Falls back to the raw id when the investigation row is gone — a truncated
+    id would be worse than useless (never trust a truncated UUID), so the whole
+    one is shown.
+
+    Parameters
+    ----------
+    identity : BandIdentity
+        The endpoint's band identity.
+    names : Mapping[str, str]
+        Investigation id (stringified) → display name.
+
+    Returns
+    -------
+    str
+        e.g. ``"GEO-22/115-S10 4.20-6.10 m"``.
+    """
+    name = names.get(identity.investigation_id, identity.investigation_id)
+    return f"{name} {identity.depth_top_mm / 1000.0:.2f}-{identity.depth_base_mm / 1000.0:.2f} m"
+
+
+def label_lost_ties(lost: Sequence[LostTie], names: Mapping[str, str]) -> list[str]:
+    """Name every lost tie so the engineer can find it in the section.
+
+    Parameters
+    ----------
+    lost : Sequence[LostTie]
+        The plan's lost ties.
+    names : Mapping[str, str]
+        Investigation id (stringified) → display name.
+
+    Returns
+    -------
+    list[str]
+        One ``"<A name> <depths> <-> <B name> <depths>"`` line per lost tie, in
+        the order they were captured.
+    """
+    return [
+        f"{_label_endpoint(item.tie.identity_a, names)} <-> "
+        f"{_label_endpoint(item.tie.identity_b, names)}"
+        for item in lost
+    ]
+
+
 def _endpoint_reason(
     identity: BandIdentity,
     anchor_kind: str,
     by_investigation: dict[str, list[RebuiltBand]],
+    *,
+    borehole_bands_are_final: bool = False,
 ) -> str:
     """Diagnose why an endpoint's band could not be found.
 
@@ -356,6 +476,9 @@ def _endpoint_reason(
         ``'cpt'`` or ``'borehole'``.
     by_investigation : dict[str, list[RebuiltBand]]
         Every rebuilt band, grouped by investigation.
+    borehole_bands_are_final : bool, default False
+        Whether the caller has already materialised the borehole bands. See
+        :func:`plan_tie_reanchor`.
 
     Returns
     -------
@@ -370,7 +493,11 @@ def _endpoint_reason(
         # the borehole columns afterwards. That is a schedule fact about the
         # build order, NOT geology the rebuild stopped drawing, so it must not
         # be reported as an absent band.
-        if anchor_kind == ANCHOR_BOREHOLE:
+        #
+        # ``borehole_bands_are_final`` is DivideBoreholes saying the schedule
+        # excuse has expired: it IS the later verb, so a borehole with no band
+        # after it ran has none coming.
+        if anchor_kind == ANCHOR_BOREHOLE and not borehole_bands_are_final:
             return REASON_BOREHOLE_DEFERRED
         return REASON_BAND_ABSENT
 
@@ -481,6 +608,8 @@ def _follow_moved_band(
 def plan_tie_reanchor(
     captured: list[CapturedTie],
     rebuilt_bands: list[RebuiltBand],
+    *,
+    borehole_bands_are_final: bool = False,
 ) -> ReanchorPlan:
     """Match captured accepted ties onto the bands the rebuild produced.
 
@@ -499,6 +628,15 @@ def plan_tie_reanchor(
         Accepted ties recorded before the reset.
     rebuilt_bands : list[RebuiltBand]
         Every band the rebuild materialised, with its new layer id.
+    borehole_bands_are_final : bool, default False
+        Whether ``rebuilt_bands`` already carries the borehole columns.
+        ``SubdivideAllBodies`` leaves it ``False``: it materialises CPT bands
+        only, so a borehole endpoint with no band is merely waiting for the
+        ``DivideBoreholes`` step and is reported as
+        :data:`REASON_BOREHOLE_DEFERRED`.  ``DivideBoreholes`` passes ``True``,
+        because it IS that step — a borehole still carrying no band once it has
+        run has permanently lost the tie and is reported as
+        :data:`REASON_BAND_ABSENT`.
 
     Returns
     -------
@@ -538,12 +676,22 @@ def plan_tie_reanchor(
                     reason_a=(
                         None
                         if new_a is not None
-                        else _endpoint_reason(tie.identity_a, tie.anchor_kind_a, by_investigation)
+                        else _endpoint_reason(
+                            tie.identity_a,
+                            tie.anchor_kind_a,
+                            by_investigation,
+                            borehole_bands_are_final=borehole_bands_are_final,
+                        )
                     ),
                     reason_b=(
                         None
                         if new_b is not None
-                        else _endpoint_reason(tie.identity_b, tie.anchor_kind_b, by_investigation)
+                        else _endpoint_reason(
+                            tie.identity_b,
+                            tie.anchor_kind_b,
+                            by_investigation,
+                            borehole_bands_are_final=borehole_bands_are_final,
+                        )
                     ),
                 )
             )
@@ -614,7 +762,12 @@ class GeotechTieReanchor(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def capture(self, geotech_model_id: UUID) -> list[CapturedTie]:
+    async def capture(
+        self,
+        geotech_model_id: UUID,
+        *,
+        restrict_to_anchor_kind: str | None = None,
+    ) -> list[CapturedTie]:
         """Record every ACCEPTED tie of a geotech model with its bands' identities.
 
         Must run before the reset: once the layer wipe fires, the endpoints are
@@ -624,6 +777,14 @@ class GeotechTieReanchor(GroundModelLogger):
         ----------
         geotech_model_id : UUID
             The geotechnical model whose accepted ties are captured.
+        restrict_to_anchor_kind : str | None
+            When given (:data:`ANCHOR_CPT` or :data:`ANCHOR_BOREHOLE`), keep
+            only ties with at least one endpoint on that kind of
+            investigation.  A rebuild that deletes only the borehole bands
+            leaves a CPT↔CPT tie's row untouched, so capturing it would count
+            a tie as "carried" that was never at risk.  ``None`` (default)
+            captures every accepted tie, which is what a rebuild that wipes
+            the whole model needs.
 
         Returns
         -------
@@ -632,7 +793,10 @@ class GeotechTieReanchor(GroundModelLogger):
             resolved.  An edge with an unresolvable endpoint is skipped and
             logged at WARNING — it is already broken and nothing can be carried.
         """
-        self.debug(f"GeotechTieReanchor.capture: model={geotech_model_id}")
+        self.debug(
+            f"GeotechTieReanchor.capture: model={geotech_model_id} "
+            f"restrict_to_anchor_kind={restrict_to_anchor_kind}"
+        )
         edges = (
             (
                 await self._session.execute(
@@ -657,9 +821,20 @@ class GeotechTieReanchor(GroundModelLogger):
 
         captured: list[CapturedTie] = []
         unresolved = 0
+        out_of_scope = 0
         for edge in edges:
             entry_a = identities.get(edge.layer_a_id)
             entry_b = identities.get(edge.layer_b_id)
+            if (
+                restrict_to_anchor_kind is not None
+                and entry_a is not None
+                and entry_b is not None
+                and restrict_to_anchor_kind not in (entry_a[1], entry_b[1])
+            ):
+                # Neither endpoint sits on the kind of column this rebuild
+                # touches, so the edge row survives it untouched.
+                out_of_scope += 1
+                continue
             if entry_a is None or entry_b is None:
                 unresolved += 1
                 self.warning(
@@ -689,7 +864,8 @@ class GeotechTieReanchor(GroundModelLogger):
         self.info(
             f"GeotechTieReanchor.capture: model={geotech_model_id} captured "
             f"{len(captured)} accepted tie(s) "
-            f"({unresolved} unresolvable endpoint(s) skipped)"
+            f"({unresolved} unresolvable endpoint(s) skipped, "
+            f"{out_of_scope} not touched by this rebuild)"
         )
         return captured
 
@@ -699,6 +875,7 @@ class GeotechTieReanchor(GroundModelLogger):
         geotech_model_id: UUID,
         captured: list[CapturedTie],
         rebuilt_bands: list[RebuiltBand],
+        borehole_bands_are_final: bool = False,
     ) -> ReanchorPlan:
         """Re-create the captured ties against the rebuilt bands.
 
@@ -717,6 +894,10 @@ class GeotechTieReanchor(GroundModelLogger):
             Ties recorded by :meth:`capture`.
         rebuilt_bands : list[RebuiltBand]
             Bands the rebuild materialised.
+        borehole_bands_are_final : bool, default False
+            Whether ``rebuilt_bands`` already carries the borehole columns —
+            ``True`` from ``DivideBoreholes``, ``False`` from
+            ``SubdivideAllBodies``.  See :func:`plan_tie_reanchor`.
 
         Returns
         -------
@@ -726,7 +907,9 @@ class GeotechTieReanchor(GroundModelLogger):
         if not captured:
             return ReanchorPlan()
 
-        plan = plan_tie_reanchor(captured, rebuilt_bands)
+        plan = plan_tie_reanchor(
+            captured, rebuilt_bands, borehole_bands_are_final=borehole_bands_are_final
+        )
 
         # Never write a pair that already exists on the section. Nothing should
         # remain at this point (the reset's cascade emptied the edge table for
@@ -768,6 +951,22 @@ class GeotechTieReanchor(GroundModelLogger):
             written += 1
         await self._session.flush()
 
+        # Name the lost ties for the UI. A count on its own tells the engineer
+        # that work vanished and nothing about where to look; the ids in the
+        # WARNING lines below only reach a server log (audit 2026-08-02). One
+        # extra SELECT, and only when something was actually lost.
+        if plan.lost:
+            plan.lost_tie_labels = label_lost_ties(
+                plan.lost,
+                await self._load_investigation_names(
+                    {
+                        identity.investigation_id
+                        for item in plan.lost
+                        for identity in (item.tie.identity_a, item.tie.identity_b)
+                    }
+                ),
+            )
+
         for lost in plan.lost:
             self.warning(f"GeotechTieReanchor.reanchor: tie LOST — {lost.describe()}")
 
@@ -793,6 +992,45 @@ class GeotechTieReanchor(GroundModelLogger):
             f"skipped_duplicate={plan.skipped_duplicate_pair} reasons={reasons}"
         )
         return plan
+
+    async def _load_investigation_names(self, investigation_ids: set[str]) -> dict[str, str]:
+        """Resolve investigation ids to the names the engineer sees on screen.
+
+        A band's anchor is a ``cpt`` OR a ``borehole`` row (DB XOR), and the
+        caller only has the stringified id, so both tables are queried and the
+        results merged.  Ids that resolve to neither are simply absent from the
+        mapping — the label falls back to the raw id.
+
+        Parameters
+        ----------
+        investigation_ids : set[str]
+            Stringified CPT / borehole ids.
+
+        Returns
+        -------
+        dict[str, str]
+            Investigation id (stringified) → display name.
+        """
+        if not investigation_ids:
+            return {}
+        uuids: list[UUID] = []
+        for raw in investigation_ids:
+            try:
+                uuids.append(UUID(raw))
+            except ValueError:
+                # Not a UUID at all — nothing to look up; the raw string is
+                # still shown by the label helper.
+                continue
+        if not uuids:
+            return {}
+        names: dict[str, str] = {}
+        for model in (CptOrm, BoreholeOrm):
+            rows = (
+                await self._session.execute(select(model.id, model.name).where(model.id.in_(uuids)))
+            ).all()
+            for row in rows:
+                names[str(row.id)] = row.name
+        return names
 
     async def _load_band_identities(
         self, layer_ids: set[UUID]
