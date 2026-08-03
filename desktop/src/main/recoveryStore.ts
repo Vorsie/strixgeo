@@ -7,9 +7,21 @@
  * dirty flag. This module is the storage layer an autosave will write that
  * state to; the autosave timer and the renderer wiring are a later phase.
  *
- * Layout — one file per project, in an app-owned directory:
+ * Layout — two slots per project, in an app-owned directory:
  *
- *     <userData>/recovery/<projectId>.recovery.json
+ *     <userData>/recovery/<projectId>.recovery.json           (primary)
+ *     <userData>/recovery/<projectId>.recovery.declined.json  (declined)
+ *
+ * The autosave scheduler writes the primary slot and nothing else. The
+ * declined slot holds a copy the user chose to keep-but-not-restore ("Open
+ * without restoring"), so that a restart re-offers it; see
+ * {@link RECOVERY_DECLINED_FILE_SUFFIX} and {@link declineRecovery}. Readers
+ * prefer the primary slot and fall back to the declined one
+ * ({@link resolveSlot}). Three clears, one per intent:
+ * {@link deletePrimaryRecovery} (this session's delta has a home now),
+ * {@link deleteDeclinedRecovery} (a declined copy has just been restored, so
+ * the decline is over) and {@link deleteRecovery} (the user pressed Discard —
+ * the only path that destroys work the user has not seen back).
  *
  * The file is a small envelope (``kind`` / ``format_version`` / ids /
  * timestamps) wrapping an **opaque** ``payload``. This module never
@@ -60,6 +72,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   statSync,
   unlinkSync,
 } from 'fs'
@@ -72,6 +85,42 @@ export const RECOVERY_DIR_NAME = 'recovery'
 
 /** Suffix every recovery file carries — the stem is the project UUID. */
 export const RECOVERY_FILE_SUFFIX = '.recovery.json'
+
+/**
+ * Suffix of the **declined** slot — where a recovery copy goes when the user
+ * picks "Open without restoring".
+ *
+ * Owner decision 2026-08-03: declining preserves the copy (Word-style), so a
+ * later restart re-offers the same unsaved work; only the prompt's explicit
+ * *Discard* destroys it. A second slot is what makes that possible, because
+ * the autosave scheduler owns the primary slot: it overwrites the primary file
+ * as soon as the new session has anything at risk, and every decided exit
+ * deletes it. Left in the primary slot, a declined session's only copy would
+ * be gone within seconds of the user choosing to keep working.
+ *
+ * The two suffixes are **disjoint** — ``.recovery.declined.json`` does not end
+ * in ``.recovery.json`` — so a filename matches at most one slot and the
+ * directory scan needs no ordering rule between them.
+ */
+export const RECOVERY_DECLINED_FILE_SUFFIX = '.recovery.declined.json'
+
+/**
+ * Suffix of the **quarantine** slot — where a primary file goes when it turns
+ * out to be unreadable (unparseable, foreign ``kind``, a format version we do
+ * not speak, or above the cap).
+ *
+ * This is not a third recovery slot; nothing ever reads it. It exists because
+ * "presence wins" (see {@link resolveSlot}) is the right rule for a READABLE
+ * primary and the wrong rule for garbage: an unreadable primary left in place
+ * shadowed a perfectly good declined copy at every launch, forever, and no
+ * path in the app ever cleaned it up. Moving it aside restores the fallback
+ * and keeps the bytes around for a support question — "what was actually in
+ * that file?" is unanswerable once it is unlinked.
+ *
+ * Disjoint from both slot suffixes (it does not end in ``.recovery.json``), so
+ * the directory scan in {@link listRecovery} skips it without an extra rule.
+ */
+export const RECOVERY_CORRUPT_FILE_SUFFIX = '.recovery.corrupt.json'
 
 /**
  * Envelope discriminator. Files in the folder that do not carry exactly this
@@ -168,6 +217,15 @@ export interface RecoveryDescriptor {
   appVersion: string
   /** On-disk size in bytes. */
   sizeBytes: number
+  /**
+   * True when this descriptor came from the **declined** slot — i.e. the user
+   * already chose "Open without restoring" for this work at least once.
+   *
+   * The start screen needs the distinction to word the offer honestly ("you
+   * chose not to restore this last time") rather than presenting a
+   * previously-declined copy as fresh crash debris.
+   */
+  declined: boolean
 }
 
 /** Optional metadata a caller can attach to a write. */
@@ -329,8 +387,38 @@ function recoveryDir(): string {
  * @throws Error when the store is unconfigured or the id is malformed.
  */
 export function recoveryFilePath(projectId: unknown): string {
-  const dir = recoveryDir()
-  return join(dir, `${canonicalProjectId(projectId)}${RECOVERY_FILE_SUFFIX}`)
+  return join(recoveryDir(), `${canonicalProjectId(projectId)}${RECOVERY_FILE_SUFFIX}`)
+}
+
+/**
+ * Absolute path of one project's **declined** recovery file.
+ *
+ * Same single-composer discipline (and therefore the same id validation) as
+ * {@link recoveryFilePath}; only the suffix differs. See
+ * {@link RECOVERY_DECLINED_FILE_SUFFIX} for why the slot exists.
+ *
+ * @param projectId - Project UUID (either case); anything else is refused.
+ * @returns ``<userData>/recovery/<projectId>.recovery.declined.json`` with the
+ *   id in its canonical lowercase form.
+ * @throws Error when the store is unconfigured or the id is malformed.
+ */
+export function declinedRecoveryFilePath(projectId: unknown): string {
+  return join(recoveryDir(), `${canonicalProjectId(projectId)}${RECOVERY_DECLINED_FILE_SUFFIX}`)
+}
+
+/**
+ * Absolute path of one project's **quarantined** recovery file.
+ *
+ * Same single-composer discipline as {@link recoveryFilePath}; see
+ * {@link RECOVERY_CORRUPT_FILE_SUFFIX} for why the slot exists.
+ *
+ * @param projectId - Project UUID (either case); anything else is refused.
+ * @returns ``<userData>/recovery/<projectId>.recovery.corrupt.json`` with the
+ *   id in its canonical lowercase form.
+ * @throws Error when the store is unconfigured or the id is malformed.
+ */
+export function corruptRecoveryFilePath(projectId: unknown): string {
+  return join(recoveryDir(), `${canonicalProjectId(projectId)}${RECOVERY_CORRUPT_FILE_SUFFIX}`)
 }
 
 /**
@@ -374,12 +462,154 @@ function validateEnvelope(parsed: unknown, expectedProjectId: string): RecoveryE
   }
 }
 
+/** One recovery file on disk, resolved to a slot and loaded. */
+interface ResolvedSlot {
+  /** Absolute path of the file. */
+  filePath: string
+  /** True when the file lives in the declined slot. */
+  declined: boolean
+  /** The validated envelope. */
+  envelope: RecoveryEnvelope
+  /** On-disk size in bytes. */
+  sizeBytes: number
+}
+
+/**
+ * Move an unreadable primary file out of the way, so it stops shadowing the
+ * declined copy behind it.
+ *
+ * Overwrites an older quarantine on purpose: this is a diagnostic, not an
+ * archive, and keeping every corrupt file would grow the directory without
+ * bound in exactly the situation where something is repeatedly writing
+ * garbage. ``renameSync`` replaces the destination on NTFS as well as on
+ * POSIX.
+ *
+ * Never throws. A quarantine that fails leaves the caller exactly where it
+ * would have been without this function — no offer for this project — and a
+ * failure to tidy up must not turn into a failure to start.
+ *
+ * @param id - Canonical (lowercase) project id.
+ * @param reason - What made the file unreadable, for the log line.
+ */
+function quarantinePrimary(id: string, reason: string): void {
+  const from = recoveryFilePath(id)
+  const to = corruptRecoveryFilePath(id)
+  try {
+    renameSync(from, to)
+    // WARNING, not DEBUG: something wrote a file this module cannot read, and
+    // the name of the file plus the reason is the whole diagnosis. Losing it
+    // to a suppressed level would leave "recovery silently offered nothing".
+    // eslint-disable-next-line no-console
+    console.warn(`[main] recovery: quarantined an unreadable primary (${reason}) -> ${to}`)
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[main] recovery: could not quarantine ${from} (${reason})`, err)
+  }
+}
+
+/**
+ * Pick which of a project's two slots a reader should use — and load it — or
+ * ``null`` when the project has nothing readable.
+ *
+ * **A readable primary slot wins whenever both exist.** A primary file present
+ * alongside a declined one means the session that declined went on to produce
+ * new work and then died without a clean exit — that work is strictly newer
+ * than the copy it declined, so offering the declined copy instead would hand
+ * the user back the older of the two.
+ *
+ * That rationale is about *state*, and it only holds while the primary IS
+ * state. An unparseable, foreign, stale or over-cap primary is garbage: it
+ * carries nothing to prefer, and leaving it to win would hide a valid declined
+ * copy at every launch for as long as the file exists (nothing in the app ever
+ * deleted it). So an unreadable primary is quarantined
+ * ({@link quarantinePrimary}) and the resolve continues to the declined slot —
+ * which is not a silent substitution, because there was no newer work to
+ * substitute *for*.
+ *
+ * @param id - Canonical (lowercase) project id.
+ * @param cap - Byte ceiling in force for the current configuration.
+ * @returns The slot to read together with its validated envelope, or ``null``
+ *   when the project has no readable file in either slot.
+ * @throws Error when the DECLINED file exceeds ``cap``. The declined slot has
+ *   nothing behind it to fall back to, so the over-cap read stays the loud
+ *   failure {@link readRecovery} documents.
+ */
+function resolveSlot(id: string, cap: number): ResolvedSlot | null {
+  const primary = recoveryFilePath(id)
+  if (existsSync(primary)) {
+    let loaded: { envelope: RecoveryEnvelope; sizeBytes: number } | null = null
+    let reason = 'corrupt, foreign or stale envelope'
+    try {
+      loaded = loadEnvelope(primary, id, cap)
+    } catch (err) {
+      // The only throw from loadEnvelope is the cap refusal (plus a file that
+      // vanished mid-resolve). Both mean the same thing here: unusable.
+      reason = err instanceof Error ? err.message : String(err)
+    }
+    if (loaded !== null) {
+      return { filePath: primary, declined: false, envelope: loaded.envelope, sizeBytes: loaded.sizeBytes }
+    }
+    quarantinePrimary(id, reason)
+  }
+  const declined = declinedRecoveryFilePath(id)
+  if (existsSync(declined)) {
+    const loaded = loadEnvelope(declined, id, cap)
+    if (loaded === null) return null
+    return { filePath: declined, declined: true, envelope: loaded.envelope, sizeBytes: loaded.sizeBytes }
+  }
+  return null
+}
+
+/**
+ * Read + validate one recovery file, whichever slot it sits in.
+ *
+ * The ONE read path: the cap, the JSON parse, and the envelope validation are
+ * spelled once so the declined slot cannot drift into weaker checks than the
+ * primary one. Callers differ only in what they do with the over-cap throw —
+ * {@link readRecovery} propagates it (the user asked for this file by name),
+ * {@link listRecovery} catches it and skips the entry.
+ *
+ * @param filePath - Absolute path of the file to load.
+ * @param id - Canonical (lowercase) project id the envelope must declare.
+ * @param cap - Byte ceiling in force for the current configuration.
+ * @returns The validated envelope plus its on-disk size, or ``null`` when the
+ *   file is missing, unparseable, foreign, stale, or renamed.
+ * @throws Error when the file exceeds ``cap``.
+ */
+function loadEnvelope(
+  filePath: string,
+  id: string,
+  cap: number,
+): { envelope: RecoveryEnvelope; sizeBytes: number } | null {
+  // Cap before reading: statSync is O(1), readFileSync would allocate.
+  const sizeBytes = statSync(filePath).size
+  if (sizeBytes > cap) {
+    throw new Error(
+      `recovery read refused — file ${filePath} (${sizeBytes} bytes) exceeds the ` +
+        `${cap} byte cap. A recovery file this large indicates corruption.`,
+    )
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch {
+    return null
+  }
+  const envelope = validateEnvelope(parsed, id)
+  return envelope === null ? null : { envelope, sizeBytes }
+}
+
 /**
  * Persist one project's recovery payload, atomically.
  *
  * Creates ``<userData>/recovery/`` on the first ever write. An existing file
  * for the same project is replaced wholesale — one recovery file per
  * project, always the latest.
+ *
+ * Writes the **primary** slot only, never the declined one. That is the
+ * property that makes "Open without restoring" survivable: the autosave
+ * scheduler runs continuously against the primary slot, so a declined copy is
+ * out of its reach by construction rather than by a check it could forget.
  *
  * @param projectId - Project UUID (either case); anything else is refused.
  * @param payload - Opaque session state. **Plain JSON values only** — object,
@@ -464,6 +694,7 @@ export function writeRecovery(
     writtenAt: envelope.written_at,
     appVersion: envelope.app_version,
     sizeBytes: statSync(filePath).size,
+    declined: false,
   }
 }
 
@@ -474,6 +705,12 @@ export function writeRecovery(
  * banner, and the payloads can be large. Any file that is corrupt, foreign,
  * stale, oversized, or not named after a UUID is skipped rather than thrown
  * on: one bad file must not stop the user from seeing the others.
+ *
+ * **One descriptor per project, not per file.** A project with both a primary
+ * and a declined copy is one offer to the user, resolved by the same rule
+ * {@link readRecovery} uses (see {@link resolveSlot}) — listing both would
+ * put two entries for the same project on the start screen, of which only one
+ * is what Restore would actually load.
  *
  * @returns Descriptors sorted by ``writtenAt`` descending. Empty when the
  *   recovery directory does not exist yet.
@@ -495,35 +732,47 @@ export function listRecovery(): RecoveryDescriptor[] {
 
   const cap = effectiveCapBytes(cfg)
   const descriptors: RecoveryDescriptor[] = []
+  // Deduplicate by project so the two slots of one project collapse into the
+  // single offer the user will be shown.
+  const seen = new Set<string>()
 
   for (const name of names) {
-    if (!name.endsWith(RECOVERY_FILE_SUFFIX)) continue
-    // Also filters the ``.tmp.<pid>`` orphan a crashed atomic write leaves
-    // behind, since that never ends in the suffix.
-    const stem = name.slice(0, name.length - RECOVERY_FILE_SUFFIX.length)
+    // The two suffixes are disjoint, so a name belongs to at most one slot and
+    // the order of these two tests does not matter. Everything else — the
+    // ``.tmp.<pid>`` orphan a crashed atomic write leaves behind, foreign
+    // files — matches neither and is skipped.
+    let suffix: string
+    if (name.endsWith(RECOVERY_DECLINED_FILE_SUFFIX)) suffix = RECOVERY_DECLINED_FILE_SUFFIX
+    else if (name.endsWith(RECOVERY_FILE_SUFFIX)) suffix = RECOVERY_FILE_SUFFIX
+    else continue
+
+    const stem = name.slice(0, name.length - suffix.length)
     if (!isValidProjectId(stem)) continue
     // The descriptor carries the canonical id (a caller round-trips it back
-    // into read/delete); ``filePath`` keeps the on-disk spelling verbatim.
+    // into read/delete/decline).
     const projectId = stem.toLowerCase()
+    if (seen.has(projectId)) continue
 
-    const filePath = join(dir, name)
     try {
-      const size = statSync(filePath).size
-      // Cap before reading: statSync is O(1), readFileSync would allocate.
-      if (size > cap) continue
-      const envelope = validateEnvelope(JSON.parse(readFileSync(filePath, 'utf-8')), projectId)
-      if (envelope === null) continue
+      // Resolve the slot rather than describing the file we happened to walk
+      // onto: readdir order is arbitrary, and the descriptor must describe the
+      // file a Restore would actually load.
+      const slot = resolveSlot(projectId, cap)
+      if (slot === null) continue
+      seen.add(projectId)
       descriptors.push({
         projectId,
-        projectName: envelope.project_name,
-        filePath,
-        writtenAt: envelope.written_at,
-        appVersion: envelope.app_version,
-        sizeBytes: size,
+        projectName: slot.envelope.project_name,
+        filePath: slot.filePath,
+        writtenAt: slot.envelope.written_at,
+        appVersion: slot.envelope.app_version,
+        sizeBytes: slot.sizeBytes,
+        declined: slot.declined,
       })
     } catch {
-      // Corrupt JSON, a file that vanished mid-scan, an unreadable file —
-      // skip the entry, keep the rest.
+      // Corrupt JSON, an over-cap file, a file that vanished mid-scan, an
+      // unreadable file — skip the entry, keep the rest. Unlike readRecovery,
+      // a throw here must not take the whole start screen down with it.
       continue
     }
   }
@@ -536,58 +785,148 @@ export function listRecovery(): RecoveryDescriptor[] {
 /**
  * Read one project's recovery payload — for when the user chooses Restore.
  *
+ * Reads whichever slot {@link resolveSlot} picks: the primary file when one
+ * exists, otherwise the declined copy left behind by an earlier "Open without
+ * restoring". Both go through the same validation and the same cap.
+ *
  * @param projectId - Project UUID (either case); anything else is refused.
- * @returns The opaque payload, or ``null`` when there is no recovery file or
- *   the file is corrupt / foreign / stale (the caller shows "nothing to
- *   restore" rather than an error).
+ * @returns The opaque payload, or ``null`` when there is no recovery file in
+ *   either slot or the file is corrupt / foreign / stale (the caller shows
+ *   "nothing to restore" rather than an error). An unreadable PRIMARY file is
+ *   quarantined on the way past, so the declined copy behind it — if any — is
+ *   what comes back.
  * @throws Error when the store is unconfigured, the id is malformed, or the
- *   file exceeds the read cap. The cap is a throw, not a skip: the user
- *   explicitly asked for this file, so silently returning "nothing" would
- *   hide a real problem.
+ *   DECLINED file exceeds the read cap. The cap is a throw there, not a skip:
+ *   nothing sits behind the declined slot, so silently returning "nothing"
+ *   would hide a real problem.
  */
 export function readRecovery(projectId: unknown): unknown {
   const cfg = requireConfig()
   const id = canonicalProjectId(projectId)
-  const filePath = recoveryFilePath(id)
-  if (!existsSync(filePath)) return null
-
-  const cap = effectiveCapBytes(cfg)
-  const size = statSync(filePath).size
-  if (size > cap) {
-    throw new Error(
-      `recovery read refused — file ${filePath} (${size} bytes) exceeds the ` +
-        `${cap} byte cap. A recovery file this large indicates corruption.`,
-    )
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(readFileSync(filePath, 'utf-8'))
-  } catch {
-    return null
-  }
-  const envelope = validateEnvelope(parsed, id)
-  return envelope === null ? null : envelope.payload
+  const slot = resolveSlot(id, effectiveCapBytes(cfg))
+  return slot === null ? null : slot.envelope.payload
 }
 
 /**
- * Delete one project's recovery file — called once the session it protected
- * has been saved or explicitly discarded.
+ * Move one project's recovery file into the declined slot — called when the
+ * user picks "Open without restoring".
+ *
+ * The rename is what keeps the copy alive: the autosave scheduler is about to
+ * start writing the primary slot for the newly-opened session, and the next
+ * decided exit deletes that file. Out of the scheduler's way, the declined
+ * copy survives until the user explicitly discards it, so a restart re-offers
+ * the same unsaved work (owner decision 2026-08-03).
+ *
+ * An older declined copy is **overwritten** — ``renameSync`` replaces the
+ * destination on NTFS as well as on POSIX. Newest decline wins: two declines
+ * without an intervening Discard mean the second one carries the later
+ * session state, and keeping the earlier copy would only give a future restart
+ * a choice it has no way to make.
  *
  * @param projectId - Project UUID (either case); anything else is refused.
- * @returns True when a file was removed, false when there was nothing to
- *   remove. A missing file is a no-op, not an error: the common path is
- *   "clear recovery on clean shutdown" where none may ever have been written.
+ * @returns True when a file was moved, false when there was nothing to
+ *   decline (no recovery file was ever written for this session).
+ * @throws Error when the store is unconfigured, the id is malformed, or the
+ *   rename fails for any reason other than a missing source.
+ */
+export function declineRecovery(projectId: unknown): boolean {
+  const id = canonicalProjectId(projectId)
+  try {
+    renameSync(recoveryFilePath(id), declinedRecoveryFilePath(id))
+    return true
+  } catch (err) {
+    // ENOENT is the expected "this session never had anything at risk" case.
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return false
+    throw err
+  }
+}
+
+/**
+ * Delete one project's recovery files — **both slots** — called once the
+ * session they protected has been saved or explicitly discarded.
+ *
+ * Clearing both is what makes Discard mean discard. If it cleared only the
+ * primary slot, a project the user had once declined would keep re-offering
+ * that stale copy at every launch, and the prompt's Discard button — the only
+ * control the user is given over it — would appear not to work.
+ *
+ * @param projectId - Project UUID (either case); anything else is refused.
+ * @returns True when at least one file was removed, false when there was
+ *   nothing to remove. A missing file is a no-op, not an error: the common
+ *   path is "clear recovery on clean shutdown" where none may ever have been
+ *   written.
  * @throws Error when the store is unconfigured or the id is malformed.
  */
 export function deleteRecovery(projectId: unknown): boolean {
-  const filePath = recoveryFilePath(projectId)
+  const id = canonicalProjectId(projectId)
+  // Not short-circuiting: the declined copy must go even when the primary one
+  // was already gone (the ordinary decline-then-discard sequence).
+  const removedPrimary = unlinkIfPresent(recoveryFilePath(id))
+  const removedDeclined = unlinkIfPresent(declinedRecoveryFilePath(id))
+  // A quarantined file is the only other thing this module ever leaves on
+  // disk, and Discard means "nothing about this project's unsaved work
+  // survives". Nothing reads it, so its removal does not count as a removal
+  // for the return value — the caller's log line is about the user's work.
+  unlinkIfPresent(corruptRecoveryFilePath(id))
+  return removedPrimary || removedDeclined
+}
+
+/**
+ * Delete one project's **declined** recovery copy, leaving the primary slot
+ * alone — the clear that ends a decline without touching live state.
+ *
+ * The third verb exists for one path: restoring a copy that came OUT of the
+ * declined slot. Restore leaves the work at risk all over again, so the
+ * restored content is written to the primary slot first and the decline is
+ * ended second. Without this call the declined file stays behind that new
+ * primary, every clean exit clears only the primary, and the same work is
+ * offered again at every launch — forever, with no way for the user to say no
+ * that sticks.
+ *
+ * @param projectId - Project UUID (either case); anything else is refused.
+ * @returns True when a declined copy was removed, false when there was none.
+ * @throws Error when the store is unconfigured or the id is malformed.
+ */
+export function deleteDeclinedRecovery(projectId: unknown): boolean {
+  return unlinkIfPresent(declinedRecoveryFilePath(canonicalProjectId(projectId)))
+}
+
+/**
+ * Delete one project's **primary** recovery file, leaving a declined copy
+ * alone — the clear every path EXCEPT the prompt's Discard wants.
+ *
+ * The two clears exist because two different intents were being spelled with
+ * one call. A save, a discard-and-close, a clean close, a quit and the
+ * autosave scheduler's dirty→clean transition all mean "*this session's*
+ * delta now has a durable home". They say nothing about a copy the user
+ * declined in an earlier session, which by owner decision (2026-08-03)
+ * survives until they Discard it — and which {@link deleteRecovery} would
+ * take with it, reinstating exactly the silent loss the declined slot was
+ * added to prevent.
+ *
+ * @param projectId - Project UUID (either case); anything else is refused.
+ * @returns True when the primary file was removed, false when there was none.
+ *   A declined copy left in place does NOT count as a removal: the caller's
+ *   log line would otherwise claim to have cleared something it did not.
+ * @throws Error when the store is unconfigured or the id is malformed.
+ */
+export function deletePrimaryRecovery(projectId: unknown): boolean {
+  return unlinkIfPresent(recoveryFilePath(canonicalProjectId(projectId)))
+}
+
+/**
+ * Unlink a file, treating "already gone" as a non-event.
+ *
+ * @param filePath - Absolute path to remove.
+ * @returns True when the file was removed, false when it did not exist.
+ * @throws The underlying error for anything other than ENOENT — a locked file
+ *   or a permissions problem is real and worth surfacing.
+ */
+function unlinkIfPresent(filePath: string): boolean {
   try {
     unlinkSync(filePath)
     return true
   } catch (err) {
-    // ENOENT is the expected "already gone" case. Anything else (a locked
-    // file, a permissions problem) is real and worth surfacing.
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return false
     throw err
   }
