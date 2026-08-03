@@ -645,9 +645,57 @@ class GeologyRepository(GroundModelLogger):
             When neither or both anchor ids are supplied (the XOR
             contract is a programming error, not a user input error).
         """
+        pairs = await self.contact_scope_for_investigation(cpt_id=cpt_id, borehole_id=borehole_id)
+        anchor_val = cpt_id if cpt_id is not None else borehole_id
+        if not pairs:
+            return 0
+        flipped = await self.mark_surfaces_stale(pairs)
+        self.debug(
+            f"stale_surfaces_for_investigation("
+            f"{'cpt' if cpt_id is not None else 'borehole'}={anchor_val}): "
+            f"{len(pairs)} (model, formation) pair(s) → {flipped} surface(s) stale"
+        )
+        return flipped
+
+    async def contact_scope_for_investigation(
+        self,
+        *,
+        cpt_id: UUID | None = None,
+        borehole_id: UUID | None = None,
+    ) -> list[tuple[UUID, UUID]]:
+        """Return the distinct ``(model_id, formation_id)`` pairs anchored here.
+
+        This is the blast radius of an elevation edit: every model that holds a
+        contact at this investigation, and which formation the contact belongs
+        to. Callers use it to invalidate whatever they cache per model
+        (``formation_surface`` TINs) or per (model, formation) pair.
+
+        Runs across ALL models — geological, litho and geotech alike — because
+        the URL is project-scoped, not model-scoped, and an accepted litho layer
+        mirrors into ``formation_contact`` too.
+
+        Parameters
+        ----------
+        cpt_id : UUID | None
+            The edited CPT, when the anchor is a CPT.
+        borehole_id : UUID | None
+            The edited borehole, when the anchor is a borehole.
+
+        Returns
+        -------
+        list[tuple[UUID, UUID]]
+            Distinct ``(model_id, formation_id)`` pairs; empty when the
+            investigation carries no contacts (a legal no-op).
+
+        Raises
+        ------
+        ValueError
+            When neither or both anchor ids are supplied (the XOR contract is a
+            programming error, not a user input error).
+        """
         if (cpt_id is None) == (borehole_id is None):
             raise ValueError(
-                "stale_surfaces_for_investigation needs exactly one of "
+                "contact_scope_for_investigation needs exactly one of "
                 "cpt_id / borehole_id (contacts carry an XOR anchor)"
             )
         anchor_col = (
@@ -662,16 +710,7 @@ class GeologyRepository(GroundModelLogger):
             .where(anchor_col == anchor_val)
             .distinct()
         )
-        pairs = [(m, f) for m, f in rows.all()]
-        if not pairs:
-            return 0
-        flipped = await self.mark_surfaces_stale(pairs)
-        self.debug(
-            f"stale_surfaces_for_investigation("
-            f"{'cpt' if cpt_id is not None else 'borehole'}={anchor_val}): "
-            f"{len(pairs)} (model, formation) pair(s) → {flipped} surface(s) stale"
-        )
-        return flipped
+        return [(m, f) for m, f in rows.all()]
 
     async def delete_contact(self, contact_id: UUID) -> bool:
         """Delete a contact. No cascading children — contacts are leaves."""
