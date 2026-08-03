@@ -218,6 +218,19 @@ export function useLithoSolids(
         setSolids(result.solids)
 
         const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
+        // A build that produced NOTHING also cleared the stored 3-D model — the
+        // backend's empty path orphan-deletes every solid row and commits. Its
+        // counts are identical to a happy build of zero bodies, so without the
+        // reason the only reading available here was a green "Built 0 bodies"
+        // over a model that had just been erased. Say what happened instead.
+        if (result.empty_reason) {
+          log.warn('useLithoSolids', `build produced nothing: ${result.empty_reason}`)
+          toast(
+            'warning',
+            `Nothing could be built — ${result.empty_reason}. The stored 3-D model was cleared.`,
+          )
+          return
+        }
         // Severity is DERIVED from what the build reported, not fixed at
         // 'success': a build that modelled only part of the project succeeded
         // technically and failed the engineer.  ``uncovered_test_ids`` is the
