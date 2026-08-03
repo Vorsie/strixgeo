@@ -64,10 +64,12 @@ function makeArgs(overrides: Record<string, unknown> = {}) {
     currentLumping: null,
     hasUnsavedMutations: false,
     setHasUnsavedMutations: vi.fn(),
-    revertToLastSaved: vi.fn().mockResolvedValue(true),
+    revertToLastSaved: vi.fn().mockResolvedValue('reverted'),
     hasSavedSnapshot: true,
     clearRecoveryNow: vi.fn().mockResolvedValue(undefined),
     lastSaveWroteFile: vi.fn().mockReturnValue(true),
+    projectFilePath: 'C:/projects/Site A.strix',
+    toast: vi.fn(),
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any
@@ -87,7 +89,7 @@ describe('useProjectLifecycle — two-stage save (#160)', () => {
   })
 
   it('Don’t Save on a SAVED project replace-restores from the file, clears tracking, and closes', async () => {
-    const revertToLastSaved = vi.fn().mockResolvedValue(true)
+    const revertToLastSaved = vi.fn().mockResolvedValue('reverted')
     const closeProject = vi.fn()
     const setHasUnsavedMutations = vi.fn()
     const removeFromManifest = vi.fn()
@@ -116,7 +118,7 @@ describe('useProjectLifecycle — two-stage save (#160)', () => {
   })
 
   it('Don’t Save on a NEVER-SAVED project falls back to discardSessionImports', async () => {
-    const revertToLastSaved = vi.fn().mockResolvedValue(false)
+    const revertToLastSaved = vi.fn().mockResolvedValue('no-snapshot')
     const closeProject = vi.fn()
     const removeFromManifest = vi.fn()
     const setHasUnsavedMutations = vi.fn()
@@ -407,5 +409,179 @@ describe('useProjectLifecycle — close-flow notes reach the main process', () =
     expect(info.mock.calls.map(call => call.map(String).join(' ')).join('\n')).toMatch(
       /clean close from the sidebar/i,
     )
+  })
+})
+
+// Audit 2026-08-02, MAJOR: a save that never reached its .strix, and a
+// Discard whose revert was refused, both ended in a console line. The rule,
+// in the rule's own words: an engineer who clicks Save or Don't Save and does
+// not get what they asked for must be told, on screen, which file it was
+// about — and the app must not quietly delete this session's work instead.
+describe('useProjectLifecycle — a failed Save reaches the engineer', () => {
+  it('shows an error naming the file when the save never landed', async () => {
+    const toast = vi.fn()
+    const args = makeArgs({
+      toast,
+      saveMetadata: vi.fn().mockResolvedValue(false),
+      projectFilePath: 'C:/projects/Site A.strix',
+    })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.saveProject()
+    })
+
+    expect(ok).toBe(false)
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast.mock.calls[0][0]).toBe('error')
+    expect(String(toast.mock.calls[0][1])).toContain('Site A.strix')
+    // The same reason is published for the dialog, which stays open.
+    expect(result.current.unsavedError).toContain('Site A.strix')
+  })
+
+  it('keeps the unsaved dialog open (and the project un-closed) after a failed Save', async () => {
+    const closeProject = vi.fn()
+    const args = makeArgs({
+      closeProject,
+      saveMetadata: vi.fn().mockResolvedValue(false),
+    })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.handleUnsavedSave()
+    })
+
+    expect(closeProject).not.toHaveBeenCalled()
+    expect(result.current.unsavedError).not.toBeNull()
+  })
+
+  it('says nothing on a save that worked', async () => {
+    const toast = vi.fn()
+    const { result } = renderHook(() => useProjectLifecycle(makeArgs({ toast })))
+
+    await act(async () => {
+      await result.current.saveProject()
+    })
+
+    expect(toast).not.toHaveBeenCalled()
+    expect(result.current.unsavedError).toBeNull()
+  })
+})
+
+describe('useProjectLifecycle — Discard acts on WHICH revert outcome it got', () => {
+  it('deletes the session creates ONLY when there is no snapshot to revert to', async () => {
+    const removeFromManifest = vi.fn()
+    const closeProject = vi.fn()
+    const { result } = renderHook(() =>
+      useProjectLifecycle(
+        makeArgs({
+          revertToLastSaved: vi.fn().mockResolvedValue('no-snapshot'),
+          removeFromManifest,
+          closeProject,
+        }),
+      ),
+    )
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(removeFromManifest).toHaveBeenCalled()
+    expect(closeProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT delete session work when the file is not this project’s latest save', async () => {
+    // The refusal is the protective outcome: the file on disk cannot restore
+    // what this session made, so deleting the session's creates would destroy
+    // work nothing can bring back.
+    const removeFromManifest = vi.fn()
+    const discardContacts = vi.fn()
+    const closeProject = vi.fn()
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const setHasUnsavedMutations = vi.fn()
+    const toast = vi.fn()
+    const { result } = renderHook(() =>
+      useProjectLifecycle(
+        makeArgs({
+          revertToLastSaved: vi.fn().mockResolvedValue('refused-not-latest-save'),
+          sessionImportCptIds: new Set(['c1']),
+          sessionImportContactIds: new Set(['ct1']),
+          removeFromManifest,
+          discardContacts,
+          closeProject,
+          clearRecoveryNow,
+          setHasUnsavedMutations,
+          toast,
+          projectFilePath: 'C:/projects/site-backup-0801.strix',
+        }),
+      ),
+    )
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(removeFromManifest).not.toHaveBeenCalled()
+    expect(discardContacts).not.toHaveBeenCalled()
+    expect(closeProject).not.toHaveBeenCalled()
+    // The recovery file protects exactly the work that was NOT discarded.
+    expect(clearRecoveryNow).not.toHaveBeenCalled()
+    expect(setHasUnsavedMutations).not.toHaveBeenCalledWith(false)
+    // The dialog comes back with copy naming the file.
+    expect(result.current.unsavedDialogOpen).toBe(true)
+    expect(result.current.unsavedError).toContain('site-backup-0801.strix')
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast.mock.calls[0][0]).toBe('error')
+  })
+
+  it('aborts the close when the revert threw, and keeps the session work', async () => {
+    const removeFromManifest = vi.fn()
+    const closeProject = vi.fn()
+    const toast = vi.fn()
+    const { result } = renderHook(() =>
+      useProjectLifecycle(
+        makeArgs({
+          revertToLastSaved: vi.fn().mockResolvedValue('failed'),
+          sessionImportCptIds: new Set(['c1']),
+          removeFromManifest,
+          closeProject,
+          toast,
+        }),
+      ),
+    )
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(removeFromManifest).not.toHaveBeenCalled()
+    expect(closeProject).not.toHaveBeenCalled()
+    expect(result.current.unsavedDialogOpen).toBe(true)
+    expect(toast.mock.calls[0][0]).toBe('error')
+  })
+
+  it('clears the tracking sets (and nothing else) on a real revert', async () => {
+    const removeFromManifest = vi.fn()
+    const setSessionImportCptIds = vi.fn()
+    const closeProject = vi.fn()
+    const { result } = renderHook(() =>
+      useProjectLifecycle(
+        makeArgs({
+          revertToLastSaved: vi.fn().mockResolvedValue('reverted'),
+          removeFromManifest,
+          setSessionImportCptIds,
+          closeProject,
+        }),
+      ),
+    )
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(setSessionImportCptIds).toHaveBeenCalledWith(new Set())
+    expect(removeFromManifest).not.toHaveBeenCalled()
+    expect(closeProject).toHaveBeenCalledTimes(1)
   })
 })
