@@ -17,6 +17,9 @@ import { writeFileAtomic } from './atomicWrite'
 import { rotateIfNeeded, realFsOps } from './logRotation'
 import {
   configureRecoveryStore,
+  declineRecovery,
+  deleteDeclinedRecovery,
+  deletePrimaryRecovery,
   deleteRecovery,
   listRecovery,
   readRecovery,
@@ -291,6 +294,15 @@ function createWindow(): void {
       // (clipboard, full-screen on file:// pages, etc.). Hardens
       // against the same XSS-as-RCE escalation #36 / #37 protect.
       sandbox: true,
+      // DevTools off in packaged builds (debt #200, autosave design Q6).
+      // Gating the View-menu role alone leaves ways back in — a stray
+      // accelerator, ``openDevTools()`` from anywhere in main. This flag
+      // closes all of them at the source: with it false the webContents
+      // simply cannot open DevTools. Two reasons it matters here: backend
+      // stdout carries the DB connection string, and DevTools is one keypress
+      // from the Reload that discards the renderer-only session state crash
+      // recovery exists to protect.
+      devTools: !app.isPackaged,
     },
   })
   mainWindow = win
@@ -333,9 +345,18 @@ function createWindow(): void {
   // (which knows about the project's dirty state and runs the same
   // save-or-discard prompt the in-app close paths use), and wait for
   // the renderer to either approve or veto via ``app:quit-decision``.
+  //
+  // Both sides of this handshake are logged. A dogfeed came back "the app
+  // discarded without asking", and the main-process half of the story was
+  // invisible: there was no way to tell whether the renderer was ever asked,
+  // whether it answered, or what it answered. These two lines make the
+  // sequence readable in the same terminal as the rest of the main-process
+  // diagnostics.
   win.on('close', (event) => {
     if (confirmedQuit) return
     event.preventDefault()
+    // eslint-disable-next-line no-console
+    console.info('[main] close intercepted -> app:before-quit sent to renderer')
     win.webContents.send('app:before-quit')
   })
 
@@ -480,12 +501,23 @@ function buildMenu(win: BrowserWindow): void {
     },
     {
       label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
+      // Reload / Force Reload / Toggle DevTools exist in development only
+      // (debt #200, autosave design Q6). ``View → Reload`` is the single most
+      // likely accidental destroyer of renderer-only session state — the litho
+      // ghost workspace, the lumping map, an unsaved metadata draft — none of
+      // which is in Postgres, and all of which a reload throws away without a
+      // prompt. A menu item two rows above "Toggle Full Screen" is not
+      // something a user meant to click. Registering the roles conditionally
+      // also removes their default accelerators (Ctrl+R / F12 / Ctrl+Shift+I),
+      // and ``webPreferences.devTools`` above closes the programmatic path.
+      submenu: app.isPackaged
+        ? [{ role: 'togglefullscreen' }]
+        : [
+            { role: 'reload' },
+            { role: 'toggleDevTools' },
+            { type: 'separator' },
+            { role: 'togglefullscreen' },
+          ],
     },
     {
       label: 'Help',
@@ -754,6 +786,10 @@ ipcMain.handle('window:set-title', (_event, title: string | null) => {
 // abort the quit. ``confirmedQuit`` short-circuits the next ``close``
 // event so the renderer doesn't get re-asked.
 ipcMain.handle('app:quit-decision', (_event, allowed: boolean) => {
+  // Paired with the ``close intercepted`` line in the window-close handler:
+  // together they show whether the renderer answered at all, and with what.
+  // eslint-disable-next-line no-console
+  console.info(`[main] quit decision from renderer: allowed=${allowed}`)
   if (!allowed || mainWindow === null) return
   confirmedQuit = true
   mainWindow.close()
@@ -815,6 +851,57 @@ ipcMain.handle('recovery:read', (_event, projectId: unknown): unknown => readRec
 ipcMain.handle('recovery:delete', (_event, projectId: unknown): boolean =>
   deleteRecovery(projectId),
 )
+
+// The autosave scheduler's clear, and every DECIDED exit that is not the
+// prompt's Discard (save, discard-and-close, clean close, quit). Those paths
+// mean "this session's delta has a home now" — they must not take a copy the
+// user declined in an EARLIER session with them, which ``recovery:delete``
+// would (owner decision 2026-08-03).
+ipcMain.handle('recovery:delete-primary', (_event, projectId: unknown): boolean =>
+  deletePrimaryRecovery(projectId),
+)
+
+// "Open without restoring" — preserve the copy instead of destroying it, so a
+// restart re-offers the same unsaved work (owner decision 2026-08-03). The
+// store moves it to a second slot the autosave scheduler never writes; only
+// ``recovery:delete`` (the prompt's Discard) ever removes it.
+ipcMain.handle('recovery:decline', (_event, projectId: unknown): boolean =>
+  declineRecovery(projectId),
+)
+
+// The end of a decline: a copy that came OUT of the declined slot has just
+// been restored, so it is live session state again and the declined file
+// behind it must go — otherwise the same work is re-offered at every launch
+// forever. The restore writes the primary slot BEFORE calling this, so there
+// is never a moment where the only copy of at-risk content is gone.
+ipcMain.handle('recovery:delete-declined', (_event, projectId: unknown): boolean =>
+  deleteDeclinedRecovery(projectId),
+)
+
+// ---------------------------------------------------------------------------
+// Close-flow notes from the renderer
+//
+// The close flow never touches the API, so a report of the shape "it discarded
+// my work without asking" has no server log behind it. The renderer logs each
+// decision point — but a packaged build has DevTools disabled and forwards its
+// console nowhere, so those lines are invisible exactly where the reports come
+// from. Dogfeed reports arrive as pasted TERMINAL output, and the terminal
+// shows the main process only.
+//
+// Deliberately NOT a general log bridge: one channel, one string, close-flow
+// lines only. A pipe that carries the whole renderer console would flood
+// stdout, and every renderer-supplied string it printed would be one more
+// thing to bound.
+// ---------------------------------------------------------------------------
+const CLOSE_FLOW_NOTE_MAX_LEN = 500
+
+ipcMain.handle('app:close-flow-note', (_event, note: unknown): void => {
+  // IPC arguments arrive as ``any`` at runtime whatever the signature claims;
+  // a non-string here would print "[object Object]" at best.
+  if (typeof note !== 'string') return
+  // eslint-disable-next-line no-console
+  console.info(`[renderer] ${note.slice(0, CLOSE_FLOW_NOTE_MAX_LEN)}`)
+})
 
 // ---------------------------------------------------------------------------
 // #214 — distribution robustness IPC handlers
@@ -923,25 +1010,88 @@ crashReporter.start({
   uploadToServer: false,
 })
 
-app.whenReady().then(() => {
-  // Pre-authorise every path in the recent-projects list — without
-  // this the first "Open Recent" click after launch would hit the
-  // path-validation in project:read-file and get refused (debt #37).
-  bootstrapAuthorisedPaths()
-  // The recovery store has no Electron dependency of its own (so it stays
-  // unit-testable), so it learns the userData directory and app version here.
-  // Must happen before any renderer can issue a ``recovery:*`` call.
-  configureRecoveryStore({
-    userDataDir: app.getPath('userData'),
-    appVersion: app.getVersion(),
-  })
-  startApi()
-  createWindow()
+// ---------------------------------------------------------------------------
+// Single-instance lock (autosave design Q4)
+//
+// A second instance is never something the user wanted. Two of them already
+// fight over :8765 — the second spawns a uvicorn that loses the bind, so the
+// new window silently talks to the FIRST instance's backend and its dev DB,
+// and both windows then edit the same project through one API with no idea the
+// other exists. Symptoms read as data corruption, not as "you double-clicked
+// the icon twice". The lock turns that confusing double-boot into a focus of
+// the window that is already open.
+//
+// Acquired before ``whenReady`` and before any window is created, so the
+// losing instance exits without ever spawning a backend or flashing a frame.
+//
+// WHY the escape hatch: the Playwright harness launches this binary ~166 times
+// against ONE shared userData directory, sequentially. A single lingering
+// process from a previous spec — a hung teardown, a renderer that ignored the
+// quit — turns the NEXT ``launchApp`` into a lock loser, which exits before
+// creating a window and fails the spec with a confusing "no first window"
+// rather than with whatever actually went wrong. So the harness
+// (``tests/e2e/helpers/electron_launch.ts``) sets
+// ``STRIX_DISABLE_SINGLE_INSTANCE=1`` and gets the pre-lock behaviour back.
+// A packaged build ALWAYS locks, whatever the environment says — the env var
+// is a test seam, not a supported user setting. Dev keeps the lock too,
+// because the confusing double-boot is the real bug it fixes.
+// ---------------------------------------------------------------------------
+const singleInstanceLockRequested = app.isPackaged || !process.env.STRIX_DISABLE_SINGLE_INSTANCE
+const gotSingleInstanceLock = singleInstanceLockRequested ? app.requestSingleInstanceLock() : true
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+if (!gotSingleInstanceLock) {
+  // eslint-disable-next-line no-console
+  console.info('[main] another StrixGeo instance owns the lock — focusing it and exiting')
+  app.quit()
+} else {
+  // Electron delivers this in the FIRST instance when a second one starts and
+  // fails the lock. The user's intent was "show me StrixGeo", so treat the
+  // launch as a focus request.
+  //
+  // ``argv`` is LOGGED AND OTHERWISE DROPPED, on purpose and visibly. A second
+  // instance can carry a file path ("Open with… StrixGeo" on a .strix, a
+  // shell drag onto the icon) and today that path goes nowhere — the user sees
+  // the already-open project and no error. Opening it is a deep-link feature
+  // with its own dirty-project handshake to design (docs/debt.md #200); until
+  // then the log line is what makes the drop findable instead of a mystery.
+  app.on('second-instance', (_event, argv) => {
+    const shown = argv.map(a => `"${a}"`).join(' ').slice(0, 500)
+    // eslint-disable-next-line no-console
+    console.info(`[main] second instance launched: ${shown}`)
+    if (mainWindow === null) {
+      // Between ``app.quit()`` and process exit, or before the first window
+      // exists. Nothing to focus, and nothing to hand the argv to.
+      // eslint-disable-next-line no-console
+      console.info('[main] second instance ignored — no window to focus yet')
+      return
+    }
+    // ``show`` alone does not un-minimise on Windows, and ``focus`` on a
+    // minimised window does nothing visible — restore first.
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
   })
-})
+
+  app.whenReady().then(() => {
+    // Pre-authorise every path in the recent-projects list — without
+    // this the first "Open Recent" click after launch would hit the
+    // path-validation in project:read-file and get refused (debt #37).
+    bootstrapAuthorisedPaths()
+    // The recovery store has no Electron dependency of its own (so it stays
+    // unit-testable), so it learns the userData directory and app version here.
+    // Must happen before any renderer can issue a ``recovery:*`` call.
+    configureRecoveryStore({
+      userDataDir: app.getPath('userData'),
+      appVersion: app.getVersion(),
+    })
+    startApi()
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   stopApi()
