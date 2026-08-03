@@ -5,6 +5,20 @@ Electron + React (TypeScript), built with `electron-vite`. Entry: `desktop/`.
 ```
 desktop/src/
 ├── main/              Electron main process — spawns FastAPI, IPC handlers
+│                      Backend launch: `.venv/Scripts/python.exe -m groundmodel.api.serve`
+│                      (NOT `uvicorn.exe` — the entrypoint pins uvicorn's `loop`
+│                      setting to a custom selector-loop factory on Windows; the
+│                      proactor loop closes the listening socket on a transient
+│                      accept error and never re-arms it. The event-loop POLICY
+│                      is not a working hook here — uvicorn ≥ 0.36 reads
+│                      `Config.get_loop_factory()`. See
+│                      `src/groundmodel/api/serve.py`.)
+│                      Renderer console → terminal (dev only, never packaged):
+│                      `rendererConsoleForwarding.ts`. info/warning/error always
+│                      forward; `debug` only with `STRIX_FORWARD_RENDERER_DEBUG=1`,
+│                      mirroring the renderer's `localStorage['strix.log.trace']`
+│                      switch — the debug stream is per-API-call and would flood
+│                      the terminal a bug report is pasted from.
 ├── preload/           Context bridge: openFile, readFile, waitForApi, menu events
 └── renderer/src/
     ├── api/
