@@ -487,12 +487,69 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
     expect(row.textContent).toContain('SAND, medium dense')
   })
 
-  it('shows the "CPT est." badge on a classified unit', () => {
+  it('shows the "CPT est." badge on a unit whose class came from the cone', () => {
     const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
-    renderInspector(makeCtx({ geotechFormations: [formation], geotechContacts: [] }))
+    renderInspector(
+      makeCtx({
+        geotechFormations: [formation],
+        geotechContacts: [],
+        // CPT-derived bands: `subdivide_all_bodies` writes 'medium',
+        // `cpt_interpolated` borehole fill writes 'high'.
+        geotechLayers: [makeLayer('f-1', 'high')],
+      }),
+    )
 
     expect(screen.getByTestId('cpt-est-badge-f-1')).toBeTruthy()
     expect(screen.getByTestId('cpt-est-badge-f-1').textContent).toBe('CPT est.')
+    expect(screen.queryByTestId('no-cpt-badge-f-1')).toBeNull()
+  })
+
+  // No cone touched this soil: the class is `body_min` (weakest class seen
+  // elsewhere in the body) or `absolute_min` (a hard-coded lithology floor),
+  // both persisted as confidence 'low'. Calling that "CPT est. — derived from
+  // CPT qc series" is the app presenting an invented value as a measured one.
+  it('does NOT claim "CPT est." on a unit filled from the conservative fallback', () => {
+    const formation = makeFormation('f-fb', { nad_class: 21, display_order: 0 })
+    renderInspector(
+      makeCtx({
+        geotechFormations: [formation],
+        geotechContacts: [],
+        geotechLayers: [makeLayer('f-fb', 'low')],
+      }),
+    )
+
+    expect(screen.queryByTestId('cpt-est-badge-f-fb')).toBeNull()
+    expect(screen.getByTestId('no-cpt-badge-f-fb').textContent).toBe('No CPT')
+  })
+
+  it('does NOT claim "CPT est." on a classified unit with no bands at all', () => {
+    const formation = makeFormation('f-bare', { nad_class: 6, display_order: 0 })
+    renderInspector(
+      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: [] }),
+    )
+
+    expect(screen.queryByTestId('cpt-est-badge-f-bare')).toBeNull()
+    expect(screen.getByTestId('no-cpt-badge-f-bare')).toBeTruthy()
+  })
+
+  // Owner's reading of the roster: "No CPT" has to mean there was no cone. On the dev
+  // model 9 of the 14 NAD units carry at least one borehole-fill band among dozens of
+  // cone-derived ones (ZAND (NAD 6): 141 cone bands, 1 fallback) — telling him those
+  // units have "No CPT data behind this class" is as untrue as claiming CPT for a pure
+  // fallback, and it empties the roster of the honest badge.
+  it('a unit that is mostly cone with one fallback band is neither "CPT est." nor "No CPT"', () => {
+    const formation = makeFormation('f-mix', { nad_class: 6, display_order: 0 })
+    renderInspector(
+      makeCtx({
+        geotechFormations: [formation],
+        geotechContacts: [],
+        geotechLayers: [makeLayer('f-mix', 'high'), makeLayer('f-mix', 'low')],
+      }),
+    )
+
+    expect(screen.queryByTestId('cpt-est-badge-f-mix')).toBeNull()
+    expect(screen.queryByTestId('no-cpt-badge-f-mix')).toBeNull()
+    expect(screen.getByTestId('partial-cpt-badge-f-mix').textContent).toBe('CPT est. (partial)')
   })
 
   it('applies nadClassColor to the swatch, NOT f.color', () => {
