@@ -136,11 +136,20 @@ function installStoreBackedElectron(initial: {
 function mount(
   projectId: string | null = PROJECT_ID,
   onDiscardResidue?: () => Promise<void>,
+  onBeforeDiscard?: () => Promise<boolean>,
+  onAfterDiscard?: () => Promise<void>,
 ) {
   const onRestore = vi.fn()
   const hook = renderHook(
     ({ id }: { id: string | null }) =>
-      useRecoveryOffer({ projectId: id, projectName: 'Site A', onRestore, onDiscardResidue }),
+      useRecoveryOffer({
+        projectId: id,
+        projectName: 'Site A',
+        onRestore,
+        onDiscardResidue,
+        onBeforeDiscard,
+        onAfterDiscard,
+      }),
     { initialProps: { id: projectId } },
   )
   return { hook, onRestore }
@@ -489,6 +498,51 @@ describe('useRecoveryOffer', () => {
       await hook.result.current.discardOffer()
     })
     expect(order).toEqual(['delete', 'residue'])
+    expect(hook.result.current.offer).toBeNull()
+  })
+
+  it('discard reverts BEFORE deleting, then reloads — the session never happened', async () => {
+    // Owner ruling 2026-08-03 (second half): after Delete backup "the 4
+    // original saved ones and the saved geological model should come back" —
+    // the crashed session's DATABASE mutations revert too, not just the
+    // renderer-only extras. Order is load-bearing: revert (can refuse) →
+    // delete file → residue → reload.
+    const electron = installElectron()
+    const order: string[] = []
+    electron.deleteRecovery.mockImplementation(async () => {
+      order.push('delete')
+      return true
+    })
+    const onBeforeDiscard = vi.fn(async () => {
+      order.push('revert')
+      return true
+    })
+    const onAfterDiscard = vi.fn(async () => {
+      order.push('reload')
+    })
+    const { hook } = mount(PROJECT_ID, undefined, onBeforeDiscard, onAfterDiscard)
+    await waitFor(() => expect(hook.result.current.offer).not.toBeNull())
+    await act(async () => {
+      await hook.result.current.discardOffer()
+    })
+    expect(order).toEqual(['revert', 'delete', 'reload'])
+    expect(hook.result.current.offer).toBeNull()
+  })
+
+  it('an aborted revert keeps the backup file', async () => {
+    // A refused/failed revert means the backup is the ONLY remaining record
+    // of the session the user tried to erase — deleting it anyway would
+    // destroy the work twice over.
+    const electron = installElectron()
+    const onBeforeDiscard = vi.fn(async () => false)
+    const { hook } = mount(PROJECT_ID, undefined, onBeforeDiscard)
+    await waitFor(() => expect(hook.result.current.offer).not.toBeNull())
+    await act(async () => {
+      await hook.result.current.discardOffer()
+    })
+    expect(electron.deleteRecovery).not.toHaveBeenCalled()
+    // The prompt still closes — the user answered; the caller toasts the
+    // refusal and the offer returns next launch.
     expect(hook.result.current.offer).toBeNull()
   })
 
