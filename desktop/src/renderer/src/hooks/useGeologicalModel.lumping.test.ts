@@ -121,7 +121,16 @@ const ACTIVE_MODEL: GeologicalModelResponse = {
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 }
 
-function makeHook() {
+/** The hook options a test may want to observe or preload. */
+type HookOverrides = Partial<Parameters<typeof useGeologicalModel>[0]>
+
+/**
+ * Mount the hook with the standard empty-project mocks.
+ *
+ * @param overrides - Options to replace, e.g. a ``stageLumping`` /
+ *   ``toast`` spy or a preloaded ``currentLumping`` snapshot.
+ */
+function makeHook(overrides?: HookOverrides) {
   mockListModels.mockResolvedValue([ACTIVE_MODEL])
   mockListFormations.mockResolvedValue([])
   mockListContacts.mockResolvedValue([] as FormationContactResponse[])
@@ -141,7 +150,24 @@ function makeHook() {
     stageLumping: vi.fn(),
     requestCorrelationEdgesRefetch: vi.fn(),
     markMutated: vi.fn(),
+    ...overrides,
   }))
+}
+
+/** A successful auto-populate response with nothing created and nothing removed. */
+function quietOutcome(overrides?: Record<string, unknown>) {
+  return {
+    created_formation_ids: [],
+    created_contact_ids: [],
+    deleted_formation_ids: [],
+    deleted_formation_names: [],
+    mode: 'add',
+    skipped_existing: 0,
+    skipped_unmatched: 0,
+    skipped_no_stratigraphy: 0,
+    collisions: [],
+    ...overrides,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -232,8 +258,11 @@ describe('useGeologicalModel — manual_map threading', () => {
       await result.current.applyBoreholeFormationSelection(new Set(['boom klei']), ['bh-1'])
     })
 
+    // Trailing args are sectionId / createMissingFormations / mode. A caller
+    // that names no mode gets 'add' — the safe half — so an Apply can never
+    // delete by omission (2026-08-03 data-loss ruling).
     expect(mockAutoPopulateFromStratigraphy).toHaveBeenCalledWith(
-      'proj-1', 'model-1', ['bh-1'], ['boom klei'], undefined,
+      'proj-1', 'model-1', ['bh-1'], ['boom klei'], undefined, null, undefined, 'add',
     )
   })
 
@@ -260,9 +289,10 @@ describe('useGeologicalModel — manual_map threading', () => {
       )
     })
 
-    // The SAME map sent to the server (discover ≡ apply invariant)
+    // The SAME map sent to the server (discover ≡ apply invariant), and still
+    // the additive mode — passing a map is not consent to delete either.
     expect(mockAutoPopulateFromStratigraphy).toHaveBeenCalledWith(
-      'proj-1', 'model-1', ['bh-1'], ['boom klei'], MAP,
+      'proj-1', 'model-1', ['bh-1'], ['boom klei'], MAP, null, undefined, 'add',
     )
   })
 
@@ -280,5 +310,142 @@ describe('useGeologicalModel — manual_map threading', () => {
     expect(mockDiscoverFromStratigraphy).toHaveBeenCalledWith(
       'proj-1', 'model-1', ['bh-1'], undefined,
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Apply modes — the 2026-08-03 data-loss ruling.
+//
+// The owner opened "Fill from boreholes" to ADD one unit and lost four saved
+// geological units AND a 13-entry lumping map.  Two separate promises come out
+// of that, pinned below in the ruling's own words:
+//
+//   "Add to existing model" must leave alone what it never spoke about — the
+//   units AND the groupings.  "Overwrite model" makes the model exactly the
+//   selection.  And whichever way it goes, the engineer must be told which
+//   units the server actually removed — by NAME.
+// ---------------------------------------------------------------------------
+
+describe('useGeologicalModel — add / overwrite apply modes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListFormations.mockResolvedValue([])
+    mockListContacts.mockResolvedValue([])
+  })
+
+  it('L6: adding to the model keeps groupings this run never mentioned', async () => {
+    // The saved snapshot groups two raw names. This Apply speaks only about a
+    // third. Afterwards all three groupings must still be staged — dropping
+    // the two is exactly how a 13-entry map came back as 0.
+    mockAutoPopulateFromStratigraphy.mockResolvedValue(quietOutcome())
+    const stageLumping = vi.fn()
+
+    const { result } = makeHook({
+      currentLumping: {
+        schema_version: 1,
+        applied_at: '2026-01-01T00:00:00Z',
+        map: { 'boom klei': 'Boom Groep', 'klei van boom': 'Boom Groep' },
+      },
+      stageLumping,
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    await act(async () => {
+      await result.current.applyBoreholeFormationSelection(
+        new Set(['lid van orchies']),
+        ['bh-1'],
+        { 'orchies klei': 'Lid van Orchies' },
+        'add',
+      )
+    })
+
+    expect(stageLumping).toHaveBeenCalledOnce()
+    expect(stageLumping.mock.calls[0]![0].map).toEqual({
+      'boom klei': 'Boom Groep',
+      'klei van boom': 'Boom Groep',
+      'orchies klei': 'Lid van Orchies',
+    })
+  })
+
+  it('L7: overwriting the model replaces the groupings wholesale', async () => {
+    // The user asked for the model to become this selection, aliases included.
+    mockAutoPopulateFromStratigraphy.mockResolvedValue(
+      quietOutcome({ mode: 'overwrite' }),
+    )
+    const stageLumping = vi.fn()
+
+    const { result } = makeHook({
+      currentLumping: {
+        schema_version: 1,
+        applied_at: '2026-01-01T00:00:00Z',
+        map: { 'boom klei': 'Boom Groep' },
+      },
+      stageLumping,
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    await act(async () => {
+      await result.current.applyBoreholeFormationSelection(
+        new Set(['lid van orchies']),
+        ['bh-1'],
+        { 'orchies klei': 'Lid van Orchies' },
+        'overwrite',
+      )
+    })
+
+    expect(stageLumping.mock.calls[0]![0].map).toEqual({
+      'orchies klei': 'Lid van Orchies',
+    })
+  })
+
+  it('L8: the units the server removed are named back to the engineer', async () => {
+    // The incident was silent. Whatever the server deleted, the user has to be
+    // able to read WHICH units went — a count answers nothing, and the client's
+    // own pre-flight estimate is not proof of what actually happened.
+    mockAutoPopulateFromStratigraphy.mockResolvedValue(
+      quietOutcome({
+        mode: 'overwrite',
+        deleted_formation_ids: ['f-2', 'f-3'],
+        deleted_formation_names: ['Boom Klei', 'Formatie van Diest'],
+      }),
+    )
+    const toast = vi.fn()
+
+    const { result } = makeHook({ toast })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    await act(async () => {
+      await result.current.applyBoreholeFormationSelection(
+        new Set(['quartair']), ['bh-1'], undefined, 'overwrite',
+      )
+    })
+
+    const removalToast = toast.mock.calls.find(
+      ([, message]) => typeof message === 'string' && message.includes('Boom Klei'),
+    )
+    expect(removalToast).toBeDefined()
+    expect(removalToast![1]).toContain('Formatie van Diest')
+  })
+
+  it('L9: an add-mode apply that removed nothing says nothing about removals', async () => {
+    // No nag on the harmless path — a toast that always fires is a toast the
+    // engineer stops reading.
+    mockAutoPopulateFromStratigraphy.mockResolvedValue(quietOutcome())
+    const toast = vi.fn()
+
+    const { result } = makeHook({ toast })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    await act(async () => {
+      await result.current.applyBoreholeFormationSelection(
+        new Set(['quartair']), ['bh-1'], undefined, 'add',
+      )
+    })
+
+    expect(
+      toast.mock.calls.some(
+        ([, message]) => typeof message === 'string' && message.toLowerCase().includes('removed'),
+      ),
+    ).toBe(false)
   })
 })
