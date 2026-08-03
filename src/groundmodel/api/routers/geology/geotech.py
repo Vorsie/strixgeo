@@ -171,6 +171,7 @@ async def subdivide_all_bodies(
         f"borehole_only={result.borehole_only_count} "
         f"sections={result.section_count} "
         f"ties_reanchored={result.reanchored_tie_count} "
+        f"ties_need_review={result.review_tie_reasons} "
         f"ties_lost={result.lost_tie_count} {result.lost_tie_reasons}"
     )
     return SubdivideAllBodiesResponse(
@@ -183,8 +184,10 @@ async def subdivide_all_bodies(
         borehole_only_count=result.borehole_only_count,
         section_count=result.section_count,
         reanchored_tie_count=result.reanchored_tie_count,
+        review_tie_reasons=result.review_tie_reasons,
         lost_tie_count=result.lost_tie_count,
         lost_tie_reasons=result.lost_tie_reasons,
+        lost_tie_labels=result.lost_tie_labels,
     )
 
 
@@ -256,7 +259,10 @@ async def divide_boreholes(
         f"divide_boreholes ok geotech_model={result.geotech_model_id} "
         f"divided_bh={result.divided_borehole_count} "
         f"single_bh={result.single_band_borehole_count} "
-        f"layers={result.layer_count}"
+        f"layers={result.layer_count} "
+        f"ties_reanchored={result.reanchored_tie_count} "
+        f"ties_need_review={result.review_tie_reasons} "
+        f"ties_lost={result.lost_tie_count} {result.lost_tie_reasons}"
     )
     return DivideBoreholeResponse(
         geotech_model_id=result.geotech_model_id,
@@ -264,6 +270,11 @@ async def divide_boreholes(
         single_band_borehole_count=result.single_band_borehole_count,
         layer_count=result.layer_count,
         created_formation_ids=result.created_formation_ids,
+        reanchored_tie_count=result.reanchored_tie_count,
+        review_tie_reasons=result.review_tie_reasons,
+        lost_tie_count=result.lost_tie_count,
+        lost_tie_reasons=result.lost_tie_reasons,
+        lost_tie_labels=result.lost_tie_labels,
     )
 
 
