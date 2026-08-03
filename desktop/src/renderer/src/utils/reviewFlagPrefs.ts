@@ -5,8 +5,10 @@
 // docs/design/partition-engine-v2.md §10). The engine already preserved the data; the flag invites
 // an OPTIONAL correlation. "Keep separate" dismisses the flag, and — like every per-project decision
 // (CLAUDE.md "Project files", memory project_decisions_in_bundle) — the dismissal rides in the
-// .gmproj bundle via ``project.view_state.review_flags`` so it survives save/reload and travels with
-// the file (NOT localStorage, which would be invisible to a colleague opening the same project).
+// .gmproj bundle via the SECTION row's ``view_state.review_flags`` (the flag is per section, and
+// ``SectionViewState.review_flags`` in the API schema is what makes the PATCH storable) so it
+// survives save/reload and travels with the file (NOT localStorage, which would be invisible to a
+// colleague opening the same project).
 //
 // Mirrors the ``litho_segmenter`` view_state pattern (lithoSegmenterPrefs.ts): a shallow-merge patch
 // touches only the ``review_flags`` key, sibling bags are preserved by the server-side merge.
@@ -39,6 +41,41 @@ export function readDismissedReviewFlags(
   const arr = dict?.dismissed
   if (!Array.isArray(arr)) return new Set()
   return new Set(arr.filter((x): x is string => typeof x === 'string'))
+}
+
+/**
+ * Add one dismissal to the set that should be persisted next, without losing dismissals the
+ * server has not acknowledged yet.
+ *
+ * The section row only carries a dismissal once ITS PATCH has come back. Two "Keep separate"
+ * clicks inside one round-trip therefore both read the same pre-first ``view_state``: building
+ * the second patch from the row alone would send ``{B}``, the server would store ``{B}``, and
+ * flag A would nag again on the next refresh. Merging the caller's in-flight set makes the
+ * dismissed set grow monotonically regardless of round-trip timing.
+ *
+ * Parameters
+ * ----------
+ * viewState : Record<string, unknown> | null | undefined
+ *     The section's ``view_state`` as last returned by the server.
+ * pending : ReadonlySet<string>
+ *     Dismissals made this session, including any whose PATCH is still in flight.
+ * flagId : string
+ *     The flag being dismissed now (``reviewFlagId``).
+ *
+ * Returns
+ * -------
+ * Set<string>
+ *     A new set: server-acknowledged ∪ pending ∪ ``flagId``.
+ */
+export function addDismissedReviewFlag(
+  viewState: Record<string, unknown> | null | undefined,
+  pending: ReadonlySet<string>,
+  flagId: string,
+): Set<string> {
+  const next = readDismissedReviewFlags(viewState)
+  for (const id of pending) next.add(id)
+  next.add(flagId)
+  return next
 }
 
 /**
