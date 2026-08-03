@@ -22,6 +22,9 @@ interface RecoveryDescriptor {
   writtenAt: string
   appVersion: string
   sizeBytes: number
+  // True when this copy was already declined once ("Open without restoring")
+  // — the start screen words a re-offer differently from fresh crash debris.
+  declined: boolean
 }
 
 // Helper: subscribe to a main→renderer event and return an unsubscribe fn.
@@ -98,8 +101,37 @@ contextBridge.exposeInMainWorld('electron', {
   readRecovery: (projectId: string): Promise<unknown> =>
     ipcRenderer.invoke('recovery:read', projectId),
 
+  // Discard — the ONE call that destroys a recovery copy (both slots).
   deleteRecovery: (projectId: string): Promise<boolean> =>
     ipcRenderer.invoke('recovery:delete', projectId),
+
+  // The clear for every OTHER decided exit (save, discard-and-close, close,
+  // quit) and for the autosave scheduler's dirty→clean transition. Clears
+  // this session's own slot only, so a copy declined in an earlier session
+  // keeps being re-offered until the user discards it. Resolves true only
+  // when a primary file actually went.
+  deletePrimaryRecovery: (projectId: string): Promise<boolean> =>
+    ipcRenderer.invoke('recovery:delete-primary', projectId),
+
+  // "Open without restoring" — keep the copy, out of the autosave
+  // scheduler's reach, so a restart re-offers the same unsaved work
+  // (owner decision 2026-08-03). Resolves false when this session never
+  // had anything at risk, i.e. there was no file to preserve.
+  declineRecovery: (projectId: string): Promise<boolean> =>
+    ipcRenderer.invoke('recovery:decline', projectId),
+
+  // Restoring a copy that came out of the declined slot ends the decline.
+  // Called only AFTER the restored content has been written to the primary
+  // slot, so no window exists in which the work has no durable copy at all.
+  deleteDeclinedRecovery: (projectId: string): Promise<boolean> =>
+    ipcRenderer.invoke('recovery:delete-declined', projectId),
+
+  // Mirror one close-flow line into the MAIN process console. A packaged
+  // build has DevTools disabled and forwards the renderer console nowhere,
+  // and dogfeed reports arrive as pasted terminal output — which shows main
+  // only. Close-flow lines exclusively; this is not a general log bridge.
+  closeFlowNote: (note: string): Promise<void> =>
+    ipcRenderer.invoke('app:close-flow-note', note),
 
   // Set the OS window title. Used by the App to mirror the project
   // state (name + dirty asterisk) into the title bar.
