@@ -460,6 +460,8 @@ function makeCtx(o: CtxOverrides = {}): ShellContextValue {
       sectionsDeepLinkTarget: null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
+    handleSelectWithoutView: vi.fn(),
+    markMutated: vi.fn(),
     },
   }
 }
