@@ -34,6 +34,25 @@ confirmed by inspection below).
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
+# Assumed water table when a CPT does not record one
+# ---------------------------------------------------------------------------
+# Every consumer of the Robertson pipeline that has to substitute a missing
+# water table MUST use this constant — the Ic chart, the litho segmenter and
+# anything derived from either. Two different substitutions mean the curve the
+# engineer validates against and the boundaries he is offered were computed
+# from different effective stresses (at 2 m depth, a 0 m vs 1 m water table is
+# a ~50 % difference in sigma'v0 — enough to flip the SBT zone across the
+# Ic = 2.60 sand-mixture / silt-mixture line).
+#
+# Value: 0.0 m — water at ground surface. Conservative when unknown (lowest
+# effective stress → highest Qtn-normalised Ic → finer soil behaviour type),
+# and it is what the segmenter, whose output is what gets ACCEPTED into the
+# model, has always assumed. NOTE: this is an ASSUMPTION, not a measurement —
+# a surface that shows a value derived from it must say so (Data Integrity
+# Rule 1).
+DEFAULT_GWT_DEPTH_M: float = 0.0
+
+# ---------------------------------------------------------------------------
 # Zone boundary polylines — X = log10(F [%]), Y = log10(Qtn [-])
 # Values copied VERBATIM from CPTE_2025.sce lines 249-262.
 # Boundary semantics: a data point at (F, Qtn) lies ABOVE boundary i when
