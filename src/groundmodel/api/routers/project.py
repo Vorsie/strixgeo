@@ -34,6 +34,9 @@ from groundmodel.infrastructure.db.repositories.project_bundle import (
     build_project_bundle,
     restore_project_bundle,
 )
+from groundmodel.infrastructure.db.repositories.project_bundle.bundle_clone import (
+    BundleCloneIncompleteError,
+)
 from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
@@ -567,11 +570,19 @@ async def duplicate_project(
     request: ProjectDuplicateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOrm:
-    """Deep-clone a project + every CPT and Borehole tree under it.
+    """Deep-clone a project — investigations AND the whole interpretation.
 
     Backs the desktop client's File → Save As. ``name`` defaults to
     ``"Copy of <source name>"`` when omitted. The new project starts in
     ``active`` status regardless of the source's lifecycle.
+
+    The copy is driven off the same bundle build + restore the .strix
+    round-trip uses, so it carries the geological formations, the three
+    model levels with their contacts and litho layers, the cross-sections,
+    the bodies, the correlation edges, the reviews and the cached solids —
+    not just the raw CPTs and boreholes. Body ids are re-stamped by the
+    same resolver pass the restore endpoint runs, because the restore drops
+    ``litho_layer.body_id`` for the resolver to re-derive.
 
     Parameters
     ----------
@@ -593,17 +604,38 @@ async def duplicate_project(
     ------
     HTTPException(404)
         When the source project id is unknown.
+    HTTPException(500)
+        When the copy came out with fewer rows than the source
+        (``BundleCloneIncompleteError``). Nothing is committed, so the
+        source is untouched and no half-empty copy reaches the client —
+        the engineer sees the failure instead of a snapshot that quietly
+        lacks his interpretation.
     """
-    # File → Save As deep-clones the whole CPT + borehole tree — a heavy write;
+    # File → Save As deep-clones the whole project tree — a heavy write;
     # log entry + outcome (new id + latency) so a slow/failed Save As is
     # diagnosable.
     logger.info(f"POST /projects/{project_id}/duplicate: name={request.name!r}")
     t0 = time.perf_counter()
     repo = ProjectRepository(session)
-    duplicate = await repo.duplicate(project_id, new_name=request.name)
+    try:
+        duplicate = await repo.duplicate(project_id, new_name=request.name)
+    except BundleCloneIncompleteError as err:
+        # Never commit a lossy copy: the client adopts the duplicate the
+        # moment this returns, so a silent partial copy would become the
+        # session the engineer keeps working in.
+        await session.rollback()
+        logger.error(f"POST /projects/{project_id}/duplicate: incomplete copy — {err}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(err),
+        ) from err
     if duplicate is None:
         logger.warning(f"POST /projects/{project_id}/duplicate: 404 — source project not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    # The restore leaves ``litho_layer.body_id`` NULL for the resolver to
+    # re-stamp (same contract as open-from-file), so run the same pass the
+    # restore endpoint runs or the copy opens with no body grouping.
+    await reconcile_bodies_after_restore(session, duplicate.id)
     await session.commit()
     await session.refresh(duplicate)
     logger.success(
