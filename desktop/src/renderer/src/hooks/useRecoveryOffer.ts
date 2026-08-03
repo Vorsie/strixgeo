@@ -47,6 +47,23 @@ export interface UseRecoveryOfferOptions {
    * second home and the project reopens dirty with a discarded map.
    */
   onDiscardResidue?: () => Promise<void>
+  /**
+   * Called BEFORE Delete backup touches anything. Owner ruling 2026-08-03
+   * (second half, from dogfeeding a destructive crash-session Apply):
+   * "Delete backup" means the crashed session NEVER HAPPENED — the project
+   * returns to its last save, database included, not merely minus the
+   * renderer-only extras. The caller runs the anchored revert here and
+   * returns false to ABORT the discard (revert refused or failed): the
+   * backup must then survive, because it is the only remaining record of
+   * the session the user just tried to erase.
+   */
+  onBeforeDiscard?: () => Promise<boolean>
+  /**
+   * Called after a successful discard (file gone, residue gone). The caller
+   * reloads the project from disk so the reverted database state is what
+   * the user is looking at, not the crashed session's leftovers in memory.
+   */
+  onAfterDiscard?: () => Promise<void>
 }
 
 /** The offer plus the three answers the design allows. */
@@ -78,6 +95,8 @@ export function useRecoveryOffer({
   projectName,
   onRestore,
   onDiscardResidue,
+  onBeforeDiscard,
+  onAfterDiscard,
 }: UseRecoveryOfferOptions): UseRecoveryOfferResult {
   const [offer, setOffer] = useState<RecoveryOffer | null>(null)
 
@@ -299,6 +318,21 @@ export function useRecoveryOffer({
     const current = offer
     if (current === null || !claimAnswer(current.projectId)) return
     try {
+      // Owner ruling 2026-08-03: Delete backup = the crashed session never
+      // happened. The caller reverts the DATABASE to the last save first;
+      // an aborted revert keeps the backup — it is the only remaining
+      // record of the session the user asked to erase.
+      if (onBeforeDiscard !== undefined) {
+        const proceed = await onBeforeDiscard()
+        if (!proceed) {
+          log.warn(
+            'recovery',
+            `discard aborted for ${current.projectId}: the pre-discard revert did not ` +
+              `complete — the backup file is kept`,
+          )
+          return
+        }
+      }
       await window.electron.deleteRecovery(current.projectId)
       log.info('recovery', `discarded the recovery file for ${current.projectId}`)
       // "No traces" (owner ruling 2026-08-03) extends past the file: whatever
@@ -317,6 +351,21 @@ export function useRecoveryOffer({
           )
         }
       }
+      if (onAfterDiscard !== undefined) {
+        // Reload so the reverted database is what the user is looking at.
+        // Failure is logged, not fatal: the data is already correct on disk
+        // and in the DB; a manual close-and-reopen shows the same thing.
+        try {
+          await onAfterDiscard()
+        } catch (err) {
+          log.warn(
+            'recovery',
+            `post-discard reload failed for ${current.projectId} — close and reopen ` +
+              `the project to see the reverted state`,
+            err,
+          )
+        }
+      }
     } catch (err) {
       // A failed delete must not strand the user in a dialog they explicitly
       // answered (hence the ``finally``). The offer reappears next launch,
@@ -325,7 +374,7 @@ export function useRecoveryOffer({
     } finally {
       closeOffer(current.projectId)
     }
-  }, [offer, claimAnswer, closeOffer, onDiscardResidue])
+  }, [offer, claimAnswer, closeOffer, onDiscardResidue, onBeforeDiscard, onAfterDiscard])
 
   return { offer, restoreOffer, dismissOffer, discardOffer }
 }
