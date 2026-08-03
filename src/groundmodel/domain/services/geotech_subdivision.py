@@ -384,12 +384,12 @@ def suggest_geotech_subdivision(
     -------
     list[GeotechSplit]
         One split per surviving packing band, ordered top-to-bottom. Never
-        empty. Two special single-split cases (owner rule 2026-07-25):
-        no CPT samples at all in the segment (borehole-only) → one loosest-class
-        band (qc=0.0 fallback); missing/invalid qc over a material span (>40% of
-        thickness OR a ≥5 cm continuous gap) → one ``nad_class=None`` band flagged
-        "needs review" rather than a guessed class. Isolated bad samples are
-        dropped and the unit is classified from the remaining good qc.
+        empty. Two special single-split cases (owner rule 2026-07-25) both
+        answer ``nad_class=None`` — a band flagged "needs review", never a
+        guessed class: no cone readings at all inside the window, and
+        missing/invalid qc over a material span (>40% of thickness OR a ≥5 cm
+        continuous gap). Isolated bad samples are dropped and the unit is
+        classified from the remaining good qc.
 
     Raises
     ------
@@ -409,11 +409,17 @@ def suggest_geotech_subdivision(
     ]
 
     if not in_range:
-        # No CPT samples at all in this segment (e.g. borehole-only column): qc=0.0
-        # → loosest NAD class for the soil; one fallback unit spanning the segment,
-        # never empty.
-        fallback = classify_nad(soil, admixtures, 0.0)
-        return [GeotechSplit(segment_top_m, segment_base_m, fallback)]
+        # The cone never read over this window. This function is reached ONLY for
+        # CPT segments (subdivide_all_bodies.py filters on anchor_kind == "cpt",
+        # and a CPT with no series row is routed to a skeleton band before the
+        # call), so "no samples" is never "this is a borehole" — it is a contact
+        # placed above the CPT's first sample, or a sliver from the geo-bounding
+        # divide. The class is DERIVED FROM qc; with no qc there is nothing to
+        # derive it from, so flag the band for review rather than assert the
+        # loosest packing class from zero readings. Matches what the band-edit
+        # path already answers for the identical condition
+        # (geotech_band_reclassification._median_qc_over).
+        return [GeotechSplit(segment_top_m, segment_base_m, None)]
 
     # The CPT reaches here, but some qc may be void/NaN/negative. Drop the bad
     # samples and classify from the good ones (owner rule 2026-07-25). If the
