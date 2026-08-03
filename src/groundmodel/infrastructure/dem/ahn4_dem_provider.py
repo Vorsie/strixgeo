@@ -35,6 +35,7 @@ from __future__ import annotations
 from groundmodel.infrastructure.dem.dem_wcs_constants import (
     AHN4_COVERAGE_ID,
     AHN4_NODATA_THRESHOLD,
+    AHN4_VALID_EXTENT,
     AHN4_WCS_URL,
 )
 from groundmodel.infrastructure.dem.wcs_dem_provider import WcsDemProvider
@@ -47,6 +48,7 @@ class Ahn4DemProvider(WcsDemProvider):
     COVERAGE_ID = AHN4_COVERAGE_ID
     AXIS_NAMES = ("E", "N")
     DEFAULT_RESOLUTION_M = 0.5
+    VALID_EXTENT = AHN4_VALID_EXTENT
     LOG_LABEL = "AHN4 PDOK"
 
     @property
