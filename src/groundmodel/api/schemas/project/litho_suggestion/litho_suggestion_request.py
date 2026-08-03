@@ -6,6 +6,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from groundmodel.domain.services.robertson_2015_constants import (
+    DEFAULT_GUNSAT_KNM3,
+    DEFAULT_GWATER_KNM3,
+    GUNSAT_KNM3_MAX,
+    GUNSAT_KNM3_MIN,
+    GWATER_KNM3_MAX,
+    GWATER_KNM3_MIN,
+)
+
 
 class LithoSuggestionRequest(BaseModel):
     """Body of ``POST .../contacts/suggest-litho``.
@@ -53,8 +62,12 @@ class LithoSuggestionRequest(BaseModel):
     cpt_id: UUID | None = None
     borehole_id: UUID | None = None
     minimum_layer_thickness_m: float = Field(default=0.15, ge=0.05, le=10.0)
-    gunsat_kNm3: float = Field(default=16.0, ge=8.0, le=25.0)
-    gwater_kNm3: float = Field(default=9.81, ge=9.0, le=10.5)
+    # Defaults + bounds come from the domain constants, NOT literals: the SBT
+    # profile endpoint validates the same two numbers, and the whole point of
+    # that endpoint is that it normalises exactly as this request does. Two
+    # copies of "8.0 to 25.0" is one copy too many for a parity contract.
+    gunsat_kNm3: float = Field(default=DEFAULT_GUNSAT_KNM3, ge=GUNSAT_KNM3_MIN, le=GUNSAT_KNM3_MAX)
+    gwater_kNm3: float = Field(default=DEFAULT_GWATER_KNM3, ge=GWATER_KNM3_MIN, le=GWATER_KNM3_MAX)
     dr_compression_factor: float = Field(default=0.675, ge=0.1, le=2.0)
     # Owner directive 2026-05-25 (extended to borehole path 2026-05-25):
     # merge adjacent same-lithology segments by default for BOTH CPT and
