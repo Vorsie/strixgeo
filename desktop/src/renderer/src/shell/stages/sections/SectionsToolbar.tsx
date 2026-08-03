@@ -422,9 +422,31 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }, [activeLithoModel, resettingBoundaries, project.id, requestCorrelationEdgesRefetch, toast])
 
+  /**
+   * The model whose contacts a section export must contain.
+   *
+   * One selector for both export verbs so DXF and PDF cannot disagree about
+   * which model level the engineer is looking at.
+   *
+   * Returns
+   * -------
+   * GeologicalModelResponse | null
+   *     The active model for the current axis, or null when that level has no
+   *     active model (the export items are disabled in that case).
+   */
+  function axisModelForExport(): typeof activeGeologicalModel {
+    if (isLitho) return activeLithoModel
+    if (isGeotech) return activeGeotechModel
+    return activeGeologicalModel
+  }
+
   async function handleExportDxf(): Promise<void> {
-    // Axis-aware: use the active model for the chosen axis.
-    const axisModel = isLitho ? activeLithoModel : activeGeologicalModel
+    // Axis-aware: export the model level the section is CURRENTLY showing.
+    // The geotech branch used to fall through to the geological model, so an
+    // engineer on the NAD axis silently got a geological DXF (audit
+    // 2026-08-02). The snapshot builder is kind-agnostic — it takes a
+    // model_id — so routing the id is the whole fix.
+    const axisModel = axisModelForExport()
     if (!selectedSection || !axisModel || exportingDxf) return
     setExportingDxf(true)
     try {
@@ -464,7 +486,7 @@ export default function SectionsToolbar(): JSX.Element {
     author: string
     notes: string
   }): Promise<void> {
-    const axisModel = isLitho ? activeLithoModel : activeGeologicalModel
+    const axisModel = axisModelForExport()
     if (!selectedSection || !axisModel || exportingPdf) return
     setExportingPdf(true)
     try {
@@ -482,14 +504,18 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   const hasSection = selectedSection !== null
-  // Axis-aware model presence: geological axis uses the geological model,
-  // lithostratigraphic axis uses the litho model. Build/Seed/Dedupe/Export
-  // buttons are gated on the ACTIVE model for the chosen axis.
+  // Axis-aware model presence: each axis uses ITS OWN active model —
+  // geological / lithostratigraphic / geotechnical. Build/Seed/Dedupe/Export
+  // buttons are gated on the ACTIVE model for the chosen axis. (The geotech
+  // branch used to read the geological model, which left the section exports
+  // enabled and silently writing the wrong level — audit 2026-08-02.)
   const isLitho = sectionModelAxis === 'lithostratigraphic'
   const isGeotech = sectionModelAxis === 'geotechnical'
   const hasModel = isLitho
     ? activeLithoModel !== null
-    : activeGeologicalModel !== null
+    : isGeotech
+      ? activeGeotechModel !== null
+      : activeGeologicalModel !== null
   // B-2 (senior-review): Build / Seed / Dedupe / Plaxis-3D are
   // GEOLOGICAL-model operations — their handlers act on
   // activeGeologicalModel regardless of axis. On the litho axis
@@ -498,6 +524,9 @@ export default function SectionsToolbar(): JSX.Element {
   // geological model + the geology axis explicitly; the litho axis's
   // equivalent build flow is Suggest/accept, not these verbs.
   const geoVerbDisabled = isLitho || isGeotech || activeGeologicalModel === null
+  // Names the model level in the export tooltips so the engineer can see WHICH
+  // of the three levels a file will contain before clicking.
+  const axisLevelLabel = isLitho ? 'lithostratigraphic' : isGeotech ? 'geotechnical' : 'geological'
   const geoVerbHint =
     isLitho || isGeotech
       ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
@@ -1463,10 +1492,10 @@ export default function SectionsToolbar(): JSX.Element {
               !hasSection
                 ? 'Select a section to export'
                 : !hasModel
-                  ? 'No active geological model — contacts must exist first'
+                  ? `No active ${axisLevelLabel} model — contacts must exist first`
                   : exportingDxf
                     ? 'Exporting…'
-                    : 'Export this section as DXF',
+                    : `Export this section's ${axisLevelLabel} model as DXF`,
             testid: 'export-section-dxf',
           },
           {
@@ -1493,10 +1522,10 @@ export default function SectionsToolbar(): JSX.Element {
               !hasSection
                 ? 'Select a section to export'
                 : !hasModel
-                  ? 'No active model — define formations or a litho model first'
+                  ? `No active ${axisLevelLabel} model — define one first`
                   : exportingPdf
                     ? 'Generating PDF…'
-                    : 'Generate a PDF report of this section with title + author + notes',
+                    : `Generate a PDF report of this section's ${axisLevelLabel} model`,
             testid: 'export-section-pdf',
           },
         ]}
