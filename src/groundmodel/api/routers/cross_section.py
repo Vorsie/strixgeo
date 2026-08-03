@@ -8,6 +8,7 @@ every section returned belongs to that project.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,8 +16,8 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
+    apply_view_state_patch,
     get_in_project_or_404,
-    merge_view_state,
     safe_filename_stem,
 )
 from groundmodel.api.schemas.project.batch_create_sections_request import (
@@ -357,9 +358,7 @@ async def update_section(
         end after the patch).
     """
     repo = CrossSectionRepository(session)
-    section = await get_in_project_or_404(
-        repo.get(section_id), project_id, detail="Cross-section not found"
-    )
+    await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
     # exclude_unset so omitted fields stay untouched; an explicit null
     # is honoured (e.g. clearing min_depth_m back to auto-fit).
     patch = request.model_dump(exclude_unset=True)
@@ -371,14 +370,18 @@ async def update_section(
     #   * non-empty dict → shallow-merge into the existing bag so
     #     callers can patch individual toggle keys without round-
     #     tripping the whole bag (mirrors PATCH /projects/{id}/view-state)
+    #
+    # The non-empty merge is deferred to an atomic UPDATE AFTER the generic patch
+    # lands: merging in Python here and writing the whole column back is a
+    # lost-update race — two overlapping PATCHes read the same bag and the second
+    # commit drops the first caller's key. See ``apply_view_state_patch``.
+    view_state_merge: dict[str, Any] | None = None
     if "view_state" in patch:
-        incoming = patch["view_state"]
-        if incoming is None:
-            patch.pop("view_state")
-        elif incoming == {}:
+        incoming = patch.pop("view_state")
+        if incoming == {}:
             patch["view_state"] = None
-        else:
-            patch["view_state"] = merge_view_state(section.view_state, incoming)
+        elif incoming is not None:
+            view_state_merge = incoming
     updated = await repo.update(section_id, patch)
     # repo.update returns None only on a TOCTOU race (the row vanished
     # between scope-check and update). Vanishingly rare; surface as 404.
@@ -391,6 +394,8 @@ async def update_section(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cross-section endpoints must remain distinct after update.",
         )
+    if view_state_merge is not None:
+        await apply_view_state_patch(session, CrossSectionOrm, section_id, view_state_merge)
     await session.commit()
     await session.refresh(updated)
     return updated
