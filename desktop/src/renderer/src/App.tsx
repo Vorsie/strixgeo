@@ -833,15 +833,27 @@ export default function App() {
   // Esc / the Sections spine return straight to it instead of an empty
   // Sections stage. On the Data-stage map no section is open, so this
   // is a no-op there.
-  const handleSelect = useCallback(
+  //
+  // ``handleSelectWithoutView`` is the same gesture MINUS the Data-stage view
+  // switch. Stages other than Data select a CPT to draw it in their own
+  // surface (Parameters plots it in the inspector), and firing setView there
+  // silently rewrites where Data lands next time the engineer returns to it.
+  const handleSelectWithoutView = useCallback(
     async (id: string): Promise<void> => {
       setSelectedId(id)
       setSelectedBoreholeId(null)
       await loadCptDetail(id)
       await loadChart(id)
+    },
+    [setSelectedId, setSelectedBoreholeId, loadCptDetail, loadChart],
+  )
+
+  const handleSelect = useCallback(
+    async (id: string): Promise<void> => {
+      await handleSelectWithoutView(id)
       setView('chart')
     },
-    [setSelectedId, setSelectedBoreholeId, loadCptDetail, loadChart, setView],
+    [handleSelectWithoutView, setView],
   )
 
   const handleSelectBorehole = useCallback(
@@ -1193,7 +1205,7 @@ export default function App() {
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
     geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
-    correlationEdgesRefetchNonce,
+    correlationEdgesRefetchNonce, handleSelectWithoutView, markMutated,
   })
 
   // ---------------------------------------------------------------------------
