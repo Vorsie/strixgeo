@@ -364,9 +364,11 @@ def test_draw_formation_surfaces_returns_drop_tally() -> None:
             ),
         ],
     )
-    msp = ezdxf.new(dxfversion="R2018", setup=True).modelspace()
-    dropped_no_level, dropped_no_formation = DxfSectionExporter()._draw_formation_surfaces(
-        msp, snap
+    doc = ezdxf.new(dxfversion="R2018", setup=True)
+    exporter = DxfSectionExporter()
+    layer_by_formation_id = exporter._setup_layers(doc, snap)
+    dropped_no_level, dropped_no_formation = exporter._draw_formation_surfaces(
+        doc.modelspace(), snap, layer_by_formation_id
     )
     assert dropped_no_level == 1
     assert dropped_no_formation == 1
@@ -409,6 +411,130 @@ def test_each_formation_gets_its_own_layer_with_rgb_colour() -> None:
     assert diest.rgb == (0x33, 0xAA, 0x44)
 
 
+def test_two_formations_with_the_same_name_still_export() -> None:
+    """Two formations named the same must not make the DXF unreachable.
+
+    Duplicate formation names are an EXPECTED state in this app — the
+    seed-from-stratigraphy flow deliberately leaves the duplicate for the
+    engineer to resolve from the row dropdown, and nothing in the schema
+    or the create endpoint enforces uniqueness.  Exporting a section that
+    carries both must still produce a DXF: each formation keeps a surface
+    of its own, and neither is silently dropped.
+    """
+    a = uuid4()
+    b = uuid4()
+    snap = _snapshot(
+        formations=[
+            SectionFormation(
+                formation_id=a, name="Zand van Mol", code=None, color="#ff8800", display_order=1
+            ),
+            SectionFormation(
+                formation_id=b, name="Zand van Mol", code=None, color="#33aa44", display_order=0
+            ),
+        ],
+        contacts=[
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=a,
+                investigation_id=uuid4(),
+                along_distance_m=0.0,
+                depth_m=2.0,
+                level_m=8.0,
+            ),
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=a,
+                investigation_id=uuid4(),
+                along_distance_m=50.0,
+                depth_m=3.0,
+                level_m=7.0,
+            ),
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=b,
+                investigation_id=uuid4(),
+                along_distance_m=0.0,
+                depth_m=6.0,
+                level_m=4.0,
+            ),
+            SectionFormationContact(
+                contact_id=uuid4(),
+                formation_id=b,
+                investigation_id=uuid4(),
+                along_distance_m=50.0,
+                depth_m=7.0,
+                level_m=3.0,
+            ),
+        ],
+    )
+    doc = _parse_dxf(DxfSectionExporter().export(snap))
+
+    # Two distinct formations → two distinct layers, so the engineer can
+    # still toggle them apart in CAD.
+    formation_layers = {
+        layer.dxf.name for layer in doc.layers if layer.dxf.name.startswith("GeoModel-")
+    }
+    assert len(formation_layers) == 2, formation_layers
+
+    # And two separate surfaces — the two formations' contacts must never
+    # be welded into one zig-zag polyline.
+    polylines = list(doc.modelspace().query("LWPOLYLINE"))
+    assert len(polylines) == 2
+    drawn = sorted(sorted((p[0], p[1]) for p in poly.get_points()) for poly in polylines)
+    assert drawn == [[(0.0, 4.0), (50.0, 3.0)], [(0.0, 8.0), (50.0, 7.0)]]
+
+
+def test_two_formations_differing_only_by_case_still_export() -> None:
+    """DXF layer names are case-folded, so ``Zand`` and ``ZAND`` collide.
+
+    The names are distinct to the engineer but map onto one DXF table key,
+    which is exactly the collision the layer table rejects.
+    """
+    a = uuid4()
+    b = uuid4()
+    snap = _snapshot(
+        formations=[
+            SectionFormation(
+                formation_id=a, name="Zand", code=None, color="#ff8800", display_order=1
+            ),
+            SectionFormation(
+                formation_id=b, name="ZAND", code=None, color="#33aa44", display_order=0
+            ),
+        ],
+    )
+    doc = _parse_dxf(DxfSectionExporter().export(snap))
+    formation_layers = {
+        layer.dxf.name for layer in doc.layers if layer.dxf.name.startswith("GeoModel-")
+    }
+    assert len(formation_layers) == 2, formation_layers
+
+
+def test_two_formations_colliding_after_forbidden_char_stripping_still_export() -> None:
+    """Stripping DXF-forbidden characters can collapse two names onto one.
+
+    ``"Formatie: Boom"`` loses its colon and becomes the same layer name as
+    ``"Formatie Boom"`` — a collision created by the exporter itself, not
+    by duplicate data.
+    """
+    a = uuid4()
+    b = uuid4()
+    snap = _snapshot(
+        formations=[
+            SectionFormation(
+                formation_id=a, name="Formatie: Boom", code=None, color="#ff8800", display_order=1
+            ),
+            SectionFormation(
+                formation_id=b, name="Formatie Boom", code=None, color="#33aa44", display_order=0
+            ),
+        ],
+    )
+    doc = _parse_dxf(DxfSectionExporter().export(snap))
+    formation_layers = {
+        layer.dxf.name for layer in doc.layers if layer.dxf.name.startswith("GeoModel-")
+    }
+    assert len(formation_layers) == 2, formation_layers
+
+
 def test_layer_description_carries_formation_code() -> None:
     snap = _snapshot(
         formations=[
@@ -442,6 +568,35 @@ def test_layer_description_carries_formation_code() -> None:
 )
 def test_formation_layer_name_strips_dxf_forbidden_chars(raw, expected) -> None:
     assert _formation_layer_name(raw) == expected
+
+
+def test_colliding_layer_names_stay_distinct_at_the_dxf_length_limit() -> None:
+    """A very long formation name must not truncate its own disambiguator off.
+
+    Layer names are capped at 255 characters. If the suffix were appended
+    and only then truncated, two 400-character duplicates would come back
+    as the same 255-character name — reproducing the collision the suffix
+    exists to resolve.
+    """
+    long_name = "x" * 400
+    a = uuid4()
+    b = uuid4()
+    snap = _snapshot(
+        formations=[
+            SectionFormation(
+                formation_id=a, name=long_name, code=None, color="#ff8800", display_order=1
+            ),
+            SectionFormation(
+                formation_id=b, name=long_name, code=None, color="#33aa44", display_order=0
+            ),
+        ],
+    )
+    doc = _parse_dxf(DxfSectionExporter().export(snap))
+    formation_layers = {
+        layer.dxf.name for layer in doc.layers if layer.dxf.name.startswith("GeoModel-")
+    }
+    assert len(formation_layers) == 2, formation_layers
+    assert all(len(name) <= 255 for name in formation_layers)
 
 
 def test_formation_layer_name_truncates_at_dxf_limit() -> None:
