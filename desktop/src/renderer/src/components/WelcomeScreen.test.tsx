@@ -23,6 +23,7 @@ const RECOVERY_DESCRIPTOR = {
   writtenAt: new Date(2026, 7, 2, 14, 32).toISOString(),
   appVersion: '0.1.0',
   sizeBytes: 512,
+  declined: false,
 }
 
 /** A minimal valid payload — only ``filePath`` matters to the welcome screen. */
@@ -264,6 +265,43 @@ describe('WelcomeScreen', () => {
     )
     expect(await screen.findByText(/Recovered work/i)).toBeInTheDocument()
     expect(screen.getByText('Kanaal Noord')).toBeInTheDocument()
+  })
+
+  it('lists a copy the user already opened without restoring, and says so', async () => {
+    // Declining preserves the copy (owner decision 2026-08-03) precisely so it
+    // can be offered again, so the start screen must not treat ``declined`` as
+    // "already dealt with" and filter it out. But it must not present it as
+    // fresh crash debris either: a second sighting of an entry the user
+    // deliberately passed on reads as "the crash happened again" unless the
+    // row says otherwise.
+    installRecovery([{ ...RECOVERY_DESCRIPTOR, declined: true }])
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    expect(await screen.findByText(/Recovered work/i)).toBeInTheDocument()
+    const entry = screen.getByTestId(`welcome-recovery-entry-${RECOVERY_DESCRIPTOR.projectId}`)
+    expect(entry).toBeEnabled()
+    expect(entry).toHaveTextContent(/chose not to restore/i)
+  })
+
+  it('says nothing of the sort for an ordinary crash copy', async () => {
+    // The default wording has to stay the crash wording — the declined line is
+    // an exception, and an exception that shows up everywhere is just noise.
+    installRecovery([RECOVERY_DESCRIPTOR])
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    await screen.findByText(/Recovered work/i)
+    const entry = screen.getByTestId(`welcome-recovery-entry-${RECOVERY_DESCRIPTOR.projectId}`)
+    expect(entry).not.toHaveTextContent(/chose not to restore/i)
   })
 
   it('hides the recovered-work section when the previous session exited cleanly', async () => {
