@@ -13,16 +13,13 @@
 //   * Restore unsaved work — apply the snapshot; the file STAYS, because the
 //     restored state is at risk all over again and the scheduler keeps it
 //     fresh from here on.
-//   * Open without restoring — this dialog itself deletes nothing, and it is
-//     the safe answer to an accidental Enter, so it holds default focus. But
-//     the WORDING must not imply the copy is safe: a crash-reopened project
-//     is at risk from the moment it mounts (the localStorage session sets
-//     survive, and DB staged != saved re-seeds the dirty state), so the
-//     scheduler overwrites the declined file about two seconds after the
-//     open — while this dialog may still be up — and every decided exit
-//     deletes it. The copy therefore promises exactly that and nothing more.
-//     Whether a DECLINED file SHOULD survive is an owner decision (see the
-//     note in ``useRecoveryOffer``), not one to settle in the wording.
+//   * Open without restoring — PRESERVES the copy (owner decision
+//     2026-08-03, Word-style) and is the safe answer to an accidental Enter,
+//     so it holds default focus. The wording may now say so: the caller moves
+//     the copy to a slot the autosave scheduler never writes, so the next
+//     launch offers the same unsaved work again. It used to say the opposite
+//     — that this session would overwrite the copy within seconds — because
+//     that was then the truth; the sentence changed when the behaviour did.
 //   * Discard unsaved work — deletes the file. Irreversible, so docs/ux.md
 //     applies: destructive styling, the button names the action, and it is
 //     NOT the default-focused control.
@@ -182,10 +179,19 @@ export default function RecoveryPromptDialog({
               ))}
             </ul>
           )}
+          {/* What the two slots actually do, in one sentence. An earlier
+              version said the copy would be "replaced only if this session
+              crashes with newer unsaved work" — but a newer crash does not
+              overwrite this copy, it queues ahead of it: the reader prefers
+              the primary slot while one exists, and this copy resurfaces once
+              that newer one has been answered for. Only a second decline
+              overwrites it; only Discard deletes it. */}
           <p className="mt-2">
-            Open without restoring keeps the project as it is; this recovered copy will
-            be replaced by this session&rsquo;s own unsaved work, so restore it here if
-            you want it. Discarding deletes it now and cannot be undone.
+            Open without restoring keeps the project as it is and keeps this copy
+            safe &mdash; you will be offered it again next time you open{' '}
+            {projectName}; a newer crash is offered first and this copy comes back
+            after it, opening without restoring again replaces it, and only
+            Discard deletes it &mdash; now, and not undoably.
           </p>
         </>
       }
