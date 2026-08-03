@@ -17,8 +17,11 @@ class LithoLayerCreateItem(BaseModel):
     """One per-layer payload in a bulk-create."""
 
     formation_id: UUID
-    depth_top_m: float
-    depth_base_m: float
+    # ``allow_inf_nan=False``: JSON carries a bare ``NaN`` literal, every
+    # comparison against NaN is false, so a NaN depth walks through the
+    # ordering validator below and only trips the DB CHECK — a 500 for a typo.
+    depth_top_m: float = Field(allow_inf_nan=False)
+    depth_base_m: float = Field(allow_inf_nan=False)
     status: LithoLayerStatusLiteral = "pending"
     source: LithoLayerSourceLiteral = "segmenter"
     confidence: LithoLayerConfidenceLiteral = "medium"
