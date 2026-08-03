@@ -41,6 +41,14 @@ class RebuildLithoSolidsResponse(BaseModel):
         anchor the bottom surface); the UI marks them so the engineer
         knows which tests were excluded from the geological bounding.
         Empty when no tests were dropped.
+    uncovered_test_ids : list[str]
+        Investigation ids that fall OUTSIDE the model footprint and got no
+        3-D model at all — the data footprint fragmented and only its largest
+        component was modelled.  Non-empty means the build is INCOMPLETE even
+        though it succeeded, so the client must not report a plain success:
+        the toast's severity is derived from this list, the same way the
+        geotech verbs derive theirs from ``lost_tie_count`` /
+        ``review_tie_reasons``.  Empty on the happy path.
     """
 
     bodies_considered: int
@@ -51,3 +59,5 @@ class RebuildLithoSolidsResponse(BaseModel):
     solids: list[LithoBodySolidResponse]
     marked_test_ids: list[str] = Field(default_factory=list)
     """Investigation ids dropped from the model floor (too shallow); UI marks them."""
+    uncovered_test_ids: list[str] = Field(default_factory=list)
+    """Investigations outside the model footprint — they got no 3-D model at all."""
