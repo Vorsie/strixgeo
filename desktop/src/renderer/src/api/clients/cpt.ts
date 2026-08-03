@@ -7,7 +7,7 @@
  *
  * @module clients/cpt
  */
-import { _base, del, get, patch, post } from './shared'
+import { _base, del, detailMessage, fetchTracked, get, patch, post } from './shared'
 import type { ElevationPatchBody } from './borehole'
 
 // Re-export so callers that only need the CPT module still get the type.
@@ -84,6 +84,48 @@ export interface ImportCptResponse {
   cpt_id: string
   has_errors: boolean
   issues: { level: string; code: string; message: string; rows: number[] }[]
+  /** True when the file was already in this project and the EXISTING row was
+   * refreshed in place (same ``cpt_id``, series + header replaced from the
+   * fresh parse). The endpoint answers 200 then, 201 for a new CPT. */
+  refreshed: boolean
+  /** Display name the backend persisted — used to name the CPT in the
+   * "refreshed" message without a follow-up fetch. */
+  name: string
+}
+
+/** The old-vs-new diff a refresh confirmation is decided on.
+ *
+ * Sent by the backend with HTTP 409 ``code = "cpt_refresh_confirmation_required"``
+ * when a re-import would overwrite an existing row. Nothing has been written at
+ * that point — the engineer decides on these numbers, then the client re-posts
+ * with ``confirmRefresh``.
+ */
+export interface CptRefreshDiff {
+  cptId: string
+  /** Display name of the STORED CPT, so the dialog names the row not the file. */
+  name: string
+  oldMaxDepthM: number | null
+  newMaxDepthM: number | null
+  oldNRows: number | null
+  newNRows: number | null
+  /** Issue counts from the FRESH parse. */
+  nErrors: number
+  nWarnings: number
+}
+
+/** Thrown when ``POST /cpt/import`` would overwrite an existing CPT.
+ *
+ * Not an error condition in the usual sense — it is the backend asking. The
+ * import is retried with ``confirmRefresh: true`` if the user agrees, and
+ * simply dropped if they do not.
+ */
+export class CptRefreshConfirmationRequiredError extends Error {
+  diff: CptRefreshDiff
+  constructor(diff: CptRefreshDiff) {
+    super(`CPT ${diff.name} is already in this project`)
+    this.name = 'CptRefreshConfirmationRequiredError'
+    this.diff = diff
+  }
 }
 
 /** Thrown when ``POST /cpt/import`` returns HTTP 409. */
@@ -136,7 +178,16 @@ export const cptClient = {
     body: ElevationPatchBody,
   ): Promise<CptResponse> => patch(`/cpt/${id}/elevation?project_id=${projectId}`, body),
 
-  import: async (filePath: string, projectId?: string): Promise<ImportCptResponse> => {
+  // ``confirmRefresh`` carries the user's answer to the replace-this-CPT
+  // dialog. Left false, a re-import of a file already in the project writes
+  // NOTHING and throws CptRefreshConfirmationRequiredError with the diff:
+  // replacing a stored series is irreversible, so it is consented per file
+  // (docs/ux.md "Reversible vs irreversible").
+  import: async (
+    filePath: string,
+    projectId?: string,
+    confirmRefresh = false,
+  ): Promise<ImportCptResponse> => {
     // Read via IPC — fetch('file://') is blocked in the renderer sandbox.
     const buffer: Buffer = await window.electron.readFile(filePath)
     const fileName = filePath.split(/[\\/]/).pop() ?? 'upload.gef'
@@ -148,13 +199,27 @@ export const cptClient = {
     const form = new FormData()
     form.append('file', blob, fileName)
     if (projectId) form.append('project_id', projectId)
-    const res = await fetch(`${_base}/cpt/import`, { method: 'POST', body: form })
+    if (confirmRefresh) form.append('confirm_refresh', 'true')
+    const res = await fetchTracked(`${_base}/cpt/import`, { method: 'POST', body: form })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      if (res.status === 409 && body.detail?.cpt_id) {
-        throw new DuplicateCptError(body.detail.cpt_id)
+      const detail = body.detail
+      if (res.status === 409 && detail?.code === 'cpt_refresh_confirmation_required') {
+        throw new CptRefreshConfirmationRequiredError({
+          cptId: detail.cpt_id,
+          name: detail.name,
+          oldMaxDepthM: detail.old_max_depth_m ?? null,
+          newMaxDepthM: detail.new_max_depth_m ?? null,
+          oldNRows: detail.old_n_rows ?? null,
+          newNRows: detail.new_n_rows ?? null,
+          nErrors: detail.n_errors ?? 0,
+          nWarnings: detail.n_warnings ?? 0,
+        })
       }
-      throw new Error(body.detail?.message ?? body.detail ?? `Import failed: ${res.status}`)
+      if (res.status === 409 && detail?.cpt_id) {
+        throw new DuplicateCptError(detail.cpt_id)
+      }
+      throw new Error(detailMessage(detail) ?? `Import failed: ${res.status}`)
     }
     return res.json()
   },
