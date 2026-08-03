@@ -72,12 +72,25 @@ export function localApiRequestFilter(apiBase: string): { urls: string[] } {
   return { urls: [`${apiBase}/*`, `${protocol}//${hostname}/*`] }
 }
 
+/**
+ * How long an observed API request gets to acquire its header before the
+ * audit alarms. ``onBeforeRequest`` (the observation point) fires moments
+ * before ``onBeforeSendHeaders`` (the injection point) for the same request,
+ * so the check must not race the injection it is auditing.
+ */
+export const TOKEN_OBSERVATION_GRACE_MS = 5_000
+
 /** What :func:`createTokenInjectionAudit` returns — see its doc comment. */
 export interface TokenInjectionAudit {
   /** Record that the header was attached to a request (call on every injection). */
   noteInjection(url: string): void
-  /** Complain, ONCE, if no injection was ever recorded by the time this is called. */
-  reportIfSilent(): void
+  /**
+   * Record that a request to the local API was seen LEAVING the session
+   * (from an unfiltered observation point). Arms a one-shot check: if no
+   * injection has been recorded by the end of the grace period, the filter
+   * demonstrably matched a request it should have caught — alarm.
+   */
+  noteApiRequestObserved(url: string): void
 }
 
 /**
@@ -91,34 +104,49 @@ export interface TokenInjectionAudit {
  * build never shows anybody. A success line is no help either: its absence is
  * exactly what nobody notices.
  *
- * So the caller asks this, once, after the renderer has had time to talk to the
- * API, and gets a positive assertion instead of silence.
+ * The first version armed on a wall-clock grace after ``did-finish-load`` and
+ * CRIED WOLF on any session that never left the start screen (owner dogfeed
+ * 2026-08-03: no project opened → zero API requests → "the filter matched
+ * nothing" over a filter that was never asked to match anything). The audit
+ * therefore arms only on an OBSERVED API request — reported by an unfiltered
+ * ``onBeforeRequest`` listener, so the observation cannot share the filter's
+ * failure mode — and alarms only when that request's grace period ends with no
+ * injection recorded.
  *
  * @param filterUrls - The patterns the filter was built from; named in the error
  *   so the reader can see WHICH patterns matched nothing.
  * @param log - Error sink (``console`` in production, a spy in tests).
+ * @param scheduleCheck - Timer seam for tests; defaults to ``setTimeout`` with
+ *   {@link TOKEN_OBSERVATION_GRACE_MS}.
  * @returns The audit handle.
  */
 export function createTokenInjectionAudit(
   filterUrls: readonly string[],
   log: { error: (message: string) => void },
+  scheduleCheck: (check: () => void) => void = check =>
+    setTimeout(check, TOKEN_OBSERVATION_GRACE_MS),
 ): TokenInjectionAudit {
   let injected = false
+  let armed = false
   let reported = false
   return {
     noteInjection(): void {
       injected = true
     },
-    reportIfSilent(): void {
+    noteApiRequestObserved(url: string): void {
       // Once only: the renderer reloads (dev HMR, the ErrorBoundary's Reload
       // button), and an alarm repeated per reload trains the reader to ignore it.
-      if (injected || reported) return
-      reported = true
-      log.error(
-        '[main] the launch token was NEVER attached to a request — the local API ' +
-          'will refuse every call from this window. The webRequest filter matched ' +
-          `nothing: ${filterUrls.join(', ')}`,
-      )
+      if (injected || armed || reported) return
+      armed = true
+      scheduleCheck(() => {
+        if (injected || reported) return
+        reported = true
+        log.error(
+          '[main] a request to the local API left WITHOUT the launch token — the ' +
+            `API will refuse it. Observed: ${url}. The webRequest filter matched ` +
+            `nothing: ${filterUrls.join(', ')}`,
+        )
+      })
     },
   }
 }
