@@ -271,6 +271,15 @@ caps. What's left is the licensing-side hardening tied to debt #3:
 * Defeat casual bypass (renamed exe, deleted license file).
 * Token store + verification on each launch (already in #3's scope).
 * No anti-debug, no obfuscation, no DRM theatre.
+* **The flag-based debugger surface** (noted 2026-08-03, from the autosave
+  review): #200 closed the *menu* and *programmatic* routes to DevTools in
+  packaged builds, but `--remote-debugging-port` / `--inspect` on the command
+  line still attach a debugger to a shipped binary. That is a tamper surface,
+  not a DevTools one — the same class as a renamed exe — so it belongs here
+  and is deliberately NOT fixed in code today: blocking it means filtering
+  `process.argv` at startup, which is anti-debug of exactly the kind this item
+  says no to unless the activation check makes it worth it. Revisit with the
+  activation work.
 
 **Why low priority.** Geotech engineers don't pirate software at
 scale. The .strix format is also not inherently sensitive — losing
@@ -5146,12 +5155,34 @@ console):
   fields ever render markup. (`desktop/src/main/security.ts:169`).
 
 **Remaining scope (merged 2026-07-12 from the CLAUDE.md prune):** besides F6,
-two more pre-distribution items ride under this number:
-* **Menu roles** — DevTools + Reload roles live in the *packaged* View menu;
-  gate them on `!app.isPackaged` before distribution.
+one more pre-distribution item rides under this number:
 * **Electron pin** — pinned at the first `42.x` patch via caret, with the
   EOL/support window unverified; bump to latest 42.x, pin exact, and verify
   the support window.
+
+~~**Menu roles** — DevTools + Reload roles live in the *packaged* View menu.~~
+**RESOLVED 2026-08-03** (autosave design Q6, owner decision): the View submenu
+is built conditionally — packaged builds get *only* Toggle Full Screen, so the
+`reload` / `toggleDevTools` roles and their default accelerators (Ctrl+R / F12 /
+Ctrl+Shift+I) are never registered — and `webPreferences.devTools` is now
+`!app.isPackaged`, which closes the programmatic path (`openDevTools()`) too.
+Pulled forward from Tier B because `View → Reload` is the single most likely
+accidental destroyer of the renderer-only session state that crash recovery
+exists to protect (ghost workspace, lumping map, metadata draft — none of it in
+Postgres). Dev behaviour unchanged. `desktop/src/main/index.ts`.
+*Not* closed by that change: `--remote-debugging-port` / `--inspect` still
+attach a debugger to a packaged build. That is a tamper surface rather than a
+DevTools one and is tracked under **Tier B #5**, deliberately unfixed for now.
+
+**Folded in 2026-08-03 — opening a `.strix` handed over by a second instance.**
+The single-instance lock (autosave design Q4) makes the first instance the only
+one, and its `second-instance` handler focuses the window and **drops the
+argv**, which is now logged rather than silently discarded
+(`[main] second instance launched: …`). So "Open with… StrixGeo" on a `.strix`,
+or a shell drag onto the icon while the app is running, focuses the existing
+window and opens nothing. Making it open the file is a deep-link feature with
+its own handshake to design (what happens when the open project is dirty? does
+it replace or refuse?), so it waits for the same pre-distribution pass as F6.
 
 **Why deferred.** Requires a renderer compromise — does not exist on the
 single-machine dogfeed. Pre-distribution concern.
@@ -5616,11 +5647,11 @@ starts to matter.
 
 ### Folded into existing items (no new number)
 
-* **#200** (Electron pre-distribution hardening) — extend with: DevTools + Reload
+* **#200** (Electron pre-distribution hardening) — extend with: ~~DevTools + Reload
   roles (and the F12 accelerator) live in the *packaged* View menu (SEC-01/07 — gate
-  on `!app.isPackaged`); Electron pinned at the first `42.x` patch via caret, EOL/
-  support-window unverified (ARCH-02/SEC-04/DEP-01 — bump to latest 42.x, pin exact,
-  verify the window).
+  on `!app.isPackaged`)~~ **DONE 2026-08-03, see #200**; Electron pinned at the first
+  `42.x` patch via caret, EOL/support-window unverified (ARCH-02/SEC-04/DEP-01 —
+  bump to latest 42.x, pin exact, verify the window).
 * **#106** (application welded to the ORM) — the audit confirms it's growing
   (ARCH-04) and adds the transaction-ownership split (ARCH-06: use cases flush,
   boundary commits) + ORM-rows-in-result / unconstrained-`setattr` in
