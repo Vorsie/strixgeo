@@ -90,6 +90,7 @@ function makeUseProjectStub(): UseProject {
     // project, whose Discard deletes the session creates. A refusal or a
     // failure is a different arm entirely (see useProjectLifecycle.test.ts).
     revertToLastSaved: vi.fn().mockResolvedValue('no-snapshot'),
+    resetStagedLumpingToSaved: vi.fn().mockResolvedValue(undefined),
     saveAsProject: vi.fn().mockResolvedValue(null),
     discardEdits: vi.fn(),
     archiveCurrent: vi.fn().mockResolvedValue(undefined),
