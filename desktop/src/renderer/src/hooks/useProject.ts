@@ -36,10 +36,17 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type {
+  ProjectBundleResponse,
   ProjectCreatePayload,
   ProjectResponse,
   ProjectUpdatePayload,
 } from '../api/client'
+// Imported from the DEFINING module rather than the ``../api/client``
+// barrel: unit tests routinely ``vi.mock`` that barrel, and a mocked
+// barrel would hand this module an undefined binding — breaking the
+// ``instanceof`` check inside ``isApiStatus`` at runtime while the types
+// still compile.
+import { isApiStatus } from '../api/clients/shared'
 import { log } from '../utils/log'
 import {
   buildProjectFile,
@@ -48,7 +55,7 @@ import {
   projectIdFromFile,
   serialiseProjectFile,
 } from '../utils/projectFile'
-import type { StratigraphyLumping } from '../utils/projectFile'
+import type { ProjectFile, StratigraphyLumping } from '../utils/projectFile'
 import {
   lumpingsEqual,
   nextLumpingRevision,
@@ -57,6 +64,32 @@ import {
 } from '../utils/stratigraphyLumping'
 import { projectMetadataEqual } from '../utils/projectMetadataFields'
 import type { ProjectMetadataField } from '../utils/projectMetadataFields'
+
+/**
+ * Outcome of ``revertToLastSaved`` — four states that want four behaviours.
+ *
+ * A bare ``false`` used to carry all three failure shapes at once, and the
+ * close-flow read every one of them as "never-saved project", falling through
+ * to a DB-DELETE of the session's creates. Discarding by deleting is only
+ * correct when there is genuinely no snapshot to replay; on a refusal or a
+ * failure it destroys work the file never contained (audit 2026-08-02).
+ *
+ * * ``'reverted'`` — the file was replayed over the database.
+ * * ``'no-snapshot'`` — never-saved project (no file path): the caller may
+ *   delete the session creates, because nothing on disk can restore them.
+ * * ``'refused-not-latest-save'`` — a file exists but it is NOT this
+ *   project's latest save (a hand-made copy, or the file of a save whose
+ *   write never landed). Replaying it would delete everything saved since,
+ *   and deleting the session creates would throw away work the file does not
+ *   hold. The caller must do NEITHER and tell the engineer.
+ * * ``'failed'`` — the read / parse / restore threw. Same rule: change
+ *   nothing, report it.
+ */
+export type RevertToLastSavedResult =
+  | 'reverted'
+  | 'no-snapshot'
+  | 'refused-not-latest-save'
+  | 'failed'
 
 interface UseProjectState {
   /** Live in-memory project state — what the editor sees. */
@@ -147,15 +180,24 @@ interface UseProjectActions {
    * not metadata that goes through the Save model). Returns true on
    * success, false on network failure (caller surfaces the toast). */
   applyViewStatePatch: (patch: Record<string, unknown>) => Promise<boolean>
-  /** Commit ``project`` to the DB + .gmproj file. No-op silently when clean. */
+  /**
+   * Commit ``project`` to the DB + .gmproj file.
+   *
+   * The metadata PATCH is skipped when the metadata is clean; the file
+   * write never is. Returns ``true`` only when the project reached BOTH
+   * durable homes — a bundle fetch or file write that failed reports
+   * ``false``, so the caller keeps the project dirty instead of clearing
+   * the markers over a stale file.
+   */
   saveProject: () => Promise<boolean>
   /**
    * Did the LAST ``saveProject`` reach the ``.gmproj`` file?
    *
-   * ``saveProject`` deliberately treats a file-write failure as success —
-   * the DB is committed and the next save catches up — but crash recovery
-   * needs the stricter signal: a delta whose file write failed still has no
-   * durable home, so the recovery file must survive
+   * Overlaps with ``saveProject``'s boolean today but answers a different
+   * question, so crash recovery reads THIS: "did the delta reach a durable
+   * home", not "did the save succeed". A save that fails before the file
+   * (the metadata PATCH) and one that fails at the file are the same
+   * ``false`` here and want the same recovery behaviour — the file stays
    * (docs/design/autosave-recovery.md §4, "Clearing"). Reads a ref, so the
    * callback identity is stable and calling it never re-renders.
    *
@@ -170,9 +212,9 @@ interface UseProjectActions {
    *  re-read + parse the file and POST it to ``/restore?replace=true`` so the
    *  project's children match the file EXACTLY — session creates, mutations,
    *  and deletes are all undone. Backs the "Don't Save" close-flow branch.
-   *  Returns false (no-op) when there is no project or no file path (a
-   *  never-saved project — the caller falls back to deleting session creates). */
-  revertToLastSaved: () => Promise<boolean>
+   *  See ``RevertToLastSavedResult`` for what each outcome obliges the caller
+   *  to do — only ``'no-snapshot'`` licenses deleting the session's creates. */
+  revertToLastSaved: () => Promise<RevertToLastSavedResult>
   /** Deep-duplicate the current project (DB + all CPTs/boreholes), write a
    * new .gmproj at a user-chosen path, and switch the hook to point at the
    * new project. Returns the duplicate on success, null on cancel/error. */
@@ -289,6 +331,100 @@ function fullPatchFrom(
   }
 }
 
+/**
+ * Build the restore payload from a parsed ``.strix``.
+ *
+ * THE single enumeration of the file's collections for every restore-shaped
+ * call. Both restore call sites — the DB-lost recovery inside
+ * ``openProjectFile`` and the replace-restore inside ``revertToLastSaved`` —
+ * go through here, because the two used to enumerate the collections by
+ * hand and drifted: the recovery path listed seven arrays while the revert
+ * listed twelve, so a .strix opened after a DB wipe came back with no
+ * bodies, no correlation edges, no formation absences and no body
+ * boundaries. A collection added to the file format is added HERE, once.
+ *
+ * Parameters
+ * ----------
+ * file
+ *     The parsed ``.strix`` payload.
+ *
+ * Returns
+ * -------
+ * ProjectBundleResponse
+ *     The bundle body ``POST /projects/{id}/restore`` accepts.
+ */
+function restorePayloadFrom(file: ProjectFile): ProjectBundleResponse {
+  return {
+    format_version: file.format_version,
+    project: file.project,
+    cpts: file.cpts,
+    boreholes: file.boreholes,
+    geological_formations: file.geological_formations,
+    geological_models: file.geological_models,
+    cross_sections: file.cross_sections,
+    investigation_reviews: file.investigation_reviews,
+    bodies: file.bodies,
+    formation_absences: file.formation_absences,
+    litho_contact_correlation_edges: file.litho_contact_correlation_edges,
+    body_boundary_shapes: file.body_boundary_shapes,
+    body_boundary_nodes: file.body_boundary_nodes,
+  }
+}
+
+/**
+ * Key under which the save anchor lives in ``project.view_state``.
+ *
+ * WHY view_state: the anchor has to sit on the project ROW and inside the
+ * ``.strix`` at once, and ``view_state`` is the only durable project-scoped
+ * bag that already round-trips through both (the bundle serialises the
+ * project row's columns verbatim, and ``PATCH /view-state`` shallow-merges
+ * top-level keys). No migration, no new column.
+ */
+const SAVE_ANCHOR_KEY = 'save_anchor'
+
+/**
+ * Read the save anchor out of a ``view_state`` bag.
+ *
+ * Parameters
+ * ----------
+ * viewState
+ *     A project's ``view_state`` — from the API row or from the file's
+ *     ``project`` block, both of which are opaque here.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     The anchor token, or ``null`` when the project pre-dates anchors or
+ *     the slot holds something that is not a string.
+ */
+function saveAnchorOf(viewState: unknown): string | null {
+  if (typeof viewState !== 'object' || viewState === null) return null
+  const token = (viewState as Record<string, unknown>)[SAVE_ANCHOR_KEY]
+  return typeof token === 'string' ? token : null
+}
+
+/** The anchor carried by a parsed ``.strix``'s embedded project block. */
+function saveAnchorOfFile(file: ProjectFile): string | null {
+  return saveAnchorOf(file.project.view_state)
+}
+
+/**
+ * Mint a fresh save-anchor token.
+ *
+ * Time-ordered so the value is readable in a log or in the JSON, and
+ * random-suffixed so two saves in the same millisecond — or a save on a
+ * clock that stepped backwards — still produce different tokens. Only
+ * equality is ever tested; the ordering is a debugging affordance.
+ *
+ * Returns
+ * -------
+ * string
+ *     A token of the form ``"2026-08-03T09:12:44.201Z-4f2c9a"``.
+ */
+function mintSaveAnchor(): string {
+  return `${new Date().toISOString()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 // Extract the string ``id`` field from each bundle row. Filters out
 // rows whose id isn't a string (defensive — the file format guarantees
 // it, but the renderer treats bundle entries as opaque ``Record``s so
@@ -351,6 +487,15 @@ export function useProject(): UseProject {
     (): boolean => !saveAttemptedRef.current || fileWriteSucceededRef.current,
     [],
   )
+
+  // The save-anchor token the project ROW carries, as far as this session
+  // knows: seeded on open, replaced on every save. ``revertToLastSaved``
+  // compares the .strix it is about to replay against this — a
+  // replace-restore from anything that is not the project's latest save
+  // deletes work that file never contained. A ref, not state: nothing
+  // renders from it, and a stale closure would defeat the very check it
+  // exists to perform.
+  const dbAnchorRef = useRef<string | null>(null)
 
   const [lumpingRevision, setLumpingRevision] = useState<number | null>(null)
   const lumpingRevisionRef = useRef<number | null>(null)
@@ -484,6 +629,22 @@ export function useProject(): UseProject {
         // always GET first so any metadata edits made elsewhere (the
         // file is a stale snapshot) win over the file's copy.
         const fresh = await api.project.get(parsedId)
+        // Record which save this file is, relative to the row it just
+        // bound to. A byte-copied backup carries the SAME project id, so
+        // the id proves nothing; the anchor is what says "this file is
+        // (not) the project's latest save". Only ``revertToLastSaved``
+        // acts on it — opening a stale copy read-only is legitimate.
+        const dbAnchor = saveAnchorOf(fresh.view_state)
+        const fileAnchor = saveAnchorOfFile(parsed)
+        dbAnchorRef.current = dbAnchor
+        if (dbAnchor !== null && fileAnchor !== dbAnchor) {
+          log.warn(
+            'project',
+            `opened ${path} is NOT this project's latest save ` +
+              `(file anchor ${String(fileAnchor)}, project row ${dbAnchor}); ` +
+              `close-without-save will refuse to replace the database from it`,
+          )
+        }
         await adopt(fresh, path)
         // Seed the manifest from the file's bundle. The .strix file
         // is the user's anchor — anything in the DB but NOT in the
@@ -505,23 +666,20 @@ export function useProject(): UseProject {
         // so opening a .gmproj always brings the data back. Idempotent
         // server-side — existing rows are skipped, missing ones get
         // inserted with their original ids.
-        if (
-          parsed !== null &&
-          parsedId !== null &&
-          err instanceof Error &&
-          err.message.includes('→ 404')
-        ) {
+        //
+        // The status is read off the typed ``ApiError`` the HTTP layer
+        // throws. It used to be sniffed out of the error TEXT
+        // (``message.includes('→ 404')``), a string the client cannot
+        // actually produce for this route — FastAPI sends
+        // ``detail: "Project not found"`` and the detail wins — so this
+        // entire branch was dead and a .strix opened after a DB wipe
+        // reported "could not be opened".
+        if (parsed !== null && parsedId !== null && isApiStatus(err, 404)) {
           try {
-            const restored = await api.project.restore(parsedId, {
-              format_version: parsed.format_version,
-              project: parsed.project,
-              cpts: parsed.cpts,
-              boreholes: parsed.boreholes,
-              geological_formations: parsed.geological_formations,
-              geological_models: parsed.geological_models,
-              cross_sections: parsed.cross_sections,
-              investigation_reviews: parsed.investigation_reviews,
-            })
+            const restored = await api.project.restore(parsedId, restorePayloadFrom(parsed))
+            // The database was just built FROM this file, so the file is
+            // by definition this project's latest save.
+            dbAnchorRef.current = saveAnchorOfFile(parsed)
             await adopt(restored, path)
             // Same manifest seeding as the happy path — the .strix
             // file is now the authoritative list of every
@@ -550,7 +708,14 @@ export function useProject(): UseProject {
                 `+${parsed.geological_models.length} models ` +
                 `(+${contactCount} contacts), ` +
                 `+${parsed.cross_sections.length} sections, ` +
-                `+${parsed.investigation_reviews.length} reviews)`,
+                `+${parsed.investigation_reviews.length} reviews, ` +
+                // The interpretation collections the old hand-rolled
+                // payload silently dropped — logged so a restore that
+                // brings none of them back is visible, not inferred.
+                `+${parsed.bodies.length} bodies, ` +
+                `+${parsed.litho_contact_correlation_edges.length} correlation edges, ` +
+                `+${parsed.formation_absences.length} absences, ` +
+                `+${parsed.body_boundary_shapes.length} boundary shapes)`,
             )
             return restored
           } catch (restoreErr) {
@@ -621,6 +786,9 @@ export function useProject(): UseProject {
       setCurrentLumping(null)
       setSavedLumping(null)
       applyLumpingRevision(null)
+      // A fresh project has no save anchor yet; the first File → Save mints
+      // one. Until then the file and the row agree by both having none.
+      dbAnchorRef.current = null
       log.info('project', `created ${created.name} → ${path}`)
       return created
     },
@@ -704,9 +872,55 @@ export function useProject(): UseProject {
     [project],
   )
 
+  // Stamp a save anchor on the project row and mirror it into the two
+  // in-memory slots, so the token the file is about to carry and the token
+  // the row carries are the same value.
+  //
+  // Writing BOTH ``project`` and ``saved`` keeps ``dirty`` false through
+  // the round-trip — the anchor is bookkeeping, not an edit, and must never
+  // make a freshly-saved project look unsaved. A failed PATCH is not fatal:
+  // the row simply keeps the previous anchor, which reads as "the file on
+  // disk is still the latest save" — the behaviour that predates anchors.
+  const writeSaveAnchor = useCallback(
+    async (projectId: string, anchor: string): Promise<boolean> => {
+      try {
+        await api.project.patchViewState(projectId, { [SAVE_ANCHOR_KEY]: anchor })
+        dbAnchorRef.current = anchor
+        // Truthiness, not ``=== null``: a project slot can also hold
+        // ``undefined`` (an API wrapper that resolved nothing), and this
+        // bookkeeping must never be the thing that throws inside a save.
+        const stamp = (prev: ProjectResponse | null): ProjectResponse | null =>
+          prev
+            ? { ...prev, view_state: { ...prev.view_state, [SAVE_ANCHOR_KEY]: anchor } }
+            : prev
+        setProject(stamp)
+        setSaved(stamp)
+        log.debug('project', `save anchor ${anchor} stamped on ${projectId}`)
+        return true
+      } catch (err) {
+        log.warn(
+          'project',
+          `save anchor PATCH failed for ${projectId}; the revert guard falls back ` +
+            `to the previous anchor`,
+          err,
+        )
+        return false
+      }
+    },
+    [],
+  )
+
   // File → Save / Ctrl+S / "Save and close" all funnel here. Returns
-  // ``true`` on success (or when the project is already clean — a
-  // silent no-op), ``false`` on failure.
+  // ``true`` only when the project reached BOTH of its durable homes — the
+  // database and the .strix on disk — and ``false`` otherwise.
+  //
+  // WHY a failed file write is a failed save: this function used to log the
+  // write failure and return ``true`` anyway, reasoning that the database
+  // is the source of truth. It is not the only one. Close-without-save
+  // replays the FILE over the database (``revertToLastSaved``), so a
+  // silently-stale file is a live data-loss path — and the caller cleared
+  // the dirty markers on the strength of that ``true``, hiding the failure
+  // from the engineer entirely.
   const saveProject = useCallback(async (): Promise<boolean> => {
     if (project === null || filePath === null) return false
     // Cleared up front so a failure BEFORE the file write (the metadata
@@ -728,6 +942,14 @@ export function useProject(): UseProject {
         setSaved(updated)
       }
       try {
+        // Stamp this save's anchor on the project ROW *before* fetching
+        // the bundle, so the bundle — and therefore the .strix about to be
+        // written — carries the very same token. That pairing is what lets
+        // ``revertToLastSaved`` tell "this file is the project's latest
+        // save" from "this file is a copy, or the file of a save whose
+        // write never landed": in both of those the row's token has moved
+        // on and the file's has not.
+        await writeSaveAnchor(project.id, mintSaveAnchor())
         // Fetch the full bundle (metadata + every CPT/series + every
         // borehole tree + every interpretation row) and write it to
         // disk. The file is the user's anchor — re-opening it after a
@@ -751,12 +973,23 @@ export function useProject(): UseProject {
         // data-loss bug shape: auto-populate created formations
         // server-side, the user saved before the manifest fix, and
         // the contacts ended up orphan-referencing missing formations.
+        // Litho and geotech models serialise ``contacts: []`` (the backend
+        // skips contacts for the non-stratigraphic kinds) and carry their
+        // formation references in ``litho_layers`` instead — so walking
+        // contacts alone wrote a file whose litho layers pointed at
+        // formations the same file did not contain. On a fresh DB those
+        // layers are dropped as orphans on restore, and a "Don't Save"
+        // revert is rejected outright by the backend's orphan guard.
         const referencedFormationIds = new Set<string>()
         for (const m of bundle.geological_models as Array<{
           contacts?: Array<{ formation_id?: string }>
+          litho_layers?: Array<{ formation_id?: string }>
         }>) {
           for (const c of m.contacts ?? []) {
             if (c.formation_id) referencedFormationIds.add(c.formation_id)
+          }
+          for (const l of m.litho_layers ?? []) {
+            if (l.formation_id) referencedFormationIds.add(l.formation_id)
           }
         }
         // Bundle entries are typed `Record<string, unknown>` (the
@@ -777,6 +1010,24 @@ export function useProject(): UseProject {
           cross_sections: bundle.cross_sections.filter(s =>
             manifestSectionIds.has(idOf(s)),
           ),
+        }
+        // Refuse to write a file that contradicts itself. The walk above
+        // is meant to make this unreachable; it fires only if a FUTURE
+        // formation-referencing array is added and not walked — in which
+        // case the engineer gets a failed save with a count, not a silently
+        // broken anchor file that drops rows on the next open.
+        const writtenFormationIds = new Set(
+          trimmedBundle.geological_formations.map(f => idOf(f)),
+        )
+        const orphanIds = [...referencedFormationIds].filter(
+          id => !writtenFormationIds.has(id),
+        )
+        if (orphanIds.length > 0) {
+          throw new Error(
+            `refusing to write a self-inconsistent .strix: ${orphanIds.length} ` +
+              `formation(s) referenced by models are missing from the file ` +
+              `(${orphanIds.slice(0, 5).join(', ')})`,
+          )
         }
         await window.electron.writeProjectFile(
           filePath,
@@ -825,13 +1076,21 @@ export function useProject(): UseProject {
           )
         }
       } catch (err) {
-        // File write failure leaves the DB ahead of the file. Log loudly
-        // but treat as success — the next save will catch up, and the
-        // DB is the source of truth. Crash recovery draws the opposite
-        // conclusion from the same event: the session delta is still
-        // homeless, so its recovery file stays.
+        // The bundle fetch or the file write failed: the database moved
+        // but the engineer's anchor file did not. That is a FAILED save,
+        // reported as one — the caller keeps the project dirty, leaves the
+        // unsaved-changes dialog open for a retry, and never clears the
+        // markers that are the only on-screen trace of the problem.
+        // Crash recovery draws the same conclusion from the same event:
+        // the session delta is still homeless, so its recovery file stays.
         fileWriteSucceededRef.current = false
-        log.warn('project', 'file write after saveProject failed', err)
+        log.error(
+          'project',
+          `saveProject: ${project.name} was committed to the database but NOT written ` +
+            `to ${filePath} — the file on disk is now a save behind`,
+          err,
+        )
+        return false
       }
       log.success('project', `saved ${project.name}`)
       return true
@@ -850,6 +1109,7 @@ export function useProject(): UseProject {
     currentLumping,
     stageToDatabase,
     promoteInDatabase,
+    writeSaveAnchor,
   ])
 
   // Revert-to-last-save (#160). Re-read the .gmproj file (the canonical
@@ -859,39 +1119,54 @@ export function useProject(): UseProject {
   // flow "Don't Save" branch: closing reverts the DB so the next open of
   // this project is clean. The file on disk is never touched.
   //
-  // Returns false (no-op) when there is no project or no file path: a
-  // never-saved project has no snapshot to revert to, so the caller falls
-  // back to deleting the session-created rows instead.
-  const revertToLastSaved = useCallback(async (): Promise<boolean> => {
-    if (project === null || filePath === null) return false
+  // The four outcomes are NOT interchangeable — see
+  // ``RevertToLastSavedResult``. ``'no-snapshot'`` (never-saved project) is
+  // the only one that licenses the caller to delete the session's creates;
+  // a refusal or a thrown failure means the caller must change nothing.
+  const revertToLastSaved = useCallback(async (): Promise<RevertToLastSavedResult> => {
+    if (project === null || filePath === null) return 'no-snapshot'
     try {
       const raw = await window.electron.readProjectFile(filePath)
       const parsed = parseProjectFile(raw)
       if (parsed === null) {
+        // A file exists and cannot be read back. That is a FAILURE, not an
+        // absent snapshot: the session's creates may well be in it, so
+        // deleting them would destroy work this build simply cannot parse.
         log.error('project', `revertToLastSaved: unrecognisable .gmproj at ${filePath}`)
-        return false
+        return 'failed'
       }
-      // Pass the full v3 collection set (incl. the litho_* arrays the
-      // 404→restore path historically omitted) so the revert is complete.
-      await api.project.restore(
-        project.id,
-        {
-          format_version: parsed.format_version,
-          project: parsed.project,
-          cpts: parsed.cpts,
-          boreholes: parsed.boreholes,
-          geological_formations: parsed.geological_formations,
-          geological_models: parsed.geological_models,
-          cross_sections: parsed.cross_sections,
-          investigation_reviews: parsed.investigation_reviews,
-          bodies: parsed.bodies,
-          formation_absences: parsed.formation_absences,
-          litho_contact_correlation_edges: parsed.litho_contact_correlation_edges,
-          body_boundary_shapes: parsed.body_boundary_shapes,
-          body_boundary_nodes: parsed.body_boundary_nodes,
-        },
-        true,
-      )
+      // SAVE-ANCHOR GATE. ``replace=true`` wipes every child collection of
+      // the project — models, contacts, correlation edges, bodies,
+      // sections, reviews, CPTs, boreholes — and re-inserts the file's.
+      // The project id proves nothing about which file this is: a byte
+      // copy of a .strix (a backup the engineer made in Explorer) names
+      // the same project. Only the anchor distinguishes "this project's
+      // latest save" from "a snapshot from last week" or "the file of a
+      // save whose write never landed". Refuse anything else — the caller
+      // falls back to the non-destructive discard path.
+      //
+      // A null row anchor means the project has never been saved by an
+      // anchor-aware build, so there is nothing to compare and the revert
+      // behaves exactly as it did before anchors existed.
+      const dbAnchor = dbAnchorRef.current
+      const fileAnchor = saveAnchorOfFile(parsed)
+      if (dbAnchor !== null && fileAnchor !== dbAnchor) {
+        log.error(
+          'project',
+          `revertToLastSaved REFUSED for ${filePath}: this file is not ${project.name}'s ` +
+            `latest save (file anchor ${String(fileAnchor)}, project row ${dbAnchor}). ` +
+            `Replacing the database from it would delete everything saved since.`,
+        )
+        return 'refused-not-latest-save'
+      }
+      // Pass the full v3 collection set through the shared enumeration —
+      // the same one the DB-lost restore uses, so the two cannot drift.
+      await api.project.restore(project.id, restorePayloadFrom(parsed), true)
+      // The anchor is deliberately NOT touched here. ``replace=true``
+      // rewinds the project's CHILDREN but leaves the project row's own
+      // metadata alone ("project already exists — leaving metadata
+      // untouched", bundle_restore_core), so the row still carries the
+      // anchor it had — which is the one this file just matched.
       // Discard means discard — including in the database's staged slot.
       // The replace-restore rewinds the project's children to the file, but
       // the lumping map lives in its own column and would otherwise keep
@@ -922,10 +1197,10 @@ export function useProject(): UseProject {
         )
       }
       log.success('project', `reverted ${project.name} to last save (${filePath})`)
-      return true
+      return 'reverted'
     } catch (err) {
       log.error('project', `revertToLastSaved failed for ${filePath}`, err)
-      return false
+      return 'failed'
     }
   }, [
     project,
@@ -1007,6 +1282,13 @@ export function useProject(): UseProject {
     }
 
     await adopt(duplicated, path)
+    // The file just written IS the duplicate's first save, and it carries
+    // whatever anchor the duplicate's copied ``view_state`` holds — so the
+    // two agree from the start. (``duplicate()`` copies ``view_state``,
+    // debt #267.)
+    dbAnchorRef.current = saveAnchorOf(
+      (dupBundle.project as Record<string, unknown>).view_state,
+    )
     // Reseed manifest from the duplicate's bundle. The new project is
     // now the live one, so its manifest reflects the cloned content
     // across every bundle-tracked entity.
@@ -1059,6 +1341,9 @@ export function useProject(): UseProject {
     // would let the next project's first Apply claim a revision it never
     // earned (and, if that project sits higher, silently lose the guard).
     applyLumpingRevision(null)
+    // Same reasoning for the anchor: carrying the closed project's token
+    // into the next open would compare two unrelated projects' saves.
+    dbAnchorRef.current = null
   }
 
   const archiveCurrent = useCallback(async (): Promise<void> => {
