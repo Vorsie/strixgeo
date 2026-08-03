@@ -104,7 +104,8 @@ class ImportCpt(GroundModelLogger):
         Raises
         ------
         ParseError
-            If XY coordinates or EPSG code are missing.
+            If XY coordinates are missing, or the file's coordinate-system
+            code could not be resolved to an EPSG code.
         DuplicateCptError
             If a CPT with the same project_id + test_id already exists in this project.
         """
@@ -115,8 +116,19 @@ class ImportCpt(GroundModelLogger):
         if h.x is None or h.y is None:
             raise ParseError(f"Cannot import '{name}': XY coordinates are required")
         if h.epsg is None:
+            # Two different failures reach here and they need different
+            # answers from the reader: a file that declared nothing, versus a
+            # file that declared a coordinate-system code our codelist does
+            # not carry. Quote the code so the second case is actionable
+            # rather than looking like the first.
+            if h.xy_code is not None:
+                raise ParseError(
+                    f"Cannot import '{name}': coordinate-system code {h.xy_code} is not a "
+                    "known GEF code or supported EPSG, so the coordinates cannot be placed"
+                )
             raise ParseError(
-                f"Cannot import '{name}': EPSG code is required when coordinates are present"
+                f"Cannot import '{name}': coordinates are present but the file declares "
+                "no coordinate-system code"
             )
 
         # Duplicate guard scoped to app_project_id so the same CPT can be imported into
