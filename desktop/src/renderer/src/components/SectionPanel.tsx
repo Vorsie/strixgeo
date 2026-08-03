@@ -88,7 +88,10 @@ import {
   pickQcFullScaleMpa,
   type CptChannels,
 } from './sections/cptChannels'
-import { buildReviewFlagPatch, readDismissedReviewFlags } from '../utils/reviewFlagPrefs'
+import {
+  buildReviewFlagPatch,
+} from '../utils/reviewFlagPrefs'
+import { useSessionReviewFlagDismissals } from '../hooks/useSessionReviewFlagDismissals'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import SectionGrid from './sections/SectionGrid'
 import InvestigationColumns from './sections/InvestigationColumns'
@@ -1197,17 +1200,24 @@ export default function SectionPanel({
   // REVIEW-FLAG dismissal (owner 2026-07-26; design §10). The safe-default repair surfaces
   // uncorrelated same-litho neighbours as amber markers; "Keep separate" dismisses one, persisted in
   // ``view_state.review_flags`` so it rides the .gmproj bundle and does not re-nag (like cpt_channels).
-  const dismissedReviewFlags = useMemo(
-    () => readDismissedReviewFlags(section.view_state ?? null),
-    [section.view_state],
-  )
+  //
+  // ``section.view_state`` only carries a dismissal once ITS PATCH has come back, so a
+  // second "Keep separate" inside one round-trip would build its patch from the pre-first
+  // state and the server would end with only the second id — flag one re-nags. The
+  // session's dismissals are therefore accumulated in ``useSessionReviewFlagDismissals``
+  // and merged with whatever the server has acknowledged. That accumulation is keyed on
+  // ``section.id``: this panel is NOT remounted when the user picks another section (no
+  // ``key`` at the call site), flag ids are ``layerId|gapIndex|side``, and sections share
+  // investigations — so an unkeyed set would hide a genuine flag on the next section and
+  // write this section's decisions into that section's saved bag.
+  const { dismissed: dismissedReviewFlags, dismiss: dismissReviewFlag } =
+    useSessionReviewFlagDismissals(section.id, section.view_state ?? null)
   const handleDismissReviewFlag = useCallback(
     (flagId: string) => {
-      const next = new Set(readDismissedReviewFlags(section.view_state ?? null))
-      next.add(flagId)
+      const next = dismissReviewFlag(flagId)
       if (onPatch) void onPatch(buildReviewFlagPatch(next))
     },
-    [section.view_state, onPatch],
+    [dismissReviewFlag, onPatch],
   )
 
   // Band half-width scales with horizontal zoom — at low zoom keep
