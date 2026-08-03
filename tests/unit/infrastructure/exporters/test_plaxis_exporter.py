@@ -226,8 +226,14 @@ def test_one_borehole_per_unique_xy_column() -> None:
     assert "g_i.borehole(300.0, 400.0)" in script
 
 
-def test_borehole_head_set_to_surface_elevation() -> None:
-    """Borehole ``Head`` (surface z) is set from the column's surface_elevation_m."""
+def test_borehole_carries_its_surface_elevation_as_a_comment_not_as_head() -> None:
+    """The surface elevation annotates the borehole; it is not a water head.
+
+    Rewritten 2026-08-03: this test used to assert ``bh_0.Head = 12.5``,
+    pinning the audit's finding rather than catching it.  ``Head`` is the
+    phreatic level in PLAXIS — see
+    ``test_export_does_not_set_a_water_head_at_the_ground_surface``.
+    """
     snapshot = _snapshot(
         layers=[_layer(formation_name="A", top=0.0, base=5.0, x=0.0, y=0.0, surface_z=12.5)],
         formations=[FormationDisplay(name="A", code=None, display_order=0, color="#ccc")],
@@ -235,7 +241,8 @@ def test_borehole_head_set_to_surface_elevation() -> None:
 
     script = _decode(PlaxisExporter().export(snapshot))
 
-    assert "bh_0.Head = 12.5" in script
+    assert "# surface z = 12.5" in script
+    assert "bh_0.Head" not in script
 
 
 def test_setsoillayerlevel_per_borehole_per_layer() -> None:
@@ -387,3 +394,29 @@ def test_emit_boreholes_counts_columns_with_no_surface_z() -> None:
     assert any("# Skipped column" in ln for ln in lines)
     emitted = len(ordered_columns) - skipped
     assert emitted == 1
+
+
+def test_export_does_not_set_a_water_head_at_the_ground_surface() -> None:
+    """A borehole's ``Head`` is the PHREATIC level, not the soil-column top.
+
+    Same rule as the 2D section exporter: the geometry contract does not
+    include a phreatic line, and ``Head = surface_z`` silently generated
+    a fully saturated model.  The column top already reaches PLAXIS via
+    ``setsoillayerlevel``; the water table is the engineer's to set, and
+    the script must say it was left unset.
+    """
+    snapshot = _snapshot(
+        layers=[_layer(formation_name="A", top=0.0, base=5.0, x=0.0, y=0.0, surface_z=12.5)],
+        formations=[FormationDisplay(name="A", code=None, display_order=0, color="#ccc")],
+    )
+
+    script = _decode(PlaxisExporter().export(snapshot))
+
+    assert ".Head" not in script, (
+        "the exporter must not set a water head — Head is the phreatic level, "
+        "and the surface elevation is not it"
+    )
+    assert "water table" in script.lower(), (
+        "the script must state that no water table was set so the engineer "
+        "knows to set one before computing stresses"
+    )
