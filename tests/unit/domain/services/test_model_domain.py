@@ -340,3 +340,41 @@ def test_build_model_domain_raises_when_no_test_reaches_the_lowest_band() -> Non
     band = {"a": -30.0, "b": -30.0, "c": -30.0}  # far below every base
     with pytest.raises(ValueError, match="lowest geological band"):
         build_model_domain(tests, lowest_band_elev_at=band, tol_m=1.0)
+
+
+# ---------------------------------------------------------------------------
+# Footprint coverage — an investigation left out must never be left SILENT
+# ---------------------------------------------------------------------------
+
+
+def test_a_fragmented_hull_reports_the_investigations_it_leaves_outside() -> None:
+    """When the footprint cannot cover every investigation, it says which ones.
+
+    Two building plots 400 m apart, ~25 m test spacing within each: the alpha
+    trim cuts every triangle bridging the gap, the boundary walks into two
+    rings, and only the larger ring is kept. The plot that is dropped gets no
+    3-D model at all — not even its own drilled logs, because the footprint gate
+    runs before the honored-investigation check.
+
+    The engineer must be able to find out. A build that quietly models half his
+    project and reports success is the failure mode; the domain therefore
+    carries the ids it does not cover so the caller can say so out loud.
+    """
+    tests = [_dt(f"A{i}{j}", i * 25.0, j * 25.0) for i in range(3) for j in range(3)]
+    tests += [_dt(f"B{i}{j}", 400.0 + i * 25.0, j * 25.0) for i in range(3) for j in range(3)]
+
+    domain = build_model_domain(tests)
+
+    outside = {t.test_id for t in tests if not domain.contains(t.x_m, t.y_m, tol=1e-6)}
+    assert outside, "precondition: this geometry must actually fragment the alpha hull"
+
+    assert set(domain.uncovered_test_ids) == outside
+
+
+def test_a_single_cluster_reports_no_uncovered_investigations() -> None:
+    """The ordinary project covers everything — the check must not cry wolf."""
+    tests = [_dt(f"T{i}{j}", i * 25.0, j * 25.0) for i in range(3) for j in range(3)]
+
+    domain = build_model_domain(tests)
+
+    assert domain.uncovered_test_ids == ()
