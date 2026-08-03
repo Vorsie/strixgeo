@@ -8,7 +8,7 @@
 // close-confirm Modal's raw grays are token-corrected on the way
 // (same no-dark-variant #51-class fix as AppBootError/AppLoading).
 
-import { AlertTriangle, CheckCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle, X } from 'lucide-react'
 
 import type { ProjectResponse, ProjectUpdatePayload } from '../api/client'
 import type { Toast } from '../hooks/useToasts'
@@ -21,6 +21,12 @@ import Button from './ui/Button'
 
 export interface AppDialogsProps {
   toasts: Toast[]
+  /**
+   * Remove one toast by id.  Only sticky (error) toasts render a close
+   * button — everything else still expires on its own — but an error that
+   * never expires MUST have a way out or the stack grows without bound.
+   */
+  dismissToast: (id: number) => void
   newProjectOpen: boolean
   setNewProjectOpen: (open: boolean) => void
   newProject: (meta: { name: string }) => Promise<ProjectResponse | null>
@@ -34,6 +40,12 @@ export interface AppDialogsProps {
   /** Itemised session work the discard prompt names (from useProjectLifecycle). */
   unsavedSummary: UnsavedWorkSummary
   unsavedSaving: boolean
+  /**
+   * Why the last Save / Discard did not close the project, or null.
+   * Rendered inside the dialog — an open dialog after a failed click has to
+   * say what went wrong or it reads as a broken button (audit 2026-08-02).
+   */
+  unsavedError: string | null
   handleUnsavedSave: () => Promise<void>
   handleUnsavedDiscard: () => void
   handleUnsavedCancel: () => void
@@ -58,6 +70,7 @@ export interface AppDialogsProps {
  */
 export default function AppDialogs({
   toasts,
+  dismissToast,
   newProjectOpen,
   setNewProjectOpen,
   newProject,
@@ -68,6 +81,7 @@ export default function AppDialogs({
   applyMetadataDraft,
   unsavedDialogOpen,
   unsavedSummary,
+  unsavedError,
   unsavedSaving,
   handleUnsavedSave,
   handleUnsavedDiscard,
@@ -84,17 +98,34 @@ export default function AppDialogs({
         {toasts.map(t => (
           <div
             key={t.id}
+            // An error waits to be read (useToasts: sticky), so it also has to
+            // be readable — the max-width keeps a long action-required message
+            // wrapping inside the card instead of running off-screen.
             className={[
-              'flex items-center gap-2 px-3 py-2 rounded shadow-lg text-sm text-white',
+              'flex items-start gap-2 px-3 py-2 rounded shadow-lg text-sm text-white max-w-md',
               t.type === 'success'
                 ? 'bg-green-600'
                 : t.type === 'warning'
                   ? 'bg-amber-600'
                   : 'bg-red-600',
             ].join(' ')}
+            role={t.sticky ? 'alert' : undefined}
           >
-            {t.type === 'success' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-            {t.message}
+            <span className="mt-0.5 shrink-0">
+              {t.type === 'success' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+            </span>
+            <span className="min-w-0 flex-1">{t.message}</span>
+            {t.sticky && (
+              <button
+                type="button"
+                onClick={() => dismissToast(t.id)}
+                aria-label="Dismiss notification"
+                data-testid="toast-dismiss"
+                className="shrink-0 rounded p-0.5 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -129,6 +160,7 @@ export default function AppDialogs({
         open={unsavedDialogOpen}
         projectName={project.name}
         summary={unsavedSummary}
+        error={unsavedError}
         busy={unsavedSaving}
         onSave={() => void handleUnsavedSave()}
         onDiscard={handleUnsavedDiscard}
