@@ -211,10 +211,13 @@ an INFO line; quitting mid-question keeps the copy and is re-offered next launch
 The three answer handlers finish their IPC work **before** clearing the offer, so the
 whole answer sequence runs under the suspension.
 
-The post-save clear is **gated on the file write, not the return value** — `saveProject`
-swallows a `writeProjectFile` failure and returns `true` anyway; that is defensible for the DB
-but wrong as a recovery signal, since a failed file write means the delta still has no durable
-home.
+The post-save clear is **gated on the file write, not the return value** — `lastSaveWroteFile()`,
+never `saveProject()`'s boolean. The two agree today (a failed `writeProjectFile` now makes
+`saveProject` return `false`, since close-without-save replays the FILE over the database, so a
+silently stale file is a data-loss path, not a DB-is-authoritative nicety), but they answer
+different questions and must stay separate: the boolean says "did this save succeed", the
+file-write signal says "does the delta have a durable home". `recoveryClearAllowed()` keeps the
+third state distinct — a session that has never saved has no failed write to distrust.
 
 **"Open without restoring" writes before it moves.** A crash-reopened project is at risk from
 the moment it mounts (the session-import sets survive in localStorage), so the scheduler can
