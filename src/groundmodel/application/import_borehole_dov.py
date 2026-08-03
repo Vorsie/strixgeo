@@ -342,6 +342,7 @@ class ImportBoreholeDov(GroundModelLogger):
             failed=total_failed,
             interpretations_attached=interp_result.attached,
             interpretations_failed=interp_result.failed,
+            interpretations_wfs_gaps=interp_result.wfs_gaps,
             samples_attached=samples_result.samples_attached,
             samples_failed=samples_result.samples_failed,
             grain_sizes_attached=samples_result.grain_sizes_attached,
