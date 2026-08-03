@@ -201,7 +201,8 @@ def _run_length_encode(zones: list[int | None]) -> list[tuple[int | None, int, i
 
 def _greedy_merge(
     runs: list[tuple[int | None, int, int]],
-    depths_m: Sequence[float],
+    tops_m: Sequence[float],
+    bases_m: Sequence[float],
     min_thickness_m: float,
 ) -> list[tuple[int | None, int, int]]:
     """Merge runs shorter than ``min_thickness_m`` into their neighbours.
@@ -212,11 +213,25 @@ def _greedy_merge(
 
     ``None``-zone runs (undefined/skipped points) are treated as zero-thickness
     and merged away immediately regardless of ``min_thickness_m``.
+
+    Parameters
+    ----------
+    runs : list[tuple[int | None, int, int]]
+        Run-length encoding as ``(zone, start_index, end_index_exclusive)``.
+    tops_m, bases_m : Sequence[float]
+        Top and base depth of each encoded element, parallel to the indices in
+        ``runs``. A run's thickness is measured from the top of its FIRST
+        element to the base of its LAST — the same bounds the caller emits, so
+        the measure that decides survival matches the geometry produced. The
+        CPT path passes the sample depths as both sequences, which reduces to
+        ``depths[e - 1] - depths[s]``.
+    min_thickness_m : float
+        Runs thinner than this are absorbed into a neighbour.
     """
     merged = list(runs)
 
     def _thickness(s: int, e: int) -> float:
-        return depths_m[e - 1] - depths_m[s] if e > s else 0.0
+        return bases_m[e - 1] - tops_m[s] if e > s else 0.0
 
     # Restart-after-each-merge: find the first short run, absorb it into
     # the PRECEDING run (its zone wins) or — only when it is the very
@@ -339,7 +354,9 @@ def segment_cpt(
     runs = _run_length_encode(smoothed)
 
     # --- Step 4: greedy-merge thin runs ---
-    merged = _greedy_merge(runs, depths_m, minimum_layer_thickness_m)
+    # A CPT sample is a point, not an interval: its "top" and "base" are the
+    # same depth, so this reduces to ``depths_m[e - 1] - depths_m[s]``.
+    merged = _greedy_merge(runs, depths_m, depths_m, minimum_layer_thickness_m)
 
     # --- Step 5: build LithoLayerSuggestion per merged run ---
     # Drop undefined (None-zone) runs, then emit a CONTIGUOUS partition:
@@ -818,12 +835,13 @@ def segment_borehole(
         _LITHO_INT.get(lith) if lith is not None else None for lith in litho_per_layer
     ]
 
-    # RLE on the (top, base) intervals — use midpoints as "depths" for the
-    # thickness comparison in the greedy merge.
-    midpoints = [0.5 * (t + b) for t, b in zip(layer_tops_m, layer_bases_m)]
-
+    # RLE on the (top, base) intervals. The merge measures each run with the
+    # REAL bounds it will be emitted with (``layer_tops_m[s]`` →
+    # ``layer_bases_m[e - 1]``, see below): a description log has one layer per
+    # lithology change, so a run of ONE layer is the normal case and must be
+    # judged on its true thickness.
     runs = _run_length_encode(int_zones)
-    merged = _greedy_merge(runs, midpoints, minimum_layer_thickness_m)
+    merged = _greedy_merge(runs, layer_tops_m, layer_bases_m, minimum_layer_thickness_m)
 
     suggestions: list[LithoLayerSuggestion] = []
     for zone_int, s, e in merged:
