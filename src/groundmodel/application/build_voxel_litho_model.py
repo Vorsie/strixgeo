@@ -587,6 +587,28 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"BuildVoxelLithoModel: model={model_id} — domain footprint "
             f"{len(domain.polygon)}-vertex hull"
         )
+        # The footprint keeps only the largest alpha-shape ring, so a project
+        # whose investigations fall into two clusters further apart than the
+        # alpha distance loses the smaller cluster entirely — and the labeller's
+        # footprint gate runs BEFORE its honored-investigation check, so those
+        # columns get no material at all, not even their own drilled logs. That
+        # must never pass as a complete build: say it, at WARNING, with counts
+        # and names. (The fuller fix — a footprint that is the UNION of every
+        # outward-wound ring — is a separate change; this is the loud gate.)
+        #
+        # The names also ride out on the outcome. A server-side WARNING is
+        # invisible in a packaged desktop build, and the engineer who clicked
+        # "Build model" would otherwise get an unqualified success while N of
+        # his investigations have no 3-D model at all.
+        uncovered: list[str] = []
+        if domain.uncovered_test_ids:
+            uncovered = sorted({tid.removesuffix("#drilled") for tid in domain.uncovered_test_ids})
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — {len(uncovered)} investigation(s) "
+                "fall OUTSIDE the model footprint and will have NO 3-D model: "
+                f"{', '.join(uncovered)}. The data footprint fragmented (clusters further "
+                "apart than the alpha distance); only the largest component is modelled."
+            )
 
         # --- The 2-D partition is the only authority on lithology -------------
         # The builder used to load the parent geological model's surfaces and
@@ -658,6 +680,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 bodies_flagged=0,
                 orphans_deleted=0,
                 marked_test_ids=[],
+                uncovered_test_ids=uncovered,
             )
 
         # --- Phase 2: label the 3-D voxel grid --------------------------------
@@ -676,7 +699,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"BuildVoxelLithoModel: model={model_id} label_voxels failed — {err}; "
                 "clearing cache (no elevation range to grid over)"
             )
-            return await self._handle_empty(model_id)
+            return await self._handle_empty(model_id, uncovered_test_ids=uncovered)
         self.info(
             f"BuildVoxelLithoModel: model={model_id} — labelled "
             f"{len(grid.gx)}x{len(grid.gy)}x{len(grid.gz)} grid, "
@@ -705,7 +728,9 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             )
             # Reuse the already-loaded existing rows — ``_handle_empty`` only
             # reads the keys, so no second read is needed for the empty path.
-            return await self._handle_empty(model_id, existing_by_body=existing_by_body)
+            return await self._handle_empty(
+                model_id, existing_by_body=existing_by_body, uncovered_test_ids=uncovered
+            )
 
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
         bodies_considered = len(wanted_storage_ids)
@@ -768,6 +793,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             bodies_flagged=0,
             orphans_deleted=orphans_deleted,
             marked_test_ids=[],
+            uncovered_test_ids=uncovered,
         )
 
     def _warn_sub_voxel_investigations(
@@ -850,6 +876,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         self,
         model_id: UUID,
         existing_by_body: dict[str, _SolidMeta] | None = None,
+        *,
+        uncovered_test_ids: list[str] | None = None,
     ) -> LithoSolidsOutcome:
         """Clear every solid row for the model and return a zero outcome.
 
@@ -867,6 +895,11 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             path has them in hand from the checksum check) — passing them
             skips a second ``_load_existing`` round-trip. ``None`` (default)
             loads them here.
+        uncovered_test_ids : list[str] | None
+            Investigations the footprint does not cover, when the footprint got
+            far enough to be known. Carried through so an empty build still
+            tells the engineer WHY it is empty for those columns. ``None``
+            (default) for the call sites that fail before the domain exists.
 
         Returns
         -------
@@ -888,6 +921,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             bodies_flagged=0,
             orphans_deleted=orphans_deleted,
             marked_test_ids=[],
+            uncovered_test_ids=uncovered_test_ids or [],
         )
 
     #: Identifies the builder behind a stored generation.  Bump when a change
