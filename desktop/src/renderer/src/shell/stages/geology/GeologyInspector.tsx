@@ -167,13 +167,16 @@ export default function GeologyInspector(): JSX.Element {
   // freshness (debt #18): a stale cache is not validated — the hook
   // exposes pendingBuild instead so the banner says "Build to check"
   // rather than showing an untrustworthy amber warning.
-  const { crossingIssues, pendingBuild: crossingsPendingBuild } =
-    useCrossingsValidation(
-      projectId,
-      activeGeologicalModel?.id ?? null,
-      crossingsRefreshCounter,
-      staleSurfaceCount,
-    )
+  const {
+    crossingIssues,
+    pendingBuild: crossingsPendingBuild,
+    validationFailed: crossingsValidationFailed,
+  } = useCrossingsValidation(
+    projectId,
+    activeGeologicalModel?.id ?? null,
+    crossingsRefreshCounter,
+    staleSurfaceCount,
+  )
 
   // Crossing-issue → sections-stage navigation flow (dogfeed 2026-05-30).
   // Click an LI in the surface-crossings banner: resolve the issue's
@@ -758,6 +761,26 @@ export default function GeologyInspector(): JSX.Element {
             <span>
               Surface crossings not checked — Build the 3D model to
               validate.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Validation FAILED (audit F10): the request errored, so the issue list is
+          empty for the same reason a clean model's is. Silence here would read as
+          "no crossings" and the engineer would Build + export on it. */}
+      {crossingsValidationFailed && (
+        <div
+          className="rounded border border-status-amber bg-amber-50 dark:bg-amber-950/30 px-2 py-1.5 text-[11px] text-text-primary"
+          role="alert"
+          aria-label="Surface validation failed"
+          data-testid="crossings-check-failed"
+        >
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={12} />
+            <span>
+              Surface crossings could NOT be checked — this is not a clean
+              result. Rebuild or reopen the project to check again.
             </span>
           </div>
         </div>
