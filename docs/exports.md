@@ -55,8 +55,13 @@ already projected onto the section line) and emits the same shape of
 `plxscripting` script as the 3D exporter, but with Plaxis 2D's
 single-coordinate `g_i.borehole(x)` placed at each column's
 along-section distance. Columns without a surface elevation are
-dropped (a Plaxis borehole needs an absolute Head) and counted in
-the script's print summary. Endpoint:
+dropped (without Z the column cannot be placed on the level axis —
+every `setsoillayerlevel` is an absolute level) and counted in
+the script's print summary. **Neither Plaxis exporter sets a borehole
+`Head`**: in PLAXIS that property is the water head (phreatic level),
+not the soil-column top, and writing the surface elevation into it
+made every exported model fully saturated (audit 2026-08-02). Both
+script headers state that no water table was exported. Endpoint:
 `GET /projects/{pid}/sections/{sid}/export/plaxis2d?model_id=...`
 (mirrors the section DXF endpoint). Surfaced as a card in the
 Export stage hub alongside section DXF; the model-wide Plaxis 3D
