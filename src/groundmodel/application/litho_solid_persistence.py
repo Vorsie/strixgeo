@@ -136,6 +136,13 @@ class LithoSolidsOutcome:
         because a server-side WARNING is invisible in a packaged desktop
         build: the engineer clicked Build and must be told that N of his
         investigations are not in the result.  Empty on the happy path.
+    empty_reason : str | None
+        Why this build produced no bodies, when it produced none.  A degenerate
+        build is DESTRUCTIVE — it orphan-deletes every stored solid row for the
+        model and commits — yet its counts are identical to a happy build of
+        zero bodies, so the only reading available to the client was a green
+        "Built 0 bodies" over a 3-D model that had just been erased.  ``None``
+        on every build that produced at least one body.
     """
 
     bodies_considered: int
@@ -148,6 +155,7 @@ class LithoSolidsOutcome:
     # stay untouched — an absent value means "nothing was reported", not "the
     # coverage was not checked".
     uncovered_test_ids: list[str] = field(default_factory=list)
+    empty_reason: str | None = None
 
 
 def storage_body_id(mesh_body_id: str) -> UUID:
