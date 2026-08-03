@@ -6,12 +6,14 @@ from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import select, text
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from groundmodel.api.local_client_token_middleware import LocalClientTokenMiddleware
 from groundmodel.api.routers import (
     borehole,
     codelists,
@@ -24,6 +26,7 @@ from groundmodel.api.routers import (
     stratigraphy_lumping,
     virtuele_boring,
 )
+from groundmodel.api.validation_error_handler import validation_error_handler
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -240,6 +243,12 @@ class BodySizeLimitMiddleware:
 app = FastAPI(title="Ground Model Platform", version="0.1.0", lifespan=lifespan)
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
 
+# Installed BEFORE CORSMiddleware, which means it runs INSIDE it: preflight
+# ``OPTIONS`` requests are answered by CORS and never reach the token check
+# (blocking a preflight would stop the real request from being sent without
+# protecting anything). See the class docstring for the threat model.
+app.add_middleware(LocalClientTokenMiddleware)
+
 # The API binds to 127.0.0.1 only; the threat model that matters is NOT
 # network exposure (we have none) but cross-origin reads from other browser
 # tabs the user opens while Strix runs. With ``allow_origins=["*"]`` and no
@@ -251,6 +260,11 @@ app.add_middleware(BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
 #  * prod: BrowserWindow ``loadFile()`` serves from file://, which fetch
 #    reports as ``Origin: null`` per the file-scheme rules
 # A wildcard regex covers any random port vite picks if 5173 is taken.
+#
+# ``"null"`` is NOT exclusive to our window — a sandboxed iframe or a ``data:``
+# document on any site sends it too. LocalClientTokenMiddleware (above) is what
+# makes the allowance safe: a null-origin request must carry the token the
+# Electron main process minted for this launch.
 _ALLOWED_ORIGINS = ["null"]
 _ALLOWED_ORIGIN_REGEX = r"^http://localhost(?::\d+)?$"
 
@@ -272,6 +286,11 @@ app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=["127.0.0.1", "localhost"],
 )
+
+# Replaces FastAPI's default 422 handler, which cannot render an echo that
+# contains NaN/inf — see ``validation_error_handler`` for why that turned a
+# correctly-rejected body into a 500.
+app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 app.include_router(cpt.router)
 app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
