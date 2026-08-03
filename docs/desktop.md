@@ -90,7 +90,19 @@ desktop/src/
     │       ├── geotechnical/  GeotechnicalStage scaffold (NAD packing class, CPT-derived indicators).
     │       ├── sections/      SectionsStage — SectionsCanvas, SectionsToolbar; the primary editing
     │       │                  surface for all three model levels.
-    │       ├── parameters/    ParametersStage scaffold — per-test / per-unit / methods tabs.
+    │       ├── parameters/    ParametersStage — per-test / per-unit / methods tabs (canvas) +
+    │       │                  ParametersInspector (the per-CPT plot surface: header,
+    │       │                  click-to-edit water-table line, and CptSbtDepthPanels —
+    │       │                  TALL depth-synced qc | fs+Rf | Ic | both SBT strips).
+    │       │                  Row click in the per-test table selects the CPT via
+    │       │                  coordinator.handleSelectWithoutView (the plain
+    │       │                  handleSelect also flips the DATA stage's view mode);
+    │       │                  the inspector fetches /cpt/{id}/sbt-profile on demand,
+    │       │                  under the engineer's Settings → Litho segmenter unit
+    │       │                  weights, and fetches the plot itself if nothing else
+    │       │                  did. Committing a water table calls markMutated, so
+    │       │                  the edit shows as unsaved; clearing it restores the
+    │       │                  file's value when the first override snapshotted one.
     │       └── export/        ExportStage hub — DXF, Plaxis 2D/3D, PDF report cards.
     ├── hooks/
     │   ├── useProject.ts          File-aware project hook (open/save/archive/close).
