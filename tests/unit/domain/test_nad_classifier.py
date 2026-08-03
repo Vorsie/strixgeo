@@ -97,8 +97,8 @@ def test_lithology_is_hard_truth_qc_never_changes_soil():
 # --- invalid-input safety (P0-4) --------------------------------------------
 # Owner rule (2026-07-25): the classifier may NEVER turn missing/invalid qc into
 # a plausible-but-wrong class. Bad numbers are rejected, not silently classified.
-# A legitimate small positive qc (incl. 0.0, the borehole-only sentinel) stays
-# valid and maps to the loosest class — only NaN / inf / negative are invalid.
+# A legitimate small positive qc (incl. a genuinely measured 0.0) stays valid
+# and maps to the loosest class — only NaN / inf / negative are invalid.
 
 
 def test_nan_qc_is_rejected_not_silently_classified_densest():
@@ -125,7 +125,7 @@ def test_infinite_qc_is_rejected():
 
 
 def test_zero_qc_stays_valid_and_maps_to_loosest():
-    """qc 0.0 is the borehole-only fallback sentinel — it must stay valid → loosest class."""
+    """A measured qc of 0.0 is physically valid — it must classify, not raise → loosest."""
     assert classify_nad("ZAND", (), 0.0) == 5
 
 
