@@ -229,8 +229,16 @@ export interface ShellContextValue {
    *  them here would oblige every stage test fixture to fabricate values it
    *  never uses. */
   lifecycle: Omit<UseProjectLifecycleResult, 'unsavedSummary' | 'unsavedError'>
-  /** CPT + borehole data, import flows, hide/restore, elevation edits. */
-  investigations: UseInvestigationDataResult
+  /** CPT + borehole data, import flows, hide/restore, elevation edits.
+   *
+   *  The refresh-confirmation trio is omitted for the same reason as
+   *  ``unsavedSummary`` above: it exists to drive an App-level dialog
+   *  (``CptRefreshConfirmDialog``), no stage reads it, and carrying it here
+   *  would oblige every stage test fixture to fabricate values it never uses. */
+  investigations: Omit<
+    UseInvestigationDataResult,
+    'refreshConfirm' | 'confirmRefreshImport' | 'cancelRefreshImport'
+  >
   /**
    * Manifest-filtered, removed-set-filtered CPT list.
    *
