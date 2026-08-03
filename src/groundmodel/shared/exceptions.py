@@ -50,6 +50,31 @@ class LithoLayerOverlapError(GroundModelError):
         self.layer_id = layer_id
 
 
+class VoxelGridTooLargeError(GroundModelError):
+    """Raised when a requested 3-D voxel build resolves to more cells than the budget.
+
+    Deliberately NOT a ``ValueError``: ``BuildVoxelLithoModel`` treats a
+    ``ValueError`` out of the labeller as "this model is unbuildable" and CLEARS
+    the stored 3-D solids, so a spacing the engineer can simply retype must not
+    travel that path.
+
+    The router maps this exception to HTTP 422 (Unprocessable Entity).
+
+    Parameters
+    ----------
+    message : str
+        Human-readable refusal naming the resolved grid and a spacing that fits.
+    suggested_horizontal_m : float
+        The horizontal spacing at which the same model WOULD fit the budget, so
+        the client can offer it rather than making the engineer guess.
+    """
+
+    def __init__(self, message: str, suggested_horizontal_m: float) -> None:
+        """Initialise with the refusal message and the spacing that would fit."""
+        super().__init__(message)
+        self.suggested_horizontal_m = suggested_horizontal_m
+
+
 class CrossLithoBodyCorrelationError(GroundModelError):
     """Raised when a geotech packing correlation crosses lithostratigraphic body boundaries.
 
