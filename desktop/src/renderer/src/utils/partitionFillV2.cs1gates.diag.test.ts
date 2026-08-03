@@ -114,6 +114,15 @@ describe('CS1 invariant gates — V2 engine', () => {
     return
   }
   if (!existsSync(CS1_INPUT)) {
+    // Say WHY and say how to fix it. Someone who set CS1_GATE=1 asked for these
+    // gates; reporting a bare "skipped" makes an absent gate indistinguishable
+    // from a passing one, which is how "gates green" gets claimed for a suite
+    // that never ran.
+    // eslint-disable-next-line no-console
+    console.error(
+      `[V2-CS1] gates NOT RUN — ${CS1_INPUT} is missing. Regenerate it (read-only, ` +
+        'needs the dev DB up): uv run python scripts/throwaway_cs1_partition_extract.py',
+    )
     it.skip(`CS1 input absent (${CS1_INPUT})`, () => {})
     return
   }
