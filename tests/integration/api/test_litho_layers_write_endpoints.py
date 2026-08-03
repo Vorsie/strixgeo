@@ -274,6 +274,112 @@ async def test_batch_status_accepts_all(
     assert {item["status"] for item in body["layers"]} == {"accepted"}
 
 
+async def test_batch_status_accepting_overlapping_layers_says_so(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """Accept-all over two layers that occupy the same interval is refused with the
+    named conflict — not a server error.
+
+    The reachable case the audit names: Suggest fired twice leaves two pending
+    layers on the same column over the same depths, and the engineer clicks
+    "Accept all". The deferred no-overlap exclusion fires at the batch COMMIT, so
+    the engineer must be told what collided and what to do about it — the same
+    answer bulk-create already gives him.
+    """
+    project, model, bh, formation, _ = project_with_two_layers
+    twin_a = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=5.0,
+        depth_base_m=7.0,
+        status="pending",
+        source="segmenter",
+        confidence="medium",
+    )
+    twin_b = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=5.0,  # the very same interval, twice
+        depth_base_m=7.0,
+        status="pending",
+        source="segmenter",
+        confidence="medium",
+    )
+    db_session.add_all([twin_a, twin_b])
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/batch-status",
+        json={
+            "layer_ids": [str(twin_a.id), str(twin_b.id)],
+            "status": "accepted",
+        },
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "litho_layer_overlap"
+
+
+async def test_batch_update_accepting_overlapping_layers_says_so(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """The generic batch endpoint answers the same conflict as its accept-all alias.
+
+    ``batch-update`` is the other writer that can promote rows to accepted (the
+    multi-select gestures send ``status`` in the patch), so it can trip the same
+    deferred no-overlap exclusion at COMMIT and must not answer a server error
+    where its sibling answers 409.
+
+    (A pure depth move cannot get here: the FC↔LL contiguity trigger re-derives
+    each layer's base from the next contact, so a drag closes its own gap. Two
+    layers on the same interval are what survives that.)
+    """
+    project, model, bh, formation, _ = project_with_two_layers
+    twin_a = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=5.0,
+        depth_base_m=7.0,
+        status="pending",
+        source="segmenter",
+        confidence="medium",
+    )
+    twin_b = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=5.0,  # the very same interval, twice
+        depth_base_m=7.0,
+        status="pending",
+        source="segmenter",
+        confidence="medium",
+    )
+    db_session.add_all([twin_a, twin_b])
+    await db_session.commit()
+
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model.id}/layers/batch-update",
+        json={
+            "updates": [
+                {"layer_id": str(twin_a.id), "status": "accepted"},
+                {"layer_id": str(twin_b.id), "status": "accepted"},
+            ]
+        },
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "litho_layer_overlap"
+
+
 async def test_batch_status_422_on_unknown_id(
     async_client: AsyncClient,
     project_with_two_layers: tuple,
@@ -343,6 +449,131 @@ async def test_bulk_create_422_on_missing_anchor(
                 },
             ]
         },
+    )
+    assert resp.status_code == 422
+
+
+# --- bulk-create: the engineer must get an answer, never a 500 (audit F16) ---
+
+
+async def test_bulk_create_rejecting_layers_that_would_overlap_says_so(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+) -> None:
+    """Accepted layers that overlap on one column are refused with the named
+    conflict every sibling write path answers — not a server error.
+
+    The same interval submitted twice (a double-fired Accept, a re-sent request)
+    is the reachable case: the contiguity trigger re-derives a base from the next
+    contact, so a partial overlap closes itself, but two identical intervals
+    stay overlapping and the deferred exclusion constraint fires at COMMIT. The
+    engineer must be told what collided and what to do about it, the same way
+    the single-layer PATCH tells him.
+    """
+    project, model, bh, formation, _ = project_with_two_layers
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model.id}/layers",
+        json={
+            "layers": [
+                {
+                    "formation_id": str(formation.id),
+                    "borehole_id": str(bh.id),
+                    "depth_top_m": 5.0,
+                    "depth_base_m": 7.0,
+                    "status": "accepted",
+                },
+                {
+                    "formation_id": str(formation.id),
+                    "borehole_id": str(bh.id),
+                    "depth_top_m": 5.0,  # the very same interval, twice
+                    "depth_base_m": 7.0,
+                    "status": "accepted",
+                },
+            ]
+        },
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "litho_layer_overlap"
+
+
+async def test_bulk_create_with_a_formation_from_another_project_is_404(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+    db_session: AsyncSession,
+) -> None:
+    """A formation id that does not belong to this project is "not found",
+    not a crash — the scope guard's own contract (routers map it to 404/422)."""
+    project, model, bh, _, _ = project_with_two_layers
+    other_project = ProjectOrm(id=uuid7(), name="Someone else's project", status="active")
+    db_session.add(other_project)
+    await db_session.flush()
+    foreign_formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=other_project.id,
+        name="FOREIGN",
+        color="#000000",
+    )
+    db_session.add(foreign_formation)
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model.id}/layers",
+        json={
+            "layers": [
+                {
+                    "formation_id": str(foreign_formation.id),
+                    "borehole_id": str(bh.id),
+                    "depth_top_m": 5.0,
+                    "depth_base_m": 6.0,
+                },
+            ]
+        },
+    )
+    assert resp.status_code == 404
+
+
+async def test_bulk_create_with_an_unknown_formation_is_404(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+) -> None:
+    """Same answer for a formation id that exists nowhere at all."""
+    project, model, bh, _, _ = project_with_two_layers
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model.id}/layers",
+        json={
+            "layers": [
+                {
+                    "formation_id": str(uuid7()),
+                    "borehole_id": str(bh.id),
+                    "depth_top_m": 5.0,
+                    "depth_base_m": 6.0,
+                },
+            ]
+        },
+    )
+    assert resp.status_code == 404
+
+
+async def test_bulk_create_with_a_nan_depth_is_a_validation_error(
+    async_client: AsyncClient,
+    project_with_two_layers: tuple,
+) -> None:
+    """A NaN depth is bad input (422), not a server error.
+
+    JSON carries a bare ``NaN`` literal and every ordering comparison against
+    it is false, so it slips past the depth-order validator and only trips the
+    DB CHECK — where the engineer would see a 500 for a typo.
+    """
+    project, model, bh, formation, _ = project_with_two_layers
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model.id}/layers",
+        content=(
+            '{"layers": [{'
+            f'"formation_id": "{formation.id}", '
+            f'"borehole_id": "{bh.id}", '
+            '"depth_top_m": NaN, "depth_base_m": 6.0}]}'
+        ),
+        headers={"content-type": "application/json"},
     )
     assert resp.status_code == 422
 
