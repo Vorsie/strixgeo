@@ -95,6 +95,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
+from groundmodel.shared.constants.auto_populate_mode import AutoPopulateMode
 from groundmodel.shared.formation_key import normalize_formation_key
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -144,6 +145,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         section_id: UUID | None = None,
         bridge: dict[str, str] | None = None,
         create_missing_formations: bool = True,
+        mode: AutoPopulateMode | str = AutoPopulateMode.ADD,
     ) -> AutoPopulateOutcome:
         """Walk every borehole in scope and seed contacts.
 
@@ -162,19 +164,24 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         selected_keys : list[str] or None, optional
             When provided, only layers whose effective key (after
             applying ``manual_map``) is in this set are processed.
-            Layers for other keys are silently skipped.  Additionally,
-            this method deletes — in the same transaction — every
-            formation that (a) already exists in this project, (b) has
-            at least one contact in THIS model (model-scoped, never
-            cross-model), and (c) whose canonical key is NOT in this set.
-            The delete is server-side so the client never needs to
-            recompute canonical keys from raw names.
+            Layers for other keys are silently skipped.
+
+            Whether the UNSELECTED formations are also deleted is decided
+            by ``mode``, NOT by the presence of this list.  Until
+            2026-08-03 the two were welded together, which is how a Fill
+            run intended to add one unit silently deleted four saved ones.
+            In ``overwrite`` mode this method deletes — in the same
+            transaction — every formation that (a) already exists in this
+            project, (b) has at least one contact in THIS model
+            (model-scoped, never cross-model), and (c) whose canonical key
+            is NOT in this set.  The delete is server-side so the client
+            never needs to recompute canonical keys from raw names.
 
             When ``None`` (default), all layers are processed and NO
-            formations are deleted — preserving the existing behaviour
-            of ``handleAutoPopulateFromStratigraphy`` (the Sections
-            "Seed from stratigraphy" path), which is unaffected
-            by this change.
+            formations are deleted regardless of ``mode`` — preserving the
+            existing behaviour of ``handleAutoPopulateFromStratigraphy``
+            (the Sections "Seed from stratigraphy" path), which is
+            unaffected by this change.
 
             Orphan safety: when ``selected_keys`` is provided, any
             ``FormationContactOrm`` rows whose ``formation_id`` maps to a
@@ -234,6 +241,18 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             path (``selected_keys=None``) created formations for any
             in-corridor borehole layer — the "Seed added Formatie van Ieper /
             a second Roubaix" bug.
+        mode : AutoPopulateMode or str, optional
+            ``AutoPopulateMode.ADD`` (default) — create / update the selected
+            keys only; the deletion pass is SKIPPED entirely and no existing
+            formation is ever removed.  ``AutoPopulateMode.OVERWRITE`` — the
+            model becomes exactly the selection (the pre-2026-08-03
+            behaviour).
+
+            WHY add is the default: the destructive branch must be opted
+            into.  An old client, a forgotten field, or a caller that only
+            wanted to add a unit must not be able to delete the engineer's
+            saved model by omission — that is exactly the failure this
+            parameter exists to close.
 
         Returns
         -------
@@ -242,6 +261,12 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             response and the frontend can patch local state by id.
         """
         borehole_id_list = list(borehole_ids)
+        # Coerce the wire value ONCE, here, so every downstream branch reads a
+        # real enum member. An unrecognised string is a programming error at
+        # the API boundary (Pydantic rejects it first), so ValueError is the
+        # right failure — silently falling back to a mode would either
+        # under-delete or, far worse, over-delete.
+        resolved_mode = AutoPopulateMode(mode)
         selected_key_set: frozenset[str] | None = (
             frozenset(selected_keys) if selected_keys is not None else None
         )
@@ -259,7 +284,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
             f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'} "
             f"manual_map={len(manual_map) if manual_map else 0} "
-            f"bridge={len(bridge) if bridge else 0}"
+            f"bridge={len(bridge) if bridge else 0} "
+            f"mode={resolved_mode.value}"
         )
         if not borehole_id_list and selected_key_set_norm is None:
             # No boreholes + no key filter → nothing to do (unfiltered Seed path).
@@ -274,6 +300,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 skipped_unmatched=0,
                 skipped_no_stratigraphy=0,
                 found_contact_ids=[],
+                mode=resolved_mode.value,
             )
 
         # Eager-load every observation + every layer for every borehole
@@ -725,8 +752,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # ones (the FC→LL trigger re-derives layer geometry from new contacts).
         await LithoLayerRepository(self._session).mark_litho_solids_stale(model_id)
 
-        # When selected_keys is provided, delete every project formation whose
-        # stable key is NOT in the selected set.  This runs server-side so
+        # In OVERWRITE mode, delete every project formation whose stable key
+        # is NOT in the selected set.  This runs server-side so
         # the client never has to recompute canonical keys from raw names —
         # the divergent-client-key freeze bug (da98053) was exactly that mismatch.
         # DB CASCADE handles formation_contact and formation_surface
@@ -747,8 +774,15 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # by construction (the write loop only creates within the selected set)
         # and are excluded by the fkey check; the explicit created_set guard is
         # a belt-and-suspenders safety net.
+        #
+        # MODE GATE (2026-08-03): in ``add`` mode this whole pass is skipped.
+        # Not "computed then discarded" — skipped, so there is no code path on
+        # which an add-mode run can issue a DELETE. That is the invariant the
+        # data-loss incident demands; a filter that merely returns an empty
+        # list would be one bad condition away from deleting again.
         deleted_formation_ids: list[UUID] = []
-        if selected_key_set_norm is not None:
+        deleted_formation_names: list[str] = []
+        if selected_key_set_norm is not None and resolved_mode is AutoPopulateMode.OVERWRITE:
             # Derive the set of formation IDs that belong to THIS model from the
             # contact_rows already loaded above (index 2 = formation_id).  This
             # reuses the existing round-trip instead of issuing a second query.
@@ -775,11 +809,25 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     delete(GeologicalFormationOrm).where(GeologicalFormationOrm.id.in_(delete_ids))
                 )
                 deleted_formation_ids = delete_ids
+                # Names, not ids — this is the line an engineer reads in the
+                # log after "where did my units go?", and a UUID answers
+                # nothing. Captured BEFORE the flush so the expired ORM rows
+                # cannot make the attribute unreadable.
+                deleted_formation_names = [f.name for f in to_delete]
                 self.info(
-                    f"Auto-populate: deleted {len(delete_ids)} unselected formation(s): "
-                    + ", ".join(str(fid) for fid in delete_ids[:5])
+                    f"Auto-populate (overwrite): deleted {len(delete_ids)} "
+                    f"unselected formation(s): "
+                    + ", ".join(deleted_formation_names[:5])
                     + ("..." if len(delete_ids) > 5 else "")
                 )
+        elif selected_key_set_norm is not None:
+            # Add mode with a selection — say out loud that the destructive
+            # half was declined, so a future "it deleted nothing" report can
+            # be answered from the log instead of a repro.
+            self.info(
+                "Auto-populate (add): deletion pass skipped — "
+                "unselected formations are left untouched"
+            )
 
         # Build collision warnings from the per-borehole tracking accumulated
         # in the write loop.  Any (borehole, effective_key) slot with > 1
@@ -810,7 +858,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
 
         await self._session.commit()
         self.success(
-            f"Auto-populate done: model={model_id} "
+            f"Auto-populate done: model={model_id} mode={resolved_mode.value} "
             f"+{len(created_contact_ids)} contacts, "
             f"+{len(created_formation_ids)} formations, "
             f"-{len(deleted_formation_ids)} unselected formations, "
@@ -833,6 +881,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             skipped_not_in_model=skipped_not_in_model,
             collisions=write_collisions,
             found_contact_ids=found_contact_ids,
+            deleted_formation_names=deleted_formation_names,
+            mode=resolved_mode.value,
         )
 
     # Delegate to module-level helpers shared with scan_stratigraphy_candidates.
