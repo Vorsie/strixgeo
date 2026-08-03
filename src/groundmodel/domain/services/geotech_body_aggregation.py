@@ -16,6 +16,11 @@ from dataclasses import dataclass
 
 from groundmodel.domain.services.geotech_subdivision import GeotechSplit
 
+# Where an unclassified ("needs review") band sorts in the thickness tie-break.
+# Above every real NAD class (1–31) so a tie resolves to the flag rather than to
+# a class nobody derived — see :func:`_thickness_weighted_dominant`.
+_NEEDS_REVIEW_TIE_RANK: float = float("inf")
+
 
 @dataclass(frozen=True)
 class BandProfile:
@@ -51,13 +56,18 @@ class BodySubdivisionPlan:
     band_classes: list[int | None]
 
 
-def _sequences_consistent(sequences: list[list[int]]) -> bool:
+def _sequences_consistent(sequences: list[list[int | None]]) -> bool:
     """True iff every sequence is a prefix of the longest (shared ordering).
+
+    Compared by equality only, so an unclassified (``None``) band position is
+    just another value: two CPTs both reading "no usable qc" at position 0
+    agree there, and one that read a class there does not.
 
     Parameters
     ----------
-    sequences : list[list[int]]
-        Per-CPT ordered NAD class sequences.
+    sequences : list[list[int | None]]
+        Per-CPT ordered NAD class sequences; ``None`` where the qc gave no
+        class.
 
     Returns
     -------
@@ -70,8 +80,26 @@ def _sequences_consistent(sequences: list[list[int]]) -> bool:
     return all(longest[: len(seq)] == seq for seq in sequences)
 
 
-def _thickness_weighted_dominant(splits: list[GeotechSplit]) -> int:
+def _thickness_weighted_dominant(splits: list[GeotechSplit]) -> int | None:
     """Mode NAD class by summed thickness; tie-break to the denser (higher) class.
+
+    ``None`` is a real member of the pool, not an absence: it is the answer
+    ``suggest_geotech_subdivision`` gives when there is no usable qc over the
+    band's interval — "needs review", never a guessed class. Two consequences,
+    both deliberate:
+
+    * **Thickness still decides.** A thin unclassified sliver beside a much
+      thicker classified band does not veto it; the body carries the class most
+      of it reads. That is the ordinary geometry the ``None`` case covers — a
+      contact placed above the CPT's first sample, or a sliver from the
+      geo-bounding divide.
+    * **On an exact tie, needs-review wins** (``_NEEDS_REVIEW_TIE_RANK``).
+      Asserting a packing class over a body half of which has no evidence hides
+      the gap from the engineer, and the flagged band is the cheaper error: he
+      can confirm it, whereas a plausible class is never questioned again.
+
+    Without an explicit rank ``None`` also cannot be *compared* at all — the
+    tuple key falls through to ``None < int`` and raises ``TypeError``.
 
     Parameters
     ----------
@@ -80,14 +108,18 @@ def _thickness_weighted_dominant(splits: list[GeotechSplit]) -> int:
 
     Returns
     -------
-    int
-        The NAD class with the greatest total thickness; on a tie, the higher
-        (denser) class wins.
+    int | None
+        The NAD class with the greatest total thickness, or ``None`` when the
+        unclassified bands carry that thickness. On a tie, the higher (denser)
+        class wins among classified bands, and ``None`` wins over all of them.
     """
-    by_class: dict[int, float] = defaultdict(float)
+    by_class: dict[int | None, float] = defaultdict(float)
     for s in splits:
         by_class[s.nad_class] += max(s.depth_base_m - s.depth_top_m, 0.0)
-    return sorted(by_class.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[0][0]
+    return max(
+        by_class.items(),
+        key=lambda kv: (kv[1], _NEEDS_REVIEW_TIE_RANK if kv[0] is None else kv[0]),
+    )[0]
 
 
 def plan_body_subdivision(profiles: list[BandProfile]) -> BodySubdivisionPlan:
@@ -118,7 +150,7 @@ def plan_body_subdivision(profiles: list[BandProfile]) -> BodySubdivisionPlan:
     if not cpt_profiles:
         return BodySubdivisionPlan(consistent=True, band_classes=[None])
 
-    sequences = [[s.nad_class for s in p.splits] for p in cpt_profiles]
+    sequences: list[list[int | None]] = [[s.nad_class for s in p.splits] for p in cpt_profiles]
     if _sequences_consistent(sequences):
         longest_len = max(len(seq) for seq in sequences)
         band_classes: list[int | None] = []
