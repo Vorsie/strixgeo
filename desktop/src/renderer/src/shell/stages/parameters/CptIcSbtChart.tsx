@@ -22,11 +22,12 @@ import {
   Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer,
 } from 'recharts'
 import type { CptPlotResponse } from '../../../api/client'
+import { IC_AXIS_MAX, SBT_IC_BANDS } from '../../../utils/robertsonSbt'
 
 // ── Axis geometry ────────────────────────────────────────────────────────────
 // Y_W matches CptChart so any side-by-side arrangement aligns grid lines.
 const Y_W   = 52
-const IC_MAX = 4
+const IC_MAX = IC_AXIS_MAX
 
 // Curve + chrome colours — CSS vars from index.css for dark/light parity.
 const IC_CLR          = 'var(--chart-clr-ic)'
@@ -35,24 +36,47 @@ const IC_ZONE_LABEL_CLR = 'var(--chart-ic-zone-label)'
 const GRID            = 'var(--chart-grid)'
 const SURFACE_REF_CLR = 'var(--chart-surface-ref)'
 
-// Robertson (2009) SBT zone boundaries + fill colours.
-// Hues are domain colours (Tier 5 — must not change; ux.md).
-export const IC_ZONES = [
-  { x1: 0,    x2: 1.31, fill: '#fef9c3', label: 'Sand'      },
-  { x1: 1.31, x2: 2.05, fill: '#ffedd5', label: 'Sand mix'  },
-  { x1: 2.05, x2: 2.60, fill: '#dcfce7', label: 'Silt mix'  },
-  { x1: 2.60, x2: 2.95, fill: '#dbeafe', label: 'Clay'      },
-  { x1: 2.95, x2: 3.60, fill: '#fef3c7', label: 'Organic'   },
-  { x1: 3.60, x2: 4.00, fill: '#f3e8ff', label: 'Sensitive' },
-] as const
+// Robertson SBT zone fills, KEYED BY SOIL — the Ic BREAKPOINTS and LABELS come
+// from the shared band table so this chart cannot drift from the per-test
+// table rendered on the same screen (audit 2026-08-02: the labels here were
+// one band too coarse and invented a "Sensitive" band, so a Boom Clay CPT read
+// "Clay" in the table and "Organic" in the chart below it).
+//
+// WHY keyed by label and not by band index: the Tier-5 rule that ux.md
+// protects is the LABEL↔HUE pairing (blue reads as clay everywhere in the
+// app), not the hue's numeric Ic range. Correcting the labels shifted every
+// soil down one band; an index-keyed list left each hue where it was, so the
+// chart painted "Clay" amber and "Silt mix" blue. The hues travel with their
+// soils instead. The palette itself is unchanged — the one freed by dropping
+// the phantom "Sensitive" band lands on the newly-labelled coarsest band.
+const IC_ZONE_FILL_BY_LABEL: Record<string, string> = {
+  'Gravelly sand': '#f3e8ff',
+  Sand: '#fef9c3',
+  'Sand mix': '#ffedd5',
+  'Silt mix': '#dcfce7',
+  Clay: '#dbeafe',
+  Organic: '#fef3c7',
+}
 
-const IC_ZONE_BOUNDARIES = [1.31, 2.05, 2.60, 2.95, 3.60]
+// Fallback for a band the palette does not name — a future breakpoint change
+// must not silently render a transparent band.
+const IC_ZONE_FILL_FALLBACK = '#e5e7eb'
+
+export const IC_ZONES = SBT_IC_BANDS.map(band => ({
+  x1: band.icMin,
+  x2: band.icMax,
+  fill: IC_ZONE_FILL_BY_LABEL[band.label] ?? IC_ZONE_FILL_FALLBACK,
+  label: band.label,
+}))
+
+// Interior boundaries (every band start except the first) — drawn as vertical
+// reference lines. Derived so a breakpoint change lands in one place.
+const IC_ZONE_BOUNDARIES = SBT_IC_BANDS.slice(1).map(band => band.icMin)
 
 // Short labels for narrow zones (rotated 90° in the overlay).
-const IC_ZONE_SHORT: Record<string, string> = {
-  Sand: 'Sand', 'Sand mix': 'S.mix', 'Silt mix': 'Silt',
-  Clay: 'Clay', Organic: 'Org.', Sensitive: 'Sens.',
-}
+const IC_ZONE_SHORT: Record<string, string> = Object.fromEntries(
+  SBT_IC_BANDS.map(band => [band.label, band.short]),
+)
 
 interface DataPoint {
   depth: number
