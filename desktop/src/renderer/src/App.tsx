@@ -75,6 +75,12 @@ interface RecoveryDescriptor {
   writtenAt: string
   appVersion: string
   sizeBytes: number
+  /**
+   * True when the user already answered "Open without restoring" for this
+   * copy. It is still a live offer — declining preserves the copy (owner
+   * decision 2026-08-03) — so the start screen lists it like any other.
+   */
+  declined: boolean
 }
 
 declare global {
@@ -109,7 +115,20 @@ declare global {
       ) => Promise<RecoveryDescriptor>
       listRecovery: () => Promise<RecoveryDescriptor[]>
       readRecovery: (projectId: string) => Promise<unknown>
+      // Discard — the ONE call that destroys a recovery copy (both slots).
       deleteRecovery: (projectId: string) => Promise<boolean>
+      // Every other decided exit + the autosave scheduler: clears this
+      // session's slot only, so a declined copy keeps being re-offered.
+      deletePrimaryRecovery: (projectId: string) => Promise<boolean>
+      // "Open without restoring" — moves the copy out of the scheduler's
+      // reach instead of leaving it to be overwritten.
+      declineRecovery: (projectId: string) => Promise<boolean>
+      // Ends a decline, once the restored copy has a home in the primary
+      // slot again. Never called before that write lands.
+      deleteDeclinedRecovery: (projectId: string) => Promise<boolean>
+      // Mirror one close-flow line into the main-process console, which is
+      // the only console a packaged build's dogfeed report can show.
+      closeFlowNote: (note: string) => Promise<void>
       setWindowTitle: (title: string | null) => Promise<void>
       onAppBeforeQuit: (cb: () => void) => () => void
       notifyQuitDecision: (allowed: boolean) => Promise<void>
@@ -493,6 +512,42 @@ export default function App() {
     discardContacts,
   } = geo
 
+  // The RESTORE half of crash recovery, declared BEFORE the autosave
+  // scheduler because the scheduler is suspended while an offer is pending
+  // and therefore has to read ``recoveryOffer``. (Reading a ``const`` above
+  // its declaration is a runtime ReferenceError that neither tsc nor Vitest
+  // catches — see the TDZ note in the project memory.)
+  //
+  // ``useRecoveryRestore`` owns WHAT is written back (the six at-risk items,
+  // plus the lumping map's revision reconciliation); ``useRecoveryOffer``
+  // owns the single detection point — one effect keyed on the open project's
+  // id, rather than a check bolted onto each of the four open paths.
+  const { restoreFromSnapshot } = useRecoveryRestore({
+    setGhostsByAnchor: geo.setGhostsByAnchor,
+    applyMetadataDraft,
+    addToManifest,
+    setSessionImportCptIds,
+    setSessionImportBoreholeIds,
+    setSessionImportFormationIds,
+    setSessionImportSectionIds,
+    setSessionImportContactIds,
+    setHasUnsavedMutations,
+    currentLumping,
+    lumpingRevision,
+    stageLumping,
+  })
+
+  const {
+    offer: recoveryOffer,
+    restoreOffer,
+    dismissOffer: dismissRecoveryOffer,
+    discardOffer: discardRecoveryOffer,
+  } = useRecoveryOffer({
+    projectId: project?.id ?? null,
+    projectName: project?.name ?? null,
+    onRestore: restoreFromSnapshot,
+  })
+
   // Crash-recovery autosave (docs/design/autosave-recovery.md). A crash
   // loses no interpretation — every gesture is an awaited API call — but it
   // does lose the session delta: the lumping map, the litho ghost
@@ -528,38 +583,13 @@ export default function App() {
     // on the same file-write signal the lifecycle's explicit clear uses
     // (docs/design/autosave-recovery.md §4).
     canClearOnClean: recoveryClearAllowed,
-  })
-
-  // The other half of crash recovery: reading a recovery file back and
-  // applying it. ``useRecoveryRestore`` owns WHAT is written back (the six
-  // at-risk items, plus the lumping map's revision reconciliation);
-  // ``useRecoveryOffer`` owns the single detection point — one effect keyed
-  // on the open project's id, rather than a check bolted onto each of the
-  // four open paths.
-  const { restoreFromSnapshot } = useRecoveryRestore({
-    setGhostsByAnchor: geo.setGhostsByAnchor,
-    applyMetadataDraft,
-    addToManifest,
-    setSessionImportCptIds,
-    setSessionImportBoreholeIds,
-    setSessionImportFormationIds,
-    setSessionImportSectionIds,
-    setSessionImportContactIds,
-    setHasUnsavedMutations,
-    currentLumping,
-    lumpingRevision,
-    stageLumping,
-  })
-
-  const {
-    offer: recoveryOffer,
-    restoreOffer,
-    dismissOffer: dismissRecoveryOffer,
-    discardOffer: discardRecoveryOffer,
-  } = useRecoveryOffer({
-    projectId: project?.id ?? null,
-    projectName: project?.name ?? null,
-    onRestore: restoreFromSnapshot,
+    // Hold every write and every clear while the recovery prompt is up. In
+    // that window the files on disk hold the CRASHED session's work, and the
+    // user's answer is about to move them between slots: a debounced write
+    // landing mid-answer would replace the crashed copy with this session's
+    // thinner delta, and a quit taken mid-question would delete a copy the
+    // user never answered for.
+    suspended: recoveryOffer !== null,
   })
 
   // Closing a project is a DECIDED exit, so it takes the recovery file with
@@ -1245,8 +1275,8 @@ export default function App() {
           projectName={recoveryOffer.projectName}
           snapshot={recoveryOffer.snapshot}
           writtenAt={recoveryOffer.writtenAt}
-          onRestore={restoreOffer}
-          onOpenWithoutRestoring={dismissRecoveryOffer}
+          onRestore={() => void restoreOffer()}
+          onOpenWithoutRestoring={() => void dismissRecoveryOffer()}
           onDiscard={() => void discardRecoveryOffer()}
         />
       )}
