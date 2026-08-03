@@ -13,6 +13,7 @@ from uuid6 import uuid7
 from groundmodel.application.import_cpt_result import ImportCptResult
 from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
+from groundmodel.domain.value_objects.water_depth_source import WaterDepthSource
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
@@ -35,8 +36,12 @@ from groundmodel.shared.timing import ms_since
 #     other table (contacts, litho layers, reviews, sections) references the id.
 #   * ``elevation_m`` / ``elevation_source`` — handled separately so a manual
 #     collar edit outranks the file (debt #8, see ``ElevationSource.MANUAL``).
-#   * ``original_*`` — the elevation-rollback snapshot belongs to the manual
-#     override history, not to the file.
+#   * ``water_depth_m`` / ``water_depth_source`` — handled separately for the
+#     same reason (see ``WaterDepthSource.ENGINEER``).
+#   * ``original_*`` — the elevation AND water-table rollback snapshots belong
+#     to the engineer's override history, not to the file. A refresh leaves
+#     them alone: the snapshot answers "what did I overwrite?", and a later
+#     re-parse did not overwrite anything.
 _REFRESHED_COLUMNS: tuple[str, ...] = (
     "name",
     "cpt_type",
@@ -51,7 +56,6 @@ _REFRESHED_COLUMNS: tuple[str, ...] = (
     "z_epsg",
     "location",
     "pre_drill_m",
-    "water_depth_m",
     "cone_area_ratio",
     "cone_type_code",
     "stop_criterion",
@@ -435,6 +439,22 @@ class ImportCpt(GroundModelLogger):
             existing.elevation_m = fresh.elevation_m
             existing.elevation_source = fresh.elevation_source
 
+        # An engineer-set water table outranks the file, for a reason that is
+        # NOT symmetrical with the collar: the whole Robertson normalisation —
+        # the Ic curve he validates against and the ghost boundaries he is
+        # offered — hangs off this number. A re-parse silently moving it would
+        # re-interpret a column he has already read, with no gesture from him.
+        # Engineer judgement outranks a re-parse; clearing his value is an
+        # explicit act (PATCH with null), never a side effect of an import.
+        if existing.water_depth_source == WaterDepthSource.ENGINEER.value:
+            self.info(
+                f"CPT refresh {existing.id}: keeping the engineer's water table "
+                f"{existing.water_depth_m} m (file says {fresh.water_depth_m} m)"
+            )
+        else:
+            existing.water_depth_m = fresh.water_depth_m
+            existing.water_depth_source = fresh.water_depth_source
+
         # Replace the series in place rather than swapping the relationship:
         # ``cpt_series.cpt_id`` is the primary key, so a delete-orphan plus an
         # insert of the same key in one flush can trip the PK constraint
@@ -533,6 +553,12 @@ class ImportCpt(GroundModelLogger):
             location=self._make_point(h),
             pre_drill_m=h.pre_drill_m,
             water_depth_m=h.water_depth_m,
+            # Provenance stamp — a depth here can only have come from
+            # ``#MEASUREMENTVAR= 14``. NULL when the file records none, so the
+            # consumer falls back to the assumption and says so.
+            water_depth_source=(
+                WaterDepthSource.GEF.value if h.water_depth_m is not None else None
+            ),
             cone_area_ratio=h.net_area_ratio,
             cone_type_code=h.cone_type_code,
             stop_criterion=h.stop_criterion,
