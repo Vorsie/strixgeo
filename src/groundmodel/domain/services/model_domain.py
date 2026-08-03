@@ -41,7 +41,10 @@ from groundmodel.domain.services.tin_surface import (
     evaluate_tin_at,
     nearest_vertex_elevation,
 )
-from groundmodel.domain.services.tin_surface_constants import CONCAVE_HULL_ALPHA_FACTOR
+from groundmodel.domain.services.tin_surface_constants import (
+    CONCAVE_HULL_ALPHA_FACTOR,
+    MODEL_DOMAIN_COVERAGE_TOL_M,
+)
 from groundmodel.domain.value_objects.tin_surface import TinSurface
 
 __all__ = [
@@ -276,6 +279,81 @@ def deep_reaching_mask(
 # ---------------------------------------------------------------------------
 
 
+def ring_contains(ring: list[tuple[float, float]], x: float, y: float, tol: float = 0.0) -> bool:
+    """Return True when (x, y) is inside *ring*, within an optional tolerance.
+
+    Module-level so the coverage check in :func:`build_model_domain` can ask the
+    question BEFORE a :class:`ModelDomain` exists — the alternative was building
+    the object and patching ``uncovered_test_ids`` onto it afterwards, which
+    made "a ModelDomain always knows its uncovered tests" true only for objects
+    that one function built.  :meth:`ModelDomain.contains` delegates here, so
+    there is one ray-cast in the codebase, not two.
+
+    Parameters
+    ----------
+    ring : list[tuple[float, float]]
+        Closed ring as (x, y) vertices, WITHOUT a repeated last vertex.
+    x, y : float
+        Horizontal query coordinates.
+    tol : float, default 0.0
+        Boundary inclusion tolerance in metres; see
+        :meth:`ModelDomain.contains` for why it exists.
+
+    Returns
+    -------
+    bool
+    """
+    n = len(ring)
+    inside = False
+    for i in range(n):
+        xi, yi = ring[i]
+        xj, yj = ring[(i + 1) % n]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+    if inside or tol <= 0.0:
+        return inside
+    # Strict parity says outside — but a cell centre within ``tol`` of any
+    # boundary edge still overlaps the footprint, so include it.
+    return distance_to_ring(ring, x, y) <= tol
+
+
+def distance_to_ring(ring: list[tuple[float, float]], x: float, y: float) -> float:
+    """Return the shortest distance from (x, y) to a closed ring's boundary.
+
+    Minimum over every ring edge of the point-to-segment distance.
+
+    Parameters
+    ----------
+    ring : list[tuple[float, float]]
+        Closed ring as (x, y) vertices, WITHOUT a repeated last vertex.
+    x, y : float
+        Horizontal query coordinates.
+
+    Returns
+    -------
+    float
+        Shortest Euclidean distance to the closed ring (metres).
+    """
+    n = len(ring)
+    best = math.inf
+    for i in range(n):
+        ax, ay = ring[i]
+        bx, by = ring[(i + 1) % n]
+        dx, dy = bx - ax, by - ay
+        seg_len_sq = dx * dx + dy * dy
+        if seg_len_sq <= 0.0:
+            # Degenerate (repeated) vertex — distance to the point itself.
+            t = 0.0
+        else:
+            t = ((x - ax) * dx + (y - ay) * dy) / seg_len_sq
+            t = max(0.0, min(1.0, t))  # clamp to the segment
+        px, py = ax + t * dx, ay + t * dy
+        dist = math.hypot(x - px, y - py)
+        if dist < best:
+            best = dist
+    return best
+
+
 class ModelDomain:
     """Spatial bounds of the loft: footprint + top + deep-base surfaces.
 
@@ -285,6 +363,14 @@ class ModelDomain:
     ----------
     polygon : list[tuple[float, float]]
         Alpha-hull ring (no repeated last vertex) of all tests' (x, y).
+    uncovered_test_ids : tuple[str, ...]
+        The ``test_id`` of every input test the returned footprint does NOT
+        contain.  Non-empty means the alpha shape fragmented and only its
+        largest ring survived, so those investigations get no model at all —
+        the labeller's footprint gate runs before its honored-investigation
+        check.  Callers MUST surface a non-empty value; a build that models
+        half a project and reports success is the failure this list exists to
+        prevent.
 
     Notes
     -----
@@ -302,6 +388,7 @@ class ModelDomain:
         top_surface_triangles: list[tuple[int, int, int]],
         base_surface_vertices: list[tuple[float, float, float]],
         base_surface_triangles: list[tuple[int, int, int]],
+        uncovered_test_ids: tuple[str, ...] = (),
     ) -> None:
         """Initialise with pre-computed polygon and TIN surfaces.
 
@@ -317,8 +404,12 @@ class ModelDomain:
             Deep-base TIN vertices as ``(x_m, y_m, elevation_m)``.
         base_surface_triangles : list[tuple[int, int, int]]
             Deep-base TIN triangle index triples.
+        uncovered_test_ids : tuple[str, ...], optional
+            Ids of input tests the ``polygon`` does not contain.  Defaults to
+            ``()`` (a footprint that covers everything it was built from).
         """
         self.polygon = polygon
+        self.uncovered_test_ids = uncovered_test_ids
         self._top = TinSurface(vertices=top_surface_vertices, triangles=top_surface_triangles)
         self._base = TinSurface(vertices=base_surface_vertices, triangles=base_surface_triangles)
 
@@ -349,19 +440,7 @@ class ModelDomain:
         -------
         bool
         """
-        ring = self.polygon
-        n = len(ring)
-        inside = False
-        for i in range(n):
-            xi, yi = ring[i]
-            xj, yj = ring[(i + 1) % n]
-            if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
-                inside = not inside
-        if inside or tol <= 0.0:
-            return inside
-        # Strict parity says outside — but a cell centre within ``tol`` of any
-        # boundary edge still overlaps the footprint, so include it.
-        return self._distance_to_boundary(x, y) <= tol
+        return ring_contains(self.polygon, x, y, tol)
 
     def _distance_to_boundary(self, x: float, y: float) -> float:
         """Return the shortest distance from (x, y) to the polygon boundary.
@@ -379,25 +458,7 @@ class ModelDomain:
         float
             Shortest Euclidean distance to the closed ring (metres).
         """
-        ring = self.polygon
-        n = len(ring)
-        best = math.inf
-        for i in range(n):
-            ax, ay = ring[i]
-            bx, by = ring[(i + 1) % n]
-            dx, dy = bx - ax, by - ay
-            seg_len_sq = dx * dx + dy * dy
-            if seg_len_sq <= 0.0:
-                # Degenerate (repeated) vertex — distance to the point itself.
-                t = 0.0
-            else:
-                t = ((x - ax) * dx + (y - ay) * dy) / seg_len_sq
-                t = max(0.0, min(1.0, t))  # clamp to the segment
-            px, py = ax + t * dx, ay + t * dy
-            dist = math.hypot(x - px, y - py)
-            if dist < best:
-                best = dist
-        return best
+        return distance_to_ring(self.polygon, x, y)
 
     def top_at(self, x: float, y: float) -> float:
         """Return the ground-surface elevation at (x, y).
@@ -539,10 +600,27 @@ def build_model_domain(
     ]
     base_tin = compute_tin(base_contacts, concave_hull_alpha_factor=alpha_factor)
 
+    # Coverage check. ``alpha_hull_polygon`` keeps only the LARGEST ring, so an
+    # alpha shape that fragments (two clusters further apart than ~alpha) drops
+    # the smaller cluster's ring entirely — and the labeller's footprint gate
+    # runs before its honored-investigation check, so those tests get no model
+    # at all, not even their own logs. Record who was dropped so the caller can
+    # say it out loud instead of reporting a complete-looking build.
+    #
+    # The millimetre tolerance is not cosmetic: every hull vertex IS an input
+    # test sitting exactly ON the ring, and strict ray-cast parity reports about
+    # half of those as "outside". The tolerance keeps this check about genuine
+    # exclusion (hundreds of metres) rather than boundary-parity noise.
+    uncovered_test_ids = tuple(
+        t.test_id
+        for t in tests
+        if not ring_contains(polygon, t.x_m, t.y_m, MODEL_DOMAIN_COVERAGE_TOL_M)
+    )
     return ModelDomain(
         polygon=polygon,
         top_surface_vertices=list(top_tin.vertices),
         top_surface_triangles=list(top_tin.triangles),
         base_surface_vertices=list(base_tin.vertices),
         base_surface_triangles=list(base_tin.triangles),
+        uncovered_test_ids=uncovered_test_ids,
     )
