@@ -5,34 +5,61 @@
 // ``VoxelBuildInputsError`` whose message is written for the engineer — this
 // pins that the handler surfaces that message verbatim and never POSTs a
 // build, so no generation is persisted from a partial input set.
+//
+// WHY THIS FILE MOCKS ``fetch`` AND NOT ``api/client`` (rewrite 2026-08-02):
+// the previous version mocked the api client and handed the hook error objects
+// it built by hand. Those shapes were not the shapes ``request()`` produces, so
+// the suite stayed green through a live failure where a 422 refusal reached the
+// user as "ApiError: [object Object]". Driving the real client against a mocked
+// ``Response`` means these tests exercise the same body-parsing the app does —
+// a divergence between test and product can no longer hide here.
 
 import { renderHook, act } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const listLithoSolids = vi.fn()
-const buildVoxelLithoModel = vi.fn()
-
-vi.mock('../api/client', () => ({
-  api: {
-    geology: {
-      listLithoSolids: (...args: unknown[]) => listLithoSolids(...args),
-      buildVoxelLithoModel: (...args: unknown[]) => buildVoxelLithoModel(...args),
-    },
-  },
-}))
 
 vi.mock('../utils/log', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), success: vi.fn() },
 }))
 
 import { useLithoSolids } from './useLithoSolids'
+import { setBaseUrl } from '../api/clients/shared'
 import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
+
+const BASE = 'http://127.0.0.1:8765'
+
+/** Body + status the POST .../litho-solids/build-voxel route replies with. */
+let buildReply: { status: number; body: unknown }
+
+/** Every POST the mocked transport saw — BR1 asserts the build never happened. */
+let posted: string[] = []
 
 beforeEach(() => {
   vi.clearAllMocks()
-  listLithoSolids.mockResolvedValue([])
-  buildVoxelLithoModel.mockResolvedValue({ bodies_built: 3, bodies_flagged: 0, solids: [] })
+  setBaseUrl(BASE)
+  posted = []
+  buildReply = { status: 200, body: { bodies_built: 3, bodies_flagged: 0, solids: [] } }
+
+  // Route by verb: the mount-time GET lists solids, the POST is the build.
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (method === 'POST') {
+        posted.push(String(input))
+        return new Response(JSON.stringify(buildReply.body), {
+          status: buildReply.status,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response('[]', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    },
+  )
 })
+
+/** A minimal non-empty voxel request — enough to pass the "nothing to build" gate. */
+const builder = (): Promise<unknown> => Promise.resolve({ sections: [{}] })
 
 describe('useLithoSolids — BR1: a refused build reaches the user', () => {
   it('toasts the refusal message and does not POST a build', async () => {
@@ -48,7 +75,7 @@ describe('useLithoSolids — BR1: a refused build reaches the user', () => {
       await result.current.buildLithoSolids(() => Promise.reject(refusal))
     })
 
-    expect(buildVoxelLithoModel).not.toHaveBeenCalled()
+    expect(posted).toHaveLength(0)
     expect(toast).toHaveBeenCalledWith('error', refusal.message)
   })
 
@@ -65,21 +92,87 @@ describe('useLithoSolids — BR1: a refused build reaches the user', () => {
   })
 })
 
+// BR3 — the failure observed live on 2026-08-02. The backend refuses an
+// over-large grid with a 422 whose detail carries the reason AND the spacing to
+// retry at; the engineer saw "ApiError: [object Object]" and no way to act.
+describe('useLithoSolids — BR3: an over-large voxel grid is refused in words', () => {
+  const REFUSAL_MESSAGE =
+    'The requested spacing needs 1,412,000,000 voxels; a single build may allocate 200,000,000.'
+
+  beforeEach(() => {
+    buildReply = {
+      status: 422,
+      body: {
+        detail: {
+          code: 'voxel_grid_too_large',
+          message: REFUSAL_MESSAGE,
+          suggested_horizontal_m: 0.99,
+        },
+      },
+    }
+  })
+
+  it('toasts the server reason instead of a stringified object', async () => {
+    const toast = vi.fn()
+
+    const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    const [severity, message] = toast.mock.calls.at(-1) as [string, string]
+    expect(severity).toBe('error')
+    expect(message).toContain(REFUSAL_MESSAGE)
+    expect(message).not.toContain('[object Object]')
+  })
+
+  it('names the spacing to retry at, because the refusal carries it as a number', async () => {
+    const toast = vi.fn()
+
+    const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    const [, message] = toast.mock.calls.at(-1) as [string, string]
+    expect(message).toContain('0.99')
+    // The generic copy would send the engineer to check a connection that is fine.
+    expect(message).not.toContain('check the connection')
+  })
+
+  it('keeps the generic copy for a 422 that is not a grid-budget refusal', async () => {
+    buildReply = { status: 422, body: { detail: { code: 'something_else' } } }
+    const toast = vi.fn()
+
+    const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    const [severity, message] = toast.mock.calls.at(-1) as [string, string]
+    expect(severity).toBe('error')
+    expect(message).toContain('check the connection')
+  })
+})
+
 // A build that built NOTHING also DELETED the stored 3-D model. It must never
 // read as a build that happened.
 describe('useLithoSolids — BR2: an empty build is never a green success', () => {
-  const request = { sections: [{}] }
-  const builder = (): Promise<unknown> => Promise.resolve(request)
-
   it('warns, names the cause, and says the stored model was cleared', async () => {
     const toast = vi.fn()
-    buildVoxelLithoModel.mockResolvedValue({
-      bodies_built: 0,
-      bodies_flagged: 0,
-      solids: [],
-      empty_reason:
-        'the investigations do not frame an area — a footprint needs at least 3 that do not sit on one line',
-    })
+    buildReply = {
+      status: 200,
+      body: {
+        bodies_built: 0,
+        bodies_flagged: 0,
+        solids: [],
+        empty_reason:
+          'the investigations do not frame an area — a footprint needs at least 3 that do not sit on one line',
+      },
+    }
 
     const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
 
@@ -95,12 +188,10 @@ describe('useLithoSolids — BR2: an empty build is never a green success', () =
 
   it('leaves a build that produced bodies on the plain success copy', async () => {
     const toast = vi.fn()
-    buildVoxelLithoModel.mockResolvedValue({
-      bodies_built: 4,
-      bodies_flagged: 0,
-      solids: [],
-      empty_reason: null,
-    })
+    buildReply = {
+      status: 200,
+      body: { bodies_built: 4, bodies_flagged: 0, solids: [], empty_reason: null },
+    }
 
     const { result } = renderHook(() => useLithoSolids('proj-1', 'model-1', toast))
 
