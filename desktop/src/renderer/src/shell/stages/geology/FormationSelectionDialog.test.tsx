@@ -541,11 +541,19 @@ describe('FormationSelectionDialog', () => {
     })
   })
 
-  it('Bug3b: initialReassignments skips stale entries not in current candidates', () => {
-    // 'old key from prior session' is not in CANDIDATES → must be silently ignored.
+  // REVERSED 2026-08-03. This test used to assert that an entry whose source
+  // key is absent from the candidate list is DROPPED — and that assertion was
+  // the data-loss bug, pinned. The discover scan returns EFFECTIVE keys, so a
+  // raw key the user has lumped away is absent from `candidates` by
+  // construction and is indistinguishable from a leftover key. The filter
+  // deleted the user's groupings on every reopen. Carrying an unknown key
+  // through is a no-op server-side (manual_map is applied only to raw keys the
+  // scan actually meets); losing a real grouping is not. Full mechanism in
+  // FormationSelectionDialog.lumpingSurvival.test.tsx.
+  it('Bug3b: initialReassignments carries every persisted entry through, known key or not', () => {
     const initialReassignments: Record<string, string> = {
       'boom klei': 'Formatie van Diest',
-      'old key from prior session': 'Some Formation',
+      'key not in this discover run': 'Some Formation',
     }
 
     const onManualMapChange = vi.fn()
@@ -555,9 +563,9 @@ describe('FormationSelectionDialog', () => {
       />,
     )
 
-    // Only the valid entry survives; the stale key is not forwarded.
     expect(onManualMapChange).toHaveBeenCalledWith({
       'boom klei': 'Formatie van Diest',
+      'key not in this discover run': 'Some Formation',
     })
   })
 
