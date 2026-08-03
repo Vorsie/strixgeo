@@ -11,7 +11,7 @@
     "",
     "Checked by:",
     "  * tests/unit/domain/services/test_robertson_sbt_band_contract.py  (backend)",
-    "  * desktop/src/renderer/src/shell/stages/parameters/CptIcSbtChart.sbtParity.test.tsx",
+    "  * desktop/src/renderer/src/shell/stages/parameters/icBands.sbtParity.test.tsx",
     "",
     "Changing a breakpoint or a label means changing it HERE first and watching both",
     "suites go red. Zone 1 (sensitive fine-grained) is deliberately absent: it is read",
@@ -64,5 +64,38 @@
       "renderer_label": "Organic",
       "backend_label": "Organic soils: clay to peat"
     }
+  ],
+  "_zones_comment": [
+    "The NINE Robertson (2009) chart ZONES, as the SBT strips draw them. Distinct",
+    "from 'bands' above: a band is an Ic interval, a zone is a position on the",
+    "Qtn-Fr chart, so zones 1, 8 and 9 have no Ic interval at all and appear only",
+    "here. 'strip_label' is the name the strip and its legend show; 'strip_fill' is",
+    "the hue it paints. Both are held to this file by icBands.sbtParity.test.tsx,",
+    "so a label reworded or a hue nudged in the renderer goes red here first.",
+    "",
+    "strip_label is DERIVED FROM robertson_2015.sbt_zone_series' docstring, not",
+    "copied verbatim: zone 2 is named for peat (it is the zone the extended",
+    "Lengkeek & Brinkgreve boundary feeds, and 'organic soil / clay' hides that),",
+    "and zones 8/9 lead with 'Very stiff' where the backend puts the qualifier in",
+    "parentheses. Those two rewordings are deliberate and this file is where they",
+    "are recorded.",
+    "",
+    "Zone 2's #92400e is a DELIBERATE break from the Ic band's amber #fef3c7 for",
+    "the same soil: on a 22 px categorical strip the organic run has to be findable",
+    "at a glance, and peat brown is the one hue no neighbouring zone competes with.",
+    "OWNER-RETINTABLE: if the two surfaces reading differently for one soil bothers",
+    "the eye more than a lost organic run does, change the hue HERE and both the",
+    "strip and its guard move together."
+  ],
+  "zones": [
+    { "zone": 1, "strip_label": "Sensitive fine-grained", "strip_fill": "#fda4af" },
+    { "zone": 2, "strip_label": "Organic soil / peat", "strip_fill": "#92400e" },
+    { "zone": 3, "strip_label": "Clay to silty clay", "strip_fill": "#93c5fd" },
+    { "zone": 4, "strip_label": "Clayey silt to silty clay", "strip_fill": "#86efac" },
+    { "zone": 5, "strip_label": "Silty sand to sandy silt", "strip_fill": "#fdba74" },
+    { "zone": 6, "strip_label": "Clean sand to silty sand", "strip_fill": "#fde047" },
+    { "zone": 7, "strip_label": "Gravelly sand to dense sand", "strip_fill": "#d8b4fe" },
+    { "zone": 8, "strip_label": "Very stiff sand to clayey sand", "strip_fill": "#a8a29e" },
+    { "zone": 9, "strip_label": "Very stiff fine-grained", "strip_fill": "#57534e" }
   ]
 }
