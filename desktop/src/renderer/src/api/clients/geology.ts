@@ -54,6 +54,7 @@ import type {
   AcceptLithoSuggestionsResponse,
   BatchAcceptLithoSuggestionsRequest,
   BatchAcceptLithoSuggestionsResponse,
+  AutoPopulateMode,
   AutoPopulateFromStratigraphyResponse,
   DiscoverFromStratigraphyResponse,
   DeduplicateContactsResponse,
@@ -381,6 +382,10 @@ export const geologyClient = {
     manualMap?: Record<string, string>,
     sectionId?: string | null,
     createMissingFormations?: boolean,
+    // What to do with formations NOT in selectedKeys. Omitted → the server's
+    // 'add' default, which deletes nothing. Only send 'overwrite' after the
+    // user has confirmed it against a named list of the units that will go.
+    mode?: AutoPopulateMode,
   ): Promise<AutoPopulateFromStratigraphyResponse> =>
     post(
       `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
@@ -394,6 +399,7 @@ export const geologyClient = {
         ...(createMissingFormations === false
           ? { create_missing_formations: false }
           : {}),
+        ...(mode !== undefined ? { mode } : {}),
       },
     ),
 
