@@ -20,6 +20,7 @@ import type {
   ImportPhase,
 } from '../hooks/useDovImportStream'
 import { PHASE_LABELS } from '../hooks/useDovImportStream'
+import { dovSubPhaseFailures } from '../utils/dovImportFailures'
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -162,6 +163,10 @@ export default function DovImportProgressPanel({ state }: Props) {
 
   if (state.status === 'done') {
     const { kind, result } = state
+    // A failed sub-phase (the interpretaties WFS being down is routine) is
+    // recorded as a counter, not an error — so it has to be READ or the panel
+    // renders a dead phase exactly like a clean import (audit 2026-08-02).
+    const subPhaseFailures = isBoreholeDone(kind, result) ? dovSubPhaseFailures(result) : []
     return (
       <div
         className="flex flex-col gap-2 py-2"
@@ -169,7 +174,7 @@ export default function DovImportProgressPanel({ state }: Props) {
         aria-atomic="true"
       >
         <p className="text-sm font-medium text-text-primary">
-          Import complete
+          {subPhaseFailures.length > 0 ? 'Import finished with errors' : 'Import complete'}
         </p>
 
         <div className="flex flex-col gap-1">
@@ -195,7 +200,28 @@ export default function DovImportProgressPanel({ state }: Props) {
             {result.samples_attached > 0 && (
               <DoneRow label="Samples attached" value={result.samples_attached} />
             )}
+            {/* A retryable row reads "<phase> failed"; a WFS gap's label is a
+                whole phrase already ("Observations DOV lists but did not
+                return") and appending "failed" to it would be wrong twice —
+                nothing failed, and it would not parse. */}
+            {subPhaseFailures.map(f => (
+              <DoneRow
+                key={f.label}
+                label={f.retryable ? `${f.label} failed` : f.label}
+                value={f.count}
+              />
+            ))}
           </div>
+        )}
+
+        {subPhaseFailures.length > 0 && (
+          <p className="text-xs text-status-danger">
+            DOV did not return this data — the boreholes are imported, but
+            {subPhaseFailures.some(f => f.retryable)
+              ? ' re-run the import over the same area to retry the missing parts.'
+              : ' DOV’s catalogue lists these and its own service returns nothing;' +
+                ' re-running will not help — check the boreholes on dov.vlaanderen.be.'}
+          </p>
         )}
       </div>
     )
