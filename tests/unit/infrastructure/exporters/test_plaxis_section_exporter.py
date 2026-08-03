@@ -187,8 +187,10 @@ def test_basic_export_structure() -> None:
     assert "surface z = 4.0" in script
     assert ".Head" not in script
 
-    # One setsoillayerlevel per (borehole, layer) pair = 2 columns × 2 layers.
-    assert script.count("g_i.setsoillayerlevel(") == 4
+    # N layers have N+1 boundaries (the last one is the base of the deepest
+    # layer), so 2 columns × (2 layers + 1) = 6. See
+    # test_deepest_layer_gets_a_base_level_at_the_column_bottom.
+    assert script.count("g_i.setsoillayerlevel(") == 6
     # CPT-1: Quartair top at level 5.0 (surface 5 − depth 0), Boom Klei at −3.0.
     assert "g_i.setsoillayerlevel(bh_0, 0, 5.0)" in script
     assert "g_i.setsoillayerlevel(bh_0, 1, -3.0)" in script
@@ -249,6 +251,65 @@ def test_absent_formation_collapses_to_zero_thickness() -> None:
     # top level (5.0 − 3.0 = 2.0).
     assert "g_i.setsoillayerlevel(bh_0, 0, 2.0)  # absent — zero thickness" in script
     assert "g_i.setsoillayerlevel(bh_0, 1, 2.0)" in script
+
+
+# ---------------------------------------------------------------------------
+# The deepest layer must have a base — the model bottom (audit 2026-08-02)
+# ---------------------------------------------------------------------------
+
+
+def test_deepest_layer_gets_a_base_level_at_the_column_bottom() -> None:
+    """A borehole with N soil layers has N+1 level boundaries.
+
+    Boundary 0 is the top of the first layer, boundary i is the base of
+    layer i-1 / top of layer i, and boundary N is the BASE of the deepest
+    layer — the bottom of the model.  Stopping at boundary N-1 leaves the
+    deepest unit — the one usually carrying the founding layer — running
+    to whatever base PLAXIS defaults to, not to the depth the
+    investigation actually reached.
+    """
+    young = _formation(fid=uuid4(), name="Quartair", order=1)
+    old = _formation(fid=uuid4(), name="Boom Klei", order=0)
+    i1 = uuid4()
+    snapshot = _snapshot(
+        # CPT-1: surface +5.0 m TAW, reaching 20 m → column bottom −15.0.
+        investigations=[_inv(iid=i1, name="CPT-1", along=0.0, surface=5.0, total_depth=20.0)],
+        formations=[old, young],
+        contacts=[
+            _contact(fid=young.formation_id, iid=i1, along=0.0, depth=0.0, surface=5.0),
+            _contact(fid=old.formation_id, iid=i1, along=0.0, depth=8.0, surface=5.0),
+        ],
+    )
+    script = _script(snapshot)
+    compile(script, "<plaxis2d>", "exec")
+
+    # Two layers → three boundaries: +5.0 (top), −3.0 (contact), −15.0 (bottom).
+    assert script.count("g_i.setsoillayerlevel(") == 3
+    assert "g_i.setsoillayerlevel(bh_0, 2, -15.0)" in script
+
+
+def test_column_bottom_never_rises_above_the_deepest_layer_top() -> None:
+    """The base of the deepest layer can never sit above its own top.
+
+    A column whose recorded total depth is shallower than its deepest
+    contact (an inconsistent import) would otherwise produce an inverted
+    layer.  The base collapses onto the top instead — a zero-thickness
+    deepest layer, which PLAXIS handles natively.
+    """
+    f = _formation(fid=uuid4(), name="Boom Klei", order=0)
+    i1 = uuid4()
+    snapshot = _snapshot(
+        # Total depth 4 m (bottom +1.0) but the contact sits at 8 m (−3.0).
+        investigations=[_inv(iid=i1, name="CPT-1", along=0.0, surface=5.0, total_depth=4.0)],
+        formations=[f],
+        contacts=[_contact(fid=f.formation_id, iid=i1, along=0.0, depth=8.0, surface=5.0)],
+    )
+    script = _script(snapshot)
+    compile(script, "<plaxis2d>", "exec")
+
+    assert "g_i.setsoillayerlevel(bh_0, 0, -3.0)" in script
+    assert "g_i.setsoillayerlevel(bh_0, 1, -3.0)" in script
+    assert "g_i.setsoillayerlevel(bh_0, 1, 1.0)" not in script
 
 
 # ---------------------------------------------------------------------------
