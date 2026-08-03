@@ -18,7 +18,6 @@ from __future__ import annotations
 from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (
     plan_body_aliases,
 )
-
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionColumnInput,
@@ -165,6 +164,103 @@ def test_empty_input_is_an_empty_map() -> None:
 
 
 # ---------------------------------------------------------------------------
+# A region that spans its whole gap still REACHES the column it stops a snap
+# cell short of.
+#
+# The 2-D engine snaps polygon coordinates to a 1 mm grid in METRES, so a region
+# drawn all the way across an 11 m gap lands at fraction 0.999909…, not 1.0.
+# Debt #259 measured this on the owner's real build payload: 33 of 69 gaps had
+# no polygon vertex within 1e-6 of fraction 1, and 15 of 69 none at fraction 0.
+# ``_section_stack_at`` was taught to inset by a snap cell; this module reads the
+# SAME polygons and was never updated, so the merge silently decides the region
+# never touched the shared column.
+# ---------------------------------------------------------------------------
+
+#: One millimetre on an 11 m gap, in gap-local fraction — the real shortfall.
+_MM_ON_11M = 0.001 / 11.0
+
+
+def _section_11m(columns: list[str], regions: list[RegionInput]) -> SectionPartitionInput:
+    """A two-column section whose single gap is 11 m wide (the measured case)."""
+    return SectionPartitionInput(
+        start_x=0.0,
+        start_y=0.0,
+        end_x=11.0,
+        end_y=0.0,
+        columns=tuple(
+            SectionColumnInput(investigation_id=c, along_m=i * 11.0, world_x=i * 11.0, world_y=0.0)
+            for i, c in enumerate(columns)
+        ),
+        regions=tuple(regions),
+    )
+
+
+def test_a_band_snapped_a_millimetre_short_of_the_column_still_reaches_it() -> None:
+    """A band drawn across the whole gap merges even though the snap grid clips it.
+
+    The right edge lands at ``1 - 1 mm / 11 m`` instead of exactly 1.0. That is
+    the mm snap grid, not a wedge that stops before the column: the unit is on
+    both sections and must end up under one body id.
+    """
+    snapped_right = 1.0 - _MM_ON_11M
+    across_the_gap = RegionInput(
+        formation_id="ZAND",
+        body_id="from-tie",
+        polygon=((0.0, 3.2), (snapped_right, 3.2), (snapped_right, -4.5), (0.0, -4.5)),
+        gap_index=0,
+    )
+    aliases = plan_body_aliases(
+        [
+            _section_11m(["S4", "S9"], [across_the_gap]),
+            _section_11m(["S9", "S8"], [_band("ZAND", "from-cs1", 3.2, -4.5)]),
+        ]
+    )
+
+    assert aliases["from-tie"] == aliases["from-cs1"]
+
+
+def test_a_band_snapped_a_millimetre_past_the_left_column_still_reaches_it() -> None:
+    """The same shortfall at fraction 0 — 15 of 69 measured gaps sit here."""
+    snapped_left = _MM_ON_11M
+    across_the_gap = RegionInput(
+        formation_id="ZAND",
+        body_id="from-tie",
+        polygon=((snapped_left, 3.2), (1.0, 3.2), (1.0, -4.5), (snapped_left, -4.5)),
+        gap_index=0,
+    )
+    aliases = plan_body_aliases(
+        [
+            _section_11m(["S9", "S4"], [across_the_gap]),
+            _section_11m(["S9", "S8"], [_band("ZAND", "from-cs1", 3.2, -4.5)]),
+        ]
+    )
+
+    assert aliases["from-tie"] == aliases["from-cs1"]
+
+
+def test_a_wedge_that_dies_well_before_the_column_still_does_not_reach_it() -> None:
+    """Widening the touch tolerance to a snap cell must not weld a real pinch-out.
+
+    A millimetre is the snap grid; a metre is a geological statement. The wedge
+    closes 1 m before the shared column, so it never reaches it.
+    """
+    wedge = RegionInput(
+        formation_id="ZAND",
+        body_id="wedge",
+        polygon=((0.0, 3.2), (1.0 - 1.0 / 11.0, 0.0), (0.0, -4.5)),
+        gap_index=0,
+    )
+    aliases = plan_body_aliases(
+        [
+            _section_11m(["S4", "S9"], [wedge]),
+            _section_11m(["S9", "S8"], [_band("ZAND", "sand", 3.2, -4.5)]),
+        ]
+    )
+
+    assert aliases.get("wedge", "wedge") == "wedge"
+
+
+# ---------------------------------------------------------------------------
 # Sections that CROSS mid-gap
 #
 # Owner, 2026-07-28: "two regions are the same body when they meet at a shared
@@ -195,9 +291,7 @@ def _section_at(
 
 def test_sections_crossing_between_columns_merge() -> None:
     """Two fences crossing at (50, 0) share no column, but share the sand."""
-    east_west = _section_at(
-        [("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "ew", 3.2, -4.5)]
-    )
+    east_west = _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "ew", 3.2, -4.5)])
     north_south = _section_at(
         [("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("ZAND", "ns", 3.2, -4.5)]
     )
@@ -212,7 +306,9 @@ def test_crossing_sections_with_different_lithologies_do_not_merge() -> None:
     aliases = plan_body_aliases(
         [
             _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "sand", 3.2, -4.5)]),
-            _section_at([("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("KLEI", "clay", 3.2, -4.5)]),
+            _section_at(
+                [("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("KLEI", "clay", 3.2, -4.5)]
+            ),
         ]
     )
 
@@ -225,7 +321,9 @@ def test_crossing_sections_at_disjoint_elevations_do_not_merge() -> None:
     aliases = plan_body_aliases(
         [
             _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "upper", 8.0, 5.0)]),
-            _section_at([("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("ZAND", "deep", 3.0, -4.0)]),
+            _section_at(
+                [("C", 50.0, -50.0), ("D", 50.0, 50.0)], [_band("ZAND", "deep", 3.0, -4.0)]
+            ),
         ]
     )
 
@@ -238,7 +336,9 @@ def test_sections_that_do_not_cross_do_not_merge() -> None:
     aliases = plan_body_aliases(
         [
             _section_at([("A", 0.0, 0.0), ("B", 100.0, 0.0)], [_band("ZAND", "north", 3.2, -4.5)]),
-            _section_at([("C", 0.0, 80.0), ("D", 100.0, 80.0)], [_band("ZAND", "south", 3.2, -4.5)]),
+            _section_at(
+                [("C", 0.0, 80.0), ("D", 100.0, 80.0)], [_band("ZAND", "south", 3.2, -4.5)]
+            ),
         ]
     )
 
