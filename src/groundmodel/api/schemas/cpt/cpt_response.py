@@ -38,6 +38,15 @@ class CptResponse(BaseModel):
         Pre-drill depth in metres.  The CPT measurement starts below this.
     cone_area_ratio:
         Net area ratio (a-value) from MVAR 3; None for CPTE/CPTM.
+    water_depth_m:
+        Depth to groundwater below ground surface in metres (positive down),
+        or None when none is recorded — every DOV-imported CPT is in that
+        state and its consumers fall back to the project-wide assumption.
+    water_depth_source:
+        Where ``water_depth_m`` came from — ``"gef"`` (parsed from
+        ``#MEASUREMENTVAR= 14``) or ``"engineer"`` (typed in the Parameters
+        inspector, and NOT overwritten by a later re-import). None when no
+        water table is recorded.
     max_depth_m:
         Deepest measurement depth in metres.
     n_rows:
@@ -55,5 +64,9 @@ class CptResponse(BaseModel):
     elevation_source: str
     pre_drill_m: float
     cone_area_ratio: float | None
+    # Additive (docs/api.md "Additive only"): default None so any caller that
+    # builds a CptResponse without these keeps working.
+    water_depth_m: float | None = None
+    water_depth_source: str | None = None
     max_depth_m: float | None
     n_rows: int | None
