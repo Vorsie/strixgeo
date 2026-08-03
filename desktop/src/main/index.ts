@@ -118,12 +118,6 @@ interface RecentProject {
 const API_PORT = 8765
 const API_BASE = `http://127.0.0.1:${API_PORT}`
 
-// How long after a document loads before "no token was ever attached" counts as
-// a fault rather than a renderer that simply has not called the API yet. Long
-// enough to cover a cold first paint on a slow laptop; short enough that a
-// genuinely broken build says so while the engineer is still looking.
-const TOKEN_INJECTION_GRACE_MS = 15_000
-
 // Secret shared with THIS launch's backend child, proving that a request
 // claiming the ``null`` origin really comes from our window and not from a
 // sandboxed iframe on some site the user has open (see ./localClientToken).
@@ -329,6 +323,18 @@ function createWindow(): void {
       })
     },
   )
+  // The audit's observation point: an UNFILTERED listener on a different
+  // webRequest event (Electron allows one listener per event, and injection
+  // holds onBeforeSendHeaders), with the API-host check done by hand so the
+  // observation cannot share the URL-filter failure mode it audits. The first
+  // audit version armed on a wall clock instead and cried wolf on any session
+  // that never left the start screen (owner dogfeed 2026-08-03).
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    if (details.url.startsWith(`${API_BASE}/`)) {
+      tokenAudit.noteApiRequestObserved(details.url)
+    }
+    callback({})
+  })
 
   const csp = buildContentSecurityPolicy(isDev)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -484,12 +490,9 @@ function createWindow(): void {
   // discard everything done since the reload.
   win.webContents.on('did-finish-load', () => {
     quitHandshake.noteRendererAlive()
-    // A positive assertion that the token injection is working. Deliberately
-    // NOT immediate: the document has loaded, but React has not necessarily
-    // made its first API call yet, so checking now would cry wolf on every
-    // launch. After this grace window a working build has certainly talked to
-    // its backend, and silence means the filter matched nothing.
-    setTimeout(() => tokenAudit.reportIfSilent(), TOKEN_INJECTION_GRACE_MS)
+    // The token-injection audit needs nothing here any more: it arms itself
+    // on the first OBSERVED API request (see the onBeforeRequest listener),
+    // so an idle start-screen session no longer trips a false alarm.
   })
   win.webContents.on('unresponsive', () => {
     // eslint-disable-next-line no-console
