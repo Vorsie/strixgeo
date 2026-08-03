@@ -24,6 +24,16 @@ interface Props {
   projectName: string
   /** What this session would lose — drives the concrete body copy. */
   summary: UnsavedWorkSummary
+  /**
+   * Why the previous Save / Discard click did not close the project, or null.
+   *
+   * Both outcomes deliberately KEEP THIS DIALOG OPEN (a failed save is
+   * retryable; a refused revert must not fall through to deleting the
+   * session's creates). An open dialog that says nothing about the click that
+   * just failed is indistinguishable from a dead button, so the reason is
+   * rendered here as well as toasted (audit 2026-08-02).
+   */
+  error?: string | null
   onSave: () => void
   onDiscard: () => void
   onCancel: () => void
@@ -82,6 +92,7 @@ export default function UnsavedChangesDialog({
   open,
   projectName,
   summary,
+  error = null,
   onSave,
   onDiscard,
   onCancel,
@@ -134,6 +145,15 @@ export default function UnsavedChangesDialog({
           <p className="mt-2">
             Discarding cannot be undone. Cancel keeps the project open so you can save.
           </p>
+          {error !== null && (
+            <p
+              role="alert"
+              data-testid="unsaved-dialog-error"
+              className="mt-3 rounded border border-red-500 bg-red-500/10 px-2 py-1.5 text-red-600 dark:text-red-400"
+            >
+              {error}
+            </p>
+          )}
         </>
       }
       secondary={{
