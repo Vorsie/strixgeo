@@ -36,6 +36,9 @@ export type {
   CptListItem,
   CptResponse,
   CptPlotResponse,
+  CptSbtProfileResponse,
+  GwtProvenance,
+  WaterTablePatchBody,
   ImportCptResponse,
   ElevationPatchBody,
 } from './clients/cpt'
