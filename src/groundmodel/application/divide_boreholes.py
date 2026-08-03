@@ -44,7 +44,15 @@ What it persists (one transaction, single commit)
    with ``source='segmenter'`` and ``confidence`` driven by band provenance:
    ``"cpt_interpolated"`` → ``high``, ``"body_min"`` / ``"absolute_min"`` → ``low``.
 3. The LL→FC trigger auto-derives ``formation_contact`` rows.
-4. ONE commit.
+4. **Re-creates every ACCEPTED packing tie that touched a borehole column.**
+   Deleting the borehole bands cascades their correlation edges away, hand-drawn
+   ties included, so the ties are captured by identity beforehand and
+   re-anchored onto the rebuilt bands afterwards — the same
+   :class:`~groundmodel.application.geotech_tie_reanchor.GeotechTieReanchor`
+   SubdivideAllBodies uses.  A tie carried onto a band that is not clearly the
+   one it was drawn on comes back FLAGGED (``review_reason``), never silently
+   dropped; the counts ride out on :class:`DivideBoreholeResult`.
+5. ONE commit.
 
 Idempotency
 -----------
@@ -71,6 +79,11 @@ from groundmodel.application.geotech_edge_derivation import (
     load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
+)
+from groundmodel.application.geotech_tie_reanchor import (
+    ANCHOR_BOREHOLE,
+    GeotechTieReanchor,
+    rebuilt_bands_from_layer_index,
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
@@ -136,6 +149,25 @@ class DivideBoreholeResult:
     created_formation_ids : list[UUID]
         Newly created geotech ``geological_formation`` rows (find-or-create;
         a re-run only lists rows not already in the DB).
+    reanchored_tie_count : int
+        Accepted packing ties that touched a borehole column and were carried
+        onto the rebuilt bands.  Includes the ones counted in
+        ``review_tie_reasons`` — those are carried, just flagged.
+    review_tie_reasons : dict[str, int]
+        Carried ties the engineer has to confirm, per reason:
+        ``class_changed`` (the qc re-derived a different packing class over
+        those depths) or ``ambiguous_band`` (several same-class bands overlap
+        where the old one was, so which inherited the tie is unknowable).
+    lost_tie_count : int
+        Accepted ties that touched a borehole column and could NOT be carried
+        — the rebuild draws nothing where they were anchored.
+    lost_tie_reasons : dict[str, int]
+        Per-reason breakdown of ``lost_tie_count``.
+    lost_tie_labels : list[str]
+        One line per lost tie naming BOTH investigations and the depth of each
+        endpoint (``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``).  The
+        count alone tells the engineer that accepted work vanished and nothing
+        about WHERE to redraw it (audit 2026-08-02).
     """
 
     geotech_model_id: UUID
@@ -143,6 +175,11 @@ class DivideBoreholeResult:
     single_band_borehole_count: int
     layer_count: int
     created_formation_ids: list[UUID] = field(default_factory=list)
+    reanchored_tie_count: int = 0
+    review_tie_reasons: dict[str, int] = field(default_factory=dict)
+    lost_tie_count: int = 0
+    lost_tie_reasons: dict[str, int] = field(default_factory=dict)
+    lost_tie_labels: list[str] = field(default_factory=list)
 
 
 class DivideBoreholes(GeotechBoreholeMaterialiser):
@@ -342,6 +379,26 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for cr in cpt_rows:
                 cpt_xy[cr.id] = (cr.location_x, cr.location_y, cr.elevation_m or 0.0)
 
+        # Phase 6b — capture the engineer's ACCEPTED packing ties that touch a
+        # borehole column, BEFORE Phase 7 removes their endpoints.
+        #
+        # Both endpoint FKs are ON DELETE CASCADE, so the delete below takes
+        # every edge with a borehole endpoint with it — including the ties the
+        # engineer drew and accepted by hand, silently, without passing through
+        # any application code.  Sparing them in the delete's WHERE clause
+        # cannot help: the rows they point at genuinely cease to exist, because
+        # Phase 8 rebuilds every borehole band with a fresh uuid7.  The tie is
+        # preserved one level up instead — recorded by identity here and
+        # re-created against the matching rebuilt band in Phase 8c.
+        #
+        # CPT↔CPT ties are deliberately NOT captured: Phase 7 does not touch
+        # their endpoints, so their rows survive untouched and counting them as
+        # "carried" would overstate what this verb did.
+        tie_reanchor = GeotechTieReanchor(self._session)
+        captured_ties = await tie_reanchor.capture(
+            geotech_model.id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
+        )
+
         # Phase 7 — delete existing borehole geotech layers.
         deleted = (
             await self._session.execute(
@@ -481,6 +538,29 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                             source=fb.source,
                         )
                     )
+
+        # Phase 8c — re-anchor the ties captured in Phase 6b onto the bands
+        # that now exist.  ``geotech_layer_by_inv_depth`` holds BOTH the CPT
+        # bands Phase 6 loaded (untouched by this verb, so a CPT endpoint
+        # matches its own unchanged band exactly) and the borehole bands
+        # Phase 8 just wrote, which is what a borehole endpoint needs.
+        #
+        # Runs BEFORE Phase 8.5 so that pass's per-section dedup set is loaded
+        # AFTER these ties are in the table and cannot stack an unapproved
+        # proposal beside one of them.
+        #
+        # ``borehole_bands_are_final=True``: this verb IS the "one verb later"
+        # that SubdivideAllBodies defers borehole endpoints to.  A borehole that
+        # still carries no band here (excluded, outside every litho body, or
+        # nothing materialised for it) has permanently lost the tie, and must be
+        # reported as ``band_absent`` rather than as waiting for a step that
+        # already ran.
+        reanchor_plan = await tie_reanchor.reanchor(
+            geotech_model_id=geotech_model.id,
+            captured=captured_ties,
+            rebuilt_bands=rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
+            borehole_bands_are_final=True,
+        )
 
         # Phase 8.5 — derive the borehole-mediated geotech edges + re-resolve.
         #
@@ -640,12 +720,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             single_band_borehole_count=single_band_borehole_count,
             layer_count=total_layers,
             created_formation_ids=created_formation_ids,
+            reanchored_tie_count=len(reanchor_plan.matched),
+            review_tie_reasons=reanchor_plan.review_reason_counts(),
+            lost_tie_count=len(reanchor_plan.lost),
+            lost_tie_reasons=reanchor_plan.loss_reason_counts(),
+            lost_tie_labels=reanchor_plan.lost_tie_labels,
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model.id} "
             f"divided_bh={divided_borehole_count} "
             f"single_bh={single_band_borehole_count} "
-            f"layers={total_layers} elapsed={elapsed:.1f}s"
+            f"layers={total_layers} "
+            f"borehole_ties_reanchored={len(reanchor_plan.matched)}/{len(captured_ties)} "
+            f"borehole_ties_lost={len(reanchor_plan.lost)} "
+            f"elapsed={elapsed:.1f}s"
         )
         return result
 
