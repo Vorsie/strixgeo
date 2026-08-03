@@ -147,10 +147,8 @@ from groundmodel.application.geotech_edge_derivation import (
 )
 from groundmodel.application.geotech_tie_reanchor import (
     REASON_BAND_ABSENT,
-    BandIdentity,
     GeotechTieReanchor,
-    RebuiltBand,
-    depth_to_mm,
+    rebuilt_bands_from_layer_index,
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
@@ -245,6 +243,11 @@ class SubdivideAllBodiesResult:
         endpoint is a borehole column, whose bands ``DivideBoreholes``
         materialises after this use case runs).  A tie whose two endpoints
         failed differently is counted under each reason.
+    lost_tie_labels : list[str]
+        One line per lost tie naming BOTH investigations and the depth of each
+        endpoint (``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``).  The
+        count alone tells the engineer that accepted work vanished and nothing
+        about WHERE to redraw it (audit 2026-08-02).
     """
 
     geotech_model_id: UUID
@@ -259,45 +262,12 @@ class SubdivideAllBodiesResult:
     review_tie_reasons: dict[str, int] = field(default_factory=dict)
     lost_tie_count: int = 0
     lost_tie_reasons: dict[str, int] = field(default_factory=dict)
+    lost_tie_labels: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # Internal data holders (not domain DTOs — private to this module)
 # ---------------------------------------------------------------------------
-
-
-def _rebuilt_bands(
-    geotech_layer_by_inv_depth: dict[str, list[tuple[float, float, UUID, UUID, int | None]]],
-) -> list[RebuiltBand]:
-    """Describe the bands the materialise phase just wrote, for the re-anchor.
-
-    Translates the phase's ``investigation → [(top_m, base_m, layer_id,
-    formation_id, nad_class)]`` accumulator into the three-part band identity
-    the owner's rule matches on.
-
-    Parameters
-    ----------
-    geotech_layer_by_inv_depth : dict[str, list[tuple[float, float, UUID, UUID, int | None]]]
-        The materialise phase's per-investigation band accumulator.
-
-    Returns
-    -------
-    list[RebuiltBand]
-        One entry per band written in this run.
-    """
-    return [
-        RebuiltBand(
-            identity=BandIdentity(
-                investigation_id=investigation_id,
-                depth_top_mm=depth_to_mm(top_m),
-                depth_base_mm=depth_to_mm(base_m),
-                nad_class=nad_class,
-            ),
-            layer_id=layer_id,
-        )
-        for investigation_id, entries in geotech_layer_by_inv_depth.items()
-        for top_m, base_m, layer_id, _formation_id, nad_class in entries
-    ]
 
 
 @dataclass
@@ -689,7 +659,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         reanchor_plan = await tie_reanchor.reanchor(
             geotech_model_id=geotech_model.id,
             captured=captured_ties,
-            rebuilt_bands=_rebuilt_bands(geotech_layer_by_inv_depth),
+            rebuilt_bands=rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
         )
 
         # Phase 9 — load all project sections; derive geotech edges per section.
@@ -781,6 +751,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             review_tie_reasons=reanchor_plan.review_reason_counts(),
             lost_tie_count=len(reanchor_plan.lost),
             lost_tie_reasons=reanchor_plan.loss_reason_counts(),
+            lost_tie_labels=reanchor_plan.lost_tie_labels,
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "
