@@ -417,6 +417,37 @@ async def test_build_voxel_scope_guard_404(
 
 
 # ---------------------------------------------------------------------------
+# BV-4b: a spacing that resolves to too many voxels is refused, retryably
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_voxel_over_budget_names_a_spacing_that_fits(
+    async_client: AsyncClient,
+    scene: dict,
+) -> None:
+    """Asking for more voxels than one build may allocate is refused with a NUMBER.
+
+    The engineer typed a spacing, not a bug, so the answer has to be one he can
+    act on: which spacing would fit. Leaving that inside a sentence forces the
+    client to parse it back out of prose before it can offer the retry, so the
+    refusal carries it as a field.
+    """
+    proj = scene["project"]
+    litho = scene["litho"]
+    payload = _build_payload(scene, grid_spacing_m=0.001)
+
+    resp = await async_client.post(_url(proj.id, litho.id), json=payload)
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "voxel_grid_too_large"
+    assert isinstance(detail["suggested_horizontal_m"], (int, float))
+    assert detail["suggested_horizontal_m"] > 0.001
+    assert detail["message"]
+
+
+# ---------------------------------------------------------------------------
 # BV-5: anisotropic spacing — coarse X/Y, fine Z (the thin-layer path)
 # ---------------------------------------------------------------------------
 
