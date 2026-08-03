@@ -1191,6 +1191,185 @@ async def test_auto_populate_respects_existing_user_pick(
 
 
 # ---------------------------------------------------------------------------
+# Auto-populate add / overwrite mode (2026-08-03 data-loss ruling)
+#
+# The owner opened "Fill from boreholes" to add ONE unit and lost four saved
+# geological units: sending ``selected_keys`` was, by itself, consent to
+# delete everything else.  The ruling — Apply asks "add to existing model or
+# overwrite model" — needs a server that can actually decline the delete.
+# ---------------------------------------------------------------------------
+
+
+async def _seed_two_formal_layers(
+    db_session: AsyncSession,
+    borehole: BoreholeOrm,
+) -> None:
+    """Give *borehole* a two-layer formal stratigraphy stream.
+
+    Layers: ``Quartair`` 0–3 m and ``Boom Formation`` 3–10 m — the same shape
+    the happy-path auto-populate test uses, so one Fill run mints exactly two
+    formations.
+
+    Parameters
+    ----------
+    db_session : AsyncSession
+        Session used to insert the observation + its layers (committed).
+    borehole : BoreholeOrm
+        Borehole that receives the observation.
+    """
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+
+    observation = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(observation)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=observation.id,
+                top_m=0.0,
+                base_m=3.0,
+                description="Quartair",
+                layer_index=0,
+            ),
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=observation.id,
+                top_m=3.0,
+                base_m=10.0,
+                description="Boom Formation",
+                layer_index=1,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+
+async def test_auto_populate_add_mode_keeps_the_units_the_user_did_not_select(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Add mode: the units left out of the selection are still in the model.
+
+    This is the incident, reduced: a Fill run whose selection names one unit
+    must not remove the other one.
+    """
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+    await _seed_two_formal_layers(db_session, borehole)
+
+    first = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    assert first.status_code == 200, first.text
+    assert len(first.json()["created_formation_ids"]) == 2
+
+    # Second run names ONLY Quartair, and asks to add.
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={
+            "borehole_ids": [str(borehole.id)],
+            "selected_keys": ["quartair"],
+            "mode": "add",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "add"
+    assert body["deleted_formation_ids"] == []
+    assert body["deleted_formation_names"] == []
+
+    names = {
+        f["name"]
+        for f in (await async_client.get(f"/projects/{project.id}/geology/formations")).json()
+    }
+    assert names == {"Quartair", "Boom Formation"}
+
+
+async def test_auto_populate_without_a_mode_field_deletes_nothing(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """A request that never mentions the mode behaves as "add".
+
+    Guards the reason the default is what it is: a client build that pre-dates
+    the field must not be able to mass-delete a model by omission.
+    """
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+    await _seed_two_formal_layers(db_session, borehole)
+
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        # selected_keys but NO mode — the exact shape the old client sent.
+        json={"borehole_ids": [str(borehole.id)], "selected_keys": ["quartair"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted_formation_ids"] == []
+
+    names = {
+        f["name"]
+        for f in (await async_client.get(f"/projects/{project.id}/geology/formations")).json()
+    }
+    assert names == {"Quartair", "Boom Formation"}
+
+
+async def test_auto_populate_overwrite_mode_removes_and_names_the_unselected_units(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Overwrite mode still makes the model exactly the selection.
+
+    And it reports the removed units by NAME, because that is what the
+    confirmation the user just accepted promised to show them.
+    """
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+    await _seed_two_formal_layers(db_session, borehole)
+
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={
+            "borehole_ids": [str(borehole.id)],
+            "selected_keys": ["quartair"],
+            "mode": "overwrite",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "overwrite"
+    assert body["deleted_formation_names"] == ["Boom Formation"]
+    assert len(body["deleted_formation_ids"]) == 1
+
+    names = {
+        f["name"]
+        for f in (await async_client.get(f"/projects/{project.id}/geology/formations")).json()
+    }
+    assert names == {"Quartair"}
+
+
+# ---------------------------------------------------------------------------
 # Per-(model, anchor, formation) uniqueness — the duplicate-contact rule
 # ---------------------------------------------------------------------------
 
@@ -1233,7 +1412,9 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     dedupe keeps one, deletes the other two. Survivor = manual_pick
     when present (beats borehole_observation), else most recent.
     """
-    from datetime import datetime, timedelta, timezone
+    # `timezone` is deliberately not imported — the body uses the module-level
+    # `UTC` alias for tz-aware timestamps.
+    from datetime import datetime, timedelta
 
     from sqlalchemy import text as _sql
 
