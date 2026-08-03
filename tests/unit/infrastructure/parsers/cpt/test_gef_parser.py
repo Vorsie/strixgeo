@@ -61,13 +61,17 @@ class TestHeaderParsing:
 
     def test_xyid_parsed(self, parser: GEFParser) -> None:
         result = parser.parse(_gef())
-        assert result.header.epsg == 32000
+        # 32000 is the GEF code; 31370 is what it means. Both are kept —
+        # see TestCoordinateSystemCodeIsNotAnEpsgCode.
+        assert result.header.xy_code == 32000
+        assert result.header.epsg == 31370
         assert result.header.x == pytest.approx(200000.0)
         assert result.header.y == pytest.approx(100000.0)
 
     def test_zid_parsed(self, parser: GEFParser) -> None:
         result = parser.parse(_gef())
-        assert result.header.z_epsg == 32001
+        assert result.header.z_code == 32001
+        assert result.header.z_epsg == 5710
         assert result.header.z == pytest.approx(5.0)
 
     def test_project_id_trailing_comma_stripped(self, parser: GEFParser) -> None:
@@ -588,6 +592,264 @@ class TestParseBytes:
         gef = _gef().replace("CPT-01", "CPT-\xe9l\xe8ve")
         result = parser.parse_bytes(gef.encode("latin-1"))
         assert len(result.data) == 3
+
+
+class TestPenetrationLengthVsCorrectedDepth:
+    """GEF quantity 1 is *sondeerlengte*; quantity 11 is the corrected depth.
+
+    In the GEF-CPT-Report standard, quantity 1 is the penetration length —
+    the length of rod pushed into the ground, measured along the (possibly
+    inclined) rod. Quantity 11 is the inclination-corrected vertical depth
+    below ground level. Because the rod always deviates, the corrected
+    depth is the *shallower* of the two, and it is the one an engineer
+    means by "depth".
+
+    A real DOV file states this in its own header:
+    ``#COLUMNINFO= 1, m, Lengte, 1`` and ``#COLUMNINFO= 5, m, Diepte, 11``
+    — Lengte (length) is quantity 1, Diepte (depth) is quantity 11 — with a
+    last row of 20.22 (Lengte) against 20.212 (Diepte).
+    """
+
+    _BOTH_HEADER = (
+        "#TESTID= CPT-01\n"
+        "#XYID= 32000, 200000.0, 100000.0\n"
+        "#ZID= 32001, 5.0\n"
+        "#COLUMN= 3\n"
+        "#COLUMNINFO= 1, m, Lengte, 1\n"
+        "#COLUMNINFO= 2, MPa, Conusweerstand, 2\n"
+        "#COLUMNINFO= 3, m, Diepte, 11\n"
+    )
+    # Lengte (pushed) always ≥ Diepte (vertical), exactly as the real file reads.
+    _BOTH_DATA = "20.18; 26.0; 20.172\n20.20; 26.1; 20.192\n20.22; 26.8; 20.212\n"
+
+    def test_corrected_depth_is_the_depth_column(self, parser: GEFParser) -> None:
+        result = parser.parse(_gef(header=self._BOTH_HEADER, data=self._BOTH_DATA))
+        # The corrected value (Diepte, qty 11) is what "depth" means.
+        assert result.data["depth_m"][2] == pytest.approx(20.212)
+
+    def test_penetration_length_is_the_length_column(self, parser: GEFParser) -> None:
+        result = parser.parse(_gef(header=self._BOTH_HEADER, data=self._BOTH_DATA))
+        assert result.data["length_m"][2] == pytest.approx(20.22)
+
+    def test_depth_is_never_deeper_than_penetration_length(self, parser: GEFParser) -> None:
+        result = parser.parse(_gef(header=self._BOTH_HEADER, data=self._BOTH_DATA))
+        depths = result.data["depth_m"].to_list()
+        lengths = result.data["length_m"].to_list()
+        assert all(d <= ln for d, ln in zip(depths, lengths, strict=True))
+
+    def test_length_only_file_falls_back_to_length_and_says_so(self, parser: GEFParser) -> None:
+        # Only quantity 1 (penetration length) — genuinely uncorrected. The
+        # parser may use it as depth, but must tell the engineer it did.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, Lengte, 1\n"
+            "#COLUMNINFO= 2, MPa, Conusweerstand, 2\n"
+        )
+        result = parser.parse(_gef(header=header, data="0.20; 1.0\n0.40; 1.5\n0.60; 2.0\n"))
+        assert "depth_m" in result.data.columns
+        assert "UNCORRECTED_DEPTH" in _codes(result)
+
+    def test_corrected_depth_only_file_is_not_flagged_uncorrected(self, parser: GEFParser) -> None:
+        # Only quantity 11 — already inclination-corrected, nothing to warn about.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, Diepte, 11\n"
+            "#COLUMNINFO= 2, MPa, Conusweerstand, 2\n"
+        )
+        result = parser.parse(_gef(header=header, data="0.20; 1.0\n0.40; 1.5\n0.60; 2.0\n"))
+        assert "depth_m" in result.data.columns
+        assert "UNCORRECTED_DEPTH" not in _codes(result)
+
+
+class TestCoordinateSystemCodeIsNotAnEpsgCode:
+    """``#XYID``/``#ZID`` carry GEF coordinate-system codes, not EPSG codes.
+
+    GEF 32000 is Belgian Lambert 72 (EPSG:31370) and GEF 31000 is Dutch RD
+    (EPSG:28992) — the numbers are from the GEF codelist and mean nothing to
+    PostGIS or proj4. The raw code is kept as the source-format token it is;
+    ``epsg`` carries the translation. A code we cannot identify yields **no**
+    EPSG rather than a plausible-looking wrong one.
+    """
+
+    def _header(self, xyid: str, zid: str = "#ZID= 32001, 5.0\n") -> str:
+        return (
+            "#TESTID= CPT-01\n"
+            f"{xyid}"
+            f"{zid}"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, Diepte, 11\n"
+            "#COLUMNINFO= 2, MPa, Conusweerstand, 2\n"
+        )
+
+    def test_gef_32000_is_belgian_lambert_72(self, parser: GEFParser) -> None:
+        gef = _gef(header=self._header("#XYID= 32000, 200000.0, 100000.0\n"), data="0.2; 1.0\n")
+        result = parser.parse(gef)
+        assert result.header.epsg == 31370
+
+    def test_raw_gef_code_is_kept_verbatim(self, parser: GEFParser) -> None:
+        gef = _gef(header=self._header("#XYID= 32000, 200000.0, 100000.0\n"), data="0.2; 1.0\n")
+        result = parser.parse(gef)
+        assert result.header.xy_code == 32000
+
+    def test_gef_31000_is_dutch_rd(self, parser: GEFParser) -> None:
+        gef = _gef(header=self._header("#XYID= 31000, 155000.0, 463000.0\n"), data="0.2; 1.0\n")
+        result = parser.parse(gef)
+        assert result.header.epsg == 28992
+
+    def test_a_real_epsg_in_the_field_passes_through(self, parser: GEFParser) -> None:
+        # Non-DOV writers emit a true EPSG here; 31370 is not a GEF code, so
+        # it can only mean EPSG.
+        gef = _gef(header=self._header("#XYID= 31370, 200000.0, 100000.0\n"), data="0.2; 1.0\n")
+        result = parser.parse(gef)
+        assert result.header.epsg == 31370
+
+    def test_unknown_code_yields_no_epsg_and_says_so(self, parser: GEFParser) -> None:
+        gef = _gef(header=self._header("#XYID= 99999, 200000.0, 100000.0\n"), data="0.2; 1.0\n")
+        result = parser.parse(gef)
+        assert result.header.xy_code == 99999
+        assert result.header.epsg is None
+        assert "UNKNOWN_CRS_CODE" in _codes(result)
+
+    def test_zid_32001_is_mtaw(self, parser: GEFParser) -> None:
+        gef = _gef(header=self._header("#XYID= 32000, 200000.0, 100000.0\n"), data="0.2; 1.0\n")
+        result = parser.parse(gef)
+        assert result.header.z_code == 32001
+        assert result.header.z_epsg == 5710
+
+
+class TestRecordAndColumnSeparators:
+    """A GEF declaring its own separators is a valid GEF and must import.
+
+    ``#RECORDSEPARATOR=`` names the character that terminates every data
+    record; ``#COLUMNSEPARATOR=`` names the character between values. Both
+    are common in Dutch GEF exports. A file that declares them is not
+    malformed, so not one of its rows may be dropped.
+    """
+
+    def test_record_separator_terminated_rows_all_import(self, parser: GEFParser) -> None:
+        header = _BASE_HEADER + "#RECORDSEPARATOR= !\n"
+        data = "0.20; 1.0; 0.05!\n0.40; 1.5; 0.06!\n0.60; 2.0; 0.07!\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert len(result.data) == 3
+
+    def test_column_separator_pipe_splits_values(self, parser: GEFParser) -> None:
+        header = _BASE_HEADER + "#COLUMNSEPARATOR= |\n"
+        data = "0.20|1.0|0.05\n0.40|1.5|0.06\n0.60|2.0|0.07\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert len(result.data) == 3
+        assert result.data["qc_mpa"][1] == pytest.approx(1.5)
+
+    def test_both_separators_declared_together(self, parser: GEFParser) -> None:
+        header = _BASE_HEADER + "#COLUMNSEPARATOR= |\n#RECORDSEPARATOR= !\n"
+        data = "0.20|1.0|0.05!\n0.40|1.5|0.06!\n0.60|2.0|0.07!\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert len(result.data) == 3
+
+    def test_semicolon_column_separator_declaration_is_not_read_as_a_comment(
+        self, parser: GEFParser
+    ) -> None:
+        # Real DOV files write ``#COLUMNSEPARATOR=;`` — the ``;`` is the
+        # declared value, not the start of an inline comment.
+        header = _BASE_HEADER + "#COLUMNSEPARATOR=;\n"
+        result = parser.parse(_gef(header=header))
+        assert result.header.column_separator == ";"
+        assert len(result.data) == 3
+
+    def test_a_separator_that_could_be_part_of_a_number_is_not_honoured(
+        self, parser: GEFParser
+    ) -> None:
+        # Splitting on '-' would read the void value -9999.0 as +9999.0 — a
+        # sign flip nothing downstream would catch. The declaration loses.
+        header = _BASE_HEADER + "#COLUMNSEPARATOR= -\n#COLUMNVOID= 3, -9999.0\n"
+        data = "0.20; 1.0; -9999.0\n0.40; 1.5; 0.06\n0.60; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert result.data["fs_mpa"][0] is None
+        assert result.data["fs_mpa"][1] == pytest.approx(0.06)
+
+    def test_a_record_separator_that_is_also_a_column_separator_is_not_honoured(
+        self, parser: GEFParser
+    ) -> None:
+        """A record separator that also splits values is refused, not applied."""
+        # A file declaring ``#RECORDSEPARATOR=;`` declares the SAME character
+        # DOV declares as its column separator. Honouring it would cut every
+        # data line after its first value: the frame still comes back with its
+        # full set of correctly-named columns (padded with None), so the parser
+        # would report success on a file it silently emptied. The declaration
+        # loses; the values are read to the end of the line.
+        header = _BASE_HEADER + "#RECORDSEPARATOR=;\n"
+        result = parser.parse(_gef(header=header))
+        assert len(result.data) == 3
+        assert result.data["qc_mpa"][1] == pytest.approx(1.5)
+        assert result.data["fs_mpa"][2] == pytest.approx(0.07)
+
+    def test_a_record_separator_that_could_be_part_of_a_number_is_not_honoured(
+        self, parser: GEFParser
+    ) -> None:
+        """A record separator that can occur inside a number is refused too."""
+        # Same rule as the column separator: cutting the record at '-' throws
+        # away every value that follows a minus sign on the line. Here the void
+        # marker sits in the MIDDLE column, so honouring the declaration would
+        # also lose the perfectly good sleeve friction behind it.
+        header = _BASE_HEADER + "#RECORDSEPARATOR= -\n#COLUMNVOID= 2, -9999.0\n"
+        data = "0.20; -9999.0; 0.05\n0.40; 1.5; 0.06\n0.60; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert len(result.data) == 3
+        assert result.data["qc_mpa"][0] is None
+        assert result.data["fs_mpa"][0] == pytest.approx(0.05)
+
+    def test_unparseable_rows_name_the_offending_line_not_an_empty_file(
+        self, parser: GEFParser
+    ) -> None:
+        # When every row is dropped the diagnostic must point at the rows,
+        # not claim the file has none.
+        data = "0.20; 1.0; 0.05@\n0.40; 1.5; 0.06@\n"
+        with pytest.raises(ParseError, match="none could be parsed"):
+            parser.parse(_gef(data=data))
+
+
+class TestDuplicateQuantityNumbers:
+    """Two columns declaring the same quantity is a refusal, not a crash.
+
+    A duplicated ``#COLUMNINFO`` line, or two pore-pressure channels both
+    tagged quantity 6, means the file does not say which column is which.
+    The import must be refused with the duplicated quantity named — never an
+    unhandled Polars error that escapes past every ``ParseError`` handler.
+    """
+
+    def test_duplicate_quantity_is_refused_by_name(self, parser: GEFParser) -> None:
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 4\n"
+            "#COLUMNINFO= 1, m, Diepte, 11\n"
+            "#COLUMNINFO= 2, MPa, Conusweerstand, 2\n"
+            "#COLUMNINFO= 3, MPa, waterspanning u2, 6\n"
+            "#COLUMNINFO= 4, MPa, waterspanning u2 tweede filter, 6\n"
+        )
+        data = "0.20; 1.0; 0.01; 0.02\n0.40; 1.5; 0.01; 0.02\n"
+        with pytest.raises(ParseError, match="quantity 6"):
+            parser.parse(_gef(header=header, data=data))
+
+    def test_duplicate_refusal_names_the_columns(self, parser: GEFParser) -> None:
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 3\n"
+            "#COLUMNINFO= 1, m, Diepte, 11\n"
+            "#COLUMNINFO= 2, MPa, Conusweerstand, 2\n"
+            "#COLUMNINFO= 3, MPa, Conusweerstand nogmaals, 2\n"
+        )
+        data = "0.20; 1.0; 1.0\n0.40; 1.5; 1.5\n"
+        with pytest.raises(ParseError, match="columns 2, 3"):
+            parser.parse(_gef(header=header, data=data))
 
 
 class TestElevationSourceStamping:
