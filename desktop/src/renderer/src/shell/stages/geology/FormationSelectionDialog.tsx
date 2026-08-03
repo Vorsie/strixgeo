@@ -70,6 +70,7 @@ import type {
 } from '../../../api/client'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
+import { formationStableKey, normaliseFormationKey } from '../../../utils/formationKey'
 import { rankByPartialMatch } from '../../../utils/partialMatch'
 
 // ---------------------------------------------------------------------------
@@ -163,6 +164,88 @@ function buildManualMap(
   return map
 }
 
+/**
+ * Rebuild the row-reassignment state from a persisted ``manual_map`` snapshot.
+ *
+ * Every entry in the snapshot is KEPT.  There is deliberately no
+ * "drop entries whose source key is not a current candidate" filter — see the
+ * 2026-08-03 note below.
+ *
+ * A target that exactly matches a current candidate's display name is restored
+ * as ``{kind: 'candidate', key}`` so ``buildManualMap`` re-resolves the wire
+ * name from the live candidate (survives a name drift between sessions).
+ * Everything else is restored as ``{kind: 'custom', name}`` and travels
+ * verbatim.
+ *
+ * WHY no candidate-presence filter (2026-08-03 data-loss incident): the
+ * discover scan returns EFFECTIVE keys.  A raw key the user has lumped away is
+ * therefore ABSENT from ``candidates`` by construction — indistinguishable
+ * from a genuinely stale key left over from a different borehole set.  The old
+ * filter could not tell them apart and deleted the user's groupings on every
+ * reopen.  Carrying an unknown source key costs nothing: the server applies
+ * ``manual_map`` only to raw keys it actually encounters, so an entry for a key
+ * that never appears is a no-op.  Losing a real grouping costs the engineer
+ * their work — the asymmetry decides it.
+ *
+ * Parameters
+ * ----------
+ * initialReassignments
+ *     Persisted ``{ candidateKey → targetDisplayName }`` snapshot, or absent.
+ * candidates
+ *     Current candidate list, used only to pick the target discriminant.
+ *
+ * Returns
+ * -------
+ * RowReassignments
+ *     Reconstructed per-row state (empty when the snapshot is empty/absent).
+ */
+function buildInitialReassignments(
+  initialReassignments: Record<string, string> | undefined,
+  candidates: FormationCandidate[],
+): RowReassignments {
+  const result: RowReassignments = new Map()
+  if (!initialReassignments) return result
+  for (const [candidateKey, targetName] of Object.entries(initialReassignments)) {
+    const matchingCandidate = candidates.find(c => c.name === targetName)
+    if (matchingCandidate) {
+      result.set(candidateKey, { kind: 'candidate', key: matchingCandidate.key })
+    } else {
+      result.set(candidateKey, { kind: 'custom', name: targetName })
+    }
+  }
+  return result
+}
+
+/**
+ * Pre-check the candidates that already exist as formations in the model.
+ *
+ * Parameters
+ * ----------
+ * candidates
+ *     Current candidate list.
+ * currentFormations
+ *     Formations already in the model; matched on the same stable key the
+ *     server uses (``regional_ref`` when present, else ``name``).
+ *
+ * Returns
+ * -------
+ * ReadonlySet<string>
+ *     Candidate keys that start out checked.
+ */
+function buildInitialChecked(
+  candidates: FormationCandidate[],
+  currentFormations: GeologicalFormationResponse[],
+): ReadonlySet<string> {
+  // Normalised on BOTH sides — a raw .toLowerCase() reads
+  // "paleogeen: formatie van aalter" as a different unit from the server's
+  // "paleogeen formatie van aalter", so every punctuated formation silently
+  // failed to pre-check and went into Apply looking unselected.
+  const currentKeys = new Set(currentFormations.map(formationStableKey))
+  return new Set(
+    candidates.filter(c => currentKeys.has(normaliseFormationKey(c.key))).map(c => c.key),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -178,9 +261,10 @@ export interface FormationSelectionDialogProps {
    *
    * Shape: ``{ candidateKey → targetDisplayName }`` — the same wire format
    * emitted by ``buildManualMap`` and persisted in the ``.gmproj`` bundle
-   * under ``stratigraphy_lumping.map``.  Only entries whose ``candidateKey``
-   * is present in the current ``candidates`` list are applied; stale entries
-   * (from a prior discover run with different boreholes) are silently ignored.
+   * under ``stratigraphy_lumping.map``.  EVERY entry is restored, including
+   * ones whose ``candidateKey`` is absent from the current ``candidates``
+   * list — a lumped-away raw key looks exactly like that, and dropping it
+   * destroys the user's grouping (see ``buildInitialReassignments``).
    *
    * A candidate target whose ``targetDisplayName`` exactly matches an
    * existing candidate's ``name`` is restored as ``{kind: 'candidate', key}``;
@@ -295,21 +379,9 @@ export default function FormationSelectionDialog({
   // Checked state — stable keys
   // ---------------------------------------------------------------------------
 
-  const currentKeySet = useMemo(
-    () =>
-      new Set(
-        currentFormations.map(f => (f.regional_ref ?? f.name).toLowerCase()),
-      ),
-    [currentFormations],
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() =>
+    buildInitialChecked(candidates, currentFormations),
   )
-
-  const [checked, setChecked] = useState<ReadonlySet<string>>(() => {
-    return new Set(
-      candidates
-        .filter(c => currentKeySet.has(c.key.toLowerCase()))
-        .map(c => c.key),
-    )
-  })
 
   // ---------------------------------------------------------------------------
   // Per-row reassignment state
@@ -321,36 +393,38 @@ export default function FormationSelectionDialog({
   // collisions on arbitrary formation names.
   // ---------------------------------------------------------------------------
 
-  // Bug 3 fix: restore previously applied reassignments from the persisted
-  // lumping snapshot.  Only entries whose candidateKey exists in the current
-  // candidates list are applied — stale entries (from a discover run with
-  // different boreholes) are silently ignored.
+  // Restore previously applied reassignments from the persisted lumping
+  // snapshot.  See ``buildInitialReassignments`` for why every entry is kept.
+  const [reassignments, setReassignments] = useState<RowReassignments>(() =>
+    buildInitialReassignments(initialReassignments, candidates),
+  )
+
+  // ---------------------------------------------------------------------------
+  // Re-seed both state slices on the closed→open transition.
   //
-  // A candidate target is matched by name against the current candidates list
-  // to determine the correct ReassignTarget discriminant:
-  //   - Exact name match → {kind: 'candidate', key} so the downstream
-  //     buildManualMap resolves the wire name from the live candidate object
-  //     (survives name drift between sessions).
-  //   - No match → {kind: 'custom', name} (user-typed canonical name; kept
-  //     verbatim).
-  const [reassignments, setReassignments] = useState<RowReassignments>(() => {
-    if (!initialReassignments || Object.keys(initialReassignments).length === 0) {
-      return new Map()
+  // WHY this exists at all (2026-08-03 data-loss incident): GeologyToolbar
+  // mounts this dialog for the whole session and flips ``open`` later — Modal
+  // renders nothing while closed, but this component body still runs.  Both
+  // lazy ``useState`` initialisers therefore ran exactly once, at TOOLBAR
+  // mount, when ``open`` was false and ``candidates`` was ``[]``: no persisted
+  // grouping could be restored and no existing formation could be pre-checked,
+  // and neither initialiser ever ran again once the discover results arrived.
+  // The dialog opened blank every time and Apply carried that blankness to the
+  // server.
+  //
+  // WHY during render rather than in an effect: this is React's documented
+  // "adjusting state when a prop changes" pattern.  Re-seeding in an effect
+  // would let one commit escape with the pre-seed values — and the parent
+  // notification below would publish that empty map, which is the exact bug.
+  // ---------------------------------------------------------------------------
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setReassignments(buildInitialReassignments(initialReassignments, candidates))
+      setChecked(buildInitialChecked(candidates, currentFormations))
     }
-    const result: RowReassignments = new Map()
-    const candidateKeySet = new Set(candidates.map(c => c.key))
-    for (const [candidateKey, targetName] of Object.entries(initialReassignments)) {
-      // Skip entries whose source key is no longer in the current candidate list.
-      if (!candidateKeySet.has(candidateKey)) continue
-      const matchingCandidate = candidates.find(c => c.name === targetName)
-      if (matchingCandidate) {
-        result.set(candidateKey, { kind: 'candidate', key: matchingCandidate.key })
-      } else {
-        result.set(candidateKey, { kind: 'custom', name: targetName })
-      }
-    }
-    return result
-  })
+  }
 
   // ---------------------------------------------------------------------------
   // Parent notification — GROUP D state-update purity fix.
@@ -360,18 +434,29 @@ export default function FormationSelectionDialog({
   // React StrictMode that updater fires twice, double-firing the parent
   // callback and creating non-deterministic ordering relative to the state
   // commit.  The effect runs once, after commit, with the settled state.
+  //
+  // WHY the callback goes through a ref (2026-08-03): the parent declares
+  // ``onManualMapChange`` as a plain function in its body, so it has a new
+  // identity on EVERY parent render.  With it in the dependency array, any
+  // unrelated re-render re-published the current map to the parent — which is
+  // how the empty mount-time map became the map used for every later discover.
+  // A re-render is not a user gesture and must not notify.
   // ---------------------------------------------------------------------------
+  const onManualMapChangeRef = useRef(onManualMapChange)
+  onManualMapChangeRef.current = onManualMapChange
   useEffect(() => {
-    onManualMapChange(buildManualMap(reassignments, candidates))
-    // reason: we intentionally skip `candidates` from deps — it is only needed
-    // to resolve candidate display names at notification time; its identity
-    // changes when the parent re-renders after a discover call, which would
-    // re-fire the notification and trigger a new discover, creating a loop.
-    // The candidates list is stable between the user's reassignment gestures
-    // (the dialog stays open; candidates only change on open/close).  We rely
-    // on reassignments being the sole trigger here.
+    // Nothing to publish while the dialog is closed — the parent has no
+    // pending borehole scope then, and a closed dialog has no user intent.
+    if (!open) return
+    onManualMapChangeRef.current(buildManualMap(reassignments, candidates))
+    // reason: `candidates` is intentionally out of deps — it is only read to
+    // resolve display names at notification time, and its identity changes on
+    // every parent re-render after a discover call, which would re-fire the
+    // notification and trigger a new discover, looping. `onManualMapChange` is
+    // out of deps for the identity-churn reason documented above and is read
+    // through a ref so it is never stale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reassignments, onManualMapChange])
+  }, [reassignments, open])
 
   /** Set a row's reassignment target.  Clears the entry when ``target`` is null. */
   const setReassignment = useCallback(
@@ -394,11 +479,8 @@ export default function FormationSelectionDialog({
   // ---------------------------------------------------------------------------
 
   const { deletedFormationCount, deletedContactCount } = useMemo(() => {
-    const checkedLower = new Set(Array.from(checked).map(k => k.toLowerCase()))
-    const toDelete = currentFormations.filter(f => {
-      const stableKey = (f.regional_ref ?? f.name).toLowerCase()
-      return !checkedLower.has(stableKey)
-    })
+    const checkedKeys = new Set(Array.from(checked).map(normaliseFormationKey))
+    const toDelete = currentFormations.filter(f => !checkedKeys.has(formationStableKey(f)))
     const deletedIds = new Set(toDelete.map(f => f.id))
     return {
       deletedFormationCount: toDelete.length,
@@ -550,7 +632,8 @@ export default function FormationSelectionDialog({
         </h2>
         <p className="mt-1 text-xs text-text-secondary">
           Select formations to include. Use "→ same as" on a row to lump it into another
-          formation. Unselected formations and their contacts will be permanently deleted.
+          formation. If your selection leaves out formations already in the model, Apply
+          asks whether to add to the model or replace it.
         </p>
       </div>
 
@@ -726,40 +809,38 @@ export default function FormationSelectionDialog({
       {/* Deletion warning */}
       {willDelete && (
         <div className="px-5 py-2 border-t border-border-default bg-surface-page">
-          <p className="text-xs text-status-danger font-medium">
+          {/* No longer a promise of deletion — Apply asks first (2026-08-03).
+              Kept as an at-risk heads-up so the choice on the next dialog is
+              not a surprise.  Amber, not red: nothing is destroyed by getting
+              here, and red is reserved for committed destructive intent
+              (tailwind.config.js status-amber / status-danger split). */}
+          <p className="text-xs text-status-amber font-medium">
             {deletedFormationCount} formation{deletedFormationCount === 1 ? '' : 's'} and{' '}
-            {deletedContactCount} contact{deletedContactCount === 1 ? '' : 's'} will be
-            permanently deleted.
+            {deletedContactCount} contact{deletedContactCount === 1 ? '' : 's'} are not in
+            your selection. Apply will ask whether to keep or remove them.
           </p>
         </div>
       )}
 
       {/* Footer */}
       <div className="flex justify-end gap-2 px-5 py-4 border-t border-border-default">
-        {/* Cancel has autoFocus when a deletion warning is visible — safe
-            default for a destructive-confirm modal per docs/ux.md. */}
-        <Button
-          variant="secondary"
-          size="md"
-          onClick={onCancel}
-          // reason: autoFocus on Cancel is the safe default for a destructive
-          // confirm dialog when deletions would occur — the user must actively
-          // choose the destructive action. When willDelete is false (no
-          // deletions), the confirm button is focused instead.
-          // eslint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus={willDelete}
-        >
+        <Button variant="secondary" size="md" onClick={onCancel}>
           Cancel
         </Button>
+        {/* Apply is no longer the destructive step (2026-08-03): when the
+            selection would remove something, Apply opens the add-vs-overwrite
+            prompt, and THAT dialog default-focuses Cancel per docs/ux.md.
+            Confirming here is always safe, so it keeps the focus and the
+            primary variant regardless of `willDelete`. */}
         <Button
-          variant={willDelete ? 'danger' : 'primary'}
+          variant="primary"
           size="md"
           onClick={handleConfirm}
           disabled={checked.size === 0 && currentFormations.length === 0}
-          // reason: autoFocus on the confirm button when no deletions occur —
-          // the action is additive-only and safe to confirm with Enter.
+          // reason: autoFocus on the confirm button — this step no longer
+          // deletes anything, so Enter cannot cause an irreversible action.
           // eslint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus={!willDelete}
+          autoFocus
         >
           Apply selection
         </Button>
