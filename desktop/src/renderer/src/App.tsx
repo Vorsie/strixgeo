@@ -25,6 +25,8 @@ import RecoveryPromptDialog from './components/RecoveryPromptDialog'
 import NewProjectDialog from './components/NewProjectDialog'
 import AppBootError from './components/AppBootError'
 import BackendFailedModal from './components/BackendFailedModal'
+import BackendUnreachableBanner from './components/BackendUnreachableBanner'
+import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
@@ -723,6 +725,9 @@ export default function App() {
     handlePatchCptElevation,
     handlePatchBoreholeElevation,
     handleImportCpt,
+    refreshConfirm,
+    confirmRefreshImport,
+    cancelRefreshImport,
     handleImportDov,
     handleImportBoreholeDov,
     handleBboxDrawn,
@@ -740,6 +745,7 @@ export default function App() {
     selectedBoreholeId,
     setSelectedBoreholeId,
     setView,
+    markMutated,
   })
 
   // Wire the File → Import CPT menu signal to the import flow. The
@@ -1203,8 +1209,14 @@ export default function App() {
     <BackendFailedModal open={backendFailed} logsPath={logsPath} />
   )
 
-  if (apiError) return <>{backendFailedModal}<AppBootError /></>
-  if (!ready) return <>{backendFailedModal}<AppLoading /></>
+  // Mid-session backend death (#FINDINGS-A 4). Rendered in EVERY branch for the
+  // same reason as the modal above: the backend can go away at any moment, and
+  // the branch the shell happens to be in when it does must not decide whether
+  // the engineer is told. Renders null unless the condition holds.
+  const backendUnreachableBanner = <BackendUnreachableBanner />
+
+  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}<AppBootError /></>
+  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}<AppLoading /></>
 
   if (!project) {
     return (
@@ -1255,6 +1267,7 @@ export default function App() {
         <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
         {/* Backend-failed modal — portal to body, safe in every branch. */}
         {backendFailedModal}
+        {backendUnreachableBanner}
       </>
     )
   }
@@ -1273,6 +1286,19 @@ export default function App() {
       {/* Shell — takes the full viewport. Stage zone components are
           placeholder nulls in S3; S4/S5 fill them. */}
       <AppShell context={shellContextValue} />
+
+      {/* Sits above the shell chrome so it is legible over any stage. */}
+      {backendUnreachableBanner}
+
+      {/* Refresh-on-reimport consent. Only reachable with a project open (the
+          import menu item is), so it lives in this branch alone. */}
+      <CptRefreshConfirmDialog
+        open={refreshConfirm !== null}
+        fileName={refreshConfirm?.fileName ?? ''}
+        diff={refreshConfirm?.diff ?? null}
+        onConfirm={confirmRefreshImport}
+        onCancel={cancelRefreshImport}
+      />
 
       {/* App-level overlays (toasts + the 4 global dialogs) — R5
           (debt #12). Outside ShellContext.Provider so they sit above
