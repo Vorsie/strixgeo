@@ -51,6 +51,7 @@ from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.exceptions import VoxelGridTooLargeError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -264,6 +265,9 @@ async def _build_rebuild_response(
         # Investigations outside the model footprint. Carried out so the client
         # can downgrade the toast: the build succeeded, but not for these.
         uncovered_test_ids=outcome.uncovered_test_ids,
+        # Why an empty build is empty. An empty build also CLEARED the stored
+        # 3-D model, so the client must not read zero bodies as a plain success.
+        empty_reason=outcome.empty_reason,
     )
 
 
@@ -327,6 +331,12 @@ async def build_voxel_litho_solids(
     ------
     HTTPException(404)
         When the model does not belong to the project.
+    HTTPException(422)
+        When the requested spacing resolves to more voxels than one build may
+        allocate.  The detail is ``{"code": "voxel_grid_too_large", "message":
+        ..., "suggested_horizontal_m": <float>}`` — the retry spacing stays a
+        number so the client can offer the retry instead of parsing it out of
+        prose or making the engineer guess.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/litho-solids/build-voxel "
@@ -350,13 +360,33 @@ async def build_voxel_litho_solids(
     domain_sections = request.to_domain_sections()
     horizontal_m = request.effective_horizontal_spacing_m
     vertical_m = request.effective_vertical_spacing_m
-    outcome = await BuildVoxelLithoModel(session).execute(
-        model_id,
-        domain_sections,
-        grid_spacing_m=horizontal_m,
-        vertical_spacing_m=(None if vertical_m == horizontal_m else vertical_m),
-        force=force,
-    )
+    try:
+        outcome = await BuildVoxelLithoModel(session).execute(
+            model_id,
+            domain_sections,
+            grid_spacing_m=horizontal_m,
+            vertical_spacing_m=(None if vertical_m == horizontal_m else vertical_m),
+            force=force,
+        )
+    except VoxelGridTooLargeError as err:
+        # A spacing the engineer can simply retype — 422, never a 500 and never
+        # the destructive "unbuildable model" path (which clears the stored 3-D
+        # solids).  The stored model is untouched: nothing was written yet.
+        logger.warning(
+            f"build_voxel refused: project={project_id} model={model_id} — {err} "
+            f"(suggested horizontal spacing {err.suggested_horizontal_m} m)"
+        )
+        # Structured, because the exception deliberately carries the retry
+        # spacing as a NUMBER: prose would force the renderer to parse it back
+        # out of a sentence to offer "retry at 3.0 m".
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "voxel_grid_too_large",
+                "message": str(err),
+                "suggested_horizontal_m": err.suggested_horizontal_m,
+            },
+        ) from err
 
     return await _build_rebuild_response(
         session, project_id, model_id, outcome, log_label="build_voxel"
