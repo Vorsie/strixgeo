@@ -82,6 +82,7 @@ from groundmodel.infrastructure.db.repositories.cross_section_repository import 
     CrossSectionRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.constants.auto_populate_mode import AutoPopulateMode
 from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -193,8 +194,9 @@ async def auto_populate_from_stratigraphy(
         Geological model to seed — must belong to ``project_id``.
     request : AutoPopulateFromStratigraphyRequest
         Body with ``borehole_ids``, optional ``selected_keys`` /
-        ``manual_map`` / ``section_id`` and the
-        ``create_missing_formations`` flag.
+        ``manual_map`` / ``section_id``, the ``create_missing_formations``
+        flag, and ``mode`` (``add`` — the default — never deletes;
+        ``overwrite`` removes the formations not in ``selected_keys``).
     session : AsyncSession
         Database session injected by FastAPI dependency injection.
 
@@ -232,6 +234,7 @@ async def auto_populate_from_stratigraphy(
         section_id=request.section_id,
         bridge=bridge or None,
         create_missing_formations=request.create_missing_formations,
+        mode=request.mode,
     )
 
     # Explicit-content invariant (owner directive 2026-05-17):
@@ -268,6 +271,8 @@ async def auto_populate_from_stratigraphy(
         skipped_not_in_model=outcome.skipped_not_in_model,
         collisions=_to_collision_items(outcome.collisions),
         updated_section=updated_section_response,
+        deleted_formation_names=outcome.deleted_formation_names,
+        mode=AutoPopulateMode(outcome.mode),
     )
 
 
