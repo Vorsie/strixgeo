@@ -37,7 +37,8 @@ Invariants checked
    ``nad_class`` on a CPT band is a DELIBERATE answer, not a failure, when the
    qc gives nothing to derive a class from (owner rule 2026-07-25): the cone
    read nothing inside the band's interval, or the valid readings leave a
-   material gap (>40 % of the thickness, or a ≥5 cm continuous span).  Both are
+   material gap (>40 % of the thickness, or a ≥5 cm continuous run of bad
+   readings — a coarser sampling interval is not a gap).  Both are
    "needs review", and the segmenter says so rather than asserting the loosest
    packing class from no evidence.  What would still be a hard defect is a null
    class on a band the qc DOES cover — that means the segmenter or materialiser
@@ -190,8 +191,10 @@ def test_null_class_on_a_cpt_band_means_the_qc_could_not_classify_it() -> None:
     * no cone reading at all inside the band's depth interval — a contact placed
       above the CPT's first sample, or a sliver from the geo-bounding divide;
     * valid qc missing over a material span — more than
-      ``QC_REVIEW_MISSING_FRACTION`` of the thickness, or a continuous gap of at
-      least ``QC_REVIEW_MAX_GAP_M``.
+      ``QC_REVIEW_MISSING_FRACTION`` of the thickness, or a continuous run of
+      bad readings at least ``QC_REVIEW_MAX_GAP_M`` long. Depth the cone never
+      sampled (a coarser interval, a rod-change jump) is coverage limit, not a
+      gap, and contributes nothing.
 
     Any OTHER null class on a CPT band is the defect this invariant guards: the
     band is covered by usable qc and still came back unclassified, which means
