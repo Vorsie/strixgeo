@@ -10,12 +10,11 @@ surface: `RecoveryPromptDialog` (three choices, per Q3), `hooks/useRecoveryOffer
 single detection point, keyed on the open project's id), `hooks/useRecoveryRestore`
 (applies the six items; `utils/recoveryReconcile` implements §3's table) and the
 `WelcomeScreen` "Recovered work" list.
-OPEN: how long a DECLINED recovery file should live — "Open without restoring" deletes
-nothing, but the scheduler overwrites the file as soon as the new session has anything
-at risk and every decided exit clears it unconditionally, so declining and then closing
-destroys unrestored work silently. Making decline-then-restart work means gating the
-decided-exit clear on "this session owns the file", i.e. a change to the clearing
-contract in §4. Owner decision.
+**DECIDED (owner, 2026-08-03):** a declined copy survives, Word-style. "Open without
+restoring" moves the file to a second **declined slot** the autosave scheduler never
+writes, so the next launch offers the same unsaved work again; the prompt's **Discard**
+is the only thing that destroys it. See §4's clearing table for the two deletes that
+implements.
 Load before touching autosave, the recovery file, or the stratigraphy lumping map.
 
 ---
@@ -131,8 +130,23 @@ only copy and there is nothing to reconcile.
 ### Location and format
 
 ```
-<userData>/recovery/<projectId>.recovery.json
+<userData>/recovery/<projectId>.recovery.json           (primary)
+<userData>/recovery/<projectId>.recovery.declined.json  (declined)
+<userData>/recovery/<projectId>.recovery.corrupt.json   (quarantine, never read)
 ```
+
+Two slots, one offer. The scheduler writes and clears the **primary** slot only; the
+**declined** slot holds a copy the user chose to keep but not restore. Readers prefer
+the primary (a primary present alongside a declined one is strictly newer work), and
+the start screen lists one entry per project, not per file.
+
+**Presence wins only for a READABLE primary.** An unparseable, foreign, stale or
+over-cap primary is garbage, not state — and left in place it hid a valid declined
+copy at every launch, forever, because nothing ever deleted it. So `resolveSlot`
+quarantines it (`renameSync` onto the third name, overwriting an older quarantine,
+plus a WARN naming the reason) and falls through to the declined slot in the same
+resolve. Nothing reads the quarantine; it survives for support questions and goes
+with the rest on Discard.
 
 No sibling `.bak`: the write goes through `writeFileAtomic` (temp file, then rename), so a
 reader already sees either the old file or the new one and never a blend — a second copy would
@@ -169,11 +183,46 @@ Three consequences worth stating:
 
 ### Clearing
 
-After a save **gated on the file write, not the return value** — `saveProject` swallows a
-`writeProjectFile` failure and returns `true` anyway; that is defensible for the DB but wrong as
-a recovery signal, since a failed file write means the delta still has no durable home. Also
-after Discard, after close-with-decision, on explicit "Discard unsaved work", and when all six
-watched values return to clean mid-session.
+Three deletes, because three different intents were being spelled with one call:
+
+| path | clears | why |
+|---|---|---|
+| the prompt's **Discard unsaved work** | **both slots** (+ the quarantine) | the user asked for the work to be gone; leaving a declined copy would re-offer it every launch and make the button look broken |
+| the prompt's **Restore**, after the promoting write | **declined only** | the restore promotes the offered snapshot into the primary slot, so the decline is over. Without this the declined file sits behind the new primary, every clean exit clears only the primary, and the same work is offered at every launch forever — a user who restores could never make the prompt stop |
+| every other decided exit — save, discard-and-close, close, quit — and the scheduler's dirty→clean transition | **primary only** | these mean "*this session's* delta has a durable home now". They say nothing about a copy declined in an earlier session, and taking it would restore the exact silent loss the declined slot removes |
+
+**Restore writes before it deletes, never the reverse.** The app can die between the
+two calls; deleting first would leave an instant in which the only copy of the
+restored, at-risk work is the one in memory. The write is idempotent when the
+snapshot already came from the primary slot, and is the durable replacement when it
+did not — so a failed write means the declined copy stays exactly where it is.
+
+### The scheduler is suspended while the prompt is unanswered
+
+`useRecoveryAutosave` takes a `suspended` flag; App passes
+`suspended={recoveryOffer !== null}`. For that window the files on disk are the
+*crashed* session's, not this one's, and two races follow from letting the scheduler
+run into it: a debounced write landing between an answer handler's two IPC calls
+replaces the crashed copy with this session's much thinner delta (the decline then
+preserves *that*, keeping the promise in name only), and a decided exit taken while
+the prompt is still up runs `clearRecoveryNow` and deletes a crash copy the user
+never answered for. Suspended, nothing is scheduled and every clear is a no-op with
+an INFO line; quitting mid-question keeps the copy and is re-offered next launch.
+The three answer handlers finish their IPC work **before** clearing the offer, so the
+whole answer sequence runs under the suspension.
+
+The post-save clear is **gated on the file write, not the return value** — `saveProject`
+swallows a `writeProjectFile` failure and returns `true` anyway; that is defensible for the DB
+but wrong as a recovery signal, since a failed file write means the delta still has no durable
+home.
+
+**"Open without restoring" writes before it moves.** A crash-reopened project is at risk from
+the moment it mounts (the session-import sets survive in localStorage), so the scheduler can
+overwrite the primary slot with this session's much thinner delta while the prompt is still up.
+Moving *that* would keep the promise in name only, so the offered snapshot — the one the prompt
+itemised — is written back first and then moved. The cost is the write timestamp: the next
+launch dates the copy from the decline rather than from the crash. Payload fidelity beats age
+fidelity; the age line informs a judgement, the payload is the work.
 
 **Ordering trap:** cancel every pending debounce/cap timer *inside* the clear path. A late timer
 firing after a clean save resurrects the file and produces a false recovery offer next launch.
@@ -200,10 +249,23 @@ strict UUID regex and resolves the path itself under `userData`. No traversal in
 * ~~**Q3** — three choices in the prompt (Restore / Open without restoring / Discard) or
   two?~~ **ANSWERED (owner, 2026-08-02): three**, plus a Word-style "Recovered work"
   entry on the start screen. Shipped.
-* **Q4** — add `requestSingleInstanceLock()`? Two instances are already broken by the `:8765`
-  bind. Cheap; recommended.
-* **Q6** — gate `View → Reload` and DevTools on `!app.isPackaged` now (debt #200)? It is the
-  single most likely accidental trigger of the loss this feature mitigates.
+* ~~**Q4** — add `requestSingleInstanceLock()`?~~ **ANSWERED (owner, 2026-08-03): yes.**
+  Shipped: the loser quits, the winner restores and focuses its window. The lock is
+  requested unless `STRIX_DISABLE_SINGLE_INSTANCE` is set *and* the build is
+  unpackaged — the Playwright harness sets it, because ~166 launches share one
+  userData dir and a single lingering process would make every subsequent launch a
+  lock loser that exits before creating a window. The winner's `second-instance`
+  handler logs the argv it drops (opening a handed-over `.strix` is a future
+  deep-link feature, debt #200).
+* ~~**Q6** — gate `View → Reload` and DevTools on `!app.isPackaged` now (debt #200)?~~
+  **ANSWERED (owner, 2026-08-03): yes.** Shipped: packaged builds register neither role
+  (so neither do their accelerators) and `webPreferences.devTools` is off. Consequence
+  paid for in the same pass: the renderer's close-flow INFO lines became invisible in
+  packaged builds, so each one is now mirrored to the main process through a single
+  `app:close-flow-note` channel (`utils/closeFlowNote`) and prints as
+  `[renderer] …` beside main's own close lines. Close flow only — deliberately not a
+  general log bridge. (`--remote-debugging-port` / `--inspect` remain open; that is a
+  tamper surface, tracked under debt #5.)
 * **Q7** — confirm the undo stack is out of scope *permanently*, so it stops being an open
   question.
 * **Q8** — `writeFileAtomic` has no `fsync` anywhere: atomic against a process kill, not durable
