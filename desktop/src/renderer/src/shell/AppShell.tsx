@@ -255,7 +255,12 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [activeStageId, context, setActiveStage])
 
-  log.debug('shell', `render stage=${activeStageId} inspectorOpen=${inspectorOpen}`)
+  // Per-RENDER, not per-event: React re-renders the shell on every state change
+  // anywhere beneath it, so this fired dozens of times a second during a drag
+  // and buried every other debug line in the console (owner paste 2026-08-02).
+  // Per-render detail is what `trace` is for — opt in with
+  // localStorage['strix.log.trace'] = '1' when the shell itself is the suspect.
+  log.trace('shell', `render stage=${activeStageId} inspectorOpen=${inspectorOpen}`)
 
   return (
     <ShellContext.Provider value={context}>
