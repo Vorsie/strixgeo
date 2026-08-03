@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import type { ProjectResponse } from '../api/client'
 import { log } from '../utils/log'
+import { noteCloseFlow } from '../utils/closeFlowNote'
 import type { PickAndOpenResult } from './useProject'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { buildUnsavedWorkSummary } from '../utils/unsavedWorkSummary'
@@ -432,9 +433,20 @@ export function useProjectLifecycle({
   //   * Dirty (unsaved live edits) → save-or-discard prompt
   //   * Clean + Sidebar X → click-protection confirm (mis-click guard)
   //   * Clean + File menu / Ctrl+W → close immediately (explicit intent)
+  // Every branch below notes itself through ``noteCloseFlow``. The close flow
+  // never touches the API, so a report of the shape "it discarded my work
+  // without asking" has no server log to check and no reliable repro — the
+  // console is the only witness. INFO, not DEBUG (DEBUG is stripped from the
+  // build the report came from), and mirrored into the MAIN process console,
+  // which is the one a pasted terminal log actually shows: a packaged build
+  // has DevTools disabled and forwards the renderer console nowhere. One line
+  // per decision point answers it: who asked, was it dirty, did a dialog go
+  // up, and which button ended it.
   const attemptClose = useCallback(
     (source: 'sidebar' | 'menu') => {
+      noteCloseFlow(`close requested from ${source}, dirty=${projectDirty}`)
       if (projectDirty) {
+        noteCloseFlow('unsaved-changes dialog opened (mode=close-project)')
         // In-app close paths use the close-project mode; the OS-X close
         // path overrides this back to 'quit-app' before opening the
         // dialog (see the ``onAppBeforeQuit`` effect below).
@@ -443,9 +455,11 @@ export function useProjectLifecycle({
         return
       }
       if (source === 'sidebar') {
+        noteCloseFlow('clean close from the sidebar — click-protection confirm opened')
         setCloseConfirmOpen(true)
         return
       }
+      noteCloseFlow('clean close from the menu — closing without a prompt')
       closeProject()
     },
     [projectDirty, closeProject],
@@ -471,6 +485,7 @@ export function useProjectLifecycle({
   // intact regardless). When the dialog was opened in ``quit-app`` mode
   // (OS-X close), notify the main process so it can finish exiting.
   const handleUnsavedSave = useCallback(async () => {
+    noteCloseFlow(`unsaved dialog answered: Save (mode=${unsavedDialogMode})`)
     setUnsavedSaving(true)
     try {
       const ok = await saveProject()
@@ -498,6 +513,10 @@ export function useProjectLifecycle({
   // DB-deletes the session-created rows. Either way the mutations flag is
   // cleared and the project closes. The .gmproj file is never touched.
   const handleUnsavedDiscard = useCallback(async () => {
+    // The line that answers "it discarded without asking": it is emitted from
+    // the dialog's own button handler, so its presence proves a dialog was up
+    // and its absence proves the loss came from somewhere else entirely.
+    noteCloseFlow(`unsaved dialog answered: Discard (mode=${unsavedDialogMode})`)
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
     const reverted = await revertToLastSaved()
@@ -530,6 +549,7 @@ export function useProjectLifecycle({
   // Cancel from the unsaved-drafts dialog. In quit-app mode that means
   // 'don't exit the app'; we tell main to abort the close.
   const handleUnsavedCancel = useCallback(() => {
+    noteCloseFlow(`unsaved dialog answered: Cancel (mode=${unsavedDialogMode})`)
     setUnsavedDialogOpen(false)
     if (unsavedDialogMode === 'quit-app') {
       void window.electron.notifyQuitDecision(false)
@@ -596,6 +616,7 @@ export function useProjectLifecycle({
   useEffect(() => {
     const off = window.electron.onAppBeforeQuit(() => {
       if (project === null || !projectDirty) {
+        noteCloseFlow('quit requested: clean — agreeing without a prompt')
         // A clean quit is a DECIDED exit, so the recovery file goes first —
         // leaving it would make the next launch claim this session crashed.
         // Deletion deliberately hangs off this renderer-side decision and
@@ -607,6 +628,7 @@ export function useProjectLifecycle({
         })()
         return
       }
+      noteCloseFlow('quit requested: dirty — unsaved-changes dialog opened (mode=quit-app)')
       setUnsavedDialogMode('quit-app')
       setUnsavedDialogOpen(true)
     })
