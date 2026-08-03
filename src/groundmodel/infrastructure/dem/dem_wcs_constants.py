@@ -34,6 +34,20 @@ WCS_TIMEOUT_SECONDS: Final = 30.0
 # 1 m native resolution (DHMVII) and 0.5 m resolution (AHN4).
 WCS_BBOX_PADDING_M: Final = 2.0
 
+# Largest span (metres) accepted on either axis of a tile request. A real
+# project hull is a few km across; anything beyond 25 km is a caller bug
+# (bad CRS, a stray 0 coordinate dragging the bbox to the origin) and at
+# 1 m native resolution would ask the WCS for a >600 Mpixel tile.
+WCS_MAX_EXTENT_SPAN_M: Final = 25_000.0
+
+# How long an upstream failure for one exact tile key is remembered before
+# the network is tried again. Born from the dogfeed 2026-08-02 flood: a
+# section at (0,0)→(1000,0) re-requested the same 404ing strip dozens of
+# times in one session because nothing remembered the previous answer.
+# 5 minutes is long enough to kill a UI-driven retry storm and short enough
+# that a transient outage self-heals within one working pause.
+WCS_NEGATIVE_CACHE_TTL_SECONDS: Final = 300.0
+
 # ---------------------------------------------------------------------------
 # DHMVII — Flanders / EPSG:31370 (BD72 / Belgian Lambert 1972)
 # ---------------------------------------------------------------------------
@@ -49,6 +63,15 @@ DHMVII_COVERAGE_ID: Final = "DHMVII_DTM_1m"
 # ``<swe:nilValue>-9999</swe:nilValue>``.  Appears at water bodies, hill
 # shadows, and outside-coverage pixels.
 DHMVII_NODATA: Final = -9999.0
+
+# Plausible domain of EPSG:31370 (Belgian Lambert 72), as
+# (min_x, min_y, max_x, max_y) in metres. This is the CRS's own area of use
+# (all of Belgium, with margin) — NOT the DHMVII coverage footprint: a
+# Wallonia bbox is a legitimate request that simply returns NoData, and must
+# not be refused. What this rejects is coordinates that cannot be Lambert 72
+# at all — the (0,0)-anchored extents a section drawn in section space (or a
+# stale/zeroed section row) produces. Such a request can only 404, forever.
+DHMVII_VALID_EXTENT: Final = (14_000.0, 20_000.0, 300_000.0, 250_000.0)
 
 # ---------------------------------------------------------------------------
 # AHN4 — Netherlands / EPSG:28992 (Amersfoort / RD New)
@@ -67,3 +90,10 @@ AHN4_COVERAGE_ID: Final = "dtm_05m"
 # We compare with a threshold rather than exact equality to guard against
 # float32→float64 precision expansion when Pillow decodes the TIFF.
 AHN4_NODATA_THRESHOLD: Final = 1e37
+
+# Plausible domain of EPSG:28992 (Amersfoort / RD New), as
+# (min_x, min_y, max_x, max_y) in metres — the CRS's area of use (the
+# Netherlands, with margin). Same purpose as ``DHMVII_VALID_EXTENT``: reject
+# coordinates that are not RD New at all. Note RD New's false origin puts
+# every real Y above ~276 km, so an origin-anchored extent fails on Y.
+AHN4_VALID_EXTENT: Final = (0.0, 270_000.0, 310_000.0, 640_000.0)
