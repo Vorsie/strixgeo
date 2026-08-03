@@ -1,8 +1,18 @@
 """GEF-CPT parser constants — quantity mappings, unit conversions, MEASUREMENTVAR indices."""
 
 # GEF quantity number → standard column name
+#
+# qty 1 vs qty 11 — the distinction that decides how deep every layer sits:
+#   qty 1  = sondeerlengte  (penetration length) — length of rod pushed in,
+#            measured ALONG the rod, so it includes the deviation from vertical.
+#   qty 11 = gecorrigeerde diepte (corrected depth) — vertical depth below
+#            ground level after the inclination correction.
+# The corrected depth is therefore always ≤ the penetration length. A real
+# DOV file states it in its own header — ``#COLUMNINFO= 1, m, Lengte, 1``
+# next to ``#COLUMNINFO= 5, m, Diepte, 11`` — and its last row reads
+# 20.22 (Lengte) against 20.212 (Diepte).
 QUANTITY_TO_COLUMN: dict[int, str] = {
-    1: "depth_m",
+    1: "length_m",  # penetration length — needs inclination correction for true depth
     2: "qc_mpa",
     3: "fs_mpa",
     4: "rf_pct",
@@ -12,7 +22,7 @@ QUANTITY_TO_COLUMN: dict[int, str] = {
     8: "inclination_deg",
     9: "inclination_ns_deg",
     10: "inclination_ew_deg",
-    11: "length_m",  # penetration length — needs inclination correction for true depth
+    11: "depth_m",  # inclination-corrected vertical depth below ground level
     # qty 15 = corrected cone resistance (CPTU only). Robertson definition:
     # qt = qc + u2·(1 - a). Some piezocone software emits this directly; otherwise
     # downstream code derives it from qc + u2 + net area ratio.
@@ -52,6 +62,50 @@ PRESSURE_COLUMNS: frozenset[str] = frozenset(
         "qn_mpa",
     }
 )
+
+# ---------------------------------------------------------------------------
+# Coordinate-system codes
+# ---------------------------------------------------------------------------
+# The number in ``#XYID=`` / ``#ZID=`` is a **GEF codelist code**, not an EPSG
+# code. They look like EPSG codes and are five digits, which is exactly why
+# they used to be stored verbatim as one — a row tagged 32000 then means
+# nothing to PostGIS, proj4, or any EPSG-keyed lookup in this codebase.
+#
+# Horizontal (``#XYID``):
+#   31000 → 28992  Rijksdriehoeksmeting (RD New, NL national grid)
+#   32000 → 31370  Belgian Lambert 72 (every DOV-exported GEF; verified against
+#                  data/cpt/*.gef, whose 32000-tagged coordinates land in
+#                  Flanders when read as Lambert 72)
+GEF_XY_CODE_TO_EPSG: dict[int, int] = {
+    31000: 28992,
+    32000: 31370,
+}
+
+# Vertical (``#ZID``):
+#   32001 → 5710   mTAW (Tweede Algemene Waterpassing, BE) — matches the
+#                  vertical EPSG the DOV XML import path stamps for the same
+#                  physical soundings.
+#
+# The Dutch vertical code is deliberately ABSENT until a real BRO/DINO GEF is
+# in hand to verify it against. Same stance as ``codelists/vertical_crs.py``:
+# a wrong datum silently mislabels every elevation, a missing one only falls
+# back to a bare "m".
+GEF_Z_CODE_TO_EPSG: dict[int, int] = {
+    32001: 5710,
+}
+
+# Data-block separators when the file declares none.
+#
+# ``#COLUMNSEPARATOR=`` and ``#RECORDSEPARATOR=`` are optional; without them
+# the historic behaviour applies — values split on semicolons and/or runs of
+# whitespace, and nothing terminates the record beyond the newline.
+DEFAULT_COLUMN_SEPARATORS: frozenset[str] = frozenset({";"})
+
+# Characters that may occur INSIDE a number and can therefore never act as a
+# column separator. Splitting on '-' would turn the void value -9999.0 into
+# +9999.0 — a sign flip that no validation check downstream would catch. A
+# declared separator drawn from this set is refused rather than honoured.
+NUMERIC_CHARACTERS: frozenset[str] = frozenset("0123456789.-+eE")
 
 # #MEASUREMENTVAR indices (GEF-CPT-Report standard)
 MVAR_NET_AREA_RATIO = 3  # Net surface area quotient of cone tip (a-value)
