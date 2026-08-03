@@ -50,6 +50,7 @@ import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
+import { implausibleSectionCoordinates } from '../../../utils/sectionCoordinatePlausibility'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
@@ -267,6 +268,26 @@ export default function SectionsCanvas(): JSX.Element {
       selectedSectionId ? visibleSections.find(s => s.id === selectedSectionId) ?? null : null,
     [selectedSectionId, visibleSections],
   )
+
+  // A section whose endpoints are not map coordinates is a DATA defect, and it
+  // is invisible otherwise: the ground-surface line simply never appears while
+  // the backend refuses the extent. Name it once per section so the engineer
+  // can fix (or delete) the row instead of wondering where the DEM went.
+  // Keyed on the section id, so re-selecting the same section does not nag and
+  // a view_state PATCH (which re-identifies the row object) does not re-toast.
+  const coordinateDefectWarnedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (selectedSection === null) return
+    if (coordinateDefectWarnedRef.current.has(selectedSection.id)) return
+    const reason = implausibleSectionCoordinates(selectedSection)
+    if (reason === null) return
+    coordinateDefectWarnedRef.current.add(selectedSection.id)
+    log.warn('sections', `${reason} (id=${selectedSection.id})`)
+    // WARNING, not error: the section still opens and every other overlay
+    // works — only the ground-surface line is unavailable. The project's own
+    // level guide calls that "degraded but continuing".
+    toast('warning', reason)
+  }, [selectedSection, toast])
 
 
   // Axis flags â€” defined early so downstream blocks can use them.
