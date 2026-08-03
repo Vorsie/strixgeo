@@ -250,7 +250,8 @@ async def _build_rebuild_response(
         f"skipped={outcome.bodies_skipped_checksum} flagged={outcome.bodies_flagged} "
         f"orphans_deleted={outcome.orphans_deleted} "
         f"solids_returned={len(solid_responses)} "
-        f"marked_tests={len(outcome.marked_test_ids)}"
+        f"marked_tests={len(outcome.marked_test_ids)} "
+        f"uncovered_tests={len(outcome.uncovered_test_ids)}"
     )
     return RebuildLithoSolidsResponse(
         bodies_considered=outcome.bodies_considered,
@@ -260,6 +261,9 @@ async def _build_rebuild_response(
         orphans_deleted=outcome.orphans_deleted,
         solids=solid_responses,
         marked_test_ids=outcome.marked_test_ids,
+        # Investigations outside the model footprint. Carried out so the client
+        # can downgrade the toast: the build succeeded, but not for these.
+        uncovered_test_ids=outcome.uncovered_test_ids,
     )
 
 
