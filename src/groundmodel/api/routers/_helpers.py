@@ -18,53 +18,78 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import ARRAY, Text, case, cast, func, text, update
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_NO_OVERLAP_CONSTRAINT
 
 T = TypeVar("T")
 
 
-def merge_view_state(
-    existing: dict[str, Any] | None,
+async def apply_view_state_patch(
+    session: AsyncSession,
+    model: Any,
+    row_id: UUID,
     patch: dict[str, Any],
-) -> dict[str, Any]:
-    """Shallow-merge ``patch`` into ``existing`` for a JSONB view-state bag.
+) -> None:
+    """Shallow-merge ``patch`` into a row's ``view_state`` inside ONE statement.
 
-    The merge semantics are deliberately consistent across every
-    view-state surface (project-level, section-level, future
-    investigation-level):
+    WHY NOT the Python merge: reading the bag, merging in Python and writing the
+    whole column back is a lost-update race. Two concurrent PATCHes on the same
+    row read the SAME snapshot and the second COMMIT silently drops the first
+    caller's key — an engineer's toggle, or the project row's ``save_anchor``,
+    disappears with no error anywhere (the same class of bug debt #208 fixed on
+    the section seeded-set).
 
-    * Each top-level key in ``patch`` overwrites the same key in
-      ``existing``; siblings are left untouched.
-    * A ``patch`` value of ``None`` removes the key from the bag.
-    * The returned dict is a NEW object — required so SQLAlchemy
-      notices the change on a JSONB column.
+    Doing the merge as a single ``UPDATE`` closes it without any lock: under
+    READ COMMITTED an ``UPDATE`` that meets a concurrently-updated row waits for
+    the other transaction and then re-evaluates its SET expression against the
+    NEW row version, so ``view_state || patch`` composes instead of clobbering.
+    An explicit advisory lock would also work but it forces the request's
+    transaction open across the whole handler, which deadlocks against the
+    integration suite's TRUNCATE — a lock-free statement has no such surface.
 
-    Nested values are intentionally NOT deep-merged. Deep merge has
-    surprising semantics around array fields (replace? append?
-    dedup?) that the API can't decide for callers. To change a
-    nested field, the caller patches the whole subtree.
+    Merge semantics are the same on every view-state surface (project-level,
+    section-level, future investigation-level): each top-level key in ``patch``
+    overwrites its namesake, a ``None`` value REMOVES the key, siblings are
+    untouched. Nested values are deliberately NOT deep-merged — deep merge has
+    surprising semantics around array fields (replace? append? dedup?) that the
+    API cannot decide for callers, so a caller changing a nested field patches
+    the whole subtree.
 
     Parameters
     ----------
-    existing : dict[str, Any] | None
-        Current value of the JSONB column. ``None`` is treated as an
-        empty bag — the merge proceeds against ``{}``.
+    session : AsyncSession
+        Session to execute in. The caller commits.
+    model : Any
+        ORM class carrying ``id`` and a JSONB ``view_state`` column.
+    row_id : UUID
+        Primary key of the row to patch.
     patch : dict[str, Any]
-        Top-level keys to merge. An empty dict is a no-op (returns a
-        copy of ``existing``); the caller decides whether to skip
-        the write entirely on empty patches.
-
-    Returns
-    -------
-    dict[str, Any]
-        Fresh dict ready to assign back to the JSONB column.
+        Top-level keys to merge. An empty dict is a no-op.
     """
-    merged: dict[str, Any] = dict(existing or {})
-    for key, value in patch.items():
-        if value is None:
-            merged.pop(key, None)
-        else:
-            merged[key] = value
-    return merged
+    if not patch:
+        return
+    additions = {key: value for key, value in patch.items() if value is not None}
+    removals = [key for key, value in patch.items() if value is None]
+    # ``jsonb || jsonb`` is the shallow merge; ``jsonb - text[]`` drops keys.
+    #
+    # The CASE is load-bearing, not defensive noise: on a non-object left side
+    # ``||`` CONCATENATES instead of merging, so a bag holding SQL NULL (the
+    # section column's default) or JSON ``null`` would turn into the array
+    # ``[null, {...}]`` and every later read would see a list where the code
+    # expects a dict. ``jsonb_typeof`` is NULL for SQL NULL, so one test covers
+    # both cases plus any junk a legacy row carries.
+    current = case(
+        (func.jsonb_typeof(model.view_state) == "object", model.view_state),
+        else_=text("'{}'::jsonb"),
+    )
+    merged = current.op("||")(cast(additions, JSONB))
+    if removals:
+        merged = merged.op("-")(cast(removals, ARRAY(Text)))
+    await session.execute(update(model).where(model.id == row_id).values(view_state=merged))
 
 
 def safe_filename_stem(name: str, fallback: str) -> str:
@@ -184,3 +209,55 @@ async def get_in_project_or_404(
     if row is None or getattr(row, project_attr) != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return row
+
+
+def litho_layer_write_conflict(exc: IntegrityError, *, overlap_message: str) -> HTTPException:
+    """Turn a litho-layer write ``IntegrityError`` into the answer the client expects.
+
+    Every litho write path that commits accepted layers can trip the deferred
+    ``litho_layer_accepted_no_overlap`` exclusion constraint, and each one used
+    to build the same 409 body inline — differing only in the remedy sentence.
+
+    The constraint name is checked rather than assumed: an ``IntegrityError``
+    that is NOT the overlap rule (a CHECK on depth ordering, a NOT NULL, a bad
+    FK) is a rejected write, not a conflict, and answering 409
+    ``litho_layer_overlap`` for it would send the engineer looking for an
+    overlap that does not exist. Either way the answer names the reason — an
+    unmapped violation reaches the client as a 500 with no cause at all.
+
+    Parameters
+    ----------
+    exc : IntegrityError
+        The exception raised by the failing ``commit()``.
+    overlap_message : str
+        Path-specific remedy shown when the overlap constraint is the cause
+        (e.g. which column to clear before retrying).
+
+    Returns
+    -------
+    fastapi.HTTPException
+        409 with ``code='litho_layer_overlap'`` for the exclusion constraint;
+        422 with ``code='litho_layer_write_rejected'`` for any other violation.
+        The caller raises it (``raise ... from exc``) so the traceback survives.
+    """
+    orig = str(exc.orig) if exc.orig else str(exc)
+    if LITHO_LAYER_NO_OVERLAP_CONSTRAINT in orig:
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "litho_layer_overlap",
+                "message": overlap_message,
+                "detail": orig[:400],
+            },
+        )
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": "litho_layer_write_rejected",
+            "message": (
+                "The database rejected these layers. Check the depths and the "
+                "investigation they are anchored to."
+            ),
+            "detail": orig[:400],
+        },
+    )
