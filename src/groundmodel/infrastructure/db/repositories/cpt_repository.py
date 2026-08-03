@@ -10,6 +10,10 @@ from groundmodel.domain.services.elevation_rollback import (
     ElevationState,
     resolve_elevation_change,
 )
+from groundmodel.domain.services.water_table_rollback import (
+    WaterTableState,
+    resolve_water_table_change,
+)
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -196,5 +200,61 @@ class CptRepository(GroundModelLogger):
         self.success(
             f"CPT {cpt_id} elevation updated to {new_state.elevation_m} "
             f"({new_state.z_epsg}) source={new_state.source}"
+        )
+        return cpt
+
+    async def set_water_table(self, cpt_id: UUID, water_depth_m: float | None) -> CptOrm | None:
+        """Set (or clear) the engineer's water-table depth for a CPT.
+
+        Setting a value stamps ``WaterDepthSource.ENGINEER``, which outranks the
+        file on a refresh-on-duplicate re-import.
+
+        The FIRST override of a recorded depth snapshots it into
+        ``original_water_depth_m`` / ``original_water_depth_source``, exactly as
+        the collar keeps ``original_elevation_*`` (debt #21).  Passing ``None``
+        then RESTORES that snapshot — the clear affordance's copy promises the
+        file's value back, and this is what makes the promise true.  With no
+        snapshot (a DOV CPT, or a depth the engineer invented) clearing returns
+        the row to "nothing recorded": every consumer falls back to
+        ``DEFAULT_GWT_DEPTH_M`` and labels the value assumed.
+
+        The snapshot/restore decision is the shared pure
+        ``resolve_water_table_change`` so this repository and the domain rule
+        cannot drift.
+
+        Parameters
+        ----------
+        cpt_id : UUID
+            Primary key of the CPT row.
+        water_depth_m : float | None
+            Depth to groundwater below ground surface in metres (positive
+            down), or ``None`` to clear.
+
+        Returns
+        -------
+        CptOrm | None
+            The updated row, or ``None`` when the id does not exist.
+        """
+        cpt = await self.get_by_id(cpt_id)
+        if cpt is None:
+            return None
+        new_state = resolve_water_table_change(
+            WaterTableState(
+                water_depth_m=cpt.water_depth_m,
+                source=cpt.water_depth_source,
+                original_water_depth_m=cpt.original_water_depth_m,
+                original_source=cpt.original_water_depth_source,
+            ),
+            new_water_depth_m=water_depth_m,
+        )
+        cpt.water_depth_m = new_state.water_depth_m
+        cpt.water_depth_source = new_state.source
+        cpt.original_water_depth_m = new_state.original_water_depth_m
+        cpt.original_water_depth_source = new_state.original_source
+        await self._session.flush()
+        self.success(
+            f"CPT {cpt_id} water table set to {cpt.water_depth_m} m "
+            f"source={cpt.water_depth_source} "
+            f"(rollback snapshot {cpt.original_water_depth_m})"
         )
         return cpt
