@@ -1,0 +1,68 @@
+{
+  "_comment": [
+    "CROSS-BOUNDARY CONTRACT — the Robertson soil-behaviour-type bands keyed on Ic.",
+    "",
+    "This file is the single arbiter both sides check themselves against. It exists",
+    "because a 'parity' test that compared the renderer's band table with a renderer",
+    "function that iterates the same table could never go red, while the drift that",
+    "actually happened was renderer<->backend: the chart labelled every band one step",
+    "too coarse and the backend's classify_soil_ic carried the same shift (audit",
+    "2026-08-02).",
+    "",
+    "Checked by:",
+    "  * tests/unit/domain/services/test_robertson_sbt_band_contract.py  (backend)",
+    "  * desktop/src/renderer/src/shell/stages/parameters/CptIcSbtChart.sbtParity.test.tsx",
+    "",
+    "Changing a breakpoint or a label means changing it HERE first and watching both",
+    "suites go red. Zone 1 (sensitive fine-grained) is deliberately absent: it is read",
+    "off the Qtn-Fr chart, not off Ic, so no Ic band may be labelled 'Sensitive'.",
+    "",
+    "ic_max of the last band is null = unbounded above (Ic has no ceiling; the chart",
+    "axis stops at 4 for drawing only)."
+  ],
+  "ic_axis_max": 4,
+  "bands": [
+    {
+      "zone": 7,
+      "ic_min": 0,
+      "ic_max": 1.31,
+      "renderer_label": "Gravelly sand",
+      "backend_label": "Gravelly sand to dense sand"
+    },
+    {
+      "zone": 6,
+      "ic_min": 1.31,
+      "ic_max": 2.05,
+      "renderer_label": "Sand",
+      "backend_label": "Sands: clean sand to silty sand"
+    },
+    {
+      "zone": 5,
+      "ic_min": 2.05,
+      "ic_max": 2.6,
+      "renderer_label": "Sand mix",
+      "backend_label": "Sand mixtures: silty sand to sandy silt"
+    },
+    {
+      "zone": 4,
+      "ic_min": 2.6,
+      "ic_max": 2.95,
+      "renderer_label": "Silt mix",
+      "backend_label": "Silt mixtures: clayey silt to silty clay"
+    },
+    {
+      "zone": 3,
+      "ic_min": 2.95,
+      "ic_max": 3.6,
+      "renderer_label": "Clay",
+      "backend_label": "Clays: silty clay to clay"
+    },
+    {
+      "zone": 2,
+      "ic_min": 3.6,
+      "ic_max": null,
+      "renderer_label": "Organic",
+      "backend_label": "Organic soils: clay to peat"
+    }
+  ]
+}
