@@ -21,7 +21,11 @@
 //     and is the safe answer to an accidental Enter, so it holds default
 //     focus: the caller moves the copy to a slot the autosave scheduler
 //     never writes, so the next launch offers the same unsaved work again.
-//   * Delete backup — deletes the file. Irreversible, so docs/ux.md applies:
+//   * Delete backup — as if the session never happened (owner ruling
+//     2026-08-03, second half): the caller reverts the DATABASE to the last
+//     save before the file dies, so crash-session mutations (a destructive
+//     Apply, a bad delete) do not silently survive an answer that reads as
+//     "throw that session away". Irreversible, so docs/ux.md applies:
 //     destructive styling, the button names the action, and it is NOT the
 //     default-focused control.
 //
@@ -187,7 +191,8 @@ export default function RecoveryPromptDialog({
             </li>
             <li>
               <span className="font-semibold text-text-primary">Delete backup</span>{' '}
-              &mdash; permanently discards the unsaved work.
+              &mdash; as if the session never happened: the project returns to its
+              last save and the unsaved work is permanently discarded.
             </li>
           </ul>
         </>
