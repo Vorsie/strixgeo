@@ -205,6 +205,14 @@ async def test_sab_it1_subdivide_all_bodies_happy_path(
     assert body["borehole_only_count"] == 0, (
         "Scene has no boreholes — borehole_only_count must be 0"
     )
+    # The tie-review breakdown must survive the API boundary: the frontend's
+    # "N accepted packing ties need checking" warning reads it off the HTTP
+    # response, and the use-case-level gates cannot see a dropped field.
+    assert isinstance(body["review_tie_reasons"], dict), (
+        "review_tie_reasons must reach the client — the post-Subdivide review "
+        "warning is computed from it and is silently dead without it"
+    )
+    assert isinstance(body["lost_tie_reasons"], dict)
 
 
 # ---------------------------------------------------------------------------
