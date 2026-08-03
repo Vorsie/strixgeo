@@ -31,6 +31,13 @@ interface RecoveredEntry {
    * payload is unreadable — either way there is nothing to click.
    */
   filePath: string | null
+  /**
+   * True when the user already answered "Open without restoring" for this
+   * copy. Still a live offer — declining preserves it on purpose — but a
+   * second sighting of a row you deliberately passed on reads as "it crashed
+   * again" unless the row says which one it is.
+   */
+  declined: boolean
 }
 
 interface Props {
@@ -107,6 +114,7 @@ export default function WelcomeScreen({
               projectName: descriptor.projectName,
               writtenAt: descriptor.writtenAt,
               filePath,
+              declined: descriptor.declined === true,
             }
           }),
         )
@@ -301,6 +309,14 @@ export default function WelcomeScreen({
                         ? 'Open the project file to restore'
                         : `from ${formatRecoveryAge(entry.writtenAt)}`}
                     </div>
+                    {/* A copy the user already passed on. Quiet and secondary
+                        — it changes what the row MEANS (this is not a new
+                        crash) without turning the row into a warning. */}
+                    {entry.declined && (
+                      <div className="text-[10px] text-text-muted truncate italic">
+                        You chose not to restore this earlier
+                      </div>
+                    )}
                   </button>
                 </li>
               ))}
