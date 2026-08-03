@@ -2262,6 +2262,17 @@ contacts keyed by `model_id`; `SectionFormation` gains optional
 `litho_main_soil_code` / `nad_class`; exporters pick the level from the
 `model_id` argument they already take. No schema change.
 
+**Partial slice landed 2026-08-03 (audit 2026-08-02).** The *routing* half is
+done for the section exports: `SectionsToolbar`'s DXF / PDF handlers select the
+model by axis (`isLitho ? litho : isGeotech ? geotech : geological`) instead of
+falling through to the geological model on the geotech axis — which had made an
+engineer on the NAD axis silently export Quartair/Boom/Diest surfaces and zero
+geotech units. `hasModel` mirrors the same three-way selection, and both
+tooltips now name the level being written. Pinned by
+`SectionsToolbar.axisExport.test.tsx`. Still open here: the snapshot *content*
+gap — `SectionFormation` carries no `litho_main_soil_code` / `nad_class`, so
+the exported unit identifiers are still formation-level names.
+
 ## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak)
 
 **Partially resolved 2026-06-01.** The cheap first step (named in the
