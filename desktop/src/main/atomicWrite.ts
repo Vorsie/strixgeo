@@ -34,18 +34,25 @@ import { renameSync, unlinkSync, writeFileSync } from 'fs'
  * every file present is a finished one.
  *
  * @param filePath - Absolute path of the file to write.
- * @param contents - UTF-8 text to write.
+ * @param contents - UTF-8 text, or raw bytes for binary callers (the DXF /
+ *   Plaxis export IPC hands over an ``ArrayBuffer``).
  * @throws The underlying write or rename error when the file cannot be put
  *   into place (the temp is best-effort cleaned up first).
  */
-export function writeFileAtomic(filePath: string, contents: string): void {
+export function writeFileAtomic(filePath: string, contents: string | Uint8Array): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`
   try {
     // The write is INSIDE the try alongside the rename: a disk-full or
     // permission failure mid-write leaves a partial temp behind just as surely
     // as a failed rename does, and the recovery directory is enumerated at
     // every launch — orphans there accumulate one per failed autosave.
-    writeFileSync(tmpPath, contents, 'utf-8')
+    //
+    // The encoding argument is passed ONLY for text. Node ignores it for a
+    // TypedArray today, but naming an encoding for bytes invites a future
+    // reader (or a future Node) to treat the payload as text — and a DXF that
+    // survives a UTF-8 round-trip is not a property we want to rely on.
+    if (typeof contents === 'string') writeFileSync(tmpPath, contents, 'utf-8')
+    else writeFileSync(tmpPath, contents)
     renameSync(tmpPath, filePath)
   } catch (writeErr) {
     // Best-effort tmp cleanup so we don't leak. Swallow unlink errors (the tmp
