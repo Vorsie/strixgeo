@@ -39,7 +39,8 @@ export type {
   ImportCptResponse,
   ElevationPatchBody,
 } from './clients/cpt'
-export { DuplicateCptError } from './clients/cpt'
+export { CptRefreshConfirmationRequiredError, DuplicateCptError } from './clients/cpt'
+export type { CptRefreshDiff } from './clients/cpt'
 
 // ---------------------------------------------------------------------------
 // Borehole domain
