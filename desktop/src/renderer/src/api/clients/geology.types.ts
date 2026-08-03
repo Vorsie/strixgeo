@@ -664,6 +664,14 @@ export interface RebuildLithoSolidsResponse {
   orphans_deleted: number
   /** Full solid list after the rebuild — equivalent to GET .../litho-solids. */
   solids: LithoBodySolidResponse[]
+  /**
+   * Investigations that fall OUTSIDE the model footprint and got NO 3-D model
+   * at all — the data footprint fragmented and only its largest component was
+   * modelled.  Non-empty means the build is INCOMPLETE even though it
+   * succeeded, so the toast must not read as a plain success.  Optional: a
+   * backend built before this field existed simply omits it.
+   */
+  uncovered_test_ids?: string[]
 }
 
 /**
@@ -928,6 +936,16 @@ export interface SubdivideAllBodiesResponse {
    */
   lost_tie_reasons?: Record<string, number>
   /**
+   * One line per lost tie naming BOTH investigations and each endpoint's depth
+   * range — e.g. ``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``.
+   *
+   * A count alone tells the engineer that accepted work vanished and nothing
+   * about where to redraw it; the endpoint ids only ever reached a server log
+   * (audit 2026-08-02). Optional so a response from a backend that predates
+   * the field still parses.
+   */
+  lost_tie_labels?: string[]
+  /**
    * Accepted ties the rebuild carried but could not place with confidence,
    * keyed by why (`class_changed` / `ambiguous_band`).
    *
@@ -957,6 +975,32 @@ export interface DivideBoreholeResponse {
   layer_count: number
   /** Newly created geotech geological_formation rows. */
   created_formation_ids: string[]
+  /**
+   * Accepted packing ties on a borehole column that were carried onto the
+   * rebuilt bands. Re-dividing deletes every borehole band, and the endpoint
+   * FKs cascade, so a hand-drawn tie would otherwise vanish on every re-click.
+   * Includes the flagged ones counted in `review_tie_reasons`.
+   */
+  reanchored_tie_count?: number
+  /**
+   * Carried ties the engineer has to confirm, per reason (`class_changed` /
+   * `ambiguous_band`). NOT losses — they survived, with a review flag.
+   */
+  review_tie_reasons?: Record<string, number>
+  /** Accepted borehole ties the rebuild left nowhere to anchor. */
+  lost_tie_count?: number
+  /** Breakdown of `lost_tie_count`. */
+  lost_tie_reasons?: Record<string, number>
+  /**
+   * One line per lost tie naming BOTH investigations and each endpoint's depth
+   * range — e.g. ``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``.
+   *
+   * A count alone tells the engineer that accepted work vanished and nothing
+   * about where to redraw it; the endpoint ids only ever reached a server log
+   * (audit 2026-08-02). Optional so a response from a backend that predates
+   * the field still parses.
+   */
+  lost_tie_labels?: string[]
 }
 
 /**
