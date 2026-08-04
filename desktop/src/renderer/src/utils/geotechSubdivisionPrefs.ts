@@ -13,17 +13,34 @@ export interface GeotechSubdivisionPrefs {
   gradientSnapEnabled: boolean
   /** Max distance a boundary may snap. Range 0.1–2.0 m. Default 0.5. */
   gradientSnapWindowM: number
+  /**
+   * Geotech geo↔litho snap tolerance, m. A geological surface crossing a litho
+   * unit within this distance of a litho contact snaps to the contact instead
+   * of dividing it (no sliver). Range 0.01–2.0 m. Default 0.30.
+   *
+   * Read by the BACKEND planner (``DivideBoreholes.plan`` /
+   * ``SubdivideAllBodies`` via ``_read_geotech_snap_tolerance_m``), which is
+   * why it is mirrored here even though no settings control edits it yet: the
+   * patch below overwrites the whole ``geotech_subdivision`` bag, so a key this
+   * module does not know about is silently dropped on the next prefs save —
+   * which would reset the planner's tolerance behind the engineer's back. It
+   * also lets the borehole packing preview refetch when the value changes.
+   */
+  lithoSnapToleranceM: number
 }
 
 export const GEOTECH_SUBDIVISION_DEFAULTS: GeotechSubdivisionPrefs = {
   minimumLayerThicknessM: 0.35,
   gradientSnapEnabled: true,
   gradientSnapWindowM: 0.5,
+  // Matches _DEFAULT_GEOTECH_SNAP_TOLERANCE_M in the backend materialiser.
+  lithoSnapToleranceM: 0.3,
 }
 
 export const GEOTECH_SUBDIVISION_BOUNDS = {
   minimumLayerThicknessM: { min: 0.1, max: 3.0 },
   gradientSnapWindowM: { min: 0.1, max: 2.0 },
+  lithoSnapToleranceM: { min: 0.01, max: 2.0 },
 } as const
 
 const VIEW_STATE_KEY = 'geotech_subdivision'
@@ -56,6 +73,11 @@ export function readGeotechSubdivisionPrefs(
       GEOTECH_SUBDIVISION_BOUNDS.gradientSnapWindowM,
       GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapWindowM,
     ),
+    lithoSnapToleranceM: readBoundedNumber(
+      d.litho_snap_tolerance_m,
+      GEOTECH_SUBDIVISION_BOUNDS.lithoSnapToleranceM,
+      GEOTECH_SUBDIVISION_DEFAULTS.lithoSnapToleranceM,
+    ),
   }
 }
 
@@ -73,6 +95,10 @@ export function buildGeotechSubdivisionPatch(
       minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
       gradient_snap_enabled: prefs.gradientSnapEnabled,
       gradient_snap_window_m: prefs.gradientSnapWindowM,
+      // Echoed back deliberately: the merge replaces this whole bag, so
+      // omitting a key the BACKEND reads would reset the planner's tolerance
+      // to its default the first time any other geotech pref is saved.
+      litho_snap_tolerance_m: prefs.lithoSnapToleranceM,
     },
   }
 }
