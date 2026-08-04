@@ -415,3 +415,107 @@ describe('refineLithoPartition — enclosed minorities lens inside their pack', 
     expect(formsAt(refined, 0.47, 5).has('nad-zand-5')).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Rule 1 again, on the engine-v2 region shape — a region that reaches neither
+// column of its gap. The v2 engine tiles a gap with interior slices; the
+// refinement was written when every region touched at least one column.
+// ---------------------------------------------------------------------------
+
+describe('refineLithoPartition — a region that reaches neither column of its gap', () => {
+  /** A quad whose horizontal extent stays strictly inside the gap. */
+  function interiorRegion(
+    formationId: string,
+    fLeft: number,
+    fRight: number,
+    top: number,
+    base: number,
+  ): SectionRegion {
+    return {
+      formationId,
+      bodyId: 'body-interior',
+      kind: 'quad',
+      gapIndex: 0,
+      polygon: [
+        { fraction: fLeft, elevation: top },
+        { fraction: fRight, elevation: top },
+        { fraction: fRight, elevation: base },
+        { fraction: fLeft, elevation: base },
+      ],
+    }
+  }
+
+  it('is still subdivided by packing class — falling back to lithology colour would claim there is no packing data when there is', () => {
+    // Both columns of the gap carry ZAND packing right across the region's
+    // elevations, so "no packing data in the whole section at these elevations"
+    // — the documented meaning of the fallback tag — is false here.
+    const region = interiorRegion('formation-sand', 0.2, 0.8, 10, 0)
+    const cols = gmap(
+      gcol('A', 10, [
+        [10, 5, 'nad-zand-5'],
+        [5, 0, 'nad-zand-7'],
+      ]),
+      gcol('B', 10, [
+        [10, 5, 'nad-zand-5'],
+        [5, 0, 'nad-zand-7'],
+      ]),
+    )
+    const refined = refineLithoPartition([region], ['A', 'B'], cols, NAD, LITHO_SOIL)
+    expect(tags(refined, 'fallback')).toEqual([])
+    expect(formsAt(refined, 0.5, 8).has('nad-zand-5')).toBe(true)
+    expect(formsAt(refined, 0.5, 2).has('nad-zand-7')).toBe(true)
+  })
+
+  // GEOMETRY CHOICE, PINNED — read the block comment in refineLithoPartition.ts
+  // and §7 of docs/design/geotech-stage.md before changing this number.
+  //
+  // The two side stacks of an INTERIOR region are read at the region's own first
+  // and last non-empty samples (here f=0.2 and f=0.8), but ``emitBand``
+  // interpolates them across the FULL gap (xFrom=0, xTo=1) like every other
+  // region. So a class interface measured at f=0.2 is drawn as if it belonged at
+  // f=0, and the interface positions inside the region are correspondingly
+  // stretched. The alternative — interpolating over the region's own extent —
+  // puts the interfaces somewhere else, and choosing between them is a geological
+  // call, not a refactor. This test states which one ships.
+  //
+  // Left stack: n5 above 8 (interface at fraction 0.2). Right: n5 above 2
+  // (interface at 0.8). At f=0.25 the two rules disagree by a full metre:
+  //   full gap        interface fraction 0.20 + 0.25*0.60 = 0.35 -> elevation 6.5
+  //   region extent   interface fraction 0.20 + 0.083*0.60 = 0.25 -> elevation 7.5
+  // so elevation 7.0 reads n5 under the shipped rule and n7 under the other.
+  it('interpolates an interior region packing across the FULL gap, not across its own extent', () => {
+    const region = interiorRegion('formation-sand', 0.2, 0.8, 10, 0)
+    const cols = gmap(
+      gcol('A', 10, [
+        [10, 8, 'nad-zand-5'],
+        [8, 0, 'nad-zand-7'],
+      ]),
+      gcol('B', 10, [
+        [10, 2, 'nad-zand-5'],
+        [2, 0, 'nad-zand-7'],
+      ]),
+    )
+    const refined = refineLithoPartition([region], ['A', 'B'], cols, NAD, LITHO_SOIL)
+    expect(formsAt(refined, 0.25, 7.0).has('nad-zand-5')).toBe(true)
+    expect(formsAt(refined, 0.25, 7.0).has('nad-zand-7')).toBe(false)
+  })
+
+  // NO-REGRESSION GUARD, not RED-first evidence. Verified against the
+  // pre-change code: with both edge samples null the old path pushed exactly one
+  // ``fallback`` and never emitted a sand class, so this case was ALREADY GREEN.
+  // It is here so the interior-sampling path cannot later be widened into
+  // borrowing a foreign lithology; the RED→GREEN claim for the change rests on
+  // the first case above alone.
+  it('keeps the soil guard — an interior region never borrows a foreign lithology class', () => {
+    const region = interiorRegion('formation-clay', 0.3, 0.7, 10, 0)
+    const cols = gmap(
+      gcol('A', 10, [[10, 0, 'nad-zand-5']]),
+      gcol('B', 10, [[10, 0, 'nad-zand-5']]),
+    )
+    const refined = refineLithoPartition([region], ['A', 'B'], cols, NAD, LITHO_SOIL)
+    // No KLEI packing anywhere → the fallback is CORRECT here, and no sand class
+    // may appear inside a clay region.
+    expect(refined.some((p) => p.formationId === 'nad-zand-5')).toBe(false)
+    expect(tags(refined, 'fallback').length).toBe(1)
+  })
+})
