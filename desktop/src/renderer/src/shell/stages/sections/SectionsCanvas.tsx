@@ -39,6 +39,7 @@ import type {
 import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
+import { readGeotechSubdivisionPrefs } from '../../../utils/geotechSubdivisionPrefs'
 import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import GeotechBandEditDialog from '../../../components/sections/GeotechBandEditDialog'
@@ -55,6 +56,7 @@ import { inCorridorInvestigationIds } from '../../../utils/sectionClassification
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
+import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
@@ -109,6 +111,11 @@ export default function SectionsCanvas(): JSX.Element {
       // after a packing-correlation mutation so body_id stamps re-render.
       activeGeotechModel,
       geotechLayers,
+      // geotechLayersLoaded / geotechLayersVersion disambiguate the empty
+      // array: the bus clears geotechLayers to [] before every refetch and on
+      // a failed load, so "[]" alone cannot be read as "nothing is committed".
+      geotechLayersLoaded,
+      geotechLayersVersion,
       geotechContacts,
       geotechFormations,
       requestGeotechLayersRefetch,
@@ -342,6 +349,47 @@ export default function SectionsCanvas(): JSX.Element {
     }
     return { geotechLayers, nadMeta, lithoSoilByFormationId, lithoFormationColorById }
   }, [isGeotech, geotechFormations, lithoFormations, geotechLayers])
+
+  // Ghost packing bands for boreholes that have not been divided yet.
+  //
+  // "Subdivide all bodies" writes CPT bands only and defers every
+  // borehole-mediated edge to "Divide boreholes", so a borehole column is blank
+  // on this axis until that verb runs — and running it is the only way to find
+  // out what it does (owner dogfeed 2026-08-04). The server plans it without
+  // writing, through the same planner the verb commits, and the plan is drawn
+  // as ghosts.
+  //
+  // Refresh key = `geotechLayersVersion`, which ticks once per successful load
+  // of the committed geotech rows — i.e. once after Subdivide (which
+  // invalidates every planned band) and once after Divide (which turns the
+  // ghosts into rows), the two verbs that can falsify a preview. Keying on the
+  // `geotechLayers` ARRAY instead ran the whole planner twice per mutation,
+  // because the bus clears it to [] before refilling it.
+  //
+  // The snap tolerance is a key too: `plan()` reads it from project view-state
+  // and divides the picks by geology with it, so a ghost drawn before the
+  // engineer retuned it is stale.
+  const geotechSnapToleranceM = useMemo(
+    () => readGeotechSubdivisionPrefs(project?.view_state ?? null).lithoSnapToleranceM,
+    [project],
+  )
+  const boreholePreview = useGeotechBoreholePreview({
+    projectId: project?.id ?? null,
+    lithoModelId,
+    hasGeotechModel: activeGeotechModel !== null,
+    enabled: isGeotech,
+    refreshKey: geotechLayersVersion,
+    snapToleranceM: geotechSnapToleranceM,
+  })
+
+  // A preview that fails must SAY so: an empty borehole column is
+  // indistinguishable from "this borehole gets no packing", which is a claim
+  // about the geology nothing here is entitled to make.
+  const previewError = boreholePreview.error
+  useEffect(() => {
+    if (previewError === null) return
+    toast('error', previewError)
+  }, [previewError, toast])
 
   // The geotech model id for the SEPARATE packing-edge fetch that feeds the
   // correlate OVERLAY ribbons + gesture on the geotech axis. After the
@@ -1806,6 +1854,13 @@ export default function SectionsCanvas(): JSX.Element {
             // owner-locked 2026-07-06), not a direct geotech-model fill.
             lithoLayers: isLitho || isGeotech ? sectionLayers : undefined,
             refinement: geotechRefinement,
+            // Ghost bands over undivided boreholes — geotech axis only, and
+            // dropped per column the moment that column's committed bands land.
+            geotechBoreholePreview: isGeotech ? boreholePreview.columns : undefined,
+            // Lets the overlay tell "no borehole is divided" apart from "the
+            // committed rows are mid-refetch"; without it the ghosts flicker
+            // back over already-divided columns on every reload.
+            geotechLayersLoaded,
             lensBoundaries,
             pulsingFormationIds,
             virtueleBoringActiveModels: virtueleBoringSectionModels,
