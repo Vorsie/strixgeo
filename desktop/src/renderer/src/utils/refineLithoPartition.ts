@@ -28,7 +28,8 @@
  *    columns otherwise overlap visibly).
  */
 
-import type { SectionRegion, UnderColumnFill } from './partitionFill'
+import { makePackingTieCounter, type PackingSpanTieKeys } from './geotechPackingTies'
+import type { CorrelationEdge, SectionRegion, UnderColumnFill } from './partitionFill'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -106,7 +107,7 @@ export interface RefinedSubstrateQuad {
 // ---------------------------------------------------------------------------
 
 /** A packing span in fraction space (0 = region top, 1 = region base). */
-interface Span {
+interface Span extends PackingSpanTieKeys {
   formationId: string
   cls: number
   fTop: number
@@ -114,7 +115,7 @@ interface Span {
 }
 
 /** A packing slice in absolute elevations (shared with the substrate pass). */
-interface ElevSlice {
+interface ElevSlice extends PackingSpanTieKeys {
   formationId: string
   cls: number
   topElev: number
@@ -155,6 +156,14 @@ const SPLIT_FRACTIONS: readonly number[] = [LENS_REACH, 0.5, 1 - LENS_REACH]
  * @param nadMeta geotech formation id → NAD class + soil code.
  * @param lithoSoilByFormationId litho formation id → soil code (the hard guard:
  *   a sand region may only carry ZAND-coded sub-bands).
+ * @param options.packingEdges the section's APPROVED geotech correlation edges,
+ *   keyed by geotech ``litho_layer`` id — the same rows the 3-D build arm is
+ *   fed, so both arms read one edge set. OWNER RULING 2026-08-04: when present,
+ *   a left span may band-pair with a right span only when their two bounding
+ *   contacts are correlated (litho's 2 → BAND); an untied pair pinches out
+ *   through the unmatched-span machinery rather than meeting at a mid-gap seam.
+ *   ``undefined`` keeps the legacy class+position pairing for un-threaded
+ *   callers; an EMPTY array means "no ties exist" and pinches honestly.
  */
 export function refineLithoPartition(
   regions: readonly SectionRegion[],
@@ -162,12 +171,20 @@ export function refineLithoPartition(
   geotechColumns: ReadonlyMap<string, GeotechColumn>,
   nadMeta: ReadonlyMap<string, NadFormationMeta>,
   lithoSoilByFormationId: ReadonlyMap<string, string | null>,
-  options?: { samples?: number; alongM?: readonly number[] },
+  options?: {
+    samples?: number
+    alongM?: readonly number[]
+    packingEdges?: readonly CorrelationEdge[]
+  },
 ): RefinedPolygon[] {
   const N = options?.samples ?? DEFAULT_SAMPLES
   // Along-metre positions parallel to ``columnOrder``; when present, donor
   // distance (rule 6b) is measured in metres, else in column steps.
   const alongM = options?.alongM
+  // Tie-driven pairing is OFF unless the caller passed an edge list at all —
+  // the compat contract for callers that were never threaded.
+  const packingEdges = options?.packingEdges
+  const tiedContacts = makePackingTieCounter(packingEdges ?? [])
   const out: RefinedPolygon[] = []
 
   /**
@@ -204,8 +221,14 @@ export function refineLithoPartition(
     const merged: Span[] = []
     for (const sp of spans) {
       const last = merged[merged.length - 1]
-      if (last && last.cls === sp.cls) last.fBase = sp.fBase
-      else merged.push({ ...sp })
+      if (last && last.cls === sp.cls) {
+        last.fBase = sp.fBase
+        // The merged run's BASE contact is the absorbed span's base contact —
+        // keep the tie keys pointing at the run's real ends, or a tie check
+        // asks about a layer that is now interior to the span.
+        last.baseLayerId = sp.baseLayerId
+        last.belowLayerId = sp.belowLayerId
+      } else merged.push({ ...sp })
     }
     return merged
   }
@@ -221,6 +244,9 @@ export function refineLithoPartition(
       cls: sl.cls,
       fTop: (top - sl.topElev) / H0,
       fBase: (top - sl.baseElev) / H0,
+      topLayerId: sl.topLayerId,
+      baseLayerId: sl.baseLayerId,
+      belowLayerId: sl.belowLayerId,
     }))
   }
 
@@ -234,7 +260,30 @@ export function refineLithoPartition(
    * its own interval instead). Mirrors the litho engine's own matchColumns
    * lesson: monotonic WEIGHTED LCS, overlap as confidence.
    */
-  const pairWeight = (a: Span, b: Span): number => {
+  /**
+   * TIE-DRIVEN weight (owner ruling 2026-08-04). A pair may band only when BOTH
+   * its bounding contacts are correlated — litho's 2 → BAND, read on packing
+   * spans, from the SAME edge set the 3-D build arm consumes.
+   *
+   * Class agreement is still required: a band is emitted with the LEFT span's
+   * formation, so banding two DIFFERENT classes would paint one class over the
+   * other's column. A cross-class tie therefore does not band (it still groups
+   * the bands into one body server-side, which is what the gesture also does).
+   *
+   * Position is NOT required here, unlike the legacy weight: an explicit tie is
+   * the authoritative band signal at ANY elevation (the litho matcher's own
+   * rule — "a correlated bed that dips between columns"). Overlap is added only
+   * so the monotone LCS prefers the aligned candidate when ties cross.
+   */
+  const tiedPairWeight = (a: Span, b: Span): number => {
+    if (a.cls !== b.cls) return 0
+    if (tiedContacts(a, b) < 2) return 0
+    const ov = Math.min(a.fBase, b.fBase) - Math.max(a.fTop, b.fTop)
+    return 1 + Math.max(0, ov)
+  }
+
+  const pairWeight = (a: Span, b: Span, useTies: boolean): number => {
+    if (useTies) return tiedPairWeight(a, b)
     if (a.cls !== b.cls) return 0
     const ov = Math.min(a.fBase, b.fBase) - Math.max(a.fTop, b.fTop)
     const slack = 0.25 * (a.fBase - a.fTop + (b.fBase - b.fTop)) + 0.1
@@ -242,20 +291,20 @@ export function refineLithoPartition(
     return w > 0 ? w : 0
   }
 
-  const lcs = (a: Span[], b: Span[]): [number, number][] => {
+  const lcs = (a: Span[], b: Span[], useTies: boolean): [number, number][] => {
     const n = a.length
     const m = b.length
     const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0))
     for (let i = n - 1; i >= 0; i--)
       for (let j = m - 1; j >= 0; j--) {
-        const w = pairWeight(a[i], b[j])
+        const w = pairWeight(a[i], b[j], useTies)
         dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1], w > 0 ? w + dp[i + 1][j + 1] : -Infinity)
       }
     const pairs: [number, number][] = []
     let i = 0
     let j = 0
     while (i < n && j < m) {
-      const w = pairWeight(a[i], b[j])
+      const w = pairWeight(a[i], b[j], useTies)
       if (w > 0 && Math.abs(dp[i][j] - (w + dp[i + 1][j + 1])) < 1e-12) {
         pairs.push([i, j])
         i++
@@ -499,7 +548,12 @@ export function refineLithoPartition(
             )
             if (wrapsPulled) continue
             lenses.push({ span: { ...w[i] }, side })
-            const merged = { ...w[i - 1], fBase: w[i + 1].fBase }
+            const merged = {
+              ...w[i - 1],
+              fBase: w[i + 1].fBase,
+              baseLayerId: w[i + 1].baseLayerId,
+              belowLayerId: w[i + 1].belowLayerId,
+            }
             w = [...w.slice(0, i - 1), merged, ...w.slice(i + 2)]
             changed = true
             break
@@ -512,7 +566,12 @@ export function refineLithoPartition(
     // brackets adjacent — collapse them so LCS sees one span per class run.
     const Lr = mergeAdjacent(reduceSide(L, new Set(R.map((x) => x.cls)), 'left'))
     const Rr = mergeAdjacent(reduceSide(R, new Set(L.map((x) => x.cls)), 'right'))
-    const pairs = lcs(Lr, Rr)
+    // Tie-driven pairing needs BOTH sides to be reading their OWN column's
+    // layers: a mirrored or borrowed side (rule 6b / the S10 mirror) carries a
+    // donor's layer ids and has nothing of its own to tie, so those regions keep
+    // the shipped class+position pairing exactly as they are.
+    const useTies = packingEdges !== undefined && lSrc !== null && rSrc !== null
+    const pairs = lcs(Lr, Rr, useTies)
 
     // Anchor interfaces (fL, fR), monotone, bracketing pair bands.
     const anchors: [number, number][] = [[0, 0]]
@@ -785,7 +844,39 @@ export function refineLithoPartition(
       //  3. the interval's void fills with the two BRACKETING classes bulging
       //     in and meeting at the mid-curve — ONE smooth wedge per side,
       //     never per-span taper fans.
-      if (hR < 1e-5 || hL < 1e-5) {
+      /** Pinch one side's span out from its own column as an overlay lens. */
+      const emitPinchLens = (sp: Span, side: 'left' | 'right'): void => {
+        const mid = (sp.fTop + sp.fBase) / 2
+        const bounds: [number, number, number, number] = [aL, aR, bL, bR]
+        if (side === 'left')
+          emitBand(sp.fTop, mid, sp.fBase, mid, sp.formationId, 0, LENS_REACH, 'hlens', bounds)
+        else emitBand(mid, sp.fTop, mid, sp.fBase, sp.formationId, 1 - LENS_REACH, 1, 'hlens', bounds)
+      }
+      if (useTies && hL >= 1e-5 && hR >= 1e-5) {
+        // TIE MODE, both sides unmatched (owner ruling 2026-08-04): no tie, so
+        // no band — the spans pinch out from their own columns instead of
+        // meeting at the mid-gap seam below.
+        //
+        // The void is filled by the THICKEST class present IN the interval, not
+        // by the bracketing pair bands. Bracket bulge is the shipped rule for a
+        // ONE-SIDED interval, where the far column has no packing at these
+        // fractions to contradict it; here BOTH columns do, and letting a
+        // bracket win floods them: measured on the owner's model, filling this
+        // case from the bracket put the thin n22 crust over 619 m² of n23 clay
+        // on Cross-section 1 alone and pushed the render/build divergence from
+        // 39.1 % to 43.4 %. Every span that is not the fill pinches from its
+        // own column as an overlay lens — but the lens paints OVER the fatty
+        // fill at the overlay's 0.62 opacity, so the thin side currently reads
+        // as a colour blend of its own class and the fill's (review F1,
+        // 2026-08-04). Open fix: carve the lens footprints out of the fill (or
+        // render geotech-axis lenses opaque) — tracked with the jump-tie work.
+        const allSpansIn = [...leftIn, ...rightIn]
+        let fatty = allSpansIn[0]
+        for (const sp of allSpansIn) if (sp.fBase - sp.fTop > fatty.fBase - fatty.fTop) fatty = sp
+        if (fatty) emitBand(aL, aR, bL, bR, fatty.formationId, 0, 1, 'bracket')
+        for (const sp of leftIn) if (sp.cls !== fatty.cls) emitPinchLens(sp, 'left')
+        for (const sp of rightIn) if (sp.cls !== fatty.cls) emitPinchLens(sp, 'right')
+      } else if (hR < 1e-5 || hL < 1e-5) {
         const side: 'left' | 'right' = hR < 1e-5 ? 'left' : 'right'
         const spansIn = side === 'left' ? leftIn : rightIn
         // Bracketing pair bands (interval j is even; pair above = j/2-1,
@@ -828,14 +919,7 @@ export function refineLithoPartition(
           emitBand(aL, aR, bL, bR, fatty.formationId, 0, 1, 'bracket')
         }
         // Overlay lenses — horizontal pinch at own stratigraphic position.
-        for (const sp of lensSpans) {
-          const mid = (sp.fTop + sp.fBase) / 2
-          const bounds: [number, number, number, number] = [aL, aR, bL, bR]
-          if (side === 'left')
-            emitBand(sp.fTop, mid, sp.fBase, mid, sp.formationId, 0, LENS_REACH, 'hlens', bounds)
-          else
-            emitBand(mid, sp.fTop, mid, sp.fBase, sp.formationId, 1 - LENS_REACH, 1, 'hlens', bounds)
-        }
+        for (const sp of lensSpans) emitPinchLens(sp, side)
       } else {
         // Both sides populated but class-mismatched → meet at a mid seam:
         // each side keeps its proportional share up to x=0.5.
@@ -900,6 +984,16 @@ function makeClassSlicesElev(
   return (colIx, top, base, soil) => {
     const g = geotechColumns.get(columnOrder[colIx] ?? '')
     if (!g || top - base <= 0.02) return []
+    // The layer immediately BELOW each layer in the column's FULL stack — a
+    // layer id keys the contact at its top, so that layer's top contact IS this
+    // layer's base contact (litho's own rule, ``classifyTermination``). Read off
+    // the unfiltered stack: the layer below a sand run is typically the clay of
+    // the NEXT litho unit, and that is exactly the contact the 3-D build arm
+    // reads for the run's base.
+    const stack = [...g.units].sort((a, b) => a.topDepthM - b.topDepthM)
+    const belowOf = new Map<string, string | null>()
+    for (let i = 0; i < stack.length; i++)
+      belowOf.set(stack[i].layerId, stack[i + 1]?.layerId ?? null)
     const list = g.units
       .map((u) => ({
         formationId: u.formationId,
@@ -907,6 +1001,8 @@ function makeClassSlicesElev(
         soil: nadMeta.get(u.formationId)?.soilCode ?? null,
         tE: g.surfaceElevM - u.topDepthM,
         bE: g.surfaceElevM - u.baseDepthM,
+        layerId: u.layerId,
+        belowLayerId: belowOf.get(u.layerId) ?? null,
       }))
       // Soil-code guard (never a foreign lithology's class — "silt
       // transitioning into a sand lens") + any-overlap-then-clip.
@@ -918,6 +1014,9 @@ function makeClassSlicesElev(
       cls: u.cls,
       topElev: Math.min(top, u.tE),
       baseElev: Math.max(base, u.bE),
+      topLayerId: u.layerId,
+      baseLayerId: u.layerId,
+      belowLayerId: u.belowLayerId,
     }))
     // Force tiling: stretch ends to the range, close interior gaps at midpoints.
     slices[0].topElev = top
@@ -930,8 +1029,12 @@ function makeClassSlicesElev(
     const merged: ElevSlice[] = []
     for (const sl of slices) {
       const last = merged[merged.length - 1]
-      if (last && last.cls === sl.cls) last.baseElev = sl.baseElev
-      else merged.push({ ...sl })
+      if (last && last.cls === sl.cls) {
+        last.baseElev = sl.baseElev
+        // The run's base contact moves with its deepest layer (see mergeAdjacent).
+        last.baseLayerId = sl.baseLayerId
+        last.belowLayerId = sl.belowLayerId
+      } else merged.push({ ...sl })
     }
     return merged.filter((x) => x.topElev - x.baseElev > 1e-3)
   }
