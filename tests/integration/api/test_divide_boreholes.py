@@ -920,6 +920,33 @@ async def test_db5_preview_equals_commit(
     }
     assert previewed, "DB5: the preview reported no borehole at all — nothing was compared"
 
+    # DB5-provenance: the donor fields must SERIALISE through the router — the
+    # tooltip reads them, and DB5's band comparison cannot catch a preview-only
+    # field going missing (it compares depths/class/confidence only). The scene
+    # flanks BH-S with CPT-A and CPT-B on the section, so at least one band
+    # must arrive donor-backed with its mode, its donor names + distances and
+    # the section name on the wire.
+    donor_backed = [
+        band
+        for column in preview["columns"]
+        for band in column["bands"]
+        if band.get("mode") in ("flank_interpolated", "single_donor", "nearest_fallback")
+    ]
+    assert donor_backed, (
+        "DB5-provenance: no band carried a donor-backed mode — the new preview "
+        f"fields are not reaching the wire: {preview['columns']!r}"
+    )
+    for band in donor_backed:
+        assert band["donors"], f"DB5-provenance: mode={band['mode']} but donors is empty"
+        for donor in band["donors"]:
+            assert donor["name"], "DB5-provenance: a donor arrived without a name"
+            assert donor["side"] in ("left", "right", "nearest")
+    flank_modes = {band["mode"] for band in donor_backed}
+    if flank_modes & {"flank_interpolated", "single_donor"}:
+        assert any(band.get("section_name") for band in donor_backed), (
+            "DB5-provenance: a flank mode arrived with no section_name anywhere"
+        )
+
     commit_resp = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes",
         json={},
