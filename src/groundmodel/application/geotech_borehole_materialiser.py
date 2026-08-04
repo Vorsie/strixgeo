@@ -4,7 +4,7 @@ Both :class:`SubdivideAllBodies` and :class:`DivideBoreholes` find-or-create
 classified geotech formations while materialising layers.  This base class
 extracts the shared segment-grouping + find-or-create logic so neither use
 case copy-pastes it.  (Borehole TIN-division itself lives in DivideBoreholes
-as ``_materialise_borehole_bands_litho_confined`` — SubdivideAllBodies
+as ``_plan_borehole_bands_litho_confined`` — SubdivideAllBodies
 materialises CPT bands only.)
 
 Who inherits
