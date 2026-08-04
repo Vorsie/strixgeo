@@ -427,26 +427,34 @@ on the packing render:
 ### The owner questions
 
 1. **Does the 3-D geotech build inherit the litho geometry, or re-derive it?**
-   The render says inherit (the geotech partition IS the litho partition,
-   subdivided internally); the build re-partitions the geotech layers freely.
-   Worth 44.1 % of the section plane. It cannot be closed by plumbing: at the
-   columns the two are identical (0 straddlers, 0.5 mm worst offset), and 104 of
-   the 328 litho ties with no geotech counterpart join two columns the build
-   already has, so even after every borehole is divided the two would still band
-   differently.
-   Candidates, neither endorsed: (a) build from the refined render output;
-   (b) keep the free re-partition and mirror every litho tie into the geotech
-   model.
+   **ANSWERED (owner, 2026-08-04): INHERIT.** "We already built the framework —
+   keep the litho bodies and subdivide them in 3-D based on packing, with the
+   same rules and mechanisms as the litho voxel builder." The geotech build must
+   stop re-partitioning geotech layers freely: it takes the litho bodies as the
+   envelope and subdivides each internally by packing, exactly as the render
+   treats the geotech partition as the litho partition refined internally. This
+   is candidate (a) — the free re-partition path is retired for the build.
+   (Context that motivated the question: the two arms disagreed over 44.1 % of
+   the section plane; at the columns they were identical — 0 straddlers, 0.5 mm
+   worst offset — so the divergence was entirely in how the gaps were banded.)
 2. **May a region borrow packing from the far side of its gap?** Today the left
    side scans only leftward and the right only rightward (your rev-8 "nearest
    classified column OUTWARD"), so 749.2 m² paints plain lithology while the data
    exists — worst case 252.0 m² on Tie-section 11, where the section's only
    classified column is on the side the scan will not look.
+   **PENDING — owner asked for a visual aid (2026-08-04) before deciding.**
 3. **Should a section with fewer than 2 divided columns be built at all — and
    should the canvas say so?** Tie-section 11 (1,774.1 m²) and Tie-section 13
    (21.6 m²) are drawn in full and dropped entirely by the build: 1,795.7 m² of
    the 6,036.8 m² "drawn, not built", with nothing on screen telling the engineer
    the section contributes nothing.
+   **ANSWERED (owner, 2026-08-04): BUILD THEM.** "Of course — this is common in
+   tie sections, and without those how else would you go from 2-D to 3-D." A
+   section with fewer than 2 divided columns must still contribute to the build;
+   dropping it silently is a defect. (Under the Q1 ruling this resolves
+   naturally: the build inherits the litho partition — which those sections have
+   in full — and subdivides it, so no section is dropped for lacking divided
+   columns.)
 4. **When the litho region says one soil and the only packing at those elevations
    is another (173.0 m² — e.g. 110.1 m² of SILT region over KLEI+VEEN+ZAND
    packing on Tie-section 11), should the render keep showing plain lithology, or
