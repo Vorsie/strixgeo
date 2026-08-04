@@ -155,9 +155,12 @@ export function refineLithoPartition(
   geotechColumns: ReadonlyMap<string, GeotechColumn>,
   nadMeta: ReadonlyMap<string, NadFormationMeta>,
   lithoSoilByFormationId: ReadonlyMap<string, string | null>,
-  options?: { samples?: number },
+  options?: { samples?: number; alongM?: readonly number[] },
 ): RefinedPolygon[] {
   const N = options?.samples ?? DEFAULT_SAMPLES
+  // Along-metre positions parallel to ``columnOrder``; when present, donor
+  // distance (rule 6b) is measured in metres, else in column steps.
+  const alongM = options?.alongM
   const out: RefinedPolygon[] = []
 
   /**
@@ -313,17 +316,57 @@ export function refineLithoPartition(
 
     // Horizontal extrapolation — classes connect horizontally, same mental
     // model as the litho below test depth: a side with no data borrows the
-    // NEAREST classified column outward, at the same elevations. No
-    // "unclassified" state exists.
-    const scanSpans = (startIx: number, dir: -1 | 1, top: number, base: number): Span[] => {
-      for (let ix = startIx + dir; ix >= 0 && ix < columnOrder.length; ix += dir) {
+    // NEAREST test with same-soil packing at its elevations, in EITHER
+    // direction (Q2 owner ruling 2026-08-04: "just take the nearest test that
+    // does have packing"). Distance is along-metres when the caller passes
+    // them, column steps otherwise; an exact tie prefers the outward side,
+    // which preserves the pre-ruling outward behaviour on symmetric scenes.
+    // The rule until 2026-08-04 scanned OUTWARD only, which left 749 m² of
+    // the owner's model in plain lithology while data sat across the gap
+    // (Tie-section 11 worst, 252 m²). No "unclassified" state exists.
+    const nearestDonor = (
+      sideIx: number,
+      outwardDir: -1 | 1,
+      top: number,
+      base: number,
+    ): { ix: number; dist: number; spans: Span[] } | null => {
+      let best: { ix: number; dist: number; spans: Span[] } | null = null
+      let bestOutward = false
+      for (let ix = 0; ix < columnOrder.length; ix++) {
+        if (ix === sideIx) continue
         const sp = spansOf(ix, top, base, soil)
-        if (sp.length) return sp
+        if (sp.length === 0) continue
+        const dist = alongM ? Math.abs(alongM[ix] - alongM[sideIx]) : Math.abs(ix - sideIx)
+        const outward = Math.sign(ix - sideIx) === outwardDir
+        if (
+          best === null ||
+          dist < best.dist - 1e-9 ||
+          (Math.abs(dist - best.dist) <= 1e-9 && outward && !bestOutward)
+        ) {
+          best = { ix, dist, spans: sp }
+          bestOutward = outward
+        }
       }
-      return []
+      return best
     }
-    if (L.length === 0 && s0) L = scanSpans(r.gapIndex, -1, s0.env[0], s0.env[1])
-    if (R.length === 0 && s1) R = scanSpans(r.gapIndex + 1, 1, s1.env[0], s1.env[1])
+    const dL = L.length === 0 && s0 ? nearestDonor(r.gapIndex, -1, s0.env[0], s0.env[1]) : null
+    const dR = R.length === 0 && s1 ? nearestDonor(r.gapIndex + 1, 1, s1.env[0], s1.env[1]) : null
+    // Same-donor coherence — the S10 mirror stays owner-locked. When a side's
+    // nearest donor IS the test the other side already reads (its own column
+    // or its own borrow), assigning elevation-clipped spans here would break
+    // "stripes follow a tapering envelope and vanish at the apex together";
+    // leaving the side empty routes it through the fraction-space mirror
+    // below instead. When BOTH sides borrow the same test, the side nearer to
+    // it reads the elevations and the far side mirrors.
+    const lSrc = L.length > 0 ? r.gapIndex : null
+    const rSrc = R.length > 0 ? r.gapIndex + 1 : null
+    if (dL && dR && dL.ix === dR.ix) {
+      if (dL.dist <= dR.dist) L = dL.spans
+      else R = dR.spans
+    } else {
+      if (dL && dL.ix !== rSrc) L = dL.spans
+      if (dR && dR.ix !== lSrc) R = dR.spans
+    }
 
     if (L.length === 0 && R.length === 0) {
       // Still nothing in the ENTIRE section at these elevations (rare) —
