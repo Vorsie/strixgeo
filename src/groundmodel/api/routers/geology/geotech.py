@@ -6,6 +6,9 @@ Three endpoints that expose the shipped body-centric geotech use cases:
   all in-corridor bodies in one shot (model_id = litho model).
 * ``POST /models/{model_id}/geotech/divide-boreholes`` — TIN-divide borehole
   columns using the CPT geotech layers (model_id = litho model).
+* ``POST /models/{model_id}/geotech/divide-boreholes/preview`` — the same
+  planner, reported instead of written, so the engineer can see what packing
+  each borehole would get before pressing the button.
 * ``POST /models/{model_id}/geotech/auto-correlate`` — re-propose the automatic
   packing ties as UNAPPROVED suggestions, adding only (model_id = **geotech**
   model).
@@ -40,6 +43,9 @@ from groundmodel.api.schemas.project.geotech_band_edit import (
 from groundmodel.api.schemas.project.geotech_suggestion import (
     AutoCorrelateGeotechRequest,
     AutoCorrelateGeotechResponse,
+    DivideBoreholePreviewBand,
+    DivideBoreholePreviewColumn,
+    DivideBoreholePreviewResponse,
     DivideBoreholeResponse,
     SubdivideAllBodiesRequest,
     SubdivideAllBodiesResponse,
@@ -275,6 +281,115 @@ async def divide_boreholes(
         lost_tie_count=result.lost_tie_count,
         lost_tie_reasons=result.lost_tie_reasons,
         lost_tie_labels=result.lost_tie_labels,
+    )
+
+
+@router.post(
+    "/models/{model_id}/geotech/divide-boreholes/preview",
+    response_model=DivideBoreholePreviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Preview the borehole packing bands 'Divide boreholes' would write (no write)",
+    tags=["geotech"],
+)
+async def preview_divide_boreholes(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> DivideBoreholePreviewResponse:
+    """Answer what packing each borehole would get, without writing anything.
+
+    ``Subdivide all bodies`` leaves every borehole column empty on the geotech
+    axis (its borehole-mediated edges are deferred to this verb), so until now
+    the engineer had to press an idempotent-but-destructive rebuild blind to
+    find out what the boreholes would be classified as.  This endpoint runs the
+    SAME planner ``divide-boreholes`` commits — ``DivideBoreholes.plan`` — and
+    reports its bands, so the ghosts drawn from this response are the rows the
+    button writes.
+
+    Also reports what a commit would do to the accepted packing ties anchored on
+    a borehole (carried / flagged / lost), because those are destroyed and
+    re-created by the rebuild and the engineer should not learn that afterwards.
+
+    Nothing is persisted: only ``SELECT``\\ s are issued and the session is
+    rolled back when the request ends.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope (path parameter from the router prefix).
+    model_id : UUID
+        The **lithostratigraphic** model whose geotech child model would be
+        updated — the same id ``divide-boreholes`` takes.
+    session : AsyncSession
+        Injected database session.
+
+    Returns
+    -------
+    DivideBoreholePreviewResponse
+        Per-borehole planned bands + the summary and tie-carry counts.
+
+    Raises
+    ------
+    HTTPException
+        * 404 — litho model not found in project, or the geotech model does not
+          exist yet (``Subdivide all bodies`` has not run).
+        * 500 — unexpected server error.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/divide-boreholes/preview"
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    use_case = DivideBoreholes(session)
+    try:
+        plan = await use_case.plan(project_id=project_id, litho_model_id=model_id)
+        tie_plan = await use_case.preview_tie_carry(plan)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"preview_divide_boreholes error: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "divide_boreholes_preview_error", "message": str(exc)},
+        ) from exc
+
+    columns = plan.columns()
+    logger.info(
+        f"preview_divide_boreholes ok geotech_model={plan.geotech_model_id} "
+        f"boreholes={len(columns)} bands={plan.layer_count} "
+        f"divided={plan.divided_borehole_count} single={plan.single_band_borehole_count} "
+        f"ties_carried={len(tie_plan.matched)} ties_lost={len(tie_plan.lost)}"
+    )
+    return DivideBoreholePreviewResponse(
+        geotech_model_id=plan.geotech_model_id,
+        columns=[
+            DivideBoreholePreviewColumn(
+                borehole_id=column.borehole_id,
+                name=column.name,
+                bands=[
+                    DivideBoreholePreviewBand(
+                        depth_top_m=band.depth_top_m,
+                        depth_base_m=band.depth_base_m,
+                        nad_class=band.nad_class,
+                        source=band.source,
+                        confidence=band.confidence,
+                    )
+                    for band in column.bands
+                ],
+            )
+            for column in columns
+        ],
+        borehole_count=len(columns),
+        divided_borehole_count=plan.divided_borehole_count,
+        single_band_borehole_count=plan.single_band_borehole_count,
+        layer_count=plan.layer_count,
+        carried_tie_count=len(tie_plan.matched),
+        review_tie_reasons=tie_plan.review_reason_counts(),
+        lost_tie_count=len(tie_plan.lost),
+        lost_tie_reasons=tie_plan.loss_reason_counts(),
     )
 
 
