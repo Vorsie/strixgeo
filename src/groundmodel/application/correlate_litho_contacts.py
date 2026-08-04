@@ -22,8 +22,11 @@ from uuid6 import uuid7
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
-from groundmodel.domain.services.litho_body_guard import same_litho_body
+from groundmodel.domain.services.litho_body_guard import shares_litho_body
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -252,21 +255,23 @@ class CorrelateLithoContacts(GroundModelLogger):
         #     geological paths are unchanged.                                  #
         # ------------------------------------------------------------------ #
         if model.kind == MODEL_KIND_GEOTECHNICAL:
-            litho_body_of = await self._resolve_litho_bodies_for_geotech(
+            litho_bodies_of = await self._resolve_litho_bodies_for_geotech(
                 geotech_model=model,
                 contact_ids=[ca.id, cb.id],
             )
-            if not same_litho_body(
-                litho_body_of,
+            if not shares_litho_body(
+                litho_bodies_of,
                 str(ca.id),
                 str(cb.id),
             ):
+                band_a = await self._describe_geotech_band(ca.id)
+                band_b = await self._describe_geotech_band(cb.id)
                 self.warning(
                     f"CorrelateLithoContacts: cross-litho-body geotech correlation blocked — "
-                    f"contact_a={ca.id} body={litho_body_of.get(str(ca.id))!r} "
-                    f"contact_b={cb.id} body={litho_body_of.get(str(cb.id))!r}"
+                    f"contact_a={ca.id} ({band_a}) bodies={sorted(litho_bodies_of.get(str(ca.id), set()))!r} "
+                    f"contact_b={cb.id} ({band_b}) bodies={sorted(litho_bodies_of.get(str(cb.id), set()))!r}"
                 )
-                raise CrossLithoBodyCorrelationError()
+                raise CrossLithoBodyCorrelationError(band_a=band_a, band_b=band_b)
 
         # ------------------------------------------------------------------ #
         # 5. Canonical ordering: (min, max), sides paired with their ids.      #
@@ -348,19 +353,18 @@ class CorrelateLithoContacts(GroundModelLogger):
         *,
         geotech_model: GeologicalModelOrm,
         contact_ids: list[UUID],
-    ) -> dict[str, str | None]:
-        """Build a ``{contact_id_str: litho_body_id_str | None}`` map.
+    ) -> dict[str, set[str]]:
+        """Build a ``{contact_id_str: {litho_body_id_str, ...}}`` map.
 
-        For each geotech contact (whose UUID equals the corresponding
-        ``litho_layer`` row via the LL→FC trigger), look up the parent
-        litho model and find the accepted litho layer on the SAME
-        investigation whose depth range CONTAINS the geotech band. The
-        litho layer's ``body_id`` is the parent litho body.
+        A contact is a SURFACE (owner ruling 2026-08-04): it touches the band
+        whose top it is (the band BELOW - same UUID via the LL->FC trigger,
+        SAB-8) and the band directly ABOVE it (the geotech layer on the same
+        investigation whose base sits at this contact's depth).  Each band's
+        parent litho body is the accepted litho layer that CONTAINS it on the
+        same investigation; the set carries every body that resolved.
 
-        Conservative: a contact that cannot be resolved (no matching
-        litho layer, or the litho layer's ``body_id`` is not yet
-        stamped) maps to ``None`` so ``same_litho_body`` blocks the
-        correlation.
+        Conservative: a band that cannot be resolved contributes nothing, and
+        an empty set makes :func:`shares_litho_body` block the correlation.
 
         Parameters
         ----------
@@ -372,102 +376,161 @@ class CorrelateLithoContacts(GroundModelLogger):
 
         Returns
         -------
-        dict[str, str | None]
-            Keys are string representations of each contact id; values
-            are the parent litho ``body_id`` as a string, or ``None``
-            when resolution fails.
+        dict[str, set[str]]
+            Keys are string representations of each contact id; values are the
+            litho body ids of the adjacent bands (possibly empty).
         """
         litho_model_id = geotech_model.parent_model_id
-        result: dict[str, str | None] = {}
+        result: dict[str, set[str]] = {}
 
         for contact_id in contact_ids:
             key = str(contact_id)
+            result[key] = set()
 
             if litho_model_id is None:
-                # Geotechnical model has no litho parent — block conservatively.
+                # Geotechnical model has no litho parent - block conservatively.
                 self.debug(
                     f"_resolve_litho_bodies_for_geotech: "
                     f"geotech model {geotech_model.id} has no parent litho model"
                 )
-                result[key] = None
                 continue
 
             # The geotech LithoLayerOrm has the same UUID as the FormationContactOrm
-            # (SAB-8 invariant: the LL→FC trigger writes matching ids).
-            geotech_layer = await self._session.get(LithoLayerOrm, contact_id)
-            if geotech_layer is None:
+            # (SAB-8 invariant: the LL->FC trigger writes matching ids).
+            below = await self._session.get(LithoLayerOrm, contact_id)
+            if below is None:
                 self.debug(
                     f"_resolve_litho_bodies_for_geotech: "
                     f"no LithoLayerOrm found for geotech contact {contact_id}"
                 )
-                result[key] = None
                 continue
 
-            # Build the investigation filter for the litho query.
-            if geotech_layer.cpt_id is not None:
-                inv_filter = LithoLayerOrm.cpt_id == geotech_layer.cpt_id
-            elif geotech_layer.borehole_id is not None:
-                inv_filter = LithoLayerOrm.borehole_id == geotech_layer.borehole_id
+            # The band ABOVE the surface: same investigation, same geotech
+            # model, base at this contact's depth (mm slack for the divide
+            # arithmetic).
+            if below.cpt_id is not None:
+                above_inv_filter = LithoLayerOrm.cpt_id == below.cpt_id
+            elif below.borehole_id is not None:
+                above_inv_filter = LithoLayerOrm.borehole_id == below.borehole_id
             else:
-                # Geotech layer has no investigation anchor — should not happen.
                 self.warning(
                     f"_resolve_litho_bodies_for_geotech: "
                     f"geotech layer {contact_id} has no cpt_id or borehole_id"
                 )
-                result[key] = None
                 continue
-
-            # Find the litho layer on the same investigation that CONTAINS this
-            # geotech band (depth_top_m ≤ geotech.top + ε  and
-            # depth_base_m ≥ geotech.base − ε).  A small tolerance accounts for
-            # the geo-band divide arithmetic that produces the geotech band from
-            # the original litho layer.
-            stmt = (
-                select(LithoLayerOrm)
-                .where(
-                    and_(
-                        LithoLayerOrm.model_id == litho_model_id,
-                        LithoLayerOrm.status == "accepted",
-                        inv_filter,
-                        LithoLayerOrm.depth_top_m
-                        <= geotech_layer.depth_top_m + _DEPTH_CONTAINMENT_EPS_M,
-                        LithoLayerOrm.depth_base_m
-                        >= geotech_layer.depth_base_m - _DEPTH_CONTAINMENT_EPS_M,
+            above = (
+                (
+                    await self._session.execute(
+                        select(LithoLayerOrm)
+                        .where(
+                            and_(
+                                LithoLayerOrm.model_id == below.model_id,
+                                above_inv_filter,
+                                LithoLayerOrm.depth_base_m
+                                >= below.depth_top_m - _DEPTH_CONTAINMENT_EPS_M,
+                                LithoLayerOrm.depth_base_m
+                                <= below.depth_top_m + _DEPTH_CONTAINMENT_EPS_M,
+                            )
+                        )
+                        .limit(1)
                     )
                 )
-                # At most one accepted litho layer can contain a geotech band on
-                # this anchor (the ``litho_layer_accepted_no_overlap`` exclusion
-                # constraint). The ``order_by`` keeps the pick deterministic if
-                # that constraint is ever relaxed or bypassed by a migration.
-                .order_by(LithoLayerOrm.depth_top_m)
-                .limit(1)
+                .scalars()
+                .first()
             )
-            litho_layer = (await self._session.execute(stmt)).scalars().first()
 
-            if litho_layer is None:
-                self.debug(
-                    f"_resolve_litho_bodies_for_geotech: "
-                    f"no containing litho layer found for geotech contact {contact_id} "
-                    f"(top={geotech_layer.depth_top_m}, base={geotech_layer.depth_base_m})"
+            for band in (below, above):
+                if band is None:
+                    continue
+                body = await self._containing_litho_body(
+                    litho_model_id=litho_model_id, band=band
                 )
-                result[key] = None
-                continue
-
-            if litho_layer.body_id is None:
-                self.debug(
-                    f"_resolve_litho_bodies_for_geotech: "
-                    f"litho layer {litho_layer.id} has no body_id stamped yet "
-                    f"(resolver not yet run or layer not in a correlated body)"
-                )
-                result[key] = None
-            else:
-                result[key] = str(litho_layer.body_id)
-                self.debug(
-                    f"_resolve_litho_bodies_for_geotech: "
-                    f"geotech contact {contact_id} → litho body {litho_layer.body_id}"
-                )
+                if body is not None:
+                    result[key].add(body)
+            self.debug(
+                f"_resolve_litho_bodies_for_geotech: geotech contact {contact_id} "
+                f"-> adjacent litho bodies {sorted(result[key])!r}"
+            )
 
         return result
+
+    async def _containing_litho_body(
+        self,
+        *,
+        litho_model_id: UUID,
+        band: LithoLayerOrm,
+    ) -> str | None:
+        """Return the litho body id of the accepted litho layer containing *band*.
+
+        Parameters
+        ----------
+        litho_model_id : UUID
+            The parent lithostratigraphic model.
+        band : LithoLayerOrm
+            A geotech band (litho_layer row on the geotech model).
+
+        Returns
+        -------
+        str | None
+            The containing accepted litho layer's ``body_id``, or ``None``
+            when no containing layer exists or its body is not yet stamped.
+        """
+        if band.cpt_id is not None:
+            inv_filter = LithoLayerOrm.cpt_id == band.cpt_id
+        elif band.borehole_id is not None:
+            inv_filter = LithoLayerOrm.borehole_id == band.borehole_id
+        else:
+            return None
+        stmt = (
+            select(LithoLayerOrm)
+            .where(
+                and_(
+                    LithoLayerOrm.model_id == litho_model_id,
+                    LithoLayerOrm.status == "accepted",
+                    inv_filter,
+                    LithoLayerOrm.depth_top_m <= band.depth_top_m + _DEPTH_CONTAINMENT_EPS_M,
+                    LithoLayerOrm.depth_base_m >= band.depth_base_m - _DEPTH_CONTAINMENT_EPS_M,
+                )
+            )
+            # At most one accepted litho layer can contain a geotech band on
+            # this anchor (the ``litho_layer_accepted_no_overlap`` exclusion
+            # constraint). The ``order_by`` keeps the pick deterministic if
+            # that constraint is ever relaxed or bypassed by a migration.
+            .order_by(LithoLayerOrm.depth_top_m)
+            .limit(1)
+        )
+        litho_layer = (await self._session.execute(stmt)).scalars().first()
+        if litho_layer is None or litho_layer.body_id is None:
+            return None
+        return str(litho_layer.body_id)
+
+    async def _describe_geotech_band(self, contact_id: UUID) -> str:
+        """Name a geotech band for the refusal toast: formation @ investigation.
+
+        Parameters
+        ----------
+        contact_id : UUID
+            The geotech contact (= band) id.
+
+        Returns
+        -------
+        str
+            e.g. ``"KLEI (NAD 23) on GEO-22/115-S10"`` - or the bare id when
+            the band cannot be resolved.
+        """
+        band = await self._session.get(LithoLayerOrm, contact_id)
+        if band is None:
+            return str(contact_id)
+        formation = await self._session.get(GeologicalFormationOrm, band.formation_id)
+        fname = formation.name if formation is not None else "?"
+        inv_name: str | None = None
+        if band.cpt_id is not None:
+            cpt = await self._session.get(CptOrm, band.cpt_id)
+            inv_name = cpt.name if cpt is not None else None
+        elif band.borehole_id is not None:
+            bh = await self._session.get(BoreholeOrm, band.borehole_id)
+            inv_name = bh.name if bh is not None else None
+        return f"{fname} on {inv_name}" if inv_name else fname
 
 
 class UncorrelateLithoContacts(GroundModelLogger):
