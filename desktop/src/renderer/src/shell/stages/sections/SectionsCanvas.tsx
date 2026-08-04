@@ -329,27 +329,6 @@ export default function SectionsCanvas(): JSX.Element {
   // nothing here feeds that overlay.
   const correlationModelId = activeSectionModelId
 
-  // Geotech fraction-space refinement bundle (owner-locked 2026-07-06). On the
-  // geotech axis PartitionFillOverlay refines the litho partition by NAD packing
-  // class using these three maps: the geotech sub-band rows, the geotech
-  // formation â†’ (NAD class, soil code) metadata, and the litho formation â†’ soil
-  // code map (the hard soil-code guard so a sand region never carries a foreign
-  // class). `undefined` off the geotech axis â†’ normal litho render.
-  const geotechRefinement = useMemo(() => {
-    if (!isGeotech) return undefined
-    const nadMeta = new Map<string, { nadClass: number | null; soilCode: string | null }>()
-    for (const f of geotechFormations) {
-      nadMeta.set(f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null })
-    }
-    const lithoSoilByFormationId = new Map<string, string | null>()
-    const lithoFormationColorById = new Map<string, string>()
-    for (const f of lithoFormations) {
-      lithoSoilByFormationId.set(f.id, f.litho_main_soil_code ?? null)
-      lithoFormationColorById.set(f.id, f.color)
-    }
-    return { geotechLayers, nadMeta, lithoSoilByFormationId, lithoFormationColorById }
-  }, [isGeotech, geotechFormations, lithoFormations, geotechLayers])
-
   // Ghost packing bands for boreholes that have not been divided yet.
   //
   // "Subdivide all bodies" writes CPT bands only and defers every
@@ -525,6 +504,50 @@ export default function SectionsCanvas(): JSX.Element {
   const [geotechPackingEdges, setGeotechPackingEdges] = useState<
     LithoContactCorrelationEdge[]
   >([])
+
+  // NOTE ON PLACEMENT: this memo reads `geotechPackingEdges`, so it must stay
+  // BELOW that state declaration — above it the const is in its temporal dead
+  // zone and the component throws on first render (TS2448 caught it here).
+  // Geotech fraction-space refinement bundle (owner-locked 2026-07-06). On the
+  // geotech axis PartitionFillOverlay refines the litho partition by NAD packing
+  // class using these three maps: the geotech sub-band rows, the geotech
+  // formation â†’ (NAD class, soil code) metadata, and the litho formation â†’ soil
+  // code map (the hard soil-code guard so a sand region never carries a foreign
+  // class). `undefined` off the geotech axis â†’ normal litho render.
+  const geotechRefinement = useMemo(() => {
+    if (!isGeotech) return undefined
+    const nadMeta = new Map<string, { nadClass: number | null; soilCode: string | null }>()
+    for (const f of geotechFormations) {
+      nadMeta.set(f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null })
+    }
+    const lithoSoilByFormationId = new Map<string, string | null>()
+    const lithoFormationColorById = new Map<string, string>()
+    for (const f of lithoFormations) {
+      lithoSoilByFormationId.set(f.id, f.litho_main_soil_code ?? null)
+      lithoFormationColorById.set(f.id, f.color)
+    }
+    // The approved packing ties drive the gap fill (owner ruling 2026-08-04:
+    // "correlate by hand between CPTs, so we can reuse the litho's 2/1/0
+    // ruling"). This is the SAME list the correlate overlay draws and the same
+    // rows the 3-D build fetches — filtered to approved here exactly as
+    // `fetchApprovedEdgesBySection` does, so a pending auto proposal does not
+    // silently reshape the render before the engineer accepts it.
+    const packingEdges = geotechPackingEdges
+      .filter(e => e.user_approved)
+      .map(e => ({
+        a: e.layer_a_id,
+        b: e.layer_b_id,
+        aSide: e.layer_a_side,
+        bSide: e.layer_b_side,
+      }))
+    return {
+      geotechLayers,
+      nadMeta,
+      lithoSoilByFormationId,
+      lithoFormationColorById,
+      packingEdges,
+    }
+  }, [isGeotech, geotechFormations, lithoFormations, geotechLayers, geotechPackingEdges])
 
   // Armed contact id â€” the source boundary the user clicked first.
   // Null = nothing armed (idle).
