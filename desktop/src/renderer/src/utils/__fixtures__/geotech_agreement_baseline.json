@@ -1,10 +1,10 @@
 {
- "frozenAt": "2026-08-04T10:03:51.843Z",
+ "frozenAt": "2026-08-04T11:35:19.894Z",
  "engine": "v2",
  "lithoModelId": "019e934c-70fd-7d11-a44a-b2073f4063a2",
  "geotechModelId": "019ef689-9a90-7a70-b0a9-97077c49a170",
- "totalDisagreementPct": 43.5464920076698,
- "buildableDisagreementPct": 41.8007684079178,
+ "totalDisagreementPct": 39.06728627584221,
+ "buildableDisagreementPct": 37.17594637817624,
  "sections": [
   {
    "name": "Cross-section 1",
@@ -12,11 +12,11 @@
    "geoCols": 19,
    "lithoEdges": 111,
    "geoEdges": 59,
-   "disagreementPct": 44.89214566101227,
-   "agreeM2": 10371.272705204245,
-   "disagreeM2": 5956.918306821293,
-   "renderOnlyM2": 1980.459389033249,
-   "buildOnlyM2": 511.30335980969073
+   "disagreementPct": 41.3689531116814,
+   "agreeM2": 11052.2195795029,
+   "disagreeM2": 5761.918835898293,
+   "renderOnlyM2": 2010.9614294315775,
+   "buildOnlyM2": 25.355956434694132
   },
   {
    "name": "Cross-section 2",
@@ -24,11 +24,11 @@
    "geoCols": 17,
    "lithoEdges": 170,
    "geoEdges": 66,
-   "disagreementPct": 40.53320558310251,
-   "agreeM2": 7962.66650682115,
-   "disagreeM2": 4319.721615560769,
-   "renderOnlyM2": 554.6184491812503,
-   "buildOnlyM2": 553.0989232750674
+   "disagreementPct": 34.55264148627202,
+   "agreeM2": 8778.54793227762,
+   "disagreeM2": 4048.414780109118,
+   "renderOnlyM2": 577.6561760614042,
+   "buildOnlyM2": 8.524333269914509
   },
   {
    "name": "Cross-section 3",
@@ -36,11 +36,11 @@
    "geoCols": 8,
    "lithoEdges": 76,
    "geoEdges": 38,
-   "disagreementPct": 48.53769430605111,
-   "agreeM2": 5570.313312958795,
-   "disagreeM2": 4191.140677050959,
-   "renderOnlyM2": 776.4294679465802,
-   "buildOnlyM2": 286.1813363534358
+   "disagreementPct": 45.2492059883473,
+   "agreeM2": 5933.817383051184,
+   "disagreeM2": 4101.258883068221,
+   "renderOnlyM2": 790.2301149822251,
+   "buildOnlyM2": 12.559060243895184
   },
   {
    "name": "Tie-section 10",
@@ -48,11 +48,11 @@
    "geoCols": 2,
    "lithoEdges": 3,
    "geoEdges": 2,
-   "disagreementPct": 36.7805312583487,
-   "agreeM2": 1121.9775954406646,
-   "disagreeM2": 535.6032076239258,
-   "renderOnlyM2": 40.01637987693652,
-   "buildOnlyM2": 77.13711611699199
+   "disagreementPct": 26.94712254947207,
+   "agreeM2": 1297.6147152546484,
+   "disagreeM2": 434.4333430078178,
+   "renderOnlyM2": 41.5498481401427,
+   "buildOnlyM2": 2.6698609189515845
   },
   {
    "name": "Tie-section 11",
@@ -63,7 +63,7 @@
    "disagreementPct": 100,
    "agreeM2": 0,
    "disagreeM2": 0,
-   "renderOnlyM2": 1770.768098713849,
+   "renderOnlyM2": 1780.2280129782057,
    "buildOnlyM2": 0
   },
   {
@@ -72,11 +72,11 @@
    "geoCols": 2,
    "lithoEdges": 4,
    "geoEdges": 4,
-   "disagreementPct": 40.14902896578619,
-   "agreeM2": 1157.0676039718674,
-   "disagreeM2": 685.0939096714341,
-   "renderOnlyM2": 16.40161503541661,
-   "buildOnlyM2": 74.6847100412745
+   "disagreementPct": 26.89469703778614,
+   "agreeM2": 1413.7012322313901,
+   "disagreeM2": 501.1080749283141,
+   "renderOnlyM2": 16.941306013638364,
+   "buildOnlyM2": 2.036916524870781
   },
   {
    "name": "Tie-section 13",
@@ -87,7 +87,7 @@
    "disagreementPct": 100,
    "agreeM2": 0,
    "disagreeM2": 0,
-   "renderOnlyM2": 21.565186432514192,
+   "renderOnlyM2": 21.565576788017097,
    "buildOnlyM2": 0
   },
   {
@@ -96,11 +96,11 @@
    "geoCols": 3,
    "lithoEdges": 38,
    "geoEdges": 13,
-   "disagreementPct": 51.159705398576946,
-   "agreeM2": 1452.7145949797912,
-   "disagreeM2": 1026.5529850603227,
-   "renderOnlyM2": 456.4455528423156,
-   "buildOnlyM2": 38.70503317315353
+   "disagreementPct": 48.80867218760305,
+   "agreeM2": 1527.0605357221077,
+   "disagreeM2": 989.8498455975086,
+   "renderOnlyM2": 465.0727598594877,
+   "buildOnlyM2": 1.0622318934448378
   },
   {
    "name": "Tie-section 4",
@@ -108,11 +108,11 @@
    "geoCols": 2,
    "lithoEdges": 6,
    "geoEdges": 5,
-   "disagreementPct": 40.827581253602204,
-   "agreeM2": 618.3078319165228,
-   "disagreeM2": 181.46590897468087,
-   "renderOnlyM2": 212.32250639616043,
-   "buildOnlyM2": 32.82948841135293
+   "disagreementPct": 32.06935826095961,
+   "agreeM2": 715.3536728918632,
+   "disagreeM2": 116.58501649043704,
+   "renderOnlyM2": 220.4615652859117,
+   "buildOnlyM2": 0.6645399202698237
   },
   {
    "name": "Tie-section 5",
@@ -120,11 +120,11 @@
    "geoCols": 2,
    "lithoEdges": 7,
    "geoEdges": 7,
-   "disagreementPct": 19.244093471382683,
-   "agreeM2": 944.0203244125088,
-   "disagreeM2": 216.87953243867628,
+   "disagreementPct": 19.166925158161405,
+   "agreeM2": 944.9224064920562,
+   "disagreeM2": 216.87468102953198,
    "renderOnlyM2": 6.922719244233041,
-   "buildOnlyM2": 1.1573350866548433
+   "buildOnlyM2": 0.26010441649006516
   },
   {
    "name": "Tie-section 6",
@@ -132,11 +132,11 @@
    "geoCols": 2,
    "lithoEdges": 4,
    "geoEdges": 5,
-   "disagreementPct": 22.269921124559303,
-   "agreeM2": 993.2626679144987,
-   "disagreeM2": 218.95634305071783,
-   "renderOnlyM2": 11.232496322654017,
-   "buildOnlyM2": 54.38415463929906
+   "disagreementPct": 12.73840945377089,
+   "agreeM2": 1115.3819476861142,
+   "disagreeM2": 149.35689536264974,
+   "renderOnlyM2": 11.60175904123851,
+   "buildOnlyM2": 1.8643225557516625
   },
   {
    "name": "Tie-section 7",
@@ -144,11 +144,11 @@
    "geoCols": 2,
    "lithoEdges": 16,
    "geoEdges": 7,
-   "disagreementPct": 35.5388432184367,
-   "agreeM2": 964.2327811810659,
-   "disagreeM2": 386.4260463481251,
+   "disagreementPct": 35.35433525666299,
+   "agreeM2": 966.9927165285119,
+   "disagreeM2": 389.17927979421,
    "renderOnlyM2": 137.49176330091214,
-   "buildOnlyM2": 7.6847762709238365
+   "buildOnlyM2": 2.1716074775747374
   },
   {
    "name": "Tie-section 8",
@@ -156,11 +156,11 @@
    "geoCols": 2,
    "lithoEdges": 12,
    "geoEdges": 5,
-   "disagreementPct": 28.979605310180812,
-   "agreeM2": 1126.258102630511,
-   "disagreeM2": 375.81800117147804,
-   "renderOnlyM2": 12.569235408641495,
-   "buildOnlyM2": 71.17815212510644
+   "disagreementPct": 20.288312100424122,
+   "agreeM2": 1264.4843518316743,
+   "disagreeM2": 306.1545617813868,
+   "renderOnlyM2": 13.068133111827624,
+   "buildOnlyM2": 2.6153423138739975
   },
   {
    "name": "Tie-section 9",
@@ -168,11 +168,11 @@
    "geoCols": 2,
    "lithoEdges": 4,
    "geoEdges": 5,
-   "disagreementPct": 13.180129171789117,
-   "agreeM2": 1450.6345346409266,
-   "disagreeM2": 176.88478352392977,
+   "disagreementPct": 12.745168961704657,
+   "agreeM2": 1457.9020909724914,
+   "disagreeM2": 176.90098932610314,
    "renderOnlyM2": 35.514854744040804,
-   "buildOnlyM2": 7.821266983744811
+   "buildOnlyM2": 0.5375048500067295
   }
  ],
  "note": "Share of the section plane where the geotech RENDER (litho partition refined by NAD) and the geotech BUILD (a direct partition of the geotech layers) assign a different packing class. Convergence work should drive these DOWN; a rise is a regression. PROVENANCE: measured from scripts/throwaway_geotech_axis_inputs.json, an UNTRACKED read-only dump of the owner dev DB (regenerate: uv run python scripts/dump_geotech_axis_inputs.py); reproducible only on that machine. TRACKED SUSPECT baked into these numbers: the render arm runs with ZERO hand-drawn body boundaries because SectionsCanvas clears them off any non-litho axis, while the litho render and both voxel builds apply them — suspected product defect, owner question open in docs/design/geotech-stage.md §7. On this model 1 litho / 0 geotech boundaries are stored, so the override path is UNEXERCISED here and the frozen number does not cover it."
