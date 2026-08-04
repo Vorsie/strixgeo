@@ -39,6 +39,9 @@ from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -226,6 +229,94 @@ async def _correlate(
         },
     )
     assert resp.status_code in (200, 201), resp.text
+
+
+async def _accept_shallowest_borehole_cpt_tie(
+    session: AsyncSession,
+    *,
+    geotech_model_id: UUID,
+    section_id: UUID,
+    borehole_id: UUID,
+    cpt_id: UUID,
+) -> None:
+    """Hand-tie a borehole's shallowest packing band to a CPT's, and accept it.
+
+    The engineer's gesture, reduced to its database effect. Phase 8.5 may
+    already have PROPOSED this pair; accepting a proposal and drawing one by
+    hand both end at the same place — an edge the engineer owns
+    (``user_approved=True``) — so the helper promotes an existing row rather
+    than inserting a duplicate the unique triple would reject.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Live session; committed before returning.
+    geotech_model_id : UUID
+        The geotech model the bands live in.
+    section_id : UUID
+        Section the tie is authored on (geotech edges are section-scoped).
+    borehole_id : UUID
+        The borehole endpoint.
+    cpt_id : UUID
+        The CPT endpoint.
+    """
+
+    async def _shallowest(column: object, value: UUID) -> LithoLayerOrm | None:
+        return (
+            (
+                await session.execute(
+                    select(LithoLayerOrm)
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        column == value,
+                    )
+                    .order_by(LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    bh_band = await _shallowest(LithoLayerOrm.borehole_id, borehole_id)
+    cpt_band = await _shallowest(LithoLayerOrm.cpt_id, cpt_id)
+    assert bh_band is not None and cpt_band is not None, (
+        "setup: expected both a borehole band and a CPT band to tie together"
+    )
+    # ck_litho_contact_corr_canonical_order requires layer_a_id < layer_b_id.
+    # Both sides are 'top', so ordering the ids alone satisfies it.
+    layer_a_id = min(bh_band.id, cpt_band.id)
+    layer_b_id = max(bh_band.id, cpt_band.id)
+    existing = (
+        (
+            await session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.layer_a_id == layer_a_id,
+                    LithoContactCorrelationEdgeOrm.layer_b_id == layer_b_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        existing.user_approved = True
+        existing.source = "manual"
+    else:
+        session.add(
+            LithoContactCorrelationEdgeOrm(
+                id=uuid7(),
+                model_id=geotech_model_id,
+                section_id=section_id,
+                layer_a_id=layer_a_id,
+                layer_b_id=layer_b_id,
+                layer_a_side="top",
+                layer_b_side="top",
+                source="manual",
+                user_approved=True,
+            )
+        )
+    await session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -644,73 +735,13 @@ async def test_db4_accepted_borehole_tie_survives_a_re_divide(
 
     # The engineer's gesture: tie BH-S's shallowest packing band to CPT-A's
     # shallowest one, by hand, and accept it.
-    bh_band = (
-        (
-            await db_session.execute(
-                select(LithoLayerOrm)
-                .where(
-                    LithoLayerOrm.model_id == geotech_model_id,
-                    LithoLayerOrm.borehole_id == bh_s_id,
-                )
-                .order_by(LithoLayerOrm.depth_top_m)
-            )
-        )
-        .scalars()
-        .first()
+    await _accept_shallowest_borehole_cpt_tie(
+        db_session,
+        geotech_model_id=geotech_model_id,
+        section_id=section_id,
+        borehole_id=bh_s_id,
+        cpt_id=cpt_a_id,
     )
-    cpt_band = (
-        (
-            await db_session.execute(
-                select(LithoLayerOrm)
-                .where(
-                    LithoLayerOrm.model_id == geotech_model_id,
-                    LithoLayerOrm.cpt_id == cpt_a_id,
-                )
-                .order_by(LithoLayerOrm.depth_top_m)
-            )
-        )
-        .scalars()
-        .first()
-    )
-    assert bh_band is not None and cpt_band is not None, (
-        "DB4 setup: expected both a borehole band and a CPT band to tie together"
-    )
-    layer_a_id = min(bh_band.id, cpt_band.id)
-    layer_b_id = max(bh_band.id, cpt_band.id)
-    # Phase 8.5 may already have PROPOSED this pair; accepting a proposal and
-    # drawing one by hand both end at the same place — an edge the engineer
-    # owns (``user_approved=True``).
-    existing = (
-        (
-            await db_session.execute(
-                select(LithoContactCorrelationEdgeOrm).where(
-                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                    LithoContactCorrelationEdgeOrm.layer_a_id == layer_a_id,
-                    LithoContactCorrelationEdgeOrm.layer_b_id == layer_b_id,
-                )
-            )
-        )
-        .scalars()
-        .first()
-    )
-    if existing is not None:
-        existing.user_approved = True
-        existing.source = "manual"
-    else:
-        db_session.add(
-            LithoContactCorrelationEdgeOrm(
-                id=uuid7(),
-                model_id=geotech_model_id,
-                section_id=section_id,
-                layer_a_id=layer_a_id,
-                layer_b_id=layer_b_id,
-                layer_a_side="top",
-                layer_b_side="top",
-                source="manual",
-                user_approved=True,
-            )
-        )
-    await db_session.commit()
 
     # Re-click "Divide boreholes".
     second = await DivideBoreholes(db_session).execute(
@@ -760,3 +791,294 @@ async def test_db4_accepted_borehole_tie_survives_a_re_divide(
         f"DB4: expected the result to report 1 carried tie, "
         f"got reanchored={second.reanchored_tie_count} lost={second.lost_tie_count}"
     )
+
+
+# ---------------------------------------------------------------------------
+# DB5 — THE parity gate: preview == commit
+# ---------------------------------------------------------------------------
+
+
+async def _committed_borehole_bands(
+    session: AsyncSession, geotech_model_id: UUID
+) -> dict[str, list[tuple[float, float, int | None, str | None]]]:
+    """Read every committed borehole packing band, keyed by borehole.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Live session.
+    geotech_model_id : UUID
+        The geotech model to read.
+
+    Returns
+    -------
+    dict[str, list[tuple[float, float, int | None, str | None]]]
+        Borehole id (stringified) -> the band tuples ``(top, base, nad_class,
+        confidence)``, sorted by top depth.  Depths are mm-rounded, the grain
+        ``litho_layer`` itself stores intervals at, so float noise cannot make
+        an identical band look different.
+
+        ``body_id`` is deliberately NOT compared: the commit re-runs
+        ``ResolveLithoInstances`` after the borehole-mediated edges exist, which
+        re-stamps it on every band, so no plan can know it in advance.  That is
+        why the preview does not report one — this gate is what found it.
+    """
+    # ORDER BY at the query level, not only the per-borehole sort below: two
+    # bands of one borehole may share a top depth after a re-divide, and an
+    # unordered SELECT would then let Postgres' physical row order decide the
+    # tuple sequence — turning a parity gate into a flaky one.
+    rows = (
+        await session.execute(
+            select(
+                LithoLayerOrm.borehole_id,
+                LithoLayerOrm.depth_top_m,
+                LithoLayerOrm.depth_base_m,
+                LithoLayerOrm.confidence,
+                GeologicalFormationOrm.nad_class,
+            )
+            .join(
+                GeologicalFormationOrm,
+                LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+            )
+            .where(
+                LithoLayerOrm.model_id == geotech_model_id,
+                LithoLayerOrm.borehole_id.is_not(None),
+            )
+            .order_by(
+                LithoLayerOrm.borehole_id,
+                LithoLayerOrm.depth_top_m,
+                LithoLayerOrm.depth_base_m,
+            )
+        )
+    ).all()
+    out: dict[str, list[tuple[float, float, int | None, str | None]]] = {}
+    for row in rows:
+        out.setdefault(str(row.borehole_id), []).append(
+            (
+                round(row.depth_top_m, 3),
+                round(row.depth_base_m, 3),
+                row.nad_class,
+                row.confidence,
+            )
+        )
+    for bands in out.values():
+        bands.sort(key=lambda b: b[0])
+    return out
+
+
+@pytest.mark.asyncio
+async def test_db5_preview_equals_commit(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """DB5: the previewed bands ARE the committed bands, exactly.
+
+    This is the gate the whole preview feature rests on.  The ghosts drawn over
+    a borehole are a promise about what "Divide boreholes" will do; a preview
+    that can diverge from the commit is worse than no preview at all, because
+    the engineer has no way to notice.  So the assertion is equality of the full
+    band tuple — depth interval, NAD class and confidence — not a tolerance and
+    not a count.
+
+    DB5-1  The preview writes nothing: the boreholes are still empty afterwards.
+    DB5-2  Preview and commit agree on every band of every borehole.
+    DB5-3  Preview and commit agree on the summary counts.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = divide_boreholes_scene["litho_model_id"]
+    pid = str(project.id)
+
+    sab = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    geotech_model_id = sab.geotech_model_id
+
+    preview_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes/preview",
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview = preview_resp.json()
+
+    # DB5-1: a dry run is dry.
+    assert await _committed_borehole_bands(db_session, geotech_model_id) == {}, (
+        "DB5-1: the preview endpoint wrote borehole geotech layers — it must only SELECT"
+    )
+
+    previewed = {
+        column["borehole_id"]: [
+            (
+                round(band["depth_top_m"], 3),
+                round(band["depth_base_m"], 3),
+                band["nad_class"],
+                band["confidence"],
+            )
+            for band in column["bands"]
+        ]
+        for column in preview["columns"]
+    }
+    assert previewed, "DB5: the preview reported no borehole at all — nothing was compared"
+
+    commit_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes",
+        json={},
+    )
+    assert commit_resp.status_code == 200, commit_resp.text
+    committed_summary = commit_resp.json()
+    committed = await _committed_borehole_bands(db_session, geotech_model_id)
+
+    # DB5-2: band-for-band identity.
+    assert previewed == committed, (
+        "DB5-2: the committed bands differ from the previewed ones.\n"
+        f"previewed={previewed}\ncommitted={committed}"
+    )
+
+    # DB5-3: the summaries have to agree too, or the preview's own counts lie.
+    assert preview["layer_count"] == committed_summary["layer_count"]
+    assert preview["divided_borehole_count"] == committed_summary["divided_borehole_count"]
+    assert preview["single_band_borehole_count"] == committed_summary["single_band_borehole_count"]
+
+
+@pytest.mark.asyncio
+async def test_db6_preview_reports_the_ties_the_commit_carries(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """DB6: the preview tie-carry counts match what the commit actually does.
+
+    A re-divide destroys and re-creates every accepted tie anchored on a
+    borehole.  Telling the engineer that up front is only useful if the number
+    is the real one, so it is asserted against the commit's own report rather
+    than against a hand-written expectation.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = divide_boreholes_scene["litho_model_id"]
+    bh_s_id = divide_boreholes_scene["bh_s_id"]
+    cpt_a_id = divide_boreholes_scene["cpt_a_id"]
+    section_id = divide_boreholes_scene["section_id"]
+    pid = str(project.id)
+
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    first = await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    geotech_model_id = first.geotech_model_id
+
+    # Accept a hand tie between BH-S's top band and CPT-A's top band.
+    await _accept_shallowest_borehole_cpt_tie(
+        db_session,
+        geotech_model_id=geotech_model_id,
+        section_id=UUID(section_id),
+        borehole_id=bh_s_id,
+        cpt_id=cpt_a_id,
+    )
+
+    preview_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes/preview",
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview = preview_resp.json()
+    assert preview["carried_tie_count"] == 1, (
+        f"DB6: preview should see the one accepted borehole tie, got {preview}"
+    )
+
+    second = await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    assert preview["carried_tie_count"] == second.reanchored_tie_count
+    assert preview["lost_tie_count"] == second.lost_tie_count
+    assert preview["review_tie_reasons"] == second.review_tie_reasons
+
+
+# ---------------------------------------------------------------------------
+# DB7 — the parity gate again, but on a model that has ALREADY been divided
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_db7_preview_between_two_divides_equals_the_second_divide(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """DB7: previewing a RE-divide is as honest as previewing the first one.
+
+    ``plan()`` now runs before the Phase-7 delete of the existing borehole
+    layers, which is only sound because it never reads those layers.  DB5 pins
+    that on a virgin model (no borehole bands committed yet) and DB6 pins the
+    tie counts, but the band-for-band claim on an already-divided model — the
+    docstring's *"planning before or after the delete produces identical
+    bands"* — had no gate at all.  This is that gate.
+
+    DB7-1  The preview changes nothing: the bands the first divide committed are
+           byte-identical afterwards.
+    DB7-2  The previewed bands equal the ones the SECOND divide commits.
+    DB7-3  The preview's summary counts equal the second divide's.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = divide_boreholes_scene["litho_model_id"]
+    pid = str(project.id)
+
+    await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    first = await DivideBoreholes(db_session).execute(
+        project_id=project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    geotech_model_id = first.geotech_model_id
+    before = await _committed_borehole_bands(db_session, geotech_model_id)
+    assert before, "DB7: the first divide committed no borehole band — nothing is being tested"
+
+    preview_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes/preview",
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview = preview_resp.json()
+
+    # DB7-1: a dry run over a divided model is still dry — the rows the first
+    # divide wrote are untouched, delete-then-rebuild notwithstanding.
+    assert await _committed_borehole_bands(db_session, geotech_model_id) == before, (
+        "DB7-1: the preview mutated the borehole bands committed by the first divide"
+    )
+
+    previewed = {
+        column["borehole_id"]: [
+            (
+                round(band["depth_top_m"], 3),
+                round(band["depth_base_m"], 3),
+                band["nad_class"],
+                band["confidence"],
+            )
+            for band in column["bands"]
+        ]
+        for column in preview["columns"]
+    }
+    assert previewed, "DB7: the preview reported no borehole at all — nothing was compared"
+
+    second_resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes",
+        json={},
+    )
+    assert second_resp.status_code == 200, second_resp.text
+    second_summary = second_resp.json()
+    committed = await _committed_borehole_bands(db_session, geotech_model_id)
+
+    # DB7-2: band-for-band identity across the delete/rebuild.
+    assert previewed == committed, (
+        "DB7-2: the re-divide committed different bands than the preview promised.\n"
+        f"previewed={previewed}\ncommitted={committed}"
+    )
+
+    # DB7-3: and the counts it reported were the real ones.
+    assert preview["layer_count"] == second_summary["layer_count"]
+    assert preview["divided_borehole_count"] == second_summary["divided_borehole_count"]
+    assert preview["single_band_borehole_count"] == second_summary["single_band_borehole_count"]
