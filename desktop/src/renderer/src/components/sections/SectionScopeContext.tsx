@@ -23,6 +23,7 @@ import type {
   BodyBoundaryResponse,
   BodyListItem,
   CrossingPinchOut,
+  DivideBoreholePreviewColumn,
   FormationContactResponse,
   FormationSurfaceResponse,
   GeologicalFormationResponse,
@@ -175,6 +176,25 @@ export interface SectionScope {
    * litho partition by NAD packing class. See ``GeotechRefinement``.
    */
   refinement?: GeotechRefinement
+  /**
+   * Ghost packing bands for boreholes that have not been divided yet (geotech
+   * axis only). The server's dry run of ``Divide boreholes``, run through the
+   * SAME planner the verb commits, so what is drawn is what the button writes.
+   *
+   * Exists because ``Subdivide all bodies`` leaves every borehole column blank
+   * on this axis — the engineer could not see what packing a borehole would get
+   * without first pressing the rebuild (owner dogfeed 2026-08-04). Absent /
+   * empty → no ghosts, exactly as before.
+   */
+  geotechBoreholePreview?: readonly DivideBoreholePreviewColumn[]
+  /**
+   * Whether the committed geotech rows currently reflect the server.
+   *
+   * The bus clears them to ``[]`` before every refetch and on a failed load, so
+   * the preview overlay cannot read emptiness as "no borehole is divided"
+   * without this. Absent → treated as loaded (the pre-preview behaviour).
+   */
+  geotechLayersLoaded?: boolean
   /** Stored boundary shape per body id (render style + control nodes). */
   lensBoundaries?: ReadonlyMap<string, BodyBoundaryResponse>
   /**
