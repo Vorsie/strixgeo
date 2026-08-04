@@ -267,6 +267,8 @@ export function makeShellCtx(axis: SectionModelAxis = 'geotechnical'): ShellCont
       lithoCrossingPinchOuts: [],
       activeGeotechModel: geotechModel,
       geotechLayers: [],
+      geotechLayersLoaded: true,
+      geotechLayersVersion: 0,
       geotechContacts: [],
       geotechFormations: [],
       handleCreateManualLithoGhost: vi.fn(),
