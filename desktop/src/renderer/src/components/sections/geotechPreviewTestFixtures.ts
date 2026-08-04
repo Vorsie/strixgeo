@@ -130,7 +130,16 @@ export function cptColumn(id: string, along: number): PlacedColumn {
  */
 export function previewColumn(
   boreholeId: string,
-  bands: { top: number; base: number; nad: number; source?: string; confidence?: string }[],
+  bands: {
+    top: number
+    base: number
+    nad: number
+    source?: string
+    confidence?: string
+    mode?: string
+    section?: string
+    donors?: { name: string; side: string; along?: number; map?: number }[]
+  }[],
 ): DivideBoreholePreviewColumn {
   return {
     borehole_id: boreholeId,
@@ -141,6 +150,14 @@ export function previewColumn(
       nad_class: b.nad,
       source: b.source ?? 'cpt_interpolated',
       confidence: b.confidence ?? 'high',
+      mode: b.mode ?? null,
+      section_name: b.section ?? null,
+      donors: (b.donors ?? []).map(d => ({
+        name: d.name,
+        side: d.side,
+        along_distance_m: d.along ?? null,
+        map_distance_m: d.map ?? null,
+      })),
     })),
   }
 }
