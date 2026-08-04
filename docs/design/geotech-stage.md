@@ -443,6 +443,12 @@ on the packing render:
    exists — worst case 252.0 m² on Tie-section 11, where the section's only
    classified column is on the side the scan will not look.
    **PENDING — owner asked for a visual aid (2026-08-04) before deciding.**
+   The aid is built and delivered (Claude artifact `q2-borrow-visual`, from
+   `geotechQ2Visual.diag.test.ts` run on the real extract twice — shipped rule
+   vs a cross-gap borrow patch). Measured what-if: total plain-lithology area
+   960.3 → 212.0 m² (748.3 m² flips, matching the gate's 749.2 m² direction-miss
+   figure); Tie-section 11 416.4 → 164.4 m² (Δ 252.0 — the worst case above);
+   the 212 m² residual is the Q4 soil-guard area plus genuine no-data.
 3. **Should a section with fewer than 2 divided columns be built at all — and
    should the canvas say so?** Tie-section 11 (1,774.1 m²) and Tie-section 13
    (21.6 m²) are drawn in full and dropped entirely by the build: 1,795.7 m² of
