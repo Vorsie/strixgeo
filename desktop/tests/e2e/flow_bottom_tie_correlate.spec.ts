@@ -33,8 +33,8 @@
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set by run-e2e.ps1). Section B
- * (CPTs 3/4/5) carries committed litho contacts across three columns — the
- * ≥2-column precondition the gesture needs.
+ * (CPTs 3/4/5 + BH-E2E-01) carries committed litho contacts across four
+ * columns — well past the ≥2-column precondition the gesture needs.
  */
 
 import { test, expect, type Page } from '@playwright/test'
@@ -141,7 +141,7 @@ test.describe('flow_bottom_tie_correlate', () => {
       const handles = page.locator('[data-testid="bottom-handles"] [data-testid^="correlate-bottom-handle-"]')
       await expect(handles.first()).toBeVisible({ timeout: 10_000 })
       const handleCount = await handles.count()
-      expect(handleCount, 'expected ≥2 bottom handles on a 3-column section').toBeGreaterThanOrEqual(2)
+      expect(handleCount, 'expected ≥2 bottom handles on a 4-column section').toBeGreaterThanOrEqual(2)
 
       // Determine which investigations actually have a bottom handle on-screen
       // (the handle testid encodes the investigation id).
