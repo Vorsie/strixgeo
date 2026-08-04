@@ -231,6 +231,8 @@ function makeStubContext(): ShellContextValue {
       lithoCrossingPinchOuts: [],
       activeGeotechModel: null,
       geotechLayers: [],
+      geotechLayersLoaded: true,
+      geotechLayersVersion: 0,
       geotechContacts: [],
       geotechFormations: [],
       handleCreateManualLithoGhost: vi.fn(),
