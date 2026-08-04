@@ -174,6 +174,18 @@ const DETECTOR_PLOT_W = 1200
  */
 const RENDER_ARM_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
 
+/**
+ * Whether the RENDER arm consumes the section's geotech correlation edges.
+ *
+ * The product does (owner ruling 2026-08-04 — one edge set, both arms), so this
+ * is ON by default and OFF only for ``GEOTECH_AGREE_NOEDGES=1``, which measures
+ * the PRE-RULING render (LCS-only pairing) for a before/after comparison. It is
+ * printed on the header line every run: a number read without that line is a
+ * number about an arm that may not be the shipped one. Enforcement is skipped
+ * entirely in the OFF mode — the frozen baseline describes the shipped arm.
+ */
+const RENDER_ARM_READS_EDGES = process.env.GEOTECH_AGREE_NOEDGES !== '1'
+
 // ---------------------------------------------------------------------------
 // Extract shapes (mirrors scripts/dump_geotech_axis_inputs.py)
 // ---------------------------------------------------------------------------
@@ -557,6 +569,13 @@ describe('geotech axis — render vs build engine agreement', () => {
     console.log('='.repeat(96))
     console.log(`  input           ${INPUT}`)
     console.log(`  active engine   ${engineV2 ? 'v2 (terminations-first)' : 'v1 (stable)'}`)
+    console.log(
+      `  render arm ties ${
+        RENDER_ARM_READS_EDGES
+          ? 'ON — the refinement pairs on the geotech edges (shipped)'
+          : 'OFF — pre-ruling LCS-only pairing (GEOTECH_AGREE_NOEDGES=1); NOTHING ENFORCED'
+      }`,
+    )
     console.log(`  project         ${String(raw.meta.projectId)}`)
     console.log(`  litho model     ${String(raw.meta.lithoModelId)}`)
     console.log(`  geotech model   ${String(raw.meta.geotechModelId)}`)
@@ -638,10 +657,17 @@ describe('geotech axis — render vs build engine agreement', () => {
           units: geoByInv.get(c.investigationId) ?? [],
         })
       }
+      // The render arm reads the SAME geotech edge set the build arm is fed
+      // (owner ruling 2026-08-04 — "correlate by hand between CPTs, so we can
+      // reuse the litho's 2/1/0 ruling"). Single source of truth: one edge
+      // list, two arms. Until that ruling the render ignored edges entirely and
+      // re-derived connectivity with a class+position LCS, which is where a
+      // large share of the divergence below came from.
       const refined: RefinedPolygon[] =
         lithoRegions.length > 0
           ? refineLithoPartition(lithoRegions, columnOrder, geoColByInv, nadMeta, lithoSoil, {
               alongM: L.alongM,
+              packingEdges: RENDER_ARM_READS_EDGES ? toEdges(sec.geotech.edges) : undefined,
             })
           : []
 
@@ -1356,7 +1382,12 @@ describe('geotech axis — render vs build engine agreement', () => {
       // model that moved under the baseline makes the delta meaningless, and
       // failing on it would train the reader to ignore this gate.
       regressions =
-        baseline.engine === fresh.engine && verdict.skipped.length < measured.length
+        baseline.engine === fresh.engine &&
+        verdict.skipped.length < measured.length &&
+        // The baseline describes the SHIPPED render arm. GEOTECH_AGREE_NOEDGES
+        // measures the pre-ruling arm for comparison, so it reports and
+        // enforces nothing.
+        RENDER_ARM_READS_EDGES
           ? verdict.regressions
           : []
       if (verdict.skipped.length > 0) {
