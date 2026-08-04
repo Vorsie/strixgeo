@@ -778,6 +778,26 @@ export interface UseGeologicalModelResult {
    */
   geotechLayers: LithoLayerResponse[]
   /**
+   * Whether ``geotechLayers`` currently reflects the server.
+   *
+   * ``false`` while a load is in flight and after a failed one — the effect
+   * below clears the array to ``[]`` before every refetch and swallows a
+   * failure to ``[]`` as well, so an empty array on its own cannot be read as
+   * "nothing is committed". Consumers that would draw a conclusion from
+   * emptiness (the borehole packing-preview ghosts) must check this first.
+   */
+  geotechLayersLoaded: boolean
+  /**
+   * Monotonic counter, incremented once per SUCCESSFUL geotech-layer load.
+   *
+   * The invalidation key for anything derived from the committed geotech rows
+   * by a separate server call — the borehole packing preview keys its refetch
+   * on it. A counter rather than the array itself precisely because the array
+   * gets a new identity twice per mutation (cleared, then filled), which made
+   * the preview re-run the whole planner twice per Divide.
+   */
+  geotechLayersVersion: number
+  /**
    * Boundary-centric projection of ``geotechLayers``.  Mirrors
    * ``lithoContacts`` — derived via ``lithoLayersToContacts`` so legacy
    * consumers that operate on the contact shape keep working unchanged.
@@ -1042,6 +1062,13 @@ export function useGeologicalModel({
   const [activeGeotechModel, setActiveGeotechModel] =
     useState<GeologicalModelResponse | null>(null)
   const [geotechLayers, setGeotechLayers] = useState<LithoLayerResponse[]>([])
+  // Whether the array above reflects the server, and a counter that ticks once
+  // per successful load. Both exist because the load effect clears the array to
+  // [] before refetching AND on failure: without these, "[]" is ambiguous
+  // between "nothing is committed" and "we do not know yet", and consumers were
+  // reading the first meaning while the second was true.
+  const [geotechLayersLoaded, setGeotechLayersLoaded] = useState(false)
+  const [geotechLayersVersion, setGeotechLayersVersion] = useState(0)
   const geotechContacts = useMemo<FormationContactResponse[]>(
     () => lithoLayersToContacts(geotechLayers),
     [geotechLayers],
@@ -1366,11 +1393,15 @@ export function useGeologicalModel({
   useEffect(() => {
     if (!project || !activeGeotechModel) {
       setGeotechLayers([])
+      // No geotech model is a KNOWN state, not an unknown one: there are
+      // genuinely no committed geotech rows to have.
+      setGeotechLayersLoaded(true)
       return
     }
     // Clear immediately on model change to prevent stale state showing
     // under a different model header (same reasoning as the litho effect).
     setGeotechLayers([])
+    setGeotechLayersLoaded(false)
     let cancelled = false
     const projectId = project.id
     const modelId = activeGeotechModel.id
@@ -1379,6 +1410,10 @@ export function useGeologicalModel({
         const layers = await api.geology.listLayers(projectId, modelId)
         if (cancelled) return
         setGeotechLayers(layers)
+        setGeotechLayersLoaded(true)
+        // Once per SUCCESSFUL load. A failed load leaves the version alone, so
+        // consumers keyed on it do not re-run against an answer we never got.
+        setGeotechLayersVersion(v => v + 1)
         log.debug(
           'geology',
           `geotech model ${modelId}: loaded ${layers.length} layers`,
@@ -1387,6 +1422,10 @@ export function useGeologicalModel({
         if (!cancelled) {
           log.warn('geology', `geotech model ${modelId}: load failed`, err)
           setGeotechLayers([])
+          // Stays false: [] here means "the load failed", and a consumer that
+          // reads it as "nothing is committed" draws the wrong conclusion for
+          // as long as the failure lasts.
+          setGeotechLayersLoaded(false)
         }
       }
     })()
@@ -2501,6 +2540,8 @@ export function useGeologicalModel({
     // Geotech parallel set (F2 — geotech data layer).
     activeGeotechModel,
     geotechLayers,
+    geotechLayersLoaded,
+    geotechLayersVersion,
     geotechContacts,
     geotechFormations,
     // Packing-correlation: re-fetch geotech layers after a body_id mutation.
