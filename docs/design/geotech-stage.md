@@ -516,8 +516,57 @@ on the packing render:
    * 64 m² irreducible under the defect-forced 2 cm/1 cm filters and
      `clampReach` — deliberately untouched.
 
+## 8. Where a borehole's packing comes from — the flanking CPTs (2026-08-04)
+
+**Owner ruling, dogfeed of §6:** *the borehole's packing must come from the CPT
+to the right and to the left on the cross section.*
+
+Rule (`domain/services/borehole_flank_donors.py`, applied by
+`DivideBoreholes._plan_borehole_bands_litho_confined`):
+
+1. A **donor** is a CPT that shares the borehole's body group AND reads packing
+   inside its own litho extent for that group.
+2. Donors are ranked **along a section line**: nearest at a smaller
+   along-position = left flank, nearest at a larger one = right flank.
+3. Both flanks, same ordered class list → their band boundaries are paired and
+   blended in **thickness-fraction space** of each donor's own litho extent,
+   weighted inversely to along-distance, then re-laid on the borehole's extent
+   (`mode = flank_interpolated`).
+4. One flank → that donor's stack, fraction-mapped (`single_donor`).
+5. No section places the borehole beside a donor → nearest donor by map
+   distance (`nearest_fallback`).
+6. Depth the donors leave unclassified still falls to `body_min` /
+   `absolute_min`, unchanged.
+
+Each planned band carries its `mode`, the donor names with along- and
+map-distances, and the section that decided — additive optional fields on the
+preview payload, for the hover provenance.
+
+**What it replaced.** `transition_surfaces[k]` TIN-blended the k-th band
+boundary of EVERY CPT in the body group, whatever class pair each boundary
+separated, and voted the class by majority across the same crowd. On the real
+model that mixed up to ten class pairs (inversions included) over CPTs as far
+as 777 m away, and any borehole outside the TIN footprint fell to the body-wide
+mean. 1411-GEO-23/126-B4 came out 6→7→6 — a sequence no CPT reads — with the
+dense sand at −1.11; its nearest three donors (4.7 / 78 / 78 m, all in its own
+body) read 6→7→8 with the dense top at ≈ −0.9. The module
+`geotech_split_surface.py` is DELETED; it had no other caller.
+
+**Two interpretations, owner veto pending:**
+
+* *Mismatched flank sequences* → the nearer flank's stack verbatim. There is no
+  honest pairing between two different class lists; this follows the earlier
+  "nearest test that does have packing" ruling.
+* *Several sections* → the section whose flanking pair is tightest (least
+  extrapolation). **This one is consequential**: on B4's shallow sand body,
+  Tie-section 11 (lone left flank GEO-23/125-S34 at 78 m, all NAD 6) beats
+  Cross-section 1 (lone right flank GEO-23/125-S13 at 90 m, NAD 7 from +1.26)
+  by 11.6 m of along-distance — and that is what decides whether the borehole
+  reads dense sand there. Candidate alternative if the owner disagrees: prefer
+  the section that draws the most donors of the group.
+
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
 connect flow, the fraction-refinement render, the NAD `gradient_snap` default
-decision, and the NAD-boundary line weight call.
+decision, the NAD-boundary line weight call, and the two §8 interpretations.
