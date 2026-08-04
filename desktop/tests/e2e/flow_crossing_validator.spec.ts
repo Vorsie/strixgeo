@@ -29,9 +29,10 @@
  *   geometry-correctness specs.
  * - The scratch model is created in ``test.beforeAll`` and torn down in
  *   ``test.afterAll`` so the per-test bodies are declarative.
- * - ``cpt_id`` anchors are used (not borehole_id) because the fixture
- *   ships 6 CPTs and no boreholes; both anchor types produce the same
- *   validator behaviour.
+ * - ``cpt_id`` anchors are used (not borehole_id) because the fixture's
+ *   investigations are overwhelmingly CPTs (its single borehole is dedicated
+ *   to the Section-B packing-preview scenario); both anchor types produce the
+ *   same validator behaviour.
  */
 
 import { test, expect } from '@playwright/test'
