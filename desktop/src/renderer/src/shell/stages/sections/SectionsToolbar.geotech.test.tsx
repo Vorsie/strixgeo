@@ -18,8 +18,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
-import type { GeologicalModelResponse } from '../../../api/client'
+import type {
+  BoreholeListItem,
+  CrossSectionResponse,
+  GeologicalModelResponse,
+  LithoLayerResponse,
+} from '../../../api/client'
 import SectionsToolbar from './SectionsToolbar'
+import {
+  publishGeotechPreviewRender,
+  resetGeotechPreviewRender,
+} from '../../../utils/geotechPreviewRenderStore'
 
 // ---------------------------------------------------------------------------
 // Module mocks — same as SectionsToolbar.axis.test.tsx
@@ -100,6 +109,12 @@ function makeCtx(overrides: {
   correlateMode?: boolean
   enterCorrelateMode?: () => void
   exitCorrelateMode?: () => void
+  // The three inputs `hasUndividedBoreholes` is derived from: which section is
+  // open, which boreholes project into it, and which of them already carry a
+  // committed geotech band.
+  sections?: CrossSectionResponse[]
+  visibleBoreholes?: BoreholeListItem[]
+  geotechLayers?: LithoLayerResponse[]
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -174,7 +189,7 @@ function makeCtx(overrides: {
       pendingCptPins: [],
     },
     visibleCpts: [],
-    visibleBoreholes: [],
+    visibleBoreholes: overrides.visibleBoreholes ?? [],
     geoModel: {
       activeGeologicalModel: {
         id: 'model-geo-1',
@@ -280,7 +295,7 @@ function makeCtx(overrides: {
       handleAutoCorrelate: noopAsync,
       handleClearSuggestions: noopAsync,
       lithoCrossingPinchOuts: [],
-      geotechLayers: [],
+      geotechLayers: overrides.geotechLayers ?? [],
       geotechContacts: [],
       geotechFormations: [],
       handleCreateManualLithoGhost: vi.fn(),
@@ -293,7 +308,7 @@ function makeCtx(overrides: {
       requestGeotechLayersRefetch: vi.fn(),
     },
     sections: {
-      sections: [],
+      sections: overrides.sections ?? [],
       selectedSectionId: overrides.selectedSectionId ?? null,
       drawingSection: false,
       focusedContactIds: [],
@@ -723,5 +738,151 @@ describe('SectionsToolbar "Divide boreholes" verb (E)', () => {
       }),
     )
     expect(screen.queryByTestId('geotech-divide-boreholes')).toBeNull()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// F — the "hatched = preview" legend
+// ---------------------------------------------------------------------------
+//
+// The legend exists to name what the hatched ghost bands over undivided
+// boreholes are, and to say which verb commits them (owner dogfeed 2026-08-04).
+// It must therefore appear under exactly the condition the ghosts appear under
+// — a borehole with no committed geotech band — and carry no permanent toolbar
+// weight once every borehole is divided.
+//
+//   BF1  Shown when a borehole on the section has no committed geotech band.
+//   BF2  Hidden once that borehole carries a committed band (nothing hatched).
+//   BF3  Hidden off the geotech axis.
+
+function makeSection(): CrossSectionResponse {
+  return {
+    id: 'section-1',
+    app_project_id: 'proj-1',
+    name: 'CS1',
+    start_x: 0,
+    start_y: 0,
+    end_x: 1000,
+    end_y: 0,
+    epsg: 31370,
+    projection_buffer_m: 100,
+    excluded_cpt_ids: [],
+    excluded_borehole_ids: [],
+    seeded_formation_contact_ids: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  } as unknown as CrossSectionResponse
+}
+
+function makeBorehole(id: string): BoreholeListItem {
+  return {
+    id,
+    name: id,
+    test_id: id,
+    location_x: 500,
+    location_y: 0,
+    epsg: 31370,
+    elevation_m: 5,
+  } as unknown as BoreholeListItem
+}
+
+function makeGeotechBand(boreholeId: string): LithoLayerResponse {
+  return {
+    id: `layer-${boreholeId}`,
+    model_id: 'model-geotech-1',
+    formation_id: 'formation-1',
+    cpt_id: null,
+    borehole_id: boreholeId,
+    depth_top_m: 0,
+    depth_base_m: 4,
+    status: 'accepted',
+    source: 'segmenter',
+    confidence: 'high',
+    body_id: 'body-1',
+  } as unknown as LithoLayerResponse
+}
+
+// The legend explains hatching, so it must track the hatching itself — not a
+// toolbar-side approximation of it. The overlay publishes what it drew to
+// geotechPreviewRenderStore and the legend is gated on that; these cases drive
+// the store rather than the investigation list.
+describe('SectionsToolbar preview legend (F)', () => {
+  const GEOTECH_CTX = {
+    sectionModelAxis: 'geotechnical' as const,
+    sections: [makeSection()],
+    selectedSectionId: 'section-1',
+    visibleBoreholes: [makeBorehole('bh-1')],
+    geotechLayers: [],
+  }
+
+  beforeEach(resetGeotechPreviewRender)
+  afterEach(resetGeotechPreviewRender)
+
+  it('BF1 — shown when ghosts are actually on screen', () => {
+    publishGeotechPreviewRender({ columnCount: 1, bandCount: 3, clampedBandCount: 0 })
+    renderToolbar(
+      makeCtx({
+        ...GEOTECH_CTX,
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+      }),
+    )
+    expect(screen.getByTestId('geotech-preview-legend')).toBeTruthy()
+  })
+
+  it('BF2 — hidden once every borehole carries a committed band', () => {
+    // The overlay draws nothing for a divided column, so it publishes nothing.
+    publishGeotechPreviewRender({ columnCount: 0, bandCount: 0, clampedBandCount: 0 })
+    renderToolbar(
+      makeCtx({
+        ...GEOTECH_CTX,
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+        geotechLayers: [makeGeotechBand('bh-1')],
+      }),
+    )
+    expect(screen.queryByTestId('geotech-preview-legend')).toBeNull()
+  })
+
+  it('BF3 — hidden off the geotech axis', () => {
+    publishGeotechPreviewRender({ columnCount: 1, bandCount: 3, clampedBandCount: 0 })
+    renderToolbar(
+      makeCtx({
+        ...GEOTECH_CTX,
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+      }),
+    )
+    expect(screen.queryByTestId('geotech-preview-legend')).toBeNull()
+  })
+
+  it('BF4 — hidden when the preview drew nothing, however undivided the boreholes look', () => {
+    // The old gate recomputed "is any in-corridor borehole missing a band" and
+    // said "Hatched = preview" next to an empty axis whenever the overlay had
+    // declined to draw — no collar elevation, still loading, or the request
+    // failed and the error toast was already up.
+    renderToolbar(
+      makeCtx({
+        ...GEOTECH_CTX,
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+      }),
+    )
+    expect(screen.queryByTestId('geotech-preview-legend')).toBeNull()
+  })
+
+  it('BF5 — says so when a planned band is outside the depth window', () => {
+    // A planned band with no pixels must not read as "nothing planned there".
+    publishGeotechPreviewRender({ columnCount: 1, bandCount: 2, clampedBandCount: 3 })
+    renderToolbar(
+      makeCtx({
+        ...GEOTECH_CTX,
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+      }),
+    )
+    expect(screen.getByTestId('geotech-preview-clamped').textContent).toContain('3')
   })
 })
