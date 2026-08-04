@@ -506,3 +506,124 @@ async def test_gc_all(
         f"GC-3 FAIL: an edge row was committed for the rejected cross-body pair "
         f"(CPT-A geotech {layer_a.id} ↔ CPT-C geotech {layer_c.id})"
     )
+
+
+@pytest.mark.asyncio
+async def test_gc4_surface_tie_with_one_shared_adjacent_body_is_allowed(
+    gc_scene: dict,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """GC-4: a contact is a surface — one shared adjacent body legitimises the tie.
+
+    Owner ruling (2026-08-04): a contact touches the band above and the band
+    below, so it touches up to two litho bodies; "if one matches it matches".
+    Scene: CPT-D carries KLEI over ZAND, CPT-E carries KLEI over SILT, the two
+    KLEI layers are litho-correlated into one body, the deep layers are not.
+    Tying the two contacts at 4 m is the clay-BASE surface tie: the bands
+    below the contacts live in different bodies, the bands above share one.
+    The pre-ruling guard (below-band only) refused exactly this gesture.
+    """
+    pid = gc_scene["project"].id
+    litho_model_id = gc_scene["litho_model_id"]
+    section_id = gc_scene["section_id"]
+
+    depths = [round(0.1 * i, 1) for i in range(1, 81)]
+    qc = [5.0] * len(depths)
+    cpt_d = CptOrm(
+        id=uuid7(),
+        name="GC/CPT-D",
+        cpt_type="CPTU",
+        project_id="GC",
+        test_id="GC/CPT-D",
+        app_project_id=pid,
+        location_x=150_800.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_d.series = CptSeriesOrm(
+        depths_m=depths, qc_mpa=qc, fs_mpa=[0.05] * len(depths),
+        u2_mpa=None, rf_pct=None, q_total_mpa=None,
+    )
+    cpt_e = CptOrm(
+        id=uuid7(),
+        name="GC/CPT-E",
+        cpt_type="CPTU",
+        project_id="GC",
+        test_id="GC/CPT-E",
+        app_project_id=pid,
+        location_x=151_000.0,
+        location_y=200_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt_e.series = CptSeriesOrm(
+        depths_m=depths, qc_mpa=qc, fs_mpa=[0.05] * len(depths),
+        u2_mpa=None, rf_pct=None, q_total_mpa=None,
+    )
+    db_session.add_all([cpt_d, cpt_e])
+    await db_session.commit()
+
+    d_klei = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_d.id), top=0.0, base=4.0, soil="KLEI"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_d.id), top=4.0, base=8.0, soil="ZAND"
+    )
+    e_klei = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_e.id), top=0.0, base=4.0, soil="KLEI"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_e.id), top=4.0, base=8.0, soil="SILT"
+    )
+    # One shared body for the two KLEI layers; the deep ZAND/SILT stay apart.
+    await _correlate_litho(
+        async_client, pid, litho_model_id, contact_a=d_klei, contact_b=e_klei,
+        section_id=section_id,
+    )
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=pid,
+        litho_model_id=UUID(litho_model_id),
+    )
+    geotech_model_id = str(result.geotech_model_id)
+
+    async def _deep_band(cpt_id: UUID) -> LithoLayerOrm:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == UUID(geotech_model_id),
+                        LithoLayerOrm.cpt_id == cpt_id,
+                        LithoLayerOrm.status == "accepted",
+                        LithoLayerOrm.depth_top_m > 3.9,
+                        LithoLayerOrm.depth_top_m < 4.1,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows, f"GC-4 prereq: no geotech band with top at 4 m on CPT {cpt_id}"
+        return rows[0]
+
+    band_d = await _deep_band(cpt_d.id)
+    band_e = await _deep_band(cpt_e.id)
+
+    resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{geotech_model_id}/contact-correlations",
+        json={
+            "layer_a_id": str(band_d.id),
+            "layer_b_id": str(band_e.id),
+            "request_section_id": section_id,
+        },
+    )
+    assert resp.status_code in (200, 201), (
+        f"GC-4 FAIL: the clay-base surface tie (one shared adjacent body) must be "
+        f"allowed, got {resp.status_code}: {resp.text}"
+    )
