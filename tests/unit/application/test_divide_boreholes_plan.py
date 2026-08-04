@@ -8,14 +8,17 @@ never touch it.
 
 Cases
 -----
-P1  Two CPTs whose packing transition sits at different depths → the borehole
-    between them gets two bands, split at the TIN-interpolated depth, tiling its
-    litho extent exactly.
+P1  The borehole takes the CPT to its left and the CPT to its right on the
+    section: two bands split between the two flanks' own transitions, tiling
+    its litho extent exactly.
 P2  No same-lithology CPT band anywhere in the group → one conservative band at
     the lithology floor, stamped ``absolute_min`` / ``low``.
 P3  A CPT-resolved band carries ``cpt_interpolated`` / ``high``.
 P4  ``DivideBoreholePlan.columns`` aggregates a borehole's segments across body
     groups and sorts the bands top to bottom.
+P5  A crowd of distant CPTs does not overrule the two flanking ones — the
+    regression the owner reported on 1411-GEO-23/126-B4, in miniature.
+P6  A borehole on no section falls back to its nearest CPT by map distance.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from groundmodel.application.divide_boreholes import (
     PlannedBand,
     PlannedBoreholeSegment,
 )
+from groundmodel.domain.services.borehole_flank_donors import SectionPlacement
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 
 # NAD 5 = SAND loose (the ZAND floor); 7 = SAND dense. Real class integers so a
@@ -84,8 +88,9 @@ def _cpt_pick(investigation_id: str, top: float, base: float) -> BodyLayerPick:
     )
 
 
-def test_p1_borehole_between_two_cpts_splits_at_interpolated_depth() -> None:
-    """P1: the borehole gets two bands, split between the two CPTs' transitions."""
+def test_p1_borehole_takes_the_cpt_to_its_left_and_to_its_right_on_the_section() -> None:
+    """P1: the borehole gets two bands, split between its two flanks' transitions."""
+    borehole = str(uuid7())
     cpt_a, cpt_b = str(uuid7()), str(uuid7())
     body_dense = uuid7()
     body_loose = uuid7()
@@ -104,9 +109,14 @@ def test_p1_borehole_between_two_cpts_splits_at_interpolated_depth() -> None:
         UUID(cpt_a): (0.0, 0.0, 5.0),
         UUID(cpt_b): (600.0, 0.0, 5.0),
     }
+    section = SectionPlacement(
+        section_id=str(uuid7()),
+        section_name="A-A'",
+        along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
+    )
 
-    bands, body_ids = _use_case()._plan_borehole_bands_litho_confined(
-        inv_id=str(uuid7()),
+    bands, body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
         bh_x=300.0,
         bh_y=0.0,
         bh_surface_elev=5.0,
@@ -116,6 +126,8 @@ def test_p1_borehole_between_two_cpts_splits_at_interpolated_depth() -> None:
         litho_abs_min_class=_NAD_LOOSE,
         geotech_layer_by_inv_depth=layers,
         cpt_xy=cpt_xy,
+        cpt_names={UUID(cpt_a): "CPT-A", UUID(cpt_b): "CPT-B"},
+        section_placements=[section],
     )
 
     assert len(bands) == 2
@@ -129,11 +141,15 @@ def test_p1_borehole_between_two_cpts_splits_at_interpolated_depth() -> None:
     assert bands[1].nad_class == _NAD_DENSE
     # The dense band joins the dense CPT body; likewise the loose one.
     assert body_ids == [body_loose, body_dense]
+    # And it can say which two tests it listened to, and where.
+    assert selection.mode == "flank_interpolated"
+    assert [d.stack.name for d in selection.donors] == ["CPT-A", "CPT-B"]
+    assert selection.section_name == "A-A'"
 
 
 def test_p2_no_cpt_evidence_falls_to_the_lithology_floor() -> None:
     """P2: with no same-lithology CPT band, one band at the absolute minimum."""
-    bands, body_ids = _use_case()._plan_borehole_bands_litho_confined(
+    bands, body_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=str(uuid7()),
         bh_x=300.0,
         bh_y=0.0,
@@ -144,6 +160,8 @@ def test_p2_no_cpt_evidence_falls_to_the_lithology_floor() -> None:
         litho_abs_min_class=_NAD_LOOSE,
         geotech_layer_by_inv_depth={},
         cpt_xy={},
+        cpt_names={},
+        section_placements=[],
     )
 
     assert len(bands) == 1
@@ -159,7 +177,7 @@ def test_p3_cpt_resolved_band_is_marked_cpt_interpolated() -> None:
     cpt = str(uuid7())
     layers = {cpt: [(0.0, 8.0, uuid7(), uuid7(), _NAD_DENSE, uuid7())]}
 
-    bands, _ = _use_case()._plan_borehole_bands_litho_confined(
+    bands, _body_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=str(uuid7()),
         bh_x=100.0,
         bh_y=0.0,
@@ -170,6 +188,8 @@ def test_p3_cpt_resolved_band_is_marked_cpt_interpolated() -> None:
         litho_abs_min_class=_NAD_LOOSE,
         geotech_layer_by_inv_depth=layers,
         cpt_xy={UUID(cpt): (0.0, 0.0, 5.0)},
+        cpt_names={UUID(cpt): "CPT-1"},
+        section_placements=[],
     )
 
     assert [b.source for b in bands] == ["cpt_interpolated"]
@@ -220,3 +240,103 @@ def test_p4_columns_merges_a_boreholes_segments_and_sorts_them() -> None:
     columns = plan.columns()
     assert [c.name for c in columns] == ["BH-1", "BH-2"]
     assert [(b.depth_top_m, b.depth_base_m) for b in columns[0].bands] == [(0.0, 4.0), (4.0, 8.0)]
+
+
+def test_p5_a_crowd_of_distant_cpts_does_not_overrule_the_two_flanking_ones() -> None:
+    """P5: the flanks decide; the rest of the body group does not get a vote.
+
+    1411-GEO-23/126-B4 in miniature.  The borehole's two neighbours both read
+    dense sand below ~4 m; eight far-away CPTs read loose sand all the way down.
+    Under the old body-wide rule the crowd won twice over — it dragged the
+    boundary AND it won the class vote, so the borehole came back with no dense
+    sand at all.  The engineer's expectation is the neighbours'.
+    """
+    borehole = str(uuid7())
+    flank_left, flank_right = str(uuid7()), str(uuid7())
+    layers = {
+        flank_left: [
+            (0.0, 4.0, uuid7(), uuid7(), _NAD_LOOSE, uuid7()),
+            (4.0, 10.0, uuid7(), uuid7(), _NAD_DENSE, uuid7()),
+        ],
+        flank_right: [
+            (0.0, 4.4, uuid7(), uuid7(), _NAD_LOOSE, uuid7()),
+            (4.4, 10.0, uuid7(), uuid7(), _NAD_DENSE, uuid7()),
+        ],
+    }
+    cpt_xy = {UUID(flank_left): (-50.0, 0.0, 0.0), UUID(flank_right): (50.0, 0.0, 0.0)}
+    cpt_names = {UUID(flank_left): "LEFT", UUID(flank_right): "RIGHT"}
+    segs = [_cpt_pick(flank_left, 0.0, 10.0), _cpt_pick(flank_right, 0.0, 10.0)]
+    along = {flank_left: 50.0, borehole: 100.0, flank_right: 150.0}
+
+    # The crowd: eight CPTs in the same body group, far off the section, whose
+    # loose sand runs to 9 m.
+    for i in range(8):
+        far = str(uuid7())
+        layers[far] = [
+            (0.0, 9.0, uuid7(), uuid7(), _NAD_LOOSE, uuid7()),
+            (9.0, 10.0, uuid7(), uuid7(), _NAD_DENSE, uuid7()),
+        ]
+        cpt_xy[UUID(far)] = (400.0 + 60.0 * i, 300.0 + 40.0 * i, 0.0)
+        cpt_names[UUID(far)] = f"FAR-{i}"
+        segs.append(_cpt_pick(far, 0.0, 10.0))
+
+    section = SectionPlacement(section_id=str(uuid7()), section_name="A-A'", along_m=along)
+
+    bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=0.0,
+        bh_y=0.0,
+        bh_surface_elev=0.0,
+        geo_top_m=0.0,
+        geo_base_m=10.0,
+        cpt_segs=segs,
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth=layers,
+        cpt_xy=cpt_xy,
+        cpt_names=cpt_names,
+        section_placements=[section],
+    )
+
+    assert [d.stack.name for d in selection.donors] == ["LEFT", "RIGHT"]
+    assert [b.nad_class for b in bands] == [_NAD_LOOSE, _NAD_DENSE], (
+        "the borehole must read dense sand where both its neighbours do, "
+        f"got {[(round(b.top, 2), round(b.base, 2), b.nad_class) for b in bands]}"
+    )
+    assert 4.0 <= bands[0].base <= 4.4, (
+        f"the dense sand must start where the two flanks bracket it, got {bands[0].base}"
+    )
+
+
+def test_p6_a_borehole_on_no_section_falls_back_to_the_nearest_test() -> None:
+    """P6: off every section, the nearest CPT by map distance donates."""
+    borehole = str(uuid7())
+    near, far = str(uuid7()), str(uuid7())
+    layers = {
+        near: [
+            (0.0, 4.0, uuid7(), uuid7(), _NAD_LOOSE, uuid7()),
+            (4.0, 10.0, uuid7(), uuid7(), _NAD_DENSE, uuid7()),
+        ],
+        far: [
+            (0.0, 9.0, uuid7(), uuid7(), _NAD_LOOSE, uuid7()),
+            (9.0, 10.0, uuid7(), uuid7(), _NAD_DENSE, uuid7()),
+        ],
+    }
+
+    bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=0.0,
+        bh_y=0.0,
+        bh_surface_elev=0.0,
+        geo_top_m=0.0,
+        geo_base_m=10.0,
+        cpt_segs=[_cpt_pick(near, 0.0, 10.0), _cpt_pick(far, 0.0, 10.0)],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth=layers,
+        cpt_xy={UUID(near): (30.0, 0.0, 0.0), UUID(far): (900.0, 0.0, 0.0)},
+        cpt_names={UUID(near): "NEAR", UUID(far): "FAR"},
+        section_placements=[],
+    )
+
+    assert selection.mode == "nearest_fallback"
+    assert [d.stack.name for d in selection.donors] == ["NEAR"]
+    assert [round(b.base, 3) for b in bands] == [4.0, 10.0]
