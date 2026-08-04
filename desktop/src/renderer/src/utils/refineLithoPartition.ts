@@ -268,8 +268,46 @@ export function refineLithoPartition(
     // Envelope samples across the gap.
     const samples: (Slice | null)[] = []
     for (let k = 0; k <= N; k++) samples.push(sliceAt(r.polygon, k / N))
-    const s0 = samples[0]
-    const s1 = samples[N]
+    let s0 = samples[0] ?? null
+    let s1 = samples[N] ?? null
+    if (s0 === null && s1 === null) {
+      // The region reaches NEITHER column of its gap. The engine emits those:
+      // v2 tiles a gap with interior slices, and this module was written when
+      // every region still touched at least one column. Sampling only at
+      // fraction 0 and 1 then found no packing at all and the region
+      // short-circuited to the ``fallback`` tag — which asserts "no packing data
+      // in the whole section at these elevations", a claim the data contradicts.
+      // Measured on the owner's 14 sections (``geotechFallbackCause.diag.test``):
+      // 10,798 m2 of section plane fell back this way under v2 against 186 m2
+      // under v1. Sample the region's OWN extent instead; the guard above keeps
+      // this a no-op for every region that touches an edge, so nothing that
+      // already had a side changes shape.
+      //
+      // ⚠ THE GEOMETRY RULE THIS IMPLIES, stated because it is a CHOICE and not
+      // a null-guard. ``s0`` / ``s1`` end up sampled at the region's own first
+      // and last non-empty fractions (say 0.2 and 0.8), while ``emitBand``
+      // interpolates L -> R over the FULL gap (``xFrom = 0``, ``xTo = 1`` — the
+      // default every non-lens call site below passes). So a class interface
+      // measured at f = 0.2 is placed as if it belonged at f = 0, and the
+      // interfaces inside the region sit on a stretched basis rather than at the
+      // fractions they were read at. Interpolating over the region's own extent
+      // instead would put them elsewhere; which one is right is a geological
+      // call about how packing carries into a region that touches no borehole,
+      // so it is NOT decided here. Measured scale on the owner's model: 203
+      // interior regions / 10,796 m2 (18.0 % of the litho partition), of which
+      // 9,462 m2 are inset less than 0.10 of the gap (the stretch is under 10 %)
+      // and 1,335 m2 are inset more, worst 0.80. The shipped choice is pinned by
+      // ``refineLithoPartition.test.ts`` ("interpolates an interior region
+      // packing across the FULL gap") and the open question is §7 of
+      // ``docs/design/geotech-stage.md``.
+      const firstIx = samples.findIndex((s) => s !== null)
+      if (firstIx >= 0) {
+        let lastIx = N
+        while (lastIx > firstIx && samples[lastIx] === null) lastIx--
+        s0 = samples[firstIx]
+        s1 = samples[lastIx]
+      }
+    }
     let L = s0 ? spansOf(r.gapIndex, s0.env[0], s0.env[1], soil) : []
     let R = s1 ? spansOf(r.gapIndex + 1, s1.env[0], s1.env[1], soil) : []
 
