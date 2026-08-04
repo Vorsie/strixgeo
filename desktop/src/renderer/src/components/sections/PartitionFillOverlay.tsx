@@ -158,6 +158,20 @@ export interface GeotechRefinement {
    * knows GEOTECH formation ids).
    */
   lithoFormationColorById: ReadonlyMap<string, string>
+  /**
+   * The section's APPROVED geotech packing-correlation edges, keyed by geotech
+   * ``litho_layer`` id.
+   *
+   * OWNER RULING 2026-08-04: the gap fill consumes these with the litho stage's
+   * 2/1/0 semantics — two correlated bounding contacts BAND across the gap, an
+   * untied pair pinches out. It is deliberately the SAME edge set the 3-D build
+   * arm is fed (approved only — ``fetchApprovedEdgesBySection`` filters the same
+   * way), so one hand correlation moves the render and the build together.
+   *
+   * ``undefined`` (an un-threaded caller) keeps the legacy class+position
+   * pairing; an empty array means "no ties on this section" and pinches.
+   */
+  packingEdges?: readonly CorrelationEdge[]
 }
 
 /**
@@ -1947,7 +1961,9 @@ export default function PartitionFillOverlay({
       geoColByInv,
       refinement.nadMeta,
       refinement.lithoSoilByFormationId,
-      { alongM },
+      // The hand correlations drive the gap fill (owner ruling 2026-08-04) —
+      // the same approved edge set the 3-D build consumes.
+      { alongM, packingEdges: refinement.packingEdges },
     )
 
     // Refined region fills + litho outlines (per gap, degenerate gaps skipped).
