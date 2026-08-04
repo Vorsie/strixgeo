@@ -935,6 +935,10 @@ export default function PartitionFillOverlay({
     sectionRegions: SectionRegion[]
     orderedColumns: PartitionColumn[]
     gapXs: Array<{ leftX: number; rightX: number }>
+    // True along-section metres 1:1 with orderedColumns — the SAME array the
+    // engine ran on, re-exposed so the refinement's donor-distance rule (6b)
+    // measures in the partition's own spacing.
+    alongM: number[]
     // Keyed lens apex overrides so the screen memo can skip the legacy path.
     apexOverrides: Map<string, LensApexOverride>
     // ``gapIndex:upperBodyId`` set whose shared contact the engine re-partitioned
@@ -966,6 +970,7 @@ export default function PartitionFillOverlay({
         sectionRegions: [],
         orderedColumns: [],
         gapXs: [],
+        alongM: [],
         apexOverrides: new Map(),
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
@@ -983,6 +988,7 @@ export default function PartitionFillOverlay({
         sectionRegions: [],
         orderedColumns,
         gapXs: [],
+        alongM: [],
         apexOverrides: new Map(),
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
@@ -1248,6 +1254,7 @@ export default function PartitionFillOverlay({
       sectionRegions,
       orderedColumns,
       gapXs,
+      alongM,
       apexOverrides,
       contactOverriddenBodies,
       unroutableBodies,
@@ -1904,7 +1911,7 @@ export default function PartitionFillOverlay({
       outlines: [] as { key: string; d: string }[],
     }
     if (!refinement || !showBands) return empty
-    const { sectionRegions, orderedColumns, gapXs } = sectionFillData
+    const { sectionRegions, orderedColumns, gapXs, alongM } = sectionFillData
     if (orderedColumns.length < 2) return empty
     const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
     const columnOrder = orderedColumns.map((c) => c.investigationId)
@@ -1940,6 +1947,7 @@ export default function PartitionFillOverlay({
       geoColByInv,
       refinement.nadMeta,
       refinement.lithoSoilByFormationId,
+      { alongM },
     )
 
     // Refined region fills + litho outlines (per gap, degenerate gaps skipped).
