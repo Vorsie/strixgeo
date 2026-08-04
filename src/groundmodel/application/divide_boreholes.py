@@ -32,9 +32,19 @@ Architecture
 ------------
 The use case inherits :class:`GeotechBoreholeMaterialiser` for the shared
 formation find-or-create logic.  The TIN-interpolation step is implemented
-here (``_materialise_borehole_bands_litho_confined``) with the litho-extent
+here (``_plan_borehole_bands_litho_confined``) with the litho-extent
 filter — this is the ONLY borehole TIN-division path; SubdivideAllBodies
 materialises CPT bands only.
+
+Plan / commit split
+-------------------
+Everything up to the first write lives in :meth:`DivideBoreholes.plan`, which
+returns a :class:`DivideBoreholePlan` and issues nothing but ``SELECT``\\ s.
+:meth:`DivideBoreholes.execute` calls it and transcribes the result; the
+preview endpoint calls it and reports the result.  The engineer therefore sees
+the bands the button will write, from the same code that writes them — a
+second implementation of the rules could show one packing class and commit
+another, which is the one defect this feature cannot tolerate.
 
 What it persists (one transaction, single commit)
 -------------------------------------------------
@@ -82,7 +92,12 @@ from groundmodel.application.geotech_edge_derivation import (
 )
 from groundmodel.application.geotech_tie_reanchor import (
     ANCHOR_BOREHOLE,
+    BandIdentity,
     GeotechTieReanchor,
+    ReanchorPlan,
+    RebuiltBand,
+    depth_to_mm,
+    plan_tie_reanchor,
     rebuilt_bands_from_layer_index,
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -128,6 +143,166 @@ _BOREHOLE_CONFIDENCE_MAP: dict[str, str] = {
     "body_min": "low",
     "absolute_min": "low",
 }
+
+
+@dataclass(frozen=True)
+class PlannedBand:
+    """One packing band the divide WOULD write on a borehole column.
+
+    Carries everything the persistence step needs, so a committed band is a
+    verbatim transcription of a planned one and the preview cannot drift from
+    the commit.
+
+    Parameters
+    ----------
+    depth_top_m : float
+        Top of the band, metres below the borehole collar.
+    depth_base_m : float
+        Base of the band, metres below the collar.
+    nad_class : int
+        The NAD packing class derived for this interval.
+    source : str
+        Provenance token from
+        :func:`~groundmodel.domain.services.borehole_packing_fill.fill_borehole_litho_body_extent`
+        — ``cpt_interpolated`` / ``body_min`` / ``absolute_min``.
+    confidence : str
+        ``litho_layer.confidence`` this band gets, mapped from ``source`` via
+        ``_BOREHOLE_CONFIDENCE_MAP``.
+    body_id : UUID | None
+        The geotech packing body the band joins (nearest same-class CPT), or
+        ``None`` for a conservative fallback with no same-class CPT evidence.
+    source_litho_formation_id : UUID
+        Litho formation this geotech band subdivides — half the find-or-create
+        key for the band's geotech formation.
+    source_geo_formation_id : UUID | None
+        Geological formation the band sits within — the other half of the key.
+    """
+
+    depth_top_m: float
+    depth_base_m: float
+    nad_class: int
+    source: str
+    confidence: str
+    body_id: UUID | None
+    source_litho_formation_id: UUID
+    source_geo_formation_id: UUID | None
+
+
+@dataclass(frozen=True)
+class PlannedBoreholeSegment:
+    """One borehole's planned bands **within one body group**.
+
+    A borehole that spans several litho bodies produces one segment per body
+    group, in the order :class:`DivideBoreholes` iterates them.  Keeping the
+    segments flat (rather than pre-aggregating per borehole) is what makes the
+    commit's write order identical to the plan's order.
+
+    Parameters
+    ----------
+    borehole_id : UUID
+        The borehole these bands sit on.
+    investigation_id : str
+        ``str(borehole_id)`` — the key used by the per-investigation layer index.
+    bands : tuple[PlannedBand, ...]
+        The bands, top to bottom.
+    """
+
+    borehole_id: UUID
+    investigation_id: str
+    bands: tuple[PlannedBand, ...]
+
+
+@dataclass(frozen=True)
+class PlannedBoreholeColumn:
+    """Every planned band on one borehole, across all of its body groups.
+
+    The shape the preview endpoint reports: the engineer thinks in columns, not
+    in body groups.
+
+    Parameters
+    ----------
+    borehole_id : UUID
+        The borehole.
+    name : str
+        The borehole's display name (falls back to the id when the row is gone).
+    bands : tuple[PlannedBand, ...]
+        All planned bands on the column, sorted by ``depth_top_m``.
+    """
+
+    borehole_id: UUID
+    name: str
+    bands: tuple[PlannedBand, ...]
+
+
+@dataclass(frozen=True)
+class DivideBoreholePlan:
+    """What :class:`DivideBoreholes` would write, computed without writing it.
+
+    Produced by :meth:`DivideBoreholes.plan` and consumed by BOTH
+    :meth:`DivideBoreholes.execute` (which persists it) and the preview
+    endpoint (which reports it).  There is exactly one planner, so the ghost
+    bands the engineer sees before pressing the button are the rows the button
+    writes — a divergence between the two would be indistinguishable from the
+    machine lying about the geology.
+
+    Parameters
+    ----------
+    geotech_model_id : UUID
+        The geotech child model the bands belong to.
+    segments : tuple[PlannedBoreholeSegment, ...]
+        Per (body group, borehole) planned bands, in write order.
+    divided_borehole_count : int
+        Segments that received ≥ 2 bands.
+    single_band_borehole_count : int
+        Segments that received exactly 1 band.
+    layer_count : int
+        Total bands across all segments — the ``litho_layer`` rows a commit
+        would insert.
+    pick_count : int
+        Litho body picks the plan was built from.  ``0`` means there is no
+        litho model content at all, and the commit short-circuits.
+    cpt_layer_index : dict
+        ALL CPT geotech layers keyed by investigation id string, as
+        ``(top, base, layer_id, formation_id, nad_class, body_id)``.  Carried
+        on the plan because the commit's tie re-anchor and edge derivation both
+        need it and re-reading it would be a second source of truth.
+    borehole_names : dict[str, str]
+        Borehole id (stringified) → display name, for the preview payload.
+    """
+
+    geotech_model_id: UUID
+    segments: tuple[PlannedBoreholeSegment, ...]
+    divided_borehole_count: int
+    single_band_borehole_count: int
+    layer_count: int
+    pick_count: int
+    cpt_layer_index: dict[str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]]
+    borehole_names: dict[str, str]
+
+    def columns(self) -> list[PlannedBoreholeColumn]:
+        """Aggregate the flat segments into one entry per borehole column.
+
+        Returns
+        -------
+        list[PlannedBoreholeColumn]
+            One column per borehole that received at least one band, in first-
+            seen order, each with its bands sorted top to bottom.
+        """
+        by_borehole: dict[str, list[PlannedBand]] = {}
+        order: list[str] = []
+        for segment in self.segments:
+            if segment.investigation_id not in by_borehole:
+                by_borehole[segment.investigation_id] = []
+                order.append(segment.investigation_id)
+            by_borehole[segment.investigation_id].extend(segment.bands)
+        return [
+            PlannedBoreholeColumn(
+                borehole_id=UUID(inv_id),
+                name=self.borehole_names.get(inv_id, inv_id),
+                bands=tuple(sorted(by_borehole[inv_id], key=lambda b: b.depth_top_m)),
+            )
+            for inv_id in order
+        ]
 
 
 @dataclass(frozen=True)
@@ -207,13 +382,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__, session)
 
-    async def execute(
+    async def plan(
         self,
         *,
         project_id: UUID,
         litho_model_id: UUID,
-    ) -> DivideBoreholeResult:
-        """Materialise litho-confined borehole bands for *litho_model_id*.
+    ) -> DivideBoreholePlan:
+        """Compute every band this verb would write, WITHOUT writing anything.
+
+        This is the whole engine up to (and excluding) the delete / insert /
+        tie-re-anchor mutations: it loads the litho picks, geo-bounds them,
+        groups them, reads the CPT geotech layers, TIN-interpolates the packing
+        transitions onto each borehole, and assigns each resulting band its NAD
+        class, provenance and geotech body.
+
+        :meth:`execute` calls this and persists the result verbatim, and the
+        preview endpoint calls it and reports the result.  There is deliberately
+        no second implementation: a preview that ran its own copy of the rules
+        could tell the engineer one thing and commit another, which on this
+        feature is the worst failure available.
+
+        Only ``SELECT``\\ s are issued, so a caller that never commits leaves the
+        database untouched.
 
         Parameters
         ----------
@@ -225,16 +415,16 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         Returns
         -------
-        DivideBoreholeResult
-            Summary counts + the list of newly created geotech formation ids.
+        DivideBoreholePlan
+            The planned bands per (body group, borehole), the summary counts,
+            and the CPT layer index the commit re-uses.
 
         Raises
         ------
         HTTPException
             404 when the litho model or geotech model does not exist.
         """
-        t0 = time.monotonic()
-        self.info(f"DivideBoreholes: start project={project_id} litho_model={litho_model_id}")
+        self.info(f"DivideBoreholes.plan: project={project_id} litho_model={litho_model_id}")
 
         # Phase 1 — load and validate litho model.
         litho_model = await load_scoped_or_raise(
@@ -278,13 +468,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         self.info(f"DivideBoreholes: {len(picks)} pick(s) in litho model")
         if not picks:
             self.warning("DivideBoreholes: no litho picks found — no borehole bands to materialise")
-            await self._session.commit()
-            return DivideBoreholeResult(
+            return DivideBoreholePlan(
                 geotech_model_id=geotech_model.id,
+                segments=(),
                 divided_borehole_count=0,
                 single_band_borehole_count=0,
                 layer_count=0,
-                created_formation_ids=[],
+                pick_count=0,
+                cpt_layer_index={},
+                borehole_names={},
             )
 
         snap_tol = await self._read_geotech_snap_tolerance_m(project_id)
@@ -342,7 +534,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # geotech_layer_by_inv_depth: ALL geotech layers for every CPT across
         # ALL body groups.  6-tuple: (top, base, layer_id, formation_id,
         # nad_class, geotech_body_id).  The litho-confined filter (see
-        # _materialise_borehole_bands_litho_confined) restricts each CPT's
+        # _plan_borehole_bands_litho_confined) restricts each CPT's
         # contribution to the depth range of the CPT's litho-body extent for
         # the current group.  geotech_body_id is the resolver-stamped body_id
         # from SAB, used by assign_borehole_band_body to pick the correct
@@ -379,48 +571,18 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for cr in cpt_rows:
                 cpt_xy[cr.id] = (cr.location_x, cr.location_y, cr.elevation_m or 0.0)
 
-        # Phase 6b — capture the engineer's ACCEPTED packing ties that touch a
-        # borehole column, BEFORE Phase 7 removes their endpoints.
+        # Phase 8 (planning half) — litho-confined borehole fill per body group.
         #
-        # Both endpoint FKs are ON DELETE CASCADE, so the delete below takes
-        # every edge with a borehole endpoint with it — including the ties the
-        # engineer drew and accepted by hand, silently, without passing through
-        # any application code.  Sparing them in the delete's WHERE clause
-        # cannot help: the rows they point at genuinely cease to exist, because
-        # Phase 8 rebuilds every borehole band with a fresh uuid7.  The tie is
-        # preserved one level up instead — recorded by identity here and
-        # re-created against the matching rebuilt band in Phase 8c.
-        #
-        # CPT↔CPT ties are deliberately NOT captured: Phase 7 does not touch
-        # their endpoints, so their rows survive untouched and counting them as
-        # "carried" would overstate what this verb did.
-        tie_reanchor = GeotechTieReanchor(self._session)
-        captured_ties = await tie_reanchor.capture(
-            geotech_model.id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
-        )
-
-        # Phase 7 — delete existing borehole geotech layers.
-        deleted = (
-            await self._session.execute(
-                delete(LithoLayerOrm).where(
-                    LithoLayerOrm.model_id == geotech_model.id,
-                    LithoLayerOrm.borehole_id.is_not(None),
-                )
-            )
-        ).rowcount
-        self.info(f"DivideBoreholes: deleted {deleted} prior borehole geotech layer(s)")
-
-        # Phase 8 — litho-confined borehole fill per body group.
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
-        created_formation_ids: list[UUID] = []
+        # Nothing below writes.  The delete of the PRIOR borehole bands lives in
+        # ``execute`` and deliberately does not run here: the plan does not read
+        # them.  Its inputs are the litho picks, the geological surfaces and the
+        # CPT geotech layers, none of which the delete touches, so planning
+        # before or after the delete yields byte-identical bands.
+        planned_segments: list[PlannedBoreholeSegment] = []
+        borehole_names: dict[str, str] = {}
         total_layers = 0
         divided_borehole_count = 0
         single_band_borehole_count = 0
-        # borehole_fill_bands: accumulates Band objects per borehole across ALL
-        # body groups so Phase 9 (sample assignment) has the complete picture for
-        # each borehole even when it spans multiple litho bodies.
-        borehole_fill_bands: dict[str, list[Band]] = defaultdict(list)
 
         for (body_id_str, source_geo_fid), group_segs in groups.items():
             source_litho_fid = UUID(group_segs[0].formation_id) if group_segs else uuid7()
@@ -433,12 +595,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
             cpt_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "cpt"]
 
-            # Load borehole XY.
+            # Load borehole XY (+ name, which only the preview payload reads).
             bh_ids = {UUID(s.investigation_id) for s in borehole_segs}
             bh_rows = (
                 await self._session.execute(
                     select(
                         BoreholeOrm.id,
+                        BoreholeOrm.name,
                         BoreholeOrm.location_x,
                         BoreholeOrm.location_y,
                         BoreholeOrm.elevation_m,
@@ -448,6 +611,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             bh_xy: dict[UUID, tuple[float, float, float]] = {
                 br.id: (br.location_x, br.location_y, br.elevation_m or 0.0) for br in bh_rows
             }
+            for br in bh_rows:
+                borehole_names[str(br.id)] = br.name
 
             # Load the litho formation's soil code once per group (drives the
             # absolute-min fallback and is cached in SQLAlchemy's identity map).
@@ -494,50 +659,222 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     continue
 
                 (
-                    n_bands,
                     fill_band_list,
                     fill_band_body_ids,
-                ) = await self._materialise_borehole_bands_litho_confined(
-                    project_id=project_id,
-                    geotech_model_id=geotech_model.id,
+                ) = self._plan_borehole_bands_litho_confined(
                     inv_id=inv_id,
-                    inv_uuid=inv_uuid,
                     bh_x=bh_x,
                     bh_y=bh_y,
                     bh_surface_elev=bh_elev,
                     geo_top_m=geo_top,
                     geo_base_m=geo_base,
                     cpt_segs=cpt_segs,
-                    source_litho_formation_id=source_litho_fid,
-                    source_geo_formation_id=source_geo_fid,
                     litho_abs_min_class=litho_abs_min_class,
-                    classified_by_key=classified_by_key,
-                    skeleton_by_key=skeleton_by_key,
-                    created_formation_ids=created_formation_ids,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                     cpt_xy=cpt_xy,
                 )
+                n_bands = len(fill_band_list)
                 total_layers += n_bands
                 if n_bands >= 2:
                     divided_borehole_count += 1
                 else:
                     single_band_borehole_count += 1
-                # Accumulate Band objects for Phase 9 (sample assignment).
-                # fill_band_body_ids[k] is the GEOTECH packing body_id for
-                # fill_band_list[k] — the resolver-connected body the borehole
-                # band joins, determined by nearest-same-class CPT proximity.
-                # None when the band is a body_min/absolute_min fallback with
-                # no same-class CPT evidence in the group.
-                for fb, geotech_body_id in zip(fill_band_list, fill_band_body_ids):
-                    borehole_fill_bands[inv_id].append(
-                        Band(
-                            top=fb.top,
-                            base=fb.base,
-                            body_id=str(geotech_body_id) if geotech_body_id is not None else None,
-                            nad_class=fb.nad_class,
-                            source=fb.source,
-                        )
+                planned_segments.append(
+                    PlannedBoreholeSegment(
+                        borehole_id=inv_uuid,
+                        investigation_id=inv_id,
+                        bands=tuple(
+                            PlannedBand(
+                                depth_top_m=fb.top,
+                                depth_base_m=fb.base,
+                                nad_class=fb.nad_class,
+                                source=fb.source,
+                                confidence=_BOREHOLE_CONFIDENCE_MAP.get(fb.source, "low"),
+                                body_id=body_id,
+                                source_litho_formation_id=source_litho_fid,
+                                source_geo_formation_id=source_geo_fid,
+                            )
+                            for fb, body_id in zip(fill_band_list, fill_band_body_ids)
+                        ),
                     )
+                )
+
+        self.info(
+            f"DivideBoreholes.plan: geotech_model={geotech_model.id} "
+            f"segments={len(planned_segments)} bands={total_layers} "
+            f"divided={divided_borehole_count} single={single_band_borehole_count}"
+        )
+        return DivideBoreholePlan(
+            geotech_model_id=geotech_model.id,
+            segments=tuple(planned_segments),
+            divided_borehole_count=divided_borehole_count,
+            single_band_borehole_count=single_band_borehole_count,
+            layer_count=total_layers,
+            pick_count=len(picks),
+            cpt_layer_index=dict(geotech_layer_by_inv_depth),
+            borehole_names=borehole_names,
+        )
+
+    async def preview_tie_carry(self, plan: DivideBoreholePlan) -> ReanchorPlan:
+        """Say what a commit of *plan* would do to the accepted borehole ties.
+
+        Reads the accepted ties exactly as :meth:`execute` does, then runs the
+        SAME pure matcher (:func:`plan_tie_reanchor`) against the bands the plan
+        would write.  Nothing is captured "for later" and nothing is written —
+        the ties are still in the table when this returns.
+
+        The matcher keys on ``(investigation, depth interval, NAD class)``, none
+        of which depends on a row id, so the counts here are the counts the
+        commit produces even though the planned bands carry placeholder ids.
+
+        Parameters
+        ----------
+        plan : DivideBoreholePlan
+            The plan whose consequences are being reported.
+
+        Returns
+        -------
+        ReanchorPlan
+            Matched (with review flags), lost (with reasons), and duplicate
+            counts.  ``lost_tie_labels`` is left empty — naming the losses costs
+            an extra query and only the commit's toast needs it.
+        """
+        captured = await GeotechTieReanchor(self._session).capture(
+            plan.geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
+        )
+        if not captured:
+            return ReanchorPlan()
+        # The CPT bands this verb leaves untouched, plus the borehole bands it
+        # would write.  Placeholder layer ids: the match is by identity, and the
+        # ids are only used to de-duplicate pairs, which placeholders do equally
+        # well because they are unique per planned band.
+        bands = rebuilt_bands_from_layer_index(plan.cpt_layer_index)
+        bands.extend(
+            RebuiltBand(
+                identity=BandIdentity(
+                    investigation_id=segment.investigation_id,
+                    depth_top_mm=depth_to_mm(band.depth_top_m),
+                    depth_base_mm=depth_to_mm(band.depth_base_m),
+                    nad_class=band.nad_class,
+                ),
+                layer_id=uuid7(),
+            )
+            for segment in plan.segments
+            for band in segment.bands
+        )
+        # borehole_bands_are_final=True for the same reason execute passes it:
+        # THIS verb is the step a deferred borehole endpoint was waiting for.
+        return plan_tie_reanchor(captured, bands, borehole_bands_are_final=True)
+
+    async def execute(
+        self,
+        *,
+        project_id: UUID,
+        litho_model_id: UUID,
+    ) -> DivideBoreholeResult:
+        """Materialise litho-confined borehole bands for *litho_model_id*.
+
+        Persists exactly what :meth:`plan` computed — the plan is the single
+        source of the band geometry and classes, so what the preview showed is
+        what lands in the table.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project id (used for scope guards and formation queries).
+        litho_model_id : UUID
+            The lithostratigraphic model whose geotech child model holds the
+            CPT geotech layers.
+
+        Returns
+        -------
+        DivideBoreholeResult
+            Summary counts + the list of newly created geotech formation ids.
+
+        Raises
+        ------
+        HTTPException
+            404 when the litho model or geotech model does not exist.
+        """
+        t0 = time.monotonic()
+        self.info(f"DivideBoreholes: start project={project_id} litho_model={litho_model_id}")
+
+        plan = await self.plan(project_id=project_id, litho_model_id=litho_model_id)
+        geotech_model_id = plan.geotech_model_id
+        if plan.pick_count == 0:
+            await self._session.commit()
+            return DivideBoreholeResult(
+                geotech_model_id=geotech_model_id,
+                divided_borehole_count=0,
+                single_band_borehole_count=0,
+                layer_count=0,
+                created_formation_ids=[],
+            )
+
+        # The per-investigation layer index the rest of the verb writes into.
+        # Seeded with the plan's CPT bands; the borehole bands are appended as
+        # they are inserted below.
+        geotech_layer_by_inv_depth: dict[
+            str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
+        ] = defaultdict(list)
+        for inv_id_key, entries in plan.cpt_layer_index.items():
+            geotech_layer_by_inv_depth[inv_id_key].extend(entries)
+
+        # Phase 6b — capture the engineer's ACCEPTED packing ties that touch a
+        # borehole column, BEFORE Phase 7 removes their endpoints.
+        #
+        # Both endpoint FKs are ON DELETE CASCADE, so the delete below takes
+        # every edge with a borehole endpoint with it — including the ties the
+        # engineer drew and accepted by hand, silently, without passing through
+        # any application code.  Sparing them in the delete's WHERE clause
+        # cannot help: the rows they point at genuinely cease to exist, because
+        # Phase 8 rebuilds every borehole band with a fresh uuid7.  The tie is
+        # preserved one level up instead — recorded by identity here and
+        # re-created against the matching rebuilt band in Phase 8c.
+        #
+        # CPT↔CPT ties are deliberately NOT captured: Phase 7 does not touch
+        # their endpoints, so their rows survive untouched and counting them as
+        # "carried" would overstate what this verb did.
+        tie_reanchor = GeotechTieReanchor(self._session)
+        captured_ties = await tie_reanchor.capture(
+            geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
+        )
+
+        # Phase 7 — delete existing borehole geotech layers.
+        deleted = (
+            await self._session.execute(
+                delete(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.borehole_id.is_not(None),
+                )
+            )
+        ).rowcount
+        self.info(f"DivideBoreholes: deleted {deleted} prior borehole geotech layer(s)")
+
+        # Phase 8 (write half) — transcribe the plan into rows, in plan order.
+        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
+        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
+        created_formation_ids: list[UUID] = []
+        # borehole_fill_bands: accumulates Band objects per borehole across ALL
+        # body groups so Phase 9 (sample assignment) has the complete picture for
+        # each borehole even when it spans multiple litho bodies.
+        borehole_fill_bands: dict[str, list[Band]] = defaultdict(list)
+
+        for segment in plan.segments:
+            await self._persist_planned_segment(
+                project_id=project_id,
+                geotech_model_id=geotech_model_id,
+                segment=segment,
+                classified_by_key=classified_by_key,
+                skeleton_by_key=skeleton_by_key,
+                created_formation_ids=created_formation_ids,
+                geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+                borehole_fill_bands=borehole_fill_bands,
+            )
+
+        total_layers = plan.layer_count
+        divided_borehole_count = plan.divided_borehole_count
+        single_band_borehole_count = plan.single_band_borehole_count
 
         # Phase 8c — re-anchor the ties captured in Phase 6b onto the bands
         # that now exist.  ``geotech_layer_by_inv_depth`` holds BOTH the CPT
@@ -556,7 +893,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # reported as ``band_absent`` rather than as waiting for a step that
         # already ran.
         reanchor_plan = await tie_reanchor.reanchor(
-            geotech_model_id=geotech_model.id,
+            geotech_model_id=geotech_model_id,
             captured=captured_ties,
             rebuilt_bands=rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
             borehole_bands_are_final=True,
@@ -583,7 +920,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # model-global set would suppress a legitimate same-pair edge on a
         # second section.
         seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
-            self._session, geotech_model.id
+            self._session, geotech_model_id
         )
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
@@ -596,7 +933,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 await derive_geotech_edges_from_litho(
                     self._session,
                     self,
-                    geotech_model_id=geotech_model.id,
+                    geotech_model_id=geotech_model_id,
                     section_id=section.id,
                     litho_approved_edges=approved,
                     litho_layer_depths=litho_layer_depths,
@@ -616,7 +953,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # edge-connected to a CPT band, the resolver puts them in one body.
         if edge_totals.edges_emitted:
             await ResolveLithoInstances(self._session).execute(
-                model_id=geotech_model.id, commit=False
+                model_id=geotech_model_id, commit=False
             )
             # Re-read the resolver-stamped body_id for each borehole geotech
             # layer and reconcile the in-memory fill bands, so Phase 9 assigns
@@ -631,7 +968,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         LithoLayerOrm.depth_base_m,
                         LithoLayerOrm.body_id,
                     ).where(
-                        LithoLayerOrm.model_id == geotech_model.id,
+                        LithoLayerOrm.model_id == geotech_model_id,
                         LithoLayerOrm.borehole_id.is_not(None),
                     )
                 )
@@ -715,7 +1052,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         elapsed = time.monotonic() - t0
         result = DivideBoreholeResult(
-            geotech_model_id=geotech_model.id,
+            geotech_model_id=geotech_model_id,
             divided_borehole_count=divided_borehole_count,
             single_band_borehole_count=single_band_borehole_count,
             layer_count=total_layers,
@@ -727,7 +1064,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             lost_tie_labels=reanchor_plan.lost_tie_labels,
         )
         self.success(
-            f"DivideBoreholes: geotech_model={geotech_model.id} "
+            f"DivideBoreholes: geotech_model={geotech_model_id} "
             f"divided_bh={divided_borehole_count} "
             f"single_bh={single_band_borehole_count} "
             f"layers={total_layers} "
@@ -741,31 +1078,23 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
     # Litho-confined borehole materialisation
     # ------------------------------------------------------------------
 
-    async def _materialise_borehole_bands_litho_confined(
+    def _plan_borehole_bands_litho_confined(
         self,
         *,
-        project_id: UUID,
-        geotech_model_id: UUID,
         inv_id: str,
-        inv_uuid: UUID,
         bh_x: float,
         bh_y: float,
         bh_surface_elev: float,
         geo_top_m: float,
         geo_base_m: float,
         cpt_segs: list[BodyLayerPick],
-        source_litho_formation_id: UUID,
-        source_geo_formation_id: UUID | None,
         litho_abs_min_class: int,
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
-        created_formation_ids: list[UUID],
         geotech_layer_by_inv_depth: dict[
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
         ],
         cpt_xy: dict[UUID, tuple[float, float, float]],
-    ) -> tuple[int, list[FillBand], list[UUID | None]]:
-        """Fill one borehole's litho-body extent with litho-confined CPT packing.
+    ) -> tuple[list[FillBand], list[UUID | None]]:
+        """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
         For each CPT segment in the body group, restricts the CPT's geotech
         layers to those that fall within the CPT's own litho-body extent
@@ -774,16 +1103,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         coverage are filled conservatively via
         :func:`~groundmodel.domain.services.borehole_packing_fill.fill_borehole_litho_body_extent`.
 
+        Pure with respect to the database — every input is already in memory —
+        which is what lets the preview endpoint run the real engine instead of
+        a re-statement of it.
+
         Parameters
         ----------
-        project_id : UUID
-            Owning project.
-        geotech_model_id : UUID
-            Geotech model to write into.
         inv_id : str
             Borehole id string.
-        inv_uuid : UUID
-            Borehole id as UUID.
         bh_x : float
             Borehole world x-coordinate (m).
         bh_y : float
@@ -797,19 +1124,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         cpt_segs : list[BodyLayerPick]
             CPT body-layer picks in this group, each carrying the CPT's own
             litho extent (``top_depth_m``, ``base_depth_m``).
-        source_litho_formation_id : UUID
-            Litho formation driving the find-or-create key.
-        source_geo_formation_id : UUID | None
-            Geo formation driving the find-or-create key.
         litho_abs_min_class : int
             Absolute weakest NAD class for the lithology family (from
             ``LITHO_ABSOLUTE_MIN_NAD[soil_code]``).
-        classified_by_key : dict
-            In-memory find-or-create cache for classified formations (mutated).
-        skeleton_by_key : dict
-            In-memory find-or-create cache for skeleton formations (mutated).
-        created_formation_ids : list[UUID]
-            Accumulator of classified formation ids created (mutated).
         geotech_layer_by_inv_depth : dict
             ALL CPT geotech layers keyed by investigation id string.
         cpt_xy : dict[UUID, tuple[float, float, float]]
@@ -817,13 +1134,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         Returns
         -------
-        tuple[int, list[FillBand], list[UUID | None]]
-            ``(count, fill_bands, fill_band_body_ids)`` — count of
-            ``LithoLayerOrm`` rows inserted, the corresponding ``FillBand``
-            objects (the caller builds ``assign_sample_to_band.Band`` objects
-            from these for the Phase 9 sample assignment), and the per-band
-            geotech body_id list (parallel to ``fill_bands``; ``None`` for
-            conservative fallback bands with no same-class CPT evidence).
+        tuple[list[FillBand], list[UUID | None]]
+            ``(fill_bands, fill_band_body_ids)`` — the bands to write and the
+            parallel per-band geotech body_id list (``None`` for conservative
+            fallback bands with no same-class CPT evidence).
         """
         bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
 
@@ -955,7 +1269,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         body_min_class: int | None = min(all_classes) if all_classes else None
 
         self.debug(
-            f"_materialise_borehole_bands_litho_confined: borehole={inv_id} "
+            f"_plan_borehole_bands_litho_confined: borehole={inv_id} "
             f"geo=[{geo_top_m:.2f},{geo_base_m:.2f}] "
             f"cpt_packing_surfaces={len(cpt_packing_surfaces)} "
             f"body_min={body_min_class} abs_min={litho_abs_min_class}"
@@ -995,66 +1309,131 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     )
 
         # -------------------------------------------------------------------
-        # Step 7: persist each FillBand as a LithoLayerOrm row.
-        # Confidence: cpt_interpolated → high; body_min / absolute_min → low
-        # (see _BOREHOLE_CONFIDENCE_MAP at module level).
+        # Step 7: assign the geotech packing body_id per band — nearest
+        # same-class CPT in the group.  None for conservative fallbacks that
+        # have no same-class CPT evidence (body_min / absolute_min).
         # -------------------------------------------------------------------
-        fill_band_body_ids: list[UUID | None] = []
-        inserted = 0
-        for fb in fill_bands:
-            # All FillBand.nad_class values are concrete (no None) — the
+        fill_band_body_ids: list[UUID | None] = [
+            assign_borehole_band_body(
+                band_nad_class=fb.nad_class,
+                borehole_x=bh_x,
+                borehole_y=bh_y,
+                cpt_bands_in_group=cpt_band_refs,
+            )
+            for fb in fill_bands
+        ]
+
+        if len(fill_bands) >= 2:
+            self.debug(
+                f"_plan_borehole_bands_litho_confined: borehole={inv_id} "
+                f"planned {len(fill_bands)} bands "
+                f"(geo=[{geo_top_m:.2f},{geo_base_m:.2f}])"
+            )
+        else:
+            self.debug(
+                f"_plan_borehole_bands_litho_confined: borehole={inv_id} "
+                f"single band [{geo_top_m:.2f},{geo_base_m:.2f}] "
+                f"(no same-lithology CPT data)"
+            )
+
+        return fill_bands, fill_band_body_ids
+
+    # ------------------------------------------------------------------
+    # Persistence — transcribe a planned segment into rows
+    # ------------------------------------------------------------------
+
+    async def _persist_planned_segment(
+        self,
+        *,
+        project_id: UUID,
+        geotech_model_id: UUID,
+        segment: PlannedBoreholeSegment,
+        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
+        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
+        created_formation_ids: list[UUID],
+        geotech_layer_by_inv_depth: dict[
+            str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
+        ],
+        borehole_fill_bands: dict[str, list[Band]],
+    ) -> None:
+        """Write one planned segment's bands as ``litho_layer`` rows.
+
+        Decides nothing: every depth, class, provenance and body id comes off
+        the plan unchanged.  The only thing resolved here is the band's geotech
+        ``geological_formation`` (find-or-create on the plan's
+        ``(nad_class, source litho, source geo)`` triple), which is an identity
+        lookup rather than a geological choice.
+
+        Confidence: ``cpt_interpolated`` → high; ``body_min`` / ``absolute_min``
+        → low (see ``_BOREHOLE_CONFIDENCE_MAP``); the plan already applied that
+        map, so this reads it off ``PlannedBand.confidence``.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project.
+        geotech_model_id : UUID
+            Geotech model to write into.
+        segment : PlannedBoreholeSegment
+            The planned bands for one (body group, borehole) pair.
+        classified_by_key : dict
+            In-memory find-or-create cache for classified formations (mutated).
+        skeleton_by_key : dict
+            In-memory find-or-create cache for skeleton formations (mutated).
+        created_formation_ids : list[UUID]
+            Accumulator of classified formation ids created (mutated).
+        geotech_layer_by_inv_depth : dict
+            Per-investigation layer index (mutated) — the freshly written
+            borehole bands are appended so the tie re-anchor and the
+            borehole-mediated edge derivation can see them.
+        borehole_fill_bands : dict[str, list[Band]]
+            Per-borehole accumulator for the Phase-9 sample assignment (mutated).
+        """
+        for band in segment.bands:
+            # All planned nad_class values are concrete (no None) — the fill
             # helper always emits the weakest observed class or the absolute
             # minimum, never a None sentinel.  Route every band through
             # _find_or_create_classified (not the skeleton branch).
-            nad_class = fb.nad_class
             formation = await self._find_or_create_formation(
                 project_id=project_id,
                 classified_by_key=classified_by_key,
                 skeleton_by_key=skeleton_by_key,
                 created_formation_ids=created_formation_ids,
-                nad_class=nad_class,
-                source_litho_formation_id=source_litho_formation_id,
-                source_geo_formation_id=source_geo_formation_id,
-            )
-            # Assign the geotech packing body_id: nearest same-class CPT in
-            # the group.  None for conservative fallbacks that have no
-            # same-class CPT evidence (body_min / absolute_min).
-            geotech_body_id = assign_borehole_band_body(
-                band_nad_class=nad_class,
-                borehole_x=bh_x,
-                borehole_y=bh_y,
-                cpt_bands_in_group=cpt_band_refs,
+                nad_class=band.nad_class,
+                source_litho_formation_id=band.source_litho_formation_id,
+                source_geo_formation_id=band.source_geo_formation_id,
             )
             layer = LithoLayerOrm(
                 id=uuid7(),
                 model_id=geotech_model_id,
                 formation_id=formation.id,
-                depth_top_m=fb.top,
-                depth_base_m=fb.base,
+                depth_top_m=band.depth_top_m,
+                depth_base_m=band.depth_base_m,
                 status="accepted",
                 source="segmenter",
-                confidence=_BOREHOLE_CONFIDENCE_MAP.get(fb.source, "low"),
-                borehole_id=inv_uuid,
-                body_id=geotech_body_id,
+                confidence=band.confidence,
+                borehole_id=segment.borehole_id,
+                body_id=band.body_id,
             )
             self._session.add(layer)
-            fill_band_body_ids.append(geotech_body_id)
-            geotech_layer_by_inv_depth[inv_id].append(
-                (fb.top, fb.base, layer.id, formation.id, nad_class, geotech_body_id)
+            geotech_layer_by_inv_depth[segment.investigation_id].append(
+                (
+                    band.depth_top_m,
+                    band.depth_base_m,
+                    layer.id,
+                    formation.id,
+                    band.nad_class,
+                    band.body_id,
+                )
             )
-            inserted += 1
-
-        if inserted >= 2:
-            self.debug(
-                f"_materialise_borehole_bands_litho_confined: borehole={inv_id} "
-                f"filled {inserted} bands "
-                f"(geo=[{geo_top_m:.2f},{geo_base_m:.2f}])"
+            # Phase 9 (sample assignment) needs the complete per-borehole
+            # picture, across every body group the column spans.
+            borehole_fill_bands[segment.investigation_id].append(
+                Band(
+                    top=band.depth_top_m,
+                    base=band.depth_base_m,
+                    body_id=str(band.body_id) if band.body_id is not None else None,
+                    nad_class=band.nad_class,
+                    source=band.source,
+                )
             )
-        else:
-            self.debug(
-                f"_materialise_borehole_bands_litho_confined: borehole={inv_id} "
-                f"single band [{geo_top_m:.2f},{geo_base_m:.2f}] "
-                f"(no same-lithology CPT data)"
-            )
-
-        return inserted, fill_bands, fill_band_body_ids
