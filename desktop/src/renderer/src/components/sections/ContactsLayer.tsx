@@ -2407,8 +2407,15 @@ export default function ContactsLayer({
           is the fallback when the user has deleted enough units that
           no band remains on the column (owner directive 2026-05-27
           dogfeed refinement).  Insert via LEFT-click on a band stays
-          as the primary entry — this is just the no-band escape. */}
+          as the primary entry — this is just the no-band escape.
+
+          Gated on ``onRequestAddLithoSuggestion`` because that is the only thing its
+          menu can do: ``perColumnBandsFromContacts`` is true on the GEOTECH axis too,
+          which wires no add handler, so the rect used to swallow the right-click there
+          and offer "Add new suggestion here" over a packing band with nothing behind
+          it.  Same reasoning as the band's own LEFT-click, which was already gated. */}
       {perColumnBandsFromContacts
+        && onRequestAddLithoSuggestion
         && placedColumns.map(col => {
           const item = col.proj.item as {
             id: string
@@ -2470,19 +2477,38 @@ export default function ContactsLayer({
           fill={band.color}
           fillOpacity={bandFillOpacity}
           stroke="none"
-          pointerEvents="auto"
+          // With BOTH handlers gated away (the geotech axis) the rect has no
+          // behaviour of its own, so it must not be a hit target either: an
+          // ``auto`` rect with no onClick / onContextMenu / cursor is invisible
+          // dead interaction surface.  Events do reach the SVG either way (the
+          // ungated path leaves no stopPropagation), so this changes nothing on
+          // the litho / geological axes — it just stops the geotech axis
+          // pretending the band is clickable.
+          pointerEvents={onRequestAddLithoSuggestion || onDeleteContact ? 'auto' : 'none'}
           style={onRequestAddLithoSuggestion ? { cursor: 'pointer' } : undefined}
-          onContextMenu={e => {
-            e.preventDefault()
-            e.stopPropagation()
-            setLithoBandMenu({
-              clientX: e.clientX,
-              clientY: e.clientY,
-              mode: 'remove',
-              contactId: band.contactId,
-              formationName: band.formationName,
-            })
-          }}
+          // Gated on the delete handler for the same reason the menu's own item is:
+          // ``perColumnBandsFromContacts`` is true on the GEOTECH axis as well, which is
+          // view-only for contacts and so wires none — leaving a red "Remove this litho
+          // unit" offered over a packing band, and (before the handler was gated at all)
+          // really deleting the geotech contact behind it, an edit the next "Subdivide
+          // all bodies" discarded without a word.  Without a handler the right-click is
+          // no longer swallowed and reaches the section's own column menu, exactly as it
+          // does on every part of the plot this rect does not cover.
+          onContextMenu={
+            onDeleteContact
+              ? e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setLithoBandMenu({
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    mode: 'remove',
+                    contactId: band.contactId,
+                    formationName: band.formationName,
+                  })
+                }
+              : undefined
+          }
           onClick={
             onRequestAddLithoSuggestion
               ? e => {
