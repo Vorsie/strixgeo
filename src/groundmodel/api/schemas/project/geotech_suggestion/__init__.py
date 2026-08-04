@@ -11,6 +11,7 @@ from .auto_correlate_geotech_response import AutoCorrelateGeotechResponse
 from .divide_borehole_preview_response import (
     DivideBoreholePreviewBand,
     DivideBoreholePreviewColumn,
+    DivideBoreholePreviewDonor,
     DivideBoreholePreviewResponse,
 )
 from .divide_borehole_response import DivideBoreholeResponse
@@ -22,6 +23,7 @@ __all__ = [
     "AutoCorrelateGeotechResponse",
     "DivideBoreholePreviewBand",
     "DivideBoreholePreviewColumn",
+    "DivideBoreholePreviewDonor",
     "DivideBoreholePreviewResponse",
     "DivideBoreholeResponse",
     "SubdivideAllBodiesRequest",
