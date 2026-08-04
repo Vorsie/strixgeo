@@ -1911,8 +1911,24 @@ export default function SectionsCanvas(): JSX.Element {
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
           // Geotech axis is view-only; geology sync not applicable.
-          onBatchUpdateContacts={handleBatchUpdateContacts}
-          onBatchCreateContacts={sectionAwareBatchCreateContacts}
+          //
+          // The batch pair commits the same contact edits as the two handlers above, only
+          // for a multi-selection or a cross-column drag. They were reachable on the
+          // geotech axis only through a hit-strip ContactsLayer mounts when ANY of the
+          // four single-contact handlers is present — so gating those two alone left this
+          // pair depending on an accident of the other, with the axis nowhere in the
+          // reasoning. Gated here on the same call as its siblings.
+          //
+          // ``onBatchUpdateContacts`` has a SECOND consumer that is not a mutation:
+          // SectionPanel's own mousedown reads its presence to decide whether Shift+drag
+          // opens the contact multi-select marquee (SectionPanel.tsx, handleMouseDown).
+          // Withholding the handler alone would have turned Shift+drag on the geotech
+          // axis into a pan and made the selection highlight unreachable — a READ
+          // affordance lost to a mutation gate. ``contactMarqueeEnabled`` below keeps
+          // the two separable: the marquee stays on every axis, the batch verbs do not.
+          onBatchUpdateContacts={isGeotech ? undefined : handleBatchUpdateContacts}
+          onBatchCreateContacts={isGeotech ? undefined : sectionAwareBatchCreateContacts}
+          contactMarqueeEnabled
           // Seed from stratigraphy: only available on the geological axis
           // (the litho axis has its own suggest-litho flow). On the litho
           // axis the prop is undefined and the button stays disabled.
