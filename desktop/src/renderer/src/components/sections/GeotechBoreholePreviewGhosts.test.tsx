@@ -406,3 +406,110 @@ describe('GeotechBoreholePreviewGhosts', () => {
     })
   })
 })
+
+describe('GeotechBoreholePreviewGhosts — donor provenance (owner ask 2026-08-04)', () => {
+  it('GP16 — an interpolated band names BOTH flanking CPTs, their distances and the section', () => {
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [
+              {
+                top: 0,
+                base: 4,
+                nad: 6,
+                mode: 'flank_interpolated',
+                section: 'Cross-section 1',
+                donors: [
+                  { name: 'GEO-10/170-S6', side: 'left', along: 5, map: 5 },
+                  { name: 'GEO-23/125-S13', side: 'right', along: 90, map: 90 },
+                ],
+              },
+            ]),
+          ]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    const title = screen.getByTestId('geotech-preview-band-bh-1-0').querySelector('title')
+    expect(title?.textContent).toContain('GEO-10/170-S6')
+    expect(title?.textContent).toContain('GEO-23/125-S13')
+    expect(title?.textContent).toContain('5 m left')
+    expect(title?.textContent).toContain('90 m right')
+    expect(title?.textContent).toContain('Cross-section 1')
+  })
+
+  it('GP17 — a single-donor band says which ONE test spoke, never "the surrounding CPTs"', () => {
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [
+              {
+                top: 0,
+                base: 4,
+                nad: 6,
+                mode: 'single_donor',
+                section: 'Tie-section 11',
+                donors: [{ name: 'GEO-23/125-S6', side: 'right', along: 624, map: 624 }],
+              },
+            ]),
+          ]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    const title = screen.getByTestId('geotech-preview-band-bh-1-0').querySelector('title')
+    expect(title?.textContent).toContain('GEO-23/125-S6')
+    expect(title?.textContent).toContain('624 m right')
+    expect(title?.textContent).toContain('Tie-section 11')
+    expect(title?.textContent).not.toContain('surrounding CPTs')
+  })
+
+  it('GP18 — the map-distance fallback is honest that no section neighbour existed', () => {
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [
+              {
+                top: 0,
+                base: 4,
+                nad: 6,
+                mode: 'nearest_fallback',
+                donors: [{ name: 'GEO-10/170-S2', side: 'nearest', map: 256 }],
+              },
+            ]),
+          ]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    const title = screen.getByTestId('geotech-preview-band-bh-1-0').querySelector('title')
+    expect(title?.textContent).toContain('GEO-10/170-S2')
+    expect(title?.textContent).toContain('256 m')
+    expect(title?.textContent).toContain('no section neighbour')
+    expect(title?.textContent).not.toContain('surrounding CPTs')
+  })
+
+  it('GP19 — a band without the new fields keeps the legacy source prose (old backend)', () => {
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }])]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    const title = screen.getByTestId('geotech-preview-band-bh-1-0').querySelector('title')
+    expect(title?.textContent).toContain('interpolated from the surrounding CPTs')
+  })
+})
