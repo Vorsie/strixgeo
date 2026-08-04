@@ -135,6 +135,26 @@ the model's choice from the same place or the warning starts lying.
 ⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
 it silently destroys every hand split and merge. Nothing warns today.
 
+## 4b. The packing-tie litho-body guard is a SURFACE rule (owner, 2026-08-04)
+
+A contact touches the band above it and the band below it — up to TWO litho
+bodies. The guard (`shares_litho_body` + `_resolve_litho_bodies_for_geotech`)
+compares BOTH adjacent bodies of each contact and allows the tie when the two
+sides share at least one ("if one matches it matches"): the tie is then a
+surface tie of the shared body's boundary, mirroring the litho stage's own
+cross-lithology surface ties. Disjoint sets still refuse — two separate sand
+bodies never merge by this gesture — and body formation stays safe because the
+resolver never unions cross-class bands. The refusal toast names both judged
+bands ("KLEI (NAD 23) on GEO-22/115-S10 and SILT (NAD 13) on GEO-10/170-S6
+are in different litho bodies"), because the click that provoked this ruling
+had silently landed one band below its target (thin-band hit area, debt #158).
+
+**Geometry consequence recorded for the 2/1/0 fill (owner, same evening): a
+HALF-matched surface tie constrains the pinch.** When only one adjacent body
+matches across the tie, the unmatched band (e.g. the clay below the clicked
+clay-base) must taper out to a point AT the tied contact — the tie tells the
+fill exactly where the pinch lands.
+
 ## 5. Carrying accepted ties across a re-subdivide (2026-08-02, develop UNPUSHED)
 
 "Subdivide all bodies" throws every geotech band away and rebuilds it with a
