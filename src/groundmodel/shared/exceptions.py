@@ -163,10 +163,20 @@ class CrossLithoBodyCorrelationError(GroundModelError):
     The router maps this exception to HTTP 422 (Unprocessable Entity).
     """
 
-    def __init__(self) -> None:
-        """Initialise with a fixed diagnostic message."""
+    def __init__(self, band_a: str | None = None, band_b: str | None = None) -> None:
+        """Initialise, naming the two judged bands when the caller knows them.
+
+        Parameters
+        ----------
+        band_a : str | None
+            Description of the first band (e.g. ``"KLEI (NAD 23) on
+            GEO-22/115-S10"``); omitted -> the generic sentence alone.
+        band_b : str | None
+            Description of the second band.
+        """
+        named = f"{band_a} and {band_b} are" if band_a and band_b else "these bands are"
         super().__init__(
-            "these bands are in different litho bodies — "
+            f"{named} in different litho bodies — "
             "correlate the lithology first in the litho stage"
         )
 
