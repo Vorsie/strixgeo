@@ -54,6 +54,81 @@ Deferred: rule-8 geo policy-b (needs a per-formation `lithology_content`
 attribute); #227 manual geotech edits; #228 litho engine slivers (parallel
 session).
 
+### 2b. The gap fill obeys the packing correlations (owner ruling 2026-08-04 evening)
+
+> *"correlate by hand between CPTs, so we can reuse the litho's 2/1/0 ruling"*
+> — with the litho-faithful no-tie default: **NO tie → NO band.**
+
+Until this ruling the refinement paired left/right packing spans AUTOMATICALLY
+by class + stack position (rule 4's weighted LCS) and consumed no edges at all,
+so the "Correlate packing" gesture changed body identity and nothing the
+engineer could see. Now `refineLithoPartition` takes
+`options.packingEdges` — **the same approved geotech edge rows the 3-D build arm
+is fed** (`fetchApprovedEdgesBySection` filters `user_approved` the same way), so
+one hand correlation moves the render and the build together.
+
+The counting is litho's, transposed onto packing spans
+(`utils/geotechPackingTies.ts`, mirroring `partitionFill/matcher.ts`):
+
+| correlated bounding contacts | packing span pair |
+|---|---|
+| 2 | **BAND** across the gap (still requires the two spans to be the same NAD class) |
+| 1 | **treated as 0 — DEFERRED**, see below |
+| 0 | **no band** — the spans pinch out through the unmatched-span machinery |
+
+* **top contact** — a top-keyed edge between the two spans' own topmost layer ids;
+* **base contact** — a top-keyed edge between the layers immediately BELOW each
+  span in its own column (a layer id keys the contact at its top, so the layer
+  below owns this span's base — read off the column's FULL stack, which is what
+  the build reads too), or a bottom-tie (`base`/`base`) edge on the spans
+  themselves.
+
+An explicit tie outranks position: a tied pair bands at ANY elevation (the litho
+matcher's own rule for a correlated bed that dips), and overlap only breaks ties
+between crossing candidates in the monotone LCS.
+
+**Where the tie rule does NOT apply, deliberately.** A side with no packing of
+its own borrows the nearest donor or mirrors the other side (§7 Q2 / the S10
+rule). A borrowed span carries a DONOR column's layer ids and has nothing of its
+own to tie, so those regions keep the shipped class+position pairing untouched.
+On the frozen CS1 slice that is **81 of 163 quad regions** — "no ties" is
+nowhere near "no bands" (pinned in `refineLithoPartition.cs1frozen.test.ts`).
+
+**Untied intervals no longer meet at a mid-gap seam.** With spans left unmatched
+on BOTH sides, the interval is filled by the THICKEST class present *in* it and
+every other span pinches out from its own column as an overlay lens. ⚠ Known
+render defect (review F1, 2026-08-04): the lens draws OVER the interval fill at
+0.62 opacity, so the thin side reads as a class-colour blend rather than its
+own CPT's class — fix (carve the lens footprint out of the fill, or opaque
+geotech lenses) is queued with the jump-tie slice. The bracket-bulge rule
+stays what it always was — the ONE-SIDED case, where the far column has no
+packing at those fractions to contradict it. Letting a bracket win the two-sided
+case floods: measured, it put the thin n22 crust over 619 m² of n23 clay on
+Cross-section 1 and cost 3.7 pp of agreement.
+
+`packingEdges: undefined` (an un-threaded caller) keeps the legacy pairing
+byte-for-byte; an empty array means "no ties exist here" and pinches honestly.
+Both statements are pinned by `refineLithoPartition.edges.test.ts`.
+
+**DEFERRED — the 1-tie ONLAP.** Litho's middle case has no primitive in fraction
+space: the anchor walk strictly alternates *unmatched interval* / *pair band*,
+and a half-anchored band cannot enter it without redesigning the machinery every
+guard in it was forced by. One tie is therefore treated as none. Pinned by a
+test so the day the onlap lands, it goes red rather than silently changing.
+
+**Measured cost against the build (see §7).** Render/build divergence
+**39.1 → 39.7 %** — it went UP, and the reason is the BUILD, not the render: the
+build runs `computeSectionFill` over the geotech stack, whose `pairScore` still
+MATCHES same-class spans on geometry alone when no edge exists (an edge is tier
+3/4, geometric overlap tier 1) and uses the contact count only to choose the
+termination SHAPE. So the two arms now disagree about a different thing: whether
+an untied span connects at all. Split of the +0.6 pp: +0.5 from the pairing
+precondition, +0.1 from the pinch-out replacing the seam. Everything else moved
+the right way — interior voids 15.7 → 12.2 m² on CS1, carve loss −19.0 → −15.5 m²,
+plain-lithology fallback unchanged at 172.9 m². **The baseline was NOT re-frozen**
+(the rule says re-freeze only when the number shrinks); closing the rest is the
+inherit design's job — the build arm must stop requiring nothing.
+
 ## 3. Connecting geotech units (built 2026-06-25, develop UNPUSHED)
 
 All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
@@ -338,6 +413,14 @@ model" runs `computeSectionFill` a second time on the GEOTECH layers and GEOTECH
 edges (`makeVoxelRequestBuilder` → `buildVoxelRequest`) and posts THAT. Different
 engine inputs, so what the engineer sees is not what the 3-D model is labelled
 from — and until this gate nothing measured the difference.
+
+Since §2b both arms at least read the SAME edge rows (approved geotech edges,
+section-scoped). They still read them differently — the render requires two
+correlated contacts before it bands, the build matches on geometry and uses the
+count only for the termination shape — which is now the single largest named
+cause of the residual and an input to the inherit design (OQ-1 there).
+`GEOTECH_AGREE_NOEDGES=1` re-measures the pre-ruling render arm for comparison
+and enforces nothing; the mode is printed on the header line of every run.
 
 * **The gate** — `desktop/.../utils/geotechEngineAgreement.diag.test.ts`
   (`GEOTECH_AGREE=1`). Both geometries are mapped into ALONG-METRES × ELEVATION —
