@@ -1028,6 +1028,68 @@ export interface DivideBoreholeResponse {
 }
 
 /**
+ * One packing band the "Divide boreholes" commit would write on a borehole.
+ *
+ * Produced by the same planner the commit runs, so a ghost drawn from this is
+ * a promise the button keeps. There is no `body_id`: the commit re-resolves
+ * body identity after the borehole-mediated edges exist, so no plan can know
+ * it in advance (see the backend schema's note).
+ */
+export interface DivideBoreholePreviewBand {
+  /** Top of the band, m below the borehole collar. */
+  depth_top_m: number
+  /** Base of the band, m below the collar. */
+  depth_base_m: number
+  /** NAD packing class 1–31. Label via `nadClassName` at the render boundary. */
+  nad_class: number
+  /** `cpt_interpolated` | `body_min` | `absolute_min` — how the class was reached. */
+  source: string
+  /** `high` | `low`, exactly as the committed row would carry it. */
+  confidence: string
+}
+
+/** Every planned band on one borehole column, top to bottom. */
+export interface DivideBoreholePreviewColumn {
+  /** The borehole the bands sit on. */
+  borehole_id: string
+  /** Borehole display name. */
+  name: string
+  /** Planned bands, sorted by `depth_top_m`. */
+  bands: DivideBoreholePreviewBand[]
+}
+
+/**
+ * Response of ``POST .../geotech/divide-boreholes/preview`` — a dry run.
+ *
+ * Nothing is written. The endpoint exists because "Subdivide all bodies"
+ * leaves every borehole column empty on the geotech axis, so without it the
+ * engineer has to press an idempotent-but-destructive rebuild blind to find
+ * out what packing the boreholes get.
+ */
+export interface DivideBoreholePreviewResponse {
+  /** The geotech model a commit would write into. */
+  geotech_model_id: string
+  /** One entry per borehole that would receive planned bands. */
+  columns: DivideBoreholePreviewColumn[]
+  /** Number of borehole columns in `columns`. */
+  borehole_count: number
+  /** Body-group fills that would produce ≥ 2 bands. */
+  divided_borehole_count: number
+  /** Body-group fills that would produce exactly 1 band. */
+  single_band_borehole_count: number
+  /** Total litho_layer rows a commit would insert. */
+  layer_count: number
+  /** Accepted borehole ties a commit would carry (includes the flagged ones). */
+  carried_tie_count: number
+  /** Carried-but-flagged ties per reason: `class_changed` / `ambiguous_band`. */
+  review_tie_reasons: Record<string, number>
+  /** Accepted borehole ties a commit could not carry. */
+  lost_tie_count: number
+  /** Why they would be lost: `class_changed` / `interval_moved` / `band_absent`. */
+  lost_tie_reasons: Record<string, number>
+}
+
+/**
  * Response of ``POST .../geotech/auto-correlate``.
  *
  * The standalone geotech counterpart of the litho auto-correlate verb. It
