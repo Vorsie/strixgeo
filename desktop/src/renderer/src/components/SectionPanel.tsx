@@ -290,6 +290,16 @@ interface Props {
   onBatchCreateContacts?: (
     creates: readonly ContactCopyPayload[],
   ) => Promise<void>
+  /** Whether Shift+drag opens the contact multi-select MARQUEE.
+   *
+   * The marquee is a READ affordance — it highlights contacts; committing an
+   * edit is a separate gesture. It used to be gated on ``onBatchUpdateContacts``
+   * simply because that was the verb it was built to feed, which silently tied
+   * a selection gesture to a mutation handler: gating the mutation off (the
+   * geotech axis, 2026-08-04) also removed shift+drag select and turned the
+   * gesture into a pan. Defaults to the old coupling so every existing caller
+   * behaves exactly as before; pass it explicitly to decouple the two. */
+  contactMarqueeEnabled?: boolean
   /** Inline-create a formation from the picker modal's "New
    * formation here" affordance. Returns the new row's id so the
    * picker can chain to a contact commit. */
@@ -658,6 +668,7 @@ export default function SectionPanel({
   onLinkLithoToGeo,
   onBatchUpdateContacts,
   onBatchCreateContacts,
+  contactMarqueeEnabled,
   onAutoPopulateFromStratigraphy,
   onCreateFormation,
   onExportDxf,
@@ -932,7 +943,9 @@ export default function SectionPanel({
     // ANYWHERE on the section — including on a column glyph — opens
     // the marquee, satisfying the "shift+click on column = multi-
     // select" requirement.
-    if (e.shiftKey && onBatchUpdateContacts) {
+    // Selection gesture, not a mutation — see ``contactMarqueeEnabled``. The
+    // ``??`` keeps the historical coupling for every caller that says nothing.
+    if (e.shiftKey && (contactMarqueeEnabled ?? onBatchUpdateContacts != null)) {
       const svgEl = e.currentTarget
       const rect = svgEl.getBoundingClientRect()
       setMarquee({
