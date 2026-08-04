@@ -2036,7 +2036,9 @@ describe('ContactsLayer', () => {
       formations,
       [makeBoreholePlaced('bh-1', 100)],
       undefined,
-      { perColumnBandsFromContacts: true },
+      // The delete handler is the menu's precondition — the menu's only item opens the
+      // delete-confirm dialog, which is itself gated on it.
+      { perColumnBandsFromContacts: true, onDeleteContact: vi.fn().mockResolvedValue(undefined) },
     )
     const band = container.querySelector(
       '[data-testid^="per-column-litho-band-"]',
