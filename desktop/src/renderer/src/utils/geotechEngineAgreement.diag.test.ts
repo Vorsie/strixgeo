@@ -54,16 +54,35 @@
  * for the build arm's ``SectionRegion[]``, and ``detectorPolysFromRefinement`` +
  * ``detectRefinementOverlaps`` for the render arm's refined polygons.
  *
- * Pure reporter — it never fails the suite; read the console output. Dormant
- * unless ``GEOTECH_AGREE=1``.
+ * Not a pure reporter any more: it prints everything, and FAILS when the run is
+ * worse than the committed baseline (see ``geotechAgreementFreeze.diag.ts``).
+ * Dormant unless ``GEOTECH_AGREE=1``.
  *
- * Input: ``scripts/throwaway_geotech_axis_inputs.json`` (produced by
- * ``scripts/dump_geotech_axis_inputs.py``, read-only against the dev DB, whose
- * litho arm is anchored to the owner's persisted build generation).
+ * WHERE THE NUMBERS COME FROM, AND WHO CAN REPRODUCE THEM. Be explicit, because
+ * "it is frozen" would otherwise read as "anyone can check this":
+ *
+ *   INPUT     ``scripts/throwaway_geotech_axis_inputs.json`` — an UNTRACKED,
+ *             read-only dump of the OWNER'S dev DB (it carries a real project,
+ *             which is why it is not committed and why CI cannot run this gate).
+ *             Regenerate with, from the repo root:
+ *                 uv run python scripts/dump_geotech_axis_inputs.py
+ *             The script guards its own DB target and prints it before reading.
+ *             Missing input FAILS the run with this recipe — never skips.
+ *   BASELINE  ``__fixtures__/geotech_agreement_baseline.json`` — committed, and
+ *             the only reproducible half. It records the model ids and the
+ *             engine it was frozen on; a run on other ids, or on the other
+ *             engine, reports NOT COMPARABLE and enforces nothing.
+ *   ENGINE    read at RUN TIME from env / device localStorage
+ *             (``isPartitionEngineV2Active``), so what is measured depends on
+ *             device state. It is printed on the first line; a v1 device
+ *             silently drops all enforcement through the engine-mismatch branch,
+ *             so read that line before reading a green run as a pass.
  *
  * Run:
  *   cd desktop
  *   GEOTECH_AGREE=1 npx vitest run src/renderer/src/utils/geotechEngineAgreement.diag.test.ts --disableConsoleIntercept
+ * Re-freeze (deliberate — only when the rise/fall is understood):
+ *   GEOTECH_AGREE=1 GEOTECH_AGREE_FREEZE=1 npx vitest run src/renderer/src/utils/geotechEngineAgreement.diag.test.ts --disableConsoleIntercept
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -72,13 +91,11 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  buildApexOverridesForGaps,
-  detectPersistedLensBodies,
-  type GapExtent,
-} from '../components/sections/apexOverrideWiring'
 import { computeUnderColumnSubstrateForRender } from '../components/sections/underColumnSubstrate'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
+// The REAL builder's own override derivation, not a copy of it: a hand-copy can
+// drift from the thing this gate claims to measure without anything noticing.
+import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import {
   computeUnderColumnSubstrate,
   type CorrelationEdge,
@@ -100,11 +117,20 @@ import {
   detectRefinementOverlaps,
   detectorPolysFromRefinement,
 } from './refineLithoPartition.overlap'
+import {
+  compareToBaseline,
+  readBaseline,
+  writeBaseline,
+  type AgreementBaseline,
+  type MeasuredSection,
+} from './geotechAgreementFreeze.diag'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
 const INPUT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_axis_inputs.json')
 const DETAIL_OUT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_agreement_detail.json')
+/** The committed baseline this run is judged against (see the freeze module). */
+const BASELINE = resolve(HERE, './__fixtures__/geotech_agreement_baseline.json')
 
 /**
  * Along-axis sample step in metres; the vertical direction stays exact.
@@ -124,6 +150,29 @@ const EPS = 1e-9
  * along metres are scaled to a plausible plot width before it runs.
  */
 const DETECTOR_PLOT_W = 1200
+
+/**
+ * The boundary map the RENDER arm runs with: empty, always.
+ *
+ * ⚠ SUSPECTED PRODUCT DEFECT, described here rather than corrected. This is a
+ * faithful description of TODAY'S CODE, not of a decision anybody took: the
+ * geotech axis has no hand-drawn body boundaries because ``SectionsCanvas``
+ * clears ``lensBoundaries`` to an empty Map on any non-lithostratigraphic axis,
+ * so the geotech render derives zero apex/contact overrides. But the LITHO
+ * render and BOTH voxel builds DO apply the stored boundaries — so a lens the
+ * engineer reshaped by hand on the litho axis is drawn reshaped on litho, built
+ * reshaped in 3-D, and drawn UN-reshaped on the geotech axis, which the
+ * governing plan ("geotech behaves like litho, constrained by the two levels
+ * above") does not allow.
+ *
+ * The gate keeps measuring what is actually on screen — that is its job, and
+ * feeding this arm the litho boundaries measured a partition nobody sees
+ * (``geotechRenderArmRefute.diag.test.ts`` refuted that earlier version). It
+ * reports the suspicion as a TRACKED SUSPECT line instead of hiding it in a
+ * baseline, and the owner question is in ``docs/design/geotech-stage.md`` §7.
+ * On this model the measured impact is nil: 1 stored litho boundary, 0 geotech.
+ */
+const RENDER_ARM_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
 
 // ---------------------------------------------------------------------------
 // Extract shapes (mirrors scripts/dump_geotech_axis_inputs.py)
@@ -359,51 +408,6 @@ function toEdges(raw: readonly RawEdge[]): CorrelationEdge[] {
   }))
 }
 
-/**
- * Derive the hand-drawn apex and contact overrides exactly as the production
- * paths do, in the screen-free form ``buildVoxelRequest`` proved equivalent:
- * along metres as the horizontal coordinate, identity transform, no live drag.
- *
- * @param columns The engine's ordered columns.
- * @param edges The section's approved correlation edges.
- * @param alongM Along position per column, 1:1 with ``columns``.
- * @param boundaries Stored hand-drawn boundary shapes by body id.
- * @param engineV2 Whether the active engine consumes contact overrides.
- */
-function deriveOverrides(
-  columns: readonly PartitionColumn[],
-  edges: readonly CorrelationEdge[],
-  alongM: readonly number[],
-  boundaries: ReadonlyMap<string, BodyBoundaryResponse>,
-  engineV2: boolean,
-): Map<string, LensApexOverride> {
-  const gapXs: GapExtent[] = columns
-    .slice(0, -1)
-    .map((_, i) => ({ leftX: alongM[i], rightX: alongM[i + 1] }))
-  const identity = (along: number): number => along
-  const persistedLensBodies =
-    boundaries.size > 0
-      ? detectPersistedLensBodies(
-          computeSectionFillActive(columns, edges, undefined, alongM),
-          columns,
-          boundaries,
-          identity,
-          gapXs,
-        )
-      : undefined
-  const { apexOverrides } = buildApexOverridesForGaps({
-    orderedColumns: columns,
-    gapXs,
-    boundariesByBodyId: boundaries,
-    alongToScreenX: identity,
-    screenToLevel: undefined,
-    lensDrag: null,
-    boundaryDrag: null,
-    partitionEngineV2: engineV2,
-    persistedLensBodies,
-  })
-  return apexOverrides
-}
 
 // ---------------------------------------------------------------------------
 // Reporting shapes
@@ -460,6 +464,9 @@ interface SectionResult {
   stepM: number
   lithoCols: number
   geoCols: number
+  /** Approved correlation edges each arm ran on — part of the freeze fingerprint. */
+  lithoEdges: number
+  geoEdges: number
   renderPolys: number
   buildRegions: number
   renderOverlaps: number
@@ -496,7 +503,22 @@ describe('geotech axis — render vs build engine agreement', () => {
   }
 
   it('measures every section', () => {
-    expect(existsSync(INPUT)).toBe(true)
+    // Fail LOUDLY, with the recipe, rather than skipping: a gate that quietly
+    // passes when its input is absent is worse than no gate. The extract is a
+    // read-only dump of the OWNER'S dev DB and is untracked by design (it
+    // carries a real project), so this is the one precondition a fresh clone
+    // cannot satisfy on its own.
+    if (!existsSync(INPUT)) {
+      throw new Error(
+        `${INPUT} not found — this gate judges the CURRENT dev model. Regenerate it with:\n` +
+          `  uv run python scripts/dump_geotech_axis_inputs.py   (read-only, dev DB)\n` +
+          `then re-run with GEOTECH_AGREE=1. Preconditions for the numbers to mean anything:\n` +
+          `  * partition engine v2 must be the ACTIVE engine (Settings -> Litho segmenter, or\n` +
+          `    STRIX_PARTITION_V2=1) — the baseline was frozen on v2 and a v1 run enforces nothing;\n` +
+          `  * the baseline in __fixtures__/geotech_agreement_baseline.json must have been frozen\n` +
+          `    on the same litho + geotech model ids, or every section reports NOT COMPARABLE.`,
+      )
+    }
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
     const engineV2 = isPartitionEngineV2Active()
 
@@ -549,6 +571,18 @@ describe('geotech axis — render vs build engine agreement', () => {
         `build WOULD produce, not what it produced.`,
     )
     console.log(`  hand-drawn boundaries  litho ${lithoBoundaries.size}, geotech ${geotechBoundaries.size}`)
+    // TRACKED SUSPECT, printed every run so it cannot settle into the baseline
+    // as "correct" (see RENDER_ARM_BOUNDARIES). The render arm runs with NO
+    // boundaries because that is what the geotech axis does today; the build arm
+    // and the litho render both apply them. That asymmetry is a suspected
+    // product defect awaiting an owner answer, not a measurement choice.
+    console.log(
+      `  TRACKED SUSPECT  the geotech RENDER arm runs with 0 hand-drawn boundaries because ` +
+        `SectionsCanvas clears them off any non-litho axis, while the LITHO render and BOTH ` +
+        `voxel builds apply all ${lithoBoundaries.size}. Impact on this model: nil ` +
+        `(${lithoBoundaries.size} litho / ${geotechBoundaries.size} geotech stored). Owner ` +
+        `question in docs/design/geotech-stage.md §7 — not a baseline decision.`,
+    )
 
     const results: SectionResult[] = []
     let instrumentWorstResidual = 0
@@ -560,11 +594,20 @@ describe('geotech axis — render vs build engine agreement', () => {
       // ---- RENDER arm ---------------------------------------------------
       const L = assembleColumns(sec.columns, sec.alongM)
       const lithoEdges = toEdges(sec.edges)
-      const renderOverrides = deriveOverrides(
+      // NO hand-drawn overrides on this arm, deliberately. The geotech axis
+      // cannot have them: ``SectionsCanvas`` clears ``lensBoundaries`` to an
+      // empty Map whenever the axis is not lithostratigraphic
+      // (``SectionsCanvas.tsx`` — ``if (!isLitho) { setLensBoundaries(new Map()) }``),
+      // and ``SectionPanel`` forwards that empty map to ``PartitionFillOverlay``,
+      // so the geotech render derives zero overrides. Feeding this arm the LITHO
+      // model's stored boundaries measured a partition the engineer never sees —
+      // ``geotechRenderArmRefute.diag.test.ts`` refuted the earlier version of
+      // this line and its finding is applied here.
+      const renderOverrides = deriveSectionApexOverrides(
         L.columns,
         lithoEdges,
         L.alongM,
-        lithoBoundaries,
+        RENDER_ARM_BOUNDARIES,
         engineV2,
       )
       const lithoRegions =
@@ -621,7 +664,7 @@ describe('geotech axis — render vs build engine agreement', () => {
       const geoEdges = toEdges(sec.geotech.edges)
       const buildOverrides =
         G.columns.length >= 2
-          ? deriveOverrides(G.columns, geoEdges, G.alongM, geotechBoundaries, engineV2)
+          ? deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, geotechBoundaries, engineV2)
           : new Map<string, LensApexOverride>()
       const buildComputable = G.columns.length >= 2
       const buildRegions: SectionRegion[] = buildComputable
@@ -951,6 +994,8 @@ describe('geotech axis — render vs build engine agreement', () => {
         stepM: dx,
         lithoCols: L.columns.length,
         geoCols: G.columns.length,
+        lithoEdges: lithoEdges.length,
+        geoEdges: geoEdges.length,
         renderPolys: refined.length,
         buildRegions: buildRegions.length,
         renderOverlaps: renderOverlapReports.length,
@@ -1224,11 +1269,115 @@ describe('geotech axis — render vs build engine agreement', () => {
       ),
       'utf8',
     )
+    // ---- The frozen half: is this run worse than the committed baseline? ---
+    const measured: MeasuredSection[] = results.map((r) => ({
+      name: r.name,
+      lithoCols: r.lithoCols,
+      geoCols: r.geoCols,
+      lithoEdges: r.lithoEdges,
+      geoEdges: r.geoEdges,
+      disagreementPct: r.disagreementPct,
+      buckets: r.buckets,
+    }))
+    const fresh: AgreementBaseline = {
+      frozenAt: new Date().toISOString(),
+      engine: engineV2 ? 'v2' : 'v1',
+      lithoModelId: String(raw.meta.lithoModelId),
+      geotechModelId: String(raw.meta.geotechModelId),
+      totalDisagreementPct: totPct,
+      buildableDisagreementPct: totCPct,
+      sections: measured.map((m) => ({
+        name: m.name,
+        lithoCols: m.lithoCols,
+        geoCols: m.geoCols,
+        lithoEdges: m.lithoEdges,
+        geoEdges: m.geoEdges,
+        disagreementPct: m.disagreementPct,
+        agreeM2: m.buckets.agree,
+        disagreeM2: m.buckets.disagree,
+        renderOnlyM2: m.buckets.renderOnly,
+        buildOnlyM2: m.buckets.buildOnly,
+      })),
+      note:
+        'Share of the section plane where the geotech RENDER (litho partition refined by NAD) ' +
+        'and the geotech BUILD (a direct partition of the geotech layers) assign a different ' +
+        'packing class. Convergence work should drive these DOWN; a rise is a regression. ' +
+        'PROVENANCE: measured from scripts/throwaway_geotech_axis_inputs.json, an UNTRACKED ' +
+        'read-only dump of the owner dev DB (regenerate: uv run python ' +
+        'scripts/dump_geotech_axis_inputs.py); reproducible only on that machine. ' +
+        'TRACKED SUSPECT baked into these numbers: the render arm runs with ZERO hand-drawn ' +
+        'body boundaries because SectionsCanvas clears them off any non-litho axis, while ' +
+        'the litho render and both voxel builds apply them — suspected product defect, ' +
+        'owner question open in docs/design/geotech-stage.md §7. On this model 1 litho / 0 ' +
+        'geotech boundaries are stored, so the override path is UNEXERCISED here and the ' +
+        'frozen number does not cover it.',
+    }
+    const baseline = readBaseline(BASELINE)
+    console.log('')
+    console.log('-'.repeat(96))
+    console.log('FROZEN COMPARISON — has the gap between the two arms grown?')
+    console.log('-'.repeat(96))
+    let regressions: string[] = []
+    if (process.env.GEOTECH_AGREE_FREEZE === '1') {
+      if (baseline) {
+        for (const line of compareToBaseline(
+          measured,
+          baseline,
+          fresh.lithoModelId,
+          fresh.geotechModelId,
+          fresh.engine,
+          totPct,
+          totCPct,
+        ).lines) {
+          console.log(line)
+        }
+      }
+      writeBaseline(BASELINE, fresh)
+      console.log(`  BASELINE REWRITTEN -> ${BASELINE}`)
+    } else if (!baseline) {
+      console.log(
+        `  no baseline at ${BASELINE} — freeze one with GEOTECH_AGREE=1 ` +
+          `GEOTECH_AGREE_FREEZE=1`,
+      )
+    } else {
+      const verdict = compareToBaseline(
+        measured,
+        baseline,
+        fresh.lithoModelId,
+        fresh.geotechModelId,
+        fresh.engine,
+        totPct,
+        totCPct,
+      )
+      for (const line of verdict.lines) console.log(line)
+      // Only enforce when the run is comparable at all: a different engine or a
+      // model that moved under the baseline makes the delta meaningless, and
+      // failing on it would train the reader to ignore this gate.
+      regressions =
+        baseline.engine === fresh.engine && verdict.skipped.length < measured.length
+          ? verdict.regressions
+          : []
+      if (verdict.skipped.length > 0) {
+        console.log(
+          `  ${verdict.skipped.length} section(s) not enforced (inputs moved): ` +
+            verdict.skipped.join(', '),
+        )
+      }
+    }
+
     console.log('')
     console.log(`  full per-gap / per-class detail written to ${DETAIL_OUT}`)
     console.log('='.repeat(96))
     console.log('')
 
     expect(results.length).toBe(raw.sections.length)
+    // The arbiter. Convergence work must move these numbers down; nothing may
+    // push them up by more than half a percentage point without saying so.
+    expect(
+      regressions,
+      `the two geotech arms drifted FURTHER apart than the committed baseline:\n  ` +
+        `${regressions.join('\n  ')}\n(re-freeze deliberately with GEOTECH_AGREE_FREEZE=1 ` +
+        `only when the rise is understood and accepted)`,
+    ).toEqual([])
   }, 600_000)
 })
