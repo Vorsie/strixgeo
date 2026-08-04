@@ -1035,6 +1035,18 @@ export interface DivideBoreholeResponse {
  * body identity after the borehole-mediated edges exist, so no plan can know
  * it in advance (see the backend schema's note).
  */
+/** One CPT a previewed band's packing was read from (tooltip provenance). */
+export interface DivideBoreholePreviewDonor {
+  /** Donor CPT display name. */
+  name: string
+  /** `left` | `right` on the section; `nearest` in the map-distance fallback. */
+  side: string
+  /** Distance along the section line (m); null in the map-distance fallback. */
+  along_distance_m: number | null
+  /** Straight-line map distance (m). */
+  map_distance_m: number | null
+}
+
 export interface DivideBoreholePreviewBand {
   /** Top of the band, m below the borehole collar. */
   depth_top_m: number
@@ -1046,6 +1058,16 @@ export interface DivideBoreholePreviewBand {
   source: string
   /** `high` | `low`, exactly as the committed row would carry it. */
   confidence: string
+  /**
+   * `flank_interpolated` | `single_donor` | `nearest_fallback` — which arm of
+   * the flanking-donor rule spoke. Absent from responses of a pre-rule
+   * backend; the tooltip then falls back to `source` prose.
+   */
+  mode?: string | null
+  /** The CPT(s) the class was read from; empty for conservative fills. */
+  donors?: DivideBoreholePreviewDonor[]
+  /** Section the donors were read along; null outside the flank modes. */
+  section_name?: string | null
 }
 
 /** Every planned band on one borehole column, top to bottom. */
