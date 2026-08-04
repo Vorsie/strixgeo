@@ -90,6 +90,7 @@ import type {
   BodyBoundaryResponse,
   ClearBoundariesResponse,
   SubdivideAllBodiesResponse,
+  DivideBoreholePreviewResponse,
   DivideBoreholeResponse,
   AutoCorrelateGeotechResponse,
 } from './geology.types'
@@ -824,6 +825,27 @@ export const geologyClient = {
   ): Promise<DivideBoreholeResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes`,
+      {},
+    ),
+
+  /**
+   * POST .../geotech/divide-boreholes/preview — what the divide WOULD write.
+   *
+   * A dry run of the same planner ``divideBoreholes`` commits: no rows are
+   * written, nothing is deleted, and no correlation is touched. The geotech
+   * axis draws the result as ghost bands over the still-empty borehole
+   * columns, so the engineer can see what packing each borehole gets before
+   * pressing a button that rebuilds them.
+   *
+   * Takes the LITHO model id, exactly like ``divideBoreholes``. 404s until
+   * ``subdivideAllBodies`` has created the geotech model.
+   */
+  previewDivideBoreholes: (
+    projectId: string,
+    lithoModelId: string,
+  ): Promise<DivideBoreholePreviewResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes/preview`,
       {},
     ),
 
