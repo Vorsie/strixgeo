@@ -7,6 +7,44 @@ import SectionPanel from './SectionPanel'
 // Mock-friendly ResizeObserver lives in test/setup.ts; the panel uses
 // it via the internal ``useElementSize`` hook.
 
+// ResizeObserver is stubbed in test/setup.ts but doesn't trigger a
+// size by default — the panel renders a "Sizing canvas…" placeholder
+// until the observer fires. For these tests we mock the observer to
+// call back synchronously with a fixed viewport, so the SVG (and
+// therefore the column glyphs) actually render.
+function withFixedSize(width: number, height: number): () => void {
+  const RealRO = globalThis.ResizeObserver
+  class FixedRO {
+    private cb: ResizeObserverCallback
+    constructor(cb: ResizeObserverCallback) {
+      this.cb = cb
+    }
+    observe(target: Element): void {
+      Object.defineProperty(target, 'clientWidth', { configurable: true, value: width })
+      Object.defineProperty(target, 'clientHeight', { configurable: true, value: height })
+      // Async like the real observer fires.
+      queueMicrotask(() =>
+        this.cb(
+          [
+            {
+              contentRect: { width, height } as DOMRectReadOnly,
+              target,
+            } as unknown as ResizeObserverEntry,
+          ],
+          this as unknown as ResizeObserver,
+        ),
+      )
+    }
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  ;(globalThis as { ResizeObserver: unknown }).ResizeObserver =
+    FixedRO as unknown as typeof ResizeObserver
+  return () => {
+    ;(globalThis as { ResizeObserver: unknown }).ResizeObserver = RealRO
+  }
+}
+
 function makeSection(overrides: Partial<CrossSectionResponse> = {}): CrossSectionResponse {
   return {
     id: '01k-FIXTURE',
@@ -161,43 +199,6 @@ describe('SectionPanel — investigation columns', () => {
     projection_buffer_m: 50,
   })
 
-  // ResizeObserver is stubbed in test/setup.ts but doesn't trigger a
-  // size by default — the panel renders a "Sizing canvas…" placeholder
-  // until the observer fires. For these tests we mock the observer to
-  // call back synchronously with a fixed viewport, so the SVG (and
-  // therefore the column glyphs) actually render.
-  function withFixedSize(width: number, height: number): () => void {
-    const RealRO = globalThis.ResizeObserver
-    class FixedRO {
-      private cb: ResizeObserverCallback
-      constructor(cb: ResizeObserverCallback) {
-        this.cb = cb
-      }
-      observe(target: Element): void {
-        Object.defineProperty(target, 'clientWidth', { configurable: true, value: width })
-        Object.defineProperty(target, 'clientHeight', { configurable: true, value: height })
-        // Async like the real observer fires.
-        queueMicrotask(() =>
-          this.cb(
-            [
-              {
-                contentRect: { width, height } as DOMRectReadOnly,
-                target,
-              } as unknown as ResizeObserverEntry,
-            ],
-            this as unknown as ResizeObserver,
-          ),
-        )
-      }
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    ;(globalThis as { ResizeObserver: unknown }).ResizeObserver =
-      FixedRO as unknown as typeof ResizeObserver
-    return () => {
-      ;(globalThis as { ResizeObserver: unknown }).ResizeObserver = RealRO
-    }
-  }
 
   function makeCpt(overrides: Record<string, unknown>): import('../api/client').CptListItem {
     return {
@@ -633,3 +634,74 @@ describe('SectionPanel — lens gesture prop contract', () => {
 // context menu's portal + the ResizeObserver-gated SVG mount + the
 // handleColumnContextMenu's getBoundingClientRect call all need a real
 // layout pass jsdom doesn't provide).
+
+describe('SectionPanel — the contact marquee is a selection gesture, not a mutation', () => {
+  // The geotech axis stopped handing SectionPanel ``onBatchUpdateContacts``
+  // (2026-08-04) because the batch verbs commit contact edits the next
+  // "Subdivide all bodies" would silently discard. That handler had a SECOND,
+  // non-mutating consumer: ``handleMouseDown`` read its presence to decide
+  // whether Shift+drag opens the contact multi-select marquee. Gating the
+  // mutation therefore also turned Shift+drag into a pan on that axis and made
+  // the selection highlight unreachable — a READ affordance lost to a write
+  // gate. ``contactMarqueeEnabled`` separates the two.
+  const horizontal1km = makeSection({
+    start_x: 0,
+    start_y: 0,
+    end_x: 1000,
+    end_y: 0,
+    projection_buffer_m: 50,
+  })
+
+  /**
+   * Shift+mousedown on the plot and report whether a PAN started.
+   *
+   * The marquee branch and the pan branch are mutually exclusive in
+   * ``handleMouseDown``, and the pan is the observable one in jsdom: the plot
+   * container's cursor flips to ``grabbing``. (ContactsLayer's dashed preview
+   * would be the more direct probe, but it renders nothing at all on a section
+   * with no contacts, so it cannot tell "marquee suppressed" from "layer empty".)
+   */
+  async function shiftMouseDownStartsPan(extra: Record<string, unknown>): Promise<boolean> {
+    const restore = withFixedSize(800, 400)
+    const { container, unmount } = render(
+      <SectionPanel section={horizontal1km} zEpsg={5710} {...extra} />,
+    )
+    await new Promise(r => setTimeout(r, 0))
+    const bg = container.querySelector('[data-testid="section-marquee-bg"]')
+    expect(bg).not.toBeNull()
+    const plot = (bg as Element).closest('svg')?.parentElement as HTMLElement
+    expect(plot.style.cursor).toBe('grab')
+    fireEvent.mouseDown(bg as Element, {
+      button: 0,
+      buttons: 1,
+      shiftKey: true,
+      clientX: 100,
+      clientY: 100,
+    })
+    const panning = plot.style.cursor === 'grabbing'
+    unmount()
+    restore()
+    return panning
+  }
+
+  it('opens on a view-only axis when the marquee is enabled without any batch handler', async () => {
+    expect(
+      await shiftMouseDownStartsPan({
+        axisMode: 'geotechnical',
+        contactMarqueeEnabled: true,
+      }),
+    ).toBe(false)
+  })
+
+  it('still opens for a caller that only passes the batch handler (historical coupling)', async () => {
+    expect(
+      await shiftMouseDownStartsPan({
+        onBatchUpdateContacts: vi.fn().mockResolvedValue(undefined),
+      }),
+    ).toBe(false)
+  })
+
+  it('does not open when neither the flag nor the batch handler is given', async () => {
+    expect(await shiftMouseDownStartsPan({ axisMode: 'geotechnical' })).toBe(true)
+  })
+})
