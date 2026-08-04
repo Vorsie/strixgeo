@@ -45,6 +45,7 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     AutoCorrelateGeotechResponse,
     DivideBoreholePreviewBand,
     DivideBoreholePreviewColumn,
+    DivideBoreholePreviewDonor,
     DivideBoreholePreviewResponse,
     DivideBoreholeResponse,
     SubdivideAllBodiesRequest,
@@ -376,6 +377,17 @@ async def preview_divide_boreholes(
                         nad_class=band.nad_class,
                         source=band.source,
                         confidence=band.confidence,
+                        mode=band.mode or None,
+                        donors=[
+                            DivideBoreholePreviewDonor(
+                                name=donor.name,
+                                side=donor.side,
+                                along_distance_m=donor.along_distance_m,
+                                map_distance_m=donor.map_distance_m,
+                            )
+                            for donor in band.donors
+                        ],
+                        section_name=band.section_name,
                     )
                     for band in column.bands
                 ],
