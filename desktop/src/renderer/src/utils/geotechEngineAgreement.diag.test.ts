@@ -640,7 +640,9 @@ describe('geotech axis — render vs build engine agreement', () => {
       }
       const refined: RefinedPolygon[] =
         lithoRegions.length > 0
-          ? refineLithoPartition(lithoRegions, columnOrder, geoColByInv, nadMeta, lithoSoil)
+          ? refineLithoPartition(lithoRegions, columnOrder, geoColByInv, nadMeta, lithoSoil, {
+              alongM: L.alongM,
+            })
           : []
 
       // The under-column substrate pass the render also runs. It is a screen-space
