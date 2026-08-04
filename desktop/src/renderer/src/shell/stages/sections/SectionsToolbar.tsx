@@ -31,6 +31,7 @@ import {
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
+import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
 
@@ -511,6 +512,18 @@ export default function SectionsToolbar(): JSX.Element {
   // enabled and silently writing the wrong level — audit 2026-08-02.)
   const isLitho = sectionModelAxis === 'lithostratigraphic'
   const isGeotech = sectionModelAxis === 'geotechnical'
+
+  // What ``GeotechBoreholePreviewGhosts`` ACTUALLY drew this frame, straight
+  // from the overlay. The legend explains hatching, so it has to track the
+  // hatching — an approximation recomputed here from the investigation list
+  // claimed "Hatched = preview" over an empty axis in three real cases: a
+  // column with no collar elevation (the overlay skips it), a preview still in
+  // flight, and a failed preview, where the legend appeared beside the error
+  // toast. ``clampedBandCount`` rides along so a planned band that falls
+  // outside the visible depth window is reported rather than silently missing.
+  const previewRender = useGeotechPreviewRender()
+  const hasDrawnPreviewGhosts = isGeotech && previewRender.columnCount > 0
+
   const hasModel = isLitho
     ? activeLithoModel !== null
     : isGeotech
@@ -1285,6 +1298,26 @@ export default function SectionsToolbar(): JSX.Element {
             }
             testid="geotech-divide-boreholes"
           />
+          {/* Legend for the hatched ghost bands over the still-undivided
+              boreholes. Appears only while there is something hatched to
+              explain, and disappears the moment every borehole is divided —
+              the same no-permanent-toolbar-weight rule as the litho hint
+              above (debt #23 toolbar crowding). Matches its styling. */}
+          {hasDrawnPreviewGhosts && (
+            <p className="text-xs text-text-muted" data-testid="geotech-preview-legend">
+              Hatched = preview — press &ldquo;Divide boreholes&rdquo; to commit.
+            </p>
+          )}
+          {/* A planned band scrolled out of the depth window has no pixel to
+              live in. Saying so beats letting the silence read as "nothing is
+              planned down there" — the one claim this preview must not make. */}
+          {isGeotech && previewRender.clampedBandCount > 0 && (
+            <p className="text-xs text-text-muted" data-testid="geotech-preview-clamped">
+              {previewRender.clampedBandCount} planned band
+              {previewRender.clampedBandCount === 1 ? '' : 's'} outside the depth window — zoom
+              out to see {previewRender.clampedBandCount === 1 ? 'it' : 'them'}.
+            </p>
+          )}
           {/* "Correlate packing" — manual same-class/same-body packing connection.
               Reuses the litho correlate state machine (correlateMode) on the geotech
               axis so clicking a packing band arms a source; clicking a neighbour's
