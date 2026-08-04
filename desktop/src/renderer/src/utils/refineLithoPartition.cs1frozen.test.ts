@@ -215,3 +215,62 @@ describe('CS1 frozen geotech-refinement gate (always-on)', () => {
     expect(offenders, `cross-class overlaps found:\n${offenders.join('\n')}`).toEqual([])
   }, 30000)
 })
+
+// ---------------------------------------------------------------------------
+// COVERAGE — the direction the overlap gate above cannot see.
+// ---------------------------------------------------------------------------
+
+/** Shoelace area of a gap-local polygon, in (along metres x elevation). */
+function polygonAreaM2(
+  pts: readonly { fraction: number; elevation: number }[],
+  gapWidthM: number,
+): number {
+  let a2 = 0
+  for (let i = 0; i < pts.length; i++) {
+    const b = pts[(i + 1) % pts.length]
+    a2 += pts[i].fraction * gapWidthM * b.elevation - b.fraction * gapWidthM * pts[i].elevation
+  }
+  return Math.abs(a2) / 2
+}
+
+const gapWidthsM = columns
+  .slice(0, -1)
+  .map((_, i) => Math.abs((alongM[i + 1] ?? 0) - (alongM[i] ?? 0)))
+
+describe('CS1 frozen geotech-refinement gate — coverage (always-on)', () => {
+  // WHY THIS EXISTS. The invariant case above only catches polygons ESCAPING
+  // the litho envelope; it is blind to the opposite failure, the refinement
+  // covering LESS of the litho partition than it started with. That direction is
+  // the render arm's largest known own-terms flaw: the model-wide agreement gate
+  // measures 1810.1 m2 (3.02 %) of the litho partition dropped and 696.13 m2 of
+  // interior voids opened by the carve (worst hole 17.0 m across, Tie-section 4)
+  // — holes the engineer sees as gaps in the packing render. This case pins the
+  // frozen CS1 slice's own loss so that number cannot grow unnoticed.
+  //
+  // The design rule says litho boundaries are INVARIANT, so the honest target is
+  // 0.0 %. This slice measures 2.11 % (399.5 m2 of 18,920.6 m2) TODAY — the bound
+  // is that plus a hair of headroom, a RATCHET and not an endorsement: drive the
+  // loss down, then tighten the bound. It is a pre-existing carve defect, not a
+  // consequence of the 2026-08-04 interior-region sampling change (this fixture
+  // is a v1-engine snapshot and carries no interior regions at all).
+  const MAX_COVERAGE_LOSS_PCT = 2.2
+
+  it('the refinement covers the litho partition it is documented to leave invariant', () => {
+    let lithoM2 = 0
+    for (const r of regions) lithoM2 += polygonAreaM2(r.polygon, gapWidthsM[r.gapIndex] ?? 0)
+    let refinedM2 = 0
+    for (const p of refined) {
+      // Overlays paint OVER a fill that is already counted — including them
+      // would credit the same square metre twice and mask a real hole.
+      if (p.tag === 'hlens' || p.tag === 'enclens') continue
+      refinedM2 += polygonAreaM2(p.points, gapWidthsM[p.gapIndex] ?? 0)
+    }
+    const lossPct = ((lithoM2 - refinedM2) / lithoM2) * 100
+    expect(lithoM2).toBeGreaterThan(1000)
+    expect(
+      lossPct,
+      `the NAD carve dropped ${(lithoM2 - refinedM2).toFixed(1)} m2 of ${lithoM2.toFixed(1)} m2 ` +
+        `(${lossPct.toFixed(2)} %) of the litho partition; the design rule says 0`,
+    ).toBeLessThan(MAX_COVERAGE_LOSS_PCT)
+  })
+})
