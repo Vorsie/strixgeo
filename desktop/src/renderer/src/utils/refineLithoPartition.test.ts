@@ -576,6 +576,34 @@ describe('refineLithoPartition — a region that reaches neither column of its g
   // It is here so the interior-sampling path cannot later be widened into
   // borrowing a foreign lithology; the RED→GREEN claim for the change rests on
   // the first case above alone.
+  it('a wedge tapering to a POINT at both of its own ends still carves — the fall-inward branch is alive', () => {
+    // Diamond region: its slice at BOTH extreme fractions is a single point
+    // (zero thickness), so even the own-extent sample grid resolves nothing
+    // there and the ``s0 === null && s1 === null`` fall-inward branch is the
+    // only route to a carve. This test exists because the own-extent grid
+    // (2026-08-04) rescued the 105 false-interior regions that used to funnel
+    // through that branch — without a genuine both-ends-degenerate scene the
+    // branch would be executed by no test at all.
+    const region: SectionRegion = {
+      formationId: 'formation-sand',
+      bodyId: 'body-x',
+      kind: 'quad',
+      gapIndex: 0,
+      polygon: [
+        { fraction: 0.2, elevation: 5 },
+        { fraction: 0.5, elevation: 8 },
+        { fraction: 0.8, elevation: 5 },
+        { fraction: 0.5, elevation: 2 },
+      ],
+    }
+    const cols = gmap(gcol('A', 10, [[10, 0, 'nad-zand-5']]), gcol('B', 10, [[10, 0, 'nad-zand-5']]))
+    const refined = refineLithoPartition([region], ['A', 'B'], cols, NAD, LITHO_SOIL)
+    expect(tags(refined, 'fallback')).toHaveLength(0)
+    // Probe off the f=0.5 strip seam — an even-odd point-in-polygon test on a
+    // shared edge sees neither neighbour.
+    expect(formsAt(refined, 0.4, 5)).toEqual(new Set(['nad-zand-5']))
+  })
+
   it('keeps the soil guard — an interior region never borrows a foreign lithology class', () => {
     const region = interiorRegion('formation-clay', 0.3, 0.7, 10, 0)
     const cols = gmap(
