@@ -489,6 +489,32 @@ on the packing render:
 7. **Priority:** the render's own holes — 696 m² of interior voids (worst 17.0 m
    across) and 1,810 m² (3.02 %) of the litho partition dropped by the NAD carve —
    fix now, or after the build/render question above is settled?
+   **RESOLVED BY THE Q1 ANSWER AND FIXED (2026-08-04).** Q1 = inherit makes the
+   render the build's geometry source, so the holes stopped being cosmetic and
+   were fixed the same day (diagnose → TDD fix → adversarial review). Three
+   mechanisms closed in `refineLithoPartition.ts`: the sample grid spans the
+   region's own fraction extent (a 1e-6 gap-edge inset no longer guts the two
+   end strips — 1,681 m² of the loss, and 105 "interior" regions / 9,404 m²
+   were this artifact, not geology); the grid brackets every polygon vertex
+   (slice topology changes resolve exactly, not to a strip midpoint); taper
+   triangles clip to their own band's boundary segments (double-paint
+   2.67 → 0.00 m² on CS1). Model-wide after: coverage loss 1,820.6 → 64 m²
+   (0.11 %), interior voids 679 → 57 m² (worst run 7.9 → 0.7 m), non-overlay
+   overlap pairs → 0, agreement baseline re-frozen 43.5 → 39.1 %. Invariants
+   pinned by `refineLithoPartition.partition.test.ts` (7 RED-first cases).
+   Costs and residuals, owner-visible:
+   * the refinement is ~2× slower and emits ~⅓ more polygons (memoised, not
+     per-frame; watch geotech-axis pan/zoom smoothness on dogfeed);
+   * **M5 residual, folds into OQ-3 of the inherit DRAFT:** a litho `lens`
+     region emits ONE overlay and no tiling polygon (695 m² model-wide) —
+     invisible on screen, but a 3-D inherit consuming tiling-only would see
+     it as void; must be decided before the inherit build;
+   * the side stacks of a both-ends-degenerate region are read at its own
+     extreme fractions now (105 regions changed which packing they inherit —
+     net improvement on the model, but it is a geometry-rule change, flagged
+     for dogfeed);
+   * 64 m² irreducible under the defect-forced 2 cm/1 cm filters and
+     `clampReach` — deliberately untouched.
 
 ## Open dogfeed items (owner)
 
