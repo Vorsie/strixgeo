@@ -36,7 +36,21 @@ describe('geotechSubdivisionPrefs', () => {
       minimumLayerThicknessM: 0.4,
       gradientSnapEnabled: false,
       gradientSnapWindowM: 0.3,
+      lithoSnapToleranceM: 0.45,
     }
     expect(readGeotechSubdivisionPrefs(buildGeotechSubdivisionPatch(prefs))).toEqual(prefs)
+  })
+
+  it('keeps a snap tolerance the backend set but no UI edits', () => {
+    // litho_snap_tolerance_m is written into this bag by nothing on the client,
+    // and the patch REPLACES the whole bag — so a value the planner is using
+    // has to survive a save of the sibling prefs, or the next settings change
+    // silently re-tunes the geotech divide.
+    const stored = { geotech_subdivision: { litho_snap_tolerance_m: 0.75 } }
+    const prefs = readGeotechSubdivisionPrefs(stored)
+    expect(prefs.lithoSnapToleranceM).toBe(0.75)
+    expect(
+      readGeotechSubdivisionPrefs(buildGeotechSubdivisionPatch(prefs)).lithoSnapToleranceM,
+    ).toBe(0.75)
   })
 })
