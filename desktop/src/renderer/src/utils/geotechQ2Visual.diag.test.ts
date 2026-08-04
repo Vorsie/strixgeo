@@ -143,7 +143,9 @@ describe('geotech Q2 visual dump', () => {
       }
 
       const regions = computeSectionFillActive(columns, edges, undefined, alongM)
-      const refined = refineLithoPartition(regions, columnOrder, geoCols, nadMeta, lithoSoil)
+      const refined = refineLithoPartition(regions, columnOrder, geoCols, nadMeta, lithoSoil, {
+        alongM,
+      })
 
       let sectionFallbackM2 = 0
       const polys: unknown[] = []
