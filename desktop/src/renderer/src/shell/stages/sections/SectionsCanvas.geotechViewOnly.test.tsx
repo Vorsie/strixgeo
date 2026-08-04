@@ -90,4 +90,30 @@ describe('SectionsCanvas — the geotech axis hands over no contact-edit handler
     expect(capturedPanelProps.onUpdateContactDepth).toBeDefined()
     expect(capturedPanelProps.onDeleteContact).toBeDefined()
   })
+
+  // The batch pair is the same leak one level down. Today it is unreachable on the
+  // geotech axis only because ContactsLayer mounts no drag hit-strip when the four
+  // single-contact handlers are all absent — the axis is nowhere in that reasoning.
+  // Anything that later grows its own way into the drag machine (an overlay with its
+  // own mousedown, a keyboard nudge) would commit geotech contact moves and copies
+  // again, and "Subdivide all bodies" would discard them just as silently. The gate
+  // belongs on the same call as its siblings, not on an accident of another handler.
+  it('VO4 — a geotech contact cannot be moved by a multi-select or cross-column drag', () => {
+    renderOn('geotechnical')
+
+    expect(capturedPanelProps.onBatchUpdateContacts).toBeUndefined()
+  })
+
+  it('VO5 — a geotech contact cannot be copied onto another column', () => {
+    renderOn('geotechnical')
+
+    expect(capturedPanelProps.onBatchCreateContacts).toBeUndefined()
+  })
+
+  it('VO6 — the litho axis keeps the batch pair too', () => {
+    renderOn('lithostratigraphic')
+
+    expect(capturedPanelProps.onBatchUpdateContacts).toBeDefined()
+    expect(capturedPanelProps.onBatchCreateContacts).toBeDefined()
+  })
 })
