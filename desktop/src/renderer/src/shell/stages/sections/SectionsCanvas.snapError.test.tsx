@@ -356,6 +356,8 @@ function makeLithoCtx(mockHandleUpdateContactDepth: UpdateDepthFn): ShellContext
       // Litho axis — no active geotech model.
       activeGeotechModel: null,
       geotechLayers: [],
+      geotechLayersLoaded: true,
+      geotechLayersVersion: 0,
       geotechContacts: [],
       geotechFormations: [],
       handleCreateManualLithoGhost: vi.fn(),
