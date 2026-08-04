@@ -1,55 +1,48 @@
-"""Unit tests for ``same_litho_body`` — litho-body correlation guard."""
+"""Behaviour tests for the geotech packing-correlation litho-body guard.
 
-from groundmodel.domain.services.litho_body_guard import same_litho_body
+Owner ruling (2026-08-04 evening dogfeed): a contact is a SURFACE with a band
+above and a band below — it touches up to TWO litho bodies.  The guard must
+compare both of the left contact's bodies against both of the right's, and
+"if one matches it matches": the tie is a legitimate surface tie of the shared
+body's boundary.  The half-matched case even carries geometry — the unmatched
+band tapers out to a point at the tied contact (recorded for the 2/1/0 fill).
 
-_A = "contact-a"
-_B = "contact-b"
-_BODY_X = "body-x"
-_BODY_Y = "body-y"
+The pre-ruling guard resolved only the band BELOW each contact, which refused
+the owner's clay-base↔clay-base tie because one side's below-band was silt.
+"""
 
-
-def test_same_body_returns_true():
-    """Both contacts in the same NON-None body → True."""
-    mapping = {_A: _BODY_X, _B: _BODY_X}
-    assert same_litho_body(mapping, _A, _B) is True
-
-
-def test_different_bodies_returns_false():
-    """Contacts in different bodies → False (cross-body guard triggers)."""
-    mapping = {_A: _BODY_X, _B: _BODY_Y}
-    assert same_litho_body(mapping, _A, _B) is False
+from groundmodel.domain.services.litho_body_guard import shares_litho_body
 
 
-def test_missing_contact_a_returns_false():
-    """contact_a absent from the mapping → False (conservative block)."""
-    mapping = {_B: _BODY_X}
-    assert same_litho_body(mapping, _A, _B) is False
+def test_same_single_body_matches():
+    """Both contacts inside one body — the trivial allow."""
+    assert shares_litho_body({"a": {"clay-1"}, "b": {"clay-1"}}, "a", "b") is True
 
 
-def test_missing_contact_b_returns_false():
-    """contact_b absent from the mapping → False (conservative block)."""
-    mapping = {_A: _BODY_X}
-    assert same_litho_body(mapping, _A, _B) is False
+def test_disjoint_bodies_block():
+    """No shared body on either side — two separate sand bodies must not merge."""
+    assert shares_litho_body({"a": {"sand-1"}, "b": {"sand-2"}}, "a", "b") is False
 
 
-def test_none_body_for_a_returns_false():
-    """contact_a mapped to None (unresolved litho body) → False."""
-    mapping = {_A: None, _B: _BODY_X}
-    assert same_litho_body(mapping, _A, _B) is False
+def test_one_of_two_adjacent_bodies_matching_allows():
+    """The owner's clay-base tie: left touches {clay}, right touches {clay, silt}."""
+    assert shares_litho_body({"a": {"clay-1"}, "b": {"clay-1", "silt-1"}}, "a", "b") is True
 
 
-def test_none_body_for_b_returns_false():
-    """contact_b mapped to None (unresolved litho body) → False."""
-    mapping = {_A: _BODY_X, _B: None}
-    assert same_litho_body(mapping, _A, _B) is False
+def test_both_sides_two_bodies_any_overlap_allows():
+    """Both contacts are body boundaries; the shared body may be on either side."""
+    assert (
+        shares_litho_body({"a": {"clay-1", "sand-1"}, "b": {"sand-1", "silt-1"}}, "a", "b") is True
+    )
 
 
-def test_both_none_returns_false():
-    """Both contacts map to None → False (neither is a resolved body)."""
-    mapping = {_A: None, _B: None}
-    assert same_litho_body(mapping, _A, _B) is False
+def test_unresolvable_contact_blocks():
+    """An empty set means no adjacent band resolved — conservative refusal."""
+    assert shares_litho_body({"a": set(), "b": {"clay-1"}}, "a", "b") is False
+    assert shares_litho_body({"a": {"clay-1"}, "b": set()}, "a", "b") is False
 
 
-def test_empty_mapping_returns_false():
-    """Empty lookup → False for any pair (both absent)."""
-    assert same_litho_body({}, _A, _B) is False
+def test_missing_contact_blocks():
+    """A contact absent from the map never permits an edge."""
+    assert shares_litho_body({"a": {"clay-1"}}, "a", "b") is False
+    assert shares_litho_body({}, "a", "b") is False
