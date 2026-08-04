@@ -198,6 +198,107 @@ debt #266. Drag a litho contact and the geotech bands below it silently describe
 a stack that no longer exists; nothing marks the geotech model stale until the
 next Subdivide re-derives it.
 
+## 6. Seeing the packing before committing it (2026-08-04, develop UNPUSHED)
+
+**Owner ruling (dogfeed 2026-08-04):** *"correlation bands aren't plotted over
+boreholes so it is impossible to see how divide-all-boreholes will act — what
+gets what packing — before you click the button."*
+
+The gap is structural, not cosmetic. `SubdivideAllBodies` materialises CPT bands
+only; every litho edge with a borehole endpoint is skipped there
+(`skipped_empty_stack=229` on the dev model, "deferred to DivideBoreholes"), so a
+borehole column on the geotech axis is genuinely blank until `DivideBoreholes`
+runs — and that verb deletes and rebuilds every borehole band while it is at it.
+The engineer had to commit to find out.
+
+**The engine is now callable as a dry run.** `DivideBoreholes.plan()` is
+everything up to the first write — load litho picks, geo-bound, group, read the
+CPT geotech layers, TIN-interpolate each borehole, assign class / provenance /
+body — returning a `DivideBoreholePlan`. `execute()` calls it and transcribes the
+result (`_persist_planned_segment` decides nothing); `POST
+.../geotech/divide-boreholes/preview` calls it and reports it. **There is
+deliberately no second implementation of the rules.** A preview that re-stated
+them could show one packing class and write another, and the engineer would have
+no way to notice.
+
+`plan()` issues only `SELECT`s. It does NOT read the prior borehole bands, so
+planning before or after the Phase-7 delete produces identical bands.
+
+**The gate.** Integration `test_db5_preview_equals_commit` runs preview, then
+commit, on one fixture and asserts the committed bands EQUAL the previewed ones —
+depth interval, NAD class, confidence — per borehole, not a tolerance and not a
+count. `test_db6` asserts the same for the tie-carry counts. On its first run the
+gate caught a real divergence: the preview reported a `body_id`, but the commit
+re-runs `ResolveLithoInstances` after the borehole-mediated edges exist and
+re-stamps `body_id` on every band. **The preview therefore reports no body_id at
+all** — only fields the plan genuinely owns are promised.
+
+`test_db7_preview_between_two_divides_equals_the_second_divide` is the same gate
+on an ALREADY-divided model — the case the plan/execute split actually
+introduced, since `plan()` now runs before the Phase-7 delete. It asserts the
+preview mutates none of the first divide's rows and that its bands are what the
+second divide commits. (`_committed_borehole_bands` orders in SQL, so two bands
+sharing a top depth cannot make the comparison depend on physical row order.)
+
+**Render.** `components/sections/GeotechBoreholePreviewGhosts.tsx` draws the plan
+as ghost bands on the geotech axis: translucent `nadClassColor` fill, dashed
+outline, 45° hatch — the litho pending-suggestion convention
+(`LithoSuggestionLayer`), so "hatched = not committed" means one thing across the
+editor. Geometry uses `col.nudgedX` like every other overlay.
+
+*Confidence is visual, not only textual.* A class a neighbouring CPT resolved
+(`cpt_interpolated` → `high`) and a conservative fallback (`body_min` /
+`absolute_min` → `low`) must not carry the same weight on a feature whose whole
+point is "what packing does this borehole get", so the low tier draws with a
+lighter fill and a denser hatch. The `<title>` naming the provenance is the
+second channel: the band rect stays hit-testable for it (a `pointer-events:none`
+ancestor kills every `<title>` beneath it), while the hatch and label are
+`none`. Accepted trade-off — a click on a ghost is swallowed rather than reaching
+the fill underneath, and a ghosted column is an undivided borehole with no
+geotech gesture of its own. Unknown provenance tokens are quoted verbatim rather
+than described, so a future engine token cannot be given a false evidence claim.
+
+*Nothing is dropped silently.* A band thinner than a pixel is drawn at a 1 px
+floor; a band entirely outside the depth window cannot be drawn at all and is
+COUNTED, surfaced by the toolbar next to the legend. Absence must never read as
+"nothing is planned at this depth".
+
+**Scope: this previews the FIRST divide of a column, not a re-divide.** A column
+carrying committed bands drops its ghosts, so pressing `Divide boreholes` a
+second time is as blind as before — `boreholesStale` says the bands are out of
+date, not what they would become. Deliberate: drawing a plan over the rows it
+would REPLACE needs a diff render (outline-only against the committed bands),
+which is its own design question. The backend is already ready for it (DB7).
+Tracked as a small item in `docs/debt.md`.
+
+**Refresh + legend.** `useGeotechBoreholePreview` fetches while the geotech axis
+is showing and a geotech model exists, keyed on `geotechLayersVersion` — a
+counter `useGeologicalModel` ticks once per SUCCESSFUL load of the committed
+rows, i.e. once after Subdivide (which invalidates every planned band) and once
+after Divide (which turns the ghosts into rows). It is deliberately not the
+`geotechLayers` array: the bus clears that to a fresh `[]` before every refetch,
+so keying on its identity ran the whole planner — TIN interpolation included —
+twice per mutation, and left a window in which the overlay read the empty array
+as "no borehole is divided". `geotechLayersLoaded` closes that window: while the
+committed rows are unknown, the last known answer holds. The planner's snap
+tolerance (`geotech_subdivision.litho_snap_tolerance_m`) is a key too, since
+`plan()` reads it — and `geotechSubdivisionPrefs` now round-trips that key, which
+the patch builder used to drop.
+
+Only the 404 carrying `detail.code = "geotech_model_not_found"` is silent (it
+means Subdivide has not run). Every other 404 — a broken litho-model reference
+404s with a plain-string detail — toasts like any other error, because an empty
+borehole column otherwise reads as "this borehole gets no packing".
+
+The toolbar's `geotech-preview-legend` is gated on what the overlay ACTUALLY
+drew, published through `utils/geotechPreviewRenderStore`. Recomputing "is any
+in-corridor borehole undivided" in the toolbar said "Hatched = preview" over an
+empty axis whenever the overlay had declined to draw — no collar elevation,
+still loading, or a failed request with the error toast already up.
+
+⚠ **Visual dogfeed pending** — hatch weight at dense column spacing (now two
+densities), and whether the NAD abbreviation is legible in a thin ghost band.
+
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
