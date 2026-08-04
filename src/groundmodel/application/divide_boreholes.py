@@ -7,19 +7,35 @@ writes CPT geotech layers; DivideBoreholes reads those layers, and for each
 borehole's litho-body extent fills it with same-lithology CPT packing data,
 clipped to that extent, with a conservative cascade for any uncovered depth.
 
-Why litho-confined (not plain TIN interpolation)
-------------------------------------------------
-The original TIN approach interpolated packing transition surfaces from ALL
-CPTs in the body group — regardless of whether those CPTs' geotech bands fall
-within the same lithology as the borehole extent being filled.  On a borehole
-with sand over basal clay, a CPT column that runs sand from 0–8 m can have
-packing transitions at e.g. 6 m; TIN-clamping that transition to the
-borehole's clay extent (3–8 m) stamped a sand packing class onto the clay.
+Where the packing comes from — the flanking CPTs on the section
+---------------------------------------------------------------
+Owner ruling, 2026-08-04 (dogfeed of the borehole packing preview):
 
-The litho-confined approach: for each CPT in the body group, restrict its
-geotech layers to those that fall within the CPT's own litho-body extent
-(i.e. the CPT's litho layer that shares the body).  Only those same-depth
-bands are used to build the packing surfaces at the borehole XY.
+    the borehole's packing must come from the CPT to the right and to the left
+    on the cross section
+
+So each borehole is filled from the two donor CPTs that flank it **along a
+section line**, blended in thickness-fraction space —
+:mod:`groundmodel.domain.services.borehole_flank_donors` holds the whole rule
+and its two flagged interpretations.
+
+This replaced an ordinal transition-surface TIN: ``transition_surfaces[k]``
+blended the k-th band boundary of EVERY CPT in the body group, whatever pair of
+packing classes each of those boundaries actually separated, and then decided
+each band's class by a majority vote across the same crowd.  On the real model
+that mixed up to ten different class pairs (inversions included) over CPTs as
+far as 777 m away, and a borehole outside the resulting TIN footprint silently
+degraded to the body-wide mean.  1411-GEO-23/126-B4 came out with its dense
+sand starting at elevation −1.1 m while both of its neighbours read it from
+≈ +0.6 m upward.
+
+Why litho-confined
+------------------
+A donor only contributes the geotech layers that fall within the CPT's OWN
+litho-body extent for the group being filled (the same-lithology clip).  On a
+borehole with sand over basal clay, a CPT column that runs sand from 0–8 m can
+have packing transitions at e.g. 6 m; borrowing that transition into the
+borehole's clay extent (3–8 m) would stamp a sand packing class onto clay.
 
 Separating borehole division from SAB allows the engineer to:
 
@@ -31,10 +47,11 @@ Separating borehole division from SAB allows the engineer to:
 Architecture
 ------------
 The use case inherits :class:`GeotechBoreholeMaterialiser` for the shared
-formation find-or-create logic.  The TIN-interpolation step is implemented
-here (``_plan_borehole_bands_litho_confined``) with the litho-extent
-filter — this is the ONLY borehole TIN-division path; SubdivideAllBodies
-materialises CPT bands only.
+formation find-or-create logic.  Donor gathering and the litho-extent filter
+live here (``_plan_borehole_bands_litho_confined``); the decision of WHICH
+donors and HOW they blend lives in the pure domain module.  This is the only
+borehole packing-division path — SubdivideAllBodies materialises CPT bands
+only.
 
 Plan / commit split
 -------------------
@@ -100,6 +117,9 @@ from groundmodel.application.geotech_tie_reanchor import (
     plan_tie_reanchor,
     rebuilt_bands_from_layer_index,
 )
+from groundmodel.application.project_investigations_onto_section import (
+    project_investigations_onto_section,
+)
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.assign_borehole_band_body import (
@@ -107,11 +127,18 @@ from groundmodel.domain.services.assign_borehole_band_body import (
     assign_borehole_band_body,
 )
 from groundmodel.domain.services.assign_sample_to_band import Band, assign_sample_to_band
+from groundmodel.domain.services.borehole_flank_donors import (
+    DonorBand,
+    DonorStack,
+    FlankSelection,
+    SectionPlacement,
+    flank_packing_surfaces,
+    select_flank_donors,
+)
 from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
     fill_borehole_litho_body_extent,
 )
-from groundmodel.domain.services.geotech_split_surface import ColumnXY, interpolate_split_elevations
 from groundmodel.domain.services.geotech_subdivision_constants import LITHO_ABSOLUTE_MIN_NAD
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import (
@@ -124,14 +151,11 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 
-# 1 mm guard so a split doesn't land exactly on the geo-bounded boundary
-# (which would produce a zero-thickness band at the edge).
-_CLAMP_GUARD = 0.001
-
 # Epsilon for the same-lithology depth-overlap filter: a CPT geotech layer
 # that starts within this distance of the CPT's litho-body extent boundary
 # is still included (avoids dropping bands snapped to the extent edge).
-_DEPTH_OVERLAP_EPS = _CLAMP_GUARD
+# 1 mm — the grain `litho_layer` stores intervals at.
+_DEPTH_OVERLAP_EPS = 0.001
 
 # FillBand.source → litho_layer.confidence. Both conservative fallback sources
 # (body_min, absolute_min) map to 'low': they are engineer-acknowledged
@@ -143,6 +167,35 @@ _BOREHOLE_CONFIDENCE_MAP: dict[str, str] = {
     "body_min": "low",
     "absolute_min": "low",
 }
+
+
+@dataclass(frozen=True)
+class BandDonor:
+    """One CPT a borehole band's packing was read from.
+
+    The provenance the engineer asked to see on hover: which test spoke, from
+    which side, and how far away it was.  Light on purpose — it names the donor
+    rather than carrying its stack.
+
+    Parameters
+    ----------
+    name : str
+        The donor CPT's display name.
+    side : str
+        ``left`` / ``right`` when the donor flanked the borehole on a section;
+        ``nearest`` when no section placed the borehole beside a donor and the
+        map-distance fallback chose it.
+    along_distance_m : float | None
+        Distance from the borehole along the section line (m).  ``None`` in the
+        map-distance fallback, where no section was involved.
+    map_distance_m : float
+        Straight-line map distance from the borehole (m).
+    """
+
+    name: str
+    side: str
+    along_distance_m: float | None
+    map_distance_m: float
 
 
 @dataclass(frozen=True)
@@ -176,6 +229,18 @@ class PlannedBand:
         key for the band's geotech formation.
     source_geo_formation_id : UUID | None
         Geological formation the band sits within — the other half of the key.
+    mode : str
+        How this band's packing was reached: ``flank_interpolated`` (blended
+        between the CPTs left and right of the borehole on a section),
+        ``single_donor`` (one flank, or the nearer of two that read different
+        class sequences), ``nearest_fallback`` (no section placed the borehole
+        beside a donor), or ``body_min`` / ``absolute_min`` for a conservative
+        fill band, which by definition had no donor.
+    donors : tuple[BandDonor, ...]
+        The CPT(s) the packing was read from — empty for the conservative
+        fills.
+    section_name : str | None
+        Section the donors were read along; ``None`` outside the flank modes.
     """
 
     depth_top_m: float
@@ -186,6 +251,11 @@ class PlannedBand:
     body_id: UUID | None
     source_litho_formation_id: UUID
     source_geo_formation_id: UUID | None
+    # Donor provenance — appended with defaults so every existing construction
+    # site keeps working and the wire schema stays additive.
+    mode: str = ""
+    donors: tuple[BandDonor, ...] = ()
+    section_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -392,9 +462,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         This is the whole engine up to (and excluding) the delete / insert /
         tie-re-anchor mutations: it loads the litho picks, geo-bounds them,
-        groups them, reads the CPT geotech layers, TIN-interpolates the packing
-        transitions onto each borehole, and assigns each resulting band its NAD
-        class, provenance and geotech body.
+        groups them, reads the CPT geotech layers and the sections' column
+        order, borrows each borehole's packing from the CPTs flanking it on a
+        section, and assigns each resulting band its NAD class, provenance and
+        geotech body.
 
         :meth:`execute` calls this and persists the result verbatim, and the
         preview endpoint calls it and reports the result.  There is deliberately
@@ -555,21 +626,35 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             )
 
-        # CPT XY lookup — needed to build ColumnXY for TIN interpolation.
+        # CPT location + name lookup — the donor's map distance and the name the
+        # provenance reports.
         cpt_ids_in_model = {row.cpt_id for row in cpt_layer_rows}
         cpt_xy: dict[UUID, tuple[float, float, float]] = {}
+        cpt_names: dict[UUID, str] = {}
         if cpt_ids_in_model:
             from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 
             cpt_rows = (
                 await self._session.execute(
                     select(
-                        CptOrm.id, CptOrm.location_x, CptOrm.location_y, CptOrm.elevation_m
+                        CptOrm.id,
+                        CptOrm.name,
+                        CptOrm.location_x,
+                        CptOrm.location_y,
+                        CptOrm.elevation_m,
                     ).where(CptOrm.id.in_(cpt_ids_in_model))
                 )
             ).all()
             for cr in cpt_rows:
                 cpt_xy[cr.id] = (cr.location_x, cr.location_y, cr.elevation_m or 0.0)
+                cpt_names[cr.id] = cr.name
+
+        # Phase 7 — where "left" and "right" are defined.
+        #
+        # The owner's rule is about the CROSS SECTION, so the along-positions of
+        # every column on every section are loaded once here rather than
+        # per-borehole: the same maps serve every body group below.
+        section_placements = await self._load_section_placements(project_id)
 
         # Phase 8 (planning half) — litho-confined borehole fill per body group.
         #
@@ -648,7 +733,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 if _bh_xy_lookup is None:
                     self.warning(
                         f"DivideBoreholes: borehole={inv_id} has no XY location in DB — "
-                        "defaulting to (0,0,0); TIN interpolation and body assignment will be wrong"
+                        "defaulting to (0,0,0); donor distances and body assignment will be wrong"
                     )
                 bh_x, bh_y, bh_elev = (
                     _bh_xy_lookup if _bh_xy_lookup is not None else (0.0, 0.0, 0.0)
@@ -661,6 +746,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 (
                     fill_band_list,
                     fill_band_body_ids,
+                    selection,
                 ) = self._plan_borehole_bands_litho_confined(
                     inv_id=inv_id,
                     bh_x=bh_x,
@@ -672,6 +758,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     litho_abs_min_class=litho_abs_min_class,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                     cpt_xy=cpt_xy,
+                    cpt_names=cpt_names,
+                    section_placements=section_placements,
                 )
                 n_bands = len(fill_band_list)
                 total_layers += n_bands
@@ -679,6 +767,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     divided_borehole_count += 1
                 else:
                     single_band_borehole_count += 1
+                band_donors = tuple(
+                    BandDonor(
+                        name=donor.stack.name,
+                        side=donor.side,
+                        along_distance_m=donor.along_distance_m,
+                        map_distance_m=donor.stack.map_distance_m,
+                    )
+                    for donor in selection.donors
+                )
                 planned_segments.append(
                     PlannedBoreholeSegment(
                         borehole_id=inv_uuid,
@@ -693,6 +790,18 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                                 body_id=body_id,
                                 source_litho_formation_id=source_litho_fid,
                                 source_geo_formation_id=source_geo_fid,
+                                # A conservative fill band came from no donor —
+                                # saying otherwise would credit a CPT with a
+                                # value it never read.
+                                mode=(
+                                    selection.mode if fb.source == "cpt_interpolated" else fb.source
+                                ),
+                                donors=(band_donors if fb.source == "cpt_interpolated" else ()),
+                                section_name=(
+                                    selection.section_name
+                                    if fb.source == "cpt_interpolated"
+                                    else None
+                                ),
                             )
                             for fb, body_id in zip(fill_band_list, fill_band_body_ids)
                         ),
@@ -714,6 +823,57 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             cpt_layer_index=dict(geotech_layer_by_inv_depth),
             borehole_names=borehole_names,
         )
+
+    async def _load_section_placements(self, project_id: UUID) -> list[SectionPlacement]:
+        """Load every section's along-positions once, for the flanking rule.
+
+        "The CPT to the left and to the right" is only meaningful along a
+        section line, so the planner needs, per section, the along-distance of
+        every column the section actually draws.  The projection used here is
+        the SAME one the section view, the DXF export and the correlation
+        adjacency use (``project_investigations_onto_section``) — a borehole the
+        engineer sees between two CPTs is the borehole this rule sees between
+        them.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project.
+
+        Returns
+        -------
+        list[SectionPlacement]
+            One entry per section that draws at least one investigation, in the
+            sections' display order.
+        """
+        placements: list[SectionPlacement] = []
+        for section in await load_project_sections(self._session, project_id):
+            along = await project_investigations_onto_section(
+                self._session,
+                project_id=project_id,
+                section_id=section.id,
+                missing_ok=True,
+            )
+            if not along:
+                continue
+            placements.append(
+                SectionPlacement(
+                    section_id=str(section.id),
+                    section_name=section.name,
+                    along_m={str(inv_id): value for inv_id, value in along.items()},
+                )
+            )
+        self.info(
+            f"DivideBoreholes: {len(placements)} section(s) carry columns; "
+            f"columns per section={[len(p.along_m) for p in placements]}"
+        )
+        if not placements:
+            self.warning(
+                "DivideBoreholes: no section places any investigation — every borehole "
+                "falls back to its nearest CPT by map distance (the flanking rule needs "
+                "a cross section to define left and right)"
+            )
+        return placements
 
     async def preview_tie_carry(self, plan: DivideBoreholePlan) -> ReanchorPlan:
         """Say what a commit of *plan* would do to the accepted borehole ties.
@@ -1093,15 +1253,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
         ],
         cpt_xy: dict[UUID, tuple[float, float, float]],
-    ) -> tuple[list[FillBand], list[UUID | None]]:
+        cpt_names: dict[UUID, str],
+        section_placements: list[SectionPlacement],
+    ) -> tuple[list[FillBand], list[UUID | None], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
-        For each CPT segment in the body group, restricts the CPT's geotech
-        layers to those that fall within the CPT's own litho-body extent
-        (``[cpt_seg.top_depth_m, cpt_seg.base_depth_m]``).  Only those
-        same-depth bands drive the packing transition surfaces.  Gaps in
-        coverage are filled conservatively via
-        :func:`~groundmodel.domain.services.borehole_packing_fill.fill_borehole_litho_body_extent`.
+        Gathers the eligible donor CPTs for this body group — those whose
+        geotech layers fall within the CPT's OWN litho-body extent, the
+        same-lithology clip — hands them to
+        :func:`~groundmodel.domain.services.borehole_flank_donors.select_flank_donors`,
+        which applies the owner's flanking rule, and lays the chosen donors'
+        packing onto the borehole's extent in thickness-fraction space.  Depth
+        the donors leave unclassified is filled conservatively by
+        :func:`~groundmodel.domain.services.borehole_packing_fill.fill_borehole_litho_body_extent`,
+        exactly as before.
 
         Pure with respect to the database — every input is already in memory —
         which is what lets the preview endpoint run the real engine instead of
@@ -1116,7 +1281,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         bh_y : float
             Borehole world y-coordinate (m).
         bh_surface_elev : float
-            Borehole surface elevation (m, positive upward).
+            Borehole collar elevation (m, positive up).
         geo_top_m : float
             Top of the litho-body extent on this borehole (m).
         geo_base_m : float
@@ -1131,16 +1296,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             ALL CPT geotech layers keyed by investigation id string.
         cpt_xy : dict[UUID, tuple[float, float, float]]
             XY coordinates of CPTs keyed by id.
+        cpt_names : dict[UUID, str]
+            CPT display names keyed by id — donor provenance names the test.
+        section_placements : list[SectionPlacement]
+            Every project section with the along-positions of the columns it
+            draws.  This is what makes "left" and "right" meaningful.
 
         Returns
         -------
-        tuple[list[FillBand], list[UUID | None]]
-            ``(fill_bands, fill_band_body_ids)`` — the bands to write and the
-            parallel per-band geotech body_id list (``None`` for conservative
-            fallback bands with no same-class CPT evidence).
+        tuple[list[FillBand], list[UUID | None], FlankSelection]
+            ``(fill_bands, fill_band_body_ids, selection)`` — the bands to
+            write, the parallel per-band geotech body_id list (``None`` for
+            conservative fallback bands with no same-class CPT evidence), and
+            the donor selection those bands came from.
         """
-        bh_col = ColumnXY(investigation_id=inv_id, x_m=bh_x, y_m=bh_y)
-
         # -------------------------------------------------------------------
         # Step 1: for each CPT in this body group, collect its geotech layers
         # that are WITHIN the CPT's own litho-body extent for this group.
@@ -1149,6 +1318,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # the KLEI ones) when the body group is the ZAND body.
         # -------------------------------------------------------------------
         # filtered_cpt_layers: inv_id_str -> list[(top, base, lid, fid, nc, body_id)]
+        # Unchanged from the ordinal era on purpose: this dict feeds the
+        # conservative body_min floor and the per-band body assignment, neither
+        # of which the flanking ruling touches.
         filtered_cpt_layers: dict[
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
         ] = {}
@@ -1169,95 +1341,49 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 filtered_cpt_layers[cpt_inv].extend(in_extent)
 
         # -------------------------------------------------------------------
-        # Step 2: build packing transition surfaces from the filtered layers.
-        # transition_surfaces[k] = list of (ColumnXY, base_elevation_m) for
-        # CPTs that have a k-th band boundary within their litho extent.
+        # Step 2: turn each CPT in the group into a candidate donor stack.
         # -------------------------------------------------------------------
-        transition_surfaces: list[list[tuple[ColumnXY, float]]] = []
-        for cpt_seg in cpt_segs:
-            cpt_inv = cpt_seg.investigation_id
-            layers_for_inv = sorted(
-                filtered_cpt_layers.get(cpt_inv, []),
-                key=lambda t: t[0],
-            )
-            if not layers_for_inv:
-                continue
-            _cpt_xy_lookup = cpt_xy.get(UUID(cpt_inv))
-            if _cpt_xy_lookup is None:
-                self.warning(
-                    f"DivideBoreholes: CPT={cpt_inv} has no XY location — "
-                    "defaulting to (0,0,0); transition surface TIN will be wrong"
+        donors = self._build_donor_stacks(
+            bh_x=bh_x,
+            bh_y=bh_y,
+            bh_surface_elev=bh_surface_elev,
+            geo_top_m=geo_top_m,
+            geo_base_m=geo_base_m,
+            cpt_segs=cpt_segs,
+            geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+            cpt_xy=cpt_xy,
+            cpt_names=cpt_names,
+        )
+
+        # -------------------------------------------------------------------
+        # Step 3: the owner's rule — the CPT to the left and to the right of
+        # this borehole on the section — then lay their packing onto the
+        # borehole's extent in thickness-fraction space.
+        # -------------------------------------------------------------------
+        selection = select_flank_donors(
+            borehole_id=inv_id, donors=donors, sections=section_placements
+        )
+        cpt_packing_surfaces = flank_packing_surfaces(
+            selection, extent_top_m=geo_top_m, extent_base_m=geo_base_m
+        )
+        self.info(
+            f"DivideBoreholes: borehole={inv_id} "
+            f"extent=[{geo_top_m:.2f},{geo_base_m:.2f}] mode={selection.mode} "
+            f"section={selection.section_name or '-'} donors="
+            + (
+                ", ".join(
+                    f"{d.side}:{d.stack.name}"
+                    f"(along={'-' if d.along_distance_m is None else f'{d.along_distance_m:.0f}'}m,"
+                    f"map={d.stack.map_distance_m:.0f}m,w={d.weight:.2f})"
+                    for d in selection.donors
                 )
-            x_m, y_m, surface_elev = (
-                _cpt_xy_lookup if _cpt_xy_lookup is not None else (0.0, 0.0, 0.0)
+                or "none"
             )
-            col_xy = ColumnXY(investigation_id=cpt_inv, x_m=x_m, y_m=y_m)
-            for k, (top_m, base_m, _lid, _fid, _nc, _bid) in enumerate(layers_for_inv):
-                if k < len(layers_for_inv) - 1:
-                    base_elev = surface_elev - base_m
-                    while len(transition_surfaces) <= k:
-                        transition_surfaces.append([])
-                    transition_surfaces[k].append((col_xy, base_elev))
+            + f" candidates={len(donors)}"
+        )
 
         # -------------------------------------------------------------------
-        # Step 3: TIN-interpolate each transition surface at the borehole XY.
-        # -------------------------------------------------------------------
-        split_depths: list[float] = []
-        for ctrl_pts in transition_surfaces:
-            if not ctrl_pts:
-                continue
-            cpt_points = [c for c, _ in ctrl_pts]
-            cpt_elevs = [e for _, e in ctrl_pts]
-            elev_at_bh = interpolate_split_elevations(cpt_points, cpt_elevs, [bh_col])
-            split_elev = elev_at_bh[inv_id]
-            split_depth = bh_surface_elev - split_elev
-            split_depth = max(geo_top_m + _CLAMP_GUARD, min(geo_base_m - _CLAMP_GUARD, split_depth))
-            split_depths.append(split_depth)
-
-        # Deduplicate, sort, drop zero-thickness splits.
-        split_depths = sorted(set(split_depths))
-        filtered_splits: list[float] = []
-        prev = geo_top_m
-        for sd in split_depths:
-            if sd - prev > _CLAMP_GUARD and geo_base_m - sd > _CLAMP_GUARD:
-                filtered_splits.append(sd)
-                prev = sd
-        split_depths = filtered_splits
-
-        # Build band intervals from split depths.
-        band_intervals: list[tuple[float, float]] = []
-        prev_top = geo_top_m
-        for sd in split_depths:
-            band_intervals.append((prev_top, sd))
-            prev_top = sd
-        band_intervals.append((prev_top, geo_base_m))
-
-        # -------------------------------------------------------------------
-        # Step 4: compute modal NAD class per band from the filtered layers.
-        # Bands where no CPT data covers the midpoint get nad_class=None and
-        # are EXCLUDED from cpt_packing_surfaces (they become gaps that the
-        # fill helper covers conservatively).
-        # -------------------------------------------------------------------
-        def _modal_nad_class_filtered(band_top: float, band_base: float) -> int | None:
-            """Return the modal NAD class from same-lithology CPT layers."""
-            mid = (band_top + band_base) / 2.0
-            counts: dict[int, int] = {}
-            for layers in filtered_cpt_layers.values():
-                for t, b, _lid, _fid, nc, _bid in layers:
-                    if t <= mid <= b and nc is not None:
-                        counts[nc] = counts.get(nc, 0) + 1
-            if not counts:
-                return None
-            return max(counts, key=lambda c: counts[c])
-
-        cpt_packing_surfaces: list[tuple[float, float, int]] = []
-        for band_top, band_base in band_intervals:
-            nc = _modal_nad_class_filtered(band_top, band_base)
-            if nc is not None:
-                cpt_packing_surfaces.append((band_top, band_base, nc))
-
-        # -------------------------------------------------------------------
-        # Step 5: compute body_min_class = weakest NAD class across all
+        # Step 4: compute body_min_class = weakest NAD class across all
         # same-lithology CPT bands in this group.
         # -------------------------------------------------------------------
         all_classes = [
@@ -1276,7 +1402,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
 
         # -------------------------------------------------------------------
-        # Step 6: call the pure helper to produce litho-confined fill bands.
+        # Step 5: call the pure helper to produce litho-confined fill bands.
         # -------------------------------------------------------------------
         fill_bands = fill_borehole_litho_body_extent(
             extent_top=geo_top_m,
@@ -1287,7 +1413,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
 
         # -------------------------------------------------------------------
-        # Step 6.5: build CptBandRef list for geotech body_id assignment.
+        # Step 6: build CptBandRef list for geotech body_id assignment.
         # One entry per (CPT, band) pair in filtered_cpt_layers — the resolver
         # already stamped body_id on each CPT geotech layer during SAB Phase 10
         # (ResolveLithoInstances), so the 6th tuple element carries it.
@@ -1323,20 +1449,133 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for fb in fill_bands
         ]
 
-        if len(fill_bands) >= 2:
-            self.debug(
-                f"_plan_borehole_bands_litho_confined: borehole={inv_id} "
-                f"planned {len(fill_bands)} bands "
-                f"(geo=[{geo_top_m:.2f},{geo_base_m:.2f}])"
-            )
-        else:
-            self.debug(
-                f"_plan_borehole_bands_litho_confined: borehole={inv_id} "
-                f"single band [{geo_top_m:.2f},{geo_base_m:.2f}] "
-                f"(no same-lithology CPT data)"
-            )
+        # A single band is no longer proof that no CPT spoke: a donor that reads
+        # one packing class across the whole unit legitimately yields one band.
+        self.debug(
+            f"_plan_borehole_bands_litho_confined: borehole={inv_id} "
+            f"planned {len(fill_bands)} band(s) over [{geo_top_m:.2f},{geo_base_m:.2f}] "
+            f"mode={selection.mode} donor_boundaries={len(cpt_packing_surfaces)}"
+        )
 
-        return fill_bands, fill_band_body_ids
+        return fill_bands, fill_band_body_ids, selection
+
+    def _build_donor_stacks(
+        self,
+        *,
+        bh_x: float,
+        bh_y: float,
+        bh_surface_elev: float,
+        geo_top_m: float,
+        geo_base_m: float,
+        cpt_segs: list[BodyLayerPick],
+        geotech_layer_by_inv_depth: dict[
+            str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
+        ],
+        cpt_xy: dict[UUID, tuple[float, float, float]],
+        cpt_names: dict[UUID, str],
+    ) -> list[DonorStack]:
+        """Turn the body group's CPT picks into candidate donor stacks.
+
+        A CPT qualifies as a donor only when it reads packing INSIDE its own
+        litho extent for this group — a CPT whose geotech bands all sit in a
+        different lithology has nothing to say about this unit.
+
+        When a CPT holds several picks in the same group (the geo-bounding pass
+        can slice one column into two segments of the same body), the pick that
+        overlaps the borehole's own extent most in ELEVATION is used.  Merging
+        the picks instead would stretch the donor's extent across the gap
+        between them and distort every fraction read from it.
+
+        Parameters
+        ----------
+        bh_x : float
+            Borehole world x-coordinate (m) — for the map distance.
+        bh_y : float
+            Borehole world y-coordinate (m).
+        bh_surface_elev : float
+            Borehole collar elevation (m, positive up) — the frame the pick
+            overlap is measured in.
+        geo_top_m : float
+            Top of the borehole's litho-body extent (m below its collar).
+        geo_base_m : float
+            Base of that extent (m below its collar).
+        cpt_segs : list[BodyLayerPick]
+            CPT body-layer picks in this group.
+        geotech_layer_by_inv_depth : dict
+            ALL CPT geotech layers keyed by investigation id string.
+        cpt_xy : dict[UUID, tuple[float, float, float]]
+            CPT ``(x, y, surface elevation)`` keyed by id.
+        cpt_names : dict[UUID, str]
+            CPT display names keyed by id.
+
+        Returns
+        -------
+        list[DonorStack]
+            One stack per eligible CPT, each carrying that CPT's litho extent
+            and the packing bands it read inside it.
+        """
+        picks_by_cpt: dict[str, list[BodyLayerPick]] = defaultdict(list)
+        for cpt_seg in cpt_segs:
+            picks_by_cpt[cpt_seg.investigation_id].append(cpt_seg)
+
+        donors: list[DonorStack] = []
+        for cpt_inv, picks in picks_by_cpt.items():
+            cpt_uuid = UUID(cpt_inv)
+            location = cpt_xy.get(cpt_uuid)
+            if location is None:
+                self.warning(
+                    f"DivideBoreholes: CPT={cpt_inv} has no XY location — "
+                    "excluded from the donor set (its distance to the borehole is unknowable)"
+                )
+                continue
+            x_m, y_m, cpt_surface_elev = location
+
+            # Pick the segment that overlaps the borehole's extent most, in
+            # ELEVATION — depths below two different collars are not comparable,
+            # and the whole point is "the same geological interval over there".
+            # Ties (no overlap at all included) break on the thicker segment and
+            # then on depth, so the choice never depends on dict order.
+            bh_top_elev = bh_surface_elev - geo_top_m
+            bh_base_elev = bh_surface_elev - geo_base_m
+            best_pick = max(
+                picks,
+                key=lambda p: (
+                    max(
+                        0.0,
+                        min(bh_top_elev, cpt_surface_elev - p.top_depth_m)
+                        - max(bh_base_elev, cpt_surface_elev - p.base_depth_m),
+                    ),
+                    p.base_depth_m - p.top_depth_m,
+                    -p.top_depth_m,
+                ),
+            )
+            in_extent = sorted(
+                (
+                    entry
+                    for entry in geotech_layer_by_inv_depth.get(cpt_inv, [])
+                    if entry[0] >= best_pick.top_depth_m - _DEPTH_OVERLAP_EPS
+                    and entry[1] <= best_pick.base_depth_m + _DEPTH_OVERLAP_EPS
+                    and entry[4] is not None
+                ),
+                key=lambda entry: entry[0],
+            )
+            if not in_extent:
+                continue
+            donors.append(
+                DonorStack(
+                    investigation_id=cpt_inv,
+                    name=cpt_names.get(cpt_uuid, cpt_inv),
+                    extent_top_m=best_pick.top_depth_m,
+                    extent_base_m=best_pick.base_depth_m,
+                    bands=tuple(
+                        # nad_class is not None — the comprehension filtered it.
+                        DonorBand(top_m=top, base_m=base, nad_class=int(nad_class or 0))
+                        for top, base, _lid, _fid, nad_class, _bid in in_extent
+                    ),
+                    map_distance_m=((x_m - bh_x) ** 2 + (y_m - bh_y) ** 2) ** 0.5,
+                )
+            )
+        return donors
 
     # ------------------------------------------------------------------
     # Persistence — transcribe a planned segment into rows
