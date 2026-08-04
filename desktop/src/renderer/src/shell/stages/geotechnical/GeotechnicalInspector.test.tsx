@@ -227,6 +227,8 @@ function makeCtx(overrides: {
       lithoCrossingPinchOuts: [],
       activeGeotechModel: null,
       geotechLayers: overrides.geotechLayers ?? [],
+      geotechLayersLoaded: true,
+      geotechLayersVersion: 0,
       geotechContacts: overrides.geotechContacts ?? [],
       geotechFormations: overrides.geotechFormations ?? [],
       handleCreateManualLithoGhost: vi.fn(),
