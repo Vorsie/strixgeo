@@ -200,7 +200,9 @@ describe('geotech fallback cause', () => {
         }
 
         const regions = computeSectionFillActive(columns, edges, undefined, alongM)
-        const refined = refineLithoPartition(regions, columnOrder, geoCols, nadMeta, lithoSoil)
+        const refined = refineLithoPartition(regions, columnOrder, geoCols, nadMeta, lithoSoil, {
+          alongM,
+        })
 
         // The refinement's own lookup, reproduced so the probe can say WHICH of
         // its conditions declined. Mirrors ``makeClassSlicesElev``'s filter:
