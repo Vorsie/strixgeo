@@ -248,12 +248,19 @@ describe('CS1 frozen geotech-refinement gate — coverage (always-on)', () => {
   // frozen CS1 slice's own loss so that number cannot grow unnoticed.
   //
   // The design rule says litho boundaries are INVARIANT, so the honest target is
-  // 0.0 %. This slice measures 2.11 % (399.5 m2 of 18,920.6 m2) TODAY — the bound
-  // is that plus a hair of headroom, a RATCHET and not an endorsement: drive the
-  // loss down, then tighten the bound. It is a pre-existing carve defect, not a
-  // consequence of the 2026-08-04 interior-region sampling change (this fixture
-  // is a v1-engine snapshot and carries no interior regions at all).
-  const MAX_COVERAGE_LOSS_PCT = 2.2
+  // 0.0 %. This slice measures 1.92 % (363.9 m2 of 18,920.6 m2) after the
+  // 2026-08-04 partition-integrity work (was 2.11 % / 399.5 m2) — the bound is
+  // that plus a hair of headroom, a RATCHET and not an endorsement: drive the
+  // loss down, then tighten the bound.
+  //
+  // 338.7 m2 of the remaining 363.9 is the OWNER-LOCKED lens rule: a litho
+  // ``lens`` region emits one ``hlens`` overlay and no tiling polygon (see the
+  // comment at that branch in refineLithoPartition.ts), and this measurement
+  // excludes overlays, so the whole region scores as loss even though the render
+  // paints it. The genuine carve residual is ~25 m2 (0.13 %) — end-of-strip
+  // discretisation. Model-wide, measured as the UNION the engineer actually
+  // sees, the carve now drops 64 m2 of 59,853 m2 (0.11 %), down from 1,816 m2.
+  const MAX_COVERAGE_LOSS_PCT = 2.0
 
   it('the refinement covers the litho partition it is documented to leave invariant', () => {
     let lithoM2 = 0
