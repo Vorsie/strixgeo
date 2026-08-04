@@ -168,6 +168,10 @@ export type {
   SubdivideAllBodiesResponse,
   // "Divide boreholes" endpoint response.
   DivideBoreholeResponse,
+  // "Divide boreholes" DRY RUN — the ghost bands drawn over undivided boreholes.
+  DivideBoreholePreviewBand,
+  DivideBoreholePreviewColumn,
+  DivideBoreholePreviewResponse,
   // Geotech packing-band hand edits (split / merge) — preview + commit payloads.
   GeotechBandIntervalItem,
   GeotechBandWarningItem,
