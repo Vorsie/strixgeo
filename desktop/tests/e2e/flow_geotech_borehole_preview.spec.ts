@@ -27,7 +27,7 @@
  *   3. ``divide-boreholes/preview`` — assert it plans ≥ 1 borehole column and
  *      that it wrote nothing (the boreholes still carry no geotech layer).
  *   4. Re-open the project so the shell picks up the geotech model.
- *   5. Sections stage → open a section → switch to the Geotech axis.
+ *   5. Sections stage → open Section B → switch to the Geotech axis.
  *   6. Assert the ghost overlay + the "hatched = preview" legend are visible.
  *   7. Press "Divide boreholes"; assert the ghosts disappear (the committed
  *      bands own the column now).
@@ -38,6 +38,16 @@
  * body with a CPT — otherwise there is nothing to plan and step 3 fails. That
  * failure is deliberate rather than a skip: a silently-passing spec here would
  * be indistinguishable from a broken preview.
+ *
+ * ``build_synthetic_fixture.py`` supplies exactly that on SECTION B: BH-E2E-01
+ * sits at the east end of the transect carrying the same seeded KLEI/ZAND units
+ * as CPT-3/4/5, correlated to CPT-5 so the resolver puts it in both bodies.
+ * Section B is therefore the section this spec opens — the CPTs there are also
+ * the only ones with a qc series, so they are the only ones ``Subdivide all
+ * bodies`` can give real packing bands to, which in turn is what the planner
+ * interpolates onto the borehole. Opening any other section would show an
+ * empty geotech axis and no ghosts. (Same reason ``flow_geotech_subdivide_all_
+ * bodies`` leans on Section B.)
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
@@ -149,10 +159,12 @@ test.describe('flow_geotech_borehole_preview', () => {
       await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
-      // Step 5: open a section and switch to the geotech axis.
+      // Step 5: open Section B (the only section carrying a borehole) and
+      // switch to the geotech axis.
       await goToStage(page, 'Sections')
       const sectionRow = page
         .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+        .filter({ hasText: 'Section B' })
         .first()
       await expect(sectionRow).toBeVisible({ timeout: 10_000 })
       await sectionRow.click()
