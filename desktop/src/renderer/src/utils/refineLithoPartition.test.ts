@@ -384,6 +384,76 @@ describe('refineLithoPartition — horizontal extrapolation (rule 6)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Rule 6b — the Q2 ruling (owner, 2026-08-04): "just take the nearest test
+// that does have packing." A side with no packing of its own borrows the
+// NEAREST test with same-soil packing at its elevations — in EITHER direction,
+// nearest by along-metres when the caller provides them. The old rule only
+// scanned outward, which left 749 m² of the owner's model in plain lithology
+// while the data sat on the other side of the gap (Tie-section 11 worst).
+// ---------------------------------------------------------------------------
+
+describe('refineLithoPartition — nearest test with packing (rule 6b, Q2)', () => {
+  it('a side whose scan direction has no data borrows across its own gap — the Tie-11 wedge paints instead of falling back', () => {
+    // Two tests only: A divided over [10..5], B undivided. The region is a
+    // sloping wedge whose LEFT edge sits entirely below A's divided range
+    // (so the left side finds nothing at its own elevations and there is
+    // nothing further left) while its RIGHT edge spans elevations A's bands
+    // DO cover. Today both sides come up empty and the wedge falls back to
+    // plain lithology; under the ruling the right side takes A — the nearest
+    // (only) test with ZAND packing at those elevations — and the wedge
+    // paints.
+    const region: SectionRegion = {
+      formationId: 'formation-sand',
+      bodyId: 'body-x',
+      kind: 'quad',
+      gapIndex: 0,
+      polygon: [
+        { fraction: 0, elevation: 4.8 },
+        { fraction: 1, elevation: 10 },
+        { fraction: 1, elevation: 0 },
+        { fraction: 0, elevation: 4.6 },
+      ],
+    }
+    const cols = gmap(gcol('A', 10, [[10, 5, 'nad-zand-5']]), gcol('B', 10, []))
+    const refined = refineLithoPartition([region], ['A', 'B'], cols, NAD, LITHO_SOIL, {
+      alongM: [0, 30],
+    })
+    expect(tags(refined, 'fallback')).toHaveLength(0)
+    expect(formsAt(refined, 0.8, 7)).toEqual(new Set(['nad-zand-5']))
+  })
+
+  it('nearest wins over outward: a test 1 m away beats one 100 m away, whichever side of the gap it is on', () => {
+    // A(n5) — 1 m — B(undivided) — 100 m — C(n7). The region sits in gap A↔B.
+    // B has no packing; the old rule scanned only rightward from B and painted
+    // C's n7 onto the right half. The nearest test with packing is A, 1 m
+    // away on the OTHER side of B's gap — so the whole region reads n5.
+    const region = quadRegion('formation-sand', 10, 10, 0, 0)
+    const cols = gmap(
+      gcol('A', 10, [[10, 0, 'nad-zand-5']]),
+      gcol('B', 10, []),
+      gcol('C', 10, [[10, 0, 'nad-zand-7']]),
+    )
+    const refined = refineLithoPartition([region], ['A', 'B', 'C'], cols, NAD, LITHO_SOIL, {
+      alongM: [0, 1, 101],
+    })
+    expect(formsAt(refined, 0.2, 5)).toEqual(new Set(['nad-zand-5']))
+    expect(formsAt(refined, 0.8, 5)).toEqual(new Set(['nad-zand-5']))
+    for (const p of refined) expect(p.formationId).not.toBe('nad-zand-7')
+  })
+
+  it('the soil guard survives the borrow — a clay region never takes the nearest SAND packing, it stays plain lithology', () => {
+    const region = quadRegion('formation-clay', 10, 10, 0, 0)
+    const cols = gmap(gcol('A', 10, [[10, 0, 'nad-zand-5']]), gcol('B', 10, []))
+    const refined = refineLithoPartition([region], ['A', 'B'], cols, NAD, LITHO_SOIL, {
+      alongM: [0, 30],
+    })
+    expect(refined).toHaveLength(1)
+    expect(refined[0].tag).toBe('fallback')
+    expect(refined[0].formationId).toBe('formation-clay')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Enclosed minorities — reduce to lenses
 // ---------------------------------------------------------------------------
 
