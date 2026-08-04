@@ -18,6 +18,36 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class DivideBoreholePreviewDonor(BaseModel):
+    """One CPT a previewed band's packing was read from.
+
+    The tooltip provenance: which test spoke, from which side of the borehole
+    on the section, and how far away it was.  A band with an empty donor list
+    was filled conservatively and had no CPT behind it.
+
+    Parameters
+    ----------
+    name : str
+        The donor CPT's display name.
+    side : str
+        ``left`` / ``right`` when the donor flanked the borehole along a
+        section; ``nearest`` when no section placed the borehole beside a donor
+        and the map-distance fallback chose it.
+    along_distance_m : float | None
+        Distance from the borehole along the section line (m).  ``None`` in the
+        map-distance fallback, where no section was involved.
+    map_distance_m : float | None
+        Straight-line map distance from the borehole (m).
+    """
+
+    name: str = Field(..., description="Donor CPT display name.")
+    side: str = Field(..., description="left | right | nearest.")
+    along_distance_m: float | None = Field(
+        None, description="Distance along the section line (m); null in the map-distance fallback."
+    )
+    map_distance_m: float | None = Field(None, description="Straight-line map distance (m).")
+
+
 class DivideBoreholePreviewBand(BaseModel):
     """One packing band the commit would write on a borehole column.
 
@@ -36,6 +66,17 @@ class DivideBoreholePreviewBand(BaseModel):
     confidence : str
         ``high`` for ``cpt_interpolated``; ``low`` for both conservative
         fallbacks.  The same value the committed ``litho_layer`` row carries.
+    mode : str | None
+        How the packing was reached: ``flank_interpolated`` (blended between
+        the CPTs left and right of the borehole on a section),
+        ``single_donor`` (one flank only, or the nearer of two flanks that read
+        different class sequences), ``nearest_fallback`` (no section places
+        this borehole beside a donor), or ``body_min`` / ``absolute_min``,
+        which mirror ``source`` for the conservative fills.
+    donors : list[DivideBoreholePreviewDonor]
+        The CPT(s) the packing came from; empty for a conservative fill.
+    section_name : str | None
+        Section the donors were read along; ``null`` outside the flank modes.
 
     Notes
     -----
@@ -56,6 +97,22 @@ class DivideBoreholePreviewBand(BaseModel):
         description="cpt_interpolated | body_min | absolute_min — how the class was reached.",
     )
     confidence: str = Field(..., description="high | low, as the committed row would carry it.")
+    # Additive + optional: a client written before the flanking ruling keeps
+    # working, and one written after can show where the packing came from.
+    mode: str | None = Field(
+        None,
+        description=(
+            "flank_interpolated | single_donor | nearest_fallback | body_min | absolute_min "
+            "— how this band's packing was reached."
+        ),
+    )
+    donors: list[DivideBoreholePreviewDonor] = Field(
+        default_factory=list,
+        description="CPT(s) the packing was read from; empty for a conservative fill.",
+    )
+    section_name: str | None = Field(
+        None, description="Section the donors were read along; null outside the flank modes."
+    )
 
 
 class DivideBoreholePreviewColumn(BaseModel):
