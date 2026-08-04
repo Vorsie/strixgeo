@@ -7,10 +7,12 @@ Builds a minimal but realistic project bundle and POSTs it to
 The fixture provides:
 * 1 project ("E2E Smoke Project")
 * 8 CPTs (CPTU, realistic qc/fs data across 10 m depth) in three rows
+* 1 borehole (Section B, east end) sharing the seeded KLEI/ZAND litho
+  bodies with CPT-5 — the shape the borehole packing preview needs
 * 1 geological model with 3 formations + depth contacts at each CPT
 * 1 lithostratigraphic model (empty — the spec flows call suggest/accept)
 * 3 cross-sections; A (empty, build specs), B (body), C (crossing)
-* No boreholes, no lab tests — not needed for the 6 spec flows
+* No lab tests — not needed for the 6 spec flows
 
 All UUIDs are deterministic (UUID5 off a fixed namespace + seed) so
 running the script twice is idempotent — the second run re-POSTs the
@@ -163,6 +165,31 @@ _FACIES_CPT_INDICES = {11, 12, 13}
 
 # CPTs that carry NO qc series (dedicated pre-seeded scenarios — see above).
 _SERIESLESS_CPT_INDICES = _CROSSING_CPT_INDICES | _PER_INSTANCE_CPT_INDICES | _FACIES_CPT_INDICES
+
+# The fixture's only BOREHOLE, on Section B's transect (y+300), 60 m east of
+# CPT-5 and 40 m short of the section's east end so it projects inside the
+# corridor. It exists for one reason no other scenario covered: the borehole
+# packing preview (``POST .../geotech/divide-boreholes/preview``) plans bands
+# only for a borehole whose accepted litho layers sit in the SAME resolver body
+# as a CPT's — ``DivideBoreholes.plan`` walks ``load_body_picks``, which skips
+# any layer with a NULL ``body_id`` (an uncorrelated singleton). So the borehole
+# is given the SAME two seeded formations as CPT-3/4/5 (KLEI top @2 m, ZAND base
+# @5 m) and its contacts are correlated to CPT-5's on Section B, which puts it
+# in both bodies. ``Subdivide all bodies`` writes CPT bands only, so the
+# borehole column stays blank after SAB — exactly the state the preview exists
+# to fill in.
+#
+# Placed at the EAST END of the transect on purpose: appending a fourth column
+# beyond CPT-5 leaves the seeded 3-column body intact, where a borehole dropped
+# between two CPTs would split it. It is 300 m from Sections A and C (buffer
+# 200 m), so it projects onto Section B and nothing else.
+_BOREHOLE_OFFSET: tuple[float, float] = (360.0, 300.0)
+
+# Total depth of the borehole. The FC→LL trigger derives the DEEPEST litho
+# layer's ``depth_base_m`` from ``borehole.total_depth_m`` (there is no next
+# contact to bound it), so this value IS the base of the ZAND unit — keep it
+# equal to the CPTs' 10 m so the body's base is flat across the section.
+_BOREHOLE_TOTAL_DEPTH_M = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +386,47 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
                 "series": series,
             }
         )
+
+    # --- Borehole --------------------------------------------------------------
+    # One borehole on Section B's transect (see _BOREHOLE_OFFSET). No drill
+    # segments / field logs / observations / samples: the packing preview reads
+    # the borehole's LITHO layers (seeded in _seed_action_scenarios_async) and
+    # its XY + collar elevation, nothing else. ``project_id`` / ``test_id`` are
+    # distinct from every CPT's and from the per-spec seed boreholes
+    # (BH-E2E-STRAT, BH-FLOW-S) so the source-dedup unique key never collides.
+    borehole_id = _uid("borehole-0")
+    bh_dx, bh_dy = _BOREHOLE_OFFSET
+    boreholes: list[dict[str, Any]] = [
+        {
+            "id": borehole_id,
+            "name": "BH-E2E-01",
+            "project_id": "E2E-BH",
+            "test_id": "bh-01",
+            "location_x": _SITE_X + bh_dx,
+            "location_y": _SITE_Y + bh_dy,
+            "elevation_m": 3.6,  # between CPT-4 (3.7) and CPT-5 (3.5)
+            "epsg": _EPSG,
+            "z_epsg": _VERTICAL_EPSG,
+            "elevation_source": "surveyed",
+            "original_elevation_m": None,
+            "original_z_epsg": None,
+            "original_elevation_source": None,
+            "start_date": "2026-01-01",
+            "drill_method": "spoelboring",
+            "borehole_type": "geotechnisch",
+            "purpose": None,
+            "municipality": None,
+            "executor": "Smoke B.V.",
+            "total_depth_m": _BOREHOLE_TOTAL_DEPTH_M,
+            "water_table_depth_m": 1.0,
+            "n_drill_segments": 0,
+            "n_field_log_intervals": 0,
+            "drill_segments": [],
+            "field_log_intervals": [],
+            "observations": [],
+            "samples": [],
+        }
+    ]
 
     # --- Geological formations ------------------------------------------------
     # Three simple formations: Quaternary (surface), Tertiary Clay, Tertiary Sand.
@@ -569,7 +637,7 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         "format_version": 3,
         "project": project,
         "cpts": cpts,
-        "boreholes": [],
+        "boreholes": boreholes,
         "geological_formations": geological_formations,
         "geological_models": geological_models,
         "cross_sections": cross_sections,
@@ -674,9 +742,12 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
 
     Seeds on DISJOINT sections so ``auto-correlate`` (which loads the whole
     model) never cross-contaminates:
-      * Section B (CPTs 3/4/5): committed litho contacts + a bilateral body
-        (source CPT-4 cap@2 / body@4 / base@6, single targets @3 on CPT-3/5,
-        four approved edges) → body + contact action specs.
+      * Section B (CPTs 3/4/5 + BH-E2E-01): committed litho contacts + a
+        bilateral body (source CPT-4 cap@2 / body@4 / base@6, single targets @3
+        on CPT-3/5, four approved edges) → body + contact action specs. The
+        borehole carries the SAME two units, correlated to CPT-5, so it joins
+        both resolver bodies — the precondition for the borehole packing
+        preview (see ``_BOREHOLE_OFFSET``).
       * Section C (CPTs 6/7): an interfingered ZAND/KLEI crossing (no edges —
         the auto-lens spec runs auto-correlate to surface the lens diamond).
     """
@@ -715,6 +786,7 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
     cpt6, cpt7 = UUID(_uid("cpt-6")), UUID(_uid("cpt-7"))
     cpt8, cpt9, cpt10 = UUID(_uid("cpt-8")), UUID(_uid("cpt-9")), UUID(_uid("cpt-10"))
     cpt11, cpt12, cpt13 = UUID(_uid("cpt-11")), UUID(_uid("cpt-12")), UUID(_uid("cpt-13"))
+    bh0 = UUID(_uid("borehole-0"))
 
     async with AsyncSessionFactory() as s:
 
@@ -731,12 +803,25 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
             s.add(f)
             return f
 
-        def contact(f: GeologicalFormationOrm, cpt: UUID, depth: float) -> FormationContactOrm:
+        def contact(
+            f: GeologicalFormationOrm,
+            anchor: UUID,
+            depth: float,
+            *,
+            kind: str = "cpt",
+        ) -> FormationContactOrm:
+            """Seed one litho contact on a CPT (default) or a borehole column.
+
+            ``formation_contact`` uses an XOR anchor — exactly one of
+            ``cpt_id`` / ``borehole_id`` is set — so the anchor column is
+            selected by *kind* rather than by a second near-identical helper.
+            """
             c = FormationContactOrm(
                 id=uuid7(),
                 model_id=mid,
                 formation_id=f.id,
-                cpt_id=cpt,
+                cpt_id=anchor if kind == "cpt" else None,
+                borehole_id=anchor if kind == "borehole" else None,
                 depth_top_m=depth,
                 source="manual_pick",
                 confidence="medium",
@@ -792,12 +877,20 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         bz3 = contact(f_base, cpt3, 5.0)
         bz4 = contact(f_base, cpt4, 5.0)
         bz5 = contact(f_base, cpt5, 5.0)
+        # The borehole repeats CPT-5's column at the east end of the transect.
+        # Correlating it to CPT-5 (NOT to a distant column) keeps the edges
+        # between adjacent columns, which is what the resolver and the section
+        # renderer both expect.
+        bbk = contact(f_body, bh0, 2.0, kind="borehole")
+        bbz = contact(f_base, bh0, 5.0, kind="borehole")
         await s.flush()
         edge(bk3, bk4, section_id=sec_b)
         edge(bk4, bk5, section_id=sec_b)
+        edge(bk5, bbk, section_id=sec_b)
         edge(bz3, bz4, section_id=sec_b)
         edge(bz4, bz5, section_id=sec_b)
-        body_contact_ids = [bk3.id, bk4.id, bk5.id, bz3.id, bz4.id, bz5.id]
+        edge(bz5, bbz, section_id=sec_b)
+        body_contact_ids = [bk3.id, bk4.id, bk5.id, bz3.id, bz4.id, bz5.id, bbk.id, bbz.id]
 
         # --- Crossing scenario (Section C) — no edges; auto-lens creates them ---
         f_zand = form("ZAND crossing (action seed)", "ZAND", 40, "#f5c842")
@@ -929,7 +1022,7 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         await s.commit()
         print(
             "[fixture] action scenarios seeded — resolver bodies on Section B "
-            "(KLEI across CPT-3/4/5) + Section D (per-instance QC1/QC2) + "
+            "(KLEI across CPT-3/4/5 + BH-E2E-01) + Section D (per-instance QC1/QC2) + "
             "Section E (KLEI with ZAND+VEEN facies competitors); "
             "crossing on Section C",
             file=sys.stderr,
