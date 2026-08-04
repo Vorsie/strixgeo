@@ -130,6 +130,13 @@ interface Slice {
 const DEFAULT_SAMPLES = 20
 /** Horizontal reach of an unmatched-span overlay lens (litho lens convention). */
 const LENS_REACH = 0.45
+/**
+ * Fractions every region's sample grid must contain, because ``emitBand`` is
+ * called with them as ``xFrom`` / ``xTo``: the mid seam of a class-mismatched
+ * interval and the two lens reaches. Without them the sample grid can straddle
+ * a split and leave a strip-wide vacancy between the two halves.
+ */
+const SPLIT_FRACTIONS: readonly number[] = [LENS_REACH, 0.5, 1 - LENS_REACH]
 
 // ---------------------------------------------------------------------------
 // Refinement
@@ -265,26 +272,76 @@ export function refineLithoPartition(
     (a, b) => (a.kind === 'lens' ? 1 : 0) - (b.kind === 'lens' ? 1 : 0),
   )
 
+  /**
+   * Fractions to slice a region at.
+   *
+   * THREE RULES, each forced by a measured defect (2026-08-04 taxonomy):
+   *
+   * 1. **The grid spans the REGION's own fraction extent, not [0, 1].** The v2
+   *    arrangement snaps vertices to a 1 mm grid while the column along-metres
+   *    are not snapped, so a region that reaches its gap edge carries vertices
+   *    at 1e-6 / 1-1e-5 rather than 0 / 1. Slicing at exactly 0 then found no
+   *    crossing, the end sample came back ``null``, and the whole end strip
+   *    degenerated to a midpoint triangle: 1,681 m2 of the owner's model — 91 %
+   *    of all carve coverage loss and the thickest interior void (7.94 m). It
+   *    also mislabelled 105 regions / 9,404 m2 as "reaches NEITHER column".
+   *    Sampling the region's own extent resolves both ends by construction and
+   *    never touches the region polygon, so no neighbour geometry moves.
+   * 2. **Every ``emitBand`` split fraction is in the grid** — see
+   *    ``SPLIT_FRACTIONS``.
+   * 3. **Each polygon vertex fraction is bracketed by a sample.** A region's
+   *    slice changes topology only at a vertex; between two samples that
+   *    straddle one, unpaired pieces close as midpoint triangles and the rest
+   *    of the strip is lost (~141 m2 model-wide, worst single strip 11.5 m2
+   *    where three notch tips terminate at the same fraction). Two samples a
+   *    hair either side of the vertex confine that to a hairline strip.
+   */
+  const sampleFractions = (poly: readonly RefinedPoint[]): number[] => {
+    let fmin = Infinity
+    let fmax = -Infinity
+    for (const p of poly) {
+      if (p.fraction < fmin) fmin = p.fraction
+      if (p.fraction > fmax) fmax = p.fraction
+    }
+    fmin = Math.max(0, Math.min(1, fmin))
+    fmax = Math.max(0, Math.min(1, fmax))
+    const width = fmax - fmin
+    // Degenerate horizontal extent — keep the historic full-gap grid rather
+    // than collapsing every sample onto one fraction.
+    if (!(width > 1e-9)) return Array.from({ length: N + 1 }, (_, k) => k / N)
+    const eps = width * 1e-6
+    const raw: number[] = []
+    for (let k = 0; k <= N; k++) raw.push(fmin + (width * k) / N)
+    for (const s of SPLIT_FRACTIONS) if (s > fmin + eps && s < fmax - eps) raw.push(s)
+    for (const p of poly) {
+      const v = p.fraction
+      if (v > fmin + eps && v < fmax - eps) raw.push(v - eps, v + eps)
+    }
+    raw.sort((a, b) => a - b)
+    const out: number[] = []
+    for (const v of raw) if (out.length === 0 || v - out[out.length - 1] > width * 1e-9) out.push(v)
+    return out
+  }
+
   for (const r of ordered) {
     const soil = lithoSoilByFormationId.get(r.formationId) ?? null
 
-    // Envelope samples across the gap.
-    const samples: (Slice | null)[] = []
-    for (let k = 0; k <= N; k++) samples.push(sliceAt(r.polygon, k / N))
+    // Envelope samples across the region's own horizontal extent.
+    const sampleF = sampleFractions(r.polygon)
+    const samples: (Slice | null)[] = sampleF.map((f) => sliceAt(r.polygon, f))
     let s0 = samples[0] ?? null
-    let s1 = samples[N] ?? null
+    let s1 = samples[samples.length - 1] ?? null
     if (s0 === null && s1 === null) {
-      // The region reaches NEITHER column of its gap. The engine emits those:
-      // v2 tiles a gap with interior slices, and this module was written when
-      // every region still touched at least one column. Sampling only at
-      // fraction 0 and 1 then found no packing at all and the region
-      // short-circuited to the ``fallback`` tag — which asserts "no packing data
-      // in the whole section at these elevations", a claim the data contradicts.
-      // Measured on the owner's 14 sections (``geotechFallbackCause.diag.test``):
-      // 10,798 m2 of section plane fell back this way under v2 against 186 m2
-      // under v1. Sample the region's OWN extent instead; the guard above keeps
-      // this a no-op for every region that touches an edge, so nothing that
-      // already had a side changes shape.
+      // Both ends of the region's own extent slice to nothing — a wedge that
+      // tapers to a point at BOTH ends, or a sliver thinner than the 2 cm part
+      // filter there. Fall inward to the first and last fractions that do
+      // resolve, so the region is still carved rather than short-circuiting to
+      // the ``fallback`` tag — which asserts "no packing data in the whole
+      // section at these elevations", a claim the data contradicts. (Before the
+      // own-extent sample grid this branch also swallowed every region whose
+      // gap-edge vertices sat 1e-6 inside the gap: 105 regions / 9,404 m2 of
+      // the owner's model, measured 2026-08-04. Those now resolve at their own
+      // edges and never reach here.)
       //
       // ⚠ THE GEOMETRY RULE THIS IMPLIES, stated because it is a CHOICE and not
       // a null-guard. ``s0`` / ``s1`` end up sampled at the region's own first
@@ -296,16 +353,17 @@ export function refineLithoPartition(
       // fractions they were read at. Interpolating over the region's own extent
       // instead would put them elsewhere; which one is right is a geological
       // call about how packing carries into a region that touches no borehole,
-      // so it is NOT decided here. Measured scale on the owner's model: 203
-      // interior regions / 10,796 m2 (18.0 % of the litho partition), of which
-      // 9,462 m2 are inset less than 0.10 of the gap (the stretch is under 10 %)
-      // and 1,335 m2 are inset more, worst 0.80. The shipped choice is pinned by
+      // so it is NOT decided here. It applies to every GENUINELY inset region
+      // (~101 regions / 1,394 m2 of the owner's model once the false interiors
+      // above are excluded), because ``emitBand`` interpolates over
+      // ``xFrom``..``xTo`` = the full gap for every non-lens call regardless of
+      // where the region sits. The shipped choice is pinned by
       // ``refineLithoPartition.test.ts`` ("interpolates an interior region
       // packing across the FULL gap") and the open question is §7 of
       // ``docs/design/geotech-stage.md``.
       const firstIx = samples.findIndex((s) => s !== null)
       if (firstIx >= 0) {
-        let lastIx = N
+        let lastIx = samples.length - 1
         while (lastIx > firstIx && samples[lastIx] === null) lastIx--
         s0 = samples[firstIx]
         s1 = samples[lastIx]
@@ -427,6 +485,19 @@ export function refineLithoPartition(
         changed = false
         for (let i = 1; i < w.length - 1; i++) {
           if (w[i - 1].cls === w[i + 1].cls && w[i].cls !== w[i - 1].cls && !other.has(w[i].cls)) {
+            // Pulling a minority merges its brackets, and the merged span can
+            // itself look enclosed on the next pass — so the SAME footprint
+            // gets a second lens drawn over the first, hiding it (8 pairs /
+            // 0.86 m2 on the owner's model). A span that contains a lens this
+            // side already pulled is that merged bracket: leave it in the
+            // stack, where it onlaps as an ordinary unmatched span.
+            const wrapsPulled = lenses.some(
+              (l) =>
+                l.side === side &&
+                l.span.fTop >= w[i].fTop - 1e-9 &&
+                l.span.fBase <= w[i].fBase + 1e-9,
+            )
+            if (wrapsPulled) continue
             lenses.push({ span: { ...w[i] }, side })
             const merged = { ...w[i - 1], fBase: w[i + 1].fBase }
             w = [...w.slice(0, i - 1), merged, ...w.slice(i + 2)]
@@ -477,13 +548,22 @@ export function refineLithoPartition(
         out.push({ gapIndex: r.gapIndex, regionKind: r.kind, formationId, tag, points: pts })
       }
       type Piece = [number, number]
-      const colsB: { sx: number; xf: number; pieces: Piece[] }[] = []
-      for (let k = 0; k <= N; k++) {
-        const x = k / N
+      /**
+       * ``eT`` / ``eB`` are the band's OWN boundary elevations at that sample,
+       * recorded even where the band is degenerate or carries no piece: the
+       * die/born triangles below are CLIPPED to the straight segments between
+       * them. Vertically adjacent bands share their anchor fraction and this
+       * same ``mapF``, so a neighbour's quad edge IS this segment — clipping
+       * makes "no two tiling polygons cover the same point" true by
+       * construction instead of by hope.
+       */
+      const colsB: { sx: number; eT: number | null; eB: number | null; pieces: Piece[] }[] = []
+      for (let k = 0; k < sampleF.length; k++) {
+        const x = sampleF[k]
         if (x < xFrom - 1e-9 || x > xTo + 1e-9) continue
         const sl = samples[k]
         if (!sl) {
-          colsB.push({ sx: x, xf: x, pieces: [] })
+          colsB.push({ sx: x, eT: null, eB: null, pieces: [] })
           continue
         }
         const xn = xTo > xFrom ? (x - xFrom) / (xTo - xFrom) : 0
@@ -492,10 +572,6 @@ export function refineLithoPartition(
         if (bounds) {
           ft = Math.max(ft, bounds[0] + (bounds[1] - bounds[0]) * x)
           fb = Math.min(fb, bounds[2] + (bounds[3] - bounds[2]) * x)
-        }
-        if (fb - ft < 1e-5) {
-          colsB.push({ sx: x, xf: x, pieces: [] })
-          continue
         }
         // MATERIAL-SPACE mapping: fractions map through the slice's SOLID
         // thickness (skipping concave voids), so stacked bands land in
@@ -514,13 +590,17 @@ export function refineLithoPartition(
         }
         const eT0 = mapF(ft)
         const eB0 = mapF(fb)
+        if (fb - ft < 1e-5) {
+          colsB.push({ sx: x, eT: eT0, eB: eB0, pieces: [] })
+          continue
+        }
         const pieces: Piece[] = []
         for (const [pt2, pb2] of sl.parts) {
           const t2 = Math.min(eT0, pt2)
           const b2 = Math.max(eB0, pb2)
           if (t2 - b2 > 0.01) pieces.push([t2, b2])
         }
-        colsB.push({ sx: x, xf: x, pieces })
+        colsB.push({ sx: x, eT: eT0, eB: eB0, pieces })
       }
       for (let i2 = 0; i2 + 1 < colsB.length; i2++) {
         const A3 = colsB[i2]
@@ -572,11 +652,66 @@ export function refineLithoPartition(
           }
           return lo
         }
+        // A triangle's apex sits at the dying piece's MID-ELEVATION, which says
+        // nothing about where the band itself is at that fraction. When the
+        // band above plunges (or the one below climbs) across the strip, the
+        // triangle crosses its own boundary curve and paints inside the
+        // neighbour's quad — 205 pairs / 8.46 m2 on the owner's model, 77 of
+        // them between different NAD classes and therefore VISIBLE. Clip the
+        // triangle to the wedge between its own two boundary segments. Clip,
+        // never suppress: the rev-8 reference dropped the whole triangle and
+        // left the die-out wedge as the dark sliver the owner circled (§5).
+        const clipToOwnBand = (pts: RefinedPoint[]): RefinedPoint[] => {
+          if (A3.eT === null || A3.eB === null || B3.eT === null || B3.eB === null) return pts
+          const span = B3.sx - A3.sx
+          if (Math.abs(span) < 1e-12) return pts
+          const at = (ea: number, eb: number, f: number): number =>
+            ea + ((f - A3.sx) / span) * (eb - ea)
+          const tTop = Math.max(A3.eT, A3.eB)
+          const bTop = Math.max(B3.eT, B3.eB)
+          const tBot = Math.min(A3.eT, A3.eB)
+          const bBot = Math.min(B3.eT, B3.eB)
+          const clipHalf = (poly: RefinedPoint[], g: (p: RefinedPoint) => number): RefinedPoint[] => {
+            const kept: RefinedPoint[] = []
+            for (let q = 0; q < poly.length; q++) {
+              const pa = poly[q]
+              const pb = poly[(q + 1) % poly.length]
+              const ga = g(pa)
+              const gb = g(pb)
+              if (ga >= -1e-12) kept.push(pa)
+              if (ga >= -1e-12 !== gb >= -1e-12) {
+                const t = ga / (ga - gb)
+                kept.push({
+                  fraction: pa.fraction + t * (pb.fraction - pa.fraction),
+                  elevation: pa.elevation + t * (pb.elevation - pa.elevation),
+                })
+              }
+            }
+            return kept
+          }
+          const below = clipHalf(pts, (p) => at(tTop, bTop, p.fraction) - p.elevation)
+          if (below.length < 3) return []
+          const inside = clipHalf(below, (p) => p.elevation - at(tBot, bBot, p.fraction))
+          return inside.length < 3 ? [] : inside
+        }
+        /** Shoelace area in (fraction x elevation) — the degenerate-shape guard. */
+        const shape = (pts: RefinedPoint[]): number => {
+          let a2 = 0
+          for (let q = 0; q < pts.length; q++) {
+            const pb = pts[(q + 1) % pts.length]
+            a2 += pts[q].fraction * pb.elevation - pb.fraction * pts[q].elevation
+          }
+          return Math.abs(a2) / 2
+        }
+        const emitTaper = (pts: RefinedPoint[]): void => {
+          const clipped = clipToOwnBand(pts)
+          if (clipped.length >= 3 && shape(clipped) > 1e-12) emitPts(clipped)
+        }
         const closeTri = (a: Piece): void => {
           const e = (a[0] + a[1]) / 2
           const apexF = clampReach(A3.sx, e)
           if (apexF - A3.sx < 1e-4) return // no room to taper (degenerate)
-          emitPts([
+          emitTaper([
             { fraction: A3.sx, elevation: a[0] },
             { fraction: apexF, elevation: e },
             { fraction: A3.sx, elevation: a[1] },
@@ -586,7 +721,7 @@ export function refineLithoPartition(
           const e = (b[0] + b[1]) / 2
           const apexF = clampReach(B3.sx, e)
           if (B3.sx - apexF < 1e-4) return // no room to taper (degenerate)
-          emitPts([
+          emitTaper([
             { fraction: apexF, elevation: e },
             { fraction: B3.sx, elevation: b[0] },
             { fraction: B3.sx, elevation: b[1] },
