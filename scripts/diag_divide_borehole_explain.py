@@ -1,34 +1,32 @@
-"""Explain WHERE a borehole's planned packing splits come from.
+"""Explain WHERE a borehole's planned packing bands come from.
 
-Read-only. Replicates ``DivideBoreholes._plan_borehole_bands_litho_confined``
-steps 1-3 for ONE named borehole and prints, per body group and per transition
-surface: the contributing CPTs (name, map distance to the borehole), each
-control point's boundary elevation, whether the split came from a TIN or the
-flat-mean fallback, and the resulting split elevation at the borehole.
+Read-only.  Runs the REAL ``DivideBoreholes.plan`` against the dev database and
+prints, per borehole column: the planned bands, and for each of them the mode
+(flank-interpolated / single donor / nearest fallback / conservative fill), the
+donor CPT(s) with their along- and map-distances, and the section the donors
+were read along.
 
 Born 2026-08-04 from the owner's dogfeed question "I'd expect the dense sand to
-be higher at 1411-GEO-23/126-B4 — is the alongM right?" (alongM is not
-involved; the planner interpolates in map XY). The two candidate mechanisms
-this script separates:
-
-* ordinal transition matching — ``transition_surfaces[k]`` blends the k-th
-  boundary of every CPT, which is only one geological surface when every CPT
-  in the group carries the same band sequence;
-* the <3-control-points / outside-TIN-footprint flat-mean fallback.
+be higher at 1411-GEO-23/126-B4".  It was: the planner blended an ordinal
+transition surface out of every CPT in the body group — up to ten different
+class pairs, over CPTs as far as 777 m away.  The owner's ruling replaced that
+with the two CPTs flanking the borehole on the cross section; this script is
+how that claim is checked against the real model.
 
 Usage::
 
     uv run python scripts/diag_divide_borehole_explain.py "126-B4"
+    uv run python scripts/diag_divide_borehole_explain.py --all
 
-The argument is a case-insensitive substring of the borehole name.
+The first form takes a case-insensitive substring of the borehole name.
+``--all`` prints the per-mode census over every borehole in the model instead.
 """
 
 from __future__ import annotations
 
 import asyncio
-import math
 import sys
-from collections import defaultdict
+from collections import Counter
 from uuid import UUID
 
 from sqlalchemy import select
@@ -36,187 +34,166 @@ from sqlalchemy import select
 sys.path.insert(0, "src")
 
 from groundmodel.application.divide_boreholes import (  # noqa: E402
-    _DEPTH_OVERLAP_EPS,
-)
-from groundmodel.domain.services.geotech_split_surface import (  # noqa: E402
-    ColumnXY,
-    interpolate_split_elevations,
+    DivideBoreholePlan,
+    DivideBoreholes,
+    PlannedBand,
 )
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm  # noqa: E402
-from groundmodel.infrastructure.db.models.cpt_orm import CptOrm  # noqa: E402
-from groundmodel.infrastructure.db.models.geological_formation_orm import (  # noqa: E402
-    GeologicalFormationOrm,
-)
 from groundmodel.infrastructure.db.models.geological_model_orm import (  # noqa: E402
     GeologicalModelOrm,
-)
-from groundmodel.infrastructure.db.repositories.litho_layer_repository import (  # noqa: E402
-    LithoLayerRepository,
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E402
 
 
-async def main(name_fragment: str) -> None:
-    """Run the explanation for the first borehole whose name matches."""
-    async with AsyncSessionFactory() as session:
-        bh_row = (
-            await session.execute(
-                select(
-                    BoreholeOrm.id,
-                    BoreholeOrm.name,
-                    BoreholeOrm.location_x,
-                    BoreholeOrm.location_y,
-                    BoreholeOrm.elevation_m,
-                    BoreholeOrm.app_project_id,
-                ).where(BoreholeOrm.name.ilike(f"%{name_fragment}%"))
-            )
-        ).first()
-        if bh_row is None:
-            print(f"no borehole matching {name_fragment!r}")
-            return
-        bh_id, bh_name, bh_x, bh_y, bh_elev, project_id = bh_row
-        print(f"borehole {bh_name} ({bh_id})  xy=({bh_x:.1f},{bh_y:.1f})  surf={bh_elev:.2f} m")
+def _describe(band: PlannedBand, surface_elev: float) -> str:
+    """Render one planned band as a single provenance line.
 
-        models = (
-            await session.execute(
-                select(GeologicalModelOrm.id, GeologicalModelOrm.kind).where(
-                    GeologicalModelOrm.app_project_id == project_id,
-                    GeologicalModelOrm.kind.in_(["lithostratigraphic", "geotechnical"]),
-                )
+    Parameters
+    ----------
+    band : PlannedBand
+        The band to describe.
+    surface_elev : float
+        The borehole's collar elevation (m), so depths read as elevations too.
+
+    Returns
+    -------
+    str
+        Depths, elevations, NAD class, mode, section and donors.
+    """
+    donors = (
+        " ".join(
+            f"{donor.side}={donor.name}"
+            f"(along={'-' if donor.along_distance_m is None else f'{donor.along_distance_m:.0f}m'},"
+            f"map={donor.map_distance_m:.0f}m)"
+            for donor in band.donors
+        )
+        or "-"
+    )
+    return (
+        f"{band.depth_top_m:6.2f}-{band.depth_base_m:6.2f} m "
+        f"(elev {surface_elev - band.depth_top_m:6.2f}..{surface_elev - band.depth_base_m:6.2f}) "
+        f"NAD {band.nad_class:<3} {band.mode or band.source:<18} "
+        f"section={band.section_name or '-':<12} {donors}"
+    )
+
+
+async def _load_models(session: object, project_id: UUID) -> tuple[UUID | None, UUID | None]:
+    """Return ``(litho_model_id, geotech_model_id)`` for a project.
+
+    Parameters
+    ----------
+    session : object
+        Active ``AsyncSession``.
+    project_id : UUID
+        Owning project.
+
+    Returns
+    -------
+    tuple[UUID | None, UUID | None]
+        The lithostratigraphic and geotechnical model ids, either possibly
+        ``None`` when that model does not exist.
+    """
+    rows = (
+        await session.execute(  # type: ignore[attr-defined]
+            select(GeologicalModelOrm.id, GeologicalModelOrm.kind).where(
+                GeologicalModelOrm.app_project_id == project_id,
+                GeologicalModelOrm.kind.in_(["lithostratigraphic", "geotechnical"]),
             )
-        ).all()
-        litho_id = next((m.id for m in models if m.kind == "lithostratigraphic"), None)
-        geotech_id = next((m.id for m in models if m.kind == "geotechnical"), None)
+        )
+    ).all()
+    litho = next((r.id for r in rows if r.kind == "lithostratigraphic"), None)
+    geotech = next((r.id for r in rows if r.kind == "geotechnical"), None)
+    return litho, geotech
+
+
+def _census(plan: DivideBoreholePlan) -> None:
+    """Print the per-mode band and borehole census for a whole plan.
+
+    Parameters
+    ----------
+    plan : DivideBoreholePlan
+        The plan to summarise.
+    """
+    band_modes: Counter[str] = Counter()
+    borehole_modes: dict[str, set[str]] = {}
+    for column in plan.columns():
+        for band in column.bands:
+            mode = band.mode or band.source
+            band_modes[mode] += 1
+            borehole_modes.setdefault(column.name, set()).add(mode)
+
+    print(f"\nboreholes with bands: {len(borehole_modes)}   bands: {plan.layer_count}")
+    print("\nbands per mode:")
+    for mode, count in band_modes.most_common():
+        print(f"  {mode:<20} {count}")
+    print("\nboreholes whose CPT-derived bands used each mode (a column can use several):")
+    donor_modes = ("flank_interpolated", "single_donor", "nearest_fallback")
+    for mode in donor_modes:
+        names = sorted(name for name, modes in borehole_modes.items() if mode in modes)
+        print(f"  {mode:<20} {len(names)}  {', '.join(names) if names else '-'}")
+    conservative_only = sorted(
+        name for name, modes in borehole_modes.items() if not modes.intersection(donor_modes)
+    )
+    print(
+        f"  {'conservative only':<20} {len(conservative_only)}  "
+        f"{', '.join(conservative_only) if conservative_only else '-'}"
+    )
+
+
+async def main(argument: str) -> None:
+    """Explain one borehole, or census the whole model with ``--all``.
+
+    Parameters
+    ----------
+    argument : str
+        A case-insensitive substring of a borehole name, or ``--all``.
+    """
+    async with AsyncSessionFactory() as session:
+        if argument == "--all":
+            project_id = (
+                await session.execute(select(BoreholeOrm.app_project_id).limit(1))
+            ).scalar_one_or_none()
+            if project_id is None:
+                print("no boreholes in the database")
+                return
+            surface_elev = 0.0
+            target_id: UUID | None = None
+        else:
+            row = (
+                await session.execute(
+                    select(
+                        BoreholeOrm.id,
+                        BoreholeOrm.name,
+                        BoreholeOrm.location_x,
+                        BoreholeOrm.location_y,
+                        BoreholeOrm.elevation_m,
+                        BoreholeOrm.app_project_id,
+                    ).where(BoreholeOrm.name.ilike(f"%{argument}%"))
+                )
+            ).first()
+            if row is None:
+                print(f"no borehole matching {argument!r}")
+                return
+            target_id, name, x, y, surface_elev, project_id = row
+            print(f"borehole {name} ({target_id})  xy=({x:.1f},{y:.1f})  surf={surface_elev:.2f} m")
+
+        litho_id, geotech_id = await _load_models(session, project_id)
         if litho_id is None or geotech_id is None:
             print(f"missing models: litho={litho_id} geotech={geotech_id}")
             return
 
-        # Ground truth first: the REAL planner's bands for this borehole. The
-        # contributor replica below is only trusted where its split elevations
-        # reproduce these boundaries.
-        from groundmodel.application.divide_boreholes import DivideBoreholes
+        plan = await DivideBoreholes(session).plan(project_id=project_id, litho_model_id=litho_id)
 
-        real_plan = await DivideBoreholes(session).plan(
-            project_id=project_id, litho_model_id=litho_id
-        )
-        for seg in real_plan.segments:
-            if seg.investigation_id != str(bh_id):
+        if target_id is None:
+            _census(plan)
+            return
+
+        for column in plan.columns():
+            if column.borehole_id != target_id:
                 continue
-            print("  REAL plan bands:")
-            for b in seg.bands:
-                print(
-                    f"    {b.depth_top_m:6.2f}-{b.depth_base_m:6.2f} m "
-                    f"(elev {bh_elev - b.depth_top_m:6.2f}..{bh_elev - b.depth_base_m:6.2f}) "
-                    f"NAD {b.nad_class}  {b.source}/{b.confidence}"
-                )
-
-        repo = LithoLayerRepository(session)
-        picks = await repo.load_body_picks(str(litho_id))
-
-        # Contributor replica: grouped by body_id ONLY (the real plan also
-        # splits by geo formation via divide_picks_by_geology — where that
-        # matters the replica's splits will NOT reproduce the real bands, and
-        # the mismatch is printed rather than hidden).
-        groups: dict[str, list] = defaultdict(list)
-        for p in picks:
-            groups[str(p.body_id)].append(p)
-
-        # Geotech CPT layers keyed by investigation, like plan()'s index.
-        geo_picks = await repo.load_body_picks(str(geotech_id))
-        geotech_by_inv: dict[str, list] = defaultdict(list)
-        for gp in geo_picks:
-            geotech_by_inv[gp.investigation_id].append(gp)
-
-        cpt_rows = (
-            await session.execute(
-                select(
-                    CptOrm.id, CptOrm.name, CptOrm.location_x, CptOrm.location_y, CptOrm.elevation_m
-                ).where(CptOrm.app_project_id == project_id)
-            )
-        ).all()
-        cpt_info = {str(c.id): c for c in cpt_rows}
-
-        # Formation id -> name, loaded once (an await inside a join() genexp is
-        # an async generator, not an iterable).
-        f_rows = (
-            await session.execute(select(GeologicalFormationOrm.id, GeologicalFormationOrm.name))
-        ).all()
-        fname_by_id = {str(fr.id): fr.name for fr in f_rows}
-
-        bh_id_str = str(bh_id)
-        for body_id_str, segs in groups.items():
-            bh_segs = [s for s in segs if s.investigation_id == bh_id_str]
-            if not bh_segs:
-                continue
-            cpt_segs = [s for s in segs if s.investigation_id in cpt_info]
-            formation = await session.get(GeologicalFormationOrm, segs[0].formation_id)
-            fname = formation.name if formation else "?"
-            soil = formation.litho_main_soil_code if formation else "?"
-            print(f"\n=== body group body={body_id_str[:8]} litho={fname} soil={soil} ===")
-            for bh_seg in bh_segs:
-                print(
-                    f"  borehole extent {bh_seg.top_depth_m:.2f}-{bh_seg.base_depth_m:.2f} m "
-                    f"(elev {bh_elev - bh_seg.top_depth_m:.2f} .. "
-                    f"{bh_elev - bh_seg.base_depth_m:.2f})"
-                )
-
-            # Step 1+2 replica: per-CPT in-extent geotech stacks.
-            transition_surfaces: list[list[tuple[ColumnXY, float, str, str]]] = []
-            for cpt_seg in cpt_segs:
-                inv = cpt_seg.investigation_id
-                c = cpt_info[inv]
-                in_extent = sorted(
-                    (
-                        g
-                        for g in geotech_by_inv.get(inv, [])
-                        if g.top_depth_m >= cpt_seg.top_depth_m - _DEPTH_OVERLAP_EPS
-                        and g.base_depth_m <= cpt_seg.base_depth_m + _DEPTH_OVERLAP_EPS
-                    ),
-                    key=lambda g: g.top_depth_m,
-                )
-                if not in_extent:
-                    continue
-                dist = math.hypot(c.location_x - bh_x, c.location_y - bh_y)
-                surf = c.elevation_m or 0.0
-                stack = " | ".join(
-                    f"{fname_by_id.get(str(g.formation_id), '?')}"
-                    f" {surf - g.top_depth_m:.2f}..{surf - g.base_depth_m:.2f}"
-                    for g in in_extent
-                )
-                print(f"  CPT {c.name}  dist={dist:.1f} m  stack: {stack}")
-                col = ColumnXY(investigation_id=inv, x_m=c.location_x, y_m=c.location_y)
-                for k, g in enumerate(in_extent):
-                    if k < len(in_extent) - 1:
-                        pair = (
-                            f"{fname_by_id.get(str(g.formation_id), '?')}->"
-                            f"{fname_by_id.get(str(in_extent[k + 1].formation_id), '?')}"
-                        )
-                        while len(transition_surfaces) <= k:
-                            transition_surfaces.append([])
-                        transition_surfaces[k].append((col, surf - g.base_depth_m, c.name, pair))
-
-            # Step 3 replica: interpolate each ordinal transition at the borehole.
-            bh_col = ColumnXY(investigation_id=bh_id_str, x_m=bh_x, y_m=bh_y)
-            for k, ctrl in enumerate(transition_surfaces):
-                if not ctrl:
-                    continue
-                pts = [c for c, _, _, _ in ctrl]
-                elevs = [e for _, e, _, _ in ctrl]
-                mode = "TIN" if len(pts) >= 3 else f"MEAN({len(pts)} pts)"
-                got = interpolate_split_elevations(pts, elevs, [bh_col])[bh_id_str]
-                mean = sum(elevs) / len(elevs)
-                tinflat = (
-                    " (TIN returned the mean -> outside footprint?)"
-                    if (len(pts) >= 3 and abs(got - mean) < 1e-9)
-                    else ""
-                )
-                pairs = {p for _, _, _, p in ctrl}
-                pairnote = "" if len(pairs) == 1 else f"  !! ORDINAL MIXES {sorted(pairs)}"
-                print(
-                    f"  transition k={k} [{mode}] -> elev {got:.2f} at borehole{tinflat}{pairnote}"
-                )
-                for _, e, cname, pair in ctrl:
-                    print(f"     ctrl {cname:24s} {pair:22s} elev {e:.2f}")
+            print(f"\nplanned bands ({len(column.bands)}):")
+            for band in column.bands:
+                print("  " + _describe(band, surface_elev))
 
 
 if __name__ == "__main__":
