@@ -57,7 +57,11 @@
  */
 import { useEffect, useId, useMemo, useRef } from 'react'
 
-import type { DivideBoreholePreviewColumn, LithoLayerResponse } from '../../api/client'
+import type {
+  DivideBoreholePreviewColumn,
+  DivideBoreholePreviewDonor,
+  LithoLayerResponse,
+} from '../../api/client'
 import {
   publishGeotechPreviewRender,
   resetGeotechPreviewRender,
@@ -114,6 +118,43 @@ const PROVENANCE_PROSE: Readonly<Record<string, string>> = {
   cpt_interpolated: 'interpolated from the surrounding CPTs',
   body_min: 'weakest class seen in this body (no CPT resolves this depth)',
   absolute_min: 'lithology floor (no CPT evidence in this body)',
+}
+
+/** `5 m left` / `624 m right` / `256 m` (fallback has no side to name). */
+function donorDistance(d: DivideBoreholePreviewDonor): string {
+  const metres = d.along_distance_m ?? d.map_distance_m
+  const dist = metres == null ? '' : `${Math.round(metres)} m`
+  return d.side === 'nearest' ? dist : `${dist} ${d.side}`
+}
+
+/**
+ * Donor-aware provenance for one band, or ``null`` when the band carries no
+ * donor fields (a pre-rule backend) — the caller then falls back to the
+ * ``source``-keyed prose above. Names the actual test(s) so the engineer can
+ * go and look at the CPT the machine listened to, instead of the old
+ * "surrounding CPTs" sentence that read as a consensus even when one donor
+ * 624 m away spoke alone.
+ */
+function donorProse(band: {
+  mode?: string | null
+  donors?: DivideBoreholePreviewDonor[]
+  section_name?: string | null
+}): string | null {
+  const donors = band.donors ?? []
+  if (!band.mode || donors.length === 0) return null
+  const at = band.section_name ? ` on ${band.section_name}` : ''
+  if (band.mode === 'flank_interpolated' && donors.length >= 2) {
+    const [a, b] = donors
+    return `interpolated between ${a.name} (${donorDistance(a)}) and ${b.name} (${donorDistance(b)})${at}`
+  }
+  const d = donors[0]
+  if (band.mode === 'single_donor') {
+    return `from ${d.name} (${donorDistance(d)}${at})`
+  }
+  if (band.mode === 'nearest_fallback') {
+    return `from ${d.name} (${donorDistance(d)} away — nearest test, no section neighbour)`
+  }
+  return null
 }
 
 /** Props for the borehole packing preview overlay. */
@@ -282,7 +323,8 @@ export default function GeotechBoreholePreviewGhosts({
         const clampedBase = Math.max(plotTop, Math.min(plotBottom, rawBase))
         const height = Math.max(MIN_DRAWN_HEIGHT_PX, clampedBase - y)
         const tier: Tier = band.confidence === 'high' ? 'strong' : 'weak'
-        const provenance = PROVENANCE_PROSE[band.source] ?? band.source
+        const provenance =
+          donorProse(band) ?? PROVENANCE_PROSE[band.source] ?? band.source
         bands.push({
           depthTopM: band.depth_top_m,
           y,
