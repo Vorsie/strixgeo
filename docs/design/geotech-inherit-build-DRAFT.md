@@ -591,12 +591,24 @@ lens overlays only; interior voids 696 m² → 0.
 
 ### Genuinely the owner's — geological semantics
 
-* **OQ-1 — does an accepted packing tie force a band?** Today the geotech render
-  ignores edges entirely and re-derives connectivity with a class+position LCS;
-  the build reads them for shape. Under inherit, either edges seed the profile's
-  pairing (the gesture regains a visible meaning on both arms) or they stay
-  identity-only (the LCS remains the sole geometric authority, and "Correlate
-  packing" becomes a grouping verb like litho's `body_id`). §4.2.
+* **OQ-1 — does an accepted packing tie force a band? ANSWERED (owner,
+  2026-08-04 evening): YES — option (i), edges seed the pairing**, with the
+  litho-faithful no-tie default (no tie → no band; the untied span pinches out
+  instead of meeting at a mid-gap seam). SHIPPED in the RENDER arm ahead of this
+  design — `refineLithoPartition` takes `options.packingEdges` and counts the
+  two bounding contacts exactly as `classifyTermination` does; see
+  `geotech-stage.md` §2b for the shipped rule, the deferred 1-tie onlap, and the
+  borrow/mirror carve-out.
+  **What that measurement then proved about the BUILD arm, and it belongs in
+  this design:** making the render obey ties moved render/build divergence
+  39.1 → 39.7 %, because `computeSectionFill` (the build arm) does NOT apply the
+  same default — `pairScore` still matches same-class spans on geometric overlap
+  alone (tier 1) when no edge exists, and the contact count only picks the
+  termination shape. So the profile of §4.2 must apply ONE rule to both arms:
+  either the profile's `forcedPairs` also becomes the build's only pairing
+  authority, or the render's no-tie default is relaxed to "match on geometry,
+  shape by tie count". Convergence to 0 is impossible while the two arms answer
+  "does an untied span connect at all?" differently.
 * **OQ-2 = existing Q2 — may a region borrow packing from the far side of its
   gap?** PENDING; the visual aid is delivered (960.3 → 212.0 m² of plain
   lithology if bidirectional). Designed as the `borrowPolicy` parameter — either
