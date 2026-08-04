@@ -92,7 +92,7 @@ subdivision is built on top of it. Priority order:
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
   * **#224 — Geotech formation find-or-create DRY pass — RESOLVED 2026-07-13 (B1 dedup batch).** Post-recount outcome: the heavy half resolved **by attrition** when the C1/C2 skeleton flow was deleted (#237.2) — `_find_or_create_classified`, `_find_or_create_skeleton`, and `_resolve_anchor_kinds` (GEOTECH-IMPORT-03) each survive as a SINGLE copy on the shared `GeotechBoreholeMaterialiser` base class, and the admixture-JSONB parse (GEOTECH-IMPORT-08) survives only in `subdivide_all_bodies._formation_admixtures`; single copies were NOT extracted. The still-multi copies were extracted: the nearest-geo-contact-within-tolerance loop ×2 + geo-contacts-at-investigation loader ×2 (GEOTECH-IMPORT-07) → `application/litho_geo_link_helpers.py` (shared by AcceptLithoSuggestions + LinkLithoToGeo); the view-state float-knob readers ×4 live sites (litho snap tolerance / geotech snap tolerance / min thickness / gradient window) → `application/view_state_helpers.py` (`read_view_state_float` + `load_project_view_state`). `_read_min_thickness_m` itself stays a 1-copy thin wrapper over the shared reader. Any future 2nd copy of the find-or-create pair belongs on the materialiser base class, not a new module.
-* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #229, #234, #235, #236 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #234 RESOLVED 2026-07-13 in the B4 dedup batch; #237 is the owner-decision batch; #222 RESOLVED 2026-07-13 — B5 naming batch, columns renamed to companion_body_id / is_body_companion)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #229, #234, #235, #236, #269 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #234 RESOLVED 2026-07-13 in the B4 dedup batch; #237 is the owner-decision batch; #222 RESOLVED 2026-07-13 — B5 naming batch, columns renamed to companion_body_id / is_body_companion)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -8203,3 +8203,34 @@ all along.
 **When to revisit.** Now, as a live wrong-geometry defect rather than a deferred design
 question — but the ASK is unchanged: the four candidate rulings still need the owner. Ask
 them one at a time, with a section screenshot of section 2 gap 3, before writing any code.
+
+## 269. The borehole packing preview covers the first divide, not the re-divide (S)
+
+**What.** `GeotechBoreholePreviewGhosts` drops all ghosts for a borehole column the moment
+that column carries committed geotech bands, so the preview only ever helps BEFORE the
+first `Divide boreholes`. Pressing the verb a second time is exactly as blind as it was
+before the feature existed: `boreholesStale` turns the button amber to say the bands are
+out of date, but nothing says what they would become — and the verb deletes and rebuilds
+every borehole band when it runs.
+
+That is a gap in the feature's own justification, which is quoted throughout the diff as
+*"an idempotent-but-destructive rebuild the engineer has to press blind"*. The re-divide is
+the destructive half.
+
+**Why deferred.** Scope, not capability. The backend already plans an already-divided model
+correctly and the parity gate proves it —
+`test_db7_preview_between_two_divides_equals_the_second_divide` asserts the preview equals
+what the second divide commits, and mutates none of the first divide's rows. What is
+missing is a RENDER decision: a plan drawn over the committed rows it would REPLACE has to
+read as a diff (outline-only against the existing bands, or a two-colour before/after),
+because drawing it the way the first-divide ghosts are drawn would paint a solid hatched
+band straight over the real one and be worse than showing nothing. Choosing that render is
+a design question, and the ghost overlay is not the place to guess at it.
+
+Stated explicitly in `docs/design/geotech-stage.md` §6 and in the component docstring, so
+the limit is documented rather than discovered.
+
+**When to revisit.** When the owner dogfeeds a re-divide on the real model and wants to
+know what will change — most likely as soon as accepted packing ties start being redrawn
+after a Subdivide. Design the diff render first (one owner question: outline-only over the
+committed bands, or side-by-side), then wire it; no backend work is needed.
