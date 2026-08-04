@@ -76,7 +76,7 @@ See `memory/project_geotech_stage_body_centric.md`.
 
 The geotech axis is view-only **except** for splitting a packing sub-band and
 merging two adjacent ones. Everything else stays shut: contacts on this axis
-still cannot be created, dragged or deleted (`SectionsCanvas.geotechViewOnly`
+still cannot be created, dragged, copied or deleted (`SectionsCanvas.geotechViewOnly`
 pins that, and `SectionsCanvas.geotechBandEdit` pins that the hole is exactly
 two verbs wide). The two verbs are allowed because they do not move a contact —
 they go through their own endpoints, which re-derive the NAD class from the qc
@@ -104,6 +104,17 @@ The four that constrain the code:
   MEDIAN, because `geotech_subdivision.py:444` classifies on `median(in_band)`.
   Label it "representative qc" in the UI, never "average qc", even though the
   owner's phrasing was "avg".
+
+The view-only line is enforced by handler ABSENCE, not by an axis check inside the
+overlays, so every gesture that needs a handler has to be gated where the handler is
+passed. `SectionsCanvas` withholds `onCreateContact`, `onUpdateContactDepth`,
+`onDeleteContact` and the batch pair (`onBatchUpdateContacts` /
+`onBatchCreateContacts`, the multi-select and cross-column-copy drags) on this axis.
+`ContactsLayer` in turn draws no affordance it has no handler for — its drag hit-strip,
+its per-column band "Remove this litho unit" menu and its per-column "Add new suggestion
+here" capture rect all gate on the relevant handler, because
+`perColumnBandsFromContacts` is true on the geotech axis too and those surfaces
+otherwise render over packing bands (`ContactsLayer.viewOnly.test.tsx`).
 
 Gesture (mirrored from the litho axis, `LithoSuggestionGhostColumns`):
 right-click a band → "Split band…", right-click the boundary between two bands
@@ -298,6 +309,161 @@ still loading, or a failed request with the error toast already up.
 
 ⚠ **Visual dogfeed pending** — hatch weight at dense column spacing (now two
 densities), and whether the NAD abbreviation is legible in a thin ghost band.
+
+## 7. The render/build agreement gate (2026-08-04, develop UNPUSHED)
+
+**The geotech axis draws one geometry and builds another.** The section render is
+the LITHO partition refined by NAD class (§2, litho boundaries invariant); "Build
+model" runs `computeSectionFill` a second time on the GEOTECH layers and GEOTECH
+edges (`makeVoxelRequestBuilder` → `buildVoxelRequest`) and posts THAT. Different
+engine inputs, so what the engineer sees is not what the 3-D model is labelled
+from — and until this gate nothing measured the difference.
+
+* **The gate** — `desktop/.../utils/geotechEngineAgreement.diag.test.ts`
+  (`GEOTECH_AGREE=1`). Both geometries are mapped into ALONG-METRES × ELEVATION —
+  never paired by region index, which is the rank-pairing error that produced a
+  phantom result once already — and compared by packing CLASS and by AREA at
+  every point.
+* **Who can run it, and on what.** Not CI, and not a fresh clone. The input is
+  `scripts/throwaway_geotech_axis_inputs.json`, an UNTRACKED read-only dump of
+  the owner's dev DB, regenerated with
+  `uv run python scripts/dump_geotech_axis_inputs.py`; a missing input FAILS the
+  run with that recipe rather than skipping. The committed half is the baseline
+  (`__fixtures__/geotech_agreement_baseline.json`), which records the model ids
+  and the engine it was frozen on. The ACTIVE engine is read at run time from
+  env / device localStorage, so **a v1 device enforces nothing** — read the
+  engine line before reading a green run as a pass.
+* **It is frozen.** `geotechAgreementFreeze.diag.ts`: a section that drifts more
+  than 0.5 pp FAILS, an improvement prints and asks to be re-frozen
+  (`GEOTECH_AGREE_FREEZE=1`), and a section whose column / edge counts moved is
+  reported as not-comparable rather than enforced. The **enforced** model-wide
+  number is accumulated over the comparable sections only and names the excluded
+  ones — enforcing the all-sections total would re-admit exactly what the
+  per-section skip just refused.
+* **Where the divergence comes from** — `scripts/diag_geotech_arm_input_divergence.py`
+  and `geotechFallbackCause.diag.test.ts` (`GEOTECH_FALLBACK=1`) answer that on the
+  input side. On the dev model the two arms agree EXACTLY at the columns (44
+  investigations, 322 litho units, 0 geotech bands straddling a litho contact,
+  worst boundary offset 0.5 mm), so **every divergence is interpolation BETWEEN
+  columns**, driven by two input differences: the build arm has 65 of the 83 litho
+  columns (all 18 missing are undivided boreholes — §6) and 216 of the 480 ties
+  (104 of the missing ties join two columns the build arm does have).
+* **One real defect found and fixed:** `refineLithoPartition` sampled the packing
+  only at gap fractions 0 and 1, so a region that reaches NEITHER column — which
+  engine v2 emits routinely — was never sampled and short-circuited to the
+  `fallback` tag, whose documented meaning is "no packing data in the whole
+  section at these elevations". It samples the region's own extent instead:
+  model-wide disagreement 55.2 % → 44.1 %, and the area drawn in plain lithology
+  while the build assigned a class 9,851 m² → 168 m². The fix carried a COST and a
+  CHOICE, both below.
+
+### What the remaining 44.1 % actually decomposes into
+
+The earlier claim "the remaining ~44 % is NOT plumbing" was too strong. Re-run on
+the 2026-08-04 extract, model-wide, section-plane m²:
+
+| bucket | m² | share of the 26,371 m² that does NOT agree |
+|---|---:|---:|
+| different LITHOLOGY at the same point | 9,480.6 | 35.9 % |
+| same lithology, different NAD packing class | 8,971.8 | 34.0 % |
+| drawn on the section, absent from the build | 6,036.8 | 22.9 % |
+| present in the build, blank on the section | 1,714.0 | 6.5 % |
+| *(of the above, carrying the render's `fallback` tag)* | *960.6* | *3.6 %* |
+
+So **96.4 % of the residual is both arms assigning a class and disagreeing, or
+one arm having material the other has not** — the architectural question (Q1).
+The remaining **3.6 % (960.6 m², 1.6 pp of the 44.1 pp headline) is still
+plumbing-class**, and `GEOTECH_FALLBACK=1` splits it further:
+
+| fallback cause | m² | verdict |
+|---|---:|---|
+| same-soil packing exists only in the direction the one-directional scan does not search | 749.2 | **defect, but the direction rule is owner-locked (Q2)** — worst single polygon 252.0 m² on Tie-section 11 |
+| no column carries same-soil packing inside the region's EDGE envelopes although bands overlap its bounding box | 37.1 | unexplained residual defect (37.0 m² of it is one polygon on Tie-section 14) |
+| the refinement SHOULD have found data | 1.0 | unexplained residual defect |
+| SOIL GUARD firing correctly — the only packing at those elevations is another soil | 173.0 | **not a defect** (Q4) |
+
+The 749.2 m² is NOT fixed here on purpose: making the outward scan bidirectional
+changes the owner-locked rev-8 rule ("borrow the NEAREST classified column
+OUTWARD") into "may a region borrow packing from the far side of the gap?", which
+is a geological question, not a null-guard.
+
+### Render-arm defects the owner question does not cover
+
+These are inside `refineLithoPartition` alone — no build-arm input difference can
+explain them, and they are visible on screen as holes and wrong-colour overlaps
+on the packing render:
+
+* **Coverage loss.** The litho partition covers 59,853.3 m²; the refined render
+  covers 58,043.2 m² — **−1,810.1 m² (−3.02 %)** of a geometry the design rule
+  says is INVARIANT. Worst sections: Tie-8 −4.53 %, Tie-10 −4.43 %, Tie-6
+  −4.30 %, CS2 −4.27 % (−572.6 m²), CS1 −2.86 % (−538.4 m²), CS3 −2.78 %.
+* **Interior voids.** Litho partition 0.00 m², render **696.13 m²** — worst hole
+  **17.0 m across** (Tie-section 4); CS2 205.11 m² / worst 7.94 m, CS1 185.46 m² /
+  worst 4.07 m.
+* **Carve overlaps.** Render 212 self-overlapping polygon pairs from the carve
+  (plus 13 the litho engine itself owns); the build arm has 8, totalling ~1e-5 m².
+* **The fallback fix made two of the three worse**, stated plainly: coverage loss
+  962.3 → 1,810.1 m², carve overlaps 152 → 212, interior voids 727.45 → 696.13 m².
+  Refining previously-unrefined interior regions carves them imperfectly.
+* **Gated, so it cannot grow silently:** `refineLithoPartition.cs1frozen.test.ts`
+  now asserts coverage as well as escape — the frozen CS1 slice loses 2.11 %
+  (399.5 m² of 18,920.6 m²) and the ratchet sits just above it. The honest target
+  is 0.0 %.
+
+### Two things the frozen 44.1 % does NOT cover
+
+* **The hand-drawn-override path is unexercised on this model** — 1 stored litho
+  boundary, 0 geotech, and every section reports `overrides=0` on both arms. The
+  gate now calls the real builder's `deriveSectionApexOverrides` instead of a
+  hand-copy of it, so the two cannot drift; but the number does not test it.
+* **⚠ TRACKED SUSPECT — the geotech render applies no hand-drawn boundaries at
+  all.** `SectionsCanvas` clears `lensBoundaries` on any non-litho axis, so the
+  geotech axis derives zero overrides, while the LITHO render and BOTH voxel
+  builds apply them. The gate measures what is on screen (that is its job) and
+  prints this as a TRACKED SUSPECT line every run rather than burying it in the
+  baseline as "correct". Impact on this model is nil, so it is a rule question
+  (Q5), not a bug report.
+
+### The owner questions
+
+1. **Does the 3-D geotech build inherit the litho geometry, or re-derive it?**
+   The render says inherit (the geotech partition IS the litho partition,
+   subdivided internally); the build re-partitions the geotech layers freely.
+   Worth 44.1 % of the section plane. It cannot be closed by plumbing: at the
+   columns the two are identical (0 straddlers, 0.5 mm worst offset), and 104 of
+   the 328 litho ties with no geotech counterpart join two columns the build
+   already has, so even after every borehole is divided the two would still band
+   differently.
+   Candidates, neither endorsed: (a) build from the refined render output;
+   (b) keep the free re-partition and mirror every litho tie into the geotech
+   model.
+2. **May a region borrow packing from the far side of its gap?** Today the left
+   side scans only leftward and the right only rightward (your rev-8 "nearest
+   classified column OUTWARD"), so 749.2 m² paints plain lithology while the data
+   exists — worst case 252.0 m² on Tie-section 11, where the section's only
+   classified column is on the side the scan will not look.
+3. **Should a section with fewer than 2 divided columns be built at all — and
+   should the canvas say so?** Tie-section 11 (1,774.1 m²) and Tie-section 13
+   (21.6 m²) are drawn in full and dropped entirely by the build: 1,795.7 m² of
+   the 6,036.8 m² "drawn, not built", with nothing on screen telling the engineer
+   the section contributes nothing.
+4. **When the litho region says one soil and the only packing at those elevations
+   is another (173.0 m² — e.g. 110.1 m² of SILT region over KLEI+VEEN+ZAND
+   packing on Tie-section 11), should the render keep showing plain lithology, or
+   mark it as a conflict?**
+5. **When you reshape a lens boundary by hand on the litho axis, should the
+   geotech axis draw the reshaped boundary too?** Today it does not, while the
+   litho render and both voxel builds do. On this model 1 boundary is stored, so
+   nothing visibly moves either way — this is a rule call, not a defect report.
+6. **Inside a region that touches NEITHER borehole (203 regions, 10,796 m², 18.0 %
+   of the section plane), should the packing interfaces be interpolated across
+   the whole gap (what ships today) or across only the region's own width?** They
+   differ by up to a metre where the region sits far from both columns: 1,335 m²
+   is inset more than 10 % of the gap, worst 80 %. The shipped choice is pinned by
+   a test so it cannot change by accident.
+7. **Priority:** the render's own holes — 696 m² of interior voids (worst 17.0 m
+   across) and 1,810 m² (3.02 %) of the litho partition dropped by the NAD carve —
+   fix now, or after the build/render question above is settled?
 
 ## Open dogfeed items (owner)
 
