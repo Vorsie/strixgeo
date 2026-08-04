@@ -104,6 +104,7 @@ import {
   shouldMountCorrelationOverlay,
 } from './sections/correlationOverlayAxis'
 import GeotechBandEditOverlay from './sections/GeotechBandEditOverlay'
+import GeotechBoreholePreviewGhosts from './sections/GeotechBoreholePreviewGhosts'
 import PartitionFillOverlay, { type GeotechRefinement } from './sections/PartitionFillOverlay'
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
@@ -707,6 +708,8 @@ export default function SectionPanel({
     lenses,
     lithoLayers,
     refinement,
+    geotechBoreholePreview,
+    geotechLayersLoaded = true,
     lensBoundaries,
     pulsingFormationIds,
     virtueleBoringActiveModels,
@@ -3088,6 +3091,36 @@ export default function SectionPanel({
                 onRequestSplit={onRequestGeotechSplitBand}
                 onRequestMerge={onRequestGeotechMergeBands}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
+              />
+            )}
+
+            {/* Ghost packing bands over boreholes that have not been divided —
+                geotech axis only.  "Subdivide all bodies" leaves every borehole
+                column blank here (its borehole-mediated edges are deferred to
+                "Divide boreholes"), so without these the engineer cannot see
+                what packing a borehole would get until after pressing a verb
+                that rebuilds them all (owner dogfeed 2026-08-04).
+
+                Drawn from the server's dry run of the SAME planner the verb
+                commits, so the ghosts are a promise the button keeps.  No
+                gesture of its own — the only verb is the toolbar's — but the
+                band rect IS hit-testable, because an SVG `<title>` under a
+                `pointer-events:none` ancestor never shows and that tooltip is
+                the channel naming the evidence behind each class.  So a click
+                landing on a ghost is swallowed rather than reaching the fill
+                beneath it; that is accepted, since a ghosted column is an
+                undivided borehole with nothing to click underneath.  Mounted
+                after the fill and before the sample dots.  A column with
+                committed bands drops its ghosts inside the component. */}
+            {axisMode === 'geotechnical' && geotechBoreholePreview !== undefined && (
+              <GeotechBoreholePreviewGhosts
+                previewColumns={geotechBoreholePreview}
+                geotechLayers={refinement?.geotechLayers ?? []}
+                geotechLayersLoaded={geotechLayersLoaded}
+                placedColumns={visibleColumns}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
               />
             )}
 
