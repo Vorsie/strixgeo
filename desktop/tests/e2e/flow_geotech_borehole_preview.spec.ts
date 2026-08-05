@@ -176,9 +176,22 @@ test.describe('flow_geotech_borehole_preview', () => {
       })
       await expect(page.getByTestId('geotech-preview-legend')).toBeVisible({ timeout: 10_000 })
 
-      // Step 7: commit. The ghosts must give way to the real bands — a preview
-      // that lingered next to the thing it predicted would be worse than none.
-      await page.getByTestId('geotech-divide-boreholes').click()
+      // Step 7: commit. "4 · Divide boreholes" is GATED on the pipeline's step 3
+      // (owner ruling 2026-08-04): while a packing tie is still proposed the
+      // button is disabled, because an accepted tie spanning a borehole decides
+      // which CPTs its packing is read from. Clear the outstanding ties first —
+      // conditionally, because the fixture may carry none, and a suite that
+      // demanded pending ties would be asserting the fixture, not the flow.
+      const acceptTies = page.getByTestId('geotech-accept-correlations')
+      if (await acceptTies.isEnabled()) {
+        await acceptTies.click()
+      }
+      const divide = page.getByTestId('geotech-divide-boreholes')
+      await expect(divide).toBeEnabled({ timeout: 30_000 })
+
+      // The ghosts must give way to the real bands — a preview that lingered
+      // next to the thing it predicted would be worse than none.
+      await divide.click()
       await expect(page.getByTestId('geotech-borehole-preview-ghosts')).toHaveCount(0, {
         timeout: 30_000,
       })
