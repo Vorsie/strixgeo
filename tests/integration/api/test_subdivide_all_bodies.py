@@ -1023,13 +1023,13 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
         f"Found {len(bh_edges)}."
     )
 
-    # ADB-3b: those edges are the program's own proposals, so they arrive
-    # unaccepted and tagged with the program's provenance. Before the engineer
-    # accepts them they join nothing — the resolver reads approved edges only.
-    assert all(not e.user_approved for e in bh_edges), (
-        "ADB-3b: derived borehole-mediated ties must be born unaccepted — "
-        "the engineer has not reviewed them yet. "
-        f"approved={[str(e.id) for e in bh_edges if e.user_approved]}"
+    # ADB-3b (re-pinned, ruling A 2026-08-05): derived ties sit inside litho
+    # correlations the engineer already approved, so approval carries down and
+    # they arrive ACCEPTED — while still tagged with the program's provenance.
+    assert all(e.user_approved for e in bh_edges), (
+        "ADB-3b: derived borehole-mediated ties are born accepted under "
+        "ruling A — the litho approval carries down. "
+        f"unapproved={[str(e.id) for e in bh_edges if not e.user_approved]}"
     )
     assert all(e.source == "auto" for e in bh_edges), (
         "ADB-3b: derived ties must carry the program's provenance, not 'manual' "
@@ -1307,10 +1307,13 @@ async def test_an_unaccepted_geotech_tie_does_not_survive_the_rebuild(
         .all()
     )
     assert proposals, "precondition: SAB must derive at least one geotech tie"
-    assert not any(e.user_approved for e in proposals), (
-        "precondition: a derived tie is born unaccepted"
-    )
+    # Ruling A (2026-08-05): derivation now emits accepted rows, so the
+    # unaccepted state this test is ABOUT is staged by explicit demotion —
+    # the same rows a non-litho-backed source would leave pending.
     proposal_ids = {e.id for e in proposals}
+    for e in proposals:
+        e.user_approved = False
+    await db_session.commit()
 
     second = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
@@ -4115,12 +4118,11 @@ async def test_sab_lcs_connectivity(
         f"bands only."
     )
 
-    # The LCS ties arrive as proposals (clean/dirty rule, 2026-08-01) and
-    # connect nothing until the engineer accepts them — the resolver unions
-    # approved edges only. Accept them, then re-read the bands for their fresh
-    # body_id stamps.
-    assert all(not e.user_approved for e in cross_edges), (
-        "LCS-1c precondition: a derived tie must be born unaccepted"
+    # Ruling A (2026-08-05): LCS ties arrive ACCEPTED — the litho approval
+    # they were derived inside carries down. The accept call below is now an
+    # idempotent no-op kept to prove it stays harmless on accepted edges.
+    assert all(e.user_approved for e in cross_edges), (
+        "LCS-1c (re-pinned, ruling A 2026-08-05): a derived tie is born accepted"
     )
     await AcceptContactCorrelations(db_session).execute(
         project_id=project.id,
