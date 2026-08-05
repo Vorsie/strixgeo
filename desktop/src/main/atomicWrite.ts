@@ -68,7 +68,16 @@ export function writeFileAtomic(filePath: string, contents: string | Uint8Array)
       else writeFileSync(fd, contents)
       fsyncSync(fd)
     } finally {
-      closeSync(fd)
+      // Swallow a close failure: if write/fsync already threw, a throwing
+      // closeSync here would REPLACE the in-flight error (finally semantics)
+      // and the caller would see EBADF instead of the real disk-full/perm
+      // cause. On the happy path a failing close after a successful fsync
+      // does not affect durability — the data is already flushed.
+      try {
+        closeSync(fd)
+      } catch {
+        /* swallow */
+      }
     }
     renameSync(tmpPath, filePath)
   } catch (writeErr) {
