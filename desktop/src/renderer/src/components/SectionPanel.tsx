@@ -619,8 +619,18 @@ interface Props {
    * ``CorrelationEdgesOverlay``. Absent = the Accept item is suppressed.
    */
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
+  /** Wording of the edge menu's accept row — the geotech axis says "Accept tie". */
+  acceptEdgeLabel?: string
   /** Confirms a tie the geotech rebuild flagged (clears `review_reason`). */
   onRequestConfirmEdgeReview?: (edge: LithoContactCorrelationEdge) => void
+  /**
+   * Commit ONE borehole's preview ghosts — the geotech axis's right-click
+   * "Accept these bands (divide this borehole)".
+   *
+   * Forwarded verbatim to ``GeotechBoreholePreviewGhosts``; absent means the
+   * ghosts stay the read-only overlay they shipped as.
+   */
+  onDivideBoreholeFromPreview?: (boreholeId: string) => void
   /** Full-replace a body's boundary shape after a ghost-node drag/add. */
   onSaveLensShape?: (
     bodyId: string,
@@ -692,6 +702,8 @@ export default function SectionPanel({
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
   onRequestAcceptEdge,
+  acceptEdgeLabel,
+  onDivideBoreholeFromPreview,
   onRequestConfirmEdgeReview,
   onSaveLensShape,
   onCorrelateBoundary,
@@ -3134,6 +3146,7 @@ export default function SectionPanel({
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
+                onAcceptColumn={onDivideBoreholeFromPreview}
               />
             )}
 
@@ -3294,6 +3307,7 @@ export default function SectionPanel({
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
                 onRequestDeleteEdge={onRequestDeleteEdge}
                 onRequestAcceptEdge={onRequestAcceptEdge}
+                acceptEdgeLabel={acceptEdgeLabel}
                 onRequestConfirmEdgeReview={onRequestConfirmEdgeReview}
               />
             )}
