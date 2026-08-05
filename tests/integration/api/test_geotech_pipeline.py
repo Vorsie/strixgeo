@@ -197,6 +197,53 @@ async def pipeline_scene(
     }
 
 
+async def _insert_pending_tie(db_session: AsyncSession, scene: dict, geotech_model_id) -> None:
+    """Insert one PENDING packing tie between the two CPTs' shallowest bands.
+
+    Ruling A (2026-08-05) made every litho-backed derived tie arrive accepted,
+    so the pending state — and the divide gate that reads it — can no longer be
+    reached through auto-correlate. This writes the row a non-litho-backed
+    source would: ``user_approved=False, source='auto'``.
+    """
+    from uuid import UUID as _UUID
+
+    async def _top_layer(cpt_id) -> LithoLayerOrm:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm)
+                    .where(
+                        LithoLayerOrm.model_id == _UUID(str(geotech_model_id)),
+                        LithoLayerOrm.cpt_id == cpt_id,
+                    )
+                    .order_by(LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows, f"pending-tie helper: no geotech bands on CPT {cpt_id}"
+        return rows[0]
+
+    a = await _top_layer(scene["cpt_a_id"])
+    b = await _top_layer(scene["cpt_b_id"])
+    lo, hi = (a.id, b.id) if a.id < b.id else (b.id, a.id)
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=_UUID(str(geotech_model_id)),
+            section_id=_UUID(str(scene["section_id"])),
+            layer_a_id=lo,
+            layer_b_id=hi,
+            layer_a_side="top",
+            layer_b_side="top",
+            user_approved=False,
+            source="auto",
+        )
+    )
+    await db_session.commit()
+
+
 async def _subdivide_cpts(client: AsyncClient, scene: dict) -> dict:
     """Run pipeline step 1 and return the response payload."""
     resp = await client.post(
@@ -306,8 +353,9 @@ async def test_gp2_step_two_proposes_cpt_to_cpt_ties_across_the_borehole(
         .all()
     )
     assert edges
-    assert all(edge.user_approved is False for edge in edges), (
-        "auto-correlate PROPOSES; it must not accept on the engineer's behalf"
+    assert all(edge.user_approved is True for edge in edges), (
+        "ruling A (2026-08-05): a tie derived inside an approved litho "
+        "correlation is born accepted — the litho approval carries down"
     )
 
     # Both endpoints of every proposal are CPT bands: the borehole has none yet.
@@ -329,9 +377,14 @@ async def test_gp3_only_accepted_ties_are_visible_to_the_resolver(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """GP3: a pending tie joins nothing; accepting it is what makes one body."""
+    """GP3: a pending tie joins nothing; accepting it is what makes one body.
+
+    Re-arranged under ruling A (2026-08-05): auto-correlate now yields accepted
+    ties, so the pending state is staged with an explicitly inserted proposal
+    (the row any non-litho-backed source would write).
+    """
     geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
-    await _auto_correlate(async_client, pipeline_scene, geotech_model_id)
+    await _insert_pending_tie(db_session, pipeline_scene, geotech_model_id)
 
     async def _body_ids() -> set:
         rows = (
@@ -379,13 +432,15 @@ async def test_gp3_only_accepted_ties_are_visible_to_the_resolver(
 async def test_gp4_divide_boreholes_refuses_while_ties_are_pending(
     pipeline_scene: dict,
     async_client: AsyncClient,
+    db_session: AsyncSession,
 ) -> None:
-    """GP4: step 4 is gated on step 3 being finished, and says by how much."""
+    """GP4: step 4 is gated on step 3 being finished, and says by how much.
+
+    Staged with an explicit pending tie (ruling A — see GP3).
+    """
     geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
-    proposed = (await _auto_correlate(async_client, pipeline_scene, geotech_model_id))[
-        "edges_proposed"
-    ]
-    assert proposed > 0
+    await _insert_pending_tie(db_session, pipeline_scene, geotech_model_id)
+    proposed = 1
 
     resp = await async_client.post(
         f"/projects/{pipeline_scene['project_id']}/geology/models/"
@@ -509,8 +564,9 @@ async def test_gp7_the_combined_verb_still_runs_steps_one_and_two(
         .all()
     )
     assert edges
-    assert all(edge.user_approved is False for edge in edges), (
-        "the combined verb's derived ties are PROPOSALS, not accepted work"
+    assert all(edge.user_approved is True for edge in edges), (
+        "ruling A (2026-08-05): the combined verb's derived ties are born "
+        "accepted — the litho approval they sit inside carries down"
     )
 
 
