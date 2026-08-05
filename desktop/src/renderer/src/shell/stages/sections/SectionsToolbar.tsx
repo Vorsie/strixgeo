@@ -1316,7 +1316,7 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   activeGeotechModel === null
                     ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                    : 'Step 2 of 4 — propose the automatic same-class packing ties inside each correlated litho unit, on EVERY section of the model, jumping across borehole columns that carry no packing yet. Inserts UNAPPROVED ties only; correlations you drew by hand are never touched.',
+                    : 'Step 2 of 4 — derive the same-class packing ties inside each correlated litho unit, on EVERY section of the model, jumping across borehole columns that carry no packing yet. Derived ties arrive ACCEPTED — the litho correlations they sit inside are ones you already approved. Hand-drawn correlations are never touched.',
                 testid: 'geotech-auto-correlate',
                 onClick: () => {
                   void runAutoCorrelateGeotech()
