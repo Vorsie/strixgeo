@@ -5,7 +5,7 @@
  *
  * Architecture note — why the API is called directly
  * ---------------------------------------------------
- * The "Subdivide all bodies" button (``geotech-subdivide-all-bodies``) lives
+ * The "Subdivide all bodies" button (``geotech-subdivide-cpts``) lives
  * in ``SectionsToolbar`` (Sections stage) and is shown only when
  * ``sectionModelAxis === 'geotechnical'``.  The Geotech axis radio button
  * (``axis-geotech``) is **disabled** until a geotechnical model already exists
