@@ -182,9 +182,13 @@ test.describe('flow_geotech_borehole_preview', () => {
       // which CPTs its packing is read from. Clear the outstanding ties first —
       // conditionally, because the fixture may carry none, and a suite that
       // demanded pending ties would be asserting the fixture, not the flow.
+      // The steps live in the "Packing pipeline" dropdown (owner tidy-up
+      // 2026-08-05); an item click auto-closes the menu, so re-open per press.
+      await page.getByTestId('geotech-pipeline').click()
       const acceptTies = page.getByTestId('geotech-accept-correlations')
       if (await acceptTies.isEnabled()) {
         await acceptTies.click()
+        await page.getByTestId('geotech-pipeline').click()
       }
       const divide = page.getByTestId('geotech-divide-boreholes')
       await expect(divide).toBeEnabled({ timeout: 30_000 })
