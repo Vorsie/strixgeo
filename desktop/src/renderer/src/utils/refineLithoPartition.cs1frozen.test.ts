@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import { carveOverlayLenses } from './carveOverlayLenses'
 import { computeSectionFill, type CorrelationEdge, type PartitionColumn } from './partitionFill'
 import {
   refineLithoPartition,
@@ -94,12 +95,6 @@ function inPoly(px: number, pe: number, pts: readonly { fraction: number; elevat
   return inside
 }
 
-const byGap = new Map<number, RefinedPolygon[]>()
-for (const p of refined) {
-  const l = byGap.get(p.gapIndex) ?? []
-  l.push(p)
-  byGap.set(p.gapIndex, l)
-}
 // A handful of cells on a shared edge get sampled as "inside both" by any grid
 // point-in-polygon (the boundary is inclusive on both sides) — exactly the
 // rasterisation-noise the litho gate absorbs with its own CELL_THRESHOLD. A
@@ -457,6 +452,43 @@ describe('CS1 frozen geotech-refinement gate — edge-driven arm (always-on)', (
       MAX_COVERAGE_LOSS_TIE_MODES_PCT,
     )
   })
+
+  it('the F1 carve keeps the cross-class invariant at ZERO on real data', () => {
+    // The carve reshapes the fills the render actually paints (it runs in
+    // PartitionFillOverlay, not in the engine), so the invariant every arm above
+    // is held to has to survive it on the real slice — a carve that produced a
+    // sliver of the wrong class would be a worse defect than the blend it fixes.
+    // ``crossClassOffenders`` excuses the overlay tags — that exclusion is the
+    // whole reason F1 could ship. Retag them so they are CHECKED: after the
+    // carve there is no overlay left to excuse, and the invariant has to hold
+    // over every polygon the render paints, not just the fills.
+    const asChecked = (polys: readonly RefinedPolygon[]): RefinedPolygon[] =>
+      polys.map((p) =>
+        p.tag === 'hlens' || p.tag === 'enclens' ? { ...p, tag: 'band' as const } : p,
+      )
+    const carvedTied = carveOverlayLenses(refinedTied)
+    const carvedNone = carveOverlayLenses(refinedNoTies)
+    expect(crossClassOffenders(asChecked(carvedTied))).toEqual([])
+    expect(crossClassOffenders(asChecked(carvedNone))).toEqual([])
+    // And it may not lose the section. The measure has to include the OVERLAY
+    // tags here, unlike ``coveredM2``: before the carve a lens's footprint was
+    // painted twice (fill + lens) and counting it once as fill was right;
+    // after it, that footprint belongs to the lens alone, so a fill-only
+    // measure would read the fix as a 4.4 pp loss of section it never lost.
+    // Summing every tag is exact rather than approximate precisely BECAUSE the
+    // carve leaves nothing double-counted — which is the invariant above.
+    const carvedM2 = (polys: readonly RefinedPolygon[]): number => {
+      let m2 = 0
+      for (const p of polys) m2 += polygonAreaM2(p.points, gapWidthsM[p.gapIndex] ?? 0)
+      return m2
+    }
+    let lithoM2 = 0
+    for (const r of regions) lithoM2 += polygonAreaM2(r.polygon, gapWidthsM[r.gapIndex] ?? 0)
+    const loss = ((lithoM2 - carvedM2(carvedTied)) / lithoM2) * 100
+    expect(loss, `carved coverage loss ${loss.toFixed(2)} %`).toBeLessThan(
+      MAX_COVERAGE_LOSS_TIE_MODES_PCT,
+    )
+  }, 30000)
 
   it('NEGATIVE CONTROL — the cross-class checker flags a planted overlap', () => {
     // The three invariant cases above are only worth their green if the checker
