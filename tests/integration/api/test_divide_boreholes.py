@@ -814,9 +814,11 @@ async def test_db4_accepted_borehole_tie_survives_a_re_divide(
     )
 
     # And the app must say so rather than reporting a bare success.
-    assert second.reanchored_tie_count == 1, (
-        f"DB4: expected the result to report 1 carried tie, "
-        f"got reanchored={second.reanchored_tie_count} lost={second.lost_tie_count}"
+    assert second.reanchored_tie_count == 2, (
+        # 2 under ruling A (2026-08-05): the engineer's hand tie PLUS the
+        # auto-derived tie, which is now born accepted and carried too.
+        f"DB4: expected the hand tie and the auto-accepted derived tie to be "
+        f"carried, got reanchored={second.reanchored_tie_count} lost={second.lost_tie_count}"
     )
 
 
@@ -1048,8 +1050,10 @@ async def test_db6_preview_reports_the_ties_the_commit_carries(
     )
     assert preview_resp.status_code == 200, preview_resp.text
     preview = preview_resp.json()
-    assert preview["carried_tie_count"] == 1, (
-        f"DB6: preview should see the one accepted borehole tie, got {preview}"
+    assert preview["carried_tie_count"] == 2, (
+        # 2 under ruling A — see DB4.
+        f"DB6: preview should see the hand tie and the auto-accepted derived "
+        f"tie, got {preview}"
     )
 
     second = await DivideBoreholes(db_session).execute(
