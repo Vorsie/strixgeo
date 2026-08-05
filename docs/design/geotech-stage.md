@@ -668,6 +668,108 @@ body) read 6→7→8 with the dense top at ≈ −0.9. The module
   reads dense sand there. Candidate alternative if the owner disagrees: prefer
   the section that draws the most donors of the group.
 
+## 9. The four-step packing pipeline (owner ruling 2026-08-04, late evening)
+
+**Owner ruling.** "Subdivide all bodies" did too much at once: it subdivided the
+CPTs *and* derived packing ties, and those ties arrived ALREADY ACCEPTED. It is
+replaced by four verbs mirroring the litho stage's suggest → accept rhythm.
+
+| step | verb | endpoint | what it does |
+|---|---|---|---|
+| 1 | subdivide CPTs into packing | `POST .../geotech/subdivide-cpts` (litho model) | packing bands on the CPTs, **no** edge derivation |
+| 2 | auto-correlate packing | `POST .../geotech/auto-correlate` (geotech model) | PROPOSES ties (`user_approved=false`), jumping across borehole columns |
+| 3 | accept | `POST .../contact-correlations/accept` (all) · `.../{edge_id}/accept` (one) | promotes proposals; `GET .../geotech/tie-status` reports what is left |
+| 4 | divide boreholes | `POST .../geotech/divide-boreholes` (litho model) | gated on step 3; optional `borehole_ids` subset |
+
+The accept verbs are the litho axis's own — `AcceptContactCorrelations` has
+never been litho-specific, and the router applies no kind guard — so step 3 is
+reuse, not a second implementation. Nothing was duplicated for the geotech axis.
+
+`POST .../geotech/subdivide-all-bodies` still works and now declares what it is:
+the COMBINED verb, running steps 1 + 2 in one press, answering
+`edges_derived: true` and `proposed_tie_count`. Its derived edges have been
+proposals since 2026-08-01; the response is what changed.
+
+### Jump ties — the pairing crosses undivided borehole columns
+
+Step 2 runs BEFORE step 4, so every borehole column is deliberately empty of
+packing. The derivation aligns packing stacks inside a correlated litho unit, so
+a litho edge with a bandless endpoint finds nothing to align and is skipped: a
+section drawn CPT – borehole – CPT proposed **nothing at all**.
+
+`domain/services/geotech_edge_bridging.py` walks the litho correlation graph:
+a layer whose column carries packing bands is a TERMINAL, one whose column does
+not is TRANSIT. From every terminal it walks through transit layers only,
+stopping at the first terminal reached, and adds that pair. Expansion stops at
+terminals on purpose — a chain A–B–C of three divided columns already has its
+own two correlations, and an A→C shortcut would tie bands the engineer never put
+beside each other. It ADDS; the approved set is never reduced.
+
+Applied by all three derivation callers (`SubdivideAllBodies`,
+`AutoCorrelateGeotechEdges`, `DivideBoreholes` phase 8.5) via
+`geotech_edge_derivation.bridge_edges_over_bandless_columns`. It is a no-op once
+every column is divided, and still earns its place in `DivideBoreholes`: a
+`borehole_ids` subset run leaves some columns undivided.
+
+**Real-model measurement (dev DB, read-only):** 418 approved litho edges across
+6 sections; the bridge adds **90 jump pairs, 76 of which straddle at least one
+borehole column**.
+
+### The gate
+
+`divide-boreholes` answers `422 geotech_ties_pending` while any tie is still
+proposed, carrying `pending_tie_count` / `accepted_tie_count` /
+`geotech_model_id`. It is not bureaucracy: an accepted tie spanning a borehole
+decides which CPTs that borehole's packing comes from (below), so dividing on
+unreviewed proposals throws away evidence the engineer is one press from
+supplying. `ignore_pending_ties: true` is the deliberate escape. The PREVIEW is
+ungated — it writes nothing, and refusing it would only hide information.
+
+The gate lives at the endpoint, not in the use case: it is a workflow policy,
+and `DivideBoreholes.execute` stays callable by the tests and by any future
+caller that has its own reason.
+
+### Tie-informed donors (`mode = tie_interpolated`)
+
+**Owner ruling:** when an accepted tie's span crosses the borehole's column on a
+section and both endpoints are CPTs in the borehole's body group, THAT tied pair
+becomes the donor pair, replacing the nearest-flank guess. §8's flanking rule
+stays as the fallback wherever no tie spans.
+
+`domain/services/geotech_tie_donors.py` returns a `FlankSelection` — the same
+shape §8 produces — so both rules feed one laying-out function. Beyond naming
+the donors, the tie supplies the band CORRESPONDENCE: both donors are reduced to
+exactly the bands the engineer tied, in depth order, and everything else is left
+for the conservative fill rather than invented. That is why a tied pair can pair
+where the flanking rule refuses: §8 needs the two whole class sequences to
+match, a tie says which band is which. A tie drawn across two different packing
+classes is a surface tie, not a correspondence, and is left to the fallback.
+Candidate pairs rank tightest-span first; a share below 0.5 % degrades to
+`single_donor` exactly as F10 decided.
+
+### "Check if the ties stay in the litho body" — the fraction rule
+
+**Owner ruling:** *check if the ties stay in the litho body otherwise rescale
+based on the litho thickness at that location.* A tied surface is read as a
+fraction of each donor's own litho extent and re-laid at that fraction of the
+BOREHOLE's extent (`flank_packing_surfaces`, unchanged from §8), so a litho body
+that thins at the borehole rescales the surfaces instead of letting them walk
+out of the envelope. Pinned by `test_geotech_tie_donors.py::T5` (2 m body) and
+`test_divide_boreholes_plan.py::P8`, which runs the same donors against a 2 m
+and a 1 m extent and requires 40 % of *whatever thickness is there*.
+
+### What this changes on the dev model today: nothing, and why
+
+All 217 accepted ties in the dev DB are CPT↔CPT and **none of them straddles a
+borehole column** — they join adjacent CPTs, because the derivation that made
+them stopped at borehole columns. So `diag_divide_borehole_explain.py "126-B4"`
+is byte-identical before and after: 15 bands, 12 `single_donor` + 3
+`flank_interpolated`, no `tie_interpolated`; model-wide the census is unchanged
+at 139 `single_donor` / 32 `flank_interpolated` / 4 `nearest_fallback` / 9
+`absolute_min` / 2 `body_min`. The rule only bites once the engineer re-runs the
+new pipeline: the 76 straddling jump pairs are exactly the ties that can then
+name a donor pair.
+
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
