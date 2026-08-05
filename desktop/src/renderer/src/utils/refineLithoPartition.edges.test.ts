@@ -265,6 +265,40 @@ describe('refineLithoPartition — packing edges drive the gap fill (owner rulin
     expect(JSON.stringify(mirrored)).toEqual(JSON.stringify(shipped))
   })
 
+  it('a tied pair bands at ANY elevation — position is not required', () => {
+    // The discriminating case for "an explicit tie outranks position: a tied
+    // pair bands at ANY elevation (the litho matcher's own rule for a
+    // correlated bed that dips)". Every other case in this file ties spans
+    // that ALSO overlap vertically, so a pairing that quietly still demanded
+    // overlap would pass all of them. Here the two n7 spans share NO elevation
+    // at all — left 9..7, right 3..1 — and the engineer has tied both their
+    // bounding contacts. A steeply dipping correlated bed is the ordinary
+    // reason for that, and it must band.
+    const cols = gmap(
+      gcol('A', 10, [
+        [10, 9, 'nad-zand-5'],
+        [9, 7, 'nad-zand-7'],
+        [7, 0, 'nad-zand-8'],
+      ]),
+      gcol('B', 10, [
+        [10, 3, 'nad-zand-5'],
+        [3, 1, 'nad-zand-7'],
+        [1, 0, 'nad-zand-8'],
+      ]),
+    )
+    const refined = refineLithoPartition([REGION], ['A', 'B'], cols, NAD, LITHO_SOIL, {
+      packingEdges: [
+        { a: 'A-g1', b: 'B-g1', aSide: 'top', bSide: 'top' }, // the tied bed's top
+        { a: 'A-g2', b: 'B-g2', aSide: 'top', bSide: 'top' }, // the contact under it
+      ],
+    })
+    // It connects as a band, not as two pinch-out lenses on their own columns.
+    expect(tags(refined, 'band').some((p) => p.formationId === 'nad-zand-7')).toBe(true)
+    // And it reaches both columns at each column's OWN elevation for that bed.
+    expect(formsAt(refined, 0.02, 8).has('nad-zand-7')).toBe(true)
+    expect(formsAt(refined, 0.98, 2).has('nad-zand-7')).toBe(true)
+  })
+
   it('DEFERRED — one tied contact is treated as untied (pinned, not endorsed)', () => {
     // Litho's middle case (exactly ONE correlated contact -> ONLAP) has no
     // primitive in fraction space: the anchor walk alternates unmatched
@@ -289,5 +323,48 @@ describe('refineLithoPartition — packing edges drive the gap fill (owner rulin
       packingEdges: [{ a: 'A-g0', b: 'B-g0', aSide: 'top', bSide: 'top' }],
     })
     expect(tags(refined, 'band')).toEqual([])
+  })
+
+  it('DEFERRED — a JUMP tie over an undivided borehole cannot band yet (pinned, not endorsed)', () => {
+    // Step 2 of the packing pipeline proposes ties across borehole columns that
+    // carry no packing yet (``geotech_edge_bridging``), so an accepted tie can
+    // name two CPTs with an undivided borehole standing between them. The
+    // refinement pairs PER GAP — A|M then M|B — and neither gap has both of
+    // that tie's endpoints, so the tie cannot be read and the fill behaves
+    // exactly as if it did not exist.
+    //
+    // That is a real limit, not a bug to paper over: engine surgery to pair
+    // across a gap is its own design. The workflow answer already exists —
+    // step 4 divides the borehole, M gets its own packing, and the two
+    // now-ADJACENT pairs (A|M, M|B) band through the ordinary 2 -> BAND path
+    // above. This case pins the limit so the day the engine spans a gap, it
+    // goes red rather than changing silently.
+    const regions = [
+      quadRegion('formation-sand', 10, 10, 0, 0, 0),
+      quadRegion('formation-sand', 10, 10, 0, 0, 1),
+    ]
+    const cols = gmap(
+      gcol('A', 10, [
+        [10, 6, 'nad-zand-5'],
+        [6, 0, 'nad-zand-7'],
+      ]),
+      gcol('M', 10, []), // the undivided borehole — no packing of its own
+      gcol('B', 10, [
+        [10, 6, 'nad-zand-5'],
+        [6, 0, 'nad-zand-7'],
+      ]),
+    )
+    // An ACCEPTED jump tie, A straight to B over M.
+    const jump: CorrelationEdge[] = [
+      { a: 'A-g0', b: 'B-g0', aSide: 'top', bSide: 'top' },
+      { a: 'A-g1', b: 'B-g1', aSide: 'top', bSide: 'top' },
+    ]
+    const withJump = refineLithoPartition(regions, ['A', 'M', 'B'], cols, NAD, LITHO_SOIL, {
+      packingEdges: jump,
+    })
+    const withoutAnyTie = refineLithoPartition(regions, ['A', 'M', 'B'], cols, NAD, LITHO_SOIL, {
+      packingEdges: [],
+    })
+    expect(JSON.stringify(withJump)).toEqual(JSON.stringify(withoutAnyTie))
   })
 })
