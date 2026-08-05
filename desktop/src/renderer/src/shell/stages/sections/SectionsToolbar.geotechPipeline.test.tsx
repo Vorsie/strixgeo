@@ -91,6 +91,14 @@ function renderToolbar(ctx: ShellContextValue): void {
   )
 }
 
+/** The four steps live in the "Packing pipeline" dropdown (owner 2026-08-05) —
+ *  open it before querying an item. The menu auto-closes after an item click,
+ *  so re-open between presses. */
+async function openPipeline(): Promise<void> {
+  fireEvent.click(screen.getByTestId('geotech-pipeline'))
+  await screen.findByTestId('geotech-subdivide-cpts')
+}
+
 /** Make the tie-status endpoint answer with a given pending count. */
 function tiesPending(pending: number, accepted = 0): void {
   geotechTieStatus.mockResolvedValue({
@@ -115,8 +123,9 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('SectionsToolbar — the four-step packing pipeline', () => {
-  it('PL1 — all four numbered steps are on the geotech axis, in order', async () => {
+  it('PL1 — all four numbered steps are in the pipeline menu, in order', async () => {
     renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
+    await openPipeline()
     const labels = [
       'geotech-subdivide-cpts',
       'geotech-auto-correlate',
@@ -135,8 +144,9 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalled())
   })
 
-  it('PL2 — none of the four steps appears on the litho axis (control)', () => {
+  it('PL2 — the pipeline menu is absent on the litho axis (control)', () => {
     renderToolbar(makeCtx('lithostratigraphic'))
+    expect(screen.queryByTestId('geotech-pipeline')).toBeNull()
     for (const id of [
       'geotech-subdivide-cpts',
       'geotech-auto-correlate',
@@ -160,6 +170,7 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
         },
       }),
     )
+    await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
   })
@@ -173,13 +184,15 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
   it('PG1 — pending ties disable "Divide boreholes" and say how many', async () => {
     tiesPending(12, 5)
     renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
+    await screen.findByTestId('geotech-pending-tie-chip')
+    await openPipeline()
     const divide = screen.getByTestId('geotech-divide-boreholes')
-    await waitFor(() => expect(divide).toBeDisabled())
-    // A disabled <button> surfaces no tooltip in Chromium, so the explanation
-    // has to live on a wrapper the pointer can actually reach.
-    const explained = divide.closest('[role="presentation"]')
-    expect(explained?.getAttribute('title') ?? '').toContain('12 packing ties')
-    expect(explained?.getAttribute('title') ?? '').toMatch(/Accept all ties/)
+    expect(divide).toBeDisabled()
+    // A disabled menu item fires no hover events, so the gate's reason is a
+    // VISIBLE tag pill on the item — not a tooltip (owner tidy-up 2026-08-05).
+    expect(divide.textContent ?? '').toContain('accept 12 first')
+    // The full sentence still rides the title attribute for tests + a11y.
+    expect(divide.getAttribute('title') ?? '').toContain('12 packing ties')
   })
 
   it('PG2 — the pending count is shown as a chip beside the accept step', async () => {
@@ -199,6 +212,7 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
     )
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalled())
     expect(screen.queryByTestId('geotech-pending-tie-chip')).toBeNull()
+    await openPipeline()
     const divide = screen.getByTestId('geotech-divide-boreholes')
     await waitFor(() => expect(divide).not.toBeDisabled())
     fireEvent.click(divide)
@@ -212,6 +226,7 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
     geotechTieStatus.mockRejectedValue(new Error('boom'))
     renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalled())
+    await openPipeline()
     expect(screen.getByTestId('geotech-divide-boreholes')).not.toBeDisabled()
     expect(screen.queryByTestId('geotech-pending-tie-chip')).toBeNull()
   })
@@ -224,15 +239,19 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalledTimes(1))
 
     tiesPending(3)
+    await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
+    // The item click auto-closes the menu; the chip lives outside it.
     await screen.findByTestId('geotech-pending-tie-chip')
+    await openPipeline()
     await waitFor(() => expect(screen.getByTestId('geotech-divide-boreholes')).toBeDisabled())
 
     tiesPending(0, 3)
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByTestId('geotech-pending-tie-chip')).toBeNull())
+    await openPipeline()
     await waitFor(() => expect(screen.getByTestId('geotech-divide-boreholes')).not.toBeDisabled())
   })
 })
