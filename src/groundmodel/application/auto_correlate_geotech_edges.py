@@ -244,8 +244,11 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_bands,
                     seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
-                    # Suggestions, not commitments — the accept verb promotes them.
-                    user_approved=False,
+                    # Born ACCEPTED (owner ruling A, 2026-08-05): the litho
+                    # correlation these are derived from was already approved,
+                    # and approval carries down. The accept verbs + gate stay
+                    # for ties without litho backing.
+                    user_approved=True,
                     source=AUTO_SOURCE,
                 )
             )
