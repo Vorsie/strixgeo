@@ -1185,6 +1185,61 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onArmContact).toHaveBeenCalledWith('cb2', 'top')
   })
 
+  it('CE-THIN: a THIN band arms its OWN top over its full height — never the deeper contact', () => {
+    // Debt #158, owner mis-click 2026-08-04/05: on a ~10px band the midpoint
+    // split handed the lower half to the NEXT-DEEPER contact — aiming at the
+    // thin CLAY-SF armed the SILT below it, one band low, twice in one week.
+    // The boundary below loses nothing: it keeps its own generous target as
+    // the deeper band's upper zone (the SAME contact id).
+    const thinContacts = [
+      makeContact('t1', 'f-a', 'inv-B', 'cpt', 2.0),
+      makeContact('t2', 'f-a', 'inv-B', 'cpt', 3.0), // 10px band above → THIN
+      makeContact('t3', 'f-a', 'inv-B', 'cpt', 8.0), // fat band between t2..t3
+    ]
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: thinContacts,
+      formations: [fA],
+      placedColumns: [makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    // The thin band has no lower zone at all…
+    expect(screen.queryByTestId('contact-hit-t1-low')).toBeNull()
+    // …its whole height arms its own top…
+    const rect = screen.getByTestId('contact-hit-t1')
+    expect(Number(rect.getAttribute('height'))).toBeCloseTo(10, 0)
+    fireEvent.click(rect)
+    expect(gesture.onArmContact).toHaveBeenCalledWith('t1', 'top')
+    expect(gesture.onArmContact).not.toHaveBeenCalledWith('t2', 'top')
+    // …and the boundary below stays reachable via the deeper band's upper zone.
+    fireEvent.click(screen.getByTestId('contact-hit-t2'))
+    expect(gesture.onArmContact).toHaveBeenCalledWith('t2', 'top')
+  })
+
+  it('CE-THIN-DEEPEST: a thin DEEPEST band keeps its base zone — no alternative target exists', () => {
+    // The base tie has no twin zone below (there is no deeper band), so the
+    // midpoint split survives on the deepest band even when it is thin.
+    const thinContacts = [
+      makeContact('d1', 'f-a', 'inv-B', 'cpt', 2.0),
+      makeContact('d2', 'f-a', 'inv-B', 'cpt', 3.0), // deepest, 10px to TD…
+    ]
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: thinContacts,
+      formations: [fA],
+      placedColumns: [makeColumn('inv-B', 200, 10, 4)], // TD 4 m → thin deepest band
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-d2-low'))
+    expect(gesture.onArmContact).toHaveBeenCalledWith('d2', 'base')
+  })
+
   it('CE-HIT-DEEPEST-LOW: the deepest band’s lower zone arms the unit BASE (bottom-tie)', () => {
     // cb2 (inv-B, 5 m) is the DEEPEST contact on its column — its base is the
     // column floor. Pre base-side support this zone was INERT to avoid grabbing
