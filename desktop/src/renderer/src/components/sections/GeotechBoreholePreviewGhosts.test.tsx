@@ -21,9 +21,10 @@
 // GP14 — the hatch pattern ids are per-instance, not document-global
 // GP15 — while the committed layers are unknown, the ghosts on screen hold
 // GP16 — the overlay publishes what it actually drew, for the toolbar legend
+// GA1..GA4 — ghost-ACCEPT: right-click one column commits that column alone
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import GeotechBoreholePreviewGhosts from './GeotechBoreholePreviewGhosts'
 import {
@@ -511,5 +512,106 @@ describe('GeotechBoreholePreviewGhosts — donor provenance (owner ask 2026-08-0
     )
     const title = screen.getByTestId('geotech-preview-band-bh-1-0').querySelector('title')
     expect(title?.textContent).toContain('interpolated from the surrounding CPTs')
+  })
+
+  // -------------------------------------------------------------------------
+  // Ghost-ACCEPT — "these ghosts are right, divide THIS borehole"
+  //
+  // Step 4 divides every borehole at once, which is the wrong granularity the
+  // moment one column's ghosts look wrong and the rest look right. The subset
+  // commit runs the same planner over the same column, so what is committed is
+  // what was ghosted.
+  // -------------------------------------------------------------------------
+
+  it('GA1 — right-clicking a ghosted borehole offers to divide THAT borehole', () => {
+    const onAcceptColumn = vi.fn()
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [
+              { top: 0, base: 4, nad: 6 },
+              { top: 4, base: 8, nad: 8 },
+            ]),
+          ]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          onAcceptColumn={onAcceptColumn}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-1'))
+    const menu = screen.getByTestId('geotech-preview-column-menu')
+    // The menu names the column and how much it is about to commit — two
+    // borehole columns can sit a few pixels apart at normal spacing.
+    expect(menu.textContent).toContain('bh-1')
+    expect(menu.textContent).toContain('2 planned bands')
+    fireEvent.click(screen.getByTestId('geotech-preview-accept-column'))
+    expect(onAcceptColumn).toHaveBeenCalledWith('bh-1')
+  })
+
+  it('GA2 — the gesture commits ONE column, never its neighbour', () => {
+    const onAcceptColumn = vi.fn()
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }]),
+            previewColumn('bh-2', [{ top: 0, base: 4, nad: 8 }]),
+          ]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50), boreholeColumn('bh-2', 150)]}
+          onAcceptColumn={onAcceptColumn}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-2'))
+    fireEvent.click(screen.getByTestId('geotech-preview-accept-column'))
+    expect(onAcceptColumn).toHaveBeenCalledTimes(1)
+    expect(onAcceptColumn).toHaveBeenCalledWith('bh-2')
+  })
+
+  it('GA3 — without a handler the ghosts stay the read-only overlay they were', () => {
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }])]}
+          geotechLayers={[]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-1'))
+    expect(screen.queryByTestId('geotech-preview-column-menu')).toBeNull()
+  })
+
+  it('GA4 — a column whose commit landed has no ghosts left to accept', () => {
+    // The subset commit's own consequence: the committed rows arrive, the
+    // ghosts drop, and the gesture that produced them is gone with them. Pins
+    // the subset path of GP2 — a preview lingering beside the rows it predicted
+    // would be worse than no preview.
+    const onAcceptColumn = vi.fn()
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }]),
+            previewColumn('bh-2', [{ top: 0, base: 4, nad: 8 }]),
+          ]}
+          geotechLayers={[committedBand('bh-1')]}
+          placedColumns={[boreholeColumn('bh-1', 50), boreholeColumn('bh-2', 150)]}
+          onAcceptColumn={onAcceptColumn}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId('geotech-preview-column-bh-1')).toBeNull()
+    // The borehole left OUT of the subset keeps its ghosts and its gesture.
+    fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-2'))
+    fireEvent.click(screen.getByTestId('geotech-preview-accept-column'))
+    expect(onAcceptColumn).toHaveBeenCalledWith('bh-2')
   })
 })
