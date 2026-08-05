@@ -978,6 +978,35 @@ export interface SubdivideAllBodiesResponse {
    * deletes them.
    */
   review_tie_reasons?: Record<string, number>
+  /**
+   * Whether this call also PROPOSED packing ties.
+   *
+   * ``subdivide-cpts`` (pipeline step 1) answers ``false`` — the engineer's
+   * next press is auto-correlate. The combined ``subdivide-all-bodies`` verb
+   * answers ``true``. Optional so a response from a backend that predates the
+   * four-step pipeline still parses.
+   */
+  edges_derived?: boolean
+  /** Packing ties proposed by this call, all unapproved (0 when step 1). */
+  proposed_tie_count?: number
+}
+
+/**
+ * Response of ``GET .../geotech/tie-status`` — pipeline step 3's counter.
+ *
+ * The question "is there correlation work outstanding?", asked before the
+ * divide-boreholes gate answers it with a 422. Lets the toolbar disable step 4
+ * and say how much is left, instead of the engineer learning it from an error.
+ */
+export interface GeotechTieStatusResponse {
+  /** The geotechnical model the counts belong to. */
+  geotech_model_id: string
+  /** Proposed ties the engineer has not accepted (or deleted) yet. */
+  pending_tie_count: number
+  /** Ties already accepted — these are what the resolver and the build read. */
+  accepted_tie_count: number
+  /** Accepted ties flagged for review by a rebuild (the violet ``!`` badges). */
+  flagged_tie_count: number
 }
 
 /**
