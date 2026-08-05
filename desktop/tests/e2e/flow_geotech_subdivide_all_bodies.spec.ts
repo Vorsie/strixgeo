@@ -5,17 +5,15 @@
  *
  * Architecture note — why the API is called directly
  * ---------------------------------------------------
- * The "Subdivide all bodies" button (``geotech-subdivide-cpts``) lives
- * in ``SectionsToolbar`` (Sections stage) and is shown only when
- * ``sectionModelAxis === 'geotechnical'``.  The Geotech axis radio button
- * (``axis-geotech``) is **disabled** until a geotechnical model already exists
- * (``BG2`` in SectionsToolbar.geotech.test.tsx).  On a first-time run no
- * geotech model exists, so the toolbar path cannot be clicked.
- *
- * This spec therefore follows the ``flow_auto_correlate`` pattern: it calls
- * the subdivision endpoint directly via ``page.evaluate``, then re-opens the
- * project (which loads the bundle fresh, picks up the new geotech model and
- * NAD formations from the DB, and re-mounts the shell in the correct state).
+ * This spec predates the clean-slate axis fix (2026-08-05, ``03a3d86a9``):
+ * back then the Geotech axis radio was disabled until a geotech model
+ * existed, so the toolbar path could not be clicked on a first run and the
+ * endpoint was called directly via ``page.evaluate`` (the
+ * ``flow_auto_correlate`` pattern), followed by a project re-open to pick up
+ * the new model. The toolbar path is now walked end-to-end by
+ * ``flow_geotech_pipeline_clean_slate.spec.ts``; THIS spec deliberately keeps
+ * the API route — its subject is the subdivision RESULT reaching the Geotech
+ * spine-stage inspector, not the toolbar entry.
  *
  * Endpoint
  * --------
