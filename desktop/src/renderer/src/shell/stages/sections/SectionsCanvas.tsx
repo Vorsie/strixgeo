@@ -119,6 +119,9 @@ export default function SectionsCanvas(): JSX.Element {
       geotechContacts,
       geotechFormations,
       requestGeotechLayersRefetch,
+      // Ghost-accept: right-click ONE undivided borehole's ghosts -> commit
+      // just that column (pipeline step 4, scoped).
+      handleDivideBoreholes,
       handleCreateLithoContact,
       handleInlineLithoCreateFormation,
       // Phase 2 of debt #77: the bus exposes the unified Map +
@@ -2044,10 +2047,24 @@ export default function SectionsCanvas(): JSX.Element {
                 ? edge => void handleAcceptGeotechPackingCorrelation(edge.id)
                 : undefined
           }
+          // The geotech axis names this object a packing TIE everywhere else
+          // ("3 · Accept all ties", the pending chip, the gate's refusal), so the
+          // per-tie row says the same word as the bulk verb.
+          acceptEdgeLabel={isGeotech ? 'Accept tie' : undefined}
           // A flagged tie is a geotech-only state: only the re-subdivide raises it,
           // and only the geotech model carries one.
           onRequestConfirmEdgeReview={
             isGeotech ? edge => void handleConfirmGeotechPackingReview(edge.id) : undefined
+          }
+          // Right-click a ghosted borehole -> "Accept these bands (divide this
+          // borehole)". The same verb the toolbar's step 4 runs, scoped to one
+          // column, so the ghosts the engineer agreed with become rows without
+          // rebuilding the ones he did not. Geotech axis only — the ghosts only
+          // exist there.
+          onDivideBoreholeFromPreview={
+            isGeotech
+              ? boreholeId => void handleDivideBoreholes({ boreholeIds: [boreholeId] })
+              : undefined
           }
           onSaveLensShape={isLitho ? handleSaveLensShape : undefined}
           // S103 correlate-on-drag: a drag on an UN-correlated two-band boundary creates the
