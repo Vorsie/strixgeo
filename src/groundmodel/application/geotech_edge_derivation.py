@@ -53,6 +53,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import AUTO_SOURCE
+from groundmodel.domain.services.geotech_edge_bridging import (
+    bridge_litho_edges_over_bandless_columns,
+)
 from groundmodel.domain.services.geotech_packing_edges import aligned_same_class_pairs
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -237,6 +240,55 @@ async def load_existing_geotech_edge_pairs_by_section(
     for section_id, a, b in rows:
         by_section.setdefault(section_id, set()).add((min(a, b), max(a, b)))
     return by_section
+
+
+def bridge_edges_over_bandless_columns(
+    litho_approved_edges: set[tuple[UUID, UUID]],
+    litho_layer_depths: dict[UUID, tuple[str, float, float]],
+    geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
+) -> set[tuple[UUID, UUID]]:
+    """Add CPT↔CPT litho pairs that skip columns carrying no packing bands.
+
+    Thin adapter over
+    :func:`~groundmodel.domain.services.geotech_edge_bridging.bridge_litho_edges_over_bandless_columns`
+    — it turns the two index shapes this module already builds into the pure
+    rule's inputs.  Applied by every derivation caller, so a section drawn
+    CPT–borehole–CPT proposes the CPT pair the borehole sat between instead of
+    proposing nothing (owner ruling 2026-08-04).
+
+    Parameters
+    ----------
+    litho_approved_edges : set[tuple[UUID, UUID]]
+        The section's approved litho correlations, canonical ``(min, max)``.
+    litho_layer_depths : dict[UUID, tuple[str, float, float]]
+        ``litho_layer_id → (investigation_id_str, top_m, base_m)``.
+    geotech_layer_by_inv_depth : dict[str, list[tuple[Any, ...]]]
+        Per-investigation geotech band index; a column with a non-empty entry
+        here is one the derivation can align, so the bridge does not walk
+        through it.
+
+    Returns
+    -------
+    set[tuple[UUID, UUID]]
+        A superset of ``litho_approved_edges``: nothing the engineer approved is
+        ever dropped.
+    """
+    def _window_has_bands(inv_id: str, lit_top: float, lit_base: float) -> bool:
+        """Mirror ``_stack``'s in-window filter — same tolerance, same test."""
+        return any(
+            row[0] >= lit_top - _DEPTH_TOL_M and row[1] <= lit_base + _DEPTH_TOL_M
+            for row in geotech_layer_by_inv_depth.get(inv_id, [])
+        )
+
+    return bridge_litho_edges_over_bandless_columns(
+        litho_edges=litho_approved_edges,
+        layer_investigation={layer_id: entry[0] for layer_id, entry in litho_layer_depths.items()},
+        layers_with_bands={
+            layer_id
+            for layer_id, (inv_id, lit_top, lit_base) in litho_layer_depths.items()
+            if _window_has_bands(inv_id, lit_top, lit_base)
+        },
+    )
 
 
 async def derive_geotech_edges_from_litho(
