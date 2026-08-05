@@ -182,6 +182,16 @@ export interface EdgeContextMenuProps {
    *  Absent for an unflagged edge, which has no flag to clear.  This is the
    *  non-destructive answer to a flag; Delete is the other one. */
   onConfirmReview?: () => void
+  /**
+   * Wording for the accept row.
+   *
+   * The geotech axis calls this object a packing TIE everywhere else it names
+   * it — the toolbar's "3 · Accept all ties", the pending chip, the gate's
+   * refusal. A menu row saying "Accept correlation" beside them would make the
+   * per-tie half look like a different verb from the bulk one. Defaults to the
+   * litho wording.
+   */
+  acceptLabel?: string
   onClose: () => void
 }
 
@@ -190,6 +200,7 @@ export function EdgeContextMenu({
   onDelete,
   onAccept,
   onConfirmReview,
+  acceptLabel = 'Accept correlation',
   onClose,
 }: EdgeContextMenuProps): JSX.Element {
   const items: Array<{
@@ -202,7 +213,7 @@ export function EdgeContextMenu({
   // is still pending; an approved edge has nothing to accept.
   if (onAccept) {
     items.push({
-      label: 'Accept correlation',
+      label: acceptLabel,
       onClick: onAccept,
       testid: 'edge-context-accept',
     })
