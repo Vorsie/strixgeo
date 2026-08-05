@@ -96,11 +96,8 @@ nowhere near "no bands" (pinned in `refineLithoPartition.cs1frozen.test.ts`).
 
 **Untied intervals no longer meet at a mid-gap seam.** With spans left unmatched
 on BOTH sides, the interval is filled by the THICKEST class present *in* it and
-every other span pinches out from its own column as an overlay lens. ⚠ Known
-render defect (review F1, 2026-08-04): the lens draws OVER the interval fill at
-0.62 opacity, so the thin side reads as a class-colour blend rather than its
-own CPT's class — fix (carve the lens footprint out of the fill, or opaque
-geotech lenses) is queued with the jump-tie slice. The bracket-bulge rule
+every other span pinches out from its own column as an overlay lens. The
+bracket-bulge rule
 stays what it always was — the ONE-SIDED case, where the far column has no
 packing at those fractions to contradict it. Letting a bracket win the two-sided
 case floods: measured, it put the thin n22 crust over 619 m² of n23 clay on
@@ -109,6 +106,66 @@ Cross-section 1 and cost 3.7 pp of agreement.
 `packingEdges: undefined` (an un-threaded caller) keeps the legacy pairing
 byte-for-byte; an empty array means "no ties exist here" and pinches honestly.
 Both statements are pinned by `refineLithoPartition.edges.test.ts`.
+
+**F1 RESOLVED 2026-08-05 — the lens no longer blends with the fill it covers.**
+The defect was real and measured: on the two-sided untied scene 65 of 1 521
+probe points were painted by BOTH the interval fill and the pinch-out lens at
+0.62 opacity each (n7 `#b8963a` over the n5 fill `#e8d48a`), so the thin side
+read as a third colour belonging to neither class.
+
+Mechanism chosen: **carve the lens footprints out of the fill**, in
+`utils/carveOverlayLenses.ts`, applied by `PartitionFillOverlay` to the
+refinement's output. Both inputs are convex by construction (the emitter
+produces trapezoids between two sample fractions, and its tapers are triangles
+already clipped by convex half-planes), so `A − B` decomposes into at most one
+convex piece per edge of `B` — `piece_i = A ∩ outside(e_i) ∩ inside(e_0..e_{i-1})`,
+disjoint by construction, each a Sutherland–Hodgman clip. Exact, not
+approximate; a non-convex subject is left alone rather than mangled.
+
+The alternative — rendering geotech-axis `hlens`/`enclens` opaque — was
+rejected: it removes the blend by giving those bands a different apparent
+colour from every other band of the same class on the section, trading one
+dishonest colour for another.
+
+Painter order decides the winner, and it has to: a FILL is carved by every
+overlay of its gap (the anchor walk emits interval fills and their lenses
+interleaved, so a lens can precede a fill it still covers), while an OVERLAY is
+carved only by the overlays drawn AFTER it — so the topmost lens is never
+carved and a lens-over-lens patch belongs to exactly one class.
+
+**It is a RENDER-layer transform, deliberately.** `refineLithoPartition`'s
+output stays byte-identical, so the owner-locked rule suite and the frozen CS1
+gate keep their pins, and the watertightness detector's by-design overlay
+exclusion is untouched. Verified: 0 blended points after the carve, no coverage
+lost (every point the raw refinement covered is still covered), and the lens
+polygons pass through unchanged. Negative-controlled — with the carve disabled
+the render gate `PartitionFillOverlay.refinement.test.tsx::F1` reports the 65
+blended screen points by name.
+
+**The real-data gate is where the carve earned its keep.**
+`refineLithoPartition.cs1frozen.test.ts` now runs `crossClassOffenders` over the
+carved output with the overlay tags RETAGGED so they are checked rather than
+excused — the exclusion that let F1 ship in the first place. It went red on the
+frozen CS1 slice (`GAP-2 SILT:15 x SILT:16: 44 cells`) and named a second, real
+defect: the refinement emits rings with a REPEATED final vertex
+(`[…, [0.6, -2.6304], [0.6, -2.6304]]`), and a zero-length edge's half-plane
+test is identically 0 — so "outside that edge" evaluates to the whole plane and
+the subtraction handed back a piece covering the region it was removing. The
+cutter is deduplicated before use; the case is pinned as its own unit test. The
+coverage ratchet for the carved arm has to sum EVERY tag, because after the
+carve a lens footprint belongs to the lens alone and a fill-only measure reads
+the fix as a 4.4 pp loss of section that was never lost.
+
+**DEFERRED — a JUMP tie cannot band in the fill yet.** Pipeline step 2 proposes
+ties across borehole columns that carry no packing (§9), so an accepted tie can
+name two CPTs with an undivided borehole between them. The refinement pairs PER
+GAP — A|M then M|B — and neither gap holds both endpoints, so the tie is not
+read and the fill behaves as if it did not exist. Not papered over: the
+workflow answer already exists, since step 4 divides the borehole and the two
+now-ADJACENT pairs band through the ordinary 2 → BAND path. Pinned by
+`refineLithoPartition.edges.test.ts` ("DEFERRED — a JUMP tie over an undivided
+borehole cannot band yet"), so the day the engine spans a gap it goes red
+rather than changing silently.
 
 **DEFERRED — the 1-tie ONLAP.** Litho's middle case has no primitive in fraction
 space: the anchor walk strictly alternates *unmatched interval* / *pair band*,
@@ -769,6 +826,62 @@ at 139 `single_donor` / 32 `flank_interpolated` / 4 `nearest_fallback` / 9
 `absolute_min` / 2 `body_min`. The rule only bites once the engineer re-runs the
 new pipeline: the 76 straddling jump pairs are exactly the ties that can then
 name a donor pair.
+
+### The renderer half (2026-08-05)
+
+The four verbs are four numbered toolbar buttons on the geotech axis, in press
+order, replacing the single "Subdivide all bodies" press:
+
+| button | testid | verb | gating |
+|---|---|---|---|
+| **1 · Subdivide CPTs** | `geotech-subdivide-cpts` | `subdivide-cpts` | needs a litho model; a RE-run still opens `ReSubdivideConfirmDialog` |
+| **2 · Auto-correlate** | `geotech-auto-correlate` | `auto-correlate` | needs the geotech model + an open section |
+| **3 · Accept all ties** | `geotech-accept-correlations` | `contact-correlations/accept` | needs the geotech model + an open section; amber while ties are pending |
+| **4 · Divide boreholes** | `geotech-divide-boreholes` | `divide-boreholes` | **disabled while `pending > 0`** |
+
+`GET .../geotech/tie-status` feeds `useGeotechTieStatus`, re-read after EVERY
+verb (steps 1–4 and each single-tie accept). Its `pending` count renders as an
+amber chip (`geotech-pending-tie-chip`) beside step 3 and names itself in step
+4's tooltip. Because Chromium fires no mouse events on a `disabled` element,
+step 4's explanation lives on a `role="presentation"` span wrapper — the same
+device the axis toggle uses.
+
+**The gate falls OPEN on an unanswered tie-status.** Only a LOADED count blocks:
+a 404, a network failure, or a backend predating the endpoint would otherwise
+disable step 4 permanently. The server enforces the gate regardless, so falling
+open costs a 422 at worst — whose structured `message` is surfaced verbatim in
+the error toast — and never a dead button.
+
+Steps 2 and 3 were PROMOTED out of the "Correlate packing" caret; that control
+is now a plain button owning only the manual gesture. Two ways to press the same
+verb in one toolbar is the clutter debt #23 warns about, and a pipeline step
+hidden behind a caret is a step the engineer skips.
+
+**Per-tie accept** reuses the litho path unchanged (`acceptSingleContactCorrelation`
+→ `handleAcceptGeotechPackingCorrelation`, which refetches the packing edges and
+the geotech layers so the 2/1/0 fill re-renders with the new band). Only the
+wording is axis-specific: `acceptEdgeLabel="Accept tie"`, so the row names the
+same object as "3 · Accept all ties".
+
+**Jump ties render honestly.** An edge whose endpoints are non-adjacent columns
+draws a polyline that BENDS at each column it crosses (`warpAwareEdgeVertices`).
+The accepted seam has done so since 2026-07-10; the PENDING proposal's dashed
+outline and its right-click hit polygon did not, and now do
+(`warpAwareRibbonOutline`). Drawing the proposal straight and the accepted tie
+bent told the engineer the surface moves when he accepts it — and on this axis a
+jump tie is the ordinary case, not the exception. Residual: the two
+drag-to-retarget grab lines on a pending edge are still straight; they are
+invisible and split at the screen midpoint, so warping them is its own change.
+
+**Ghost-accept.** Right-clicking an undivided borehole's ghost bands offers
+"Accept these bands (divide this borehole)", which POSTs `divide-boreholes` with
+`{borehole_ids: [id]}` — the subset the preview was drawn from (backend gate
+GP9). Per COLUMN, never per band: one borehole's bands are a single plan (its
+donors, its litho extents, its ties), so accepting a band out of the middle
+would ask the planner a question it was never asked. A subset commit does NOT
+clear the `boreholesStale` amber — the columns it left out are still out of
+date. The committed rows then drop that column's ghosts and leave every other
+column's alone.
 
 ## Open dogfeed items (owner)
 
