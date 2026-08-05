@@ -193,13 +193,19 @@ All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
 * (A) auto rule = **full NAD-class-SEQUENCE match within a litho body**
   (`_derive_geotech_edges_from_litho` rewrite + pure helper
   `domain/services/geotech_packing_edges.py`);
-* (B) render connects sub-bands by resolver `body_id` (`geotechSubdivide.ts`);
+* (B) render connects sub-bands by resolver `body_id` — since the
+  direct-partition rewrite this happens inside `refineLithoPartition.ts`
+  consuming the accepted edges (`geotechPackingTies.ts`), no separate
+  connect module;
 * (C) `ReSubdivideConfirmDialog` prompts before a re-subdivide clears
   connections;
 * (D) manual "Correlate packing" gesture reusing the litho correlate machine
-  pointed at the geotech model (same-class + same-litho-body guard
-  `utils/geotechPackingConnect.ts`, `requestGeotechLayersRefetch` nonce,
-  toolbar verb).
+  pointed at the geotech model (`useGeotechPackingCorrelation.ts`,
+  `requestGeotechLayersRefetch` nonce, toolbar verb). The client-side
+  same-class/same-litho-body guard was dropped per the R1 ruling (tie freely,
+  like litho); the surviving guard is server-side —
+  `domain/services/litho_body_guard.py` refuses only ties whose bands share
+  no adjacent litho body, and the refusal toast names both judged bands.
 
 META-RULE real-data verified: 226 auto edges, 0 cross-class, 0 null-class.
 See `memory/project_geotech_stage_body_centric.md`.
