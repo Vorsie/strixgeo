@@ -45,6 +45,7 @@ import { countDuplicateContacts } from '../../../utils/duplicateContacts'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilter'
 import { hashHexColor } from '../../../utils/hashColor'
+import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
 const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -111,6 +112,13 @@ export default function SectionsInspector(): JSX.Element {
       setSectionsDeepLinkTarget,
     },
   } = useShell()
+
+  // What ``GeotechBoreholePreviewGhosts`` ACTUALLY drew this frame, straight
+  // from the overlay via the module store — the legend explains hatching, so
+  // it must track the real hatching, not a recomputed approximation (the
+  // toolbar-era legend claimed "Hatched = preview" over an empty axis in three
+  // real cases). Unconditional hook, above every early return.
+  const previewRender = useGeotechPreviewRender()
 
   // sessionImportSectionIds is now sourced from the coordinator slice
   // of the ShellContext bus (debt #25 resolution). Previously a stub
@@ -250,6 +258,33 @@ export default function SectionsInspector(): JSX.Element {
           />
         </InspectorSection>
       )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Borehole packing preview — the hatched-ghost legend + clamped-band  */}
+      {/* notice, moved here from the toolbar (owner dogfeed 2026-08-05: the  */}
+      {/* prose overflowed the bar). Rendered only while the overlay actually */}
+      {/* draws something, same no-permanent-weight rule as before.           */}
+      {/* ------------------------------------------------------------------ */}
+      {sectionModelAxis === 'geotechnical' &&
+        (previewRender.columnCount > 0 || previewRender.clampedBandCount > 0) && (
+          <InspectorSection label="Borehole preview" count={previewRender.columnCount}>
+            <div className="space-y-1 px-1">
+              {previewRender.columnCount > 0 && (
+                <p className="text-xs text-text-muted" data-testid="geotech-preview-legend">
+                  Hatched bands = preview. Right-click a ghost column to divide just that
+                  borehole, or press &ldquo;4 · Divide boreholes&rdquo; to commit them all.
+                </p>
+              )}
+              {previewRender.clampedBandCount > 0 && (
+                <p className="text-xs text-text-muted" data-testid="geotech-preview-clamped">
+                  {previewRender.clampedBandCount} planned band
+                  {previewRender.clampedBandCount === 1 ? '' : 's'} outside the depth window —
+                  zoom out to see {previewRender.clampedBandCount === 1 ? 'it' : 'them'}.
+                </p>
+              )}
+            </div>
+          </InspectorSection>
+        )}
 
       {/* ------------------------------------------------------------------ */}
       {/* Formation list (read-only)                                          */}
