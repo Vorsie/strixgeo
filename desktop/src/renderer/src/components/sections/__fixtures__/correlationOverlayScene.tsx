@@ -128,6 +128,7 @@ export function makeGeotechEdge(id: string, approved: boolean): LithoContactCorr
 export interface GeotechAxisHandlers {
   onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
   onRequestConfirmEdgeReview?: (edge: LithoContactCorrelationEdge) => void
+  onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
 }
 
 export function renderGeotechAxis(
@@ -156,6 +157,60 @@ export function renderGeotechAxis(
         )}
         onRequestDeleteEdge={handlers.onRequestDeleteEdge}
         onRequestConfirmEdgeReview={handlers.onRequestConfirmEdgeReview}
+        onRequestAcceptEdge={handlers.onRequestAcceptEdge}
+        // What SectionsCanvas passes on this axis — the scene must feed the
+        // overlay what the geotech axis actually does, or the wording under test
+        // is the test's own.
+        acceptEdgeLabel="Accept tie"
+      />
+    </svg>,
+  )
+}
+
+/**
+ * The JUMP-TIE scene: A — M — B, where the tie joins A to B over M.
+ *
+ * Step 2 of the packing pipeline proposes ties across columns that carry no
+ * packing yet, so a tie whose endpoints are NOT neighbours is ordinary on the
+ * geotech axis. M sits between them on screen (x 150) and in along-metres
+ * (12.5 of 5..20) — deliberately NOT at the same fraction of each, because a
+ * straight screen segment between A and B would still pass through a column
+ * placed proportionally and the test would prove nothing.
+ *
+ * Only A and B carry contacts: M is the undivided column the tie jumps.
+ */
+export function renderGeotechJumpAxis(
+  edges: readonly LithoContactCorrelationEdge[],
+  handlers: GeotechAxisHandlers = {},
+) {
+  const formation = makeFormation('f-nad-12', 'NAD 12')
+  return render(
+    <svg>
+      <CorrelationEdgesOverlay
+        contacts={[
+          makeContact('ca', 'f-nad-12', 'inv-A', 2.0),
+          makeContact('cb', 'f-nad-12', 'inv-B', 6.0),
+        ]}
+        formations={[formation]}
+        placedColumns={[
+          makeColumn('inv-A', 100, 5),
+          // M: screen-fraction 0.5 of 100..200 but ALONG-fraction 0.2 of
+          // 5..20 — deliberately different, so a bend whose y interpolates by
+          // SCREEN position cannot pass the y assertions (review MINOR-2).
+          makeColumn('inv-M', 150, 8),
+          makeColumn('inv-B', 200, 20),
+        ]}
+        levelToScreen={(level: number) => 20 + (10 - level) * 10}
+        plotTop={20}
+        plotBottom={200}
+        contactEdges={overlayEdgeSource('geotechnical', [], edges)}
+        onRequestDeleteEdge={handlers.onRequestDeleteEdge}
+        onRequestConfirmEdgeReview={handlers.onRequestConfirmEdgeReview}
+        onRequestAcceptEdge={handlers.onRequestAcceptEdge}
+        // What SectionsCanvas passes on this axis — the scene must feed the
+        // overlay what the geotech axis actually does, or the wording under test
+        // is the test's own.
+        acceptEdgeLabel="Accept tie"
       />
     </svg>,
   )
