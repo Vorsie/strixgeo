@@ -1,0 +1,185 @@
+/**
+ * A stored boundary node must never repaint a body across an accepted tie.
+ *
+ * Owner dogfeed 2026-08-05 (coworker demo): a July-27 hand-drawn boundary on
+ * the SILT body's LOWER boundary — the very contact the engineer had since
+ * TIED — rendered a KLEI wedge ABOVE the tie in the S13↔S12 gap on CS1. The
+ * v2 engine itself refuses the node (§77 un-routable → silent no-op) and the
+ * off-engine post-bend is retired on v2, so whatever paints the wedge is a
+ * third path this scene pins shut: with a tied contact and a stored node
+ * rising above the seam, NO fill of the lower formation's colour may appear
+ * above the tied seam.
+ */
+
+import { cleanup, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+import PartitionFillOverlay from './PartitionFillOverlay'
+import type { Props } from './PartitionFillOverlay'
+import type {
+  BodyBoundaryResponse,
+  LithoContactCorrelationEdge,
+  LithoLayerResponse,
+} from '../../api/client'
+import type { PlacedColumn } from './utils'
+
+afterEach(cleanup)
+
+function layer(
+  id: string,
+  inv: string,
+  formationId: string,
+  top: number,
+  base: number,
+  bodyId: string,
+): LithoLayerResponse {
+  return {
+    id,
+    model_id: 'litho-model-1',
+    formation_id: formationId,
+    borehole_id: inv,
+    cpt_id: null,
+    depth_top_m: top,
+    depth_base_m: base,
+    status: 'accepted',
+    source: 'manual',
+    confidence: 'high',
+    observation_id: null,
+    observation_layer_id: null,
+    parent_geo_contact_id: null,
+    body_id: bodyId,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  } as LithoLayerResponse
+}
+
+function column(inv: string, along: number, elev: number): PlacedColumn {
+  return {
+    kind: 'borehole',
+    nudgedX: along,
+    trueX: along,
+    width: 40,
+    displaced: false,
+    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
+  } as unknown as PlacedColumn
+}
+
+function edge(a: string, b: string): LithoContactCorrelationEdge {
+  return {
+    id: `e-${a}-${b}`,
+    model_id: 'litho-model-1',
+    section_id: 'sec-1',
+    layer_a_id: a,
+    layer_b_id: b,
+    layer_a_side: 'top',
+    layer_b_side: 'top',
+    source: 'manual',
+    user_approved: true,
+  } as unknown as LithoContactCorrelationEdge
+}
+
+// SILT over KLEI on both columns; both contacts tied → the KLEI top is a
+// correlated BAND seam at elevation 5 (screen y = 150).
+const LITHO_LAYERS: LithoLayerResponse[] = [
+  layer('a-silt', 'L', 'formation-silt', 0, 5, 'body-silt'),
+  layer('a-klei', 'L', 'formation-klei', 5, 10, 'body-klei'),
+  layer('b-silt', 'R', 'formation-silt', 0, 5, 'body-silt'),
+  layer('b-klei', 'R', 'formation-klei', 5, 10, 'body-klei'),
+]
+const EDGES = [edge('a-silt', 'b-silt'), edge('a-klei', 'b-klei')]
+
+const SILT_COLOR = '#aac84a'
+const KLEI_COLOR = '#7d8da0'
+
+// The stale reshape: the SILT body's LOWER boundary pulled up above the tied
+// seam mid-gap — the exact shape of the July-27 node pair (thin at the left,
+// apex at half-gap well above the seam).
+const BOUNDARIES = new Map<string, BodyBoundaryResponse>([
+  [
+    'body-silt',
+    {
+      body_id: 'body-silt',
+      content_key: null,
+      render_style: 'straight',
+      primary_section_id: null,
+      upper_nodes: [],
+      lower_nodes: [
+        { along_m: 20, elevation_m: 5.1 },
+        { along_m: 50, elevation_m: 8 },
+      ],
+    } as unknown as BodyBoundaryResponse,
+  ],
+])
+
+const baseProps: Props = {
+  lithoLayers: LITHO_LAYERS,
+  contactEdges: EDGES,
+  placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+  formationColorById: new Map([
+    ['formation-silt', SILT_COLOR],
+    ['formation-klei', KLEI_COLOR],
+  ]),
+  showBands: true,
+  levelToScreen: (l: number) => 200 - l * 10,
+  plotTop: 0,
+  plotBottom: 400,
+  plotLeft: 0,
+  plotRight: 200,
+  alongToScreenX: (a: number) => a,
+  screenXToAlong: (x: number) => x,
+  screenToLevel: (y: number) => (200 - y) / 10,
+  boundariesByBodyId: BOUNDARIES,
+}
+
+/** Min screen-y (highest point) of every path filled with the given colour. */
+function minYOfFill(container: HTMLElement, color: string): number {
+  let minY = Infinity
+  for (const el of container.querySelectorAll(`path[fill="${color}"]`)) {
+    const d = el.getAttribute('d') ?? ''
+    for (const m of d.matchAll(/[ML]\s*[-\d.]+[ ,]([-\d.]+)/g)) {
+      const y = Number(m[1])
+      if (Number.isFinite(y) && y < minY) minY = y
+    }
+  }
+  return minY
+}
+
+describe.each([
+  { engine: 'v2', env: '1' },
+  // v1 is the engine that actually painted the owner's demo wedge: its
+  // off-engine POST-BEND pass bent the tied seam from the stored node.
+  { engine: 'v1', env: '0' },
+])('PartitionFillOverlay ($engine) — a stale boundary node never repaints across a tie', ({ env }) => {
+  let saved: string | undefined
+  beforeEach(() => {
+    saved = process.env.STRIX_PARTITION_V2
+    process.env.STRIX_PARTITION_V2 = env
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env.STRIX_PARTITION_V2
+    else process.env.STRIX_PARTITION_V2 = saved
+  })
+
+  it('SB1 — the KLEI fill stays below the tied seam despite the stored node above it', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...baseProps} />
+      </svg>,
+    )
+    // The tied seam is flat at elevation 5 → screen y 150. The KLEI colour may
+    // touch the seam but must not rise meaningfully above it — the stored node
+    // (apex at elevation 8 → y 120) must be a no-op on a tie-owned seam.
+    const kleiTop = minYOfFill(container, KLEI_COLOR)
+    expect(kleiTop).toBeGreaterThanOrEqual(149)
+  })
+
+  it('SB2 — control: without the stored node the same scene is band-clean', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...baseProps} boundariesByBodyId={undefined} />
+      </svg>,
+    )
+    expect(minYOfFill(container, KLEI_COLOR)).toBeGreaterThanOrEqual(149)
+  })
+})
