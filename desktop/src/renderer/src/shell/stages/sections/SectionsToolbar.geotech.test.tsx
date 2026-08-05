@@ -511,12 +511,12 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
         selectedSectionId: 'section-1',
       }),
     )
-    expect(screen.getByTestId('geotech-subdivide-all-bodies')).toBeTruthy()
+    expect(screen.getByTestId('geotech-subdivide-cpts')).toBeTruthy()
   })
 
   it('BF2 — button is absent on the geology axis', () => {
     renderToolbar(makeCtx({ sectionModelAxis: 'geological' }))
-    expect(screen.queryByTestId('geotech-subdivide-all-bodies')).toBeNull()
+    expect(screen.queryByTestId('geotech-subdivide-cpts')).toBeNull()
   })
 
   it('BF2b — button is absent on the lithostratigraphic axis', () => {
@@ -526,7 +526,7 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
         activeLithoModel: makeLithoModel(),
       }),
     )
-    expect(screen.queryByTestId('geotech-subdivide-all-bodies')).toBeNull()
+    expect(screen.queryByTestId('geotech-subdivide-cpts')).toBeNull()
   })
 
   it('BF3 — button is disabled when no litho model exists', () => {
@@ -537,7 +537,7 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
         selectedSectionId: 'section-1',
       }),
     )
-    expect(screen.getByTestId('geotech-subdivide-all-bodies')).toBeDisabled()
+    expect(screen.getByTestId('geotech-subdivide-cpts')).toBeDisabled()
   })
 
   it('BF3b — button is ENABLED even when no section is selected (model-wide operation)', () => {
@@ -549,7 +549,7 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
         selectedSectionId: null,
       }),
     )
-    expect(screen.getByTestId('geotech-subdivide-all-bodies')).not.toBeDisabled()
+    expect(screen.getByTestId('geotech-subdivide-cpts')).not.toBeDisabled()
   })
 
   it('BF4 — clicking the button calls handleSubdivideAllBodies with no arguments (model-wide)', () => {
@@ -562,8 +562,8 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
         handleSubdivideAllBodies,
       }),
     )
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
   })
 })
 
@@ -591,7 +591,7 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
     )
     // Dialog is not mounted before the click.
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     // The re-run is gated behind the confirm dialog — it must appear, and the
     // handler must NOT have fired yet (the user has to confirm first).
     expect(screen.getByTestId('re-subdivide-confirm-dialog')).toBeTruthy()
@@ -608,9 +608,9 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
         handleSubdivideAllBodies,
       }),
     )
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith()
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
   })
 })
 
