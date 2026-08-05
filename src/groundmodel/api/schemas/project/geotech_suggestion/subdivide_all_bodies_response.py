@@ -65,6 +65,15 @@ class SubdivideAllBodiesResponse(BaseModel):
     lost_tie_labels : list[str]
         One line per lost tie naming both investigations and each endpoint's
         depth range, so the engineer can find them in the section.
+    edges_derived : bool
+        Whether this call also PROPOSED packing ties.  ``true`` for the
+        combined legacy verb (it runs pipeline steps 1 and 2); ``false`` for
+        ``subdivide-cpts``, which writes bands only and leaves the proposing to
+        the auto-correlate verb.
+    proposed_tie_count : int
+        Packing ties proposed by this call.  Proposals, not accepted work — the
+        engineer promotes them with the accept verb, and nothing enters the
+        resolver, the fill or the 3-D build until he does.
     """
 
     geotech_model_id: UUID = Field(
@@ -139,5 +148,19 @@ class SubdivideAllBodiesResponse(BaseModel):
             "depth range, e.g. 'GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m'. "
             "A count alone tells the engineer accepted work vanished and nothing "
             "about where to redraw it; the ids were only ever in a server log."
+        ),
+    )
+    edges_derived: bool = Field(
+        True,
+        description=(
+            "Whether this call also proposed packing ties (pipeline step 2). "
+            "False for subdivide-cpts, which writes bands only."
+        ),
+    )
+    proposed_tie_count: int = Field(
+        0,
+        description=(
+            "Packing ties PROPOSED by this call — unapproved suggestions the "
+            "engineer accepts before they mean anything."
         ),
     )
