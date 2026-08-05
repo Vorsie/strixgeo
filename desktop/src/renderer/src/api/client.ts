@@ -168,6 +168,8 @@ export type {
   SubdivideAllBodiesResponse,
   // "Divide boreholes" endpoint response.
   DivideBoreholeResponse,
+  // Pipeline step 3 — how many packing ties are still proposed.
+  GeotechTieStatusResponse,
   // "Divide boreholes" DRY RUN — the ghost bands drawn over undivided boreholes.
   DivideBoreholePreviewBand,
   DivideBoreholePreviewColumn,
