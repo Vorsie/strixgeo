@@ -104,11 +104,18 @@ class DonorBand:
         Band base, metres below the donor's collar.
     nad_class : int
         NAD packing class 1–31.
+    layer_id : str
+        The band's ``litho_layer`` id, stringified — the identity an accepted
+        packing tie names.  Appended with a default so every existing
+        construction site keeps working; the tie-informed donor rule
+        (:mod:`groundmodel.domain.services.geotech_tie_donors`) is the only
+        reader, and an empty id simply never matches a tie.
     """
 
     top_m: float
     base_m: float
     nad_class: int
+    layer_id: str = ""
 
 
 @dataclass(frozen=True)
