@@ -105,11 +105,6 @@ function renderToolbar(ctx: ShellContextValue): void {
   )
 }
 
-/** The correlate verbs live under the Correlate-packing caret, like litho's triad. */
-function openPackingCaret(): void {
-  fireEvent.click(screen.getByTestId('geotech-correlate-packing-caret'))
-}
-
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
@@ -122,7 +117,6 @@ afterEach(() => {
 describe('SectionsToolbar — geotech auto-correlate', () => {
   it('GC1 — the verb is reachable on the geotech axis', () => {
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     expect(screen.getByTestId('geotech-auto-correlate')).toBeTruthy()
   })
 
@@ -133,31 +127,26 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     expect(screen.getByTestId('correlate-mode-caret')).toBeTruthy()
   })
 
-  it('GC3 — pressing it asks the GEOTECH model for proposals on the open section', async () => {
+  it('GC3 — pressing it asks the GEOTECH model for proposals across the whole model', async () => {
+    // RE-PINNED 2026-08-05 (review MAJOR-2): the pipeline gate is model-wide,
+    // so its feeder verbs are too. The geotech model id — never the litho
+    // parent — and a null section = every section.
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
-    // The geotech model id — never the litho parent — and the section on screen, so
-    // the engineer can see and review what was proposed.
-    expect(autoCorrelateGeotech).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
+    expect(autoCorrelateGeotech).toHaveBeenCalledWith('proj-1', 'geotech-model-1', null)
   })
 
   it('GC4 — the verb is disabled until a geotech model exists', () => {
     renderToolbar(makeCtx('geotechnical', { geoModel: { activeGeotechModel: null } }))
-    openPackingCaret()
     expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
   })
 
-  it('GC4b — the verb is disabled with no section open, because it proposes for review', () => {
-    // A proposal the engineer cannot see is not a proposal. The litho verb is gated the
-    // same way (its "section has contacts" test is false without a selected section),
-    // and the tooltip promises "this section" — so the gate keeps that promise true.
+  it('GC4b — the verb works with no section open (model-wide, MAJOR-2 re-pin)', () => {
+    // Proposals are REVIEWED per section (pending style + per-tie accept), but
+    // proposing is model-wide so the model-wide gate can ever be satisfied.
     renderToolbar(makeCtx('geotechnical', { sections: { selectedSectionId: null } }))
-    openPackingCaret()
-    const item = screen.getByTestId('geotech-auto-correlate')
-    expect(item).toBeDisabled()
-    expect(item.getAttribute('title') ?? '').toMatch(/cross-section|section/i)
+    expect(screen.getByTestId('geotech-auto-correlate')).not.toBeDisabled()
   })
 
   it('GC5 — it adds; it never deletes or rebuilds (the owner invariant)', async () => {
@@ -166,7 +155,6 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     // delete the litho re-correlate flow uses, and above all not the subdivide that
     // wipes every geotech row in the model.
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalledTimes(1))
     expect(deleteAutoCorrelations).not.toHaveBeenCalled()
@@ -178,7 +166,6 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     // "Subdivide all bodies" opens ReSubdivideConfirmDialog because a re-run destroys
     // manual work. This verb destroys nothing, so it must not inherit that friction.
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
@@ -194,7 +181,6 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     })
     const toast = vi.fn()
     renderToolbar(makeCtx('geotechnical', { toast }))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
     const message = String(toast.mock.calls[0][1])
@@ -212,7 +198,6 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     })
     const toast = vi.fn()
     renderToolbar(makeCtx('geotechnical', { toast }))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
     expect(String(toast.mock.calls[0][1])).toMatch(/accept|review|suggestion|propos/i)
@@ -226,42 +211,41 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
 describe('SectionsToolbar — geotech accept correlations', () => {
   it('GA1 — the accept verb is reachable on the geotech axis', () => {
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     expect(screen.getByTestId('geotech-accept-correlations')).toBeTruthy()
   })
 
-  it('GA2 — accepting promotes the GEOTECH model’s pending ties on this section', async () => {
+  it('GA2 — accepting promotes the GEOTECH model’s pending ties model-wide', async () => {
+    // RE-PINNED 2026-08-05 (review MAJOR-2) — see GA3b for the reasoning.
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
-    expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
+    expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', null)
   })
 
   it('GA3 — the accept verb is disabled until a geotech model exists', () => {
     renderToolbar(makeCtx('geotechnical', { geoModel: { activeGeotechModel: null } }))
-    openPackingCaret()
     expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
   })
 
-  it('GA3b — the accept verb is disabled with no section open', () => {
-    // Accepting is the irreversible half of the loop: an approved tie joins bands into
-    // one body. Without a section on screen it would approve pending ties on sections
-    // the engineer has never looked at, which is exactly what the review loop prevents.
+  it('GA3b — the accept verb works with no section open (model-wide)', () => {
+    // RE-PINNED 2026-08-05 (review MAJOR-2). The earlier pin scoped accepting
+    // to the open section — but step 4's gate and the pending chip count the
+    // WHOLE model, so a section-scoped "Accept all" could never satisfy them:
+    // on a multi-section model the gate stayed closed with no in-app escape.
+    // The label says ALL and the owner's pipeline gates a model-wide divide on
+    // it, so the verb is model-wide; the per-tie right-click accept remains
+    // the section-local review path. (Trade-off flagged to the owner: bulk
+    // accept approves ties on sections not currently on screen.)
     renderToolbar(makeCtx('geotechnical', { sections: { selectedSectionId: null } }))
-    openPackingCaret()
-    const item = screen.getByTestId('geotech-accept-correlations')
-    expect(item).toBeDisabled()
-    expect(item.getAttribute('title') ?? '').toMatch(/cross-section|section/i)
+    expect(screen.getByTestId('geotech-accept-correlations')).not.toBeDisabled()
   })
 
-  it('GA3c — accepting never reaches beyond the open section', async () => {
+  it('GA3c — accepting reaches the whole model, matching the gate it must clear', async () => {
     renderToolbar(makeCtx('geotechnical'))
-    openPackingCaret()
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
-    // A null section id would mean "approve every pending tie in the model".
-    expect(acceptContactCorrelations.mock.calls[0][2]).not.toBeNull()
+    // Model-wide on purpose — see GA3b. A section id here would re-open MAJOR-2.
+    expect(acceptContactCorrelations.mock.calls[0][2]).toBeNull()
   })
 
   it('GA4 — the accept verb is absent on the litho axis (control)', () => {
@@ -301,7 +285,7 @@ describe('SectionsToolbar — Correlate packing keeps its own behaviour', () => 
     // Subdivide needs the litho model it reads bodies from; only then is its button
     // live and the re-run gated behind this dialog.
     renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     const dialog = screen.getByTestId('re-subdivide-confirm-dialog')
     expect(dialog.textContent ?? '').toMatch(/auto-correlate/i)
   })
