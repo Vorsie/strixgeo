@@ -253,6 +253,41 @@ export function warpAwareEdgePoints(
   alongEnd: number,
   columns: readonly PlacedColumn[],
 ): string {
+  return warpAwareEdgeVertices(xStart, yStart, alongStart, xEnd, yEnd, alongEnd, columns)
+    .map((p) => `${p.x},${p.y}`)
+    .join(' ')
+}
+
+/**
+ * The same polyline as :func:`warpAwareEdgePoints`, as vertices.
+ *
+ * A CLOSED shape that follows the edge — the pending proposal's dashed outline
+ * — needs its top and bottom boundaries as arrays so it can walk one forward
+ * and the other back. Extracted when the pending outline had to bend at the
+ * columns a JUMP tie crosses, exactly as the accepted seam already did: an
+ * outline and a seam are the same claim about the same surface, and drawing
+ * them differently says the tie MOVES when it is accepted.
+ *
+ * Parameters
+ * ----------
+ * xStart, yStart, alongStart : the A endpoint's screen x, screen y, along metres.
+ * xEnd, yEnd, alongEnd : the B endpoint's screen x, screen y, along metres.
+ * columns : all placed columns.
+ *
+ * Returns
+ * -------
+ * { x: number; y: number }[]
+ *     Vertices from A to B, two per intervening column (flat across its width).
+ */
+export function warpAwareEdgeVertices(
+  xStart: number,
+  yStart: number,
+  alongStart: number,
+  xEnd: number,
+  yEnd: number,
+  alongEnd: number,
+  columns: readonly PlacedColumn[],
+): { x: number; y: number }[] {
   const verts: { x: number; y: number }[] = [{ x: xStart, y: yStart }]
   if (Math.abs(alongEnd - alongStart) > 1e-6) {
     const loA = Math.min(alongStart, alongEnd)
@@ -272,7 +307,43 @@ export function warpAwareEdgePoints(
     }
   }
   verts.push({ x: xEnd, y: yEnd })
-  return verts.map(p => `${p.x},${p.y}`).join(' ')
+  return verts
+}
+
+/**
+ * Closed, warp-aware ``points`` for a ribbon-shaped edge overlay.
+ *
+ * Walks the TOP boundary A → B and the BOTTOM boundary B → A, both bent at
+ * every intervening column, so the ring hugs the same path the seam draws. Used
+ * by the pending proposal's dashed outline and by the right-click hit polygon —
+ * one shape, one geometry, no chance of the target drifting off the drawing.
+ *
+ * Parameters
+ * ----------
+ * xA, topA, botA, alongA : the A endpoint's screen x, its top and bottom screen
+ *     y, and its along-section metres.
+ * xB, topB, botB, alongB : the same for the B endpoint.
+ * columns : all placed columns.
+ *
+ * Returns
+ * -------
+ * string
+ *     ``points`` attribute for an SVG ``<polygon>``.
+ */
+export function warpAwareRibbonOutline(
+  xA: number,
+  topA: number,
+  botA: number,
+  alongA: number,
+  xB: number,
+  topB: number,
+  botB: number,
+  alongB: number,
+  columns: readonly PlacedColumn[],
+): string {
+  const top = warpAwareEdgeVertices(xA, topA, alongA, xB, topB, alongB, columns)
+  const bottom = warpAwareEdgeVertices(xA, botA, alongA, xB, botB, alongB, columns)
+  return [...top, ...bottom.reverse()].map(p => `${p.x},${p.y}`).join(' ')
 }
 
 /**
