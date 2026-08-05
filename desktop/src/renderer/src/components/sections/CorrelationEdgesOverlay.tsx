@@ -1234,8 +1234,20 @@ export default function CorrelationEdgesOverlay({
             // CONTACT_SELECT_NEAR_PX of a boundary arms it; the MIDDLE of a band
             // taller than 2×NEAR is inert, so a mid-band click never arms a far
             // boundary.  Thin bands collapse to a midpoint split (no inert gap).
-            const topEnd = Math.min(top + CONTACT_SELECT_NEAR_PX, mid)
-            const botStart = Math.max(bot - CONTACT_SELECT_NEAR_PX, mid)
+            // THIN-BAND rule (debt #158, owner mis-clicks 2026-08-04/05): on
+            // a band thinner than 2×NEAR, the midpoint split handed half of a
+            // ~10px target to the NEXT-DEEPER contact — aiming at a thin
+            // CLAY-SF armed the SILT below it, one band low. A thin
+            // NON-deepest band therefore arms its OWN top over its full
+            // height; the boundary below loses nothing because it keeps its
+            // generous twin target as the deeper band's upper zone (the same
+            // contact id). The DEEPEST band keeps its split even when thin —
+            // its base tie has no twin zone below.
+            const isThin = bot - top < 2 * CONTACT_SELECT_NEAR_PX
+            const hasDeeper = nextDeeperContactId.has(c.id)
+            const wholeBandArmsTop = isThin && hasDeeper
+            const topEnd = wholeBandArmsTop ? bot : Math.min(top + CONTACT_SELECT_NEAR_PX, mid)
+            const botStart = wholeBandArmsTop ? bot : Math.max(bot - CONTACT_SELECT_NEAR_PX, mid)
             return (
               <g key={`contact-hit-${c.id}`}>
                 {/* Visible indicator line when this contact's boundary is armed */}
@@ -1291,6 +1303,7 @@ export default function CorrelationEdgesOverlay({
                     dogfeed 2026-06-19: a 12px floor marker was too small to hit,
                     so the band's lower half is now the generous base hit-target —
                     bottom↔bottom ties via two lower zones.) */}
+                {bot - botStart > 0 && (
                 <rect
                   data-testid={`contact-hit-${c.id}-low`}
                   data-contact-id={lowerId ?? c.id}
@@ -1314,6 +1327,7 @@ export default function CorrelationEdgesOverlay({
                       : () => handleCorrelateClick(c.id, invId, 'base')
                   }
                 />
+                )}
               </g>
             )
           })}
