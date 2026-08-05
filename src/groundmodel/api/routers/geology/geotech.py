@@ -1,17 +1,31 @@
 """Geology API — geotechnical subdivision endpoints (body-centric flow).
 
-Three endpoints that expose the shipped body-centric geotech use cases:
+The four-step pipeline (owner ruling 2026-08-04) mirrors the litho stage's
+suggest → accept rhythm, so nothing the machine worked out reaches the model
+until the engineer has said yes to it:
 
-* ``POST /models/{model_id}/geotech/subdivide-all-bodies`` — classify + materialise
-  all in-corridor bodies in one shot (model_id = litho model).
-* ``POST /models/{model_id}/geotech/divide-boreholes`` — TIN-divide borehole
-  columns using the CPT geotech layers (model_id = litho model).
+1. ``POST /models/{model_id}/geotech/subdivide-cpts`` — packing bands on the
+   CPTs, and nothing else (model_id = litho model).
+2. ``POST /models/{model_id}/geotech/auto-correlate`` — PROPOSE packing ties,
+   jumping across borehole columns that carry no packing yet (model_id =
+   **geotech** model).
+3. ``POST /models/{model_id}/contact-correlations/accept`` (all) or
+   ``.../contact-correlations/{edge_id}/accept`` (one) — the model-generic
+   accept verbs of the litho axis, which take a geotech model unchanged.
+   ``GET /models/{model_id}/geotech/tie-status`` reports what is still pending.
+4. ``POST /models/{model_id}/geotech/divide-boreholes`` — refuses while ties
+   are pending (``geotech_ties_pending``, 422, carrying the count).
+
+The remaining endpoints:
+
+* ``POST /models/{model_id}/geotech/subdivide-all-bodies`` — the COMBINED verb,
+  kept for compatibility: it now runs steps 1 AND 2 and says so
+  (``edges_derived=true``, ``proposed_tie_count``).  Its derived edges are
+  PROPOSALS, exactly as ``auto-correlate``'s are.
 * ``POST /models/{model_id}/geotech/divide-boreholes/preview`` — the same
   planner, reported instead of written, so the engineer can see what packing
-  each borehole would get before pressing the button.
-* ``POST /models/{model_id}/geotech/auto-correlate`` — re-propose the automatic
-  packing ties as UNAPPROVED suggestions, adding only (model_id = **geotech**
-  model).
+  each borehole would get before pressing the button.  Ungated on purpose: a
+  preview writes nothing, so refusing it would only hide information.
 
 All require the model to belong to ``project_id`` (scope guard via
 ``get_in_project_or_404``); ``subdivide-all-bodies`` additionally requires
@@ -26,6 +40,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
@@ -48,12 +63,15 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     DivideBoreholePreviewDonor,
     DivideBoreholePreviewResponse,
     DivideBoreholeResponse,
+    DivideBoreholesRequest,
+    GeotechTieStatusResponse,
     SubdivideAllBodiesRequest,
     SubdivideAllBodiesResponse,
 )
 from groundmodel.application.auto_correlate_geotech_edges import AutoCorrelateGeotechEdges
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditResult
+from groundmodel.application.geotech_tie_status import load_geotech_tie_status
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
 from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
 from groundmodel.application.split_geotech_band import SplitGeotechBand
@@ -91,6 +109,14 @@ async def subdivide_all_bodies(
     session: AsyncSession = Depends(get_session),
 ) -> SubdivideAllBodiesResponse:
     """Classify and materialise geotech NAD bodies for all litho bodies in the model.
+
+    **The combined verb, kept for compatibility.**  In the four-step pipeline
+    (owner ruling 2026-08-04) this is steps 1 AND 2 in one press: it subdivides
+    the CPTs into packing bands *and* proposes the packing ties.  Every tie it
+    writes is a PROPOSAL (``user_approved=false``) — the engineer accepts them
+    before they reach the resolver, the fill or the 3-D build — and the
+    response says as much through ``edges_derived`` and ``proposed_tie_count``.
+    ``subdivide-cpts`` is the same verb stopping after the bands.
 
     Runs ``SubdivideAllBodies`` (Task E3) which groups geo-bounded litho picks
     by ``(body_id, source_geo_formation_id)``, applies the B-policy aggregator
@@ -145,25 +171,151 @@ async def subdivide_all_bodies(
         detail="Model not found",
     )
     require_model_kind(model, "lithostratigraphic", "geotech/subdivide-all-bodies")
-    # The body carries litho_model_id for forward-compatibility; the URL
-    # model_id is authoritative. Reject a mismatched body rather than silently
-    # discard it (the handler always uses the URL id).
-    if request.litho_model_id != model_id:
+    _require_matching_model_id(request.litho_model_id, model_id)
+
+    return await _run_subdivide(
+        session, project_id=project_id, model_id=model_id, derive_edges=True
+    )
+
+
+def _require_matching_model_id(body_model_id: UUID, url_model_id: UUID) -> None:
+    """Reject a request body that names a different model than the URL.
+
+    The body carries ``litho_model_id`` for forward-compatibility and the URL
+    id is authoritative, so a mismatch is refused rather than silently
+    discarded — the handler always uses the URL id, and a caller that believes
+    otherwise deserves to hear about it.
+
+    Parameters
+    ----------
+    body_model_id : UUID
+        ``litho_model_id`` from the request body.
+    url_model_id : UUID
+        ``model_id`` from the path.
+
+    Raises
+    ------
+    HTTPException(422)
+        When the two disagree.
+    """
+    if body_model_id != url_model_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "mismatched_model_id",
                 "message": (
-                    f"Body litho_model_id={request.litho_model_id} does not match "
-                    f"URL model_id={model_id}"
+                    f"Body litho_model_id={body_model_id} does not match "
+                    f"URL model_id={url_model_id}"
                 ),
             },
         )
 
+
+async def _refuse_while_ties_are_pending(session: AsyncSession, *, litho_model_id: UUID) -> None:
+    """Refuse the divide when the geotech model still carries tie PROPOSALS.
+
+    Step 4 of the pipeline is gated on step 3 being finished (owner ruling
+    2026-08-04).  A pending tie is a correlation the machine guessed and the
+    engineer has not looked at; dividing boreholes off half-reviewed evidence
+    produces packing he never sanctioned, on columns that carry no qc of their
+    own to argue back with.
+
+    Silent on a model with no geotech child yet: the divide itself answers that
+    with its own typed 404, and pre-empting it here would replace a precise
+    message with a vaguer one.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active DB session.
+    litho_model_id : UUID
+        The lithostratigraphic model whose geotech child is checked.
+
+    Raises
+    ------
+    HTTPException(422)
+        ``code = "geotech_ties_pending"``, carrying ``pending_tie_count`` and
+        ``accepted_tie_count`` so the caller can say how much is outstanding
+        without a second round trip.
+    """
+    geotech_model = (
+        (
+            await session.execute(
+                select(GeologicalModelOrm).where(
+                    GeologicalModelOrm.parent_model_id == litho_model_id,
+                    GeologicalModelOrm.kind == "geotechnical",
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if geotech_model is None:
+        return
+    tie_status = await load_geotech_tie_status(session, geotech_model.id)
+    if tie_status.pending_tie_count == 0:
+        return
+    logger.warning(
+        f"divide_boreholes refused: geotech_model={geotech_model.id} has "
+        f"{tie_status.pending_tie_count} pending packing tie(s) "
+        f"({tie_status.accepted_tie_count} accepted) — accept or delete them first"
+    )
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": "geotech_ties_pending",
+            "message": (
+                f"{tie_status.pending_tie_count} packing tie(s) are still proposed "
+                f"and not accepted. Accept (or delete) them before dividing the "
+                f"boreholes — an accepted tie that spans a borehole decides which "
+                f"CPTs its packing is read from."
+            ),
+            "pending_tie_count": tie_status.pending_tie_count,
+            "accepted_tie_count": tie_status.accepted_tie_count,
+            "geotech_model_id": str(geotech_model.id),
+        },
+    )
+
+
+async def _run_subdivide(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    model_id: UUID,
+    derive_edges: bool,
+) -> SubdivideAllBodiesResponse:
+    """Run ``SubdivideAllBodies`` and map its result onto the wire schema.
+
+    Shared by the combined verb (``derive_edges=True``, pipeline steps 1 + 2)
+    and the step-1 verb (``derive_edges=False``, bands only), so the two can
+    never drift in what they report.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Database session provided by DI.
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The lithostratigraphic model being subdivided.
+    derive_edges : bool
+        Whether to also propose packing ties.
+
+    Returns
+    -------
+    SubdivideAllBodiesResponse
+        Geotech model id, created formation ids, and per-phase counts.
+
+    Raises
+    ------
+    HTTPException(422)
+        When materialisation raises a domain ``ValueError``.
+    """
     try:
         result = await SubdivideAllBodies(session).execute(
             project_id=project_id,
             litho_model_id=model_id,
+            derive_edges=derive_edges,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -172,11 +324,13 @@ async def subdivide_all_bodies(
         ) from exc
 
     logger.info(
-        f"subdivide_all_bodies ok geotech_model={result.geotech_model_id} "
+        f"subdivide ok geotech_model={result.geotech_model_id} "
+        f"derive_edges={derive_edges} "
         f"layers={result.layer_count} bodies={result.body_count} "
         f"split={result.split_body_count} one_class={result.one_class_body_count} "
         f"borehole_only={result.borehole_only_count} "
         f"sections={result.section_count} "
+        f"ties_proposed={result.proposed_tie_count} "
         f"ties_reanchored={result.reanchored_tie_count} "
         f"ties_need_review={result.review_tie_reasons} "
         f"ties_lost={result.lost_tie_count} {result.lost_tie_reasons}"
@@ -195,6 +349,140 @@ async def subdivide_all_bodies(
         lost_tie_count=result.lost_tie_count,
         lost_tie_reasons=result.lost_tie_reasons,
         lost_tie_labels=result.lost_tie_labels,
+        edges_derived=result.edges_derived,
+        proposed_tie_count=result.proposed_tie_count,
+    )
+
+
+@router.post(
+    "/models/{model_id}/geotech/subdivide-cpts",
+    response_model=SubdivideAllBodiesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Step 1 — subdivide the CPTs into packing bands, and nothing else",
+    tags=["geotech"],
+)
+async def subdivide_cpts(
+    project_id: UUID,
+    model_id: UUID,
+    request: SubdivideAllBodiesRequest,
+    session: AsyncSession = Depends(get_session),
+) -> SubdivideAllBodiesResponse:
+    """Materialise the CPT packing bands WITHOUT proposing any tie.
+
+    Step 1 of the four-step pipeline (owner ruling 2026-08-04).  The combined
+    ``subdivide-all-bodies`` verb did too much at once: it subdivided the CPTs
+    *and* proposed packing ties in the same press (proposals since 9bab78e68 —
+    what the owner actually saw born-accepted were his own RE-ANCHORED accepted
+    ties carried across the rebuild).  This verb stops after the bands, so the
+    engineer sees
+    the packing before anything is correlated — the litho stage's suggest →
+    accept rhythm applied to the geotech axis.
+
+    Everything else is identical to the combined verb, including the model-wide
+    idempotent reset and the re-anchoring of ACCEPTED ties across the rebuild:
+    carrying the engineer's own work is not edge derivation, and skipping it
+    would make this the verb that silently destroys accepted correlations.
+
+    Auto-correlate is the engineer's next press; ``edges_derived=false`` in the
+    response says so.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — the litho model must belong to this project.
+    model_id : UUID
+        The **lithostratigraphic** model whose bodies are subdivided.  Must be
+        ``kind='lithostratigraphic'``; any other kind returns 422.
+    request : SubdivideAllBodiesRequest
+        Body with ``litho_model_id``, which must equal the URL ``model_id``.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    SubdivideAllBodiesResponse
+        Geotech model id, created formation ids, and per-phase counts;
+        ``edges_derived=false`` and ``proposed_tie_count=0``.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='lithostratigraphic'``, when the body's
+        ``litho_model_id`` disagrees with the URL, or on a domain error.
+    """
+    logger.info(f"POST /projects/{project_id}/geology/models/{model_id}/geotech/subdivide-cpts")
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    require_model_kind(model, "lithostratigraphic", "geotech/subdivide-cpts")
+    _require_matching_model_id(request.litho_model_id, model_id)
+    return await _run_subdivide(
+        session, project_id=project_id, model_id=model_id, derive_edges=False
+    )
+
+
+@router.get(
+    "/models/{model_id}/geotech/tie-status",
+    response_model=GeotechTieStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Step 3 — how many packing ties are still waiting to be accepted",
+    tags=["geotech"],
+)
+async def geotech_tie_status(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechTieStatusResponse:
+    """Report the geotech model's packing ties by approval state.
+
+    The question the pipeline's accept step raises, and the one the
+    divide-boreholes gate answers with a refusal: is there correlation work
+    outstanding?  Asking here lets the caller disable the button and say why,
+    instead of learning it from a 422.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model whose ties are counted.  Any other kind
+        returns 422 — a litho model's edge counts are a different question with
+        a different verb.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechTieStatusResponse
+        Pending / accepted / flagged counts.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='geotechnical'``.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    require_model_kind(model, "geotechnical", "geotech/tie-status")
+    tie_status = await load_geotech_tie_status(session, model_id)
+    logger.info(
+        f"geotech_tie_status model={model_id} pending={tie_status.pending_tie_count} "
+        f"accepted={tie_status.accepted_tie_count} flagged={tie_status.flagged_tie_count}"
+    )
+    return GeotechTieStatusResponse(
+        geotech_model_id=model_id,
+        pending_tie_count=tie_status.pending_tie_count,
+        accepted_tie_count=tie_status.accepted_tie_count,
+        flagged_tie_count=tie_status.flagged_tie_count,
     )
 
 
@@ -208,19 +496,26 @@ async def subdivide_all_bodies(
 async def divide_boreholes(
     project_id: UUID,
     model_id: UUID,
+    body: DivideBoreholesRequest | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> DivideBoreholeResponse:
-    """Materialise TIN-divided geotech bands for all borehole columns.
+    """Materialise geotech packing bands on the borehole columns.
 
-    Reads the CPT geotech layers already in the geotech model (written by
-    ``subdivide-all-bodies``), rebuilds the packing-transition surfaces, and
-    materialises matching borehole bands via TIN interpolation per litho body
-    group.  Prior borehole geotech layers are deleted before new ones are written
-    (idempotent re-run).
+    Step 4 of the four-step pipeline, and the only step that is GATED: while
+    packing ties are still pending, this refuses with
+    ``geotech_ties_pending`` (422) and the count of what is outstanding.  The
+    gate is not bureaucracy — an accepted tie whose span crosses a borehole's
+    column names the two CPTs that borehole's packing is read from (owner
+    ruling 2026-08-04), so dividing with proposals unreviewed throws away
+    evidence the engineer is one click from supplying.  Pass
+    ``ignore_pending_ties`` to divide anyway.
 
-    Run this **after** ``subdivide-all-bodies`` — and optionally after the
-    engineer has manually correlated packing bands — so borehole bands reflect
-    the final body membership and CPT packing structure.
+    Reads the CPT geotech layers already in the geotech model, borrows each
+    borehole's packing from the tied pair (or, where no tie spans, from the
+    CPTs flanking it on a section), and writes the resulting bands.  Prior
+    borehole geotech layers are deleted before new ones are written (idempotent
+    re-run); with ``borehole_ids`` both halves are scoped to that subset, so a
+    borehole left out keeps the bands and the accepted ties it already had.
 
     Parameters
     ----------
@@ -228,6 +523,9 @@ async def divide_boreholes(
         Project scope (path parameter from the router prefix).
     model_id : UUID
         The **lithostratigraphic** model whose geotech child model to update.
+    body : DivideBoreholesRequest | None
+        Optional ``borehole_ids`` subset and ``ignore_pending_ties`` escape.
+        Omitted entirely means "every borehole, gate enforced".
     session : AsyncSession
         Injected database session.
 
@@ -240,7 +538,8 @@ async def divide_boreholes(
     ------
     HTTPException
         * 404 — litho model not found in project, or geotech model not yet created.
-        * 422 — validation error in path/body parameters.
+        * 422 — packing ties still pending (``geotech_ties_pending``), or a
+          validation error in path/body parameters.
         * 500 — unexpected server error.
     """
     await get_in_project_or_404(
@@ -248,10 +547,24 @@ async def divide_boreholes(
         project_id,
         detail="Model not found",
     )
+    # An EMPTY list is "divide none", not "divide all": a renderer with a
+    # cleared selection sends [] and must not trigger the maximal irreversible
+    # rebuild (review finding 1, 2026-08-05). Only an OMITTED field means all.
+    borehole_ids = (
+        set(body.borehole_ids) if body is not None and body.borehole_ids is not None else None
+    )
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/divide-boreholes "
+        f"boreholes={'ALL' if borehole_ids is None else len(borehole_ids)} "
+        f"ignore_pending_ties={bool(body is not None and body.ignore_pending_ties)}"
+    )
+    if body is None or not body.ignore_pending_ties:
+        await _refuse_while_ties_are_pending(session, litho_model_id=model_id)
     try:
         result = await DivideBoreholes(session).execute(
             project_id=project_id,
             litho_model_id=model_id,
+            borehole_ids=borehole_ids,
         )
     except HTTPException:
         raise
@@ -295,6 +608,7 @@ async def divide_boreholes(
 async def preview_divide_boreholes(
     project_id: UUID,
     model_id: UUID,
+    body: DivideBoreholesRequest | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> DivideBoreholePreviewResponse:
     """Answer what packing each borehole would get, without writing anything.
@@ -321,6 +635,11 @@ async def preview_divide_boreholes(
     model_id : UUID
         The **lithostratigraphic** model whose geotech child model would be
         updated — the same id ``divide-boreholes`` takes.
+    body : DivideBoreholesRequest | None
+        Same optional body as the commit endpoint. ``borehole_ids`` scopes the
+        preview to those columns so subset ghosts are exactly the subset
+        commit's rows (review finding 2, 2026-08-05); ``ignore_pending_ties``
+        is irrelevant here — the preview writes nothing and is never gated.
     session : AsyncSession
         Injected database session.
 
@@ -344,9 +663,16 @@ async def preview_divide_boreholes(
         project_id,
         detail="Model not found",
     )
+    preview_borehole_ids = (
+        set(body.borehole_ids) if body is not None and body.borehole_ids is not None else None
+    )
     use_case = DivideBoreholes(session)
     try:
-        plan = await use_case.plan(project_id=project_id, litho_model_id=model_id)
+        plan = await use_case.plan(
+            project_id=project_id,
+            litho_model_id=model_id,
+            borehole_ids=preview_borehole_ids,
+        )
         tie_plan = await use_case.preview_tie_carry(plan)
     except HTTPException:
         raise
