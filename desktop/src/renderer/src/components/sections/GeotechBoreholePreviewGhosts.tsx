@@ -41,21 +41,26 @@
  * does this borehole get". Low-confidence bands get a lighter fill and a denser
  * hatch (see ``TIERS``) — a difference that survives without hovering.
  *
- * Nothing here is a gesture target. These are not suggestions to accept one by
- * one; the only gesture is the ``Divide boreholes`` toolbar verb, which commits
- * all of them. The band rect stays hit-testable ONLY so its ``<title>`` tooltip
- * can appear — a ``pointer-events: none`` ancestor silently kills every
- * ``<title>`` under it. The hatch and the label are ``none`` so they never take
- * the hover from the band beneath them. Trade-off accepted knowingly: a click
- * landing on a ghost is swallowed rather than reaching the fill underneath, and
- * a ghosted column is by definition an undivided borehole with no geotech
- * gesture of its own.
+ * ONE gesture, and it is per COLUMN, not per band: right-click a ghosted
+ * borehole -> "Accept these bands (divide this borehole)" commits that column
+ * alone (``onAcceptColumn``). The bands of one borehole are a single plan — its
+ * donors, its litho extents, its ties — so accepting a band out of the middle
+ * of it would ask the planner a question it was never asked. The toolbar's
+ * step 4 remains the divide-everything verb; this is the answer to "these
+ * ghosts are right, those are not".
+ *
+ * The band rect stays hit-testable ANYWAY so its ``<title>`` tooltip can appear
+ * — a ``pointer-events: none`` ancestor silently kills every ``<title>`` under
+ * it. The hatch and the label are ``none`` so they never take the hover from
+ * the band beneath them. Trade-off accepted knowingly: a left-click landing on
+ * a ghost is swallowed rather than reaching the fill underneath, and a ghosted
+ * column is by definition an undivided borehole with nothing to click below.
  *
  * Geometry obeys the section's post-nudge column X (``col.nudgedX``), the same
  * value every other overlay draws at — column spacing warps the layout and a
  * ghost computed from the raw projected distance would float off its borehole.
  */
-import { useEffect, useId, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type {
   DivideBoreholePreviewColumn,
@@ -68,6 +73,7 @@ import {
 } from '../../utils/geotechPreviewRenderStore'
 import type { GeotechPreviewRender } from '../../utils/geotechPreviewRenderStore'
 import { NAD_CLASS_ABBR, nadClassColor, nadClassName } from '../../utils/nadClasses'
+import ContextMenu from '../ui/ContextMenu'
 import { surfaceYForColumn } from './contactsLayerGeometry'
 import type { PlacedColumn } from './utils'
 
@@ -187,6 +193,18 @@ export interface Props {
   /** Top / bottom of the plot area in screen px. */
   plotTop: number
   plotBottom: number
+  /**
+   * Commit THIS borehole's ghosts — right-click → "Accept these bands".
+   *
+   * The pipeline's step 4 divides every borehole at once, which is the right
+   * default and the wrong granularity when one column's ghosts look wrong and
+   * the rest look right. The subset commit runs the SAME planner over the SAME
+   * column, so what is committed is what was ghosted (backend gate GP9).
+   *
+   * Absent → the ghosts stay the read-only overlay they shipped as, and no
+   * context menu is offered.
+   */
+  onAcceptColumn?: (boreholeId: string) => void
 }
 
 /** One resolved ghost band, in screen coordinates. */
@@ -203,9 +221,20 @@ interface GhostBand {
 /** One borehole column's ghost geometry, resolved once per render. */
 interface GhostColumn {
   investigationId: string
+  /** Display name — the context menu names the column it is about to divide. */
+  name: string
   x0: number
   width: number
   bands: readonly GhostBand[]
+}
+
+/** An open right-click menu over one ghosted column. */
+interface GhostMenuState {
+  x: number
+  y: number
+  investigationId: string
+  name: string
+  bandCount: number
 }
 
 /** Everything the render needs, plus what to tell the toolbar about it. */
@@ -281,6 +310,7 @@ export default function GeotechBoreholePreviewGhosts({
   levelToScreen,
   plotTop,
   plotBottom,
+  onAcceptColumn,
 }: Props): JSX.Element | null {
   // Per-instance discriminator for the SVG pattern ids. A second mounted
   // section surface (split viewport, offscreen PDF render) would otherwise
@@ -290,6 +320,9 @@ export default function GeotechBoreholePreviewGhosts({
   const patternIdFor = (tier: Tier): string => `geotech-preview-hatch-${tier}-${instanceId}`
 
   const committedBoreholeIds = useCommittedBoreholeIds(geotechLayers, geotechLayersLoaded)
+
+  // Above the "nothing drawn" early return, per the hook-order rule.
+  const [menu, setMenu] = useState<GhostMenuState | null>(null)
 
   const { columns, summary } = useMemo<Resolved>(() => {
     if (previewColumns.length === 0) return NOTHING
@@ -343,6 +376,7 @@ export default function GeotechBoreholePreviewGhosts({
       bandCount += bands.length
       out.push({
         investigationId: item.id,
+        name: preview.name,
         x0: col.nudgedX - col.width / 2,
         width: col.width,
         bands,
@@ -407,6 +441,22 @@ export default function GeotechBoreholePreviewGhosts({
         <g
           key={`gbp-${column.investigationId}`}
           data-testid={`geotech-preview-column-${column.investigationId}`}
+          onContextMenu={
+            onAcceptColumn
+              ? e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const r = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                  setMenu({
+                    x: r ? e.clientX - r.left : column.x0,
+                    y: r ? e.clientY - r.top : 0,
+                    investigationId: column.investigationId,
+                    name: column.name,
+                    bandCount: column.bands.length,
+                  })
+                }
+              : undefined
+          }
         >
           {column.bands.map(band => (
             <g key={`gbp-band-${column.investigationId}-${band.depthTopM}`}>
@@ -454,6 +504,35 @@ export default function GeotechBoreholePreviewGhosts({
           ))}
         </g>
       ))}
+
+      {/* Right-click -> commit THIS column. ``portal="svg"`` because the menu is
+          HTML and this component renders inside the section's <svg>. */}
+      {menu && onAcceptColumn && (
+        <ContextMenu
+          portal="svg"
+          x={menu.x}
+          y={menu.y}
+          width={260}
+          // One row plus the header — the same 48 + 32/row sizing the edge menu
+          // uses, so an SVG-portalled menu never clips the row it decided to show.
+          height={80}
+          minWidth={240}
+          testid="geotech-preview-column-menu"
+          header={`${menu.name} · ${menu.bandCount} planned band${menu.bandCount === 1 ? '' : 's'}`}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: `Accept these bands (divide this borehole)`,
+              onClick: () => {
+                const id = menu.investigationId
+                setMenu(null)
+                onAcceptColumn(id)
+              },
+              testid: 'geotech-preview-accept-column',
+            },
+          ]}
+        />
+      )}
     </g>
   )
 }
