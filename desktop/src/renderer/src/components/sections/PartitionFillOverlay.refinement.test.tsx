@@ -207,4 +207,79 @@ describe('PartitionFillOverlay geotech refinement render', () => {
       expect(el.getAttribute('fill-opacity')).toBe('0.62')
     }
   })
+
+  it('F1 — an untied two-sided interval never paints two packing colours at one point', () => {
+    // Review F1 (2026-08-04): the pinch-out lens draws OVER the interval fill,
+    // and both paint at 0.62, so the thin side reads as a blend of its own
+    // class and the fill's. Read at the RENDER, on the geometry actually
+    // emitted: no screen point may sit inside two rendered fills of different
+    // colour. The carve is what makes this true; without it the lens footprint
+    // is double-painted.
+    const untied: GeotechRefinement = {
+      ...REFINEMENT,
+      geotechLayers: [
+        layer('ga-L-0', 'L', 'nad-zand-5', 0, 4, 'gb-0'),
+        layer('ga-L-1', 'L', 'nad-zand-7', 4, 10, 'gb-1'),
+        layer('ga-R-0', 'R', 'nad-zand-5', 0, 6, 'gb-0'),
+        layer('ga-R-1', 'R', 'nad-zand-8', 6, 10, 'gb-2'),
+      ],
+      nadMeta: new Map([
+        ['nad-zand-5', { nadClass: 5, soilCode: 'ZAND' }],
+        ['nad-zand-7', { nadClass: 7, soilCode: 'ZAND' }],
+        ['nad-zand-8', { nadClass: 8, soilCode: 'ZAND' }],
+      ]),
+      // An EMPTY list says "no packing ties on this section" — every span is
+      // untied, which is exactly the branch F1 was found in.
+      packingEdges: [],
+    }
+    const colors = new Map(nadColorMap)
+    colors.set('nad-zand-8', nadClassColor(8))
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...baseProps}
+          formationColorById={colors}
+          refinement={untied}
+        />
+      </svg>,
+    )
+    const painted = Array.from(
+      container.querySelectorAll('[data-testid="partition-refined-fill"]'),
+    ).map((el) => ({
+      color: el.getAttribute('fill') ?? '',
+      pts: parsePathPoints(el.getAttribute('d') ?? ''),
+    }))
+    expect(painted.length).toBeGreaterThan(1)
+    const blends: string[] = []
+    for (let i = 1; i < 40; i++) {
+      for (let j = 1; j < 40; j++) {
+        const x = (i / 40) * 100
+        const y = (j / 40) * 200
+        const hit = new Set<string>()
+        for (const p of painted) if (inScreenPoly(x, y, p.pts)) hit.add(p.color)
+        if (hit.size > 1) blends.push(`(${x.toFixed(1)},${y.toFixed(1)}) → ${[...hit].join('+')}`)
+      }
+    }
+    expect(blends).toEqual([])
+  })
 })
+
+/** Parse an ``M x,y L x,y … Z`` path into screen points. */
+function parsePathPoints(d: string): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = []
+  for (const m of d.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)) {
+    out.push({ x: Number(m[1]), y: Number(m[2]) })
+  }
+  return out
+}
+
+/** Even-odd point-in-polygon in screen space. */
+function inScreenPoly(px: number, py: number, pts: readonly { x: number; y: number }[]): boolean {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i]
+    const b = pts[j]
+    if (a.y > py !== b.y > py && px < a.x + ((py - a.y) / (b.y - a.y)) * (b.x - a.x)) inside = !inside
+  }
+  return inside
+}
