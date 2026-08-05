@@ -298,6 +298,14 @@ interface Props {
    */
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
   /**
+   * Wording of the accept row in the edge's right-click menu.
+   *
+   * The geotech axis passes "Accept tie" so the per-tie gesture and the
+   * toolbar's "3 · Accept all ties" name the same object. Defaults to the litho
+   * wording ("Accept correlation").
+   */
+  acceptEdgeLabel?: string
+  /**
    * Confirms a tie the rebuild flagged — clears its `review_reason`.
    *
    * The non-destructive answer to a flag; deleting is the other one. Absent when
@@ -316,6 +324,7 @@ import {
   contactStripeColors,
   CONTACT_EDGE_COLOR,
   warpAwareEdgePoints,
+  warpAwareRibbonOutline,
 } from './correlationEdgesHelpers'
 // Re-export for existing callers/tests that import the helpers from this module.
 export { buildBandMap, contactStripeColors, type BandEntry } from './correlationEdgesHelpers'
@@ -379,6 +388,7 @@ export default function CorrelationEdgesOverlay({
   unapprovedEdgeDrag,
   onRequestDeleteEdge,
   onRequestAcceptEdge,
+  acceptEdgeLabel,
   onRequestConfirmEdgeReview,
 }: Props): JSX.Element {
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
@@ -1013,7 +1023,17 @@ export default function CorrelationEdgesOverlay({
                 ) : (
                   <polygon
                     data-testid={`ribbon-outline-${ce.id}`}
-                    points={`${xA},${topY_A} ${xB},${topY_B} ${xB},${botY_B} ${xA},${botY_A}`}
+                    // WARP-AWARE, exactly like the accepted seam: a proposal that
+                    // spans intervening columns bends at each one. Drawing the
+                    // proposal straight and the accepted tie bent would tell the
+                    // engineer the surface MOVES when he accepts it — and on the
+                    // geotech axis a jump tie over an undivided borehole is the
+                    // ordinary case, not the exception (pipeline step 2).
+                    points={warpAwareRibbonOutline(
+                      xA, topY_A, botY_A, ptA.along,
+                      xB, topY_B, botY_B, ptB.along,
+                      placedColumns,
+                    )}
                     fill="none"
                     stroke={UNAPPROVED_EDGE_COLOR}
                     strokeWidth={1.4}
@@ -1105,7 +1125,14 @@ export default function CorrelationEdgesOverlay({
                   return (
                     <polygon
                       data-testid={`edge-hit-${ce.id}`}
-                      points={`${hxA},${hTopA} ${hxB},${hTopB} ${hxB},${hBotB} ${hxA},${hBotA}`}
+                      // Follows the drawn ribbon, warps and all — a right-click
+                      // target that runs straight across the columns a jump tie
+                      // bends around is a target sitting where nothing is drawn.
+                      points={warpAwareRibbonOutline(
+                        hxA, hTopA, hBotA, ptA.along,
+                        hxB, hTopB, hBotB, ptB.along,
+                        placedColumns,
+                      )}
                       fill="transparent"
                       style={{ pointerEvents: 'fill', cursor: 'context-menu' }}
                       onContextMenu={openDeleteMenu}
@@ -1461,6 +1488,7 @@ export default function CorrelationEdgesOverlay({
                 }
               : undefined
           }
+          acceptLabel={acceptEdgeLabel}
           onClose={() => setEdgeContextMenu(null)}
         />
       )}
