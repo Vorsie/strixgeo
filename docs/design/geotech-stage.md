@@ -267,6 +267,20 @@ the model's choice from the same place or the warning starts lying.
 ⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
 it silently destroys every hand split and merge. Nothing warns today.
 
+## 4a. Derived ties are born ACCEPTED — litho approval carries down (owner ruling A, 2026-08-05)
+
+Every tie the derivation emits sits inside a litho correlation the engineer
+already approved (directly, or via a bridged chain of approved edges), and the
+same-class packing pairing within an approved litho band is a mechanical
+refinement of that approval — not a new geological claim. So derived ties
+arrive ``user_approved=True`` while KEEPING ``source='auto'`` (hand and
+machine stay distinguishable; the 2026-08-01 bug of stamping derived ties as
+manual must never return). The pending flow — proposal style, accept verbs,
+the pending chip, the divide gate — stays live for any edge WITHOUT litho
+backing, which must state ``user_approved=False`` at its call site. In the
+four-step pipeline this means step 2 usually leaves nothing pending and step
+4 unlocks immediately; step 3 exists for the leftovers.
+
 ## 4b. The packing-tie litho-body guard is a SURFACE rule (owner, 2026-08-04)
 
 A contact touches the band above it and the band below it — up to TWO litho
