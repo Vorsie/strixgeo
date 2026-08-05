@@ -109,7 +109,7 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
       layer('l2', 'manual'),
       layer('l3', 'segmenter'),
     ])
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     const warning = document.body.querySelector('[data-testid="re-subdivide-hand-edits"]')
     expect(warning).not.toBeNull()
     expect(warning?.textContent).toContain('2')
@@ -122,7 +122,7 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
       layer('l3', 'segmenter'),
       layer('l4', 'manual'),
     ])
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     const warning = document.body.querySelector('[data-testid="re-subdivide-hand-edits"]')
     expect(warning?.textContent).toContain('1 hand-edited band ')
     expect(warning?.textContent).not.toContain('4')
@@ -130,7 +130,7 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
 
   it('HW3 — says nothing about hand edits when the engineer made none', () => {
     renderToolbar([layer('l1', 'segmenter'), layer('l2', 'segmenter')])
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     // The dialog still opens — the connections warning is unconditional.
     expect(screen.getByTestId('re-subdivide-confirm-dialog')).toBeTruthy()
     expect(document.body.querySelector('[data-testid="re-subdivide-hand-edits"]')).toBeNull()
@@ -139,9 +139,9 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
   it('HW4 — a warning, not a block: confirming still runs the subdivide', () => {
     const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
     renderToolbar([layer('l1', 'manual')], handleSubdivideAllBodies)
-    fireEvent.click(screen.getByTestId('geotech-subdivide-all-bodies'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     expect(handleSubdivideAllBodies).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('re-subdivide-confirm'))
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith()
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
   })
 })
