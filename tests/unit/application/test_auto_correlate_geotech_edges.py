@@ -177,12 +177,17 @@ def _session(
 
 
 @pytest.mark.asyncio
-async def test_proposed_edges_are_unapproved_so_the_engineer_reviews_them() -> None:
-    """Auto-correlate PROPOSES ties — every edge it writes is unapproved.
+async def test_derived_edges_are_born_accepted_because_litho_approval_carries_down() -> None:
+    """RE-PINNED (owner ruling A, 2026-08-05): derived ties arrive ACCEPTED.
 
-    This is the litho behaviour the owner asked for: the verb inserts
-    suggestions across the model, which he then reviews and promotes with the
-    accept verb.  An edge written approved would bypass that review entirely.
+    Every edge this verb derives sits inside a litho correlation the engineer
+    already approved — the same-class packing pairing within it is a mechanical
+    refinement of that approval, not a new geological claim, so a second review
+    round would re-ask a question the engineer already answered. What must NOT
+    change is provenance: ``source`` stays ``'auto'`` so hand and machine work
+    remain distinguishable (the 2026-08-01 bug was stamping derived ties as
+    hand-made, and a rebuild destroyed both). The pending flow + the divide
+    gate stay live for edges WITHOUT litho backing.
     """
     session = _session()
 
@@ -193,7 +198,7 @@ async def test_proposed_edges_are_unapproved_so_the_engineer_reviews_them() -> N
     assert result.edges_proposed == 1
     assert len(session.added) == 1
     edge = session.added[0]
-    assert edge.user_approved is False
+    assert edge.user_approved is True
     assert edge.source == "auto"
     assert edge.model_id == GEOTECH_MODEL
     assert edge.section_id == SECTION
