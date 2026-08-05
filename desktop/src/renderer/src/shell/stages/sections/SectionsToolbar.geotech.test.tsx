@@ -25,6 +25,7 @@ import type {
   LithoLayerResponse,
 } from '../../../api/client'
 import SectionsToolbar from './SectionsToolbar'
+import SectionsInspector from './SectionsInspector'
 import {
   publishGeotechPreviewRender,
   resetGeotechPreviewRender,
@@ -434,7 +435,31 @@ function renderToolbar(ctx: ShellContextValue): void {
       <SectionsToolbar />
     </ShellContext.Provider>,
   )
+  openPipelineMenu()
 }
+
+/** The pipeline steps live in the "Packing pipeline" dropdown (owner
+ *  2026-08-05). Open it right after render so the step items are queryable —
+ *  an item click auto-closes the menu, which is fine for these single-press
+ *  scenes. No-op off the geotech axis (the trigger is absent there). */
+function openPipelineMenu(): void {
+  const trigger = screen.queryByTestId('geotech-pipeline')
+  if (trigger && !(trigger as HTMLButtonElement).disabled) {
+    fireEvent.click(trigger)
+  }
+}
+
+
+/** The ghost legend moved to the right-hand inspector (owner 2026-08-05) —
+ *  the BF legend scenes render the inspector, not the toolbar. */
+function renderInspector(ctx: ShellContextValue): void {
+  render(
+    <ShellContext.Provider value={ctx}>
+      <SectionsInspector />
+    </ShellContext.Provider>,
+  )
+}
+
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -821,7 +846,7 @@ describe('SectionsToolbar preview legend (F)', () => {
 
   it('BF1 — shown when ghosts are actually on screen', () => {
     publishGeotechPreviewRender({ columnCount: 1, bandCount: 3, clampedBandCount: 0 })
-    renderToolbar(
+    renderInspector(
       makeCtx({
         ...GEOTECH_CTX,
         activeLithoModel: makeLithoModel(),
@@ -834,7 +859,7 @@ describe('SectionsToolbar preview legend (F)', () => {
   it('BF2 — hidden once every borehole carries a committed band', () => {
     // The overlay draws nothing for a divided column, so it publishes nothing.
     publishGeotechPreviewRender({ columnCount: 0, bandCount: 0, clampedBandCount: 0 })
-    renderToolbar(
+    renderInspector(
       makeCtx({
         ...GEOTECH_CTX,
         activeLithoModel: makeLithoModel(),
@@ -847,7 +872,7 @@ describe('SectionsToolbar preview legend (F)', () => {
 
   it('BF3 — hidden off the geotech axis', () => {
     publishGeotechPreviewRender({ columnCount: 1, bandCount: 3, clampedBandCount: 0 })
-    renderToolbar(
+    renderInspector(
       makeCtx({
         ...GEOTECH_CTX,
         sectionModelAxis: 'lithostratigraphic',
@@ -863,7 +888,7 @@ describe('SectionsToolbar preview legend (F)', () => {
     // said "Hatched = preview" next to an empty axis whenever the overlay had
     // declined to draw — no collar elevation, still loading, or the request
     // failed and the error toast was already up.
-    renderToolbar(
+    renderInspector(
       makeCtx({
         ...GEOTECH_CTX,
         activeLithoModel: makeLithoModel(),
@@ -876,7 +901,7 @@ describe('SectionsToolbar preview legend (F)', () => {
   it('BF5 — says so when a planned band is outside the depth window', () => {
     // A planned band with no pixels must not read as "nothing planned there".
     publishGeotechPreviewRender({ columnCount: 1, bandCount: 2, clampedBandCount: 3 })
-    renderToolbar(
+    renderInspector(
       makeCtx({
         ...GEOTECH_CTX,
         activeLithoModel: makeLithoModel(),
