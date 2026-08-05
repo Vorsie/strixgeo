@@ -87,7 +87,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
 
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
@@ -386,26 +386,26 @@ must be CORRECT AT CREATE TIME, not via a repair button.** Today
 G3Dv3 makes this true for Flanders projects; the NL extension
 must follow the same rule.
 
-## 13. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
+## 13. Geotechnical units invisible to the section editor — SUPERSEDED 2026-08-05
 
-**What.** ``geotechnical_unit`` rows (formation → unit
-hierarchy) only surface in ``InterpretationPane``.
-``FormationContact`` carries ``formation_id`` only — no
-``geotechnical_unit_id``. The section editor and ``App.tsx`` never
-receive the units. Section view cannot distinguish "weathered
-crust of Boom Klei" from "undisturbed Boom Klei". Correct per MVP
-scope ("subdivision — structure only") but the contact model has
-no hook point for unit assignment.
+**What (historical).** Filed when ``geotechnical_unit`` rows only surfaced in
+``InterpretationPane`` and the section editor had no way to show or anchor
+them.
 
-**Why deferred.** MVP gate defers per-unit parameters and per-unit
-visual distinction to Phase 5. Formation-level geometry is the
-export target for v1.0.
+**Why superseded.** The Phase-4 geotech stage rebuilt this ground entirely:
+geotech units are now real model rows (a sibling model with ``kind =
+'geotechnical'``, NAD-stamped formations, per-column ``LithoLayer`` bands and
+contacts) and the section editor renders them first-class on the geotech
+axis (fraction-space refinement, packing ties, borehole ghost previews, the
+four-step packing pipeline). The two concerns this entry raised live on in
+their modern forms:
 
-**When to revisit.** When per-unit parameters land (Phase 5) and
-downstream exporters (Plaxis material library) need unit-level
-contacts. At that point ``FormationContact`` needs either
-``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
-entity. Design the anchor before Phase 5 export work begins.
+* per-unit *editing* in the section editor → **#227** (manual geotech edits);
+* unit-level contacts reaching the exporters → **#104** (three-level export
+  gap).
+
+Nothing of the original framing ("no hook point for unit assignment")
+remains actionable — the hook points exist and are populated.
 
 ## 16. Telemetry / crash reporting (low)
 
