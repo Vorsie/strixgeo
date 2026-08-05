@@ -139,6 +139,7 @@ from uuid6 import uuid7
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
+    bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edges,
     load_existing_geotech_edge_pairs_by_section,
@@ -248,6 +249,14 @@ class SubdivideAllBodiesResult:
         endpoint (``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``).  The
         count alone tells the engineer that accepted work vanished and nothing
         about WHERE to redraw it (audit 2026-08-02).
+    edges_derived : bool
+        Whether this run also proposed packing ties (pipeline step 2).  The
+        combined legacy verb says ``True``; the step-1-only verb says ``False``
+        so the caller can tell the engineer that auto-correlate is his next
+        press rather than leaving him to guess why no ties appeared.
+    proposed_tie_count : int
+        Packing ties this run PROPOSED — unapproved suggestions, not accepted
+        work.  ``0`` whenever ``edges_derived`` is ``False``.
     """
 
     geotech_model_id: UUID
@@ -263,6 +272,8 @@ class SubdivideAllBodiesResult:
     lost_tie_count: int = 0
     lost_tie_reasons: dict[str, int] = field(default_factory=dict)
     lost_tie_labels: list[str] = field(default_factory=list)
+    edges_derived: bool = True
+    proposed_tie_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +354,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         *,
         project_id: UUID,
         litho_model_id: UUID,
+        derive_edges: bool = True,
     ) -> SubdivideAllBodiesResult:
         """Subdivide all model bodies and materialise geotech spatial bodies.
 
@@ -358,6 +370,16 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         litho_model_id : UUID
             The lithostratigraphic model to subdivide.  Must be
             ``kind='lithostratigraphic'``.
+        derive_edges : bool
+            Whether to run the per-section packing-tie derivation (Phase 9).
+            ``True`` — the historic behaviour — keeps the combined verb doing
+            steps 1 AND 2 of the four-step pipeline, so the old endpoint stays
+            usable.  ``False`` is the pipeline's step 1, *"subdivide CPTs into
+            packing — bands only, NO edge derivation"* (owner ruling
+            2026-08-04); the engineer then presses auto-correlate to get
+            proposals he can review before accepting them.  Accepted ties are
+            re-anchored either way: carrying the engineer's own work across a
+            rebuild is not edge *derivation*.
 
         Returns
         -------
@@ -370,7 +392,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             When the litho model is missing / out of project.
         """
         t0 = time.monotonic()
-        self.info(f"SubdivideAllBodies: litho_model={litho_model_id} (model-wide)")
+        self.info(
+            f"SubdivideAllBodies: litho_model={litho_model_id} (model-wide) "
+            f"derive_edges={derive_edges}"
+        )
 
         litho_model = await load_scoped_or_raise(
             self._session,
@@ -431,6 +456,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 lost_tie_reasons=(
                     {REASON_BAND_ABSENT: len(captured_ties)} if captured_ties else {}
                 ),
+                edges_derived=derive_edges,
             )
 
         # Phase 3 — geo-bound picks (same pipeline as C1, but a wider geotech
@@ -669,56 +695,73 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # it materialises the borehole bands, adding the borehole-mediated edges
         # (groundmodel.application.geotech_edge_derivation).
         sections = await load_project_sections(self._session, project_id)
-        self.info(
-            f"SubdivideAllBodies: deriving edges for {len(sections)} section(s) "
-            f"[{time.monotonic() - t0:.1f}s]"
-        )
-
-        # Build the model-wide litho layer depth index once (all accepted litho
-        # layers across all investigations — no section restriction).
-        litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
-        self.debug(
-            f"SubdivideAllBodies: {len(litho_layer_depths)} litho layer depth entries loaded"
-        )
-
-        # Per-section dedup, preloaded with the ties Phase 8c just restored (the
-        # only edges in the model at this point — the reset emptied the rest).
-        # Without the preload the derivation would re-propose a band pair an
-        # accepted tie already joins, and the pair would carry two edges.
-        seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
-            self._session, geotech_model.id
-        )
-
         edge_totals = EdgeDerivationCounts()
         sections_with_edges = 0
-        for section in sections:
-            litho_approved_edges = await load_approved_litho_edges(
-                self._session, litho_model_id, section.id
+        if not derive_edges:
+            # Pipeline step 1 — bands only. The engineer presses auto-correlate
+            # next and reviews the proposals before any of them is accepted.
+            self.info(
+                f"SubdivideAllBodies: edge derivation SKIPPED (derive_edges=False) — "
+                f"{len(sections)} section(s) left without proposals; run the geotech "
+                f"auto-correlate verb to propose packing ties [{time.monotonic() - t0:.1f}s]"
             )
-            if not litho_approved_edges:
-                continue
-            sections_with_edges += 1
+        else:
+            self.info(
+                f"SubdivideAllBodies: deriving edges for {len(sections)} section(s) "
+                f"[{time.monotonic() - t0:.1f}s]"
+            )
+
+            # Build the model-wide litho layer depth index once (all accepted
+            # litho layers across all investigations — no section restriction).
+            litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
             self.debug(
-                f"SubdivideAllBodies: section={section.id} ({section.name!r}) "
-                f"{len(litho_approved_edges)} approved litho edge(s)"
+                f"SubdivideAllBodies: {len(litho_layer_depths)} litho layer depth entries loaded"
             )
-            edge_totals.add(
-                await derive_geotech_edges_from_litho(
-                    self._session,
-                    self,
-                    geotech_model_id=geotech_model.id,
-                    section_id=section.id,
-                    litho_approved_edges=litho_approved_edges,
-                    litho_layer_depths=litho_layer_depths,
-                    geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
-                    seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
+
+            # Per-section dedup, preloaded with the ties Phase 8c just restored
+            # (the only edges in the model at this point — the reset emptied the
+            # rest). Without the preload the derivation would re-propose a band
+            # pair an accepted tie already joins, and the pair would carry two
+            # edges.
+            seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
+                self._session, geotech_model.id
+            )
+
+            for section in sections:
+                litho_approved_edges = await load_approved_litho_edges(
+                    self._session, litho_model_id, section.id
                 )
+                if not litho_approved_edges:
+                    continue
+                sections_with_edges += 1
+                # Jump ties: no borehole carries a packing band yet, so bridge
+                # the litho chain across those columns and propose the CPT↔CPT
+                # pair the borehole sits between (owner ruling 2026-08-04).
+                bridged = bridge_edges_over_bandless_columns(
+                    litho_approved_edges, litho_layer_depths, geotech_layer_by_inv_depth
+                )
+                self.debug(
+                    f"SubdivideAllBodies: section={section.id} ({section.name!r}) "
+                    f"{len(litho_approved_edges)} approved litho edge(s), "
+                    f"{len(bridged) - len(litho_approved_edges)} bridged jump pair(s)"
+                )
+                edge_totals.add(
+                    await derive_geotech_edges_from_litho(
+                        self._session,
+                        self,
+                        geotech_model_id=geotech_model.id,
+                        section_id=section.id,
+                        litho_approved_edges=bridged,
+                        litho_layer_depths=litho_layer_depths,
+                        geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+                        seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
+                    )
+                )
+            self.info(
+                f"SubdivideAllBodies: {edge_totals.edges_emitted} geotech edge(s) emitted "
+                f"(skipped_empty_stack={edge_totals.skipped_empty_stack} — borehole-mediated, "
+                f"deferred to DivideBoreholes; skipped_no_lcs={edge_totals.skipped_no_lcs})"
             )
-        self.info(
-            f"SubdivideAllBodies: {edge_totals.edges_emitted} geotech edge(s) emitted "
-            f"(skipped_empty_stack={edge_totals.skipped_empty_stack} — borehole-mediated, "
-            f"deferred to DivideBoreholes; skipped_no_lcs={edge_totals.skipped_no_lcs})"
-        )
 
         # Phase 10 — run resolver model-wide: creates BodyOrm + stamps
         # litho_layer.body_id.
@@ -752,6 +795,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             lost_tie_count=len(reanchor_plan.lost),
             lost_tie_reasons=reanchor_plan.loss_reason_counts(),
             lost_tie_labels=reanchor_plan.lost_tie_labels,
+            edges_derived=derive_edges,
+            proposed_tie_count=edge_totals.edges_emitted,
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "
@@ -759,6 +804,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"split={split_body_count} one_class={one_class_body_count} "
             f"borehole_only={borehole_only_count} "
             f"sections_with_edges={sections_with_edges}/{len(sections)} "
+            f"ties_proposed={edge_totals.edges_emitted} (derive_edges={derive_edges}) "
             f"accepted_ties_reanchored={len(reanchor_plan.matched)}/{len(captured_ties)} "
             f"accepted_ties_lost={len(reanchor_plan.lost)} "
             f"elapsed={elapsed:.1f}s"
