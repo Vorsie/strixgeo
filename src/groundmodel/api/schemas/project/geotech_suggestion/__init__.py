@@ -15,6 +15,8 @@ from .divide_borehole_preview_response import (
     DivideBoreholePreviewResponse,
 )
 from .divide_borehole_response import DivideBoreholeResponse
+from .divide_boreholes_request import DivideBoreholesRequest
+from .geotech_tie_status_response import GeotechTieStatusResponse
 from .subdivide_all_bodies_request import SubdivideAllBodiesRequest
 from .subdivide_all_bodies_response import SubdivideAllBodiesResponse
 
@@ -26,6 +28,8 @@ __all__ = [
     "DivideBoreholePreviewDonor",
     "DivideBoreholePreviewResponse",
     "DivideBoreholeResponse",
+    "DivideBoreholesRequest",
+    "GeotechTieStatusResponse",
     "SubdivideAllBodiesRequest",
     "SubdivideAllBodiesResponse",
 ]
