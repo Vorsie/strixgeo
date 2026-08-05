@@ -62,11 +62,12 @@ What it persists (one transaction, single commit at the end)
 2. **``litho_contact_correlation_edge`` rows** — one per approved litho edge,
    mapped from the litho layer's depth to the geotech sub-layer covering that
    same depth on each investigation, tagged with the source ``section_id``.
-   All edges are PROPOSALS: ``user_approved=False``, ``source='auto'``.  The
-   engineer promotes them with the section Accept-correlations verb, exactly as
-   on the litho axis.  Until he does, they connect nothing — the resolver reads
-   only approved edges — so a fresh subdivide leaves each packing band its own
-   body, and geotech bodies span investigations only where he accepted a tie.
+   All derived edges are born ACCEPTED (owner ruling A, 2026-08-05):
+   ``user_approved=True``, ``source='auto'`` — each one sits inside a litho
+   correlation the engineer already approved, and that approval carries down
+   to the mechanical same-class packing refinement inside it.  The proposal
+   flow (pending state + accept verbs + the divide gate) remains live for any
+   edge WITHOUT litho backing.
 
 3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances`` from the
    ACCEPTED edges; ``litho_layer.body_id`` is stamped in the same step.
