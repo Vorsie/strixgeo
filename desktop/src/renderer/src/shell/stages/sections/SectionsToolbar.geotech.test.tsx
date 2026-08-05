@@ -483,10 +483,29 @@ describe('SectionsToolbar geotech axis toggle (F3)', () => {
     expect(screen.getByText('Geotech')).toBeTruthy()
   })
 
-  it('BG2 — "Geotech" button is disabled when activeGeotechModel is null', () => {
-    renderToolbar(makeCtx({ activeGeotechModel: null }))
+  it('BG2 — "Geotech" is disabled when NEITHER a geotech nor a litho model exists', () => {
+    // With no litho model there is nothing for the packing pipeline to
+    // subdivide, so the axis has nothing to show and nothing to offer.
+    renderToolbar(makeCtx({ activeGeotechModel: null, activeLithoModel: null }))
     const btn = screen.getByTestId('axis-geotech')
     expect(btn).toBeDisabled()
+  })
+
+  it('BG2b — "Geotech" is ENABLED on a clean slate with a litho model: step 1 creates the geotech model', () => {
+    // Owner flow 2026-08-05: "geotech axis -> Packing pipeline -> 1 (creates
+    // the model fresh)". The pipeline's entry point lives ON the geotech axis,
+    // so the axis must be reachable BEFORE any geotech model exists — gating
+    // it on the geotech model deadlocks the first run (the model can only be
+    // created from the axis the gate locks). The litho model is the true
+    // prerequisite: it is the pipeline's source.
+    const setSectionModelAxis = vi.fn()
+    renderToolbar(
+      makeCtx({ activeGeotechModel: null, activeLithoModel: makeLithoModel(), setSectionModelAxis }),
+    )
+    const btn = screen.getByTestId('axis-geotech')
+    expect(btn).not.toBeDisabled()
+    fireEvent.click(btn)
+    expect(setSectionModelAxis).toHaveBeenCalledWith('geotechnical')
   })
 
   it('BG3 — clicking "Geotech" calls setSectionModelAxis("geotechnical") when model exists', () => {
