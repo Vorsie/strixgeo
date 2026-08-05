@@ -87,6 +87,7 @@ import {
   type FenceLayerInput,
   type FenceProjectedColumn,
 } from '../../utils/sectionFenceData'
+import { carveOverlayLenses } from '../../utils/carveOverlayLenses'
 import {
   clipPolygonToElevBand,
   refineLithoPartition,
@@ -1955,7 +1956,7 @@ export default function PartitionFillOverlay({
       })
     }
 
-    const refined = refineLithoPartition(
+    const rawRefined = refineLithoPartition(
       sectionRegions,
       columnOrder,
       geoColByInv,
@@ -1965,6 +1966,14 @@ export default function PartitionFillOverlay({
       // the same approved edge set the 3-D build consumes.
       { alongM, packingEdges: refinement.packingEdges },
     )
+    // Review F1 (2026-08-04): the unmatched-span / enclosed-minority lenses are
+    // drawn OVER the fill they pinch out of, and both paint at FILL_OPACITY, so
+    // where they stack the engineer reads a blend of two packing classes rather
+    // than either one. Carve the lens footprints out of the fills so every point
+    // on this axis carries exactly one packing identity. A render-layer
+    // transform on purpose — the refinement's own output stays byte-identical
+    // and keeps its owner-locked pins.
+    const refined = carveOverlayLenses(rawRefined)
 
     // Refined region fills + litho outlines (per gap, degenerate gaps skipped).
     const fillPolys: { key: string; d: string; color: string }[] = []
