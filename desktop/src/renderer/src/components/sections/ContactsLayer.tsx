@@ -41,7 +41,7 @@
  *     boreholes that disagree).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { log } from '../../utils/log'
 
@@ -1304,6 +1304,55 @@ export default function ContactsLayer({
     return out
   }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen, pendingGhostRangesByAnchorId, axisMode])
 
+  // Shared by the visible per-column band rect AND its #158 donated hit
+  // strips: a strip IS the band, just reachable, so the two surfaces must
+  // never drift apart in behaviour (extract-on-second-copy).
+  type PerColumnLithoBand = (typeof perColumnLithoBands)[number]
+
+  function lithoBandContextMenuHandler(
+    band: PerColumnLithoBand,
+  ): ((e: ReactMouseEvent<SVGRectElement>) => void) | undefined {
+    if (!onDeleteContact) return undefined
+    return e => {
+      e.preventDefault()
+      e.stopPropagation()
+      setLithoBandMenu({
+        clientX: e.clientX,
+        clientY: e.clientY,
+        mode: 'remove',
+        contactId: band.contactId,
+        formationName: band.formationName,
+      })
+    }
+  }
+
+  function lithoBandClickHandler(
+    band: PerColumnLithoBand,
+  ): ((e: ReactMouseEvent<SVGRectElement>) => void) | undefined {
+    if (!onRequestAddLithoSuggestion) return undefined
+    return e => {
+      e.stopPropagation()
+      if (band.anchorElevationM === null) return
+      // Use ownerSVGElement's bounding rect to map clientY into svg-coords —
+      // works in both real browser and jsdom (which returns 0 for
+      // everything). Depth = (svg-Y - surfaceY) / pxPerMetre, mirroring the
+      // drag handler's depth math.
+      const svg = e.currentTarget.ownerSVGElement
+      if (!svg) return
+      const svgRect = svg.getBoundingClientRect()
+      const svgY = e.clientY - svgRect.top
+      const depth = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
+      if (depth < 0) return
+      onRequestAddLithoSuggestion(
+        band.anchorKind,
+        band.anchorId,
+        depth,
+        band.anchorName,
+        band.anchorElevationM,
+      )
+    }
+  }
+
   const formationFillBands = useMemo(() => {
     if (polylines.length === 0) {
       return [] as {
@@ -2522,47 +2571,8 @@ export default function ContactsLayer({
           // all bodies" discarded without a word.  Without a handler the right-click is
           // no longer swallowed and reaches the section's own column menu, exactly as it
           // does on every part of the plot this rect does not cover.
-          onContextMenu={
-            onDeleteContact
-              ? e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setLithoBandMenu({
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                    mode: 'remove',
-                    contactId: band.contactId,
-                    formationName: band.formationName,
-                  })
-                }
-              : undefined
-          }
-          onClick={
-            onRequestAddLithoSuggestion
-              ? e => {
-                  e.stopPropagation()
-                  if (band.anchorElevationM === null) return
-                  // Use ownerSVGElement's bounding rect to map clientY
-                  // into svg-coords — works in both real browser and
-                  // jsdom (which returns 0 for everything).  Depth =
-                  // (svg-Y - surfaceY) / pxPerMetre, mirroring the
-                  // drag handler's depth math.
-                  const svg = e.currentTarget.ownerSVGElement
-                  if (!svg) return
-                  const svgRect = svg.getBoundingClientRect()
-                  const svgY = e.clientY - svgRect.top
-                  const depth = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
-                  if (depth < 0) return
-                  onRequestAddLithoSuggestion(
-                    band.anchorKind,
-                    band.anchorId,
-                    depth,
-                    band.anchorName,
-                    band.anchorElevationM,
-                  )
-                }
-              : undefined
-          }
+          onContextMenu={lithoBandContextMenuHandler(band)}
+          onClick={lithoBandClickHandler(band)}
         >
           {onRequestAddLithoSuggestion && (
             <title>Click to insert new layer here · right-click to remove</title>
@@ -2593,42 +2603,8 @@ export default function ContactsLayer({
             fill="transparent"
             pointerEvents="all"
             style={onRequestAddLithoSuggestion ? { cursor: 'pointer' } : undefined}
-            onContextMenu={
-              onDeleteContact
-                ? e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setLithoBandMenu({
-                      clientX: e.clientX,
-                      clientY: e.clientY,
-                      mode: 'remove',
-                      contactId: band.contactId,
-                      formationName: band.formationName,
-                    })
-                  }
-                : undefined
-            }
-            onClick={
-              onRequestAddLithoSuggestion
-                ? e => {
-                    e.stopPropagation()
-                    if (band.anchorElevationM === null) return
-                    const svg = e.currentTarget.ownerSVGElement
-                    if (!svg) return
-                    const svgRect = svg.getBoundingClientRect()
-                    const svgY = e.clientY - svgRect.top
-                    const depth = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
-                    if (depth < 0) return
-                    onRequestAddLithoSuggestion(
-                      band.anchorKind,
-                      band.anchorId,
-                      depth,
-                      band.anchorName,
-                      band.anchorElevationM,
-                    )
-                  }
-                : undefined
-            }
+            onContextMenu={lithoBandContextMenuHandler(band)}
+            onClick={lithoBandClickHandler(band)}
           >
             {onRequestAddLithoSuggestion && (
               <title>Click to insert new layer here · right-click to remove</title>
