@@ -93,7 +93,30 @@ import type {
   DivideBoreholePreviewResponse,
   DivideBoreholeResponse,
   AutoCorrelateGeotechResponse,
+  GeotechTieStatusResponse,
 } from './geology.types'
+
+/**
+ * Request body shared by ``divideBoreholes`` and its preview.
+ *
+ * ``borehole_ids`` is OMITTED when the caller named no subset, because the
+ * backend distinguishes the two: an absent field is "every borehole", an empty
+ * list is "none". Sending ``[]`` to mean "all" would trigger the maximal
+ * irreversible rebuild from a cleared selection — the reason the backend drew
+ * that line in the first place.
+ *
+ * @param options Optional subset + gate escape.
+ * @returns The JSON body to POST.
+ */
+function divideBoreholesBody(options?: {
+  boreholeIds?: readonly string[]
+  ignorePendingTies?: boolean
+}): Record<string, unknown> {
+  const body: Record<string, unknown> = {}
+  if (options?.boreholeIds !== undefined) body.borehole_ids = [...options.boreholeIds]
+  if (options?.ignorePendingTies) body.ignore_pending_ties = true
+  return body
+}
 
 // ---------------------------------------------------------------------------
 // Geology API surface — ``api.geology``
@@ -814,18 +837,59 @@ export const geologyClient = {
     ),
 
   /**
+   * POST .../geotech/subdivide-cpts — pipeline STEP 1: packing bands only.
+   *
+   * The same verb as ``subdivideAllBodies`` stopping before edge derivation, so
+   * the engineer sees the packing before anything is correlated (owner ruling
+   * 2026-08-04). Accepted ties are still re-anchored across the rebuild — that
+   * is carrying his own work, not deriving new ties. ``edges_derived: false``
+   * in the response says auto-correlate is the next press.
+   */
+  subdivideCpts: (
+    projectId: string,
+    lithoModelId: string,
+  ): Promise<SubdivideAllBodiesResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-cpts`,
+      { litho_model_id: lithoModelId },
+    ),
+
+  /**
+   * GET .../geotech/tie-status — pipeline STEP 3's outstanding-work counter.
+   *
+   * Takes the GEOTECHNICAL model id (like ``autoCorrelateGeotech``, unlike the
+   * subdivide / divide verbs). Lets the toolbar disable "Divide boreholes" and
+   * say how many ties are still proposed, rather than letting the engineer
+   * discover the gate as a 422.
+   */
+  geotechTieStatus: (
+    projectId: string,
+    geotechModelId: string,
+  ): Promise<GeotechTieStatusResponse> =>
+    get(
+      `/projects/${projectId}/geology/models/${geotechModelId}/geotech/tie-status`,
+    ),
+
+  /**
    * POST .../geotech/divide-boreholes — materialise TIN-divided borehole bands.
    *
-   * Must be called AFTER ``subdivideAllBodies`` so the CPT geotech layers exist.
+   * Must be called AFTER ``subdivideCpts`` so the CPT geotech layers exist.
    * Idempotent: prior borehole bands are replaced by the new division.
+   *
+   * ``boreholeIds`` scopes the run to a subset — the ghost-accept gesture sends
+   * exactly one id. An OMITTED list means every borehole; an EMPTY list means
+   * none, and the backend honours that difference, so never send ``[]`` meaning
+   * "all". ``ignorePendingTies`` is the deliberate escape from the step-3 gate,
+   * which otherwise answers 422 ``geotech_ties_pending``.
    */
   divideBoreholes: (
     projectId: string,
     lithoModelId: string,
+    options?: { boreholeIds?: readonly string[]; ignorePendingTies?: boolean },
   ): Promise<DivideBoreholeResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes`,
-      {},
+      divideBoreholesBody(options),
     ),
 
   /**
@@ -843,10 +907,11 @@ export const geologyClient = {
   previewDivideBoreholes: (
     projectId: string,
     lithoModelId: string,
+    options?: { boreholeIds?: readonly string[] },
   ): Promise<DivideBoreholePreviewResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes/preview`,
-      {},
+      divideBoreholesBody(options),
     ),
 
   /**
