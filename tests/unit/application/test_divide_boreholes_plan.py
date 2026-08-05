@@ -19,6 +19,11 @@ P4  ``DivideBoreholePlan.columns`` aggregates a borehole's segments across body
 P5  A crowd of distant CPTs does not overrule the two flanking ones — the
     regression the owner reported on 1411-GEO-23/126-B4, in miniature.
 P6  A borehole on no section falls back to its nearest CPT by map distance.
+P7  An ACCEPTED tie whose span crosses the borehole's column names the donor
+    pair, replacing the nearest-flank guess.
+P8  A tied packing surface stays inside the borehole's litho body — where the
+    body thins there, the surface is rescaled by the litho thickness at that
+    location instead of keeping the donors' absolute depth.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from groundmodel.application.divide_boreholes import (
     PlannedBoreholeSegment,
 )
 from groundmodel.domain.services.borehole_flank_donors import SectionPlacement
+from groundmodel.domain.services.geotech_tie_donors import AcceptedTie
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 
 # NAD 5 = SAND loose (the ZAND floor); 7 = SAND dense. Real class integers so a
@@ -340,3 +346,167 @@ def test_p6_a_borehole_on_no_section_falls_back_to_the_nearest_test() -> None:
     assert selection.mode == "nearest_fallback"
     assert [d.stack.name for d in selection.donors] == ["NEAR"]
     assert [round(b.base, 3) for b in bands] == [4.0, 10.0]
+
+
+def test_p7_an_accepted_tie_across_the_borehole_names_the_donor_pair() -> None:
+    """P7: the tied CPT pair speaks, not the untied CPTs nearest the borehole."""
+    borehole = str(uuid7())
+    tied_left, tied_right = str(uuid7()), str(uuid7())
+    near_left, near_right = str(uuid7()), str(uuid7())
+    body_loose, body_dense = uuid7(), uuid7()
+    tied_left_top, tied_left_bot = uuid7(), uuid7()
+    tied_right_top, tied_right_bot = uuid7(), uuid7()
+    # The tied pair reads the transition at 4 m and 6 m; the untied near pair
+    # reads it at 1 m on both sides, so whose voice wins is unmistakable.
+    layers = {
+        tied_left: [
+            (0.0, 4.0, tied_left_top, uuid7(), _NAD_LOOSE, body_loose),
+            (4.0, 10.0, tied_left_bot, uuid7(), _NAD_DENSE, body_dense),
+        ],
+        tied_right: [
+            (0.0, 6.0, tied_right_top, uuid7(), _NAD_LOOSE, body_loose),
+            (6.0, 10.0, tied_right_bot, uuid7(), _NAD_DENSE, body_dense),
+        ],
+        near_left: [
+            (0.0, 1.0, uuid7(), uuid7(), _NAD_LOOSE, body_loose),
+            (1.0, 10.0, uuid7(), uuid7(), _NAD_DENSE, body_dense),
+        ],
+        near_right: [
+            (0.0, 1.0, uuid7(), uuid7(), _NAD_LOOSE, body_loose),
+            (1.0, 10.0, uuid7(), uuid7(), _NAD_DENSE, body_dense),
+        ],
+    }
+    section_id = str(uuid7())
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A'",
+        along_m={
+            tied_left: 0.0,
+            near_left: 190.0,
+            borehole: 200.0,
+            near_right: 210.0,
+            tied_right: 400.0,
+        },
+    )
+    ties = [
+        AcceptedTie(
+            investigation_a=tied_left,
+            layer_a_id=str(tied_left_top),
+            investigation_b=tied_right,
+            layer_b_id=str(tied_right_top),
+            section_id=section_id,
+        ),
+        AcceptedTie(
+            investigation_a=tied_left,
+            layer_a_id=str(tied_left_bot),
+            investigation_b=tied_right,
+            layer_b_id=str(tied_right_bot),
+            section_id=section_id,
+        ),
+    ]
+
+    bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=200.0,
+        bh_y=0.0,
+        bh_surface_elev=0.0,
+        geo_top_m=0.0,
+        geo_base_m=10.0,
+        cpt_segs=[
+            _cpt_pick(tied_left, 0.0, 10.0),
+            _cpt_pick(tied_right, 0.0, 10.0),
+            _cpt_pick(near_left, 0.0, 10.0),
+            _cpt_pick(near_right, 0.0, 10.0),
+        ],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth=layers,
+        cpt_xy={
+            UUID(tied_left): (0.0, 0.0, 0.0),
+            UUID(tied_right): (400.0, 0.0, 0.0),
+            UUID(near_left): (190.0, 0.0, 0.0),
+            UUID(near_right): (210.0, 0.0, 0.0),
+        },
+        cpt_names={
+            UUID(tied_left): "TIED-L",
+            UUID(tied_right): "TIED-R",
+            UUID(near_left): "NEAR-L",
+            UUID(near_right): "NEAR-R",
+        },
+        section_placements=[section],
+        accepted_ties=ties,
+    )
+
+    assert selection.mode == "tie_interpolated"
+    assert sorted(d.stack.name for d in selection.donors) == ["TIED-L", "TIED-R"]
+    # Halfway between the two tied transitions (4 m and 6 m), nowhere near the
+    # untied neighbours' 1 m.
+    assert [round(b.base, 3) for b in bands] == [5.0, 10.0]
+
+
+def test_p8_a_tied_surface_is_rescaled_where_the_litho_body_thins() -> None:
+    """P8: the tied packing surface stays inside a litho body that thins here."""
+    borehole = str(uuid7())
+    left, right = str(uuid7()), str(uuid7())
+    body_loose, body_dense = uuid7(), uuid7()
+    left_top, left_bot = uuid7(), uuid7()
+    right_top, right_bot = uuid7(), uuid7()
+    # Both donors read a 10 m sand with the dense top 40 % down (4.0 m).
+    layers = {
+        left: [
+            (0.0, 4.0, left_top, uuid7(), _NAD_LOOSE, body_loose),
+            (4.0, 10.0, left_bot, uuid7(), _NAD_DENSE, body_dense),
+        ],
+        right: [
+            (0.0, 4.0, right_top, uuid7(), _NAD_LOOSE, body_loose),
+            (4.0, 10.0, right_bot, uuid7(), _NAD_DENSE, body_dense),
+        ],
+    }
+    section_id = str(uuid7())
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A'",
+        along_m={left: 100.0, borehole: 200.0, right: 300.0},
+    )
+    ties = [
+        AcceptedTie(
+            investigation_a=left,
+            layer_a_id=str(left_top),
+            investigation_b=right,
+            layer_b_id=str(right_top),
+            section_id=section_id,
+        ),
+        AcceptedTie(
+            investigation_a=left,
+            layer_a_id=str(left_bot),
+            investigation_b=right,
+            layer_b_id=str(right_bot),
+            section_id=section_id,
+        ),
+    ]
+
+    # At the borehole the same sand is only 2 m thick, 3.0–5.0 m. Keeping the
+    # donors' absolute 4.0 m would be inside by luck; a 1 m body at 3.0–4.0 m
+    # would not. Both are checked: the surface must land at 40 % of whatever
+    # thickness the litho body has HERE.
+    for extent_top, extent_base, expected in ((3.0, 5.0, 3.8), (3.0, 4.0, 3.4)):
+        bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+            inv_id=borehole,
+            bh_x=200.0,
+            bh_y=0.0,
+            bh_surface_elev=0.0,
+            geo_top_m=extent_top,
+            geo_base_m=extent_base,
+            cpt_segs=[_cpt_pick(left, 0.0, 10.0), _cpt_pick(right, 0.0, 10.0)],
+            litho_abs_min_class=_NAD_LOOSE,
+            geotech_layer_by_inv_depth=layers,
+            cpt_xy={UUID(left): (100.0, 0.0, 0.0), UUID(right): (300.0, 0.0, 0.0)},
+            cpt_names={UUID(left): "L", UUID(right): "R"},
+            section_placements=[section],
+            accepted_ties=ties,
+        )
+
+        assert selection.mode == "tie_interpolated"
+        assert [b.nad_class for b in bands] == [_NAD_LOOSE, _NAD_DENSE]
+        assert round(bands[0].base, 3) == expected
+        assert bands[0].top == extent_top
+        assert bands[-1].base == extent_base
