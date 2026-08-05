@@ -7,7 +7,7 @@
  * alongside the other pure main-process helpers.
  */
 
-import { renameSync, unlinkSync, writeFileSync } from 'fs'
+import { closeSync, fsyncSync, openSync, renameSync, unlinkSync, writeFileSync } from 'fs'
 
 /**
  * Write ``contents`` to ``filePath`` atomically — via a sibling temp file
@@ -51,8 +51,25 @@ export function writeFileAtomic(filePath: string, contents: string | Uint8Array)
     // TypedArray today, but naming an encoding for bytes invites a future
     // reader (or a future Node) to treat the payload as text — and a DXF that
     // survives a UTF-8 round-trip is not a property we want to rely on.
-    if (typeof contents === 'string') writeFileSync(tmpPath, contents, 'utf-8')
-    else writeFileSync(tmpPath, contents)
+    //
+    // fsync before the rename (autosave review Q8): rename-into-place is
+    // atomic against a PROCESS death, but without a flush the renamed file's
+    // bytes can still sit in the OS page cache — a power loss or bluescreen
+    // right after the rename can leave the CURRENT file empty or truncated,
+    // which for the recovery snapshot defeats its entire reason to exist.
+    // Directory-entry fsync (the belt to this suspender) is not reachable
+    // from Node on Windows (a directory cannot be opened for sync), so the
+    // file-data flush is where durability hardening stops on this platform.
+    // Cost is a few ms per call — fine for every caller (2s/15s recovery
+    // cadence, one-shot .strix saves and exports).
+    const fd = openSync(tmpPath, 'w')
+    try {
+      if (typeof contents === 'string') writeFileSync(fd, contents, 'utf-8')
+      else writeFileSync(fd, contents)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
     renameSync(tmpPath, filePath)
   } catch (writeErr) {
     // Best-effort tmp cleanup so we don't leak. Swallow unlink errors (the tmp
