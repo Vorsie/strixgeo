@@ -271,6 +271,7 @@ strict UUID regex and resolves the path itself under `userData`. No traversal in
   tamper surface, tracked under debt #5.)
 * **Q7** — confirm the undo stack is out of scope *permanently*, so it stops being an open
   question.
-* **Q8** — `writeFileAtomic` has no `fsync` anywhere: atomic against a process kill, not durable
-  against power loss. Scoped here to the recovery write only; the `.strix` is the more valuable
-  file. Separate change?
+* **Q8** — SHIPPED 2026-08-05: `writeFileAtomic` fsyncs the temp file before the
+  rename, so every caller (recovery snapshots, `.strix` saves, binary exports) is
+  durable against power loss, not just process death. Directory-entry fsync is not
+  reachable from Node on Windows — file-data flush is where the hardening stops.
