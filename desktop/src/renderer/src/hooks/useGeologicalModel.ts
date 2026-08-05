@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import type { UseLithoSolidsResult } from './useLithoSolids'
 import { useLithoSolids } from './useLithoSolids'
 import type {
@@ -840,18 +840,24 @@ export interface UseGeologicalModelResult {
    * -------
    * Promise<void>
    */
-  handleSubdivideAllBodies: () => Promise<void>
+  handleSubdivideAllBodies: (options?: { deriveEdges?: boolean }) => Promise<void>
   /**
    * TIN-divide borehole columns using CPT packing-transition surfaces.
    *
    * Must be called after ``handleSubdivideAllBodies`` so CPT geotech layers
    * already exist.  Idempotent: prior borehole bands are replaced.
    *
+   * ``boreholeIds`` scopes the run to a subset — the ghost-accept gesture
+   * divides ONE column. Omitting it divides every borehole; an empty array is
+   * refused rather than sent, because "divide none" is never what a click
+   * means.  The backend refuses the call outright while packing ties are still
+   * proposed (``geotech_ties_pending``), and its message is surfaced verbatim.
+   *
    * Returns
    * -------
    * Promise<void>
    */
-  handleDivideBoreholes: () => Promise<void>
+  handleDivideBoreholes: (options?: { boreholeIds?: readonly string[] }) => Promise<void>
   // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
   // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
   // hook is model-agnostic (the voxel builder parameterises on ``model_id``),
@@ -2277,24 +2283,34 @@ export function useGeologicalModel({
   //   (d) markMutated + addToSessionImports for the new formations → dirty flag
   // The verb must be usable when NO geotech model exists yet (first run).
   const handleSubdivideAllBodies = useCallback(
-    async (): Promise<void> => {
+    async (options?: { deriveEdges?: boolean }): Promise<void> => {
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
         toast('error', 'Select a lithostratigraphic model first.')
         return
       }
-      log.info('geology', `subdivideAllBodies entry lithoModel=${lithoModel.id} (model-wide)`)
+      // Pipeline step 1 (owner ruling 2026-08-04) subdivides the CPTs and
+      // proposes NOTHING; the combined verb is the compatibility path and is
+      // the only caller that asks for edges. Everything AFTER the request is
+      // identical, so the two share this handler rather than drifting.
+      const deriveEdges = options?.deriveEdges ?? false
+      const verb = deriveEdges ? 'subdivideAllBodies' : 'subdivideCpts'
+      log.info('geology', `${verb} entry lithoModel=${lithoModel.id} (model-wide)`)
       let result: SubdivideAllBodiesResponse
       try {
-        result = await api.geology.subdivideAllBodies(project.id, lithoModel.id)
+        result = deriveEdges
+          ? await api.geology.subdivideAllBodies(project.id, lithoModel.id)
+          : await api.geology.subdivideCpts(project.id, lithoModel.id)
       } catch (err) {
-        log.error('geology', 'subdivideAllBodies failed', err)
-        toast('error', 'Subdivide all bodies failed — see console.')
+        log.error('geology', `${verb} failed`, err)
+        toast('error', `${deriveEdges ? 'Subdivide all bodies' : 'Subdivide CPTs'} failed — see console.`)
         return
       }
       log.success(
         'geology',
-        `subdivideAllBodies ok geotech_model=${result.geotech_model_id}` +
+        `${verb} ok geotech_model=${result.geotech_model_id}` +
+          ` edges_derived=${result.edges_derived ?? deriveEdges}` +
+          ` ties_proposed=${result.proposed_tie_count ?? 0}` +
           ` bodies=${result.body_count}` +
           ` split=${result.split_body_count}` +
           ` one_class=${result.one_class_body_count}` +
@@ -2347,7 +2363,14 @@ export function useGeologicalModel({
       const reanchored = result.reanchored_tie_count ?? 0
       const lostTies = result.lost_tie_count ?? 0
       const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
-      toast('success', `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}${tieNote}.`)
+      // Step 1 correlates nothing on purpose, so the toast has to hand the
+      // engineer the next press — otherwise the empty geotech axis reads as a
+      // failure rather than as "your turn".
+      const nextStep = deriveEdges ? '' : ' Next: 2 · Auto-correlate.'
+      toast(
+        'success',
+        `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}${tieNote}.${nextStep}`,
+      )
       const needsReview = Object.values(result.review_tie_reasons ?? {}).reduce(
         (a, b) => a + b,
         0,
@@ -2378,25 +2401,60 @@ export function useGeologicalModel({
   // columns using the CPT geotech layers already written by SAB.  Idempotent:
   // prior borehole bands are replaced.  Must be called after SAB has run at
   // least once (a 404 from the API means the geotech model doesn't exist yet).
+  const dividingBoreholesRef = useRef(false)
   const handleDivideBoreholes = useCallback(
-    async (): Promise<void> => {
+    async (options?: { boreholeIds?: readonly string[] }): Promise<void> => {
+      // Concurrent-divide guard (review MINOR-1): the toolbar debounces via its
+      // busy state, but the ghost right-click path has no such state — a double
+      // click must not fire two overlapping delete-and-rewrite passes.
+      if (dividingBoreholesRef.current) {
+        log.warn('geology', 'divideBoreholes ignored — a divide is already running')
+        return
+      }
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
         toast('error', 'Select a lithostratigraphic model first.')
         return
       }
       if (!activeGeotechModel) {
-        toast('error', 'Run "Subdivide all bodies" before dividing boreholes.')
+        toast('error', 'Run "1 · Subdivide CPTs" before dividing boreholes.')
         return
       }
-      log.info('geology', `divideBoreholes entry lithoModel=${lithoModel.id}`)
+      // An EMPTY subset is "divide none" on the wire, so refusing it here saves
+      // a pointless round trip AND makes the no-op visible instead of silent.
+      const subset = options?.boreholeIds
+      if (subset !== undefined && subset.length === 0) {
+        toast('warning', 'No borehole selected — nothing to divide.')
+        return
+      }
+      log.info(
+        'geology',
+        `divideBoreholes entry lithoModel=${lithoModel.id} ` +
+          `boreholes=${subset === undefined ? 'ALL' : subset.length}`,
+      )
       let result: DivideBoreholeResponse
+      dividingBoreholesRef.current = true
       try {
-        result = await api.geology.divideBoreholes(project.id, lithoModel.id)
+        result = await api.geology.divideBoreholes(project.id, lithoModel.id, {
+          boreholeIds: subset,
+        })
       } catch (err) {
         log.error('geology', 'divideBoreholes failed', err)
-        toast('error', 'Divide boreholes failed — see console.')
+        // The step-3 gate answers 422 with a structured detail naming the
+        // count; ``detailMessage`` has already unwrapped it into the ApiError,
+        // so showing it verbatim tells the engineer WHAT to do. Only an
+        // ApiError carries a server sentence — a transport failure's
+        // "Failed to fetch" explains nothing, so it keeps the generic line
+        // (review MINOR-3).
+        toast(
+          'error',
+          err instanceof ApiError && err.message
+            ? err.message
+            : 'Divide boreholes failed — see console.',
+        )
         return
+      } finally {
+        dividingBoreholesRef.current = false
       }
       log.success(
         'geology',
@@ -2415,8 +2473,11 @@ export function useGeologicalModel({
         addToSessionImports('formation', result.created_formation_ids)
       }
       markMutated()
-      // Boreholes now match the current bodies — clear the stale flag.
-      clearBoreholesStale()
+      // Boreholes now match the current bodies — clear the stale flag. A SUBSET
+      // run must NOT clear it: the boreholes it left out are still out of date,
+      // and an amber button that goes grey after dividing one column would say
+      // the opposite.
+      if (subset === undefined) clearBoreholesStale()
       // Re-dividing throws every borehole band away and rebuilds it with a new
       // id, so an accepted packing tie on a borehole has to be re-anchored:
       // onto the band that came back unchanged, or onto the one it moved into.
@@ -2428,7 +2489,8 @@ export function useGeologicalModel({
       const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
       toast(
         'success',
-        `Boreholes divided — ${result.divided_borehole_count} split, ` +
+        `${subset === undefined ? 'Boreholes' : 'Borehole'} divided — ` +
+          `${result.divided_borehole_count} split, ` +
           `${result.single_band_borehole_count} single-band${tieNote}.`,
       )
       const needsReview = Object.values(result.review_tie_reasons ?? {}).reduce((a, b) => a + b, 0)
