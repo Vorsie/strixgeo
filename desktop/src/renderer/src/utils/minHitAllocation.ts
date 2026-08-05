@@ -45,9 +45,15 @@ export interface HitExpansion {
  * Parameters
  * ----------
  * bands : readonly BandExtent[]
- *     Contiguous ordered extents, ``bands[i].bottom === bands[i+1].top``
- *     (small gaps are tolerated; expansions never cross into a gap further
- *     than the neighbour's donated slack).
+ *     Ordered extents, normally contiguous (``bands[i].bottom ===
+ *     bands[i+1].top``). Gaps between entries are allowed and can be large —
+ *     ``ContactsLayer`` feeds stacks that ``subtractGhosts`` has split around
+ *     a pending-ghost hole. What keeps a strip from mattering inside such a
+ *     hole is NOT gap-smallness: (a) a donation is hard-capped at
+ *     ``(minPx − h) / 2`` per side, and (b) the ghost overlays that own the
+ *     hole's interaction render AFTER the strips and win SVG hit-testing
+ *     (the debt-#75 render-order invariant). If either of those changes,
+ *     re-examine this call site.
  * minPx : number
  *     The minimum comfortable hit height.
  *
