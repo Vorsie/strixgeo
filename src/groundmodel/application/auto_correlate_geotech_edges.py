@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
+    bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edges,
     load_existing_geotech_edge_pairs_by_section,
@@ -220,13 +221,26 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                 f"section={section.id} ({section.name!r}) "
                 f"{len(approved)} approved litho edge(s)"
             )
+            # Jump ties (owner ruling 2026-08-04): this verb runs BEFORE
+            # "Divide boreholes", so every borehole column is still empty of
+            # packing. Bridge the litho chain across those columns so a section
+            # drawn CPT–borehole–CPT proposes the CPT pair rather than nothing.
+            bridged = bridge_edges_over_bandless_columns(
+                approved, litho_layer_depths, geotech_bands
+            )
+            if len(bridged) > len(approved):
+                self.debug(
+                    f"AutoCorrelateGeotechEdges: section={section.id} "
+                    f"{len(bridged) - len(approved)} jump pair(s) bridged across "
+                    f"column(s) with no packing bands"
+                )
             totals.add(
                 await derive_geotech_edges_from_litho(
                     self._session,
                     self,
                     geotech_model_id=model_id,
                     section_id=section.id,
-                    litho_approved_edges=approved,
+                    litho_approved_edges=bridged,
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_bands,
                     seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
