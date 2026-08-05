@@ -103,7 +103,20 @@ function renderToolbar(ctx: ShellContextValue): void {
       <SectionsToolbar />
     </ShellContext.Provider>,
   )
+  openPipelineMenu()
 }
+
+/** The pipeline steps live in the "Packing pipeline" dropdown (owner
+ *  2026-08-05). Open it right after render so the step items are queryable —
+ *  an item click auto-closes the menu, which is fine for these single-press
+ *  scenes. No-op off the geotech axis (the trigger is absent there). */
+function openPipelineMenu(): void {
+  const trigger = screen.queryByTestId('geotech-pipeline')
+  if (trigger && !(trigger as HTMLButtonElement).disabled) {
+    fireEvent.click(trigger)
+  }
+}
+
 
 afterEach(() => {
   cleanup()
