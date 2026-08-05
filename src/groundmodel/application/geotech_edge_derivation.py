@@ -301,7 +301,7 @@ async def derive_geotech_edges_from_litho(
     litho_layer_depths: dict[UUID, tuple[str, float, float]],
     geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
     seen_layer_pairs: set[tuple[UUID, UUID]],
-    user_approved: bool = False,
+    user_approved: bool = True,
     source: str = AUTO_SOURCE,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by LCS packing match within each correlated litho unit.
@@ -340,14 +340,16 @@ async def derive_geotech_edges_from_litho(
         Dedup set, MUTATED in place. Preload with existing edges to add only new
         pairs; pass a fresh set for an independent pass.
     user_approved : bool
-        Approval flag stamped on each emitted edge. Defaults to ``False``:
-        every edge this function writes was worked out by the program, and
-        under the clean/dirty rule a thing the program made and the engineer
-        has not accepted is DIRTY — the machine may regenerate or discard it,
-        so it must never masquerade as an accepted tie. The engineer promotes
-        it with the accept verb, exactly as on the litho axis. No caller has a
-        reason to pass ``True``; the parameter stays only so a future
-        deliberate exception has to state itself at the call site.
+        Approval flag stamped on each emitted edge. Defaults to ``True``
+        (owner ruling A, 2026-08-05): every edge this function emits sits
+        INSIDE a litho correlation the engineer already approved — directly,
+        or via a bridged chain of approved litho edges — and the same-class
+        packing pairing within an approved litho band is a mechanical
+        refinement of that approval, not a new geological claim. Approval at
+        the litho level therefore carries down. The proposal flow (pending +
+        accept verbs + the divide gate) remains live for any edge that is NOT
+        litho-backed — pass ``False`` for those, stating the reason at the
+        call site.
     source : str
         Provenance token stamped on each emitted edge, one of ``'manual'`` /
         ``'auto'`` (DB CHECK). Defaults to ``AUTO_SOURCE`` — ``'manual'`` is
