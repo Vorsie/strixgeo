@@ -319,6 +319,33 @@ async def _accept_shallowest_borehole_cpt_tie(
     await session.commit()
 
 
+async def _accept_all_geotech_ties(
+    client: AsyncClient, project_id: str, geotech_model_id: UUID
+) -> None:
+    """Run the pipeline's accept step over every proposed packing tie.
+
+    Since the four-step pipeline landed (owner ruling 2026-08-04) the
+    divide-boreholes ENDPOINT refuses while ties are still proposed, because an
+    accepted tie spanning a borehole decides which CPTs its packing comes from.
+    A test that goes through HTTP therefore has to walk the real flow: propose,
+    accept, then divide.
+
+    Parameters
+    ----------
+    client : AsyncClient
+        HTTP test client.
+    project_id : str
+        Owning project id.
+    geotech_model_id : UUID
+        The geotech model whose proposals are accepted.
+    """
+    resp = await client.post(
+        f"/projects/{project_id}/geology/models/{geotech_model_id}/contact-correlations/accept",
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------
@@ -894,6 +921,10 @@ async def test_db5_preview_equals_commit(
         litho_model_id=UUID(litho_model_id),
     )
     geotech_model_id = sab.geotech_model_id
+    # The pipeline's accept step, run BEFORE the preview: accepting a tie
+    # between preview and commit would legitimately change the plan, and this
+    # gate is about the two agreeing on ONE model state.
+    await _accept_all_geotech_ties(async_client, pid, geotech_model_id)
 
     preview_resp = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_model_id}/geotech/divide-boreholes/preview",
@@ -930,7 +961,13 @@ async def test_db5_preview_equals_commit(
         band
         for column in preview["columns"]
         for band in column["bands"]
-        if band.get("mode") in ("flank_interpolated", "single_donor", "nearest_fallback")
+        if band.get("mode")
+        in (
+            "tie_interpolated",
+            "flank_interpolated",
+            "single_donor",
+            "nearest_fallback",
+        )
     ]
     assert donor_backed, (
         "DB5-provenance: no band carried a donor-backed mode — the new preview "
@@ -942,7 +979,7 @@ async def test_db5_preview_equals_commit(
             assert donor["name"], "DB5-provenance: a donor arrived without a name"
             assert donor["side"] in ("left", "right", "nearest")
     flank_modes = {band["mode"] for band in donor_backed}
-    if flank_modes & {"flank_interpolated", "single_donor"}:
+    if flank_modes & {"tie_interpolated", "flank_interpolated", "single_donor"}:
         assert any(band.get("section_name") for band in donor_backed), (
             "DB5-provenance: a flank mode arrived with no section_name anywhere"
         )
@@ -1062,6 +1099,9 @@ async def test_db7_preview_between_two_divides_equals_the_second_divide(
         litho_model_id=UUID(litho_model_id),
     )
     geotech_model_id = first.geotech_model_id
+    # The pipeline's accept step, run BEFORE the preview for the same reason as
+    # in DB5: preview and commit must be looking at one model state.
+    await _accept_all_geotech_ties(async_client, pid, geotech_model_id)
     before = await _committed_borehole_bands(db_session, geotech_model_id)
     assert before, "DB7: the first divide committed no borehole band — nothing is being tested"
 
