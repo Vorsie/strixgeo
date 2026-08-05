@@ -688,7 +688,9 @@ export default function SectionsToolbar(): JSX.Element {
   // switching so a disabled segment can't be clicked.
   function handleAxisChange(axis: SectionModelAxis): void {
     if (axis === 'lithostratigraphic' && activeLithoModel === null) return
-    if (axis === 'geotechnical' && activeGeotechModel === null) return
+    // The geotech axis needs only the litho model (its source): the packing
+    // pipeline's step 1, which creates the geotech model, lives ON this axis.
+    if (axis === 'geotechnical' && activeGeotechModel === null && activeLithoModel === null) return
     setSectionModelAxis(axis)
   }
 
@@ -837,14 +839,18 @@ export default function SectionsToolbar(): JSX.Element {
             Litho
           </button>
         </span>
-        {/* Geotech segment — enabled only when a geotechnical model exists.
-            Same span-wrapper pattern as Litho: Chromium suppresses title on
-            disabled elements, so the tooltip rides the presentational span. */}
+        {/* Geotech segment — enabled when a geotech model exists OR a litho
+            model does. The litho model is the real prerequisite: the packing
+            pipeline's "1 · Subdivide CPTs" (which CREATES the geotech model)
+            lives on this axis, so gating the axis on the geotech model would
+            deadlock every clean-slate run. Same span-wrapper pattern as
+            Litho: Chromium suppresses title on disabled elements, so the
+            tooltip rides the presentational span. */}
         <span
           role="presentation"
           title={
-            activeGeotechModel === null
-              ? 'Run "Subdivide all bodies" in the Geotech inspector first'
+            activeGeotechModel === null && activeLithoModel === null
+              ? 'Create a lithostratigraphic model first — packing subdivides litho bodies'
               : undefined
           }
         >
@@ -852,21 +858,23 @@ export default function SectionsToolbar(): JSX.Element {
             type="button"
             role="radio"
             aria-checked={isGeotech}
-            disabled={activeGeotechModel === null}
+            disabled={activeGeotechModel === null && activeLithoModel === null}
             onClick={() => handleAxisChange('geotechnical')}
             data-testid="axis-geotech"
             className={[
               'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
               isGeotech
                 ? 'bg-accent text-text-on-accent'
-                : activeGeotechModel === null
+                : activeGeotechModel === null && activeLithoModel === null
                   ? 'bg-surface-card text-text-muted cursor-not-allowed'
                   : 'bg-surface-card text-text-secondary hover:text-text-primary',
             ].join(' ')}
             title={
               activeGeotechModel !== null
                 ? 'View geotechnical subdivision (NAD packing classes) on this section'
-                : undefined
+                : activeLithoModel !== null
+                  ? 'No geotech model yet — “Packing pipeline → 1 · Subdivide CPTs” creates it'
+                  : undefined
             }
           >
             Geotech
