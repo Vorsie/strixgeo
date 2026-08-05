@@ -962,6 +962,14 @@ export default function PartitionFillOverlay({
     // ``gapIndex:bodyId`` set whose tip override the engine did NOT consume
     // (flooded to a band) — the un-routable class (§77); grab handle suppressed.
     unroutableBodies: Set<string>
+    // Bodies whose member layers are TOP-side endpoints of an approved edge —
+    // their band-top seam is TIE-OWNED. The v1 post-bend must never bend a
+    // tie-owned seam from a stored node (owner demo defect 2026-08-05: a stale
+    // July-27 node painted a KLEI wedge ABOVE an accepted tie; v2 refuses via
+    // §77, v1 bent it off-engine).
+    tieOwnedTopBodies: Set<string>
+    // Same for BASE-side endpoints (bottom-ties): the band-base seam is owned.
+    tieOwnedBaseBodies: Set<string>
     // v2 crossing-tie conflicts (owner §8 Q4) — drives the amber warning chip.
     conflicts: TieConflict[]
     // Uncorrelated same-litho neighbours the safe-default repair re-emitted (owner 2026-07-26) —
@@ -989,6 +997,8 @@ export default function PartitionFillOverlay({
         apexOverrides: new Map(),
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
+        tieOwnedTopBodies: new Set(),
+        tieOwnedBaseBodies: new Set(),
         conflicts: [],
         reviewFlags: [],
         rejectedDragTarget: null,
@@ -1007,6 +1017,8 @@ export default function PartitionFillOverlay({
         apexOverrides: new Map(),
         contactOverriddenBodies: new Set(),
         unroutableBodies: new Set(),
+        tieOwnedTopBodies: new Set(),
+        tieOwnedBaseBodies: new Set(),
         conflicts: [],
         reviewFlags: [],
         rejectedDragTarget: null,
@@ -1148,6 +1160,24 @@ export default function PartitionFillOverlay({
     // engine must not. Keying the call itself means no assumption about whether the
     // pixel round-trip is viewport-invariant: if the overrides come out identical the
     // engine is skipped, and if they genuinely changed it runs.
+    // Tie-owned seams: any layer named as a TOP-side endpoint of an approved
+    // edge owns its band-top seam; BASE-side endpoints own the band-base. The
+    // v1 post-bend consults these so a stored node can never repaint across an
+    // accepted tie (owner demo defect 2026-08-05).
+    const bodyByLayerId = new Map<string, string>()
+    for (const col of orderedColumns)
+      for (const u of col.units) if (u.bodyId) bodyByLayerId.set(u.layerId, u.bodyId)
+    const tieOwnedTopBodies = new Set<string>()
+    const tieOwnedBaseBodies = new Set<string>()
+    for (const e of edges) {
+      const aBody = bodyByLayerId.get(e.a)
+      const bBody = bodyByLayerId.get(e.b)
+      if ((e.aSide ?? 'top') === 'top' && aBody) tieOwnedTopBodies.add(aBody)
+      else if (aBody) tieOwnedBaseBodies.add(aBody)
+      if ((e.bSide ?? 'top') === 'top' && bBody) tieOwnedTopBodies.add(bBody)
+      else if (bBody) tieOwnedBaseBodies.add(bBody)
+    }
+
     const engineKey = `${topologyKey(orderedColumns, edges, alongM, partitionEngineV2)}|${[
       ...apexOverrides.entries(),
     ]
@@ -1273,6 +1303,8 @@ export default function PartitionFillOverlay({
       apexOverrides,
       contactOverriddenBodies,
       unroutableBodies,
+      tieOwnedTopBodies,
+      tieOwnedBaseBodies,
       conflicts,
       reviewFlags,
       rejectedDragTarget,
@@ -1471,8 +1503,15 @@ export default function PartitionFillOverlay({
   // edge as polygon[0] → polygon[1].  Inserting control points BETWEEN those
   // two verts (in sorted-by-x order) keeps the winding order correct.
   const screenRegions = useMemo(() => {
-    const { sectionRegions, orderedColumns, gapXs, apexOverrides, contactOverriddenBodies } =
-      sectionFillData
+    const {
+      sectionRegions,
+      orderedColumns,
+      gapXs,
+      apexOverrides,
+      contactOverriddenBodies,
+      tieOwnedTopBodies,
+      tieOwnedBaseBodies,
+    } = sectionFillData
     if (orderedColumns.length < 2) return [] as ScreenRegion[]
     const out: ScreenRegion[] = []
 
@@ -1541,6 +1580,14 @@ export default function PartitionFillOverlay({
         // "targets top + gap" dogfeed). Skip it — the engine output is truthful.
         if (contactOverriddenBodies.has(`${i}:${uId}`) || contactOverriddenBodies.has(`${i}:${lId}`))
           continue
+
+        // TIE-OWNED seam (owner demo defect 2026-08-05): the boundary this pair
+        // shares is the lower band's TOP (= the upper band's base). When an
+        // accepted tie owns it, the correlation — not a stored reshape node —
+        // decides where the seam runs: bending it here painted a KLEI wedge
+        // ABOVE the tie from a stale July-27 node. v2 refuses such nodes via
+        // §77 (un-routable → no-op); v1 must refuse identically.
+        if (tieOwnedTopBodies.has(lId) || tieOwnedBaseBodies.has(uId)) continue
 
         // Clamp bounds: upper's top y (minY) and lower's base y (maxY).
         const clampMinY = upper.minY + 1
