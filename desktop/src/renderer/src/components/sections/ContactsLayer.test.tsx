@@ -2049,6 +2049,51 @@ describe('ContactsLayer', () => {
     expect(menu).toHaveTextContent(/remove/i)
   })
 
+  it('LB-THIN: a thin band gets invisible donated hit strips inside its fat neighbours (#158)', () => {
+    // 1 px = 1 m at this scale. SAND 1–16 m (15px fat) / CLAY 16–19 m (3px
+    // THIN) / SAND 19 m–TD (fat). The thin CLAY wants (12−3)/2 = 4.5px per
+    // side; the SAND above can only donate its slack (15−12)/2 = 1.5px, the
+    // SAND below donates the full 4.5. Right-clicking a donated strip opens
+    // the THIN band's remove menu — before #158 that click landed on the fat
+    // neighbour (the owner mis-clicked one band low twice in one week).
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 16, formation_id: 'f-clay' }),
+      makeContact({ id: 'c-3', borehole_id: 'bh-1', depth_top_m: 19, formation_id: 'f-sand' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    // The helper's default TD (30 m) would leave the bottom SAND at 11px —
+    // itself under the 12px minimum and so (correctly) unable to donate.
+    // Deepen it so the lower neighbour is honestly fat (19–40 → 21px,
+    // slack (21−12)/2 = 4.5 — exactly the thin band's ask).
+    const placed = makeBoreholePlaced('bh-1', 100)
+    ;(placed.proj.item as { total_depth_m: number | null }).total_depth_m = 40
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [placed],
+      undefined,
+      { perColumnBandsFromContacts: true, onDeleteContact: vi.fn().mockResolvedValue(undefined) },
+    )
+    const strips = container.querySelectorAll('[data-testid^="per-column-litho-band-hit-"]')
+    expect(strips.length).toBeGreaterThanOrEqual(2)
+    // The strip below the thin band borrows 4.5px from the fat SAND under it.
+    const below = container.querySelector('[data-testid="per-column-litho-band-hit-bh-1-c-2-below"]')!
+    expect(below).not.toBeNull()
+    expect(Number(below.getAttribute('height'))).toBeCloseTo(4.5, 1)
+    fireEvent.contextMenu(below, { clientX: 100, clientY: 30 })
+    // The menu itself is generic ("Remove this litho unit"); the proof the
+    // strip belongs to the THIN band is the confirm dialog naming CLAY, not
+    // the fat SAND the pointer is visually inside.
+    fireEvent.click(screen.getByTestId('litho-band-remove'))
+    const dialog = screen.queryByTestId('delete-contact-confirm-dialog')
+    expect(dialog).not.toBeNull()
+    expect(dialog).toHaveTextContent(/CLAY/)
+  })
+
   it('LB2: clicking "Remove" opens the existing delete-contact confirm dialog', () => {
     const onDeleteContact = vi.fn().mockResolvedValue(undefined)
     const contacts = [
