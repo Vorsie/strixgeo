@@ -91,7 +91,9 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -101,6 +103,7 @@ from uuid6 import uuid7
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
+    bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edges,
     load_existing_geotech_edge_pairs_by_section,
@@ -140,6 +143,10 @@ from groundmodel.domain.services.borehole_packing_fill import (
     fill_borehole_litho_body_extent,
 )
 from groundmodel.domain.services.geotech_subdivision_constants import LITHO_ABSOLUTE_MIN_NAD
+from groundmodel.domain.services.geotech_tie_donors import (
+    AcceptedTie,
+    select_tie_informed_donors,
+)
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import (
     divide_picks_by_geology,
@@ -148,6 +155,9 @@ from groundmodel.domain.services.litho_geo_bounding import (
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 
@@ -230,7 +240,10 @@ class PlannedBand:
     source_geo_formation_id : UUID | None
         Geological formation the band sits within — the other half of the key.
     mode : str
-        How this band's packing was reached: ``flank_interpolated`` (blended
+        How this band's packing was reached: ``tie_interpolated`` (blended
+        between the two CPTs an ACCEPTED packing tie joins across this
+        borehole's column — the strongest evidence, because the engineer drew
+        that correlation himself), ``flank_interpolated`` (blended
         between the CPTs left and right of the borehole on a section),
         ``single_donor`` (one flank, or the nearer of two that read different
         class sequences), ``nearest_fallback`` (no section placed the borehole
@@ -457,6 +470,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         *,
         project_id: UUID,
         litho_model_id: UUID,
+        borehole_ids: set[UUID] | None = None,
     ) -> DivideBoreholePlan:
         """Compute every band this verb would write, WITHOUT writing anything.
 
@@ -483,6 +497,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         litho_model_id : UUID
             The lithostratigraphic model whose geotech child model holds the
             CPT geotech layers.
+        borehole_ids : set[UUID] | None
+            Restrict the plan to these borehole columns.  ``None`` (the
+            default) plans every borehole in the model — exactly today's
+            semantics.  A subset is what lets the engineer accept the ghost
+            bands on one borehole at a time instead of all-or-nothing.
 
         Returns
         -------
@@ -495,7 +514,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         HTTPException
             404 when the litho model or geotech model does not exist.
         """
-        self.info(f"DivideBoreholes.plan: project={project_id} litho_model={litho_model_id}")
+        self.info(
+            f"DivideBoreholes.plan: project={project_id} litho_model={litho_model_id} "
+            f"boreholes={'ALL' if borehole_ids is None else sorted(str(b) for b in borehole_ids)}"
+        )
 
         # Phase 1 — load and validate litho model.
         litho_model = await load_scoped_or_raise(
@@ -656,6 +678,24 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # per-borehole: the same maps serve every body group below.
         section_placements = await self._load_section_placements(project_id)
 
+        # Phase 7b — the engineer's ACCEPTED packing ties between two CPT bands.
+        #
+        # A tie whose span crosses a borehole's column outranks the flanking
+        # guess: the engineer has said, in the model, that this band over here
+        # IS that band over there (owner ruling 2026-08-04).  Proposals are
+        # deliberately not loaded — an unaccepted tie is the machine's guess and
+        # carries no more authority than the flanking rule's own.
+        accepted_ties = self._accepted_cpt_ties(
+            await self._load_accepted_tie_rows(geotech_model.id),
+            layer_to_investigation={
+                row.id: str(row.cpt_id) for row in cpt_layer_rows if row.cpt_id is not None
+            },
+        )
+        self.info(
+            f"DivideBoreholes: {len(accepted_ties)} accepted CPT↔CPT packing tie(s) "
+            f"available to inform donor selection"
+        )
+
         # Phase 8 (planning half) — litho-confined borehole fill per body group.
         #
         # Nothing below writes.  The delete of the PRIOR borehole bands lives in
@@ -673,7 +713,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             source_litho_fid = UUID(group_segs[0].formation_id) if group_segs else uuid7()
 
             borehole_segs = [
-                s for s in group_segs if anchor_kind.get(s.investigation_id) == "borehole"
+                s
+                for s in group_segs
+                if anchor_kind.get(s.investigation_id) == "borehole"
+                # A subset run leaves every other borehole exactly as it is —
+                # planned, deleted and written are all filtered by this one set.
+                and (borehole_ids is None or UUID(s.investigation_id) in borehole_ids)
             ]
             if not borehole_segs:
                 continue
@@ -760,6 +805,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     cpt_xy=cpt_xy,
                     cpt_names=cpt_names,
                     section_placements=section_placements,
+                    accepted_ties=accepted_ties,
                 )
                 n_bands = len(fill_band_list)
                 total_layers += n_bands
@@ -875,6 +921,73 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
         return placements
 
+    async def _load_accepted_tie_rows(self, geotech_model_id: UUID) -> list[Any]:
+        """Load every ACCEPTED correlation edge of the geotech model.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotech model whose ties are read.
+
+        Returns
+        -------
+        list[Any]
+            Rows of ``(section_id, layer_a_id, layer_b_id)``.  Unapproved
+            proposals are excluded by the query: only what the engineer accepted
+            may steer where a borehole's packing comes from.
+        """
+        rows = (
+            await self._session.execute(
+                select(
+                    LithoContactCorrelationEdgeOrm.section_id,
+                    LithoContactCorrelationEdgeOrm.layer_a_id,
+                    LithoContactCorrelationEdgeOrm.layer_b_id,
+                ).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        ).all()
+        return list(rows)
+
+    @staticmethod
+    def _accepted_cpt_ties(
+        rows: list[Any], *, layer_to_investigation: dict[UUID, str]
+    ) -> list[AcceptedTie]:
+        """Keep the accepted ties whose BOTH endpoints are CPT packing bands.
+
+        Parameters
+        ----------
+        rows : list[Any]
+            ``(section_id, layer_a_id, layer_b_id)`` rows from
+            :meth:`_load_accepted_tie_rows`.
+        layer_to_investigation : dict[UUID, str]
+            ``geotech layer id → CPT investigation id`` for every CPT band in
+            the model.  A tie endpoint missing from this map sits on a borehole
+            column, and the ruling names a CPT pair.
+
+        Returns
+        -------
+        list[AcceptedTie]
+            The CPT↔CPT ties, in the domain rule's own vocabulary.
+        """
+        ties: list[AcceptedTie] = []
+        for section_id, layer_a_id, layer_b_id in rows:
+            inv_a = layer_to_investigation.get(layer_a_id)
+            inv_b = layer_to_investigation.get(layer_b_id)
+            if inv_a is None or inv_b is None or inv_a == inv_b:
+                continue
+            ties.append(
+                AcceptedTie(
+                    investigation_a=inv_a,
+                    layer_a_id=str(layer_a_id),
+                    investigation_b=inv_b,
+                    layer_b_id=str(layer_b_id),
+                    section_id=str(section_id),
+                )
+            )
+        return ties
+
     async def preview_tie_carry(self, plan: DivideBoreholePlan) -> ReanchorPlan:
         """Say what a commit of *plan* would do to the accepted borehole ties.
 
@@ -931,6 +1044,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         *,
         project_id: UUID,
         litho_model_id: UUID,
+        borehole_ids: set[UUID] | None = None,
     ) -> DivideBoreholeResult:
         """Materialise litho-confined borehole bands for *litho_model_id*.
 
@@ -945,6 +1059,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         litho_model_id : UUID
             The lithostratigraphic model whose geotech child model holds the
             CPT geotech layers.
+        borehole_ids : set[UUID] | None
+            Divide only these borehole columns.  ``None`` (the default) divides
+            every borehole — exactly today's semantics.  With a subset, the
+            delete is scoped to the same set, so a borehole left out keeps the
+            bands (and the ties anchored on them) it already had.
 
         Returns
         -------
@@ -957,9 +1076,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             404 when the litho model or geotech model does not exist.
         """
         t0 = time.monotonic()
-        self.info(f"DivideBoreholes: start project={project_id} litho_model={litho_model_id}")
+        self.info(
+            f"DivideBoreholes: start project={project_id} litho_model={litho_model_id} "
+            f"boreholes={'ALL' if borehole_ids is None else len(borehole_ids)}"
+        )
 
-        plan = await self.plan(project_id=project_id, litho_model_id=litho_model_id)
+        plan = await self.plan(
+            project_id=project_id, litho_model_id=litho_model_id, borehole_ids=borehole_ids
+        )
         geotech_model_id = plan.geotech_model_id
         if plan.pick_count == 0:
             await self._session.commit()
@@ -980,6 +1104,49 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         for inv_id_key, entries in plan.cpt_layer_index.items():
             geotech_layer_by_inv_depth[inv_id_key].extend(entries)
 
+        # A subset run leaves other boreholes' bands in the table.  Seed the
+        # index with them so they read as divided columns: without this the
+        # bridging pass would jump over a borehole that HAS packing, and the tie
+        # re-anchor would report a tie anchored on one as lost.
+        if borehole_ids is not None:
+            untouched_rows = (
+                await self._session.execute(
+                    select(
+                        LithoLayerOrm.borehole_id,
+                        LithoLayerOrm.depth_top_m,
+                        LithoLayerOrm.depth_base_m,
+                        LithoLayerOrm.id,
+                        LithoLayerOrm.formation_id,
+                        GeologicalFormationOrm.nad_class,
+                        LithoLayerOrm.body_id,
+                    )
+                    .join(
+                        GeologicalFormationOrm,
+                        LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+                    )
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.borehole_id.is_not(None),
+                        LithoLayerOrm.borehole_id.notin_(borehole_ids),
+                    )
+                )
+            ).all()
+            for row in untouched_rows:
+                geotech_layer_by_inv_depth[str(row.borehole_id)].append(
+                    (
+                        row.depth_top_m,
+                        row.depth_base_m,
+                        row.id,
+                        row.formation_id,
+                        row.nad_class,
+                        row.body_id,
+                    )
+                )
+            self.info(
+                f"DivideBoreholes: subset run — {len(untouched_rows)} band(s) on "
+                f"boreholes outside the subset left untouched and kept visible"
+            )
+
         # Phase 6b — capture the engineer's ACCEPTED packing ties that touch a
         # borehole column, BEFORE Phase 7 removes their endpoints.
         #
@@ -999,15 +1166,34 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         captured_ties = await tie_reanchor.capture(
             geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
         )
-
-        # Phase 7 — delete existing borehole geotech layers.
-        deleted = (
-            await self._session.execute(
-                delete(LithoLayerOrm).where(
-                    LithoLayerOrm.model_id == geotech_model_id,
-                    LithoLayerOrm.borehole_id.is_not(None),
+        if borehole_ids is not None:
+            # Only the subset's bands are deleted, so only the ties anchored on
+            # THOSE columns are at risk. Re-creating a tie whose row was never
+            # destroyed would double it.
+            subset_keys = {str(b) for b in borehole_ids}
+            captured_ties = [
+                tie
+                for tie in captured_ties
+                if (
+                    tie.anchor_kind_a == ANCHOR_BOREHOLE
+                    and tie.identity_a.investigation_id in subset_keys
                 )
-            )
+                or (
+                    tie.anchor_kind_b == ANCHOR_BOREHOLE
+                    and tie.identity_b.investigation_id in subset_keys
+                )
+            ]
+
+        # Phase 7 — delete existing borehole geotech layers (subset-scoped when
+        # the caller named the boreholes to divide).
+        delete_conditions = [
+            LithoLayerOrm.model_id == geotech_model_id,
+            LithoLayerOrm.borehole_id.is_not(None),
+        ]
+        if borehole_ids is not None:
+            delete_conditions.append(LithoLayerOrm.borehole_id.in_(borehole_ids))
+        deleted = (
+            await self._session.execute(delete(LithoLayerOrm).where(*delete_conditions))
         ).rowcount
         self.info(f"DivideBoreholes: deleted {deleted} prior borehole geotech layer(s)")
 
@@ -1089,13 +1275,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             approved = await load_approved_litho_edges(self._session, litho_model_id, section.id)
             if not approved:
                 continue
+            # Bridging is a no-op for a fully divided model (every column now
+            # carries bands); it still runs so a borehole this call deliberately
+            # left undivided (``borehole_ids`` subset) is jumped over rather
+            # than blocking the CPT pair either side of it.
+            bridged = bridge_edges_over_bandless_columns(
+                approved, litho_layer_depths, geotech_layer_by_inv_depth
+            )
             edge_totals.add(
                 await derive_geotech_edges_from_litho(
                     self._session,
                     self,
                     geotech_model_id=geotech_model_id,
                     section_id=section.id,
-                    litho_approved_edges=approved,
+                    litho_approved_edges=bridged,
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                     seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
@@ -1255,6 +1448,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         cpt_xy: dict[UUID, tuple[float, float, float]],
         cpt_names: dict[UUID, str],
         section_placements: list[SectionPlacement],
+        accepted_ties: Sequence[AcceptedTie] = (),
     ) -> tuple[list[FillBand], list[UUID | None], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
@@ -1301,6 +1495,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         section_placements : list[SectionPlacement]
             Every project section with the along-positions of the columns it
             draws.  This is what makes "left" and "right" meaningful.
+        accepted_ties : Sequence[AcceptedTie]
+            The engineer's ACCEPTED CPT↔CPT packing ties.  One whose span
+            crosses this borehole's column names the donor pair outright and
+            outranks the flanking guess (owner ruling 2026-08-04).  Defaults to
+            empty, which is exactly "no tie spans anything" — the flanking rule
+            then answers as it always did.
 
         Returns
         -------
@@ -1360,9 +1560,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # this borehole on the section — then lay their packing onto the
         # borehole's extent in thickness-fraction space.
         # -------------------------------------------------------------------
-        selection = select_flank_donors(
-            borehole_id=inv_id, donors=donors, sections=section_placements
-        )
+        # An accepted tie that spans this borehole names the donor pair
+        # outright; the flanking rule is what answers when none does.
+        selection = select_tie_informed_donors(
+            borehole_id=inv_id,
+            donors=donors,
+            sections=section_placements,
+            ties=accepted_ties,
+        ) or select_flank_donors(borehole_id=inv_id, donors=donors, sections=section_placements)
         cpt_packing_surfaces = flank_packing_surfaces(
             selection, extent_top_m=geo_top_m, extent_base_m=geo_base_m
         )
@@ -1569,8 +1774,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     extent_base_m=best_pick.base_depth_m,
                     bands=tuple(
                         # nad_class is not None — the comprehension filtered it.
-                        DonorBand(top_m=top, base_m=base, nad_class=int(nad_class or 0))
-                        for top, base, _lid, _fid, nad_class, _bid in in_extent
+                        # The layer id rides along because an accepted packing
+                        # tie names bands by it.
+                        DonorBand(
+                            top_m=top,
+                            base_m=base,
+                            nad_class=int(nad_class or 0),
+                            layer_id=str(lid),
+                        )
+                        for top, base, lid, _fid, nad_class, _bid in in_extent
                     ),
                     map_distance_m=((x_m - bh_x) ** 2 + (y_m - bh_y) ** 2) ** 0.5,
                 )
