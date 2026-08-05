@@ -62,6 +62,7 @@ import { buildFillBand, columnsBetween, depthAxisAtSurface, type PlacedColumn } 
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 import { nadCompactFromName } from '../../utils/nadClasses'
 import { isTypingTarget } from '../../utils/keyboard'
+import { allocateMinHitExpansions } from '../../utils/minHitAllocation'
 import {
   clamp,
   columnUnderCursor,
@@ -556,6 +557,10 @@ const LAYER_LABEL_MIN_HEIGHT_PX = 14
 // enough that the line is grabbable without precision aiming, narrow
 // enough that adjacent layers don't fight for the same pointer.
 const DRAG_HIT_HALF_HEIGHT_PX = 5
+// Debt #158 — minimum comfortable hit height for a per-column litho band.
+// Below this, invisible strips borrowed from fat neighbours top up the
+// clickable area (see ``allocateMinHitExpansions``).
+const MIN_BAND_HIT_PX = 12
 // Depth window (m) within which a geological reference contact is treated as
 // COINCIDENT with a litho contact on the same anchor (#159).  The litho-geo
 // snap dialog ("Snap litho" / "Move geo") leaves the two boundaries at the
@@ -1166,6 +1171,12 @@ export default function ContactsLayer({
       anchorElevationM: number
       anchorSurfaceY: number
       anchorPxPerMetre: number
+      // Debt #158 — invisible hit expansion beyond the visual rect, borrowed
+      // from fat neighbours so a thin band stays clickable. Rendered as
+      // separate transparent strips ON TOP of the band stack; the visual rect
+      // never moves.
+      growTop: number
+      growBottom: number
     }
     if (!perColumnBandsFromContacts) {
       return [] as LithoBand[]
@@ -1198,6 +1209,7 @@ export default function ContactsLayer({
         .sort((a, b) => a.depth_top_m - b.depth_top_m)
       if (colContacts.length === 0) continue
       const ghostHoles = pendingGhostRangesByAnchorId?.get(anchorId) ?? []
+      const colStart = out.length
       const halfW = col.width / 2
       const x = col.nudgedX - halfW
       const { surfaceY, pxPerMetreDown: pxPerMetre } = depthAxisAtSurface(
@@ -1236,6 +1248,8 @@ export default function ContactsLayer({
             contactId: top.id,
             formationName: nameById.get(top.formation_id) ?? '',
             ...anchorMeta,
+            growTop: 0,
+            growBottom: 0,
           })
         }
       }
@@ -1269,8 +1283,22 @@ export default function ContactsLayer({
             contactId: last.id,
             formationName: nameById.get(last.formation_id) ?? '',
             ...anchorMeta,
+            growTop: 0,
+            growBottom: 0,
           })
         }
+      }
+      // Debt #158 — thin bands borrow hit space from fat neighbours. The
+      // column's bands were pushed in depth order, so the slice is the
+      // contiguous stack the allocator expects.
+      const colBands = out.slice(colStart)
+      const expansions = allocateMinHitExpansions(
+        colBands.map(b => ({ top: b.y, bottom: b.y + b.height })),
+        MIN_BAND_HIT_PX,
+      )
+      for (let bi = 0; bi < colBands.length; bi++) {
+        colBands[bi].growTop = expansions[bi].growTop
+        colBands[bi].growBottom = expansions[bi].growBottom
       }
     }
     return out
@@ -2541,6 +2569,73 @@ export default function ContactsLayer({
           )}
         </rect>
       ))}
+      {/* Debt #158 — donated hit strips. A thin band's clickable area is
+          topped up with invisible strips borrowed from its fat neighbours
+          (``allocateMinHitExpansions``), rendered AFTER the whole visible
+          stack so they win the hit-test inside the donated sliver while the
+          neighbour's own surface stays untouched everywhere else. Handlers
+          and gating mirror the visible rect exactly — a strip IS the band,
+          just reachable. */}
+      {perColumnLithoBands.flatMap(band => {
+        if (!(onRequestAddLithoSuggestion || onDeleteContact)) return []
+        const strips: { suffix: 'above' | 'below'; y: number; h: number }[] = []
+        if (band.growTop > 0) strips.push({ suffix: 'above', y: band.y - band.growTop, h: band.growTop })
+        if (band.growBottom > 0)
+          strips.push({ suffix: 'below', y: band.y + band.height, h: band.growBottom })
+        return strips.map(st => (
+          <rect
+            key={`pc-litho-hit-${band.key}-${st.suffix}`}
+            data-testid={`per-column-litho-band-hit-${band.key}-${st.suffix}`}
+            x={band.x}
+            y={st.y}
+            width={band.width}
+            height={st.h}
+            fill="transparent"
+            pointerEvents="all"
+            style={onRequestAddLithoSuggestion ? { cursor: 'pointer' } : undefined}
+            onContextMenu={
+              onDeleteContact
+                ? e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setLithoBandMenu({
+                      clientX: e.clientX,
+                      clientY: e.clientY,
+                      mode: 'remove',
+                      contactId: band.contactId,
+                      formationName: band.formationName,
+                    })
+                  }
+                : undefined
+            }
+            onClick={
+              onRequestAddLithoSuggestion
+                ? e => {
+                    e.stopPropagation()
+                    if (band.anchorElevationM === null) return
+                    const svg = e.currentTarget.ownerSVGElement
+                    if (!svg) return
+                    const svgRect = svg.getBoundingClientRect()
+                    const svgY = e.clientY - svgRect.top
+                    const depth = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
+                    if (depth < 0) return
+                    onRequestAddLithoSuggestion(
+                      band.anchorKind,
+                      band.anchorId,
+                      depth,
+                      band.anchorName,
+                      band.anchorElevationM,
+                    )
+                  }
+                : undefined
+            }
+          >
+            {onRequestAddLithoSuggestion && (
+              <title>Click to insert new layer here · right-click to remove</title>
+            )}
+          </rect>
+        ))
+      })}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
           column glyphs, contact lines, labels) paints on top. The
