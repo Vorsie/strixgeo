@@ -92,7 +92,7 @@ subdivision is built on top of it. Priority order:
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
   * **#224 — Geotech formation find-or-create DRY pass — RESOLVED 2026-07-13 (B1 dedup batch).** Post-recount outcome: the heavy half resolved **by attrition** when the C1/C2 skeleton flow was deleted (#237.2) — `_find_or_create_classified`, `_find_or_create_skeleton`, and `_resolve_anchor_kinds` (GEOTECH-IMPORT-03) each survive as a SINGLE copy on the shared `GeotechBoreholeMaterialiser` base class, and the admixture-JSONB parse (GEOTECH-IMPORT-08) survives only in `subdivide_all_bodies._formation_admixtures`; single copies were NOT extracted. The still-multi copies were extracted: the nearest-geo-contact-within-tolerance loop ×2 + geo-contacts-at-investigation loader ×2 (GEOTECH-IMPORT-07) → `application/litho_geo_link_helpers.py` (shared by AcceptLithoSuggestions + LinkLithoToGeo); the view-state float-knob readers ×4 live sites (litho snap tolerance / geotech snap tolerance / min thickness / gradient window) → `application/view_state_helpers.py` (`read_view_state_float` + `load_project_view_state`). `_read_min_thickness_m` itself stays a 1-copy thin wrapper over the shared reader. Any future 2nd copy of the find-or-create pair belongs on the materialiser base class, not a new module.
-* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #158, #229, #234, #235, #236, #269 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #234 RESOLVED 2026-07-13 in the B4 dedup batch; #237 is the owner-decision batch; #222 RESOLVED 2026-07-13 — B5 naming batch, columns renamed to companion_body_id / is_body_companion)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #229, #234, #235, #236, #269 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #234 RESOLVED 2026-07-13 in the B4 dedup batch; #237 is the owner-decision batch; #222 RESOLVED 2026-07-13 — B5 naming batch, columns renamed to companion_body_id / is_body_companion)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -4210,25 +4210,30 @@ so the sliver mechanism no longer exists. The whole `_compute_straddle_splits`
 / sliver-guard machinery + the "Sliver guard" Settings knob are retired. See
 `docs/superpowers/specs/2026-06-04-a2-litho-geo-decoupling-design.md`.
 
-## 158. Thin litho bands/slivers are hard to click — expand the hit target (Tier E)
+## 158. Thin litho bands/slivers are hard to click — RESOLVED 2026-08-05
 
 **What.** Owner dogfeed 2026-05-28: thin litho bands (incl. the #157
-slivers) are hard to click for select/right-click — the band rect is a
-tiny target, made worse by the #137 zoom bug (pan-and-zoom dance to get
-close). Request: make the click pointer "more sensitive."
+slivers) were tiny click targets for select/right-click. The trap fired
+again 2026-08-04/05 (the CLAY-SF → SILT chase): the owner's correlate
+clicks landed one band low twice in one week — the correlate-zone
+midpoint split assigned the near-boundary half of a thin band to the
+NEIGHBOUR's contact.
 
-**Fix direction.** Give thin bands a **minimum hit-height** that exceeds
-their visual height (expand the invisible click-capture rect beyond the
-band for bands below ~N px), or route a click near a boundary to the
-nearest band. Mind the interaction with #152's contact-drag hit-strips
-(`DRAG_HIT_HALF_HEIGHT_PX = 5`) and the band right-click menu (#151) so
-the expanded targets don't fight each other. Lower priority than #157
-(which *reduces the number of slivers* and so reduces how often this
-bites).
+**Fix (commits `a9b7d1d36`..`4a9147f69`).** Two surfaces:
 
-**When to revisit.** Polish pass, ideally after #157 lands (fewer slivers
-to click).
-Filed from dogfeed session 2026-05-28.
+* **Correlate mode** (`CorrelationEdgesOverlay`): a band thinner than
+  `2 × CONTACT_SELECT_NEAR_PX` with a deeper contact below arms its
+  WHOLE height to its own top contact instead of midpoint-splitting —
+  the click can no longer fall through to the neighbour (CE-THIN /
+  CE-THIN-DEEPEST).
+* **Band menu / add-suggestion** (`ContactsLayer`): a pure allocator
+  (`utils/minHitAllocation.ts`, `MIN_BAND_HIT_PX = 12`) lets a thin band
+  borrow invisible hit strips from fat neighbours' slack — each side
+  donates at most `(height − 12)/2` so it never goes sub-minimum itself,
+  thin-vs-thin boundaries stay put, stack edges are walls. Strips render
+  after the visible stack with the band's own handlers (LB-THIN). The
+  visual rects never move; #152's drag strips render later and keep
+  priority.
 
 ## 159. Drag-lock after deleting an accepted litho unit — RESOLVED 2026-05-29
 
