@@ -28,7 +28,6 @@ export interface UseGeotechCorrelationVerbsDeps {
   /** Active geotechnical model — ``null`` until "Subdivide all bodies" has run. */
   activeGeotechModel: GeologicalModelResponse | null
   /** Selected cross-section; ``null`` widens both verbs to the whole model. */
-  selectedSectionId: string | null
   /** Toast stack action. */
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
   /** Mark the project dirty (two-stage save model). */
@@ -37,6 +36,14 @@ export interface UseGeotechCorrelationVerbsDeps {
   requestCorrelationEdgesRefetch?: () => void
   /** Ask the shell to refetch geotech layers (the ``body_id`` stamp source). */
   requestGeotechLayersRefetch: () => void
+  /**
+   * Re-read the pending / accepted tie counts.
+   *
+   * Fired after BOTH verbs — one creates proposals, the other consumes them,
+   * and step 4's gate is disabled off that number. A stale count is the
+   * difference between a button the engineer can press and one he cannot.
+   */
+  refreshTieStatus?: () => void
 }
 
 /** Busy flags + handlers for the two toolbar items. */
@@ -70,11 +77,11 @@ export function useGeotechCorrelationVerbs(
   const {
     projectId,
     activeGeotechModel,
-    selectedSectionId,
     toast,
     markMutated,
     requestCorrelationEdgesRefetch,
     requestGeotechLayersRefetch,
+    refreshTieStatus,
   } = deps
 
   const [autoCorrelating, setAutoCorrelating] = useState(false)
@@ -85,15 +92,16 @@ export function useGeotechCorrelationVerbs(
     const modelId = activeGeotechModel.id
     log.info(
       'sections',
-      `geotechAutoCorrelate: model=${modelId} section=${selectedSectionId ?? 'model-wide'}`,
+      `geotechAutoCorrelate: model=${modelId} scope=model-wide`,
     )
     setAutoCorrelating(true)
     try {
-      const result = await api.geology.autoCorrelateGeotech(
-        projectId,
-        modelId,
-        selectedSectionId,
-      )
+      // MODEL-WIDE on purpose (review MAJOR-2, 2026-08-05): step 4's gate and
+      // the pending chip count the whole model, so a section-scoped step 2/3
+      // could never satisfy them — "Accept all ties" on one section left the
+      // gate closed with no in-app way to open it. Per-tie accept on the
+      // canvas remains the section-local path.
+      const result = await api.geology.autoCorrelateGeotech(projectId, modelId, null)
       log.success(
         'sections',
         `geotechAutoCorrelate: proposed=${result.edges_proposed} ` +
@@ -106,6 +114,7 @@ export function useGeotechCorrelationVerbs(
       // they are accepted — so only the edge list needs to come back, not the geotech
       // layers whose body_id stamps the accept path refreshes.
       requestCorrelationEdgesRefetch?.()
+      refreshTieStatus?.()
       if (result.edges_proposed === 0) {
         toast(
           'success',
@@ -133,10 +142,10 @@ export function useGeotechCorrelationVerbs(
     activeGeotechModel,
     autoCorrelating,
     projectId,
-    selectedSectionId,
     toast,
     markMutated,
     requestCorrelationEdgesRefetch,
+    refreshTieStatus,
   ])
 
   const runAcceptCorrelations = useCallback(async (): Promise<void> => {
@@ -144,15 +153,12 @@ export function useGeotechCorrelationVerbs(
     const modelId = activeGeotechModel.id
     log.info(
       'sections',
-      `geotechAcceptCorrelations: model=${modelId} section=${selectedSectionId ?? 'model-wide'}`,
+      `geotechAcceptCorrelations: model=${modelId} scope=model-wide`,
     )
     setAcceptingCorrelations(true)
     try {
-      const result = await api.geology.acceptContactCorrelations(
-        projectId,
-        modelId,
-        selectedSectionId,
-      )
+      // Model-wide, same reason as auto-correlate above (review MAJOR-2).
+      const result = await api.geology.acceptContactCorrelations(projectId, modelId, null)
       log.success(
         'sections',
         `geotechAcceptCorrelations: ${result.edges_accepted} accepted`,
@@ -165,6 +171,7 @@ export function useGeotechCorrelationVerbs(
         markBoreholesStale()
       }
       requestCorrelationEdgesRefetch?.()
+      refreshTieStatus?.()
       toast(
         'success',
         result.edges_accepted === 0
@@ -182,11 +189,11 @@ export function useGeotechCorrelationVerbs(
     activeGeotechModel,
     acceptingCorrelations,
     projectId,
-    selectedSectionId,
     toast,
     markMutated,
     requestCorrelationEdgesRefetch,
     requestGeotechLayersRefetch,
+    refreshTieStatus,
   ])
 
   return { autoCorrelating, acceptingCorrelations, runAutoCorrelate, runAcceptCorrelations }
