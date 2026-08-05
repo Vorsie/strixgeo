@@ -31,7 +31,6 @@ import {
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
-import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
@@ -520,17 +519,6 @@ export default function SectionsToolbar(): JSX.Element {
   // enabled and silently writing the wrong level — audit 2026-08-02.)
   const isLitho = sectionModelAxis === 'lithostratigraphic'
   const isGeotech = sectionModelAxis === 'geotechnical'
-
-  // What ``GeotechBoreholePreviewGhosts`` ACTUALLY drew this frame, straight
-  // from the overlay. The legend explains hatching, so it has to track the
-  // hatching — an approximation recomputed here from the investigation list
-  // claimed "Hatched = preview" over an empty axis in three real cases: a
-  // column with no collar elevation (the overlay skips it), a preview still in
-  // flight, and a failed preview, where the legend appeared beside the error
-  // toast. ``clampedBandCount`` rides along so a planned band that falls
-  // outside the visible depth window is reported rather than silently missing.
-  const previewRender = useGeotechPreviewRender()
-  const hasDrawnPreviewGhosts = isGeotech && previewRender.columnCount > 0
 
   const hasModel = isLitho
     ? activeLithoModel !== null
@@ -1274,78 +1262,118 @@ export default function SectionsToolbar(): JSX.Element {
           before any geotech model exists. */}
       {isGeotech && (
         <>
-          <PrimaryToolbarButton
+          {/* THE FOUR-STEP PIPELINE, folded into one dropdown (owner dogfeed
+              2026-08-05 — the four inline buttons crowded the bar, debt #23).
+              The pending chip stays OUTSIDE the menu: it is the number step 4
+              is gated on and must be visible without opening anything. Gate
+              info that used to live in hover tooltips moves onto visible tag
+              pills — a disabled menu item cannot show a title in Chromium. */}
+          <ToolbarDropdown
             icon={<SplitSquareVertical size={13} />}
-            label={subdividingBodies ? 'Subdividing…' : '1 · Subdivide CPTs'}
-            onClick={() => {
-              if (subdividingBodies || !activeLithoModel) return
-              // A geotech model only exists AFTER a first subdivide, so its
-              // presence is the proxy for "this is a re-run" — re-runs wipe +
-              // regenerate all packing connections (manual ones lost), so we
-              // confirm first; the first-ever subdivide skips the prompt (§7).
-              if (activeGeotechModel !== null) {
-                setReSubdivideConfirmOpen(true)
-                return
-              }
-              runSubdivideAllBodies()
-            }}
-            disabled={subdividingBodies || !activeLithoModel}
-            busy={subdividingBodies}
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model in the Lithology stage first'
-                : subdividingBodies
-                  ? 'Running NAD packing-class subdivision…'
-                  : 'Step 1 of 4 — derive NAD packing classes (1–31) on the CPTs. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run.'
-            }
-            testid="geotech-subdivide-cpts"
-          />
-          {/* Step 2 — PROPOSE the packing ties. Promoted out of the Correlate
-              caret (2026-08-05): the pipeline is the flow now, and a step
-              hidden behind a caret is a step the engineer skips. It ADDS only —
-              every correlation already on the model is left untouched. */}
-          <ToolbarButton
-            icon={<Zap size={13} />}
-            label={autoCorrelatingGeotech ? 'Correlating…' : '2 · Auto-correlate'}
-            onClick={() => {
-              void runAutoCorrelateGeotech()
-            }}
-            disabled={activeGeotechModel === null || autoCorrelatingGeotech}
-            busy={autoCorrelatingGeotech}
-            title={
-              activeGeotechModel === null
-                ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                : autoCorrelatingGeotech
-                  ? 'Proposing packing correlations…'
-                  : 'Step 2 of 4 — propose the automatic same-class packing ties inside each correlated litho unit, on EVERY section of the model, jumping across borehole columns that carry no packing yet. Inserts UNAPPROVED ties only; correlations you drew by hand are never touched.'
-            }
-            testid="geotech-auto-correlate"
-          />
-          {/* Step 3 — ACCEPT. The pending chip beside it is the number step 4 is
-              gated on, so it lives next to the button that clears it rather than
-              inside a tooltip nobody hovers. */}
-          <ToolbarButton
-            icon={<CheckCheck size={13} />}
             label={
-              acceptingGeotechCorrelations ? 'Accepting…' : '3 · Accept all ties'
+              subdividingBodies
+                ? 'Subdividing…'
+                : autoCorrelatingGeotech
+                  ? 'Correlating…'
+                  : acceptingGeotechCorrelations
+                    ? 'Accepting…'
+                    : dividingBoreholes
+                      ? 'Dividing…'
+                      : 'Packing pipeline'
             }
-            onClick={() => {
-              void runAcceptGeotechCorrelations()
-            }}
-            disabled={activeGeotechModel === null || acceptingGeotechCorrelations}
-            busy={acceptingGeotechCorrelations}
-            amber={tieStatus.loaded && tieStatus.pending > 0}
             title={
-              activeGeotechModel === null
-                ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                : acceptingGeotechCorrelations
-                  ? 'Accepting packing correlations…'
-                  : tieStatus.loaded && tieStatus.pending > 0
-                    ? `Step 3 of 4 — approve EVERY pending packing tie in the model (${tieStatus.pending} proposed). An accepted tie joins its bands into one geotech body and decides which CPTs a borehole’s packing is read from. To review before trusting: right-click a single tie on its section to accept just that one.`
-                    : 'Step 3 of 4 — approve every pending packing tie in the model. Right-click a single tie on its section to accept just that one.'
+              'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, ' +
+              '3 review and accept them, 4 divide the boreholes. Step 4 stays ' +
+              'locked while ties are still proposed.'
             }
-            testid="geotech-accept-correlations"
+            testid="geotech-pipeline"
+            items={[
+              {
+                label: subdividingBodies ? 'Subdividing…' : '1 · Subdivide CPTs',
+                icon: <SplitSquareVertical size={13} />,
+                disabled: subdividingBodies || !activeLithoModel,
+                title: !activeLithoModel
+                  ? 'Create a lithostratigraphic model in the Lithology stage first'
+                  : 'Step 1 of 4 — derive NAD packing classes (1–31) on the CPTs. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run.',
+                testid: 'geotech-subdivide-cpts',
+                onClick: () => {
+                  if (subdividingBodies || !activeLithoModel) return
+                  // A geotech model only exists AFTER a first subdivide, so its
+                  // presence is the proxy for "this is a re-run" — re-runs wipe +
+                  // regenerate all packing connections (manual ones lost), so we
+                  // confirm first; the first-ever subdivide skips the prompt (§7).
+                  if (activeGeotechModel !== null) {
+                    setReSubdivideConfirmOpen(true)
+                    return
+                  }
+                  runSubdivideAllBodies()
+                },
+              },
+              {
+                label: autoCorrelatingGeotech ? 'Correlating…' : '2 · Auto-correlate',
+                icon: <Zap size={13} />,
+                disabled: activeGeotechModel === null || autoCorrelatingGeotech,
+                title:
+                  activeGeotechModel === null
+                    ? 'Run “1 · Subdivide CPTs” first to create packing bands'
+                    : 'Step 2 of 4 — propose the automatic same-class packing ties inside each correlated litho unit, on EVERY section of the model, jumping across borehole columns that carry no packing yet. Inserts UNAPPROVED ties only; correlations you drew by hand are never touched.',
+                testid: 'geotech-auto-correlate',
+                onClick: () => {
+                  void runAutoCorrelateGeotech()
+                },
+              },
+              {
+                label: acceptingGeotechCorrelations ? 'Accepting…' : '3 · Accept all ties',
+                icon: <CheckCheck size={13} />,
+                disabled: activeGeotechModel === null || acceptingGeotechCorrelations,
+                tag:
+                  tieStatus.loaded && tieStatus.pending > 0
+                    ? `${tieStatus.pending} pending`
+                    : undefined,
+                // The review WORKFLOW, not just the verb (owner dogfeed
+                // 2026-08-05): reject first, bulk-accept second, hand-tie last.
+                title:
+                  activeGeotechModel === null
+                    ? 'Run “1 · Subdivide CPTs” first to create packing bands'
+                    : 'Step 3 of 4 — review, then approve. First DELETE the faulty proposals (right-click a tie → Delete) and accept the ones you want to check off singly (right-click → Accept tie). Then press this to accept every remaining proposal in the model. Afterwards, hand-connect anything auto-correlate missed with “Correlate packing”.',
+                testid: 'geotech-accept-correlations',
+                onClick: () => {
+                  void runAcceptGeotechCorrelations()
+                },
+              },
+              {
+                label: dividingBoreholes ? 'Dividing…' : '4 · Divide boreholes',
+                icon: <Layers size={13} />,
+                disabled:
+                  dividingBoreholes || activeGeotechModel === null || tiesBlockDivide,
+                // Visible tag instead of a hover title: a disabled menu item
+                // fires no mouse events, so the gate must SHOW its reason.
+                tag: tiesBlockDivide
+                  ? `accept ${tieStatus.pending} first`
+                  : boreholesStale
+                    ? 'stale — re-divide'
+                    : undefined,
+                title:
+                  activeGeotechModel === null
+                    ? 'Run “1 · Subdivide CPTs” first to create the geotech model'
+                    : tiesBlockDivide
+                      ? `${tieStatus.pending} packing tie${tieStatus.pending === 1 ? '' : 's'} still proposed — accept or delete them first`
+                      : boreholesStale
+                        ? 'Bodies or correlations changed — re-divide the boreholes to match'
+                        : 'Step 4 of 4 — TIN-divide every borehole column into packing bands, using the CPT transition surfaces and the ties you accepted. Right-click one borehole’s ghost bands to divide just that column.',
+                testid: 'geotech-divide-boreholes',
+                onClick: () => {
+                  if (dividingBoreholes || activeGeotechModel === null || tiesBlockDivide) return
+                  setDividingBoreholes(true)
+                  void handleDivideBoreholes().finally(() => {
+                    setDividingBoreholes(false)
+                  })
+                },
+              },
+            ]}
           />
+          {/* The pending chip — OUTSIDE the menu on purpose: it is the number
+              step 4 is gated on and must be visible without opening anything. */}
           {tieStatus.loaded && tieStatus.pending > 0 && (
             <span
               data-testid="geotech-pending-tie-chip"
@@ -1355,80 +1383,10 @@ export default function SectionsToolbar(): JSX.Element {
               {tieStatus.pending} pending
             </span>
           )}
-          {/* "Divide boreholes" — TIN-divide borehole columns using CPT
-              packing-transition surfaces.  Runs AFTER "Subdivide all bodies"
-              so CPT geotech layers already exist.  Idempotent: re-running
-              replaces the prior borehole bands.  Gated on activeGeotechModel
-              (SAB must have run at least once). */}
-          {/* The GATE (owner ruling 2026-08-04): while a packing tie is still
-              proposed, this refuses — an accepted tie spanning a borehole names
-              the CPTs its packing is read from, so dividing on unreviewed
-              proposals throws away evidence the engineer is one press from
-              supplying. Disabled + a tooltip naming the count beats a 422 the
-              engineer only meets after clicking.
-
-              WHY the span wrapper: Chromium/Electron fires no mouse events on a
-              `disabled` element, so a `title` on the button itself never
-              reaches the user — the same reason the axis toggle wraps its
-              disabled segment. The span carries the explanation instead. */}
-          <span
-            role="presentation"
-            title={
-              tiesBlockDivide
-                ? `${tieStatus.pending} packing tie${tieStatus.pending === 1 ? '' : 's'} still proposed — press “3 · Accept all ties” (or right-click a tie → Accept tie, or delete it) before dividing`
-                : undefined
-            }
-          >
-            <ToolbarButton
-              icon={<Layers size={13} />}
-              label={dividingBoreholes ? 'Dividing…' : '4 · Divide boreholes'}
-              onClick={() => {
-                if (dividingBoreholes || activeGeotechModel === null || tiesBlockDivide) return
-                setDividingBoreholes(true)
-                void handleDivideBoreholes().finally(() => {
-                  setDividingBoreholes(false)
-                  // The rebuild re-anchors (and can flag) accepted borehole
-                  // ties, so the counts have moved.
-                  void refreshTieStatus()
-                })
-              }}
-              disabled={dividingBoreholes || activeGeotechModel === null || tiesBlockDivide}
-              busy={dividingBoreholes}
-              amber={activeGeotechModel !== null && boreholesStale && !tiesBlockDivide}
-              title={
-                activeGeotechModel === null
-                  ? 'Run “1 · Subdivide CPTs” first to create the geotech model'
-                  : dividingBoreholes
-                    ? 'Dividing borehole columns…'
-                    : tiesBlockDivide
-                      ? `${tieStatus.pending} packing tie${tieStatus.pending === 1 ? '' : 's'} still proposed — accept or delete them first`
-                      : boreholesStale
-                        ? 'Bodies or correlations changed — re-divide the boreholes to match'
-                        : 'Step 4 of 4 — TIN-divide every borehole column into packing bands, using the CPT transition surfaces and the ties you accepted. Right-click one borehole’s ghost bands to divide just that column.'
-              }
-              testid="geotech-divide-boreholes"
-            />
-          </span>
-          {/* Legend for the hatched ghost bands over the still-undivided
-              boreholes. Appears only while there is something hatched to
-              explain, and disappears the moment every borehole is divided —
-              the same no-permanent-toolbar-weight rule as the litho hint
-              above (debt #23 toolbar crowding). Matches its styling. */}
-          {hasDrawnPreviewGhosts && (
-            <p className="text-xs text-text-muted" data-testid="geotech-preview-legend">
-              Hatched = preview — press &ldquo;Divide boreholes&rdquo; to commit.
-            </p>
-          )}
-          {/* A planned band scrolled out of the depth window has no pixel to
-              live in. Saying so beats letting the silence read as "nothing is
-              planned down there" — the one claim this preview must not make. */}
-          {isGeotech && previewRender.clampedBandCount > 0 && (
-            <p className="text-xs text-text-muted" data-testid="geotech-preview-clamped">
-              {previewRender.clampedBandCount} planned band
-              {previewRender.clampedBandCount === 1 ? '' : 's'} outside the depth window — zoom
-              out to see {previewRender.clampedBandCount === 1 ? 'it' : 'them'}.
-            </p>
-          )}
+          {/* The hatched-ghost legend + clamped-band notice moved to the
+              right-hand inspector (owner dogfeed 2026-08-05) — prose was
+              overflowing the toolbar. See SectionsInspector's Borehole
+              preview section. */}
           {/* "Correlate packing" — manual same-class/same-body packing connection.
               Reuses the litho correlate state machine (correlateMode) on the geotech
               axis so clicking a packing band arms a source; clicking a neighbour's
@@ -1454,21 +1412,32 @@ export default function SectionsToolbar(): JSX.Element {
             amber={correlateMode}
             testid="geotech-correlate-packing"
           />
-          {/* View toggles — strip the NAD fill / correlation ribbons to inspect
-              the connectivity (the dense same-class auto-correlation can be busy). */}
-          <ToolbarButton
-            icon={geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />}
-            label={geotechFillVisible ? 'Hide fill' : 'Show fill'}
-            onClick={() => toggleGeotechFill()}
-            title="Show or hide the NAD packing-band fill, so you can inspect the correlation ribbons underneath. Toggles on / off."
-            testid="geotech-toggle-fill"
-          />
-          <ToolbarButton
-            icon={<Network size={13} />}
-            label={correlationsVisible ? 'Hide correlations' : 'Show correlations'}
-            onClick={() => toggleCorrelationOverlay()}
-            title="Show or hide the correlation ribbons drawn across the section (2-D visualisation only). Toggles on / off."
-            testid="geotech-toggle-correlations"
+          {/* View toggles folded into one Display dropdown (owner dogfeed
+              2026-08-05 — two standing toggle buttons were toolbar weight for
+              verbs used occasionally). Same testids, same behaviour. */}
+          <ToolbarDropdown
+            icon={<Eye size={13} />}
+            label="Display"
+            title="Show or hide layers of the section view"
+            testid="geotech-display-menu"
+            items={[
+              {
+                label: geotechFillVisible ? 'Hide fill' : 'Show fill',
+                icon: geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
+                onClick: () => toggleGeotechFill(),
+                title:
+                  'Show or hide the NAD packing-band fill, so you can inspect the correlation ribbons underneath.',
+                testid: 'geotech-toggle-fill',
+              },
+              {
+                label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
+                icon: <Network size={13} />,
+                onClick: () => toggleCorrelationOverlay(),
+                title:
+                  'Show or hide the correlation ribbons drawn across the section (2-D visualisation only).',
+                testid: 'geotech-toggle-correlations',
+              },
+            ]}
           />
           {/* Separator after geotech-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
