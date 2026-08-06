@@ -119,6 +119,26 @@ def test_none_only_sides_no_pairs():
 # ---------------------------------------------------------------------------
 
 
+def test_ambiguous_alignment_prefers_the_topmost_pairing():
+    """When equally-long alignments exist, the TOP pairing wins.
+
+    Owner refinement 2026-08-06: the pairing of the two TOPMOST sub-bands is
+    the litho tie restated (same contact surfaces the engineer tied), so when
+    the LCS has a choice it must keep the tops together. [loose, dense] vs
+    [loose, loose] has two optimal length-1 alignments — top↔top and
+    top↔bottom; pairing the left top with the right BOTTOM (the old
+    bottom-up traceback's pick) skips the restatement and geologically ties a
+    surface band to a deep band for no reason.
+    """
+    left = [("L-top", 5), ("L-deep", 9)]
+    right = [("R-top", 5), ("R-deep", 5)]
+    assert aligned_same_class_pairs(left, right) == [("L-top", "R-top")]
+    # Mirrored: the ambiguity on the LEFT side resolves to the top too.
+    left2 = [("L-top", 5), ("L-deep", 5)]
+    right2 = [("R-top", 5), ("R-deep", 9)]
+    assert aligned_same_class_pairs(left2, right2) == [("L-top", "R-top")]
+
+
 def test_order_preserved_no_crossing():
     """[6,7] vs [7,6] → 1 pair only; the LCS is monotonic, no crossing allowed.
 
