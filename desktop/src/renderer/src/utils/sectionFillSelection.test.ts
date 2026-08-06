@@ -17,7 +17,22 @@ describe('selectSectionFill', () => {
       bandFillVisible: false,
       geotechFillVisible: true,
       lithoFillOnGeotech: false,
-      hasRefinement: false,
+      geotechUnitCount: 0,
+    })
+    expect(out).toEqual({ showBands: false, withholdRefinement: false })
+  })
+
+  it('a geotech model with no units yet is STILL a clean slate — an empty refinement must not count', () => {
+    // Dogfeed 2026-08-06 evening: the canvas builds the refinement bundle
+    // whenever the axis is geotech, even with ZERO geotech units — and the
+    // refine engine with no bands falls back to painting the litho regions.
+    // The rule must key on actual units, not on the bundle existing.
+    const out = selectSectionFill({
+      axisMode: 'geotechnical',
+      bandFillVisible: false,
+      geotechFillVisible: true,
+      lithoFillOnGeotech: false,
+      geotechUnitCount: 0,
     })
     expect(out).toEqual({ showBands: false, withholdRefinement: false })
   })
@@ -28,7 +43,7 @@ describe('selectSectionFill', () => {
       bandFillVisible: false,
       geotechFillVisible: true,
       lithoFillOnGeotech: true,
-      hasRefinement: true,
+      geotechUnitCount: 4,
     })
     // withholdRefinement swaps the NAD subdivision out of the overlay, so
     // the litho fill is the ONLY fill; showBands must be on for it to paint.
@@ -41,7 +56,7 @@ describe('selectSectionFill', () => {
       bandFillVisible: false,
       geotechFillVisible: true,
       lithoFillOnGeotech: false,
-      hasRefinement: true,
+      geotechUnitCount: 4,
     })
     expect(shown).toEqual({ showBands: true, withholdRefinement: false })
     const hidden = selectSectionFill({
@@ -49,7 +64,7 @@ describe('selectSectionFill', () => {
       bandFillVisible: false,
       geotechFillVisible: false,
       lithoFillOnGeotech: false,
-      hasRefinement: true,
+      geotechUnitCount: 4,
     })
     expect(hidden).toEqual({ showBands: false, withholdRefinement: false })
   })
@@ -62,7 +77,7 @@ describe('selectSectionFill', () => {
       bandFillVisible: false,
       geotechFillVisible: true,
       lithoFillOnGeotech: true,
-      hasRefinement: false,
+      geotechUnitCount: 0,
     })
     expect(out).toEqual({ showBands: true, withholdRefinement: true })
   })
@@ -75,7 +90,7 @@ describe('selectSectionFill', () => {
           bandFillVisible,
           geotechFillVisible: false,
           lithoFillOnGeotech: true,
-          hasRefinement: false,
+          geotechUnitCount: 0,
         })
         expect(out).toEqual({ showBands: bandFillVisible, withholdRefinement: false })
       }
