@@ -57,6 +57,8 @@ import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
+import { useGeotechTieStatus } from './useGeotechTieStatus'
+import { shouldShowBoreholePreview } from './boreholePreviewGate'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
@@ -355,11 +357,21 @@ export default function SectionsCanvas(): JSX.Element {
     () => readGeotechSubdivisionPrefs(project?.view_state ?? null).lithoSnapToleranceM,
     [project],
   )
+  // Ghost-timing gate (owner ruling 2026-08-06): the preview waits until the
+  // tie work is done — pending 0 AND at least one accepted tie — so step 1
+  // alone leaves borehole columns visibly empty and the ghosts always show
+  // the final tie-informed plan. Own tie-status fetch (the toolbar's copy is
+  // component-local); keyed on the same layers nonce the preview refreshes on.
+  const { status: previewTieStatus } = useGeotechTieStatus(
+    project?.id ?? null,
+    isGeotech ? (activeGeotechModel?.id ?? null) : null,
+    geotechLayersVersion,
+  )
   const boreholePreview = useGeotechBoreholePreview({
     projectId: project?.id ?? null,
     lithoModelId,
     hasGeotechModel: activeGeotechModel !== null,
-    enabled: isGeotech,
+    enabled: isGeotech && shouldShowBoreholePreview(previewTieStatus),
     refreshKey: geotechLayersVersion,
     snapToleranceM: geotechSnapToleranceM,
   })
