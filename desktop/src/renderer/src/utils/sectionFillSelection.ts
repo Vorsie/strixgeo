@@ -24,8 +24,14 @@ export interface SectionFillInputs {
   geotechFillVisible: boolean
   /** The geotech "Show litho fill" toggle (``lithoFillOnGeotechStore``). */
   lithoFillOnGeotech: boolean
-  /** Whether the geotech fraction-space refinement bundle exists (a packing model). */
-  hasRefinement: boolean
+  /**
+   * How many geotech units (packing bands) the refinement bundle actually
+   * carries. NOT a boolean on the bundle existing: the canvas builds the
+   * bundle whenever the axis is geotech — even with zero units — and the
+   * refine engine with no bands falls back to painting the LITHO regions
+   * (dogfeed 2026-08-06). Zero units = clean slate = no fill.
+   */
+  geotechUnitCount: number
 }
 
 /** What the overlay should paint. */
@@ -48,10 +54,10 @@ export interface SectionFillSelection {
  *    the refinement never exists there;
  *  - geotech + "Show litho fill" ON: the litho fill and ONLY the litho fill
  *    (the refinement is withheld so the NAD fill cannot stack under/over it);
- *  - geotech + toggle OFF + packing model present: the NAD fill, gated by its
+ *  - geotech + toggle OFF + packing units present: the NAD fill, gated by its
  *    own "Hide fill" toggle;
- *  - geotech + toggle OFF + no packing model: NO fill — a clean slate looks
- *    clean.
+ *  - geotech + toggle OFF + no packing units (no model, OR a model that has
+ *    not been subdivided yet): NO fill — a clean slate looks clean.
  *
  * Parameters
  * ----------
@@ -64,7 +70,7 @@ export interface SectionFillSelection {
  *     ``showBands`` for the overlay and whether to withhold the refinement.
  */
 export function selectSectionFill(inputs: SectionFillInputs): SectionFillSelection {
-  const { axisMode, bandFillVisible, geotechFillVisible, lithoFillOnGeotech, hasRefinement } =
+  const { axisMode, bandFillVisible, geotechFillVisible, lithoFillOnGeotech, geotechUnitCount } =
     inputs
   if (axisMode !== 'geotechnical') {
     return { showBands: bandFillVisible, withholdRefinement: false }
@@ -72,5 +78,5 @@ export function selectSectionFill(inputs: SectionFillInputs): SectionFillSelecti
   if (lithoFillOnGeotech) {
     return { showBands: true, withholdRefinement: true }
   }
-  return { showBands: hasRefinement && geotechFillVisible, withholdRefinement: false }
+  return { showBands: geotechUnitCount > 0 && geotechFillVisible, withholdRefinement: false }
 }
