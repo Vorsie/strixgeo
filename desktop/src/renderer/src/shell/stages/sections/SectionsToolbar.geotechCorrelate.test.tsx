@@ -184,9 +184,13 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
   })
 
-  it('GC7 — the toast reports what was proposed and what was left alone', async () => {
+  it('GC7 — the toast reports banded restatements, new proposals, and what was left alone', async () => {
+    // Owner refinement 2026-08-06: litho-backed restatements band silently;
+    // only the machine's NEW packing claims arrive for review — the toast
+    // must keep the three counts distinguishable.
     autoCorrelateGeotech.mockResolvedValueOnce({
       edges_proposed: 7,
+      edges_accepted: 2,
       edges_skipped_existing: 4,
       sections_processed: 1,
       skipped_no_lcs: 0,
@@ -197,8 +201,9 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
     const message = String(toast.mock.calls[0][1])
-    expect(message).toContain('7')
-    expect(message).toContain('4')
+    expect(message).toContain('2 litho-backed')
+    expect(message).toContain('7 new packing')
+    expect(message).toContain('4 left untouched')
   })
 
   it('GC8 — proposals are announced as pending review, not as done work', async () => {
