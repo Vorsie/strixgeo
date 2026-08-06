@@ -30,6 +30,10 @@ import {
 } from '../../../utils/correlationOverlayStore'
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
+import {
+  toggleLithoFillOnGeotech,
+  useLithoFillOnGeotech,
+} from '../../../utils/lithoFillOnGeotechStore'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
@@ -61,6 +65,7 @@ export default function SectionsToolbar(): JSX.Element {
   // its historical formationFill name — see formationFillStore.)
   const formationFillVisible = useFormationFillVisible()
   const geotechFillVisible = useGeotechFillVisible()
+  const lithoFillOnGeotech = useLithoFillOnGeotech()
   const boreholesStale = useBoreholesStale()
   const {
     project,
@@ -1436,6 +1441,14 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Show or hide the NAD packing-band fill, so you can inspect the correlation ribbons underneath.',
                 testid: 'geotech-toggle-fill',
+              },
+              {
+                label: lithoFillOnGeotech ? 'Hide litho fill' : 'Show litho fill',
+                icon: lithoFillOnGeotech ? <EyeOff size={13} /> : <Eye size={13} />,
+                onClick: () => toggleLithoFillOnGeotech(),
+                title:
+                  'Swap the lithostratigraphic fill in for the NAD packing fill — one fill renders at a time, never both.',
+                testid: 'geotech-toggle-litho-fill',
               },
               {
                 label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
