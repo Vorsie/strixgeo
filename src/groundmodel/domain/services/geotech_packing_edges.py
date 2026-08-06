@@ -51,40 +51,47 @@ def aligned_same_class_pairs(
     if not n or not m:
         return []
 
-    # Standard O(n * m) DP for LCS length.
-    # dp[i][j] = LCS length of left[:i] and right[:j].
+    # O(n * m) DP on SUFFIXES: dp[i][j] = LCS length of left[i:] and right[j:].
+    # A suffix table lets the reconstruction walk FORWARD from the top, taking
+    # every match as EARLY (shallow) as possible. That tie-break is load-
+    # bearing (owner refinement 2026-08-06): when equally-long alignments
+    # exist, the pairing of the two TOPMOST sub-bands is the litho tie
+    # restated — the connection the engineer already approved — so the
+    # aligner must keep the tops together rather than tie a surface band to a
+    # deep band. (The previous prefix-table bottom-up traceback did the
+    # opposite: [loose, dense] vs [loose, loose] paired the left top with the
+    # right BOTTOM.)
     dp = [[0] * (m + 1) for _ in range(n + 1)]
-    for i in range(1, n + 1):
-        _, l_class = left[i - 1]
-        for j in range(1, m + 1):
-            _, r_class = right[j - 1]
+    for i in range(n - 1, -1, -1):
+        _, l_class = left[i]
+        for j in range(m - 1, -1, -1):
+            _, r_class = right[j]
             # None never matches (skeleton bands excluded from auto-connection).
             if l_class is not None and r_class is not None and l_class == r_class:
-                dp[i][j] = dp[i - 1][j - 1] + 1
+                dp[i][j] = dp[i + 1][j + 1] + 1
             else:
-                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+                dp[i][j] = max(dp[i + 1][j], dp[i][j + 1])
 
-    # Traceback: collect pairs in reverse (bottom-right → top-left),
-    # then reverse at the end to restore top→base order.
+    # Forward reconstruction, top→base: take a match whenever it belongs to
+    # an optimal alignment; otherwise advance the side whose suffix keeps the
+    # longer LCS (left first on ties, deterministic).
     pairs: list[tuple[str, str]] = []
-    i, j = n, m
-    while i > 0 and j > 0:
-        l_id, l_class = left[i - 1]
-        r_id, r_class = right[j - 1]
+    i, j = 0, 0
+    while i < n and j < m:
+        l_id, l_class = left[i]
+        r_id, r_class = right[j]
         if (
             l_class is not None
             and r_class is not None
             and l_class == r_class
-            and dp[i][j] == dp[i - 1][j - 1] + 1
+            and dp[i][j] == dp[i + 1][j + 1] + 1
         ):
             pairs.append((l_id, r_id))
-            i -= 1
-            j -= 1
-        elif dp[i - 1][j] >= dp[i][j - 1]:
-            # Prefer consuming from the left side on ties (deterministic traceback).
-            i -= 1
+            i += 1
+            j += 1
+        elif dp[i + 1][j] >= dp[i][j + 1]:
+            i += 1
         else:
-            j -= 1
+            j += 1
 
-    pairs.reverse()
     return pairs
