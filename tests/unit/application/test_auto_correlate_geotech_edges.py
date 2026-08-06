@@ -177,17 +177,17 @@ def _session(
 
 
 @pytest.mark.asyncio
-async def test_derived_edges_are_born_accepted_because_litho_approval_carries_down() -> None:
-    """RE-PINNED (owner ruling A, 2026-08-05): derived ties arrive ACCEPTED.
+async def test_a_restating_edge_is_born_accepted_and_counted_as_such() -> None:
+    """RE-PINNED (owner refinement of ruling A, 2026-08-06): "all ties are born
+    unaccepted except those that are already ties in the litho model".
 
-    Every edge this verb derives sits inside a litho correlation the engineer
-    already approved — the same-class packing pairing within it is a mechanical
-    refinement of that approval, not a new geological claim, so a second review
-    round would re-ask a question the engineer already answered. What must NOT
-    change is provenance: ``source`` stays ``'auto'`` so hand and machine work
-    remain distinguishable (the 2026-08-01 bug was stamping derived ties as
-    hand-made, and a rebuild destroyed both). The pending flow + the divide
-    gate stay live for edges WITHOUT litho backing.
+    The default scene is an unsubdivided litho pair — its single derived edge
+    joins the very contact surfaces the engineer tied at the litho level, so it
+    is the litho tie RESTATED: born accepted, counted in ``edges_accepted``,
+    NOT in ``edges_proposed`` (which now counts only the pending ghosts). What
+    must NOT change is provenance: ``source`` stays ``'auto'`` so hand and
+    machine work remain distinguishable (the 2026-08-01 bug was stamping
+    derived ties as hand-made, and a rebuild destroyed both).
     """
     session = _session()
 
@@ -195,7 +195,8 @@ async def test_derived_edges_are_born_accepted_because_litho_approval_carries_do
         project_id=PROJECT, model_id=GEOTECH_MODEL
     )
 
-    assert result.edges_proposed == 1
+    assert result.edges_proposed == 0
+    assert result.edges_accepted == 1
     assert len(session.added) == 1
     edge = session.added[0]
     assert edge.user_approved is True
@@ -312,10 +313,11 @@ async def test_bands_tie_by_the_nad_class_sequence_match_inside_the_litho_unit()
     ``[6, 6, 7, 8]`` against ``[6, 8, 5]`` shares the ordered subsequence
     ``6, 8`` — so exactly two ties.  A rule that required identical stacks would
     tie nothing here; a rule that matched on depth overlap would tie three or
-    four.  The pair identities are the shipped rule's own deterministic
-    traceback, which resolves the ambiguous ``6`` in favour of the DEEPER of the
-    left column's two 6-bands; asserting them is what makes this a pin on the
-    existing ``aligned_same_class_pairs`` rule rather than on a lookalike.
+    four.  The ambiguous ``6`` resolves to the TOPMOST of the left column's two
+    6-bands (owner refinement 2026-08-06): the top pairing is the litho tie
+    restated, so it is born accepted — which is why exactly ONE of the two ties
+    counts as proposed here. (The pre-2026-08-06 traceback preferred the
+    DEEPER 6, tying a surface band past its shallow twin for no reason.)
     """
     left = [
         _band(INV_A, 0.0, 2.5, 6),
@@ -334,10 +336,11 @@ async def test_bands_tie_by_the_nad_class_sequence_match_inside_the_litho_unit()
         project_id=PROJECT, model_id=GEOTECH_MODEL
     )
 
-    assert result.edges_proposed == 2
+    assert result.edges_proposed == 1
+    assert result.edges_accepted == 1
     tied = {frozenset((e.layer_a_id, e.layer_b_id)) for e in session.added}
     assert tied == {
-        frozenset((left[1].id, right[0].id)),  # 6 ↔ 6 (the deeper left 6)
+        frozenset((left[0].id, right[0].id)),  # 6 ↔ 6 (tops — the restated tie)
         frozenset((left[3].id, right[1].id)),  # 8 ↔ 8
     }
     # The 7 on the left and the 5 on the right have no counterpart — they stay
