@@ -813,11 +813,13 @@ async def auto_correlate_geotech(
 
     logger.info(
         f"auto_correlate_geotech ok model={model_id} proposed={result.edges_proposed} "
+        f"accepted_restatements={result.edges_accepted} "
         f"skipped_existing={result.edges_skipped_existing} "
         f"sections={result.sections_processed}"
     )
     return AutoCorrelateGeotechResponse(
         edges_proposed=result.edges_proposed,
+        edges_accepted=result.edges_accepted,
         edges_skipped_existing=result.edges_skipped_existing,
         sections_processed=result.sections_processed,
         skipped_no_lcs=result.skipped_no_lcs,
