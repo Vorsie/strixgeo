@@ -170,26 +170,31 @@ test.describe('flow_geotech_borehole_preview', () => {
       await sectionRow.click()
       await page.getByRole('radio', { name: 'Geotech' }).click()
 
-      // Step 6: the ghosts and the legend that names them.
-      await expect(page.getByTestId('geotech-borehole-preview-ghosts')).toBeVisible({
-        timeout: 30_000,
-      })
-      await expect(page.getByTestId('geotech-preview-legend')).toBeVisible({ timeout: 10_000 })
-
-      // Step 7: commit. "4 · Divide boreholes" is GATED on the pipeline's step 3
-      // (owner ruling 2026-08-04): while a packing tie is still proposed the
-      // button is disabled, because an accepted tie spanning a borehole decides
-      // which CPTs its packing is read from. Clear the outstanding ties first —
-      // conditionally, because the fixture may carry none, and a suite that
-      // demanded pending ties would be asserting the fixture, not the flow.
+      // Step 6: clear any pending ties FIRST — the ghost-timing gate (owner
+      // ruling 2026-08-06) shows the preview only once the tie work is done
+      // (pending 0 AND ≥1 accepted tie), so the plan it draws is the final
+      // tie-informed one. Under the 2026-08-06 refinement the combined verb's
+      // derived ties can arrive pending (only litho-tie restatements are born
+      // accepted). Conditional, because the fixture may leave nothing pending.
       // The steps live in the "Packing pipeline" dropdown (owner tidy-up
       // 2026-08-05); an item click auto-closes the menu, so re-open per press.
       await page.getByTestId('geotech-pipeline').click()
       const acceptTies = page.getByTestId('geotech-accept-correlations')
       if (await acceptTies.isEnabled()) {
         await acceptTies.click()
-        await page.getByTestId('geotech-pipeline').click()
       }
+
+      // Now the ghosts and the legend that names them.
+      await expect(page.getByTestId('geotech-borehole-preview-ghosts')).toBeVisible({
+        timeout: 30_000,
+      })
+      await expect(page.getByTestId('geotech-preview-legend')).toBeVisible({ timeout: 10_000 })
+
+      // Step 7: commit. "4 · Divide boreholes" is GATED on step 3 (owner
+      // ruling 2026-08-04): while a packing tie is still proposed the button
+      // is disabled, because an accepted tie spanning a borehole decides
+      // which CPTs its packing is read from.
+      await page.getByTestId('geotech-pipeline').click()
       const divide = page.getByTestId('geotech-divide-boreholes')
       await expect(divide).toBeEnabled({ timeout: 30_000 })
 
