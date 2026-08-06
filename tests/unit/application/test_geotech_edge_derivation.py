@@ -269,6 +269,36 @@ async def test_packing_density_ties_inside_the_body_are_born_pending() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_skeleton_top_band_blocks_restatement_acceptance() -> None:
+    """A None-class (skeleton) TOP band means no pair joins the litho-tied
+    contact surfaces — the aligned pair below it is an interior claim and must
+    arrive pending, never masquerade as the restatement.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    skel_a, mid_a, gb = uuid4(), uuid4(), uuid4()
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            # Left top band is a skeleton (no qc → class None): unpairable.
+            "inv-A": [(0.0, 3.0, skel_a, uuid4(), None), (3.0, 10.0, mid_a, uuid4(), 5)],
+            "inv-B": [(0.0, 10.0, gb, uuid4(), 5)],
+        },
+        seen_layer_pairs=set(),
+    )
+    edge = session.add.call_args.args[0]
+    assert edge.user_approved is False, (
+        "the 5-band pair does not sit at the litho-tied top surfaces (a "
+        "skeleton band does) — it is an interior claim, pending"
+    )
+
+
+@pytest.mark.asyncio
 async def test_bridged_jump_pairs_are_born_pending_even_at_the_top() -> None:
     """A bridged pair is NOT "already a tie in the litho model" — it was
     inferred by walking a chain of litho edges across a bandless column, so
