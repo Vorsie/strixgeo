@@ -1023,13 +1023,17 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
         f"Found {len(bh_edges)}."
     )
 
-    # ADB-3b (re-pinned, ruling A 2026-08-05): derived ties sit inside litho
-    # correlations the engineer already approved, so approval carries down and
-    # they arrive ACCEPTED — while still tagged with the program's provenance.
-    assert all(e.user_approved for e in bh_edges), (
-        "ADB-3b: derived borehole-mediated ties are born accepted under "
-        "ruling A — the litho approval carries down. "
-        f"unapproved={[str(e.id) for e in bh_edges if not e.user_approved]}"
+    # ADB-3b (re-pinned, owner refinement 2026-08-06): the tie that RESTATES
+    # the direct CPT↔BH litho tie (the top sub-band pair — same contact
+    # surfaces the engineer tied) is born accepted. In THIS scene that is the
+    # only derivable pair: CPT-A is [loose, dense] and BH-A's divided bands
+    # are both loose, so the LCS aligns the tops (earliest-match rule) and
+    # nothing interior remains to propose. The pending arrival of interior
+    # packing pairs is pinned by LCS-1c and the derivation unit tests.
+    accepted_bh = [e for e in bh_edges if e.user_approved]
+    assert accepted_bh, (
+        "ADB-3b: the restated top pair of the direct litho tie must arrive "
+        "accepted — the litho approval already vouches for that connection"
     )
     assert all(e.source == "auto" for e in bh_edges), (
         "ADB-3b: derived ties must carry the program's provenance, not 'manual' "
@@ -3533,6 +3537,19 @@ async def test_sab_bh1_tin_geometric_division(
         f"{[(ll.depth_top_m, ll.depth_base_m) for ll in bh_layers_sorted]}"
     )
 
+    # Owner refinement 2026-08-06: the derived borehole ties that join these
+    # bands into the CPT bodies now arrive PENDING (only litho-tie
+    # restatements are born accepted, and this scene's connecting pairs are
+    # not all restatements), and the resolver rightly ignores pending ties.
+    # The inheritance invariant BH1-2 pins therefore holds AFTER the engineer
+    # accepts — which is the step this mirrors here.
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
+    )
+    for ll in bh_layers_sorted:
+        await db_session.refresh(ll)
+
     # BH1-2: borehole geotech layers inherit the nearest same-class CPT's
     # geotech body_id (Task B — DivideBoreholes stamps body_id via
     # assign_borehole_band_body, so a sample in the band resolves to the TRUE
@@ -3557,12 +3574,37 @@ async def test_sab_bh1_tin_geometric_division(
         "BH1-2: at least one BH-S geotech layer must inherit a CPT geotech "
         "body_id (Task B); all were None"
     )
+    # BH1-2 (scoped 2026-08-06): the inheritance claim applies to the bands an
+    # accepted tie CONNECTS — those must resolve into the CPT's packing body.
+    # An untied fallback band (body_min / absolute_min) legitimately ends up
+    # in its own singleton body after the model-wide resolve that acceptance
+    # triggers; forcing it into a CPT body would fabricate a connection no
+    # tie supports.
+    bh_layer_id_set = {ll.id for ll in bh_layers_sorted}
+    tied_bh_layer_ids: set[UUID] = set()
+    for e in (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    ):
+        if e.layer_a_id in bh_layer_id_set:
+            tied_bh_layer_ids.add(e.layer_a_id)
+        if e.layer_b_id in bh_layer_id_set:
+            tied_bh_layer_ids.add(e.layer_b_id)
+    assert tied_bh_layer_ids, "BH1-2: expected at least one accepted tie to touch BH-S"
     for ll in bh_layers_sorted:
-        if ll.body_id is not None:
+        if ll.id in tied_bh_layer_ids:
             assert ll.body_id in cpt_body_ids, (
-                f"BH1-2: BH-S geotech layer at [{ll.depth_top_m:.2f}, {ll.depth_base_m:.2f}] "
-                f"has body_id={ll.body_id} not matching any CPT geotech body — it must "
-                "inherit the nearest same-class CPT's geotech body"
+                f"BH1-2: TIED BH-S geotech layer at [{ll.depth_top_m:.2f}, {ll.depth_base_m:.2f}] "
+                f"has body_id={ll.body_id} not matching any CPT geotech body — an "
+                "accepted tie must resolve the band into the CPT's packing body"
             )
 
     # BH1-3: split depth lies between 3.5 m and 5.5 m.
@@ -4118,11 +4160,14 @@ async def test_sab_lcs_connectivity(
         f"bands only."
     )
 
-    # Ruling A (2026-08-05): LCS ties arrive ACCEPTED — the litho approval
-    # they were derived inside carries down. The accept call below is now an
-    # idempotent no-op kept to prove it stays harmless on accepted edges.
-    assert all(e.user_approved for e in cross_edges), (
-        "LCS-1c (re-pinned, ruling A 2026-08-05): a derived tie is born accepted"
+    # LCS-1c (re-pinned, owner refinement 2026-08-06): the stacks are
+    # [loose,dense] vs [dense], so the aligned dense↔dense pair does NOT join
+    # the litho-tied top surfaces — no restatement is possible and the tie
+    # arrives PENDING. The accept call below is the promotion step that turns
+    # it into body-joining work.
+    assert all(not e.user_approved for e in cross_edges), (
+        "LCS-1c: a packing pair that does not restate the litho tie is a new "
+        "machine claim and must arrive pending"
     )
     await AcceptContactCorrelations(db_session).execute(
         project_id=project.id,
