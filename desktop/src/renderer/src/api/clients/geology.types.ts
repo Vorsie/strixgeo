@@ -1152,6 +1152,8 @@ export interface DivideBoreholePreviewResponse {
 export interface AutoCorrelateGeotechResponse {
   /** Net-new unapproved ties inserted; they render amber until accepted. */
   edges_proposed: number
+  /** Restated litho ties born accepted (owner refinement 2026-08-06). */
+  edges_accepted?: number
   /** Candidate ties left untouched because an edge already joined those bands. */
   edges_skipped_existing: number
   /** Sections that carried an approved litho correlation and were examined. */
