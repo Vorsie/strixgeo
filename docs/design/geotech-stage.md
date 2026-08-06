@@ -190,9 +190,14 @@ inherit design's job — the build arm must stop requiring nothing.
 
 All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
 
-* (A) auto rule = **full NAD-class-SEQUENCE match within a litho body**
-  (`_derive_geotech_edges_from_litho` rewrite + pure helper
-  `domain/services/geotech_packing_edges.py`);
+* (A) auto rule = **NAD-class LCS match within a litho body**
+  (`derive_geotech_edges_from_litho` + pure helper
+  `domain/services/geotech_packing_edges.py`). Since 2026-08-06 the LCS
+  reconstruction takes matches as EARLY (shallow) as possible: when
+  equally-long alignments exist, the tops-together pairing wins — it is the
+  litho tie restated (§4a), and the old bottom-up traceback could tie a
+  surface band to a deep band (the same deep↔shallow mispairing the
+  renderer's weighted LCS in `refineLithoPartition.ts` was built to avoid);
 * (B) render connects sub-bands by resolver `body_id` — since the
   direct-partition rewrite this happens inside `refineLithoPartition.ts`
   consuming the accepted edges (`geotechPackingTies.ts`), no separate
@@ -273,19 +278,34 @@ the model's choice from the same place or the warning starts lying.
 ⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
 it silently destroys every hand split and merge. Nothing warns today.
 
-## 4a. Derived ties are born ACCEPTED — litho approval carries down (owner ruling A, 2026-08-05)
+## 4a. Only RESTATED ties are born accepted (owner ruling A 2026-08-05, refined 2026-08-06)
 
-Every tie the derivation emits sits inside a litho correlation the engineer
-already approved (directly, or via a bridged chain of approved edges), and the
-same-class packing pairing within an approved litho band is a mechanical
-refinement of that approval — not a new geological claim. So derived ties
-arrive ``user_approved=True`` while KEEPING ``source='auto'`` (hand and
+Owner's rule, in his words: *"all ties are born unaccepted except those that
+are already ties in the litho model."* A derived tie is born
+``user_approved=True`` ONLY when it RESTATES a litho tie — its litho pair is
+a DIRECT approved litho edge (not a bridged jump pair) and its endpoints are
+the TOPMOST packing sub-band of each stack, so it joins the very contact
+surfaces the engineer tied at the litho level. The litho approval already
+vouches for exactly that connection; re-reviewing it would ask the same
+question twice.
+
+Everything else is a NEW machine claim and arrives PENDING for the
+accept/reject flow, the pending chip, and the divide gate:
+
+* the packing-density pairs at machine-invented boundaries inside the body
+  (the loose/dense boundary tie in the canonical example — the ONE ghost the
+  engineer sees in an unsubdivided↔subdivided sand pair);
+* every bridged jump pair (inferred by walking the litho chain across a
+  bandless column — not "already a tie in the litho model").
+
+``source='auto'`` on ALL derived ties regardless of approval (hand and
 machine stay distinguishable; the 2026-08-01 bug of stamping derived ties as
-manual must never return). The pending flow — proposal style, accept verbs,
-the pending chip, the divide gate — stays live for any edge WITHOUT litho
-backing, which must state ``user_approved=False`` at its call site. In the
-four-step pipeline this means step 2 usually leaves nothing pending and step
-4 unlocks immediately; step 3 exists for the leftovers.
+manual must never return). Consequences: bodies union across a derived tie
+only once it is accepted (the resolver ignores pending edges); only accepted
+ties are carried across a re-subdivide; the borehole preview ghosts wait for
+pending = 0 with ≥1 accepted tie. The 2026-08-05 interim form of ruling A
+(every litho-backed tie born accepted, step 3 usually a no-op) is
+superseded by this refinement.
 
 ## 4b. The packing-tie litho-body guard is a SURFACE rule (owner, 2026-08-04)
 
