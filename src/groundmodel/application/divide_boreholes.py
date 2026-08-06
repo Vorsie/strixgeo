@@ -1292,6 +1292,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                     seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
+                    # 2026-08-06 refinement: restating pairs accepted,
+                    # interior + bridged pairs pending.
+                    direct_litho_pairs=approved,
                 )
             )
         self.info(
