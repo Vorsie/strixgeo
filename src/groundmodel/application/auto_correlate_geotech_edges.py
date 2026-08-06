@@ -71,8 +71,13 @@ class AutoCorrelateGeotechResult:
     Attributes
     ----------
     edges_proposed : int
-        Net-new UNAPPROVED edges inserted.  These are suggestions; the accept
-        verb promotes them.
+        Net-new UNAPPROVED edges inserted — the packing-density pairs inside
+        a body plus every bridged jump pair (owner refinement 2026-08-06).
+        These are suggestions; the accept verb promotes them.
+    edges_accepted : int
+        Net-new edges born ACCEPTED because they RESTATE an approved litho
+        tie (top sub-band pair of a direct litho edge) — the litho approval
+        already vouches for exactly that connection.
     edges_skipped_existing : int
         Candidate pairs left alone because an edge already joined those two
         bands on that section — whether the engineer drew it by hand, accepted
@@ -89,6 +94,7 @@ class AutoCorrelateGeotechResult:
     """
 
     edges_proposed: int
+    edges_accepted: int
     edges_skipped_existing: int
     sections_processed: int
     skipped_no_lcs: int = 0
@@ -188,7 +194,10 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     f"{project_id} — nothing to propose"
                 )
                 return AutoCorrelateGeotechResult(
-                    edges_proposed=0, edges_skipped_existing=0, sections_processed=0
+                    edges_proposed=0,
+                    edges_accepted=0,
+                    edges_skipped_existing=0,
+                    sections_processed=0,
                 )
 
         # ADD-ONLY: preload the dedup set with EVERY persisted edge of this
@@ -244,25 +253,27 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     litho_layer_depths=litho_layer_depths,
                     geotech_layer_by_inv_depth=geotech_bands,
                     seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
-                    # Born ACCEPTED (owner ruling A, 2026-08-05): the litho
-                    # correlation these are derived from was already approved,
-                    # and approval carries down. The accept verbs + gate stay
-                    # for ties without litho backing.
-                    user_approved=True,
+                    # Ruling A as refined 2026-08-06: only the pairs that
+                    # RESTATE one of these direct litho ties are born
+                    # accepted; interior packing pairs + bridged jump pairs
+                    # arrive pending. The derivation decides per pair.
+                    direct_litho_pairs=approved,
                     source=AUTO_SOURCE,
                 )
             )
 
         await self._session.commit()
         self.success(
-            f"AutoCorrelateGeotechEdges: proposed={totals.edges_emitted} "
+            f"AutoCorrelateGeotechEdges: proposed={totals.edges_proposed} "
+            f"accepted_restatements={totals.edges_accepted} "
             f"skipped_existing={totals.skipped_existing_pair} "
             f"sections={sections_processed}/{len(sections)} "
             f"skipped_no_lcs={totals.skipped_no_lcs} "
             f"skipped_empty_stack={totals.skipped_empty_stack}"
         )
         return AutoCorrelateGeotechResult(
-            edges_proposed=totals.edges_emitted,
+            edges_proposed=totals.edges_proposed,
+            edges_accepted=totals.edges_accepted,
             edges_skipped_existing=totals.skipped_existing_pair,
             sections_processed=sections_processed,
             skipped_no_lcs=totals.skipped_no_lcs,
