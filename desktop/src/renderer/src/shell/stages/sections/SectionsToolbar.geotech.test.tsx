@@ -491,6 +491,22 @@ describe('SectionsToolbar geotech axis toggle (F3)', () => {
     expect(btn).toBeDisabled()
   })
 
+  it('DL1 — the Display menu offers "Show litho fill", default off, and a click flips it (owner 2026-08-06)', async () => {
+    // One fill at a time on the geotech axis: the litho fill is opt-in.
+    renderToolbar(
+      makeCtx({ activeGeotechModel: makeGeotechModel(), sectionModelAxis: 'geotechnical' }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-display-menu'))
+    const item = await screen.findByTestId('geotech-toggle-litho-fill')
+    expect(item.textContent).toContain('Show litho fill')
+    fireEvent.click(item)
+    fireEvent.click(screen.getByTestId('geotech-display-menu'))
+    const flipped = await screen.findByTestId('geotech-toggle-litho-fill')
+    expect(flipped.textContent).toContain('Hide litho fill')
+    // Leave the module-global store as we found it for sibling tests.
+    fireEvent.click(flipped)
+  })
+
   it('BG2b — "Geotech" is ENABLED on a clean slate with a litho model: step 1 creates the geotech model', () => {
     // Owner flow 2026-08-05: "geotech axis -> Packing pipeline -> 1 (creates
     // the model fresh)". The pipeline's entry point lives ON the geotech axis,
