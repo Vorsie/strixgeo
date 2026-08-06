@@ -102,20 +102,24 @@ export function useGeotechCorrelationVerbs(
       // gate closed with no in-app way to open it. Per-tie accept on the
       // canvas remains the section-local path.
       const result = await api.geology.autoCorrelateGeotech(projectId, modelId, null)
+      const accepted = result.edges_accepted ?? 0
+      const emitted = result.edges_proposed + accepted
       log.success(
         'sections',
         `geotechAutoCorrelate: proposed=${result.edges_proposed} ` +
+          `accepted_restatements=${accepted} ` +
           `skipped_existing=${result.edges_skipped_existing} ` +
           `sections=${result.sections_processed} ` +
           `no_lcs=${result.skipped_no_lcs} empty_stack=${result.skipped_empty_stack}`,
       )
-      if (result.edges_proposed > 0) markMutated()
-      // Unapproved ties change no body membership — the resolver ignores them until
-      // they are accepted — so only the edge list needs to come back, not the geotech
-      // layers whose body_id stamps the accept path refreshes.
+      if (emitted > 0) markMutated()
+      // The edge list must come back for both kinds; the pending ones also
+      // move the tie-status chip. (Body membership from the born-accepted
+      // restatements re-resolves on the next accept/divide verb — the banding
+      // render itself consumes edges, not body_id.)
       requestCorrelationEdgesRefetch?.()
       refreshTieStatus?.()
-      if (result.edges_proposed === 0) {
+      if (emitted === 0) {
         toast(
           'success',
           result.edges_skipped_existing > 0
@@ -124,12 +128,18 @@ export function useGeotechCorrelationVerbs(
             : 'Auto-correlate: no automatic packing ties found — subdivide the bodies first.',
         )
       } else {
+        // Owner refinement 2026-08-06: litho-backed restatements band
+        // immediately; the machine's NEW packing-density claims arrive as
+        // pending ghosts for step 3's review.
         toast(
           'success',
-          `Auto-correlate: ${result.edges_proposed} packing tie` +
+          `Auto-correlate: ${accepted} litho-backed tie${accepted === 1 ? '' : 's'} banded, ` +
+            `${result.edges_proposed} new packing tie` +
             `${result.edges_proposed === 1 ? '' : 's'} proposed, ` +
-            `${result.edges_skipped_existing} left untouched. ` +
-            'Review them, then "Accept correlations".',
+            `${result.edges_skipped_existing} left untouched` +
+            (result.edges_proposed > 0
+              ? ' — review the ghosts, then "3 · Accept correlations".'
+              : '.'),
         )
       }
     } catch (err) {
