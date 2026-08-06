@@ -831,7 +831,7 @@ export default function SectionPanel({
     bandFillVisible: bandFillToggle,
     geotechFillVisible,
     lithoFillOnGeotech,
-    hasRefinement: refinement !== undefined,
+    geotechUnitCount: refinement?.geotechLayers.length ?? 0,
   })
   const showBands = fillSelection.showBands
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
