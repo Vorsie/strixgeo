@@ -62,12 +62,11 @@ What it persists (one transaction, single commit at the end)
 2. **``litho_contact_correlation_edge`` rows** — one per approved litho edge,
    mapped from the litho layer's depth to the geotech sub-layer covering that
    same depth on each investigation, tagged with the source ``section_id``.
-   All derived edges are born ACCEPTED (owner ruling A, 2026-08-05):
-   ``user_approved=True``, ``source='auto'`` — each one sits inside a litho
-   correlation the engineer already approved, and that approval carries down
-   to the mechanical same-class packing refinement inside it.  The proposal
-   flow (pending state + accept verbs + the divide gate) remains live for any
-   edge WITHOUT litho backing.
+   Approval per the owner's 2026-08-06 refinement of ruling A: an edge is
+   born ACCEPTED only when it RESTATES a direct litho tie (the top sub-band
+   pair — same contact surfaces the engineer tied); the packing-density
+   pairs inside the body and every bridged jump pair arrive PENDING for the
+   accept/reject flow and the divide gate.  ``source='auto'`` on all.
 
 3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances`` from the
    ACCEPTED edges; ``litho_layer.body_id`` is stamped in the same step.
@@ -756,6 +755,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                         litho_layer_depths=litho_layer_depths,
                         geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                         seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
+                        # 2026-08-06 refinement: restating pairs accepted,
+                        # interior + bridged pairs pending.
+                        direct_litho_pairs=litho_approved_edges,
                     )
                 )
             self.info(
