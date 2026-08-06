@@ -200,10 +200,11 @@ async def pipeline_scene(
 async def _insert_pending_tie(db_session: AsyncSession, scene: dict, geotech_model_id) -> None:
     """Insert one PENDING packing tie between the two CPTs' shallowest bands.
 
-    Ruling A (2026-08-05) made every litho-backed derived tie arrive accepted,
-    so the pending state — and the divide gate that reads it — can no longer be
-    reached through auto-correlate. This writes the row a non-litho-backed
-    source would: ``user_approved=False, source='auto'``.
+    Under the 2026-08-06 refinement the auto path CAN produce pending ties
+    again (packing-density pairs + bridged jump pairs), but this helper stays:
+    it stages exactly one deterministic pending tie between the two CPTs'
+    shallowest bands, so the gate scenes assert on a known count instead of
+    whatever the scene's stacks happen to derive.
     """
     from uuid import UUID as _UUID
 
@@ -353,9 +354,11 @@ async def test_gp2_step_two_proposes_cpt_to_cpt_ties_across_the_borehole(
         .all()
     )
     assert edges
-    assert all(edge.user_approved is True for edge in edges), (
-        "ruling A (2026-08-05): a tie derived inside an approved litho "
-        "correlation is born accepted — the litho approval carries down"
+    assert all(edge.user_approved is False for edge in edges), (
+        "refinement of ruling A (owner 2026-08-06): a BRIDGED pair is not "
+        "'already a tie in the litho model' — it was inferred by walking the "
+        "litho chain across the bandless borehole, so it arrives as a "
+        "rejectable proposal"
     )
 
     # Both endpoints of every proposal are CPT bands: the borehole has none yet.
@@ -564,9 +567,10 @@ async def test_gp7_the_combined_verb_still_runs_steps_one_and_two(
         .all()
     )
     assert edges
-    assert all(edge.user_approved is True for edge in edges), (
-        "ruling A (2026-08-05): the combined verb's derived ties are born "
-        "accepted — the litho approval they sit inside carries down"
+    assert all(edge.user_approved is False for edge in edges), (
+        "refinement of ruling A (owner 2026-08-06): the combined verb's "
+        "derived ties here are bridged jump pairs — not ties the litho model "
+        "already has — so they arrive as rejectable proposals"
     )
 
 
