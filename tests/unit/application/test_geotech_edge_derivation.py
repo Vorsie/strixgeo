@@ -186,21 +186,19 @@ async def test_emits_edge_for_matched_class_within_tolerance() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_tie_the_program_derived_is_born_accepted_with_auto_provenance() -> None:
-    """RE-PINNED (owner ruling A, 2026-08-05): derived ties are born ACCEPTED.
+async def test_a_tie_restating_the_litho_tie_is_born_accepted_with_auto_provenance() -> None:
+    """RE-PINNED (owner refinement of ruling A, 2026-08-06): only RESTATEMENTS
+    are born accepted — "all ties are born unaccepted except those that are
+    already ties in the litho model".
 
-    A tie this derivation emits sits inside a litho correlation the engineer
-    already approved — directly or via a bridged chain of approved edges — and
-    the same-class packing pairing within that approved band is a mechanical
-    refinement of the approval, not a new geological claim. Approval at the
-    litho level carries down, so the default caller gets accepted edges.
+    An unsubdivided litho pair (one packing band each side) derives exactly
+    one tie, joining the same contact surfaces the engineer tied at the litho
+    level — the litho tie restated. That one is born accepted.
 
     What did NOT change, and must never: provenance. ``source`` stays
     ``'auto'`` so hand and machine work remain distinguishable — the
     2026-08-01 bug was stamping 217 derived ties as hand-made, and a rebuild
-    destroyed both. The pending flow (accept verbs + the divide gate) stays
-    live for edges without litho backing, which state ``user_approved=False``
-    at their call site.
+    destroyed both.
     """
     session = _mock_session()
     la, lb = uuid4(), uuid4()
@@ -220,8 +218,8 @@ async def test_a_tie_the_program_derived_is_born_accepted_with_auto_provenance()
     )
     edge = session.add.call_args.args[0]
     assert edge.user_approved is True, (
-        "ruling A: a tie derived inside an approved litho correlation is born "
-        "accepted — the litho approval carries down"
+        "a tie that restates the approved litho tie is born accepted — the "
+        "litho approval already vouches for exactly this connection"
     )
     assert edge.source == "auto", (
         "a tie the program derived must carry the program's provenance, not "
@@ -230,12 +228,18 @@ async def test_a_tie_the_program_derived_is_born_accepted_with_auto_provenance()
 
 
 @pytest.mark.asyncio
-async def test_a_caller_can_ask_for_unapproved_auto_edges() -> None:
-    """The standalone auto-correlate verb proposes: unapproved, source 'auto'."""
+async def test_packing_density_ties_inside_the_body_are_born_pending() -> None:
+    """Owner (dogfeed 2026-08-06): "the new ties (within one litho body, a
+    packing density tie) should be a ghost".
+
+    Subdivision split both sides into loose+dense. The loose↔loose pair at the
+    shared litho contact restates the litho tie → accepted; the dense↔dense
+    pair at the machine-invented packing boundary is a NEW claim → pending.
+    """
     session = _mock_session()
     la, lb = uuid4(), uuid4()
-    ga, gb = uuid4(), uuid4()
-    await derive_geotech_edges_from_litho(
+    loose_a, dense_a, loose_b, dense_b = uuid4(), uuid4(), uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
         session,
         _logger(),
         geotech_model_id=uuid4(),
@@ -243,12 +247,51 @@ async def test_a_caller_can_ask_for_unapproved_auto_edges() -> None:
         litho_approved_edges={(min(la, lb), max(la, lb))},
         litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
         geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 4.0, loose_a, uuid4(), 5), (4.0, 10.0, dense_a, uuid4(), 9)],
+            "inv-B": [(0.0, 6.0, loose_b, uuid4(), 5), (6.0, 10.0, dense_b, uuid4(), 9)],
+        },
+        seen_layer_pairs=set(),
+    )
+    assert counts.edges_emitted == 2
+    assert counts.edges_accepted == 1
+    assert counts.edges_proposed == 1
+    approvals = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)): c.args[0].user_approved
+        for c in session.add.call_args_list
+    }
+    assert approvals[frozenset((loose_a, loose_b))] is True, (
+        "the top pair joins the litho-tied contact surfaces — restated, accepted"
+    )
+    assert approvals[frozenset((dense_a, dense_b))] is False, (
+        "the interior pair sits on a packing boundary the machine invented — "
+        "a new claim, a ghost the engineer accepts or rejects"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridged_jump_pairs_are_born_pending_even_at_the_top() -> None:
+    """A bridged pair is NOT "already a tie in the litho model" — it was
+    inferred by walking a chain of litho edges across a bandless column, so
+    even its top pairing arrives as a proposal.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    ga, gb = uuid4(), uuid4()
+    pair = (min(la, lb), max(la, lb))
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={pair},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
             "inv-A": [(0.0, 10.0, ga, uuid4(), 5)],
             "inv-B": [(0.0, 10.0, gb, uuid4(), 5)],
         },
         seen_layer_pairs=set(),
-        user_approved=False,
-        source="auto",
+        # The caller's DIRECT set excludes the pair: it came from the bridge.
+        direct_litho_pairs=set(),
     )
     edge = session.add.call_args.args[0]
     assert edge.user_approved is False
