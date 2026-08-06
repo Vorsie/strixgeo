@@ -30,16 +30,17 @@ A third caller, ``AutoCorrelateGeotechEdges``, re-runs the same derivation on
 demand without touching any existing geotech data, preloading
 ``seen_layer_pairs`` from every persisted edge so the pass only ever ADDS.
 
-Every edge this module writes, whichever caller asked for it, is a SUGGESTION:
-unapproved, ``source='auto'``.  The clean/dirty rule (owner, 2026-08-01) draws
-the line at acceptance, not at intent — a tie the program worked out is dirty
-even when the engineer asked for the build that produced it, because he has not
-yet looked at this particular tie.  The engineer promotes it with the accept
-verb, mirroring the litho axis.  Until 2026-08-01 the defaults said the
-opposite (``user_approved=True, source='manual'``) and the two build callers
-took them bare, so 217 derived ties on the real model were stamped as though an
-engineer had drawn each one by hand — hand and machine work were
-indistinguishable, and a rebuild destroyed both.
+Approval on emitted edges follows the owner's 2026-08-06 refinement of ruling
+A: an edge that RESTATES a litho tie (its litho pair is a direct approved
+litho edge — not a bridged jump pair — and its endpoints are the topmost
+sub-band of each stack, so it joins the same contact surfaces the engineer
+tied) is born ``user_approved=True``; every OTHER pair — the packing-density
+boundaries the machine invented inside the body, and every bridged jump pair
+— is a pending proposal the engineer accepts or rejects, and the divide gate
+counts.  ``source='auto'`` on all of them: hand and machine work stay
+distinguishable regardless of approval (the 2026-08-01 provenance rule — a
+derived tie claiming ``'manual'`` is how they became indistinguishable once,
+and a rebuild destroyed both).
 """
 
 from __future__ import annotations
@@ -75,6 +76,11 @@ class EdgeDerivationCounts:
     """Per-derivation-pass counters, for phase-summary logging."""
 
     edges_emitted: int = 0
+    # The owner's 2026-08-06 refinement of ruling A splits emissions: a pair
+    # that RESTATES a litho tie is born accepted, every other pair is a
+    # proposal. ``edges_emitted`` stays the total (= accepted + proposed).
+    edges_accepted: int = 0
+    edges_proposed: int = 0
     skipped_no_litho_depth: int = 0
     skipped_no_lcs: int = 0
     skipped_empty_stack: int = 0
@@ -87,6 +93,8 @@ class EdgeDerivationCounts:
     def add(self, other: EdgeDerivationCounts) -> None:
         """Accumulate another pass's counters into this one."""
         self.edges_emitted += other.edges_emitted
+        self.edges_accepted += other.edges_accepted
+        self.edges_proposed += other.edges_proposed
         self.skipped_no_litho_depth += other.skipped_no_litho_depth
         self.skipped_no_lcs += other.skipped_no_lcs
         self.skipped_empty_stack += other.skipped_empty_stack
@@ -301,7 +309,7 @@ async def derive_geotech_edges_from_litho(
     litho_layer_depths: dict[UUID, tuple[str, float, float]],
     geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
     seen_layer_pairs: set[tuple[UUID, UUID]],
-    user_approved: bool = True,
+    direct_litho_pairs: set[tuple[UUID, UUID]] | None = None,
     source: str = AUTO_SOURCE,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by LCS packing match within each correlated litho unit.
@@ -339,17 +347,19 @@ async def derive_geotech_edges_from_litho(
     seen_layer_pairs : set[tuple[UUID, UUID]]
         Dedup set, MUTATED in place. Preload with existing edges to add only new
         pairs; pass a fresh set for an independent pass.
-    user_approved : bool
-        Approval flag stamped on each emitted edge. Defaults to ``True``
-        (owner ruling A, 2026-08-05): every edge this function emits sits
-        INSIDE a litho correlation the engineer already approved — directly,
-        or via a bridged chain of approved litho edges — and the same-class
-        packing pairing within an approved litho band is a mechanical
-        refinement of that approval, not a new geological claim. Approval at
-        the litho level therefore carries down. The proposal flow (pending +
-        accept verbs + the divide gate) remains live for any edge that is NOT
-        litho-backed — pass ``False`` for those, stating the reason at the
-        call site.
+    direct_litho_pairs : set[tuple[UUID, UUID]] | None
+        The canonical litho-layer pairs that are GENUINE approved litho ties
+        (the pre-bridge set) — bridged jump pairs must not be in it. Decides
+        each emitted edge's approval per the owner's 2026-08-06 refinement of
+        ruling A ("all ties are born unaccepted except those that are already
+        ties in the litho model"): an edge is born ACCEPTED only when it
+        RESTATES a litho tie — its litho pair is direct AND its endpoints are
+        the TOP sub-band of each stack, i.e. the tie connects the same contact
+        surfaces the engineer tied at the litho level. Every other pair — the
+        packing-density boundaries the machine invented inside the body, and
+        every bridged jump pair — is a NEW claim and arrives as a pending
+        proposal for the accept/reject flow (and the divide gate) to judge.
+        ``None`` means every pair in ``litho_approved_edges`` is direct.
     source : str
         Provenance token stamped on each emitted edge, one of ``'manual'`` /
         ``'auto'`` (DB CHECK). Defaults to ``AUTO_SOURCE`` — ``'manual'`` is
@@ -383,6 +393,7 @@ async def derive_geotech_edges_from_litho(
         return out
 
     counts = EdgeDerivationCounts()
+    direct = direct_litho_pairs if direct_litho_pairs is not None else litho_approved_edges
 
     for litho_a_id, litho_b_id in litho_approved_edges:
         entry_a = litho_layer_depths.get(litho_a_id)
@@ -431,6 +442,11 @@ async def derive_geotech_edges_from_litho(
 
         nad_by_layer = dict(left_stack) | dict(right_stack)
         pairs_skipped_null = 0
+        # The restating pair: both endpoints are the TOPMOST sub-band of their
+        # litho unit, so the tie joins the very contact surfaces the litho tie
+        # joins — it is the litho approval restated at the packing level, not
+        # a new judgement. Only computable when the pair is a direct litho tie.
+        pair_is_direct = (litho_a_id, litho_b_id) in direct
 
         for la, rb in aligned:
             # Defensive null-skip (aligned_same_class_pairs already excludes
@@ -455,6 +471,13 @@ async def derive_geotech_edges_from_litho(
                 continue
             seen_layer_pairs.add((canonical_a, canonical_b))
 
+            restates_litho_tie = (
+                pair_is_direct
+                and bool(left_stack)
+                and bool(right_stack)
+                and la == left_stack[0][0]
+                and rb == right_stack[0][0]
+            )
             session.add(
                 LithoContactCorrelationEdgeOrm(
                     id=uuid7(),
@@ -465,10 +488,14 @@ async def derive_geotech_edges_from_litho(
                     layer_a_side="top",
                     layer_b_side="top",
                     source=source,
-                    user_approved=user_approved,
+                    user_approved=restates_litho_tie,
                 )
             )
             counts.edges_emitted += 1
+            if restates_litho_tie:
+                counts.edges_accepted += 1
+            else:
+                counts.edges_proposed += 1
 
         if pairs_skipped_null:
             log.debug(
