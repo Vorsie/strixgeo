@@ -15,15 +15,15 @@
  *
  *   1 · Subdivide CPTs   — creates the model, CPT bands only, NO confirm
  *                          dialog on a first run;
- *   2 · Auto-correlate   — ruling A (2026-08-05): ties derived inside an
- *                          approved litho correlation are BORN accepted, so
- *                          the pending chip must not appear;
- *   4 · Divide boreholes — unlocked (nothing pending) and commits real
+ *   2 · Auto-correlate   — refinement of ruling A (owner 2026-08-06): ties
+ *                          that RESTATE an approved litho tie are born
+ *                          accepted; the machine's NEW packing-density pairs
+ *                          and bridged jump pairs arrive as pending ghosts;
+ *   3 · Accept           — pressed only when step 2 actually left something
+ *                          pending (the fixture decides — both branches are
+ *                          honest);
+ *   4 · Divide boreholes — unlocked once nothing is pending, commits real
  *                          borehole bands.
- *
- * Step 3 (accept) is intentionally not pressed: with ruling A and no
- * non-litho-backed source in the fixture there is nothing to accept — the
- * ABSENCE of the chip after step 2 is the assertion.
  *
  * Actions are UI clicks; completion/side-effect checks go through the API
  * (the flow's writes are rows, and polling rows is deterministic where
@@ -174,13 +174,25 @@ test.describe('flow_geotech_pipeline_clean_slate', () => {
         [API_BASE, FIXTURE_PROJECT_ID, geotechModelId] as const,
       )
       expect(tieState.count).toBeGreaterThanOrEqual(1)
-      expect(
-        tieState.pending,
-        'ruling A: litho-backed derived ties are born accepted, nothing may be pending',
-      ).toBe(0)
 
-      // The visible consequence of ruling A: no amber pending chip.
-      await expect(page.getByTestId('geotech-pending-tie-chip')).toHaveCount(0)
+      if (tieState.pending > 0) {
+        // The machine proposed new packing-density or jump ties — the chip
+        // must say so and step 4 must be gated until they are judged.
+        await expect(page.getByTestId('geotech-pending-tie-chip')).toBeVisible({
+          timeout: 15_000,
+        })
+        await page.getByTestId('geotech-pipeline').click()
+        await expect(page.getByTestId('geotech-divide-boreholes')).toBeDisabled()
+        const accept = page.getByTestId('geotech-accept-correlations')
+        await expect(accept).toBeEnabled()
+        await accept.click()
+        await expect(page.getByTestId('geotech-pending-tie-chip')).toHaveCount(0, {
+          timeout: 30_000,
+        })
+      } else {
+        // Every derived tie was a restatement — nothing to review.
+        await expect(page.getByTestId('geotech-pending-tie-chip')).toHaveCount(0)
+      }
 
       // Step 4 through the toolbar — unlocked because nothing is pending.
       await page.getByTestId('geotech-pipeline').click()
