@@ -116,6 +116,8 @@ import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
 import { useGeotechFillVisible } from '../utils/geotechFillStore'
+import { useLithoFillOnGeotech } from '../utils/lithoFillOnGeotechStore'
+import { selectSectionFill } from '../utils/sectionFillSelection'
 import SampleGeotechOverlay from './sections/SampleGeotechOverlay'
 import {
   useSelectedGeotechBodyId,
@@ -818,7 +820,20 @@ export default function SectionPanel({
   // from the litho bandFill toggle which defaults OFF). Other axes keep bandFill.
   const bandFillToggle = useBandFillVisible()
   const geotechFillVisible = useGeotechFillVisible()
-  const showBands = axisMode === 'geotechnical' ? geotechFillVisible : bandFillToggle
+  // "Show litho fill" on the geotech axis (owner 2026-08-06): ONE fill at a
+  // time. The selection rule (sectionFillSelection.ts) decides which fill
+  // paints: litho-by-request (refinement withheld), NAD via its own toggle,
+  // or NOTHING on a clean slate — the litho fill no longer leaks through
+  // when no packing model exists.
+  const lithoFillOnGeotech = useLithoFillOnGeotech()
+  const fillSelection = selectSectionFill({
+    axisMode,
+    bandFillVisible: bandFillToggle,
+    geotechFillVisible,
+    lithoFillOnGeotech,
+    hasRefinement: refinement !== undefined,
+  })
+  const showBands = fillSelection.showBands
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
@@ -3061,7 +3076,7 @@ export default function SectionPanel({
                 // axes). ``refinement`` (geotech axis only) subdivides each region
                 // by NAD packing class inside the overlay.
                 contactEdges={partitionEdgeSource(axisMode, contactEdges)}
-                refinement={refinement}
+                refinement={fillSelection.withholdRefinement ? undefined : refinement}
                 placedColumns={visibleColumns}
                 formationColorById={formationColorById}
                 formationLabelById={formationLabelById}
