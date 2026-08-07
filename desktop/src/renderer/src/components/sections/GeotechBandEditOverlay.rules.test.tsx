@@ -252,7 +252,7 @@ describe('merge is offered inside a litho body and refused across one', () => {
     fireEvent.contextMenu(screen.getByTestId('geotech-band-boundary-band-2'))
     fireEvent.click(screen.getByTestId('geotech-band-menu-merge'))
 
-    expect(onRequestMerge).toHaveBeenCalledWith('band-2', 'band-3')
+    expect(onRequestMerge).toHaveBeenCalledWith('band-2', 'band-3', 6)
   })
 
   it('GS7 — the boundary at 8 m is a litho contact, so no merge handle is drawn there', () => {
@@ -317,5 +317,203 @@ describe('a borehole column is not offered the gesture at all', () => {
     expect(screen.queryByTestId('geotech-band-boundary-band-2')).not.toBeNull()
     expect(screen.queryByTestId('geotech-band-hit-bh-band-1')).toBeNull()
     expect(screen.queryByTestId('geotech-band-boundary-bh-band-1')).toBeNull()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// GS16+ — the DRAG verb (owner 2026-08-07: "tried dragging, get pan hand")
+// ---------------------------------------------------------------------------
+//
+// The pan-hand conflict is solved litho-style: the press target is ONLY the
+// thin boundary strip. Band-interior presses keep panning (GS11 stays green);
+// a strip press starts a boundary drag that is clamped to its pair every
+// frame and, squeezed past the absorb threshold, becomes a merge on release.
+
+function renderDraggable(
+  overrides: Partial<React.ComponentProps<typeof GeotechBandEditOverlay>> = {},
+): {
+  onRequestSplit: ReturnType<typeof vi.fn>
+  onRequestMerge: ReturnType<typeof vi.fn>
+  onRequestMoveBoundary: ReturnType<typeof vi.fn>
+  svgMouseDown: ReturnType<typeof vi.fn>
+  rerender: (
+    next: Partial<React.ComponentProps<typeof GeotechBandEditOverlay>>,
+  ) => void
+} {
+  const onRequestSplit = vi.fn()
+  const onRequestMerge = vi.fn()
+  const onRequestMoveBoundary = vi.fn()
+  const svgMouseDown = vi.fn()
+  const base = {
+    geotechLayers: GEOTECH_LAYERS,
+    lithoLayers: LITHO_LAYERS,
+    placedColumns: [COLUMN],
+    levelToScreen,
+    plotTop: 0,
+    plotBottom: 2000,
+    onRequestSplit,
+    onRequestMerge,
+    onRequestMoveBoundary,
+  }
+  const view = render(
+    <svg onMouseDown={svgMouseDown}>
+      <GeotechBandEditOverlay {...base} {...overrides} />
+    </svg>,
+  )
+  return {
+    onRequestSplit,
+    onRequestMerge,
+    onRequestMoveBoundary,
+    svgMouseDown,
+    rerender: next =>
+      view.rerender(
+        <svg onMouseDown={svgMouseDown}>
+          <GeotechBandEditOverlay {...base} {...next} />
+        </svg>,
+      ),
+  }
+}
+
+/** Press the 4 m boundary strip (band-1 over band-2) to start a drag. */
+function pressBoundary(): void {
+  fireEvent.mouseDown(screen.getByTestId('geotech-band-boundary-band-1'), {
+    button: 0,
+    clientY: yAtDepth(4),
+  })
+}
+
+describe('the boundary strip is the drag handle, and only the strip', () => {
+  it('GS16 — a press on the strip is swallowed, so the drag does not also pan', () => {
+    const { svgMouseDown } = renderDraggable()
+    pressBoundary()
+    expect(svgMouseDown).not.toHaveBeenCalled()
+  })
+
+  it('GS17 — without the move handler the strip owns no press, so panning still starts', () => {
+    const { svgMouseDown } = renderDraggable({ onRequestMoveBoundary: undefined })
+    fireEvent.mouseDown(screen.getByTestId('geotech-band-boundary-band-1'), {
+      button: 0,
+      clientY: yAtDepth(4),
+    })
+    expect(svgMouseDown).toHaveBeenCalled()
+  })
+
+  it('GS18 — the dragged boundary follows the cursor', () => {
+    renderDraggable()
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(4.8) })
+    const line = screen.getByTestId('geotech-drag-preview-line')
+    expect(Number(line.getAttribute('y1'))).toBeCloseTo(yAtDepth(4.8), 5)
+  })
+
+  it('GS19 — it stops at the pair edge and never leaves it', () => {
+    renderDraggable()
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(0.5) }) // above band-1's top (2 m)
+    const line = screen.getByTestId('geotech-drag-preview-line')
+    const clampedY = Number(line.getAttribute('y1'))
+    expect(clampedY).toBeGreaterThanOrEqual(yAtDepth(2))
+    expect(clampedY).toBeLessThan(yAtDepth(2.1))
+  })
+
+  it('GS20 — releasing inside the pair asks for the move, and writes nothing itself', () => {
+    const { onRequestMoveBoundary, onRequestMerge } = renderDraggable()
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(4.8) })
+    fireEvent.mouseUp(window, { clientY: yAtDepth(4.8) })
+    expect(onRequestMoveBoundary).toHaveBeenCalledTimes(1)
+    const [upper, lower, newDepth, preDrag] = onRequestMoveBoundary.mock.calls[0]
+    expect(upper).toBe('band-1')
+    expect(lower).toBe('band-2')
+    expect(newDepth).toBeCloseTo(4.8, 5)
+    expect(preDrag).toBeCloseTo(4, 5)
+    expect(onRequestMerge).not.toHaveBeenCalled()
+  })
+
+  it('GS21 — releasing unmoved fires nothing', () => {
+    const { onRequestMoveBoundary, onRequestMerge } = renderDraggable()
+    pressBoundary()
+    fireEvent.mouseUp(window, { clientY: yAtDepth(4) })
+    expect(onRequestMoveBoundary).not.toHaveBeenCalled()
+    expect(onRequestMerge).not.toHaveBeenCalled()
+  })
+
+  it('GS22 — squeezing a band into the absorb zone shows the merge hint over it', () => {
+    renderDraggable()
+    pressBoundary()
+    // band-1 is 2 m thick -> threshold 0.3 m remaining; 2.2 m leaves 0.2 m.
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(2.2) })
+    expect(screen.getByTestId('geotech-drag-absorb-hint')).toBeTruthy()
+  })
+
+  it('GS23 — releasing in the absorb zone asks for the MERGE, at the pre-drag boundary', () => {
+    const { onRequestMoveBoundary, onRequestMerge } = renderDraggable()
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(2.2) })
+    fireEvent.mouseUp(window, { clientY: yAtDepth(2.2) })
+    expect(onRequestMerge).toHaveBeenCalledWith('band-1', 'band-2', 4)
+    expect(onRequestMoveBoundary).not.toHaveBeenCalled()
+  })
+
+  it('GS24 — Escape abandons the drag; the release then does nothing', () => {
+    const { onRequestMoveBoundary } = renderDraggable()
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(4.8) })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.mouseUp(window, { clientY: yAtDepth(4.8) })
+    expect(onRequestMoveBoundary).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('geotech-drag-preview-line')).toBeNull()
+  })
+
+  it('GS25 — suspension mid-drag cancels it (correlate mode owns the canvas)', () => {
+    const { onRequestMoveBoundary, rerender } = renderDraggable()
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(4.8) })
+    rerender({ suspended: true })
+    fireEvent.mouseUp(window, { clientY: yAtDepth(4.8) })
+    expect(onRequestMoveBoundary).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GS28+ — remove a band = merge it into a neighbour (delete is an absorb)
+// ---------------------------------------------------------------------------
+
+describe('removing a band absorbs it into the neighbour the owner names', () => {
+  it('GS28 — "merge into band above" fires the upper pair at their boundary', () => {
+    const { onRequestMerge } = renderDraggable()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(5),
+    })
+    fireEvent.click(screen.getByTestId('geotech-band-menu-remove-up'))
+    expect(onRequestMerge).toHaveBeenCalledWith('band-1', 'band-2', 4)
+  })
+
+  it('GS29 — "merge into band below" fires the lower pair symmetrically', () => {
+    const { onRequestMerge } = renderDraggable()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(5),
+    })
+    fireEvent.click(screen.getByTestId('geotech-band-menu-remove-down'))
+    expect(onRequestMerge).toHaveBeenCalledWith('band-2', 'band-3', 6)
+  })
+
+  it('GS30 — the only band in its litho body offers no remove at all', () => {
+    renderDraggable()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-4'), {
+      clientY: yAtDepth(10),
+    })
+    expect(screen.queryByTestId('geotech-band-menu-remove-up')).toBeNull()
+    expect(screen.queryByTestId('geotech-band-menu-remove-down')).toBeNull()
+  })
+
+  it('GS31 — the topmost band of a body offers only the downward absorb', () => {
+    renderDraggable()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-1'), {
+      clientY: yAtDepth(3),
+    })
+    expect(screen.queryByTestId('geotech-band-menu-remove-up')).toBeNull()
+    expect(screen.getByTestId('geotech-band-menu-remove-down')).toBeTruthy()
   })
 })
