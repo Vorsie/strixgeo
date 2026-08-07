@@ -16,7 +16,11 @@
  * @module clients/geotechBands
  */
 import { post } from './shared'
-import type { GeotechBandEditPlanResponse, GeotechBandEditResponse } from './geology.types'
+import type {
+  GeotechBandEditPlanResponse,
+  GeotechBandEditResponse,
+  GeotechStatisticResponse,
+} from './geology.types'
 
 export const geotechBandsClient = {
   /**
@@ -75,9 +79,10 @@ export const geotechBandsClient = {
   /**
    * POST .../geotech/bands/merge — commit the merge and re-derive the union.
    *
-   * The absorbed (lower) band's row is deleted, so its correlations cascade away with it —
-   * real, user-visible correlation loss, deliberate because the band they connected no
-   * longer exists as a separate band.
+   * Flag-not-drop (owner 2026-08-07): the absorbed band's ACCEPTED ties are
+   * transferred to the survivor and flagged for review (never silently
+   * cascaded away); pending ties go with the row. The response's
+   * ``flagged_edge_ids`` / ``cleared_edge_ids`` say what moved.
    */
   mergeGeotechBands: (
     projectId: string,
@@ -88,5 +93,78 @@ export const geotechBandsClient = {
     post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/merge`, {
       upper_band_id: upperBandId,
       lower_band_id: lowerBandId,
+    }),
+
+  /**
+   * POST .../geotech/bands/preview-merge with the RUN form — what absorbing a
+   * contiguous run (host + lens + host) into one band would do. One honest
+   * preview over the whole union, one undo step.
+   */
+  previewMergeGeotechRun: (
+    projectId: string,
+    geotechModelId: string,
+    bandIds: readonly string[],
+  ): Promise<GeotechBandEditPlanResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/preview-merge`, {
+      band_ids: bandIds,
+    }),
+
+  /** POST .../geotech/bands/merge with the RUN form — commit the N-band union. */
+  mergeGeotechRun: (
+    projectId: string,
+    geotechModelId: string,
+    bandIds: readonly string[],
+  ): Promise<GeotechBandEditResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/merge`, {
+      band_ids: bandIds,
+    }),
+
+  /**
+   * POST .../geotech/bands/preview-move — what dragging this boundary to this
+   * depth would do. Both resulting intervals re-derive their class (ruling 3);
+   * a boundary between different litho parents is a CONTACT and 422s.
+   */
+  previewMoveGeotechBoundary: (
+    projectId: string,
+    geotechModelId: string,
+    upperBandId: string,
+    lowerBandId: string,
+    newDepthM: number,
+  ): Promise<GeotechBandEditPlanResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/preview-move`, {
+      upper_band_id: upperBandId,
+      lower_band_id: lowerBandId,
+      new_depth_m: newDepthM,
+    }),
+
+  /**
+   * POST .../geotech/bands/move — commit the drag: an atomic two-row write,
+   * both classes re-derived, ties flagged/withdrawn per flag-not-drop.
+   */
+  moveGeotechBoundary: (
+    projectId: string,
+    geotechModelId: string,
+    upperBandId: string,
+    lowerBandId: string,
+    newDepthM: number,
+  ): Promise<GeotechBandEditResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/move`, {
+      upper_band_id: upperBandId,
+      lower_band_id: lowerBandId,
+      new_depth_m: newDepthM,
+    }),
+
+  /**
+   * POST .../geotech/statistic — set the model's representative-qc statistic
+   * (rulings 7+8). Writes ONE column; never re-derives bands. The response's
+   * ``bands_stale`` drives the "re-subdivide under <statistic>" tag.
+   */
+  setGeotechStatistic: (
+    projectId: string,
+    geotechModelId: string,
+    statistic: 'median' | 'arithmetic' | 'harmonic' | 'geometric',
+  ): Promise<GeotechStatisticResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/statistic`, {
+      statistic,
     }),
 }
