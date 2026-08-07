@@ -32,6 +32,13 @@ vi.mock('../../../utils/log', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), success: vi.fn() },
 }))
 
+// VB2 pins the failure semantics of the boundary FETCH, which only happens
+// while freedraw editing is enabled (off = the build skips the fetch — see
+// makeVoxelRequestBuilder.freedrawGate.test.ts). Pin the flag ON so these
+// rules keep guarding the freedraw-on world regardless of the flag's current
+// shipping value.
+vi.mock('../../../utils/freedrawEditFlag', () => ({ FREEDRAW_EDIT_ENABLED: true }))
+
 import { makeVoxelRequestBuilder } from './makeVoxelRequestBuilder'
 import type { SectionLike } from '../../../utils/assembleLithoSectionInputs'
 
