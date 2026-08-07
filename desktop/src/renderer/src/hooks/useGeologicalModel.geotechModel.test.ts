@@ -398,3 +398,72 @@ describe('geotechFormations (F2 geotech data layer)', () => {
     expect(ids).not.toContain('fm-geo-1')
   })
 })
+
+describe('geotech layers refetch — no blink (#227 slice F)', () => {
+  // Every committed band edit calls requestGeotechLayersRefetch. Until
+  // 2026-08-08 the load effect cleared geotechLayers BEFORE re-fetching, so
+  // the NAD fill's unit-count gate read 0 for a frame and the whole fill
+  // blinked off and back on every edit. A SAME-model refetch keeps the last
+  // committed rows on screen until the fresh answer lands; only a genuine
+  // model switch clears immediately (stale rows under a different model
+  // header stay impossible).
+  it('G7 — a same-model refetch keeps the last rows visible while in flight', async () => {
+    vi.mocked(apiMock.geology.listLayers).mockImplementation(async (_p: string, m: string) =>
+      m === GEOTECH_MODEL_ID ? [makeGeotechLayer('layer-old')] : [],
+    )
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.geotechLayers.map(l => l.id)).toEqual(['layer-old'])
+
+    // The refetch hangs — the window in which the blink used to happen.
+    let release: (rows: ReturnType<typeof makeGeotechLayer>[]) => void = () => {}
+    vi.mocked(apiMock.geology.listLayers).mockImplementation(async (_p: string, m: string) => {
+      if (m !== GEOTECH_MODEL_ID) return []
+      return new Promise(resolve => {
+        release = resolve
+      })
+    })
+    act(() => {
+      result.current.requestGeotechLayersRefetch()
+    })
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.geotechLayers.map(l => l.id)).toEqual(['layer-old'])
+    expect(result.current.geotechLayersLoaded).toBe(true)
+
+    await act(async () => {
+      release([makeGeotechLayer('layer-new')])
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.geotechLayers.map(l => l.id)).toEqual(['layer-new'])
+  })
+
+  it('G8 — switching to a project without a geotech model clears the rows', async () => {
+    vi.mocked(apiMock.geology.listLayers).mockImplementation(async (_p: string, m: string) =>
+      m === GEOTECH_MODEL_ID ? [makeGeotechLayer('layer-old')] : [],
+    )
+    const { args } = makeArgs()
+    const { result, rerender } = renderHook(
+      (props: { args: typeof args }) => useGeologicalModel(props.args),
+      { initialProps: { args } },
+    )
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.geotechLayers).toHaveLength(1)
+
+    // The next project has no geotech model: the keep-last-rows rule must not
+    // leak the old project's bands across the switch.
+    vi.mocked(apiMock.geology.listModels).mockResolvedValue([GEO_MODEL])
+    rerender({ args: { ...args, project: { ...TEST_PROJECT, id: 'proj-2' } } })
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.geotechLayers).toHaveLength(0)
+  })
+})
