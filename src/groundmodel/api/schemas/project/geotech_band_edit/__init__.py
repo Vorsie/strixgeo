@@ -12,6 +12,7 @@ from .geotech_band_interval_item import GeotechBandIntervalItem
 from .geotech_band_warning_item import GeotechBandWarningItem
 from .geotech_statistic_response import GeotechStatisticResponse
 from .merge_geotech_bands_request import MergeGeotechBandsRequest
+from .move_geotech_boundary_request import MoveGeotechBoundaryRequest
 from .set_geotech_statistic_request import SetGeotechStatisticRequest
 from .split_geotech_band_request import SplitGeotechBandRequest
 
@@ -22,6 +23,7 @@ __all__ = [
     "GeotechBandWarningItem",
     "GeotechStatisticResponse",
     "MergeGeotechBandsRequest",
+    "MoveGeotechBoundaryRequest",
     "SetGeotechStatisticRequest",
     "SplitGeotechBandRequest",
 ]
