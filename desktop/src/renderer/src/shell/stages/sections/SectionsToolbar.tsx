@@ -34,6 +34,10 @@ import {
   toggleLithoFillOnGeotech,
   useLithoFillOnGeotech,
 } from '../../../utils/lithoFillOnGeotechStore'
+import {
+  toggleBoreholePreviewOn,
+  useBoreholePreviewOn,
+} from '../../../utils/boreholePreviewOnStore'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
@@ -66,6 +70,7 @@ export default function SectionsToolbar(): JSX.Element {
   const formationFillVisible = useFormationFillVisible()
   const geotechFillVisible = useGeotechFillVisible()
   const lithoFillOnGeotech = useLithoFillOnGeotech()
+  const boreholePreviewOn = useBoreholePreviewOn()
   const boreholesStale = useBoreholesStale()
   const {
     project,
@@ -1449,6 +1454,17 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Swap the lithostratigraphic fill in for the NAD packing fill — one fill renders at a time, never both.',
                 testid: 'geotech-toggle-litho-fill',
+              },
+              {
+                // Owner ruling 2026-08-07: the divide-boreholes preview is
+                // OPT-IN — auto-appearing ghosts kept reading as "my boreholes
+                // got subdivided" at whatever verb last drained the tie count.
+                label: boreholePreviewOn ? 'Hide borehole preview' : 'Show borehole preview',
+                icon: boreholePreviewOn ? <EyeOff size={13} /> : <Eye size={13} />,
+                onClick: () => toggleBoreholePreviewOn(),
+                title:
+                  'Preview the packing bands "4 · Divide boreholes" would commit, hatched over the borehole columns. Nothing is written.',
+                testid: 'geotech-toggle-borehole-preview',
               },
               {
                 label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
