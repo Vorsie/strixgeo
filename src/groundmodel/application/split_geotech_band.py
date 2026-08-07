@@ -41,13 +41,10 @@ from uuid6 import uuid7
 
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
-    delete_edges,
     formation_for_class,
-    invalidated_edge_ids,
-    load_edges_for_layers,
     load_geotech_column_context,
-    load_nad_class_by_layer,
     require_cpt_anchor,
+    revalidate_layer_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -174,12 +171,20 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         self._session.add(lower_row)
         await self._session.flush()
 
-        # Ruling 4: a connection breaks if the new class no longer matches. Only
-        # the upper half carries pre-existing edges (the lower row is new).
-        dropped = await self._revalidate_edges(
-            geotech_model_id=geotech_model_id,
-            layer_id=target.id,
-            new_nad_class=upper_outcome.nad_class,
+        # Flag-not-drop (owner 2026-08-07): the upper half's pre-existing ties
+        # are re-judged against its re-derived class — pending mismatches
+        # withdraw, accepted mismatches gain the class_changed flag, restored
+        # matches self-heal. The lower row is new and carries no edges yet;
+        # its entry in the map is a no-op today and correctness insurance the
+        # day something gives new rows edges.
+        revalidation = await revalidate_layer_edges(
+            self._session,
+            self,
+            model_id=geotech_model_id,
+            new_class_by_layer_id={
+                target.id: upper_outcome.nad_class,
+                lower_row.id: lower_outcome.nad_class,
+            },
         )
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
@@ -190,7 +195,9 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             f"SplitGeotechBand ok: band={band_id} → "
             f"{target.depth_top_m:.2f}–{boundary_m:.2f} m (class {upper_outcome.nad_class}) + "
             f"{boundary_m:.2f}–{original_base_m:.2f} m (class {lower_outcome.nad_class}); "
-            f"{len(dropped)} correlation(s) dropped"
+            f"{len(revalidation.deleted_edge_ids)} tie(s) removed, "
+            f"{len(revalidation.flagged_edge_ids)} flagged, "
+            f"{len(revalidation.cleared_edge_ids)} flag(s) cleared"
         )
         return GeotechBandEditResult(
             geotech_model_id=geotech_model_id,
@@ -199,48 +206,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             layer_ids=(target.id, lower_row.id),
             created_layer_ids=(lower_row.id,),
             deleted_layer_ids=(),
-            deleted_edge_ids=tuple(dropped),
+            deleted_edge_ids=revalidation.deleted_edge_ids,
+            flagged_edge_ids=revalidation.flagged_edge_ids,
+            cleared_edge_ids=revalidation.cleared_edge_ids,
         )
-
-    async def _revalidate_edges(
-        self,
-        *,
-        geotech_model_id: UUID,
-        layer_id: UUID,
-        new_nad_class: int | None,
-    ) -> list[UUID]:
-        """Drop the layer's correlations that its new class no longer supports.
-
-        Parameters
-        ----------
-        geotech_model_id : UUID
-            The geotechnical model to scope the edge query to.
-        layer_id : UUID
-            The re-derived layer.
-        new_nad_class : int | None
-            Its new class; ``None`` never matches (the skeleton-band rule).
-
-        Returns
-        -------
-        list[UUID]
-            The edge ids that were deleted.
-        """
-        edges = await load_edges_for_layers(
-            self._session, model_id=geotech_model_id, layer_ids=[layer_id]
-        )
-        if not edges:
-            return []
-        partner_ids = [e.partner_of(layer_id) for e in edges]
-        class_by_layer = await load_nad_class_by_layer(self._session, partner_ids)
-        dropped = invalidated_edge_ids(
-            edges=edges,
-            edited_layer_id=layer_id,
-            new_nad_class=new_nad_class,
-            class_by_layer_id=class_by_layer,
-        )
-        await delete_edges(self._session, dropped)
-        self.debug(
-            f"_revalidate_edges: layer={layer_id} new_class={new_nad_class} "
-            f"kept={len(edges) - len(dropped)} dropped={len(dropped)}"
-        )
-        return dropped
