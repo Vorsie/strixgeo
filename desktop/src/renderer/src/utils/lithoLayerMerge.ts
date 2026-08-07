@@ -22,6 +22,24 @@ import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost, LithoSuggestionEdit } from '../hooks/useGeologicalModel'
 
 /**
+ * The absorb threshold shared by every drag-up-to-collapse gesture.
+ *
+ * When a drag eats a neighbour down to a sliver — less than
+ * ``max(0.1 m, 15 % of the neighbour's ORIGINAL thickness)`` remaining — the
+ * gesture finishes the absorb instead of leaving a visible sliver (dogfeed
+ * 2026-05-31: strict "fully crossed" was too tight — a release a few px short
+ * of the far edge left a near-zero band). Exported because the GEOTECH
+ * boundary drag uses the SAME rule (owner decision 2026-08-07: "Absorb, like
+ * litho"); one helper means the two axes' absorb feel can never drift.
+ *
+ * @param originalThicknessM The neighbour's thickness before the drag (m).
+ * @returns The remaining-thickness threshold below which the absorb fires (m).
+ */
+export function absorbRemainderThresholdM(originalThicknessM: number): number {
+  return Math.max(0.1, originalThicknessM * 0.15)
+}
+
+/**
  * Whether the boundary between layers ``upperIdx`` and ``upperIdx+1``
  * is mergeable: both layers must be pending (not accepted, not
  * rejected) AND share the same EFFECTIVE lithology (raw merged with
@@ -476,28 +494,16 @@ export function applyCrossMergeOnDrag(
     return { ...ghost, edits: nextEdits }
   }
 
-  // Absorb threshold (dogfeed 2026-05-31). When the dragger eats the
-  // neighbour down to a sliver — less than max(0.1 m, 15% of the
-  // neighbour's original thickness) remaining — finish the absorb
-  // instead of leaving a visible sliver. Strict "fully crossed"
-  // (newTop <= neighbourTop) was too tight: a release a few px short
-  // of the FAR edge left the neighbour visible at near-zero
-  // thickness. The threshold gives "drag-up-to-collapse" the natural
-  // UX (drag close to the boundary → absorb).
+  // Absorb threshold (dogfeed 2026-05-31) — the shared
+  // absorbRemainderThresholdM rule; see its doc comment.
   const absorbThresholdAbove = (
     neighbourTop: number,
     neighbourBase: number,
-  ): number => {
-    const thickness = neighbourBase - neighbourTop
-    return Math.max(0.1, thickness * 0.15)
-  }
+  ): number => absorbRemainderThresholdM(neighbourBase - neighbourTop)
   const absorbThresholdBelow = (
     neighbourTop: number,
     neighbourBase: number,
-  ): number => {
-    const thickness = neighbourBase - neighbourTop
-    return Math.max(0.1, thickness * 0.15)
-  }
+  ): number => absorbRemainderThresholdM(neighbourBase - neighbourTop)
 
   if (topDragged && newTop < preTop) {
     // TOP dragged UP — absorb the neighbour above when the dragger
