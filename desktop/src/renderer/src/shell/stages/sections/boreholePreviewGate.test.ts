@@ -1,43 +1,30 @@
 /**
- * Behaviour tests for the borehole preview-ghost gate, in the owner's words
- * (dogfeed 2026-08-06): "the boreholes get subdivided when i click subdivide
- * cpt's — this is counterintuitive". Ghosts must WAIT until the tie work is
- * done — they appear only when step 4 is genuinely ready, so the plan they
- * show is the final tie-informed one, never a stale flank-only guess.
+ * The borehole preview ghosts are OPT-IN (owner ruling 2026-08-07).
+ *
+ * History of this rule, in the owner's words:
+ *  - 2026-08-06: "boreholes get subdivided when I click subdivide CPTs" —
+ *    ghosts were gated on the tie work being done (pending 0, accepted > 0).
+ *  - 2026-08-07: "somewhere the boreholes get subdivided before I click
+ *    divide boreholes (it's on accept all ties) — I don't want". The gate's
+ *    auto-appearance fired the instant accept-all drained the pending count,
+ *    and the ghosts still read as real subdivision. So no tie state may EVER
+ *    make previews appear uninvited: only the engineer's own "Show borehole
+ *    preview" toggle in the geotech Display menu opens the gate.
  */
 
 import { describe, expect, it } from 'vitest'
 
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
 
-describe('shouldShowBoreholePreview', () => {
-  it('right after step 1 (no ties at all) the boreholes stay visibly empty', () => {
-    expect(
-      shouldShowBoreholePreview({ pending: 0, accepted: 0, flagged: 0, loaded: true }),
-    ).toBe(false)
+describe('shouldShowBoreholePreview — explicit toggle only', () => {
+  it('BPG1 — toggle off: previews stay hidden even when every tie is judged', () => {
+    // The exact state that used to auto-open the gate (pending 0, accepted
+    // > 0, loaded) must show NOTHING while the toggle is off — this is the
+    // 2026-08-07 complaint pinned.
+    expect(shouldShowBoreholePreview(false)).toBe(false)
   })
 
-  it('while ties are still pending the preview stays hidden — the plan would change', () => {
-    expect(
-      shouldShowBoreholePreview({ pending: 3, accepted: 10, flagged: 0, loaded: true }),
-    ).toBe(false)
-  })
-
-  it('ties exist and all are accepted → the preview appears (step 4 is ready)', () => {
-    expect(
-      shouldShowBoreholePreview({ pending: 0, accepted: 12, flagged: 0, loaded: true }),
-    ).toBe(true)
-  })
-
-  it('flagged ties are accepted work awaiting confirmation — they do not hide the preview', () => {
-    expect(
-      shouldShowBoreholePreview({ pending: 0, accepted: 12, flagged: 2, loaded: true }),
-    ).toBe(true)
-  })
-
-  it('unknown tie state (fetch failed / not asked) shows nothing — never guess', () => {
-    expect(
-      shouldShowBoreholePreview({ pending: 0, accepted: 0, flagged: 0, loaded: false }),
-    ).toBe(false)
+  it('BPG2 — toggle on: the engineer asked, the previews render', () => {
+    expect(shouldShowBoreholePreview(true)).toBe(true)
   })
 })
