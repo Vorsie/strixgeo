@@ -17,6 +17,64 @@ import type { PlacedColumn } from './utils'
  *  Emerald-500 — also used as the body-chip halo ring colour. */
 export const CONTACT_EDGE_COLOR = '#10b981'
 
+/** Px within a boundary line that arms it on a TALL band (near-boundary
+ *  zones, dogfeed 2026-05-29 — the middle of a tall band is inert). */
+export const CONTACT_SELECT_NEAR_PX = 14
+
+/** Px above a thin band's BASE line that arm the boundary below. Small on
+ *  purpose: an interior strike a few px low must still mean the band's own
+ *  top (the 2026-08-05 one-band-low mis-click), while a deliberate click ON
+ *  the base line arms the base (owner 2026-08-07: "I click the bottom of a
+ *  clay unit but the correlation drew from the top"). */
+export const BASE_LINE_GRAB_PX = 4
+
+/**
+ * Split a correlate-mode band into its top-arming and base-arming zones.
+ *
+ * The rule — "the boundary line always wins":
+ * ``[top, topEnd)`` arms the band's own top contact, ``[botStart, bot]``
+ * arms the boundary below it (or the unit BASE on the deepest band), and
+ * anything between the two cuts is inert.
+ *
+ * - Tall band (height ≥ 2×``CONTACT_SELECT_NEAR_PX``): near-boundary zones
+ *   with an inert middle — unchanged since dogfeed 2026-05-29.
+ * - Thin band with a deeper neighbour: the interior arms the band's own top
+ *   (2026-08-05 protection), but the bottom ``BASE_LINE_GRAB_PX`` — capped
+ *   at half the band so an interior strike can never mean the base — arms
+ *   the boundary below (owner 2026-08-07).
+ * - Thin DEEPEST band: generous midpoint split — the base tie has no twin
+ *   target below (CE-THIN-DEEPEST precedent).
+ *
+ * Parameters
+ * ----------
+ * top, bot : number
+ *     Band top / bottom in screen y (``bot > top``).
+ * hasDeeper : boolean
+ *     Whether a deeper contact exists on the column (the base zone then arms
+ *     it; otherwise the base zone arms this unit's own BASE — a bottom-tie).
+ *
+ * Returns
+ * -------
+ * { topEnd: number; botStart: number }
+ *     The two cut y's. ``topEnd === botStart`` means no inert gap.
+ */
+export function correlateBandZones(
+  top: number,
+  bot: number,
+  hasDeeper: boolean,
+): { topEnd: number; botStart: number } {
+  const height = bot - top
+  if (height >= 2 * CONTACT_SELECT_NEAR_PX) {
+    return { topEnd: top + CONTACT_SELECT_NEAR_PX, botStart: bot - CONTACT_SELECT_NEAR_PX }
+  }
+  if (!hasDeeper) {
+    const mid = (top + bot) / 2
+    return { topEnd: mid, botStart: mid }
+  }
+  const cut = Math.max(bot - BASE_LINE_GRAB_PX, top + height / 2)
+  return { topEnd: cut, botStart: cut }
+}
+
 /**
  * Get the investigation id (cpt_id or borehole_id) from a contact.
  * Shared shape — see ``contactAnchorId`` (the anchor pair is XOR).
