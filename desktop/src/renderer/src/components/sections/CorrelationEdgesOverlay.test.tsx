@@ -1185,12 +1185,13 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     expect(gesture.onArmContact).toHaveBeenCalledWith('cb2', 'top')
   })
 
-  it('CE-THIN: a THIN band arms its OWN top over its full height — never the deeper contact', () => {
+  it('CE-THIN: a thin band INTERIOR arms its own top — never one band low', () => {
     // Debt #158, owner mis-click 2026-08-04/05: on a ~10px band the midpoint
     // split handed the lower half to the NEXT-DEEPER contact — aiming at the
     // thin CLAY-SF armed the SILT below it, one band low, twice in one week.
-    // The boundary below loses nothing: it keeps its own generous target as
-    // the deeper band's upper zone (the SAME contact id).
+    // An interior strike (a few px below the aimed-at top line) must arm the
+    // band's OWN top; only the base LINE itself (the bottom few px) arms the
+    // boundary below (owner 2026-08-07 — see CE-BASE).
     const thinContacts = [
       makeContact('t1', 'f-a', 'inv-B', 'cpt', 2.0),
       makeContact('t2', 'f-a', 'inv-B', 'cpt', 3.0), // 10px band above → THIN
@@ -1206,17 +1207,70 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       plotBottom: 200,
       contactGestureState: gesture,
     })
-    // The thin band has no lower zone at all…
-    expect(screen.queryByTestId('contact-hit-t1-low')).toBeNull()
-    // …its whole height arms its own top…
+    // The interior (everything above the 4px base-line grab) arms t1's top…
     const rect = screen.getByTestId('contact-hit-t1')
-    expect(Number(rect.getAttribute('height'))).toBeCloseTo(10, 0)
+    expect(Number(rect.getAttribute('height'))).toBeCloseTo(6, 0)
     fireEvent.click(rect)
     expect(gesture.onArmContact).toHaveBeenCalledWith('t1', 'top')
     expect(gesture.onArmContact).not.toHaveBeenCalledWith('t2', 'top')
     // …and the boundary below stays reachable via the deeper band's upper zone.
     fireEvent.click(screen.getByTestId('contact-hit-t2'))
     expect(gesture.onArmContact).toHaveBeenCalledWith('t2', 'top')
+  })
+
+  it('CE-BASE: clicking the BOTTOM of a thin band arms its base line, not its top', () => {
+    // Owner 2026-08-07: "I click the bottom of a clay unit but the correlation
+    // drew from the top." The whole-band-arms-top rule had erased base
+    // targeting on every band under 28px; the base LINE now keeps a small
+    // grab that arms the boundary below.
+    const thinContacts = [
+      makeContact('t1', 'f-a', 'inv-B', 'cpt', 2.0),
+      makeContact('t2', 'f-a', 'inv-B', 'cpt', 3.0),
+      makeContact('t3', 'f-a', 'inv-B', 'cpt', 8.0),
+    ]
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: thinContacts,
+      formations: [fA],
+      placedColumns: [makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    const low = screen.getByTestId('contact-hit-t1-low')
+    expect(Number(low.getAttribute('height'))).toBeCloseTo(4, 0)
+    fireEvent.click(low)
+    expect(gesture.onArmContact).toHaveBeenCalledWith('t2', 'top')
+    expect(gesture.onArmContact).not.toHaveBeenCalledWith('t1', 'top')
+  })
+
+  it('CE-HOVER: hovering a zone previews the boundary line a click would arm', () => {
+    // The thin-band ambiguity is resolved by FEEDBACK, not just zones: before
+    // the click commits, the target boundary lights up dashed (owner
+    // 2026-08-07 — a wrong tie should be visible before it is drawn).
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    expect(screen.queryByTestId('contact-arm-preview')).toBeNull()
+    // Hovering cb1's LOWER zone previews cb2's line (the boundary below).
+    fireEvent.mouseEnter(screen.getByTestId('contact-hit-cb1-low'))
+    const preview = screen.getByTestId('contact-arm-preview')
+    const cb2Y = Number(preview.getAttribute('y1'))
+    expect(Number(preview.getAttribute('y2'))).toBe(cb2Y)
+    // Leaving clears it.
+    fireEvent.mouseLeave(screen.getByTestId('contact-hit-cb1-low'))
+    expect(screen.queryByTestId('contact-arm-preview')).toBeNull()
+    // Hovering the UPPER zone previews the band's own top line.
+    fireEvent.mouseEnter(screen.getByTestId('contact-hit-cb1'))
+    expect(screen.getByTestId('contact-arm-preview')).not.toBeNull()
   })
 
   it('CE-THIN-DEEPEST: a thin DEEPEST band keeps its base zone — no alternative target exists', () => {
