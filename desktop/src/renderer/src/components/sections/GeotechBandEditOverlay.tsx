@@ -14,7 +14,10 @@
  * "Remove band (merge into …)", right-click the boundary between two bands → "Merge bands",
  * and — since 2026-08-07 — LEFT-PRESS the boundary strip to DRAG it. What is NOT mirrored is
  * the persistence — litho edits pending ghosts in local state, while these bands are
- * committed rows and every edit is a server round-trip.
+ * committed rows and every edit is a server round-trip. A thin band of one class enclosed
+ * by same-class hosts additionally gets a passive amber badge + a "Merge into surrounding
+ * band" menu item — the assisted-manual suggestion (detection in
+ * ``geotechLensSuggestion.ts``), committed as ONE merge over the host·lens·host run.
  *
  * Choosing "Split band…" ARMS a placement rather than committing one: the boundary then
  * follows the cursor until it is clicked into place. That is the only shape in which owner
@@ -53,6 +56,11 @@ import {
   dragAbsorbPrediction,
   enclosingLithoBody,
 } from './geotechBandEdit'
+import {
+  type EnclosedLens,
+  enclosedLensAt,
+  findSmallEnclosedLenses,
+} from './geotechLensSuggestion'
 import type { PlacedColumn } from './utils'
 
 /** Height in px of the strip that sits on a shared band boundary (drag + right-click). */
@@ -100,6 +108,29 @@ export interface Props {
     preDragDepthM: number,
   ) => void
   /**
+   * Ask to absorb an enclosed lens into its two same-class hosts — ONE merge over the
+   * ``[upperHost, lens, lowerHost]`` run. The two boundary depths are the lens's top and
+   * base today (the undo anchors). Absent → the lens suggestion does not exist.
+   */
+  onRequestAbsorbLens?: (
+    upperHostId: string,
+    lensId: string,
+    lowerHostId: string,
+    upperBoundaryDepthM: number,
+    lowerBoundaryDepthM: number,
+  ) => void
+  /**
+   * Geotech formation id → NAD class (``refinement.nadMeta`` flattened). The lens
+   * suggestion needs it to see host classes; absent → no badge, no menu item.
+   */
+  nadClassByFormationId?: ReadonlyMap<string, number | null>
+  /**
+   * The model's "thinnest packing band kept" preference — the badge's size gate. The
+   * MENU offers the absorb on any enclosed lens regardless (the enclosure is real either
+   * way); only the unprompted badge is reserved for bands the model itself calls thin.
+   */
+  smallLensThicknessM?: number
+  /**
    * Drop every hit target while another gesture owns the canvas (correlate mode), the way
    * ``PartitionFillOverlay`` yields its handles so clicks reach the targets beneath.
    */
@@ -117,6 +148,8 @@ interface ColumnModel {
   lithoBodies: DepthInterval[]
   /** Internal boundaries where a merge (and so a drag) is legal — not litho contacts. */
   mergeable: { upper: GeotechBandInterval; lower: GeotechBandInterval }[]
+  /** Thin enclosed class lenses — the bands that get the unprompted badge. */
+  smallLenses: EnclosedLens[]
 }
 
 /** A split boundary being placed by hand, following the cursor until it is clicked down. */
@@ -163,6 +196,8 @@ type MenuState =
       removeUp: RemoveSeed | null
       /** Absorb into the band below, when that merge is legal. */
       removeDown: RemoveSeed | null
+      /** The enclosure, when the clicked band IS an enclosed class lens. */
+      absorbLens: EnclosedLens | null
     }
   | { kind: 'merge'; clientX: number; clientY: number; upperBandId: string; lowerBandId: string; boundaryDepthM: number }
 
@@ -224,6 +259,9 @@ export default function GeotechBandEditOverlay({
   onRequestSplit,
   onRequestMerge,
   onRequestMoveBoundary,
+  onRequestAbsorbLens,
+  nadClassByFormationId,
+  smallLensThicknessM,
   suspended = false,
 }: Props): JSX.Element | null {
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -234,8 +272,12 @@ export default function GeotechBandEditOverlay({
     !suspended &&
     (onRequestSplit !== undefined ||
       onRequestMerge !== undefined ||
-      onRequestMoveBoundary !== undefined)
+      onRequestMoveBoundary !== undefined ||
+      onRequestAbsorbLens !== undefined)
   const draggable = !suspended && onRequestMoveBoundary !== undefined
+  // The suggestion needs all three legs: someone to tell, classes to compare,
+  // and a size the model itself calls thin. Missing any → the badge never lies.
+  const lensAware = onRequestAbsorbLens !== undefined && nadClassByFormationId !== undefined
 
   const columns = useMemo<ColumnModel[]>(() => {
     if (!editable) return []
@@ -270,10 +312,23 @@ export default function GeotechBandEditOverlay({
         bands,
         lithoBodies,
         mergeable,
+        smallLenses:
+          lensAware && nadClassByFormationId !== undefined && smallLensThicknessM !== undefined
+            ? findSmallEnclosedLenses(bands, lithoBodies, nadClassByFormationId, smallLensThicknessM)
+            : [],
       })
     }
     return out
-  }, [editable, placedColumns, levelToScreen, geotechLayers, lithoLayers])
+  }, [
+    editable,
+    placedColumns,
+    levelToScreen,
+    geotechLayers,
+    lithoLayers,
+    lensAware,
+    nadClassByFormationId,
+    smallLensThicknessM,
+  ])
 
   // Escape abandons a placement, matching every other armed mode in the section editor.
   useEffect(() => {
@@ -443,6 +498,13 @@ export default function GeotechBandEditOverlay({
                             boundaryDepthM: band.baseDepthM,
                           }
                         : null
+                    // The enclosure is named on ANY enclosed lens (no size gate
+                    // here — the badge alone is reserved for thin ones): the
+                    // engineer right-clicked the band, so the menu answers for it.
+                    const absorbLens =
+                      lensAware && nadClassByFormationId !== undefined && index >= 0
+                        ? enclosedLensAt(column.bands, index, column.lithoBodies, nadClassByFormationId)
+                        : null
                     setMenu({
                       kind: 'split',
                       clientX: e.clientX,
@@ -457,6 +519,7 @@ export default function GeotechBandEditOverlay({
                       },
                       removeUp,
                       removeDown,
+                      absorbLens,
                     })
                   }}
                 >
@@ -529,6 +592,37 @@ export default function GeotechBandEditOverlay({
                 </rect>
               )
             })}
+
+          {/* The lens suggestion badge — PASSIVE. ``pointerEvents: none`` because a badge
+              that swallowed a press would re-break panning (GS11); the verb lives in the
+              band's right-click menu, this only points at the candidates. Amber, the
+              project's suggestion colour. */}
+          {column.smallLenses.map(lens => {
+            const midY = yAt(column, (lens.lens.topDepthM + lens.lens.baseDepthM) / 2)
+            if (midY < plotTop || midY > plotBottom) return null
+            return (
+              <g
+                key={`gbe-lens-${lens.lens.layerId}`}
+                data-testid={`geotech-lens-badge-${lens.lens.layerId}`}
+                pointerEvents="none"
+              >
+                <circle cx={column.x1 + 10} cy={midY} r={6} fill="#f59e0b" fillOpacity={0.9} />
+                {/* Two chevrons collapsing inward — "this band can fold into its hosts". */}
+                <path
+                  d={`M ${column.x1 + 7} ${midY - 3.5} L ${column.x1 + 10} ${midY - 1} L ${column.x1 + 13} ${midY - 3.5}`}
+                  stroke="#ffffff"
+                  strokeWidth={1.2}
+                  fill="none"
+                />
+                <path
+                  d={`M ${column.x1 + 7} ${midY + 3.5} L ${column.x1 + 10} ${midY + 1} L ${column.x1 + 13} ${midY + 3.5}`}
+                  stroke="#ffffff"
+                  strokeWidth={1.2}
+                  fill="none"
+                />
+              </g>
+            )
+          })}
         </g>
       ))}
 
@@ -710,6 +804,26 @@ export default function GeotechBandEditOverlay({
                       style={MENU_ITEM_STYLE}
                     >
                       Remove band (merge into band below)
+                    </button>
+                  )}
+                  {menu.absorbLens !== null && (
+                    <button
+                      type="button"
+                      data-testid="geotech-band-menu-absorb-lens"
+                      onClick={() => {
+                        const lens = menu.absorbLens!
+                        onRequestAbsorbLens?.(
+                          lens.upperHost.layerId,
+                          lens.lens.layerId,
+                          lens.lowerHost.layerId,
+                          lens.lens.topDepthM,
+                          lens.lens.baseDepthM,
+                        )
+                        setMenu(null)
+                      }}
+                      style={MENU_ITEM_STYLE}
+                    >
+                      Merge into surrounding band
                     </button>
                   )}
                 </>
