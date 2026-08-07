@@ -1,0 +1,790 @@
+"""GB — the first DB-level coverage of the geotech band-edit routes.
+
+Until now every claim about the four shipped routes' database behaviour
+(the LL→FC mirror trigger firing on geotech rows, the contiguity trigger
+passing at commit, the formation find-or-create, the edge FK cascade) was
+reasoned from migration SQL, never exercised. This suite runs the REAL
+endpoints against the real Postgres and pins those invariants — plus the new
+verbs (move, N-run merge), flag-not-drop, and the statistic selector.
+
+Scene: CPT-A — BH-S — CPT-B on one section, one accepted ZAND litho layer
+0–8 m per column, correlated only THROUGH the borehole (the pipeline_scene
+recipe). CPT-A reads a LOW top zone (4 MPa) over dicht (18 MPa) with the
+transition at 4.0 m, so a merged/moved interval spanning the transition gives
+the statistic selector something to disagree about; CPT-B transitions at
+5.0 m.
+
+Run via ``scripts\\run-integration-tests.ps1`` ONLY (the conftest guard
+refuses any non-integration DATABASE_URL).
+"""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
+
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration.api.geotech_scene_helpers import (
+    accept_borehole_litho,
+    accept_cpt_litho,
+    correlate,
+    two_layer_qc,
+)
+
+
+@pytest_asyncio.fixture
+async def band_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """CPT — borehole — CPT, litho'd and correlated through the borehole.
+
+    Returns
+    -------
+    dict
+        Keys: ``project_id``, ``litho_model_id``, ``section_id``, ``bh_id``,
+        ``cpt_a_id``, ``cpt_b_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="Geotech band-edit test", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "GB-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "GB-Litho",
+            "kind": "lithostratigraphic",
+            "parent_model_id": geo_resp.json()["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "GB-Section",
+            "start_x": 148_700.0,
+            "start_y": 201_000.0,
+            "end_x": 149_900.0,
+            "end_y": 201_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    # Both CPTs read LOW (4 MPa) over dicht (18 MPa) — the same class pair, so a
+    # tie between the two upper bands MATCHES. A's transition sits at 3.0 m and
+    # its dense zone is the LONGER one (150/250): dragging A's boundary down to
+    # 6.5 m floods the upper band with dense material until the dense samples
+    # outnumber the loose ones and the MEDIAN flips — the class-breaking move
+    # GB6/GB7 pin. (With equal zone lengths no single move can ever flip a
+    # median — the majority never crosses.) The 4-vs-18 spread also makes the
+    # harmonic and median representatives land in different classes over the
+    # union, which GB18 needs.
+    depths_a, qc_a = two_layer_qc(n_top=150, n_bot=250, qc_top=4.0, qc_bot=18.0)
+    depths_b, qc_b = two_layer_qc(n_top=250, n_bot=150, qc_top=4.0, qc_bot=18.0)
+
+    def _cpt(name: str, x: float, depths: list[float], qc: list[float]) -> CptOrm:
+        cpt = CptOrm(
+            id=uuid7(),
+            name=name,
+            cpt_type="CPTU",
+            project_id="GB",
+            test_id=f"GB/{name}",
+            app_project_id=proj.id,
+            location_x=x,
+            location_y=201_000.0,
+            elevation_m=5.0,
+            z_epsg=5710,
+            epsg=31370,
+            max_depth_m=8.0,
+        )
+        cpt.series = CptSeriesOrm(
+            depths_m=depths,
+            qc_mpa=qc,
+            fs_mpa=[0.05] * len(depths),
+            u2_mpa=None,
+            rf_pct=None,
+            q_total_mpa=None,
+        )
+        return cpt
+
+    cpt_a = _cpt("CPT-A", 149_000.0, depths_a, qc_a)
+    cpt_b = _cpt("CPT-B", 149_600.0, depths_b, qc_b)
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="BH-S",
+        app_project_id=proj.id,
+        project_id="GB",
+        test_id="GB/BH-S",
+        location_x=149_300.0,
+        location_y=201_000.0,
+        elevation_m=5.0,
+        z_epsg=5710,
+        epsg=31370,
+        total_depth_m=8.0,
+    )
+    db_session.add_all([cpt_a, cpt_b, bh])
+    await db_session.commit()
+
+    contact_a = await accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_a.id), top=0.0, base=8.0
+    )
+    contact_b = await accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_b.id), top=0.0, base=8.0
+    )
+    contact_bh = await accept_borehole_litho(
+        async_client, pid, litho_model_id, borehole_id=str(bh.id), top=0.0, base=8.0
+    )
+    await correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=contact_a,
+        contact_b=contact_bh,
+        section_id=section_id,
+    )
+    await correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=contact_bh,
+        contact_b=contact_b,
+        section_id=section_id,
+    )
+
+    return {
+        "project_id": pid,
+        "litho_model_id": litho_model_id,
+        "section_id": section_id,
+        "bh_id": bh.id,
+        "cpt_a_id": cpt_a.id,
+        "cpt_b_id": cpt_b.id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Small drivers
+# ---------------------------------------------------------------------------
+
+
+async def _subdivide(client: AsyncClient, scene: dict) -> str:
+    """Run step 1 and return the geotech model id."""
+    resp = await client.post(
+        f"/projects/{scene['project_id']}/geology/models/"
+        f"{scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={"litho_model_id": scene["litho_model_id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    return str(resp.json()["geotech_model_id"])
+
+
+async def _bands_on(db_session: AsyncSession, geotech_model_id: str, cpt_id) -> list[LithoLayerOrm]:
+    """The CPT's geotech bands, top to bottom."""
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(geotech_model_id),
+                    LithoLayerOrm.cpt_id == cpt_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+def _band_url(scene: dict, geotech_model_id: str, tail: str) -> str:
+    return f"/projects/{scene['project_id']}/geology/models/{geotech_model_id}/geotech/bands/{tail}"
+
+
+async def _insert_edge(
+    db_session: AsyncSession,
+    scene: dict,
+    geotech_model_id: str,
+    layer_a,
+    layer_b,
+    *,
+    approved: bool,
+) -> UUID:
+    """Insert one packing tie directly, returning its id."""
+    lo, hi = (layer_a, layer_b) if layer_a < layer_b else (layer_b, layer_a)
+    edge_id = uuid7()
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=edge_id,
+            model_id=UUID(geotech_model_id),
+            section_id=UUID(str(scene["section_id"])),
+            layer_a_id=lo,
+            layer_b_id=hi,
+            layer_a_side="top",
+            layer_b_side="top",
+            user_approved=approved,
+            source="auto",
+        )
+    )
+    await db_session.commit()
+    return edge_id
+
+
+# ---------------------------------------------------------------------------
+# GB1–GB4 — the shipped routes' DB invariants, exercised at last
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gb1_split_writes_two_contiguous_rows_and_the_fc_mirror(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB1 — a split lands two contiguous rows; the LL→FC trigger mirrors the new one."""
+    gid = await _subdivide(async_client, band_scene)
+    bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    target = bands[0]
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(target.id), "split_depth_m": 2.0},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    created = UUID(payload["created_layer_ids"][0])
+
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert [round(b.depth_top_m, 3) for b in after[:2]] == [0.0, 2.0]
+    assert after[0].depth_base_m == after[1].depth_top_m == 2.0
+    # The mirror trigger fired on the geotech row (kind-unscoped by design).
+    mirror = await db_session.get(FormationContactOrm, created)
+    assert mirror is not None
+    assert round(mirror.depth_top_m, 3) == 2.0
+
+
+@pytest.mark.asyncio
+async def test_gb2_split_outside_the_litho_body_writes_nothing(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB2 — a hierarchy breach is a 422 and the column is untouched (atomicity)."""
+    gid = await _subdivide(async_client, band_scene)
+    bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    before = [(b.id, b.depth_top_m, b.depth_base_m) for b in bands]
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(bands[0].id), "split_depth_m": 9.0},
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "geotech_band_edit_rejected"
+
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert [(b.id, b.depth_top_m, b.depth_base_m) for b in after] == before
+
+
+@pytest.mark.asyncio
+async def test_gb3_merge_extends_the_survivor_and_removes_the_absorbed_mirror(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB3 — the survivor spans the union; the absorbed row AND its FC mirror are gone."""
+    gid = await _subdivide(async_client, band_scene)
+    bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    upper, lower = bands[0], bands[1]
+    absorbed_id = lower.id
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"upper_band_id": str(upper.id), "lower_band_id": str(lower.id)},
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert len(after) == 1
+    assert after[0].id == upper.id  # the SHALLOWEST row survives
+    assert round(after[0].depth_base_m, 3) == 8.0
+    assert after[0].source == "manual"
+    assert await db_session.get(LithoLayerOrm, absorbed_id) is None
+    assert await db_session.get(FormationContactOrm, absorbed_id) is None
+
+
+@pytest.mark.asyncio
+async def test_gb4_a_class_that_already_has_a_formation_reuses_it(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB4 — find-or-create: a split into two same-class halves creates NO formation."""
+    gid = await _subdivide(async_client, band_scene)
+    bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+
+    async def _nad_formation_count() -> int:
+        # Formations are PROJECT-scoped; the geotech units are the rows carrying
+        # a nad_class, so that is the pool find-or-create draws from.
+        rows = (
+            await db_session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == UUID(band_scene["project_id"]),
+                    GeologicalFormationOrm.nad_class.is_not(None),
+                )
+            )
+        ).all()
+        return len(rows)
+
+    count_before = await _nad_formation_count()
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(bands[0].id), "split_depth_m": 2.0},
+    )
+    assert resp.status_code == 200, resp.text
+    db_session.expire_all()
+    assert await _nad_formation_count() == count_before
+
+
+# ---------------------------------------------------------------------------
+# GB5–GB7 — flag-not-drop + the accepted-tie transfer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gb5_the_absorbed_bands_accepted_tie_transfers_to_the_survivor(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB5 — accepted work survives the absorb: re-pointed + flagged, never cascaded."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    b_bands = await _bands_on(db_session, gid, band_scene["cpt_b_id"])
+    # Plain UUID snapshots — the ORM instances expire after the write, and an
+    # attribute read on an expired instance is sync I/O (MissingGreenlet).
+    a_upper_id, a_lower_id = a_bands[0].id, a_bands[1].id
+    # The tie sits on the row the merge will DELETE (A's lower band).
+    accepted = await _insert_edge(
+        db_session, band_scene, gid, a_lower_id, b_bands[0].id, approved=True
+    )
+    pending = await _insert_edge(
+        db_session, band_scene, gid, a_lower_id, b_bands[1].id, approved=False
+    )
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"upper_band_id": str(a_upper_id), "lower_band_id": str(a_lower_id)},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+
+    db_session.expire_all()
+    edge = await db_session.get(LithoContactCorrelationEdgeOrm, accepted)
+    assert edge is not None, "the accepted tie must survive the absorb"
+    assert a_upper_id in (edge.layer_a_id, edge.layer_b_id)  # re-pointed
+    assert edge.review_reason is not None  # flagged for the engineer
+    assert str(accepted) in payload["flagged_edge_ids"]
+    # The pending claim went with the row (machine may withdraw it).
+    assert await db_session.get(LithoContactCorrelationEdgeOrm, pending) is None
+
+
+@pytest.mark.asyncio
+async def test_gb6_a_class_breaking_move_flags_the_accepted_tie_and_drops_the_pending(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB6 — flag-not-drop on a mismatch: accepted survives flagged, pending goes."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    b_bands = await _bands_on(db_session, gid, band_scene["cpt_b_id"])
+    # Accepted: A-upper ↔ B-upper — both LOW, a MATCHED tie (its break is the
+    # move's doing). Pending: A-LOWER ↔ B-upper — a machine claim on one of the
+    # rows the move re-derives, mismatched once judged.
+    accepted = await _insert_edge(
+        db_session, band_scene, gid, a_bands[0].id, b_bands[0].id, approved=True
+    )
+    pending = await _insert_edge(
+        db_session, band_scene, gid, a_bands[1].id, b_bands[0].id, approved=False
+    )
+
+    # Moving A's boundary from 3.0 to 6.5 m floods the upper band with dicht
+    # material until the dense samples hold the majority — the re-derived
+    # median flips the class and breaks the accepted tie's match.
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "move"),
+        json={
+            "upper_band_id": str(a_bands[0].id),
+            "lower_band_id": str(a_bands[1].id),
+            "new_depth_m": 6.5,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+
+    db_session.expire_all()
+    edge = await db_session.get(LithoContactCorrelationEdgeOrm, accepted)
+    assert edge is not None
+    assert edge.review_reason == "class_changed"
+    assert str(accepted) in payload["flagged_edge_ids"]
+    assert await db_session.get(LithoContactCorrelationEdgeOrm, pending) is None
+    assert str(pending) in payload["deleted_edge_ids"]
+
+
+@pytest.mark.asyncio
+async def test_gb7_moving_back_self_heals_the_flag(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB7 — drag away then drag back is a true no-op: the flag clears itself."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    b_bands = await _bands_on(db_session, gid, band_scene["cpt_b_id"])
+    accepted = await _insert_edge(
+        db_session, band_scene, gid, a_bands[0].id, b_bands[0].id, approved=True
+    )
+    move_url = _band_url(band_scene, gid, "move")
+    body = {
+        "upper_band_id": str(a_bands[0].id),
+        "lower_band_id": str(a_bands[1].id),
+    }
+    away = await async_client.post(move_url, json={**body, "new_depth_m": 6.5})
+    assert away.status_code == 200, away.text
+    back = await async_client.post(move_url, json={**body, "new_depth_m": 3.0})
+    assert back.status_code == 200, back.text
+    payload = back.json()
+
+    db_session.expire_all()
+    edge = await db_session.get(LithoContactCorrelationEdgeOrm, accepted)
+    assert edge is not None
+    assert edge.review_reason is None
+    assert str(accepted) in payload["cleared_edge_ids"]
+
+
+# ---------------------------------------------------------------------------
+# GB8–GB9 — the refusals and the locality invariant
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gb8_every_band_route_refuses_a_borehole_band(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB8 — a borehole records no qc, so every hand verb names the cause and refuses."""
+    gid = await _subdivide(async_client, band_scene)
+    # Get borehole bands: accept the ties and divide the boreholes.
+    auto = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/auto-correlate",
+        json={},
+    )
+    assert auto.status_code == 200, auto.text
+    accept = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/contact-correlations/accept",
+        json={},
+    )
+    assert accept.status_code == 200, accept.text
+    divide = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={},
+    )
+    assert divide.status_code == 200, divide.text
+
+    bh_rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(gid),
+                    LithoLayerOrm.borehole_id == band_scene["bh_id"],
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert bh_rows, "divide-boreholes must have produced borehole bands"
+    band = str(bh_rows[0].id)
+    partner = str(bh_rows[1].id) if len(bh_rows) > 1 else band
+
+    cases = [
+        ("preview-split", {"band_id": band, "split_depth_m": 1.0}),
+        ("split", {"band_id": band, "split_depth_m": 1.0}),
+        ("preview-merge", {"upper_band_id": band, "lower_band_id": partner}),
+        ("merge", {"upper_band_id": band, "lower_band_id": partner}),
+        ("preview-move", {"upper_band_id": band, "lower_band_id": partner, "new_depth_m": 1.0}),
+        ("move", {"upper_band_id": band, "lower_band_id": partner, "new_depth_m": 1.0}),
+    ]
+    for tail, body in cases:
+        resp = await async_client.post(_band_url(band_scene, gid, tail), json=body)
+        assert resp.status_code == 422, f"{tail}: {resp.status_code} {resp.text}"
+        assert "borehole" in resp.json()["detail"]["message"].lower(), tail
+
+
+@pytest.mark.asyncio
+async def test_gb9_a_move_touches_no_other_column_and_no_litho_row(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB9 — ruling 4 at the database: recalculation is local."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+
+    async def _snapshot() -> list[tuple]:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm)
+                    .where(LithoLayerOrm.cpt_id == band_scene["cpt_b_id"])
+                    .order_by(LithoLayerOrm.model_id, LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        litho = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm)
+                    .where(LithoLayerOrm.model_id == UUID(band_scene["litho_model_id"]))
+                    .order_by(LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [(r.id, r.depth_top_m, r.depth_base_m, r.formation_id) for r in rows + litho]
+
+    before = await _snapshot()
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "move"),
+        json={
+            "upper_band_id": str(a_bands[0].id),
+            "lower_band_id": str(a_bands[1].id),
+            "new_depth_m": 4.5,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    db_session.expire_all()
+    assert await _snapshot() == before
+
+
+# ---------------------------------------------------------------------------
+# GB10–GB16 — the new verbs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gb10_move_is_an_atomic_two_row_write_with_manual_provenance(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB10 — one boundary, two rows, both the engineer's; the FC mirror follows."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    upper, lower = a_bands[0], a_bands[1]
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "move"),
+        json={
+            "upper_band_id": str(upper.id),
+            "lower_band_id": str(lower.id),
+            "new_depth_m": 4.5,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert after[0].depth_base_m == after[1].depth_top_m == 4.5
+    assert after[0].source == "manual" and after[1].source == "manual"
+    mirror = await db_session.get(FormationContactOrm, lower.id)
+    assert mirror is not None and round(mirror.depth_top_m, 3) == 4.5
+
+
+@pytest.mark.asyncio
+async def test_gb11_move_refusals_name_the_squeeze_gesture(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB11 — outside the pair and sub-millimetre survivors refuse with guidance."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    body = {
+        "upper_band_id": str(a_bands[0].id),
+        "lower_band_id": str(a_bands[1].id),
+    }
+    outside = await async_client.post(
+        _band_url(band_scene, gid, "move"), json={**body, "new_depth_m": 9.5}
+    )
+    assert outside.status_code == 422
+    assert "merge" in outside.json()["detail"]["message"].lower()
+    hairline = await async_client.post(
+        _band_url(band_scene, gid, "move"), json={**body, "new_depth_m": 0.0004}
+    )
+    assert hairline.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_gb15_the_preview_and_the_commit_tell_one_story(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB15 — preview-move's plan is byte-equal to the committed move's plan."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    body = {
+        "upper_band_id": str(a_bands[0].id),
+        "lower_band_id": str(a_bands[1].id),
+        "new_depth_m": 4.5,
+    }
+    preview = await async_client.post(_band_url(band_scene, gid, "preview-move"), json=body)
+    assert preview.status_code == 200, preview.text
+    commit = await async_client.post(_band_url(band_scene, gid, "move"), json=body)
+    assert commit.status_code == 200, commit.text
+    assert commit.json()["plan"]["intervals"] == preview.json()["intervals"]
+
+
+@pytest.mark.asyncio
+async def test_gb16_an_n_band_run_unions_in_one_transaction(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB16 — band_ids=[a,b,c] → one surviving row; a gapped run refuses."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    split = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(a_bands[0].id), "split_depth_m": 2.0},
+    )
+    assert split.status_code == 200, split.text
+    db_session.expire_all()
+    three = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert len(three) == 3
+
+    gapped = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"band_ids": [str(three[0].id), str(three[2].id)]},
+    )
+    assert gapped.status_code == 422
+
+    run = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"band_ids": [str(b.id) for b in three]},
+    )
+    assert run.status_code == 200, run.text
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert len(after) == 1
+    assert (round(after[0].depth_top_m, 3), round(after[0].depth_base_m, 3)) == (0.0, 8.0)
+
+
+# ---------------------------------------------------------------------------
+# GB17–GB19 — the statistic selector, threaded end to end
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gb17_the_statistic_change_stales_the_bands_and_rederives_nothing(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB17 — one column written; bands untouched; the rebuild stamps + clears."""
+    gid = await _subdivide(async_client, band_scene)
+    bands_before = [
+        (b.id, b.depth_top_m, b.depth_base_m, b.formation_id)
+        for b in await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    ]
+
+    stat_url = f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/statistic"
+    resp = await async_client.post(stat_url, json={"statistic": "harmonic"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "representative_statistic": "harmonic",
+        "classified_with_statistic": "median",
+        "bands_stale": True,
+    }
+
+    db_session.expire_all()
+    bands_after = [
+        (b.id, b.depth_top_m, b.depth_base_m, b.formation_id)
+        for b in await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    ]
+    assert bands_after == bands_before  # ruling 8: never silently re-derives
+
+    models = await async_client.get(f"/projects/{band_scene['project_id']}/geology/models")
+    geotech = next(m for m in models.json() if m["id"] == gid)
+    assert geotech["representative_statistic"] == "harmonic"
+
+    # The rebuild classifies under the choice and stamps it — stale self-clears.
+    await _subdivide(async_client, band_scene)
+    models = await async_client.get(f"/projects/{band_scene['project_id']}/geology/models")
+    geotech = next(m for m in models.json() if m["id"] == gid)
+    assert geotech["classified_with_statistic"] == "harmonic"
+
+
+@pytest.mark.asyncio
+async def test_gb18_the_preview_reads_the_chosen_statistic(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB18 — ruling 6: harmonic set → the preview quotes harmonic numbers.
+
+    CPT-A's union (4 MPa over 18 MPa) is where the statistics disagree: the
+    harmonic representative sits below the median one, and on this series the
+    class comes out LOWER (more conservative).
+    """
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    body = {
+        "upper_band_id": str(a_bands[0].id),
+        "lower_band_id": str(a_bands[1].id),
+    }
+    url = _band_url(band_scene, gid, "preview-merge")
+    stat_url = f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/statistic"
+
+    median_plan = (await async_client.post(url, json=body)).json()
+    assert median_plan["statistic"] == "median"
+
+    assert (await async_client.post(stat_url, json={"statistic": "harmonic"})).status_code == 200
+    harmonic_plan = (await async_client.post(url, json=body)).json()
+    assert harmonic_plan["statistic"] == "harmonic"
+
+    m_interval, h_interval = median_plan["intervals"][0], harmonic_plan["intervals"][0]
+    assert h_interval["representative_qc_mpa"] < m_interval["representative_qc_mpa"]
+    assert h_interval["nad_class"] < m_interval["nad_class"]
+
+
+@pytest.mark.asyncio
+async def test_gb19_the_litho_model_is_refused_by_the_kind_guard(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB19 — bands/move and geotech/statistic 422 on a lithostratigraphic model."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    lid = band_scene["litho_model_id"]
+
+    move = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{lid}/geotech/bands/move",
+        json={
+            "upper_band_id": str(a_bands[0].id),
+            "lower_band_id": str(a_bands[1].id),
+            "new_depth_m": 4.5,
+        },
+    )
+    assert move.status_code == 422
+
+    stat = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{lid}/geotech/statistic",
+        json={"statistic": "harmonic"},
+    )
+    assert stat.status_code == 422
