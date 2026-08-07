@@ -1050,12 +1050,14 @@ export default function SectionsCanvas(): JSX.Element {
     undoStack,
   })
 
-  // Hand split / merge of packing sub-bands (owner spec 2026-08-01, docs/debt.md #227).
+  // Hand split / merge / drag / remove of packing sub-bands (owner spec 2026-08-01 +
+  // 2026-08-07 drag verb, docs/debt.md #227).
   //
   // The one deliberate hole in the geotech axis's view-only gate. Contacts here still
-  // cannot be created, dragged or deleted — these two verbs go through their own endpoints,
+  // cannot be created, dragged or deleted — these verbs go through their own endpoints,
   // which re-derive the NAD class from the cone resistance over the new interval instead of
-  // moving a contact. The hook previews first and commits only on a second, explicit ask.
+  // moving a contact. The hook previews first, commits only on a second, explicit ask, and
+  // pushes every committed edit onto the section undo stack.
   const geotechBandEdit = useGeotechBandEdit({
     activeGeotechModel,
     projectId: project.id,
@@ -1063,6 +1065,7 @@ export default function SectionsCanvas(): JSX.Element {
     requestGeotechLayersRefetch,
     markMutated,
     toast,
+    undoStack,
   })
 
   // Right-click a pending correlation edge â†’ "Accept correlation" (dogfeed
@@ -1941,6 +1944,9 @@ export default function SectionsCanvas(): JSX.Element {
           // Litho has its own split/merge on ghost suggestions — these two are not it.
           onRequestGeotechSplitBand={isGeotech ? geotechBandEdit.onRequestSplitBand : undefined}
           onRequestGeotechMergeBands={isGeotech ? geotechBandEdit.onRequestMergeBands : undefined}
+          onRequestGeotechMoveBoundary={
+            isGeotech ? geotechBandEdit.onRequestMoveBoundary : undefined
+          }
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
           // Geotech axis is view-only; geology sync not applicable.
