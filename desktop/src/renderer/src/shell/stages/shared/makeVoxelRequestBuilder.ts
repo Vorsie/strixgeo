@@ -20,6 +20,7 @@ import {
 import { api } from '../../../api/client'
 import type { BodyBoundaryResponse } from '../../../api/clients/geology.types'
 import { buildVoxelRequest, type VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
+import { FREEDRAW_EDIT_ENABLED } from '../../../utils/freedrawEditFlag'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
 import { VoxelBuildInputsError } from '../../../utils/voxelBuildInputsError'
@@ -124,29 +125,43 @@ export function makeVoxelRequestBuilder(
     // built from the no-override partition is indistinguishable from a correct
     // one in the viewer and in every downstream export (audit 2026-08-02).
     let boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse>
-    try {
-      const bodies = await api.geology.listLenses(projectId, modelId)
-      boundariesByBodyId = new Map(
-        await Promise.all(
-          bodies.map(
-            async (b) =>
-              [b.id, await api.geology.getBodyBoundary(projectId, modelId, b.id)] as const,
-          ),
-        ),
-      )
-      log.debug(logLabel, `loaded ${boundariesByBodyId.size} body boundary shape(s) for the build`)
-    } catch (err) {
-      log.error(
+    if (!FREEDRAW_EDIT_ENABLED) {
+      // Freedraw off = off end to end (owner ruling 2026-08-07): the 2-D fill
+      // withholds stored boundary points while editing is disabled, so the
+      // build must not apply them either — the invariant above (build applies
+      // shapes iff the render does) holds in BOTH flag states. Not fetching
+      // also means a broken boundary endpoint cannot block a build that has
+      // no use for the shapes.
+      boundariesByBodyId = new Map()
+      log.debug(
         logLabel,
-        'build cancelled: body boundary shapes failed to load — building without them ' +
-          'would put reshaped contacts in the 3-D model that do not match the 2-D view',
-        err,
+        'freedraw disabled — building without stored body boundary shapes (matches the 2-D render)',
       )
-      throw new VoxelBuildInputsError(
-        'Could not build — the hand-drawn body boundaries failed to load, and ' +
-          'building without them would not match the cross-sections. Nothing was ' +
-          'changed; retry the build.',
-      )
+    } else {
+      try {
+        const bodies = await api.geology.listLenses(projectId, modelId)
+        boundariesByBodyId = new Map(
+          await Promise.all(
+            bodies.map(
+              async (b) =>
+                [b.id, await api.geology.getBodyBoundary(projectId, modelId, b.id)] as const,
+            ),
+          ),
+        )
+        log.debug(logLabel, `loaded ${boundariesByBodyId.size} body boundary shape(s) for the build`)
+      } catch (err) {
+        log.error(
+          logLabel,
+          'build cancelled: body boundary shapes failed to load — building without them ' +
+            'would put reshaped contacts in the 3-D model that do not match the 2-D view',
+          err,
+        )
+        throw new VoxelBuildInputsError(
+          'Could not build — the hand-drawn body boundaries failed to load, and ' +
+            'building without them would not match the cross-sections. Nothing was ' +
+            'changed; retry the build.',
+        )
+      }
     }
 
     const { voxelHorizontalSpacingM, voxelVerticalSpacingM } = readLithoSegmenterPrefs(viewState)
