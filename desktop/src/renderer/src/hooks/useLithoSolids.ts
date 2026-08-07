@@ -160,6 +160,13 @@ export interface UseLithoSolidsResult {
  *     Active lithostratigraphic model id, or ``null`` when none active.
  * toast
  *     Shell toast action — surfaces build results and errors.
+ * refreshOn
+ *     Optional extra dependency for the list fetch. The backend stamps
+ *     ``is_stale`` on solids when their model's layers change (e.g. a hand
+ *     band edit), but the amber Build badge only sees it after a re-fetch —
+ *     pass a version counter that bumps on those writes (the geotech
+ *     instance passes ``geotechLayersVersion``) and the badge ambers
+ *     without waiting for the next build.
  *
  * Returns
  * -------
@@ -170,6 +177,7 @@ export function useLithoSolids(
   projectId: string | null,
   lithoModelId: string | null,
   toast: (type: 'success' | 'error' | 'warning', message: string) => void,
+  refreshOn?: unknown,
 ): UseLithoSolidsResult {
   // hideMarkers must be declared BEFORE the useEffect / useRef calls below
   // so hook order is stable across every render path (including early returns
@@ -216,7 +224,8 @@ export function useLithoSolids(
       cancelled = true
       setLoading(false)
     }
-  }, [projectId, lithoModelId, refetchNonce])
+    // ``refreshOn`` participates by IDENTITY only — it is never read.
+  }, [projectId, lithoModelId, refetchNonce, refreshOn])
 
   // -------------------------------------------------------------------------
   // Build / rebuild
