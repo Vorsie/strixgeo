@@ -3,13 +3,15 @@
 Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
 
 * **The class is derived, not carried** — the merged interval is reclassified
-  from the CPT qc over the UNION (median, the statistic the build classifies on).
-  The answer may differ from both inputs; that is the point of re-deriving it.
+  from the CPT qc over the UNION, under the model's representative statistic
+  (ruling 7; median by default — the same one the build classifies on).
+  The answer may differ from every input; that is the point of re-deriving it.
 * **Recalculation is local** — the context loader reads only the edited bands'
-  own column. This use case writes exactly two rows: the upper band (extended
-  over the union) and the lower band (deleted).
+  own column. This use case writes the SURVIVOR (the shallowest band, extended
+  over the union) and deletes the absorbed row(s) — a pair ordinarily, an
+  N-band contiguous run for the small-lens absorb.
 * **Hard bounds** — a merge whose two bands sit in different lithostratigraphic
-  or geological units is refused by :func:`plan_merge` before anything is
+  or geological units is refused by :func:`plan_merge_run` before anything is
   written.
 * **Manual override always wins** — the warning about the material moving
   between layers is advisory; a merge is never blocked on it.
@@ -54,7 +56,10 @@ from groundmodel.application.geotech_band_edit_helpers import (
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
-from groundmodel.domain.services.geotech_band_reclassification import plan_merge
+from groundmodel.domain.services.geotech_band_reclassification import (
+    GeotechBandEditError,
+    plan_merge_run,
+)
 
 # Depths are rounded to the millimetre before they are written — the no-overlap
 # exclusion constraint compares ``round(depth, 3)``.
@@ -83,10 +88,11 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         *,
         project_id: UUID,
         geotech_model_id: UUID,
-        upper_band_id: UUID,
-        lower_band_id: UUID,
+        upper_band_id: UUID | None = None,
+        lower_band_id: UUID | None = None,
+        band_ids: list[UUID] | None = None,
     ) -> GeotechBandEditResult:
-        """Merge the two adjacent bands and commit.
+        """Merge an adjacent run of bands and commit.
 
         Parameters
         ----------
@@ -95,37 +101,46 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         geotech_model_id : UUID
             The geotechnical model the bands belong to.
         upper_band_id, lower_band_id : UUID
-            The adjacent pair to merge. Order is normalised by depth, so passing
-            them the wrong way round still works.
+            The adjacent pair to merge (the ordinary case). Order is
+            normalised by depth, so passing them the wrong way round still
+            works.
+        band_ids : list[UUID] | None
+            An N-band contiguous run instead of the pair (the small-lens
+            absorb: host + lens + host in ONE transaction, one preview, one
+            undo step). When given, the pair arguments are ignored.
 
         Returns
         -------
         GeotechBandEditResult
-            The committed plan, the surviving row id, the deleted row id, and
-            the correlation edges that were dropped.
+            The committed plan, the surviving row id, the deleted row ids,
+            and the tie outcome (removed / flagged / cleared).
 
         Raises
         ------
         GeotechBandEditError
-            When the bands are unknown, not adjacent, or sit in different litho
-            or geological units.
+            When the run is unknown, not consecutive, or crosses a litho or
+            geological contact.
         """
-        self.info(
-            f"MergeGeotechBands: model={geotech_model_id} "
-            f"upper={upper_band_id} lower={lower_band_id}"
-        )
+        if band_ids:
+            run: list[UUID] = list(band_ids)
+        elif upper_band_id is not None and lower_band_id is not None:
+            run = [upper_band_id, lower_band_id]
+        else:
+            raise GeotechBandEditError(
+                "Merge rejected: provide the adjacent pair or a band_ids run."
+            )
+        self.info(f"MergeGeotechBands: model={geotech_model_id} run={[str(b) for b in run]}")
         context = await load_geotech_column_context(
             self._session,
             self,
             project_id=project_id,
             geotech_model_id=geotech_model_id,
-            band_id=upper_band_id,
+            band_id=run[0],
         )
         require_cpt_anchor(context, gesture="Merge")
-        plan = plan_merge(
+        plan = plan_merge_run(
             bands=context.bands,
-            upper_band_id=str(upper_band_id),
-            lower_band_id=str(lower_band_id),
+            band_ids=[str(b) for b in run],
             soil=context.soil,
             admixtures=context.admixtures,
             depth_m=context.depth_m,
@@ -137,11 +152,11 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         for warning in plan.warnings:
             self.warning(f"MergeGeotechBands: {warning.code} — {warning.message}")
 
-        # plan_merge normalises the order by depth; follow it so "upper" here is
-        # the shallower row regardless of how the caller passed the pair.
-        rows = [context.band_rows[str(upper_band_id)], context.band_rows[str(lower_band_id)]]
-        rows.sort(key=lambda r: r.depth_top_m)
-        survivor, absorbed = rows[0], rows[1]
+        # plan_merge_run normalises the order by depth; follow it. The SURVIVOR
+        # is the shallowest row: its depth_top_m — the one boundary this edit
+        # leaves untouched — keeps its FC mirror and its top-anchored ties put.
+        rows = sorted((context.band_rows[str(b)] for b in run), key=lambda r: r.depth_top_m)
+        survivor, absorbed_rows = rows[0], rows[1:]
 
         formation = await formation_for_class(
             self,
@@ -150,26 +165,32 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             source_litho_formation_id=context.source_litho_formation_id,
             source_geo_formation_id=context.source_geo_formation_id,
         )
-        survivor.depth_base_m = round(absorbed.depth_base_m, _DEPTH_DECIMALS)
+        survivor.depth_base_m = round(absorbed_rows[-1].depth_base_m, _DEPTH_DECIMALS)
         survivor.formation_id = formation.id
         # The merged band's extent is the engineer's decision now, not the
         # segmenter's — provenance must say so.
         survivor.source = "manual"
 
-        # BEFORE the row delete: re-anchor the absorbed band's ACCEPTED ties
+        # BEFORE each row delete: re-anchor the absorbed band's ACCEPTED ties
         # onto the survivor (owner ruling 2026-08-07 — the FK cascade must
         # never silently destroy accepted work). Pending ties stay for the
         # cascade to take.
-        absorbed_id = absorbed.id
-        transfer = await transfer_accepted_edges(
-            self._session,
-            self,
-            model_id=geotech_model_id,
-            from_layer_id=absorbed_id,
-            to_layer_id=survivor.id,
-            survivor_class=merged.nad_class,
-        )
-        await self._session.delete(absorbed)
+        transfer_moves: list[UUID] = []
+        transfer_drops: list[UUID] = []
+        absorbed_ids: list[UUID] = []
+        for absorbed in absorbed_rows:
+            absorbed_ids.append(absorbed.id)
+            transfer = await transfer_accepted_edges(
+                self._session,
+                self,
+                model_id=geotech_model_id,
+                from_layer_id=absorbed.id,
+                to_layer_id=survivor.id,
+                survivor_class=merged.nad_class,
+            )
+            transfer_moves.extend(m.edge_id for m in transfer.moves)
+            transfer_drops.extend(transfer.drops)
+            await self._session.delete(absorbed)
         await self._session.flush()
 
         revalidation = await revalidate_layer_edges(
@@ -187,14 +208,13 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         # judged the survivor's pre-existing ties. The union is what the UI
         # reports. A transferred tie can also appear in the revalidation's
         # flag set (it now sits on the survivor) — dedupe keeps counts honest.
-        flagged = tuple(
-            dict.fromkeys([m.edge_id for m in transfer.moves] + list(revalidation.flagged_edge_ids))
-        )
-        deleted_edges = tuple(transfer.drops) + revalidation.deleted_edge_ids
+        flagged = tuple(dict.fromkeys(transfer_moves + list(revalidation.flagged_edge_ids)))
+        deleted_edges = tuple(transfer_drops) + revalidation.deleted_edge_ids
         self.success(
             f"MergeGeotechBands ok: {survivor.depth_top_m:.2f}–{survivor.depth_base_m:.2f} m "
             f"class {merged.previous_nad_class} → {merged.nad_class}; "
-            f"band {absorbed_id} absorbed; {len(transfer.moves)} tie(s) transferred+flagged, "
+            f"{len(absorbed_ids)} band(s) absorbed; "
+            f"{len(transfer_moves)} tie(s) transferred+flagged, "
             f"{len(deleted_edges)} removed, {len(revalidation.cleared_edge_ids)} flag(s) cleared"
         )
         return GeotechBandEditResult(
@@ -203,7 +223,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             plan=plan,
             layer_ids=(survivor.id,),
             created_layer_ids=(),
-            deleted_layer_ids=(absorbed_id,),
+            deleted_layer_ids=tuple(absorbed_ids),
             deleted_edge_ids=deleted_edges,
             flagged_edge_ids=flagged,
             cleared_edge_ids=revalidation.cleared_edge_ids,
