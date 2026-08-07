@@ -215,38 +215,87 @@ All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
 META-RULE real-data verified: 226 auto edges, 0 cross-class, 0 null-class.
 See `memory/project_geotech_stage_body_centric.md`.
 
-## 4. Hand split / merge of packing sub-bands (2026-08-01, develop UNPUSHED)
+## 4. Hand editing of packing sub-bands (2026-08-01, extended 2026-08-08, develop UNPUSHED)
 
-The geotech axis is view-only **except** for splitting a packing sub-band and
-merging two adjacent ones. Everything else stays shut: contacts on this axis
-still cannot be created, dragged, copied or deleted (`SectionsCanvas.geotechViewOnly`
-pins that, and `SectionsCanvas.geotechBandEdit` pins that the hole is exactly
-two verbs wide). The two verbs are allowed because they do not move a contact —
-they go through their own endpoints, which re-derive the NAD class from the qc
-over each resulting interval.
+The geotech axis is view-only **except** for the band-edit verbs. Everything
+else stays shut: contacts on this axis still cannot be created, dragged, copied
+or deleted (`SectionsCanvas.geotechViewOnly` pins that, and
+`SectionsCanvas.geotechBandEdit` pins the hole's exact width). The verbs are
+allowed because they do not move a contact — they go through their own
+endpoints, which re-derive the NAD class from the qc over each resulting
+interval. The surface is six verbs wide:
+
+* **Split** — right-click a band → "Split band…" ARMS a placement: the boundary
+  follows the cursor, clamped, with a readout naming the wall; a click puts it
+  down.
+* **Merge** — right-click the boundary strip between two adjacent bands →
+  "Merge bands".
+* **Drag** (owner dogfeed 2026-08-07 — "tried dragging, get pan hand") —
+  LEFT-PRESS the boundary strip and drag. The press target is ONLY the thin
+  strip: left-drag anywhere else pans the section, and a band-wide press target
+  would swallow the pan. The gesture lives on window listeners with a live
+  dashed line, amber at a pair limit; Escape / blur / release-outside cancel.
+  Squeezing a neighbour below `max(0.1 m, 15 %)` of its original thickness
+  (`absorbRemainderThresholdM`, hoisted from `lithoLayerMerge.ts` — the SAME
+  rule the litho axis absorbs by) turns the release into the pair MERGE.
+* **Remove band** — band menu → "Remove band (merge into band above/below)",
+  offered exactly where that merge is legal (no affordance rather than a
+  refusing item; a sole band in its body has nothing to absorb it). Zero
+  dedicated endpoints: remove IS the pair merge.
+* **Lens absorb** — a thin band of one class enclosed by two same-class hosts
+  gets a passive amber badge (`pointerEvents: none` — it can't break panning)
+  plus a band-menu item "Merge into surrounding band". Detection is the pure
+  `geotechLensSuggestion.ts` (hosts share a non-null class, lens differs incl.
+  null, both boundaries merge-legal, badge gated on the model's own
+  `minimumLayerThicknessM` pref); accepting is ONE merge over the
+  `[host, lens, host]` RUN (`MergeGeotechBandsRequest.band_ids`), so one
+  consequence sheet and one undo step.
+* **Move** commits through `POST …/geotech/bands/move` — an atomic two-row
+  write (`upper.depth_base = lower.depth_top`), both rows re-derived and
+  stamped `source='manual'`.
+
+Every committed edit pushes its inverse onto the section undo stack AFTER the
+write succeeds (`useGeotechBandEdit.pushUndoFor`): a move moves back, a split
+merges its halves, a merge re-splits at the carried boundary, a lens absorb
+re-splits at BOTH carried boundaries. Row ids change across redo cycles; a
+closure-mutable id re-anchors them (the litho delete-undo pattern).
 
 Owner rulings driving the shape are recorded in full in `docs/debt.md` #227.
-The four that constrain the code:
+The ones that constrain the code:
 
 * **Hard bounds (ruling 2).** A packing boundary moves freely inside its litho
   body and clamps at the edge; it never moves a litho contact and never crosses
   a geological one. A litho body here is already geo-bounded, so "inside one
   litho body" enforces both walls in one test
   (`components/sections/geotechBandEdit.ts` — `clampSplitDepth`,
-  `canMergeBands`). This is the ONE refusal that is correct rather than a
-  defect.
+  `clampDragDepth`, `canMergeBands`). This is the ONE refusal that is correct
+  rather than a defect.
 * **The class is derived (ruling 3), locally (ruling 4).** The server re-derives
   each resulting interval from qc and re-scopes nothing beyond the edited
-  column; correlations whose partner no longer matches the new class are
-  dropped, and the toast names how many went.
+  column (GB9 pins it at the database).
 * **Manual override always wins (ruling 5).** The consequence sheet
   (`GeotechBandEditDialog`) never disables its action, whatever the warnings
   say, and is deliberately not styled as an irreversible confirmation — focus
   lands on the verb, not on Cancel.
-* **The statistic must not lie (ruling 6).** The warning is computed on the
-  MEDIAN, because `geotech_subdivision.py:444` classifies on `median(in_band)`.
-  Label it "representative qc" in the UI, never "average qc", even though the
-  owner's phrasing was "avg".
+* **The statistic must not lie (ruling 6) and is selectable (rulings 7+8).**
+  `geological_model.representative_statistic` (median / arithmetic / harmonic /
+  geometric, default median) is read by the classifier
+  (`representative_statistic.representative_qc`), by every band-edit planner
+  (`GeotechColumnContext.statistic`) and by the warning — one column, so they
+  cannot disagree. Changing it via `POST …/geotech/statistic` writes that ONE
+  column and re-derives NOTHING; staleness is DERIVED
+  (`classified_with_statistic != representative_statistic`, the #266
+  compare-on-load pattern) and surfaces as a "re-run under <statistic>" tag on
+  pipeline step 1 (`SectionsToolbar` "qc statistic" dropdown). The 3-D Build
+  button does NOT amber on a statistic change — the bands are unchanged.
+* **Flag-not-drop (owner 2026-08-07).** An ACCEPTED tie whose class match a
+  hand edit breaks is FLAGGED (`review_reason='class_changed'`, the violet
+  badge + Confirm-tie flow), never deleted; restoring the match self-heals the
+  flag (GB7). An absorbed row's accepted ties are RE-POINTED to the survivor
+  and flagged (`class_changed` on mismatch, else `ambiguous_band`); duplicates
+  and self-loops drop. Pending mismatches still drop. The toast names both
+  counts. (`geotech_band_edit_helpers.py` — `edge_review_actions`,
+  `plan_edge_transfer`, `revalidate_layer_edges`.)
 
 The view-only line is enforced by handler ABSENCE, not by an axis check inside the
 overlays, so every gesture that needs a handler has to be gated where the handler is
@@ -258,25 +307,20 @@ its per-column band "Remove this litho unit" menu and its per-column "Add new su
 here" capture rect all gate on the relevant handler, because
 `perColumnBandsFromContacts` is true on the geotech axis too and those surfaces
 otherwise render over packing bands (`ContactsLayer.viewOnly.test.tsx`).
+Borehole columns are refused every verb — their bands carry no qc to re-derive
+from (`require_cpt_anchor`; GB8 pins all six routes).
 
-Gesture (mirrored from the litho axis, `LithoSuggestionGhostColumns`):
-right-click a band → "Split band…", right-click the boundary between two bands
-→ "Merge bands". Choosing to split ARMS a placement — the boundary follows the
-cursor, clamped, with a readout naming the wall — and a click puts it down.
-It is armed-and-click rather than press-and-drag because left-drag on this
-canvas pans the section: a band-wide press target would either swallow the pan
-or fight it. `GeotechBandEditOverlay` therefore listens for nothing but a
-right-click at rest, and owns the canvas only while a placement is armed.
+DB-level behaviour is exercised by
+`tests/integration/api/test_geotech_band_edit_endpoints.py` (GB1–GB16, wrapper
+only): the LL→FC mirror trigger on geotech rows, contiguity at commit,
+formation find-or-create, the accepted-tie transfer + flag/self-heal, the
+borehole refusal, locality, preview≡commit, the N-run merge, and the statistic
+threading end to end.
 
-⚠ **Owner-dogfeed pending, and no integration test exists** — the DB-level
-behaviour of these endpoints (mirror trigger, no-overlap exclusion, contiguity
-trigger, edge FK cascade) is reasoned from migration SQL, not exercised.
-⚠ **Ruling 7 (selectable representative statistic: median / arithmetic /
-harmonic / geometric, per geotech model) is NOT built.** Until it is, the
-warning and the classifier both read the median; when it lands, both must read
-the model's choice from the same place or the warning starts lying.
 ⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
-it silently destroys every hand split and merge. Nothing warns today.
+it destroys every hand split and merge. `ReSubdivideConfirmDialog` warns first
+and names the count of hand-edited bands (`source='manual'`); accepted ties are
+carried across per §5. What is NOT carried is the hand band geometry itself.
 
 ## 4a. Only RESTATED ties are born accepted (owner ruling A 2026-08-05, refined 2026-08-06)
 
