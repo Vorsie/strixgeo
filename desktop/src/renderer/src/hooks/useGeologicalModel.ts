@@ -1075,6 +1075,10 @@ export function useGeologicalModel({
   // reading the first meaning while the second was true.
   const [geotechLayersLoaded, setGeotechLayersLoaded] = useState(false)
   const [geotechLayersVersion, setGeotechLayersVersion] = useState(0)
+  // Which model the current geotechLayers rows belong to — the load effect
+  // clears eagerly only when this identity changes, so a same-model refetch
+  // (every band edit) keeps the last rows visible instead of blinking the fill.
+  const geotechLoadedModelIdRef = useRef<string | null>(null)
   const geotechContacts = useMemo<FormationContactResponse[]>(
     () => lithoLayersToContacts(geotechLayers),
     [geotechLayers],
@@ -1398,16 +1402,23 @@ export function useGeologicalModel({
   // switch (same pattern as the edge-refetch nonce in SectionsCanvas).
   useEffect(() => {
     if (!project || !activeGeotechModel) {
+      geotechLoadedModelIdRef.current = null
       setGeotechLayers([])
       // No geotech model is a KNOWN state, not an unknown one: there are
       // genuinely no committed geotech rows to have.
       setGeotechLayersLoaded(true)
       return
     }
-    // Clear immediately on model change to prevent stale state showing
-    // under a different model header (same reasoning as the litho effect).
-    setGeotechLayers([])
-    setGeotechLayersLoaded(false)
+    if (geotechLoadedModelIdRef.current !== activeGeotechModel.id) {
+      // Clear immediately on model change to prevent stale state showing
+      // under a different model header (same reasoning as the litho effect).
+      // A SAME-model refetch (every committed band edit bumps the nonce) keeps
+      // the last committed rows on screen until the fresh answer lands — the
+      // clear-then-refill used to blank the unit count for a frame and blink
+      // the whole NAD fill off and back on per edit (#227 slice F).
+      setGeotechLayers([])
+      setGeotechLayersLoaded(false)
+    }
     let cancelled = false
     const projectId = project.id
     const modelId = activeGeotechModel.id
@@ -1415,6 +1426,7 @@ export function useGeologicalModel({
       try {
         const layers = await api.geology.listLayers(projectId, modelId)
         if (cancelled) return
+        geotechLoadedModelIdRef.current = modelId
         setGeotechLayers(layers)
         setGeotechLayersLoaded(true)
         // Once per SUCCESSFUL load. A failed load leaves the version alone, so
@@ -1427,6 +1439,7 @@ export function useGeologicalModel({
       } catch (err) {
         if (!cancelled) {
           log.warn('geology', `geotech model ${modelId}: load failed`, err)
+          geotechLoadedModelIdRef.current = null
           setGeotechLayers([])
           // Stays false: [] here means "the load failed", and a consumer that
           // reads it as "nothing is committed" draws the wrong conclusion for
@@ -2269,6 +2282,10 @@ export function useGeologicalModel({
     project?.id ?? null,
     activeGeotechModel?.id ?? null,
     toast,
+    // Hand band edits stale the geotech solids server-side; every such write
+    // bumps geotechLayersVersion, and this re-fetch is what turns the Build
+    // badge amber without waiting for the next build.
+    geotechLayersVersion,
   )
 
   // F4 — "Subdivide all bodies" toolbar verb.  Called from the Geotechnical
