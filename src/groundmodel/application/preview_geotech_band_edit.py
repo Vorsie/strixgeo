@@ -21,11 +21,11 @@ rejected here as well as at the commit, because a preview that answered "here is
 what this would do" for an edit the commit refuses would be worse than either
 refusal alone.
 
-The statistic is the MEDIAN. The owner said "avg qc"; the median is used because
-that is what classifies a band today (``geotech_subdivision`` line 444), so the
-preview predicts the reclassification that will actually happen. A preview on the
-mean would sometimes promise a class change that never occurs, and miss one that
-does.
+The statistic is the MODEL'S CHOICE (ruling 7; median by default), read through
+the same ``representative_statistic`` path the classifier reads, so the preview
+predicts the reclassification that will actually happen. A preview on any other
+statistic would sometimes promise a class change that never occurs, and miss
+one that does (ruling 6).
 """
 
 from __future__ import annotations
@@ -40,7 +40,9 @@ from groundmodel.application.geotech_band_edit_helpers import (
 )
 from groundmodel.domain.services.geotech_band_reclassification import (
     BandEditPlan,
-    plan_merge,
+    GeotechBandEditError,
+    plan_merge_run,
+    plan_move,
     plan_split,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -126,10 +128,11 @@ class PreviewGeotechBandEdit(GroundModelLogger):
         *,
         project_id: UUID,
         geotech_model_id: UUID,
-        upper_band_id: UUID,
-        lower_band_id: UUID,
+        upper_band_id: UUID | None = None,
+        lower_band_id: UUID | None = None,
+        band_ids: list[UUID] | None = None,
     ) -> BandEditPlan:
-        """Preview merging two adjacent packing bands into one.
+        """Preview merging a contiguous run of packing bands into one.
 
         Parameters
         ----------
@@ -138,7 +141,11 @@ class PreviewGeotechBandEdit(GroundModelLogger):
         geotech_model_id : UUID
             The geotechnical model the bands belong to.
         upper_band_id, lower_band_id : UUID
-            The adjacent pair to merge.
+            The adjacent pair to merge (the ordinary case).
+        band_ids : list[UUID] | None
+            An N-band contiguous run instead of the pair (the small-lens
+            absorb: host + lens + host in one honest preview). When given,
+            the pair arguments are ignored.
 
         Returns
         -------
@@ -150,25 +157,30 @@ class PreviewGeotechBandEdit(GroundModelLogger):
         Raises
         ------
         GeotechBandEditError
-            When the bands are not adjacent, or sit in different litho or
-            geological units.
+            When the run is not consecutive same-parentage neighbours.
         """
+        if band_ids:
+            run: list[UUID] = list(band_ids)
+        elif upper_band_id is not None and lower_band_id is not None:
+            run = [upper_band_id, lower_band_id]
+        else:
+            raise GeotechBandEditError(
+                "Merge rejected: provide the adjacent pair or a band_ids run."
+            )
         self.info(
-            f"PreviewGeotechBandEdit.merge: model={geotech_model_id} "
-            f"upper={upper_band_id} lower={lower_band_id}"
+            f"PreviewGeotechBandEdit.merge: model={geotech_model_id} run={[str(b) for b in run]}"
         )
         context = await load_geotech_column_context(
             self._session,
             self,
             project_id=project_id,
             geotech_model_id=geotech_model_id,
-            band_id=upper_band_id,
+            band_id=run[0],
         )
         require_cpt_anchor(context, gesture="Merge")
-        plan = plan_merge(
+        plan = plan_merge_run(
             bands=context.bands,
-            upper_band_id=str(upper_band_id),
-            lower_band_id=str(lower_band_id),
+            band_ids=[str(b) for b in run],
             soil=context.soil,
             admixtures=context.admixtures,
             depth_m=context.depth_m,
@@ -177,6 +189,67 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             statistic=context.statistic,
         )
         self._log_plan("merge", plan)
+        return plan
+
+    async def preview_move(
+        self,
+        *,
+        project_id: UUID,
+        geotech_model_id: UUID,
+        upper_band_id: UUID,
+        lower_band_id: UUID,
+        new_depth_m: float,
+    ) -> BandEditPlan:
+        """Preview dragging the shared boundary of two adjacent packing bands.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project (scope guard).
+        geotech_model_id : UUID
+            The geotechnical model the bands belong to.
+        upper_band_id, lower_band_id : UUID
+            The adjacent pair whose shared boundary moves.
+        new_depth_m : float
+            The proposed boundary depth (metres, positive down).
+
+        Returns
+        -------
+        BandEditPlan
+            Both resulting intervals with their re-derived classes, plus the
+            advisory warnings.
+
+        Raises
+        ------
+        GeotechBandEditError
+            When the pair is not draggable (different parents = a contact) or
+            the depth is not strictly inside the pair.
+        """
+        self.info(
+            f"PreviewGeotechBandEdit.move: model={geotech_model_id} "
+            f"upper={upper_band_id} lower={lower_band_id} depth={new_depth_m:.3f} m"
+        )
+        context = await load_geotech_column_context(
+            self._session,
+            self,
+            project_id=project_id,
+            geotech_model_id=geotech_model_id,
+            band_id=upper_band_id,
+        )
+        require_cpt_anchor(context, gesture="Move")
+        plan = plan_move(
+            bands=context.bands,
+            upper_band_id=str(upper_band_id),
+            lower_band_id=str(lower_band_id),
+            new_depth_m=new_depth_m,
+            soil=context.soil,
+            admixtures=context.admixtures,
+            depth_m=context.depth_m,
+            qc_mpa=context.qc_mpa,
+            min_thickness_m=context.min_thickness_m,
+            statistic=context.statistic,
+        )
+        self._log_plan("move", plan)
         return plan
 
     def _log_plan(self, kind: str, plan: BandEditPlan) -> None:
