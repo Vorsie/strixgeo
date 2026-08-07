@@ -20,11 +20,14 @@ import {
   SPLIT_EDGE_EPSILON_M,
   bandAtDepth,
   canMergeBands,
+  clampDragDepth,
   clampSplitDepth,
   columnBands,
   columnIsHandEditable,
+  dragAbsorbPrediction,
   enclosingLithoBody,
 } from './geotechBandEdit'
+import { absorbRemainderThresholdM } from '../../utils/lithoLayerMerge'
 
 /** One litho body spanning 2–8 m; the packing bands below all live inside it. */
 const LITHO_BODY = { topDepthM: 2, baseDepthM: 8 }
@@ -176,5 +179,81 @@ describe('neither verb applies to a borehole', () => {
 
   it('AN4 — and an empty column is not: there is nothing there to edit', () => {
     expect(columnIsHandEditable([])).toBe(false)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// DR — clampDragDepth: the drag verb's per-frame clamp (owner 2026-08-07)
+// ---------------------------------------------------------------------------
+//
+// Drag is only offered on a mergeable pair (same litho body), so the PAIR's
+// own envelope is the wall: the boundary moves freely between the pair's outer
+// edges and visibly refuses to leave them. The litho walls need no second
+// check — the pair cannot exceed its own body.
+
+describe('clampDragDepth — the boundary moves freely inside the pair', () => {
+  const upper = { layerId: 'u', topDepthM: 3, baseDepthM: 4, nadClass: 7, anchorIsCpt: true }
+  const lower = { layerId: 'l', topDepthM: 4, baseDepthM: 7, nadClass: 8, anchorIsCpt: true }
+
+  it('DR1 — inside the pair the cursor is followed exactly', () => {
+    const clamped = clampDragDepth(upper, lower, 5.25)
+    expect(clamped.depthM).toBe(5.25)
+    expect(clamped.atLimit).toBe('none')
+  })
+
+  it('DR2 — dragging past the upper band top stops at it and names the limit', () => {
+    const clamped = clampDragDepth(upper, lower, 1.0)
+    expect(clamped.depthM).toBeCloseTo(3 + SPLIT_EDGE_EPSILON_M, 6)
+    expect(clamped.atLimit).toBe('upper')
+  })
+
+  it('DR3 — dragging past the lower band base stops at it symmetrically', () => {
+    const clamped = clampDragDepth(upper, lower, 9.0)
+    expect(clamped.depthM).toBeCloseTo(7 - SPLIT_EDGE_EPSILON_M, 6)
+    expect(clamped.atLimit).toBe('lower')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AB — dragAbsorbPrediction: squeeze the neighbour to a sliver → merge
+// ---------------------------------------------------------------------------
+//
+// Owner decision 2026-08-07: "Absorb, like litho" — the SAME
+// max(0.1 m, 15 % of original thickness) remaining-sliver rule the litho
+// ghost cross-merge uses, hoisted into one shared helper so the two axes'
+// absorb feel can never drift.
+
+describe('dragAbsorbPrediction — drag-up-to-collapse becomes a merge', () => {
+  const upper = { layerId: 'u', topDepthM: 3, baseDepthM: 4, nadClass: 7, anchorIsCpt: true }
+  const lower = { layerId: 'l', topDepthM: 4, baseDepthM: 7, nadClass: 8, anchorIsCpt: true }
+
+  it('AB1 — mid-pair there is no absorb', () => {
+    expect(dragAbsorbPrediction(upper, lower, 5.0)).toBeNull()
+  })
+
+  it('AB2 — the 0.1 m floor governs a thin band', () => {
+    // upper is 1 m thick → threshold max(0.1, 0.15) = 0.15 m remaining.
+    expect(dragAbsorbPrediction(upper, lower, 3.1)).toEqual({ side: 'upper' })
+    expect(dragAbsorbPrediction(upper, lower, 3.2)).toBeNull()
+  })
+
+  it('AB3 — 15 % governs a thick band', () => {
+    // lower is 3 m thick → threshold 0.45 m remaining.
+    expect(dragAbsorbPrediction(upper, lower, 6.6)).toEqual({ side: 'lower' })
+    expect(dragAbsorbPrediction(upper, lower, 6.5)).toBeNull()
+  })
+
+  it('AB4 — the upper side is symmetric', () => {
+    const thickUpper = { layerId: 'u', topDepthM: 0, baseDepthM: 4, nadClass: 7, anchorIsCpt: true }
+    const thinLower = { layerId: 'l', topDepthM: 4, baseDepthM: 5, nadClass: 8, anchorIsCpt: true }
+    // thickUpper 4 m → threshold 0.6 m remaining.
+    expect(dragAbsorbPrediction(thickUpper, thinLower, 0.5)).toEqual({ side: 'upper' })
+  })
+
+  it('AB5 — the threshold is the exact helper litho cross-merge uses', () => {
+    expect(absorbRemainderThresholdM(1.0)).toBe(0.15)
+    expect(absorbRemainderThresholdM(0.4)).toBe(0.1) // the floor
+    expect(absorbRemainderThresholdM(2.0)).toBeCloseTo(0.3, 10)
   })
 })
