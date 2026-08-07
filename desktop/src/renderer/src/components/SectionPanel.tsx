@@ -266,8 +266,25 @@ interface Props {
    * axis stays exactly as view-only as it was.
    */
   onRequestGeotechSplitBand?: (bandId: string, depthM: number) => void
-  /** Merge two adjacent packing sub-bands inside one litho body (geotech axis only). */
-  onRequestGeotechMergeBands?: (upperBandId: string, lowerBandId: string) => void
+  /**
+   * Merge two adjacent packing sub-bands inside one litho body (geotech axis only).
+   * ``boundaryDepthM`` = their shared boundary today, the undo anchor.
+   */
+  onRequestGeotechMergeBands?: (
+    upperBandId: string,
+    lowerBandId: string,
+    boundaryDepthM: number,
+  ) => void
+  /**
+   * Drag the shared boundary of two adjacent packing sub-bands (geotech axis only, owner
+   * 2026-08-07). Absent → the boundary strips stay right-click-only and a press pans.
+   */
+  onRequestGeotechMoveBoundary?: (
+    upperBandId: string,
+    lowerBandId: string,
+    newDepthM: number,
+    preDragDepthM: number,
+  ) => void
   /** Break the litho↔geo coupling on a lithostratigraphic contact.
    * Forwarded straight to ContactsLayer; absent on the geological axis. */
   onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
@@ -673,6 +690,7 @@ export default function SectionPanel({
   onDeleteContact,
   onRequestGeotechSplitBand,
   onRequestGeotechMergeBands,
+  onRequestGeotechMoveBoundary,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
   onBatchUpdateContacts,
@@ -3135,6 +3153,7 @@ export default function SectionPanel({
                 plotBottom={MARGIN.top + plotHeight}
                 onRequestSplit={onRequestGeotechSplitBand}
                 onRequestMerge={onRequestGeotechMergeBands}
+                onRequestMoveBoundary={onRequestGeotechMoveBoundary}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
               />
             )}
