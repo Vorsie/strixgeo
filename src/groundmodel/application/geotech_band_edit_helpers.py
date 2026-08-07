@@ -40,8 +40,10 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     GeotechBand,
     GeotechBandEditError,
 )
+from groundmodel.domain.services.representative_statistic import DEFAULT_STATISTIC
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -88,6 +90,13 @@ class GeotechColumnContext:
         Cone resistance per depth (empty for a borehole).
     min_thickness_m : float
         Configured minimum packing-band thickness — advisory for a hand edit.
+    statistic : str
+        The model's representative-qc statistic (ruling 7) — read from
+        ``geological_model.representative_statistic`` so a hand edit and its
+        preview can NEVER disagree with the build (ruling 6). A hand edit under
+        a stale model (choice changed, bands not yet re-subdivided) re-derives
+        with the CURRENT choice — the model is already flagged stale, which is
+        the honest state.
     source_litho_formation_id : UUID
         The edited band's litho parent (a hard wall).
     source_geo_formation_id : UUID | None
@@ -106,6 +115,7 @@ class GeotechColumnContext:
     depth_m: list[float]
     qc_mpa: list[float | None]
     min_thickness_m: float
+    statistic: str
     source_litho_formation_id: UUID
     source_geo_formation_id: UUID | None
 
@@ -372,10 +382,16 @@ async def load_geotech_column_context(
         _DEFAULT_MIN_THICKNESS_M,
     )
 
+    # The model's representative-qc statistic (ruling 7). Identity-map hit in
+    # the common case — the router just loaded the model for its kind guard.
+    model = await session.get(GeologicalModelOrm, geotech_model_id)
+    statistic = model.representative_statistic if model is not None else DEFAULT_STATISTIC
+
     logger.debug(
         f"load_geotech_column_context: band={band_id} "
         f"investigation={investigation_id} bands={len(bands)} "
-        f"qc_samples={len(depth_m)} soil={soil!r} min_thickness_m={min_thickness_m}"
+        f"qc_samples={len(depth_m)} soil={soil!r} min_thickness_m={min_thickness_m} "
+        f"statistic={statistic}"
     )
     return GeotechColumnContext(
         project_id=project_id,
@@ -389,6 +405,7 @@ async def load_geotech_column_context(
         depth_m=depth_m,
         qc_mpa=qc_mpa,
         min_thickness_m=min_thickness_m,
+        statistic=statistic,
         source_litho_formation_id=target_formation.source_litho_formation_id,
         source_geo_formation_id=target_formation.source_geo_formation_id,
     )
