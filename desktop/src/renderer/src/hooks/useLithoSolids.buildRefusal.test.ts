@@ -202,3 +202,35 @@ describe('useLithoSolids — BR2: an empty build is never a green success', () =
     expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('Built 4 bodies'))
   })
 })
+
+describe('useLithoSolids — RF1: a band edit re-fetches the solids', () => {
+  // Backend band edits stamp is_stale on the solids, but the amber Build badge
+  // only reflects it after a LIST re-fetch — and until 2026-08-08 the fetch
+  // re-ran solely on a build. ``refreshOn`` is the channel: the geotech
+  // instance passes geotechLayersVersion, so every committed band edit
+  // re-fetches and the badge ambers without a manual reload.
+  it('re-runs the list fetch when refreshOn changes', async () => {
+    const toast = vi.fn()
+    const countGets = (): number =>
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(call => {
+        const init = call[1] as RequestInit | undefined
+        return (init?.method ?? 'GET') === 'GET'
+      }).length
+
+    const { rerender } = renderHook(
+      ({ nonce }: { nonce: number }) => useLithoSolids('proj-1', 'model-1', toast, nonce),
+      { initialProps: { nonce: 0 } },
+    )
+    await act(async () => {})
+    const getsAfterMount = countGets()
+
+    rerender({ nonce: 1 })
+    await act(async () => {})
+    expect(countGets()).toBe(getsAfterMount + 1)
+
+    // Same value again — no spurious re-fetch.
+    rerender({ nonce: 1 })
+    await act(async () => {})
+    expect(countGets()).toBe(getsAfterMount + 1)
+  })
+})
