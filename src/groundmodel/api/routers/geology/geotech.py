@@ -54,6 +54,7 @@ from groundmodel.api.schemas.project.geotech_band_edit import (
     GeotechBandWarningItem,
     GeotechStatisticResponse,
     MergeGeotechBandsRequest,
+    MoveGeotechBoundaryRequest,
     SetGeotechStatisticRequest,
     SplitGeotechBandRequest,
 )
@@ -75,6 +76,7 @@ from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditResult
 from groundmodel.application.geotech_tie_status import load_geotech_tie_status
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
+from groundmodel.application.move_geotech_band_boundary import MoveGeotechBandBoundary
 from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
 from groundmodel.application.set_geotech_statistic import SetGeotechStatistic
 from groundmodel.application.split_geotech_band import SplitGeotechBand
@@ -1070,6 +1072,7 @@ async def preview_merge_geotech_bands(
             geotech_model_id=model_id,
             upper_band_id=request.upper_band_id,
             lower_band_id=request.lower_band_id,
+            band_ids=request.band_ids,
         )
     except GeotechBandEditError as exc:
         raise _band_edit_422(exc) from exc
@@ -1198,6 +1201,7 @@ async def merge_geotech_bands(
             geotech_model_id=model_id,
             upper_band_id=request.upper_band_id,
             lower_band_id=request.lower_band_id,
+            band_ids=request.band_ids,
         )
     except GeotechBandEditError as exc:
         raise _band_edit_422(exc) from exc
@@ -1264,3 +1268,131 @@ async def set_geotech_statistic(
         classified_with_statistic=result.classified_with_statistic,
         bands_stale=result.bands_stale,
     )
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/preview-move",
+    response_model=GeotechBandEditPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Preview dragging a packing boundary (no write)",
+    tags=["geotech"],
+)
+async def preview_move_geotech_boundary(
+    project_id: UUID,
+    model_id: UUID,
+    request: MoveGeotechBoundaryRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditPlanResponse:
+    """Answer what dragging this boundary to this depth would do, without writing.
+
+    Both resulting intervals report their representative qc (under the model's
+    statistic), their re-derived NAD class, and the advisory consequences.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : MoveGeotechBoundaryRequest
+        The adjacent pair + the proposed boundary depth.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditPlanResponse
+        The previewed intervals + advisory warnings.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, the bands sit on a borehole, the
+        pair is not a same-parentage neighbour pair (that boundary IS a
+        contact), or the depth is not strictly inside the pair.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-move "
+        f"upper={request.upper_band_id} lower={request.lower_band_id} "
+        f"depth={request.new_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/preview-move")
+    try:
+        plan = await PreviewGeotechBandEdit(session).preview_move(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            upper_band_id=request.upper_band_id,
+            lower_band_id=request.lower_band_id,
+            new_depth_m=request.new_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    return _plan_payload(plan)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/move",
+    response_model=GeotechBandEditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Drag a packing boundary; both bands re-derive their class",
+    tags=["geotech"],
+)
+async def move_geotech_boundary(
+    project_id: UUID,
+    model_id: UUID,
+    request: MoveGeotechBoundaryRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditResponse:
+    """Commit the drag: an atomic two-row write, both classes re-derived.
+
+    Ties on either band whose class match breaks are flagged for review
+    (accepted) or withdrawn (pending); restored matches self-heal
+    (flag-not-drop, owner 2026-08-07).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : MoveGeotechBoundaryRequest
+        The adjacent pair + the new boundary depth.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditResponse
+        The committed plan, both row ids, and the tie outcome.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        Same refusals as the preview — the two can never disagree.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/move "
+        f"upper={request.upper_band_id} lower={request.lower_band_id} "
+        f"depth={request.new_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/move")
+    try:
+        result = await MoveGeotechBandBoundary(session).execute(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            upper_band_id=request.upper_band_id,
+            lower_band_id=request.lower_band_id,
+            new_depth_m=request.new_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    logger.info(
+        f"move_geotech_boundary ok investigation={result.investigation_id} "
+        f"boundary={request.new_depth_m} flagged={len(result.flagged_edge_ids)} "
+        f"removed={len(result.deleted_edge_ids)}"
+    )
+    return _edit_payload(result)
