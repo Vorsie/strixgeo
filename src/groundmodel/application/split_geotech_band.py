@@ -129,6 +129,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             depth_m=context.depth_m,
             qc_mpa=context.qc_mpa,
             min_thickness_m=context.min_thickness_m,
+            statistic=context.statistic,
         )
         upper_outcome, lower_outcome = plan.intervals
         for warning in plan.warnings:
