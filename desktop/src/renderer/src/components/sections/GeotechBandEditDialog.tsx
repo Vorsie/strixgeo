@@ -15,9 +15,11 @@
  *
  * The numbers and every warning sentence are authored server-side, so the statistic and its
  * wording exist in one place. The dialog renders what it was handed and manufactures
- * nothing — including the phrase "representative qc", which is the MEDIAN. The owner asked
- * for "avg qc", but ``geotech_subdivision.py`` classifies a band on ``median(in_band)``, so
- * a consequence computed on the mean would predict a reclassification that never happens.
+ * nothing — including the phrase "representative qc", which is the MODEL'S chosen statistic
+ * (ruling 7; median by default, and the sheet names any other choice). The owner asked for
+ * "avg qc", but the classifier reads the model's ``representative_statistic``, so a
+ * consequence computed with any other statistic would predict a reclassification that
+ * never happens.
  */
 import { useEffect, useRef } from 'react'
 
@@ -71,7 +73,13 @@ export default function GeotechBandEditDialog({
 }: Props): JSX.Element {
   const confirmRef = useRef<HTMLButtonElement>(null)
   const isMerge = plan.kind === 'merge'
-  const verb = isMerge ? 'Merge bands' : 'Split band'
+  const isMove = plan.kind === 'move'
+  const verb = isMove ? 'Move boundary' : isMerge ? 'Merge bands' : 'Split band'
+  // Ruling 6 under ruling 7: once the model's statistic is not the default,
+  // the sheet names it — a number labelled bare "representative qc" would
+  // read as the median it no longer is.
+  const statisticLabel =
+    plan.statistic !== undefined && plan.statistic !== 'median' ? ` (${plan.statistic})` : ''
 
   // Focus the ACTION, not Cancel. docs/ux.md puts default-focus on Cancel for irreversible
   // actions; this is not one (a split can be merged back), and defaulting to Cancel here
@@ -96,7 +104,11 @@ export default function GeotechBandEditDialog({
           id="geotech-band-edit-title"
           className="text-base font-semibold text-text-primary mb-1"
         >
-          {isMerge ? 'Merge these packing bands?' : 'Split this packing band?'}
+          {isMove
+            ? 'Move this packing boundary?'
+            : isMerge
+              ? 'Merge these packing bands?'
+              : 'Split this packing band?'}
         </h2>
         <p className="text-xs text-text-secondary mb-4">
           The packing class is re-derived from the cone resistance over each resulting
@@ -129,7 +141,7 @@ export default function GeotechBandEditDialog({
               </div>
               {interval.median_qc_mpa !== null && (
                 <div className="text-text-secondary mt-0.5">
-                  Representative qc {interval.median_qc_mpa.toFixed(1)} MPa
+                  Representative qc{statisticLabel} {interval.median_qc_mpa.toFixed(1)} MPa
                 </div>
               )}
               {interval.unclassifiable_reason !== null && (
