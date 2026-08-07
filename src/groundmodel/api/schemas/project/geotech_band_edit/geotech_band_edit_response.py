@@ -31,9 +31,18 @@ class GeotechBandEditResponse(BaseModel):
     deleted_layer_ids : list[UUID]
         Rows removed by this edit.
     deleted_edge_ids : list[UUID]
-        Correlations dropped because the re-derived class no longer matches
-        their partner (plus, on a merge, those that cascaded away with the
-        absorbed band).
+        Correlations REMOVED. Since 2026-08-07 (flag-not-drop) this is
+        narrower than it was: PENDING mismatches withdrawn, pending ties that
+        cascaded with an absorbed row, and transfer drops (self-loops /
+        duplicates). Accepted mismatches are no longer deleted — they appear
+        in ``flagged_edge_ids`` instead.
+    flagged_edge_ids : list[UUID]
+        ACCEPTED ties flagged for review (violet badge) — a class mismatch or
+        a transferred anchor. Surviving rows; the engineer confirms or
+        deletes them via the existing verbs.
+    cleared_edge_ids : list[UUID]
+        Ties whose restored class match self-healed an earlier
+        ``class_changed`` flag.
     """
 
     geotech_model_id: UUID = Field(..., description="The geotechnical model written.")
@@ -42,4 +51,10 @@ class GeotechBandEditResponse(BaseModel):
     layer_ids: list[UUID] = Field(default_factory=list, description="Resulting band rows.")
     created_layer_ids: list[UUID] = Field(default_factory=list, description="Rows inserted.")
     deleted_layer_ids: list[UUID] = Field(default_factory=list, description="Rows removed.")
+    flagged_edge_ids: list[UUID] = Field(
+        default_factory=list, description="Accepted ties flagged for review."
+    )
+    cleared_edge_ids: list[UUID] = Field(
+        default_factory=list, description="Ties whose class_changed flag self-healed."
+    )
     deleted_edge_ids: list[UUID] = Field(default_factory=list, description="Correlations dropped.")
