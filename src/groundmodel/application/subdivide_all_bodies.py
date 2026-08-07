@@ -500,7 +500,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         gradient_snap, gradient_snap_window_m = await self._read_gradient_snap(
             geotech_model.app_project_id
         )
-        self.debug(f"SubdivideAllBodies: min_thickness_m={min_thickness_m}")
+        # The model's representative-qc statistic (ruling 7) — every band this
+        # build classifies uses it, and the build stamps it as
+        # ``classified_with_statistic`` on success so the derived staleness
+        # (classified != representative) self-clears (ruling 8).
+        statistic = geotech_model.representative_statistic
+        self.debug(f"SubdivideAllBodies: min_thickness_m={min_thickness_m} statistic={statistic}")
 
         # Global depth-indexed map built during materialisation: for each
         # investigation, the list of (depth_top_m, depth_base_m,
@@ -588,6 +593,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     min_thickness_m=min_thickness_m,
                     gradient_snap=gradient_snap,
                     gradient_snap_window_m=gradient_snap_window_m,
+                    statistic=statistic,
                 )
                 bp = BandProfile(investigation_id=seg.investigation_id, splits=splits)
                 profiles.append(bp)
@@ -779,6 +785,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             .scalars()
             .all()
         )
+
+        # The build classified every band with ``statistic`` — stamp it so the
+        # derived staleness (classified != representative) reads false again
+        # (ruling 8: the ONLY thing that re-derives bands is this build).
+        geotech_model.classified_with_statistic = statistic
 
         # Phase 11 — single commit.
         await self._session.commit()
