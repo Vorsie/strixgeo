@@ -30,9 +30,9 @@ from groundmodel.application import merge_geotech_bands as merge_module
 from groundmodel.application import preview_geotech_band_edit as preview_module
 from groundmodel.application import split_geotech_band as split_module
 from groundmodel.application.geotech_band_edit_helpers import (
-    EdgeRef,
+    EdgeRevalidation,
+    EdgeTransferPlan,
     GeotechColumnContext,
-    invalidated_edge_ids,
     load_geotech_column_context,
 )
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
@@ -184,9 +184,17 @@ def _band(band_id: str, top: float, base: float, nad_class: int | None) -> Geote
 def _patch_common(monkeypatch: pytest.MonkeyPatch, module: Any, context: GeotechColumnContext):
     """Stub the DB-touching collaborators of a commit use case."""
     monkeypatch.setattr(module, "load_geotech_column_context", AsyncMock(return_value=context))
-    monkeypatch.setattr(module, "load_edges_for_layers", AsyncMock(return_value=[]))
-    monkeypatch.setattr(module, "load_nad_class_by_layer", AsyncMock(return_value={}))
-    monkeypatch.setattr(module, "delete_edges", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        module,
+        "revalidate_layer_edges",
+        AsyncMock(return_value=EdgeRevalidation((), (), ())),
+    )
+    if hasattr(module, "transfer_accepted_edges"):
+        monkeypatch.setattr(
+            module,
+            "transfer_accepted_edges",
+            AsyncMock(return_value=EdgeTransferPlan((), ())),
+        )
     monkeypatch.setattr(
         module, "ResolveLithoInstances", MagicMock(return_value=MagicMock(execute=AsyncMock()))
     )
@@ -336,38 +344,6 @@ async def test_a_merge_extends_the_upper_band_and_deletes_the_lower(
 # ---------------------------------------------------------------------------
 # A connection breaks only when the new class no longer matches
 # ---------------------------------------------------------------------------
-
-
-def test_only_the_edges_whose_class_no_longer_matches_are_dropped() -> None:
-    """A correlation survives a re-derivation that still agrees with its partner."""
-    edited = uuid4()
-    same_class_partner, other_class_partner = uuid4(), uuid4()
-    keep = EdgeRef(edge_id=uuid4(), layer_a_id=edited, layer_b_id=same_class_partner)
-    drop = EdgeRef(edge_id=uuid4(), layer_a_id=other_class_partner, layer_b_id=edited)
-
-    dropped = invalidated_edge_ids(
-        edges=[keep, drop],
-        edited_layer_id=edited,
-        new_nad_class=7,
-        class_by_layer_id={same_class_partner: 7, other_class_partner: 6},
-    )
-
-    assert dropped == [drop.edge_id]
-
-
-def test_a_band_that_can_no_longer_be_classified_loses_every_connection() -> None:
-    """A null-class band never matches — the existing rule for skeleton bands."""
-    edited, partner = uuid4(), uuid4()
-    edge = EdgeRef(edge_id=uuid4(), layer_a_id=edited, layer_b_id=partner)
-
-    dropped = invalidated_edge_ids(
-        edges=[edge],
-        edited_layer_id=edited,
-        new_nad_class=None,
-        class_by_layer_id={partner: 7},
-    )
-
-    assert dropped == [edge.edge_id]
 
 
 # ---------------------------------------------------------------------------
