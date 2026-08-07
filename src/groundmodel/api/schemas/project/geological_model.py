@@ -63,5 +63,11 @@ class GeologicalModelResponse(BaseModel):
     excluded_borehole_ids: list[UUID]
     kind: str
     parent_model_id: UUID | None
+    # Representative qc statistic pair (owner rulings 7+8, debt #227) —
+    # meaningful for kind='geotechnical' only; the defaults make the fields
+    # additive for every existing client. ``bands_stale`` is derived client- or
+    # server-side as classified != representative (never stored).
+    representative_statistic: str = "median"
+    classified_with_statistic: str | None = None
     created_at: datetime
     updated_at: datetime
