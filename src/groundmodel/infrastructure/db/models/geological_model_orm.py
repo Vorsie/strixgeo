@@ -73,6 +73,22 @@ class GeologicalModelOrm(Base):
         nullable=True,
     )
 
+    # Representative qc statistic pair (owner rulings 7+8, docs/debt.md #227).
+    # ``representative_statistic`` is the per-model CHOICE the NAD classifier
+    # and every band-edit preview read ('median' | 'arithmetic' | 'harmonic'
+    # | 'geometric'); ``classified_with_statistic`` is what the last full
+    # "Subdivide all bodies" actually classified with (stamped by the build,
+    # NULL until a first build). Staleness is DERIVED, never stored:
+    # classified != representative means the bands need a re-subdivide under
+    # the new choice — the #266 compare-on-load pattern, so it self-clears
+    # and needs no clear-endpoint. Inert for non-geotechnical kinds (the
+    # shared-nullable philosophy of parent_model_id above). Changing the
+    # choice NEVER silently re-derives bands (ruling 8).
+    representative_statistic: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="median", server_default="median"
+    )
+    classified_with_statistic: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
