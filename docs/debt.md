@@ -5914,16 +5914,37 @@ surface can never cross a litho boundary), delete/merge/split sub-bands, and a
 **"merge small lens into encompassing body" suggestion** (owner idea, same
 brainstorm): tiny enclosed class lenses (e.g. the thin greener lens under a
 shallow n21 on CS1) get an inspector affordance suggesting the merge, mirroring
-the litho stage's assisted-manual philosophy. Note the CS1 zoom showed much of
-the "mess" at GEO-22/115-S10 is thin litho interbeds — the merge suggestion may
-belong at BOTH levels (litho interbeds + geotech class lenses).
+the litho stage's assisted-manual philosophy.
 
-**Why deferred.** The geotech render/model redesign (fraction-space refinement of
-the litho partition + litho-content-aware geo boundary, decided 2026-07-06) must
-land first — the gesture surface edits the structures that redesign defines.
+**SHIPPED 2026-08-08 (owner dogfeed pending).** Split/merge landed 2026-08-01;
+the 2026-08-07 interview decisions (drag is the missing primary gesture;
+drag-merge absorbs like litho at `max(0.1 m, 15 %)`; broken accepted ties are
+FLAGGED `class_changed`, never dropped — retroactive on split/merge; scope =
+delete verb + undo + statistic selector + lens suggestion) all built overnight
+2026-08-07→08. Current state is `docs/design/geotech-stage.md` §4: six verbs
+(split / merge / drag with squeeze-to-absorb / remove-band via pair merge /
+lens absorb via N-run merge / move endpoint), per-verb undo on the section
+stack, `representative_statistic` per geotech model (rulings 7+8; derived
+staleness, "re-run under <statistic>" tag), flag-not-drop with tie transfer on
+absorbed rows, GB1–GB16 integration coverage, and the two invalidation fixes
+(band edits amber the 3-D Build via `useLithoSolids` `refreshOn`; same-model
+geotech refetch no longer blinks the NAD fill).
 
-**When to revisit.** Immediately after the fraction-space geotech refinement
-ships and survives dogfeed. Supersedes the stale #13 framing (pre-body-model).
+**Remainder (this entry stays open for):**
+* **Owner dogfeed** — drag feel, absorb hint legibility, remove-band menu,
+  statistic selector + stale tag, lens badge. Two recorded questions: does a
+  FLAGGED tie keep its body union until confirmed/deleted (build proceeds
+  keep-union), and should class-consistent transferred ties get a distinct
+  `band_absorbed` token instead of `ambiguous_band`?
+* **Litho-level thin-interbed merge suggestion** — the CS1 zoom showed much of
+  the "mess" at GEO-22/115-S10 is thin LITHO interbeds; the shipped suggestion
+  covers only geotech class lenses. Separate slice against litho ghosts.
+* **Known accepted infidelities** (documented in code): undo of a split leaves
+  `source='manual'` on the restored band (hand-edit count may over-report by
+  ≤1); ties FK-cascaded with an absorbed row do not resurrect on undo.
+
+**When to revisit.** Close after owner dogfeed answers the two questions and
+the litho-interbed slice gets its own entry or a kill.
 
 ## 228. Litho fill-bands partition sliver overlaps — RESOLVED 2026-07-07
 
