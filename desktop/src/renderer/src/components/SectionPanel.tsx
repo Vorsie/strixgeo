@@ -132,15 +132,12 @@ import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 /** Stable empty map so the PartitionFillOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
 
-// Litho free-draw (grab-a-boundary-and-reshape) is DISABLED for now (owner directive
-// 2026-07-25): the flush-side local bend (S113) works, but the onlap-apex-slide handle,
-// the pull-onlap-up-without-banding case, and grabbing the clay BELOW an onlap are not yet
-// built — so the interaction is half-finished and off until the full segment-confined
-// handle model lands. The partition FILL render is unaffected. Withholding onSaveBoundary /
-// onCorrelateBoundary suppresses every grab handle, the add-strip, and the drag dispatch by
-// construction (every handle memo short-circuits on ``!onSaveBoundary``). Flip to ``true`` to
-// resume the free-draw work. See docs/design/freedraw-onlap-lens-edit-model.md.
-const FREEDRAW_EDIT_ENABLED = false
+// Litho free-draw master switch — shared module so the voxel build gates on the SAME
+// flag (off = off end to end, owner ruling 2026-08-07). Withholding onSaveBoundary /
+// onCorrelateBoundary suppresses every grab handle, the add-strip, and the drag dispatch
+// by construction (every handle memo short-circuits on ``!onSaveBoundary``); withholding
+// ``boundariesByBodyId`` keeps stored nodes from shaping the fill-band geometry.
+import { FREEDRAW_EDIT_ENABLED } from '../utils/freedrawEditFlag'
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -3086,7 +3083,15 @@ export default function SectionPanel({
                 plotBottom={MARGIN.top + plotHeight}
                 plotLeft={MARGIN.left}
                 plotRight={MARGIN.left + plotWidth}
-                boundariesByBodyId={lensBoundaries ?? EMPTY_LENS_BOUNDARIES}
+                // Stored hand-drawn nodes shape the fill ONLY while freedraw is
+                // enabled (owner ruling 2026-08-07): with the handles suppressed
+                // a stored shape would warp the geometry with no visible way to
+                // see or remove it. The voxel build gates on the same flag.
+                boundariesByBodyId={
+                  FREEDRAW_EDIT_ENABLED
+                    ? (lensBoundaries ?? EMPTY_LENS_BOUNDARIES)
+                    : EMPTY_LENS_BOUNDARIES
+                }
                 alongToScreenX={warpedXToScreen}
                 screenXToAlong={warpedScreenXToAlongCb}
                 screenToLevel={screenToLevel}
