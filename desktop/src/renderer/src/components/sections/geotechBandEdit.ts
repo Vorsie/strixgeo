@@ -18,6 +18,7 @@
  */
 
 import type { LithoLayerResponse } from '../../api/client'
+import { absorbRemainderThresholdM } from '../../utils/lithoLayerMerge'
 
 /**
  * How far inside the litho body a hand-placed split is allowed to land, in metres.
@@ -305,4 +306,78 @@ export function canMergeBands(
     }
   }
   return { ok: true }
+}
+
+
+/** Where a dragged boundary stopped, and on which band edge. */
+export interface ClampedDragDepth {
+  /** The clamped boundary depth (m below collar). */
+  depthM: number
+  /** Which limit stopped the drag, or 'none' when the cursor was followed. */
+  atLimit: 'upper' | 'lower' | 'none'
+}
+
+/**
+ * Clamp a dragged packing boundary to the pair it belongs to.
+ *
+ * The drag verb (owner 2026-08-07) is only offered on a mergeable pair — same
+ * litho body, so the pair's own envelope IS ruling 2's wall: the boundary
+ * moves freely between the pair's outer edges and visibly refuses to leave
+ * them (a rejection met only on release would be the worse answer, exactly as
+ * with the split clamp). The epsilon keeps both survivors real rows.
+ *
+ * @param upper The shallower band of the pair.
+ * @param lower The deeper band of the pair.
+ * @param rawDepthM The cursor's depth this frame.
+ * @param epsilonM Structural floor (defaults to `SPLIT_EDGE_EPSILON_M`).
+ * @returns The clamped depth and which limit stopped it, if any.
+ */
+export function clampDragDepth(
+  upper: DepthInterval,
+  lower: DepthInterval,
+  rawDepthM: number,
+  epsilonM: number = SPLIT_EDGE_EPSILON_M,
+): ClampedDragDepth {
+  const min = upper.topDepthM + epsilonM
+  const max = lower.baseDepthM - epsilonM
+  if (rawDepthM < min) return { depthM: min, atLimit: 'upper' }
+  if (rawDepthM > max) return { depthM: max, atLimit: 'lower' }
+  return { depthM: rawDepthM, atLimit: 'none' }
+}
+
+/**
+ * Whether releasing the drag at `depthM` should ABSORB one of the pair.
+ *
+ * Owner decision 2026-08-07: "Absorb, like litho" — when the drag squeezes a
+ * neighbour below `max(0.1 m, 15 %)` of its ORIGINAL thickness remaining
+ * (`absorbRemainderThresholdM`, the exact helper the litho ghost cross-merge
+ * uses), the release becomes a MERGE of the pair instead of a move. The
+ * merged interval's class then re-derives from the qc over the union
+ * (ruling 3) through the shipped merge endpoints — the server never owns this
+ * threshold, because a server converting "move" into "delete a band" behind
+ * the caller's back would break preview honesty (ruling 6).
+ *
+ * @param upper The shallower band of the pair (original extents).
+ * @param lower The deeper band of the pair (original extents).
+ * @param depthM The proposed boundary depth.
+ * @returns Which side would be absorbed, or `null` for a plain move.
+ */
+export function dragAbsorbPrediction(
+  upper: DepthInterval,
+  lower: DepthInterval,
+  depthM: number,
+): { side: 'upper' | 'lower' } | null {
+  const upperRemaining = depthM - upper.topDepthM
+  const lowerRemaining = lower.baseDepthM - depthM
+  const upperThreshold = absorbRemainderThresholdM(upper.baseDepthM - upper.topDepthM)
+  const lowerThreshold = absorbRemainderThresholdM(lower.baseDepthM - lower.topDepthM)
+  const upperCollapses = upperRemaining < upperThreshold
+  const lowerCollapses = lowerRemaining < lowerThreshold
+  if (upperCollapses && lowerCollapses) {
+    // Pathologically thin pair: the nearer edge wins.
+    return upperRemaining <= lowerRemaining ? { side: 'upper' } : { side: 'lower' }
+  }
+  if (upperCollapses) return { side: 'upper' }
+  if (lowerCollapses) return { side: 'lower' }
+  return null
 }
