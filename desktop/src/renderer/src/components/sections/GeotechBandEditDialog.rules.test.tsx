@@ -187,3 +187,35 @@ describe('when the cone resistance cannot answer', () => {
     expect(row.textContent).toContain('flagged for review')
   })
 })
+
+
+describe('the move verb and the statistic label', () => {
+
+  it('W10 - a move plan titles and names the verb as a move', () => {
+    render(
+      <GeotechBandEditDialog
+        open
+        plan={{ ...PLAN_CLASS_MOVES, kind: 'move' }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Move this packing boundary?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Move boundary' })).toBeTruthy()
+  })
+
+  it('W11 - a non-median statistic is named beside the representative qc', () => {
+    render(
+      <GeotechBandEditDialog
+        open
+        plan={{ ...PLAN_CLASS_MOVES, statistic: 'harmonic' }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    // Ruling 6: the sheet must say WHICH statistic produced its numbers once
+    // the model's choice is not the default.
+    expect(screen.getByTestId('geotech-band-edit-interval-0').textContent).toMatch(/harmonic/)
+  })
+
+})
