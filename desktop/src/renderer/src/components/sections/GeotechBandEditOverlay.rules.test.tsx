@@ -517,3 +517,61 @@ describe('removing a band absorbs it into the neighbour the owner names', () => 
     expect(screen.getByTestId('geotech-band-menu-remove-down')).toBeTruthy()
   })
 })
+
+describe('the small enclosed lens gets a suggestion, never a gesture of its own', () => {
+  // The system POINTS, the engineer ACTS (assisted-manual, the litho philosophy):
+  // a passive badge marks a thin band whose neighbours share a class, and the
+  // band menu offers "Merge into surrounding band" — one absorb over the run.
+  // f-band-1 / f-band-3 read class 8 around f-band-2's class 5, so band-2
+  // (4-6 m, 2 m thick) is the enclosed lens of this fixture.
+  const NAD_CLASSES = new Map<string, number | null>([
+    ['f-band-1', 8],
+    ['f-band-2', 5],
+    ['f-band-3', 8],
+    ['f-band-4', 7],
+  ])
+
+  function renderWithLens(smallLensThicknessM: number): ReturnType<typeof vi.fn> {
+    const onRequestAbsorbLens = vi.fn()
+    renderOverlay({
+      nadClassByFormationId: NAD_CLASSES,
+      smallLensThicknessM,
+      onRequestAbsorbLens,
+    })
+    return onRequestAbsorbLens
+  }
+
+  it('GS32 - a qualifying lens shows a badge that can swallow no pointer event', () => {
+    renderWithLens(2.0) // band-2 is exactly 2 m: at the pref, small enough
+    const badge = screen.getByTestId('geotech-lens-badge-band-2')
+    expect(badge.getAttribute('pointer-events')).toBe('none')
+  })
+
+  it('GS33 - a lens thicker than the model pref gets no badge; nor does any band without class data', () => {
+    renderWithLens(0.35)
+    expect(screen.queryByTestId('geotech-lens-badge-band-2')).toBeNull()
+    cleanup()
+    // No class map wired at all: the affordance simply does not exist.
+    const onRequestAbsorbLens = vi.fn()
+    renderOverlay({ smallLensThicknessM: 2.0, onRequestAbsorbLens })
+    expect(screen.queryByTestId('geotech-lens-badge-band-2')).toBeNull()
+  })
+
+  it('GS34 - the band menu offers the absorb regardless of the size gate, and fires the run', () => {
+    // 0.35 m pref: no badge - but the enclosure is still real, so the menu names it.
+    const onRequestAbsorbLens = renderWithLens(0.35)
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(5),
+    })
+    fireEvent.click(screen.getByTestId('geotech-band-menu-absorb-lens'))
+    expect(onRequestAbsorbLens).toHaveBeenCalledWith('band-1', 'band-2', 'band-3', 4, 6)
+  })
+
+  it('GS35 - a band that is not an enclosed lens gets no absorb item', () => {
+    renderWithLens(2.0)
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-1'), {
+      clientY: yAtDepth(3),
+    })
+    expect(screen.queryByTestId('geotech-band-menu-absorb-lens')).toBeNull()
+  })
+})
