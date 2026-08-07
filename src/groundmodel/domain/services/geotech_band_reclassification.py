@@ -8,13 +8,15 @@ Four rulings are encoded here, and nothing else:
 
 1. **The class is derived, not carried.** After a split or a merge, each
    resulting interval is reclassified from the CPT qc over that interval.
-2. **The statistic is the MEDIAN, not the mean.** The owner said "avg qc"; the
-   median is used because that is what classifies a band today
-   (``geotech_subdivision`` line 444, chosen there as "robust to spikes"). A
-   warning computed on the mean would sometimes promise a reclassification the
-   build never performs, and miss one it does — so the preview and the commit
-   both read the median, and the UI copy must say "representative qc", not
-   "average qc".
+2. **The statistic is the MODEL'S CHOICE, single-sourced.** The owner said
+   "avg qc"; the statistic actually used is the model's
+   ``representative_statistic`` (ruling 7 — median by default, chosen as
+   "robust to spikes"), read through the one shared
+   ``representative_statistic.representative_qc`` the subdivision classifier
+   also reads. A warning computed with any OTHER statistic would sometimes
+   promise a reclassification the build never performs, and miss one it does —
+   so the preview and the commit both take ``statistic`` from the model, and
+   the UI copy must say "representative qc", not "average qc".
 3. **The two levels above are hard walls.** A packing boundary moves freely
    inside its litho body and clamps at the edge; it can never move a litho
    contact and never cross a geological one. Violations raise
@@ -37,7 +39,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from statistics import median
 
 from groundmodel.domain.services.geotech_subdivision import (
     QC_REVIEW_MAX_GAP_M,
@@ -46,6 +47,10 @@ from groundmodel.domain.services.geotech_subdivision import (
     _missing_qc_coverage,
 )
 from groundmodel.domain.services.nad_classifier import classify_nad
+from groundmodel.domain.services.representative_statistic import (
+    DEFAULT_STATISTIC,
+    representative_qc,
+)
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
 
@@ -237,6 +242,11 @@ class BandEditPlan:
         The resulting intervals, top to bottom, each with its re-derived class.
     warnings : tuple[BandEditWarning, ...]
         Advisory consequences. A non-empty list never means "refused".
+    statistic : str
+        The representative-qc statistic every interval in this plan was derived
+        with (ruling 7) — the MODEL'S choice, so the consequence sheet can name
+        it and can never quote a number the classifier would not produce
+        (ruling 6).
     """
 
     kind: str
@@ -244,6 +254,7 @@ class BandEditPlan:
     parent_base_m: float
     intervals: tuple[IntervalOutcome, ...]
     warnings: tuple[BandEditWarning, ...]
+    statistic: str = DEFAULT_STATISTIC
 
 
 # ---------------------------------------------------------------------------
@@ -334,18 +345,21 @@ def _assert_same_litho_body(upper: GeotechBand, lower: GeotechBand) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _median_qc_over(
+def _representative_qc_over(
     depth_m: Sequence[float],
     qc_mpa: Sequence[float | None],
     top_m: float,
     base_m: float,
+    statistic: str = DEFAULT_STATISTIC,
 ) -> tuple[float | None, str | None]:
-    """Representative (median) qc over ``[top_m, base_m)``, or why there is none.
+    """Representative qc over ``[top_m, base_m)``, or why there is none.
 
     Half-open sampling matches ``geotech_subdivision`` (``a <= d < b``, line 441)
     so this number is the one the build would classify on. Coverage is judged by
     the SAME thresholds the build uses to flag a unit "needs review", so preview
-    and build never disagree about whether an interval can be answered.
+    and build never disagree about whether an interval can be answered. The
+    statistic is the MODEL'S choice (ruling 7), read through the one shared
+    :func:`representative_qc` — median by default.
 
     Parameters
     ----------
@@ -355,11 +369,13 @@ def _median_qc_over(
         Cone resistance per depth (MPa); ``None`` models a void reading.
     top_m, base_m : float
         Interval bounds (metres).
+    statistic : str
+        One of ``REPRESENTATIVE_STATISTICS`` (ruling 7).
 
     Returns
     -------
     tuple[float | None, str | None]
-        ``(median_qc_mpa, reason)`` — exactly one is ``None``.
+        ``(representative_qc_mpa, reason)`` — exactly one is ``None``.
     """
     in_range: list[tuple[float, float | None]] = [
         (d, q) for d, q in zip(depth_m, qc_mpa) if top_m - _DEPTH_EPS_M <= d < base_m - _DEPTH_EPS_M
@@ -386,7 +402,7 @@ def _median_qc_over(
             f"No usable cone resistance between {top_m:.2f} m and {base_m:.2f} m — "
             "the class cannot be re-derived here."
         )
-    return float(median(valid)), None
+    return float(representative_qc(valid, statistic)), None
 
 
 def _classify_or_reason(
@@ -436,6 +452,7 @@ def reclassify_intervals(
     depth_m: Sequence[float],
     qc_mpa: Sequence[float | None],
     intervals: Sequence[ProposedInterval],
+    statistic: str = DEFAULT_STATISTIC,
 ) -> tuple[IntervalOutcome, ...]:
     """Re-derive the NAD class of each proposed interval from the column's qc.
 
@@ -456,14 +473,17 @@ def reclassify_intervals(
         Cone resistance per depth (MPa); ``None`` models a void reading.
     intervals : Sequence[ProposedInterval]
         The intervals the edit would produce, each with its source band(s).
+    statistic : str
+        The model's representative-qc statistic (ruling 7); the warning is
+        computed with the SAME statistic the classifier reads (ruling 6).
 
     Returns
     -------
     tuple[IntervalOutcome, ...]
-        One outcome per interval, in the order given: its median qc, its
-        re-derived class, the class it carries today, and whether they differ.
-        An interval whose qc cannot answer comes back with ``nad_class=None``
-        and a reason — never a guessed class.
+        One outcome per interval, in the order given: its representative qc,
+        its re-derived class, the class it carries today, and whether they
+        differ. An interval whose qc cannot answer comes back with
+        ``nad_class=None`` and a reason — never a guessed class.
     """
     # A band's own representative qc is quoted in the warning for every interval
     # it feeds, so compute it once per band rather than per (band, interval).
@@ -471,15 +491,15 @@ def reclassify_intervals(
     for interval in intervals:
         for band in interval.sources:
             if band.band_id not in previous_median:
-                value, _reason = _median_qc_over(
-                    depth_m, qc_mpa, band.depth_top_m, band.depth_base_m
+                value, _reason = _representative_qc_over(
+                    depth_m, qc_mpa, band.depth_top_m, band.depth_base_m, statistic
                 )
                 previous_median[band.band_id] = value
 
     outcomes: list[IntervalOutcome] = []
     for interval in intervals:
-        median_qc, reason = _median_qc_over(
-            depth_m, qc_mpa, interval.depth_top_m, interval.depth_base_m
+        median_qc, reason = _representative_qc_over(
+            depth_m, qc_mpa, interval.depth_top_m, interval.depth_base_m, statistic
         )
         nad_class: int | None = None
         if median_qc is not None:
@@ -653,6 +673,7 @@ def plan_split(
     depth_m: Sequence[float],
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
+    statistic: str = DEFAULT_STATISTIC,
 ) -> BandEditPlan:
     """Plan a hand split of one packing band, with both halves reclassified.
 
@@ -673,6 +694,8 @@ def plan_split(
         The column's CPT series.
     min_thickness_m : float
         Configured minimum packing-band thickness (advisory only).
+    statistic : str
+        The model's representative-qc statistic (ruling 7).
 
     Returns
     -------
@@ -711,6 +734,7 @@ def plan_split(
         depth_m=depth_m,
         qc_mpa=qc_mpa,
         intervals=proposed,
+        statistic=statistic,
     )
     return BandEditPlan(
         kind=KIND_SPLIT,
@@ -718,6 +742,7 @@ def plan_split(
         parent_base_m=parent_base,
         intervals=outcomes,
         warnings=_build_warnings(outcomes, min_thickness_m),
+        statistic=statistic,
     )
 
 
@@ -731,6 +756,7 @@ def plan_merge(
     depth_m: Sequence[float],
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
+    statistic: str = DEFAULT_STATISTIC,
 ) -> BandEditPlan:
     """Plan a hand merge of two adjacent packing bands, reclassified as one.
 
@@ -749,6 +775,8 @@ def plan_merge(
         The column's CPT series.
     min_thickness_m : float
         Configured minimum packing-band thickness (advisory only).
+    statistic : str
+        The model's representative-qc statistic (ruling 7).
 
     Returns
     -------
@@ -786,6 +814,7 @@ def plan_merge(
         depth_m=depth_m,
         qc_mpa=qc_mpa,
         intervals=proposed,
+        statistic=statistic,
     )
     return BandEditPlan(
         kind=KIND_MERGE,
@@ -793,4 +822,5 @@ def plan_merge(
         parent_base_m=parent_base,
         intervals=outcomes,
         warnings=_build_warnings(outcomes, min_thickness_m),
+        statistic=statistic,
     )
