@@ -158,6 +158,13 @@ export interface GeologicalModelResponse {
   // Mandatory for litho/geotech (a litho model refines a geological
   // one; geotech refines a litho one); null only for geological.
   parent_model_id: string | null
+  /**
+   * Representative-qc statistic pair (rulings 7+8) — meaningful for
+   * kind='geotechnical' only. Bands are stale when classified differs from
+   * representative (derived, never stored).
+   */
+  representative_statistic?: string
+  classified_with_statistic?: string | null
   created_at: string
   updated_at: string
 }
@@ -1179,14 +1186,18 @@ export interface GeotechBandIntervalItem {
   /** Interval base in metres below the collar. */
   depth_base_m: number
   /**
-   * Representative qc over the interval in MPa.
-   *
-   * This is the MEDIAN, not the arithmetic mean. The owner asked for "avg qc", but
-   * ``geotech_subdivision.py`` classifies a band on ``median(in_band)``, and a consequence
-   * computed on the mean would promise a reclassification that never happens. Label it
-   * "representative qc" in the UI rather than "average qc".
+   * DEPRECATED name — same value as ``representative_qc_mpa``, kept for older
+   * clients (the field predates ruling 7's selectable statistic).
    */
   median_qc_mpa: number | null
+  /**
+   * Representative qc over the interval in MPa, under the MODEL'S chosen
+   * statistic (the plan's ``statistic`` field names it — ruling 7). Label it
+   * "representative qc" in the UI rather than "average qc"; a consequence
+   * computed with any other statistic would promise a reclassification that
+   * never happens (ruling 6).
+   */
+  representative_qc_mpa?: number | null
   /** The re-derived NAD packing class, or null when the qc cannot answer. */
   nad_class: number | null
   /** The class the interval's material carries today. */
@@ -1218,10 +1229,12 @@ export interface GeotechBandWarningItem {
   band_id: string | null
 }
 
-/** What a proposed split or merge would do — the preview payload, no write. */
+/** What a proposed split / merge / move would do — the preview payload, no write. */
 export interface GeotechBandEditPlanResponse {
-  /** ``"split"`` or ``"merge"``. */
+  /** ``"split"``, ``"merge"`` or ``"move"``. */
   kind: string
+  /** The representative-qc statistic every number in this plan used (ruling 7). */
+  statistic?: string
   /** Top of the enclosing litho body in metres — the hard upper wall. */
   parent_top_m: number
   /** Base of the enclosing litho body in metres — the hard lower wall. */
@@ -1232,7 +1245,7 @@ export interface GeotechBandEditPlanResponse {
   warnings: GeotechBandWarningItem[]
 }
 
-/** Result of a committed hand split or merge. */
+/** Result of a committed hand split / merge / move. */
 export interface GeotechBandEditResponse {
   /** The geotechnical model that was written. */
   geotech_model_id: string
@@ -1246,6 +1259,24 @@ export interface GeotechBandEditResponse {
   created_layer_ids: string[]
   /** Rows removed. */
   deleted_layer_ids: string[]
-  /** Correlations dropped because the re-derived class no longer matches their partner. */
+  /**
+   * Correlations REMOVED — since flag-not-drop (2026-08-07) this is pending
+   * mismatches + cascades + transfer drops only; accepted mismatches survive
+   * in ``flagged_edge_ids`` instead.
+   */
   deleted_edge_ids: string[]
+  /** ACCEPTED ties flagged for review (violet badge) — never silently gone. */
+  flagged_edge_ids?: string[]
+  /** Ties whose restored class match self-healed an earlier flag. */
+  cleared_edge_ids?: string[]
+}
+
+/** The statistic state of a geotech model after a change (rulings 7+8). */
+export interface GeotechStatisticResponse {
+  /** The choice now stored on the model. */
+  representative_statistic: string
+  /** What the last full "Subdivide all bodies" classified with; null before any build. */
+  classified_with_statistic: string | null
+  /** Choice differs from the last build's stamp — a re-subdivide is due. */
+  bands_stale: boolean
 }
