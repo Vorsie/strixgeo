@@ -27,10 +27,14 @@ from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.geotech_tie_reanchor import (
+    REVIEW_AMBIGUOUS_BAND,
+    REVIEW_CLASS_CHANGED,
+)
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
     read_view_state_float,
@@ -140,8 +144,16 @@ class GeotechBandEditResult:
     deleted_layer_ids : tuple[UUID, ...]
         Rows removed by this edit.
     deleted_edge_ids : tuple[UUID, ...]
-        Correlation edges dropped because the re-derived class no longer matches
-        their partner.
+        Correlation edges REMOVED — since 2026-08-07 this is narrower than it
+        was: pending mismatches withdrawn, plus transfer drops (self-loops /
+        duplicates) on an absorb. Accepted mismatches are no longer here —
+        they land in ``flagged_edge_ids`` instead (flag-not-drop).
+    flagged_edge_ids : tuple[UUID, ...]
+        ACCEPTED ties flagged for review (``class_changed`` on a mismatch, or
+        ``ambiguous_band`` on a transferred anchor) — surviving rows the
+        engineer confirms or deletes via the existing verbs.
+    cleared_edge_ids : tuple[UUID, ...]
+        Ties whose restored class match self-healed a ``class_changed`` flag.
     """
 
     geotech_model_id: UUID
@@ -151,11 +163,13 @@ class GeotechBandEditResult:
     created_layer_ids: tuple[UUID, ...]
     deleted_layer_ids: tuple[UUID, ...]
     deleted_edge_ids: tuple[UUID, ...]
+    flagged_edge_ids: tuple[UUID, ...] = ()
+    cleared_edge_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
 class EdgeRef:
-    """A correlation edge reduced to what the class-match rule needs.
+    """A correlation edge reduced to what the review rules need.
 
     Attributes
     ----------
@@ -163,11 +177,21 @@ class EdgeRef:
         The ``litho_contact_correlation_edge`` row.
     layer_a_id, layer_b_id : UUID
         Its two endpoints (canonically ordered in the DB).
+    user_approved : bool
+        Whether the engineer accepted this tie. Deliberately NOT defaulted:
+        the flag-not-drop rule (owner 2026-08-07) branches on it, and a loader
+        that forgot to select it must fail loudly rather than silently treat
+        accepted work as droppable machine claims.
+    review_reason : str | None
+        The persisted review flag (``class_changed`` / ``ambiguous_band``), or
+        ``None`` when the tie carries no flag.
     """
 
     edge_id: UUID
     layer_a_id: UUID
     layer_b_id: UUID
+    user_approved: bool
+    review_reason: str | None
 
     def partner_of(self, layer_id: UUID) -> UUID:
         """The endpoint that is not ``layer_id``."""
@@ -220,44 +244,209 @@ def require_cpt_anchor(context: GeotechColumnContext, *, gesture: str) -> None:
     )
 
 
-def invalidated_edge_ids(
+@dataclass(frozen=True)
+class EdgeActions:
+    """What a class re-derivation does to each affected correlation edge.
+
+    Attributes
+    ----------
+    to_delete : tuple[UUID, ...]
+        PENDING edges whose endpoints no longer share a class — a machine
+        proposal the machine may withdraw (regenerating it is the build's job).
+    to_flag : tuple[UUID, ...]
+        ACCEPTED edges whose endpoints no longer share a class — flagged
+        ``class_changed`` for the engineer to confirm or delete (owner ruling
+        2026-08-07: accepted work never disappears from a machine decision).
+        Edges already carrying ``class_changed`` are not re-listed
+        (idempotent).
+    to_clear : tuple[UUID, ...]
+        Edges whose match is RESTORED and whose flag is ``class_changed`` —
+        the self-heal: drag-away-then-drag-back is a true no-op. Only this
+        token clears; ``ambiguous_band`` names an anchor-identity doubt a
+        class match does not resolve.
+    """
+
+    to_delete: tuple[UUID, ...]
+    to_flag: tuple[UUID, ...]
+    to_clear: tuple[UUID, ...]
+
+
+def edge_review_actions(
     *,
     edges: Sequence[EdgeRef],
-    edited_layer_id: UUID,
-    new_nad_class: int | None,
+    new_class_by_layer_id: dict[UUID, int | None],
     class_by_layer_id: dict[UUID, int | None],
-) -> list[UUID]:
-    """Which of ``edited_layer_id``'s correlations the re-derivation invalidates.
+) -> EdgeActions:
+    """Judge each edge against the re-derived classes — flag-not-drop.
 
-    Owner ruling 4: "a connection breaks if the new class no longer matches" —
-    and, read the other way, a connection that STILL matches survives. A band
-    with no class never matches, which is the rule already in force for skeleton
-    bands ("null-class bands never match", ``subdivide_all_bodies`` §8).
+    Ruling 4 said "a connection breaks if the new class no longer matches";
+    the owner's 2026-08-07 refinement says HOW it breaks depends on who made
+    it: a pending machine claim is withdrawn, an ACCEPTED tie is flagged for
+    the engineer's own judgement. A band with no class never matches (the
+    skeleton rule). An endpoint's effective class is its NEW class when it
+    was just edited (a move edits two rows at once), else its current one.
 
     Pure — no session — so the rule is testable on its own.
 
     Parameters
     ----------
     edges : Sequence[EdgeRef]
-        Every edge with an endpoint on the edited layer.
-    edited_layer_id : UUID
-        The layer whose class was just re-derived.
-    new_nad_class : int | None
-        Its new class, or ``None`` when the qc could not answer.
+        Every edge with an endpoint on an edited layer.
+    new_class_by_layer_id : dict[UUID, int | None]
+        The re-derived class of each edited layer.
     class_by_layer_id : dict[UUID, int | None]
-        Current NAD class of each partner layer.
+        Current NAD class of the (unedited) partner layers.
 
     Returns
     -------
-    list[UUID]
-        Edge ids that no longer connect same-class bands, in input order.
+    EdgeActions
+        Deletions (pending), flags (accepted mismatches), clears (self-heal),
+        each in input order.
     """
-    dropped: list[UUID] = []
+    to_delete: list[UUID] = []
+    to_flag: list[UUID] = []
+    to_clear: list[UUID] = []
+
+    def effective(layer_id: UUID) -> int | None:
+        if layer_id in new_class_by_layer_id:
+            return new_class_by_layer_id[layer_id]
+        return class_by_layer_id.get(layer_id)
+
     for edge in edges:
-        partner_class = class_by_layer_id.get(edge.partner_of(edited_layer_id))
-        if new_nad_class is None or partner_class is None or partner_class != new_nad_class:
-            dropped.append(edge.edge_id)
-    return dropped
+        class_a = effective(edge.layer_a_id)
+        class_b = effective(edge.layer_b_id)
+        matched = class_a is not None and class_b is not None and class_a == class_b
+        if not matched:
+            if not edge.user_approved:
+                to_delete.append(edge.edge_id)
+            elif edge.review_reason != REVIEW_CLASS_CHANGED:
+                to_flag.append(edge.edge_id)
+            # already class_changed-flagged: leave as-is (idempotent).
+        elif edge.review_reason == REVIEW_CLASS_CHANGED:
+            to_clear.append(edge.edge_id)
+    return EdgeActions(tuple(to_delete), tuple(to_flag), tuple(to_clear))
+
+
+@dataclass(frozen=True)
+class TransferMove:
+    """One accepted tie re-anchored from an absorbed band to its survivor.
+
+    Attributes
+    ----------
+    edge_id : UUID
+        The edge row to re-point.
+    new_layer_a_id, new_layer_b_id : UUID
+        The endpoints after the re-point, in canonical ``a < b`` order.
+    swap_sides : bool
+        Whether the two side columns must swap along with the ids to keep
+        each side paired with its own endpoint (the canonical-order rule of
+        ``canonical_contact_order``).
+    review_reason : str
+        ``class_changed`` when the survivor's class mismatches the partner's,
+        else ``ambiguous_band`` (class-consistent, but the anchor band changed
+        identity) — cleared by the existing Confirm-tie verbs.
+    """
+
+    edge_id: UUID
+    new_layer_a_id: UUID
+    new_layer_b_id: UUID
+    swap_sides: bool
+    review_reason: str
+
+
+@dataclass(frozen=True)
+class EdgeTransferPlan:
+    """What happens to the absorbed band's edges (pure decision).
+
+    Attributes
+    ----------
+    moves : tuple[TransferMove, ...]
+        Accepted ties re-anchored onto the survivor.
+    drops : tuple[UUID, ...]
+        Accepted ties that CANNOT transfer — a self-loop (partner IS the
+        survivor) or a duplicate of a tie the survivor already carries. A
+        duplicate is the same tie, not lost work; both are deleted and
+        counted. Pending edges appear in neither list — the row delete's FK
+        cascade takes them, which is correct for machine claims.
+    """
+
+    moves: tuple[TransferMove, ...]
+    drops: tuple[UUID, ...]
+
+
+def plan_edge_transfer(
+    *,
+    edges: Sequence[EdgeRef],
+    from_layer_id: UUID,
+    to_layer_id: UUID,
+    survivor_class: int | None,
+    class_by_partner: dict[UUID, int | None],
+    existing_pair_keys: set[tuple[UUID, UUID]],
+) -> EdgeTransferPlan:
+    """Decide the fate of every edge on a band about to be absorbed.
+
+    Before 2026-08-07 the absorbed row's FK cascade silently deleted its
+    accepted ties (the open question documented in ``merge_geotech_bands``).
+    The owner's ruling closes it: accepted work is re-anchored onto the
+    survivor and flagged for review, never silently destroyed.
+
+    Pure — no session — the I/O wrapper applies the plan.
+
+    Parameters
+    ----------
+    edges : Sequence[EdgeRef]
+        Every edge with an endpoint on ``from_layer_id``.
+    from_layer_id : UUID
+        The band being absorbed.
+    to_layer_id : UUID
+        The surviving band.
+    survivor_class : int | None
+        The survivor's re-derived class (decides which flag a move carries).
+    class_by_partner : dict[UUID, int | None]
+        Current class of each partner layer.
+    existing_pair_keys : set[tuple[UUID, UUID]]
+        Canonical ``(min, max)`` pairs the survivor already carries (same
+        section) — a transfer landing on one is a duplicate.
+
+    Returns
+    -------
+    EdgeTransferPlan
+        The moves and the drops; pending edges are in neither.
+    """
+    moves: list[TransferMove] = []
+    drops: list[UUID] = []
+    claimed: set[tuple[UUID, UUID]] = set(existing_pair_keys)
+    for edge in edges:
+        if not edge.user_approved:
+            continue  # the cascade's to take — a machine claim
+        partner = edge.partner_of(from_layer_id)
+        if partner == to_layer_id:
+            drops.append(edge.edge_id)  # would become a self-loop
+            continue
+        new_a, new_b = (to_layer_id, partner) if to_layer_id < partner else (partner, to_layer_id)
+        if (new_a, new_b) in claimed:
+            drops.append(edge.edge_id)  # the survivor already carries this tie
+            continue
+        claimed.add((new_a, new_b))
+        partner_class = class_by_partner.get(partner)
+        mismatched = (
+            survivor_class is None or partner_class is None or survivor_class != partner_class
+        )
+        # The re-point changes which physical id sits in layer_a_id; the side
+        # columns must travel with their ids exactly as canonical_contact_order
+        # does. Sides swap when the absorbed endpoint's slot changes ends.
+        was_a = edge.layer_a_id == from_layer_id
+        now_a = new_a == to_layer_id
+        moves.append(
+            TransferMove(
+                edge_id=edge.edge_id,
+                new_layer_a_id=new_a,
+                new_layer_b_id=new_b,
+                swap_sides=was_a != now_a,
+                review_reason=REVIEW_CLASS_CHANGED if mismatched else REVIEW_AMBIGUOUS_BAND,
+            )
+        )
+    return EdgeTransferPlan(tuple(moves), tuple(drops))
 
 
 async def load_geotech_column_context(
@@ -478,7 +667,16 @@ async def load_edges_for_layers(
         .scalars()
         .all()
     )
-    return [EdgeRef(edge_id=r.id, layer_a_id=r.layer_a_id, layer_b_id=r.layer_b_id) for r in rows]
+    return [
+        EdgeRef(
+            edge_id=r.id,
+            layer_a_id=r.layer_a_id,
+            layer_b_id=r.layer_b_id,
+            user_approved=r.user_approved,
+            review_reason=r.review_reason,
+        )
+        for r in rows
+    ]
 
 
 async def load_nad_class_by_layer(
@@ -509,6 +707,257 @@ async def load_nad_class_by_layer(
         )
     ).all()
     return {row[0]: row[1] for row in rows}
+
+
+async def flag_edges(session: AsyncSession, edge_ids: Sequence[UUID], reason: str) -> int:
+    """Stamp ``review_reason`` on the given edges (empty-safe).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session (the caller commits).
+    edge_ids : Sequence[UUID]
+        Edges to flag.
+    reason : str
+        The review token to persist (``class_changed`` / ``ambiguous_band``).
+
+    Returns
+    -------
+    int
+        How many ids were requested (the caller logs it).
+    """
+    if not edge_ids:
+        return 0
+    await session.execute(
+        update(LithoContactCorrelationEdgeOrm)
+        .where(LithoContactCorrelationEdgeOrm.id.in_(list(edge_ids)))
+        .values(review_reason=reason)
+    )
+    return len(edge_ids)
+
+
+async def clear_edge_flags(session: AsyncSession, edge_ids: Sequence[UUID], reason: str) -> int:
+    """NULL ``review_reason`` where it currently equals ``reason`` (empty-safe).
+
+    The reason filter keeps the clear precise: a concurrent flag of a
+    DIFFERENT kind (e.g. ``ambiguous_band``) is never wiped by a class-match
+    self-heal.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session (the caller commits).
+    edge_ids : Sequence[UUID]
+        Edges whose flag should clear.
+    reason : str
+        The one token this clear is allowed to remove.
+
+    Returns
+    -------
+    int
+        How many ids were requested (the caller logs it).
+    """
+    if not edge_ids:
+        return 0
+    await session.execute(
+        update(LithoContactCorrelationEdgeOrm)
+        .where(
+            LithoContactCorrelationEdgeOrm.id.in_(list(edge_ids)),
+            LithoContactCorrelationEdgeOrm.review_reason == reason,
+        )
+        .values(review_reason=None)
+    )
+    return len(edge_ids)
+
+
+@dataclass(frozen=True)
+class EdgeRevalidation:
+    """What one commit's edge revalidation actually did.
+
+    Attributes
+    ----------
+    deleted_edge_ids : tuple[UUID, ...]
+        Pending mismatches withdrawn.
+    flagged_edge_ids : tuple[UUID, ...]
+        Accepted mismatches flagged ``class_changed``.
+    cleared_edge_ids : tuple[UUID, ...]
+        Restored matches whose ``class_changed`` flag self-healed.
+    """
+
+    deleted_edge_ids: tuple[UUID, ...]
+    flagged_edge_ids: tuple[UUID, ...]
+    cleared_edge_ids: tuple[UUID, ...]
+
+
+async def revalidate_layer_edges(
+    session: AsyncSession,
+    logger: GroundModelLogger,
+    *,
+    model_id: UUID,
+    new_class_by_layer_id: dict[UUID, int | None],
+) -> EdgeRevalidation:
+    """The one revalidation driver every band-edit commit calls.
+
+    Hoisted from the byte-identical ``_revalidate_edges`` copies that lived in
+    the split and merge use cases (extract-on-second-copy — the move and the
+    N-run merge are callers three and four), and switched from
+    drop-on-mismatch to flag-not-drop (owner ruling 2026-08-07) on the way.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session (the caller commits).
+    logger : GroundModelLogger
+        The calling use case's logger.
+    model_id : UUID
+        The geotechnical model to scope the edge query to.
+    new_class_by_layer_id : dict[UUID, int | None]
+        The re-derived class of every row this commit wrote (a move writes
+        two).
+
+    Returns
+    -------
+    EdgeRevalidation
+        What was deleted, flagged and cleared.
+    """
+    edited_ids = list(new_class_by_layer_id)
+    edges = await load_edges_for_layers(session, model_id=model_id, layer_ids=edited_ids)
+    if not edges:
+        return EdgeRevalidation((), (), ())
+    partner_ids = {
+        endpoint
+        for e in edges
+        for endpoint in (e.layer_a_id, e.layer_b_id)
+        if endpoint not in new_class_by_layer_id
+    }
+    class_by_layer = await load_nad_class_by_layer(session, list(partner_ids))
+    actions = edge_review_actions(
+        edges=edges,
+        new_class_by_layer_id=new_class_by_layer_id,
+        class_by_layer_id=class_by_layer,
+    )
+    await delete_edges(session, actions.to_delete)
+    await flag_edges(session, actions.to_flag, REVIEW_CLASS_CHANGED)
+    await clear_edge_flags(session, actions.to_clear, REVIEW_CLASS_CHANGED)
+    logger.debug(
+        f"revalidate_layer_edges: layers={len(edited_ids)} edges={len(edges)} "
+        f"deleted={len(actions.to_delete)} flagged={len(actions.to_flag)} "
+        f"cleared={len(actions.to_clear)}"
+    )
+    return EdgeRevalidation(actions.to_delete, actions.to_flag, actions.to_clear)
+
+
+async def transfer_accepted_edges(
+    session: AsyncSession,
+    logger: GroundModelLogger,
+    *,
+    model_id: UUID,
+    from_layer_id: UUID,
+    to_layer_id: UUID,
+    survivor_class: int | None,
+) -> EdgeTransferPlan:
+    """Re-anchor the absorbed band's ACCEPTED ties onto the survivor row.
+
+    Runs BEFORE the absorbed row is deleted — the FK cascade would otherwise
+    silently destroy accepted work, which is exactly what the owner's
+    2026-08-07 ruling forbids. Pending edges are deliberately left for the
+    cascade (a machine claim the machine may withdraw).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session (the caller commits).
+    logger : GroundModelLogger
+        The calling use case's logger.
+    model_id : UUID
+        The geotechnical model.
+    from_layer_id : UUID
+        The band about to be absorbed.
+    to_layer_id : UUID
+        The surviving band.
+    survivor_class : int | None
+        The survivor's re-derived class (decides which review flag a
+        transferred tie carries).
+
+    Returns
+    -------
+    EdgeTransferPlan
+        The applied plan — ``moves`` were re-pointed + flagged, ``drops``
+        were deleted (self-loops / duplicates, counted as removals).
+    """
+    rows = (
+        (
+            await session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == model_id,
+                    or_(
+                        LithoContactCorrelationEdgeOrm.layer_a_id == from_layer_id,
+                        LithoContactCorrelationEdgeOrm.layer_b_id == from_layer_id,
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return EdgeTransferPlan((), ())
+    edges = [
+        EdgeRef(
+            edge_id=r.id,
+            layer_a_id=r.layer_a_id,
+            layer_b_id=r.layer_b_id,
+            user_approved=r.user_approved,
+            review_reason=r.review_reason,
+        )
+        for r in rows
+    ]
+    partner_ids = [e.partner_of(from_layer_id) for e in edges if e.user_approved]
+    class_by_partner = await load_nad_class_by_layer(session, partner_ids)
+    # The survivor's existing pairs, PER SECTION: the uniqueness triple is
+    # section-scoped, so the duplicate test must be too. Conservative shortcut:
+    # treat any same-pair edge on the model as a duplicate — the transfer's
+    # source and target rows live on the same column, and the same pair on
+    # another section carries the same engineering meaning (a duplicate is the
+    # same tie, not lost work).
+    survivor_rows = (
+        await session.execute(
+            select(
+                LithoContactCorrelationEdgeOrm.layer_a_id,
+                LithoContactCorrelationEdgeOrm.layer_b_id,
+            ).where(
+                LithoContactCorrelationEdgeOrm.model_id == model_id,
+                or_(
+                    LithoContactCorrelationEdgeOrm.layer_a_id == to_layer_id,
+                    LithoContactCorrelationEdgeOrm.layer_b_id == to_layer_id,
+                ),
+            )
+        )
+    ).all()
+    existing_pairs = {(min(a, b), max(a, b)) for a, b in survivor_rows}
+    plan = plan_edge_transfer(
+        edges=edges,
+        from_layer_id=from_layer_id,
+        to_layer_id=to_layer_id,
+        survivor_class=survivor_class,
+        class_by_partner=class_by_partner,
+        existing_pair_keys=existing_pairs,
+    )
+    row_by_id = {r.id: r for r in rows}
+    for move in plan.moves:
+        row = row_by_id[move.edge_id]
+        if move.swap_sides:
+            row.layer_a_side, row.layer_b_side = row.layer_b_side, row.layer_a_side
+        row.layer_a_id = move.new_layer_a_id
+        row.layer_b_id = move.new_layer_b_id
+        row.review_reason = move.review_reason
+    await delete_edges(session, plan.drops)
+    await session.flush()
+    logger.debug(
+        f"transfer_accepted_edges: from={from_layer_id} to={to_layer_id} "
+        f"moved={len(plan.moves)} dropped={len(plan.drops)}"
+    )
+    return plan
 
 
 async def delete_edges(session: AsyncSession, edge_ids: Sequence[UUID]) -> int:
