@@ -170,19 +170,24 @@ test.describe('flow_geotech_borehole_preview', () => {
       await sectionRow.click()
       await page.getByRole('radio', { name: 'Geotech' }).click()
 
-      // Step 6: clear any pending ties FIRST — the ghost-timing gate (owner
-      // ruling 2026-08-06) shows the preview only once the tie work is done
-      // (pending 0 AND ≥1 accepted tie), so the plan it draws is the final
-      // tie-informed one. Under the 2026-08-06 refinement the combined verb's
-      // derived ties can arrive pending (only litho-tie restatements are born
-      // accepted). Conditional, because the fixture may leave nothing pending.
-      // The steps live in the "Packing pipeline" dropdown (owner tidy-up
-      // 2026-08-05); an item click auto-closes the menu, so re-open per press.
+      // Step 6: clear any pending ties FIRST, so the plan the preview draws is
+      // the final tie-informed one. Under the 2026-08-06 refinement the
+      // combined verb's derived ties can arrive pending (only litho-tie
+      // restatements are born accepted). Conditional, because the fixture may
+      // leave nothing pending. The steps live in the "Packing pipeline"
+      // dropdown (owner tidy-up 2026-08-05); an item click auto-closes the
+      // menu, so re-open per press.
       await page.getByTestId('geotech-pipeline').click()
       const acceptTies = page.getByTestId('geotech-accept-correlations')
       if (await acceptTies.isEnabled()) {
         await acceptTies.click()
       }
+
+      // The preview is OPT-IN (owner ruling 2026-08-07: no tie state may make
+      // ghosts appear uninvited — they read as "my boreholes got subdivided").
+      // Enable it through the Display menu, exactly as the engineer does.
+      await page.getByTestId('geotech-display-menu').click()
+      await page.getByTestId('geotech-toggle-borehole-preview').click()
 
       // Now the ghosts and the legend that names them.
       await expect(page.getByTestId('geotech-borehole-preview-ghosts')).toBeVisible({
