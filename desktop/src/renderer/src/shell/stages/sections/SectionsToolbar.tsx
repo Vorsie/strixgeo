@@ -72,6 +72,16 @@ export default function SectionsToolbar(): JSX.Element {
   const lithoFillOnGeotech = useLithoFillOnGeotech()
   const boreholePreviewOn = useBoreholePreviewOn()
   const boreholesStale = useBoreholesStale()
+  // The representative-qc statistic (rulings 7+8). The server answer is held
+  // locally per model until the next refreshModels naturally refreshes the
+  // model row; staleness is DERIVED (classified_with != representative) and
+  // never stored. Ruling 8: changing the choice re-derives NOTHING - the tag
+  // on step 1 is how the debt surfaces.
+  const [statisticState, setStatisticState] = useState<{
+    modelId: string
+    statistic: string
+    classifiedWith: string | null
+  } | null>(null)
   const {
     project,
     visibleBoreholes,
@@ -147,6 +157,41 @@ export default function SectionsToolbar(): JSX.Element {
     },
     toasts: { toast },
   } = useShell()
+  const geotechStatistic =
+    (statisticState?.modelId === activeGeotechModel?.id ? statisticState?.statistic : undefined) ??
+    activeGeotechModel?.representative_statistic ??
+    'median'
+  const geotechClassifiedWith =
+    statisticState !== null && statisticState.modelId === activeGeotechModel?.id
+      ? statisticState.classifiedWith
+      : (activeGeotechModel?.classified_with_statistic ?? null)
+  const geotechBandsStale =
+    geotechClassifiedWith !== null && geotechClassifiedWith !== geotechStatistic
+  const handleSetGeotechStatistic = useCallback(
+    (statistic: 'median' | 'arithmetic' | 'harmonic' | 'geometric'): void => {
+      if (!project || !activeGeotechModel) return
+      void api.geology
+        .setGeotechStatistic(project.id, activeGeotechModel.id, statistic)
+        .then(result => {
+          setStatisticState({
+            modelId: activeGeotechModel.id,
+            statistic: result.representative_statistic,
+            classifiedWith: result.classified_with_statistic,
+          })
+          markMutated()
+          toast(
+            'success',
+            result.bands_stale
+              ? `Representative statistic set to ${statistic} — press "1 · Subdivide CPTs" to re-classify the bands under it.`
+              : `Representative statistic set to ${statistic}.`,
+          )
+        })
+        .catch((err: unknown) => {
+          toast('error', err instanceof Error ? err.message : 'Could not set the statistic.')
+        })
+    },
+    [project, activeGeotechModel, markMutated, toast],
+  )
 
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1309,6 +1354,9 @@ export default function SectionsToolbar(): JSX.Element {
               {
                 label: subdividingBodies ? 'Subdividing…' : '1 · Subdivide CPTs',
                 icon: <SplitSquareVertical size={13} />,
+                // Ruling 8: a statistic change never silently re-derives - this
+                // tag is where the debt surfaces until the re-subdivide runs.
+                tag: geotechBandsStale ? `re-run under ${geotechStatistic}` : undefined,
                 disabled: subdividingBodies || !activeLithoModel,
                 title: !activeLithoModel
                   ? 'Create a lithostratigraphic model in the Lithology stage first'
@@ -1429,6 +1477,33 @@ export default function SectionsToolbar(): JSX.Element {
             }
             amber={correlateMode}
             testid="geotech-correlate-packing"
+          />
+          {/* The representative-qc statistic (rulings 7+8): a per-model choice,
+              part of its provenance. Changing it marks the bands stale (the
+              step-1 tag) and re-derives nothing. */}
+          <ToolbarDropdown
+            icon={<FlaskConical size={13} />}
+            label="qc statistic"
+            title={
+              'Which representative qc the NAD classifier reads: median (spike-robust default), ' +
+              'arithmetic, harmonic (conservative - weighted toward the low values that govern ' +
+              'bearing and settlement) or geometric. Changing it marks the bands stale; ' +
+              '"1 · Subdivide CPTs" re-classifies under the new choice.'
+            }
+            testid="geotech-statistic-menu"
+            items={(['median', 'arithmetic', 'harmonic', 'geometric'] as const).map(token => ({
+              label: token,
+              tag: token === geotechStatistic ? 'current' : undefined,
+              disabled: activeGeotechModel === null,
+              title:
+                token === 'harmonic'
+                  ? 'Conservative: weighted toward the low qc values that govern bearing and settlement.'
+                  : token === 'median'
+                    ? 'The spike-robust default.'
+                    : undefined,
+              testid: `geotech-statistic-${token}`,
+              onClick: () => handleSetGeotechStatistic(token),
+            }))}
           />
           {/* View toggles folded into one Display dropdown (owner dogfeed
               2026-08-05 — two standing toggle buttons were toolbar weight for
