@@ -20,16 +20,20 @@ Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
 
 Which correlations are touched
 ------------------------------
-Two sets, and nothing else:
+Two sets, and nothing else (both under the owner's 2026-08-07 flag-not-drop
+ruling — "i don't want accepted edges to just disappear without any user
+explicitly deleting it"):
 
-1. Every correlation on the LOWER band. That band ceases to exist, so its
-   correlations go with it (the FK cascades on the row delete). They are not
-   transferred to the merged band — whether a merge should inherit them when the
-   partner class still matches is an open product question, deliberately not
-   decided here.
-2. Correlations on the UPPER band whose partner's NAD class no longer equals the
-   merged class (ruling 4: "a connection breaks if the new class no longer
-   matches"). Ones that still match survive untouched.
+1. Every correlation on the ABSORBED band. Its ACCEPTED ties are TRANSFERRED
+   to the surviving band and flagged for review (``class_changed`` when the
+   merged class no longer matches the partner, ``ambiguous_band`` when it
+   still does — the anchor changed identity either way); a transfer that
+   would self-loop or duplicate an existing tie is dropped and counted. Its
+   PENDING ties go with the row (the FK cascade) — machine claims the
+   machine may withdraw.
+2. Correlations on the SURVIVING band re-judged against the merged class:
+   pending mismatches drop, accepted mismatches gain the ``class_changed``
+   flag, and a restored match self-heals an earlier flag.
 
 No other column's correlations are read or written.
 """
@@ -42,13 +46,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
-    delete_edges,
     formation_for_class,
-    invalidated_edge_ids,
-    load_edges_for_layers,
     load_geotech_column_context,
-    load_nad_class_by_layer,
     require_cpt_anchor,
+    revalidate_layer_edges,
+    transfer_accepted_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -154,27 +156,46 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         # segmenter's — provenance must say so.
         survivor.source = "manual"
 
-        # Deleting the absorbed row cascades its correlation edges away (the
-        # edge FK is ON DELETE CASCADE); the band they connected no longer
-        # exists as a separate band.
+        # BEFORE the row delete: re-anchor the absorbed band's ACCEPTED ties
+        # onto the survivor (owner ruling 2026-08-07 — the FK cascade must
+        # never silently destroy accepted work). Pending ties stay for the
+        # cascade to take.
         absorbed_id = absorbed.id
+        transfer = await transfer_accepted_edges(
+            self._session,
+            self,
+            model_id=geotech_model_id,
+            from_layer_id=absorbed_id,
+            to_layer_id=survivor.id,
+            survivor_class=merged.nad_class,
+        )
         await self._session.delete(absorbed)
         await self._session.flush()
 
-        dropped = await self._revalidate_edges(
-            geotech_model_id=geotech_model_id,
-            layer_id=survivor.id,
-            new_nad_class=merged.nad_class,
+        revalidation = await revalidate_layer_edges(
+            self._session,
+            self,
+            model_id=geotech_model_id,
+            new_class_by_layer_id={survivor.id: merged.nad_class},
         )
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
         await self._session.commit()
 
+        # The transferred ties were flagged BY the transfer; the revalidation
+        # judged the survivor's pre-existing ties. The union is what the UI
+        # reports. A transferred tie can also appear in the revalidation's
+        # flag set (it now sits on the survivor) — dedupe keeps counts honest.
+        flagged = tuple(
+            dict.fromkeys([m.edge_id for m in transfer.moves] + list(revalidation.flagged_edge_ids))
+        )
+        deleted_edges = tuple(transfer.drops) + revalidation.deleted_edge_ids
         self.success(
             f"MergeGeotechBands ok: {survivor.depth_top_m:.2f}–{survivor.depth_base_m:.2f} m "
             f"class {merged.previous_nad_class} → {merged.nad_class}; "
-            f"band {absorbed_id} absorbed; {len(dropped)} correlation(s) dropped"
+            f"band {absorbed_id} absorbed; {len(transfer.moves)} tie(s) transferred+flagged, "
+            f"{len(deleted_edges)} removed, {len(revalidation.cleared_edge_ids)} flag(s) cleared"
         )
         return GeotechBandEditResult(
             geotech_model_id=geotech_model_id,
@@ -183,48 +204,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             layer_ids=(survivor.id,),
             created_layer_ids=(),
             deleted_layer_ids=(absorbed_id,),
-            deleted_edge_ids=tuple(dropped),
+            deleted_edge_ids=deleted_edges,
+            flagged_edge_ids=flagged,
+            cleared_edge_ids=revalidation.cleared_edge_ids,
         )
-
-    async def _revalidate_edges(
-        self,
-        *,
-        geotech_model_id: UUID,
-        layer_id: UUID,
-        new_nad_class: int | None,
-    ) -> list[UUID]:
-        """Drop the surviving band's correlations its new class no longer supports.
-
-        Parameters
-        ----------
-        geotech_model_id : UUID
-            The geotechnical model to scope the edge query to.
-        layer_id : UUID
-            The merged (surviving) layer.
-        new_nad_class : int | None
-            Its re-derived class; ``None`` never matches (the skeleton-band rule).
-
-        Returns
-        -------
-        list[UUID]
-            The edge ids that were deleted.
-        """
-        edges = await load_edges_for_layers(
-            self._session, model_id=geotech_model_id, layer_ids=[layer_id]
-        )
-        if not edges:
-            return []
-        partner_ids = [e.partner_of(layer_id) for e in edges]
-        class_by_layer = await load_nad_class_by_layer(self._session, partner_ids)
-        dropped = invalidated_edge_ids(
-            edges=edges,
-            edited_layer_id=layer_id,
-            new_nad_class=new_nad_class,
-            class_by_layer_id=class_by_layer,
-        )
-        await delete_edges(self._session, dropped)
-        self.debug(
-            f"_revalidate_edges: layer={layer_id} new_class={new_nad_class} "
-            f"kept={len(edges) - len(dropped)} dropped={len(dropped)}"
-        )
-        return dropped
