@@ -22,6 +22,7 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.domain.services.geotech_band_reclassification import (
+    KIND_MOVE,
     WARNING_BELOW_MINIMUM_THICKNESS,
     WARNING_QC_PULL_DOWN,
     WARNING_QC_PULL_UP,
@@ -30,6 +31,8 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     ProposedInterval,
     enclosing_litho_bounds,
     plan_merge,
+    plan_merge_run,
+    plan_move,
     plan_split,
     reclassify_intervals,
 )
@@ -442,3 +445,194 @@ def test_every_class_change_is_reported_to_the_engineer() -> None:
         )
     # And nothing claims the opposite.
     assert "is unchanged" not in spoken or len(changed) < len(plan.intervals)
+
+
+# ---------------------------------------------------------------------------
+# PM - plan_move: drag the shared boundary between two adjacent bands
+# ---------------------------------------------------------------------------
+
+
+def test_pm1_a_move_re_derives_both_bands_classes() -> None:
+    """PM1 - both sides of the moved boundary re-classify from their new qc.
+
+    Ruling 3: "you recalculate after drag merge, the qc". Moving the boundary
+    from 1.0 m to 1.6 m hands the dense material below 1.0-1.6 m to the upper
+    band, so BOTH intervals must be re-derived, not carried.
+    """
+    depths, qc = _series([(0.0, 1.0, 5.0), (1.0, 4.0, 18.0)])
+    bands = [_band("u", 0.0, 1.0, 6), _band("l", 1.0, 4.0, 8)]
+    plan = plan_move(
+        bands=bands,
+        upper_band_id="u",
+        lower_band_id="l",
+        new_depth_m=1.6,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    assert plan.kind == KIND_MOVE
+    upper, lower = plan.intervals
+    assert (upper.depth_top_m, upper.depth_base_m) == (0.0, 1.6)
+    assert (lower.depth_top_m, lower.depth_base_m) == (1.6, 4.0)
+    # The upper band swallowed 0.6 m of dense sand: its class re-derives.
+    assert upper.nad_class is not None and lower.nad_class == 8
+
+
+def test_pm2_the_boundary_moves_only_strictly_inside_the_pair() -> None:
+    """PM2 - the pair envelope is the wall: at or past an outer edge is
+    refused (the squeeze-to-collapse case belongs to the absorb gesture)."""
+    depths, qc = _series([(0.0, 4.0, 12.0)])
+    bands = [_band("u", 0.0, 1.0, 7), _band("l", 1.0, 4.0, 7)]
+    with pytest.raises(GeotechBandEditError, match="[Mm]ove"):
+        plan_move(
+            bands=bands,
+            upper_band_id="u",
+            lower_band_id="l",
+            new_depth_m=4.0,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+
+
+def test_pm3_a_boundary_between_different_litho_parents_is_not_draggable() -> None:
+    """PM3 - that boundary IS a litho contact; ruling 2 names the wall."""
+    depths, qc = _series([(0.0, 4.0, 12.0)])
+    bands = [_band("u", 0.0, 2.0, 7, litho=LITHO_A), _band("l", 2.0, 4.0, 7, litho=LITHO_B)]
+    with pytest.raises(GeotechBandEditError, match="litho"):
+        plan_move(
+            bands=bands,
+            upper_band_id="u",
+            lower_band_id="l",
+            new_depth_m=2.4,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+
+
+def test_pm4_non_adjacent_bands_share_no_boundary_to_move() -> None:
+    """PM4 - only the shared boundary of two NEIGHBOURS can be dragged."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [_band("a", 0.0, 2.0, 7), _band("b", 2.0, 4.0, 7), _band("c", 4.0, 6.0, 7)]
+    with pytest.raises(GeotechBandEditError, match="[Aa]djacent|neighbour"):
+        plan_move(
+            bands=bands,
+            upper_band_id="a",
+            lower_band_id="c",
+            new_depth_m=3.0,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+
+
+def test_pm5_below_minimum_thickness_is_a_warning_never_a_block() -> None:
+    """PM5 - ruling 5: a thin survivor WARNS; the move still plans."""
+    depths, qc = _series([(0.0, 4.0, 12.0)])
+    bands = [_band("u", 0.0, 1.0, 7), _band("l", 1.0, 4.0, 7)]
+    plan = plan_move(
+        bands=bands,
+        upper_band_id="u",
+        lower_band_id="l",
+        new_depth_m=0.1,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    assert any(w.code == WARNING_BELOW_MINIMUM_THICKNESS for w in plan.warnings)
+
+
+def test_pm6_the_move_honours_the_model_statistic() -> None:
+    """PM6 - ruling 6: the plan derives under the model chosen statistic."""
+    depths, qc = _series([(0.0, 0.5, 4.0), (0.5, 2.0, 14.0), (2.0, 4.0, 14.0)])
+    bands = [_band("u", 0.0, 2.0, 7), _band("l", 2.0, 4.0, 7)]
+    kwargs = dict(
+        bands=bands,
+        upper_band_id="u",
+        lower_band_id="l",
+        new_depth_m=2.5,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    median_plan = plan_move(**kwargs)
+    harmonic_plan = plan_move(**kwargs, statistic="harmonic")
+    assert harmonic_plan.statistic == "harmonic"
+    upper_h = harmonic_plan.intervals[0]
+    upper_m = median_plan.intervals[0]
+    assert upper_h.nad_class is not None and upper_m.nad_class is not None
+    assert upper_h.nad_class < upper_m.nad_class
+
+
+# ---------------------------------------------------------------------------
+# MR - the union planner takes an N-band contiguous run (small-lens absorb)
+# ---------------------------------------------------------------------------
+
+
+def test_mr1_a_three_band_run_merges_into_one_reclassified_interval() -> None:
+    """MR1 - host + lens + host union in ONE plan: one honest preview, one undo."""
+    depths, qc = _series([(0.0, 1.8, 14.0), (1.8, 2.2, 4.0), (2.2, 4.0, 14.0)])
+    bands = [_band("h1", 0.0, 1.8, 7), _band("lens", 1.8, 2.2, 5), _band("h2", 2.2, 4.0, 7)]
+    plan = plan_merge_run(
+        bands=bands,
+        band_ids=["h1", "lens", "h2"],
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    assert len(plan.intervals) == 1
+    union = plan.intervals[0]
+    assert (union.depth_top_m, union.depth_base_m) == (0.0, 4.0)
+    assert len(union.sources) == 3
+    assert union.nad_class is not None  # re-derived over the whole union
+
+
+def test_mr2_a_non_contiguous_run_is_refused() -> None:
+    """MR2 - the run must be consecutive neighbours; gaps refuse."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [_band("a", 0.0, 2.0, 7), _band("b", 2.0, 4.0, 7), _band("c", 4.0, 6.0, 7)]
+    with pytest.raises(GeotechBandEditError):
+        plan_merge_run(
+            bands=bands,
+            band_ids=["a", "c"],
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+
+
+def test_mr3_a_run_crossing_a_litho_parent_is_refused() -> None:
+    """MR3 - a union never swallows a litho or geological contact (ruling 2)."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [
+        _band("a", 0.0, 2.0, 7, litho=LITHO_A),
+        _band("b", 2.0, 4.0, 7, litho=LITHO_A),
+        _band("c", 4.0, 6.0, 7, litho=LITHO_B),
+    ]
+    with pytest.raises(GeotechBandEditError, match="litho"):
+        plan_merge_run(
+            bands=bands,
+            band_ids=["a", "b", "c"],
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
