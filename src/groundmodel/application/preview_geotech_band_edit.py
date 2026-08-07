@@ -116,6 +116,7 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             depth_m=context.depth_m,
             qc_mpa=context.qc_mpa,
             min_thickness_m=context.min_thickness_m,
+            statistic=context.statistic,
         )
         self._log_plan("split", plan)
         return plan
@@ -173,6 +174,7 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             depth_m=context.depth_m,
             qc_mpa=context.qc_mpa,
             min_thickness_m=context.min_thickness_m,
+            statistic=context.statistic,
         )
         self._log_plan("merge", plan)
         return plan
