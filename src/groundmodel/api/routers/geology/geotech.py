@@ -52,7 +52,9 @@ from groundmodel.api.schemas.project.geotech_band_edit import (
     GeotechBandEditResponse,
     GeotechBandIntervalItem,
     GeotechBandWarningItem,
+    GeotechStatisticResponse,
     MergeGeotechBandsRequest,
+    SetGeotechStatisticRequest,
     SplitGeotechBandRequest,
 )
 from groundmodel.api.schemas.project.geotech_suggestion import (
@@ -74,6 +76,7 @@ from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditRes
 from groundmodel.application.geotech_tie_status import load_geotech_tie_status
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
 from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
+from groundmodel.application.set_geotech_statistic import SetGeotechStatistic
 from groundmodel.application.split_geotech_band import SplitGeotechBand
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.domain.services.geotech_band_reclassification import (
@@ -848,13 +851,18 @@ def _plan_payload(plan: BandEditPlan) -> GeotechBandEditPlanResponse:
     """
     return GeotechBandEditPlanResponse(
         kind=plan.kind,
+        statistic=plan.statistic,
         parent_top_m=plan.parent_top_m,
         parent_base_m=plan.parent_base_m,
         intervals=[
             GeotechBandIntervalItem(
                 depth_top_m=interval.depth_top_m,
                 depth_base_m=interval.depth_base_m,
+                # Same value twice: median_qc_mpa is the deprecated pre-ruling-7
+                # name kept for older clients; representative_qc_mpa is honest
+                # about the statistic (named in ``statistic`` above).
                 median_qc_mpa=interval.median_qc_mpa,
+                representative_qc_mpa=interval.median_qc_mpa,
                 nad_class=interval.nad_class,
                 previous_nad_class=interval.previous_nad_class,
                 class_changed=interval.class_changed,
@@ -1196,3 +1204,61 @@ async def merge_geotech_bands(
         f"absorbed={result.deleted_layer_ids} dropped_edges={len(result.deleted_edge_ids)}"
     )
     return _edit_payload(result)
+
+
+@router.post(
+    "/models/{model_id}/geotech/statistic",
+    response_model=GeotechStatisticResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Set the model's representative-qc statistic (rulings 7+8)",
+    tags=["geotech"],
+)
+async def set_geotech_statistic(
+    project_id: UUID,
+    model_id: UUID,
+    request: SetGeotechStatisticRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechStatisticResponse:
+    """Change which representative statistic the NAD classifier reads.
+
+    Writes exactly ONE column and re-derives nothing (ruling 8): the bands
+    keep their classes until the engineer re-runs "Subdivide all bodies",
+    which classifies under the new choice and stamps it. The response's
+    ``bands_stale`` says whether that re-subdivide is now due.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model whose choice changes.
+    request : SetGeotechStatisticRequest
+        The statistic token (validated at the wire by its Literal).
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechStatisticResponse
+        The stored choice, the last build's stamp, and the derived staleness.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/statistic "
+        f"statistic={request.statistic}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/statistic")
+    result = await SetGeotechStatistic(session).execute(
+        model_id=model_id, statistic=request.statistic
+    )
+    return GeotechStatisticResponse(
+        representative_statistic=result.representative_statistic,
+        classified_with_statistic=result.classified_with_statistic,
+        bands_stale=result.bands_stale,
+    )
