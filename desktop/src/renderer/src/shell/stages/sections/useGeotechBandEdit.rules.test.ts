@@ -17,9 +17,11 @@ import { useGeotechBandEdit } from './useGeotechBandEdit'
 
 const previewSplitGeotechBand = vi.fn()
 const previewMergeGeotechBands = vi.fn()
+const previewMergeGeotechRun = vi.fn()
 const previewMoveGeotechBoundary = vi.fn()
 const splitGeotechBand = vi.fn()
 const mergeGeotechBands = vi.fn()
+const mergeGeotechRun = vi.fn()
 const moveGeotechBoundary = vi.fn()
 
 vi.mock('../../../api/client', () => ({
@@ -27,9 +29,11 @@ vi.mock('../../../api/client', () => ({
     geology: {
       previewSplitGeotechBand: (...a: unknown[]) => previewSplitGeotechBand(...a),
       previewMergeGeotechBands: (...a: unknown[]) => previewMergeGeotechBands(...a),
+      previewMergeGeotechRun: (...a: unknown[]) => previewMergeGeotechRun(...a),
       previewMoveGeotechBoundary: (...a: unknown[]) => previewMoveGeotechBoundary(...a),
       splitGeotechBand: (...a: unknown[]) => splitGeotechBand(...a),
       mergeGeotechBands: (...a: unknown[]) => mergeGeotechBands(...a),
+      mergeGeotechRun: (...a: unknown[]) => mergeGeotechRun(...a),
       moveGeotechBoundary: (...a: unknown[]) => moveGeotechBoundary(...a),
     },
   },
@@ -333,5 +337,109 @@ describe('every committed band edit is undoable (app-wide owner rule)', () => {
     d.requestGeotechLayersRefetch.mockClear()
     await command.revert()
     expect(d.requestGeotechLayersRefetch).toHaveBeenCalled()
+  })
+})
+
+describe('absorbing a small enclosed lens is ONE merge over the whole run', () => {
+  // Owner idea (#227 tail): host + lens + host collapse in a single verb — one
+  // consequence sheet over the union, one undo step. The run form of the merge
+  // endpoint exists exactly for this; the hook never chains pair merges.
+  const ABSORB_RESULT = {
+    deleted_edge_ids: [],
+    flagged_edge_ids: [],
+    investigation_id: 'cpt-1',
+    layer_ids: ['host-up'],
+    created_layer_ids: [],
+    deleted_layer_ids: ['lens', 'host-down'],
+  }
+
+  it('HK15 — asking to absorb previews the three-band union and writes nothing yet', async () => {
+    previewMergeGeotechRun.mockResolvedValue(PLAN_WITH_WARNING)
+    const { result } = renderHook(() => useGeotechBandEdit(deps()))
+    act(() => {
+      result.current.onRequestAbsorbLens?.('host-up', 'lens', 'host-down', 4.0, 4.3)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    expect(previewMergeGeotechRun).toHaveBeenCalledWith('proj-1', 'geo-model-1', [
+      'host-up',
+      'lens',
+      'host-down',
+    ])
+    expect(mergeGeotechRun).not.toHaveBeenCalled()
+  })
+
+  it('HK16 — undoing an absorb re-splits at BOTH carried boundaries, top down', async () => {
+    previewMergeGeotechRun.mockResolvedValue(PLAN_WITH_WARNING)
+    mergeGeotechRun.mockResolvedValue(ABSORB_RESULT)
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestAbsorbLens?.('host-up', 'lens', 'host-down', 4.0, 4.3)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(mergeGeotechRun).toHaveBeenCalledWith('proj-1', 'geo-model-1', [
+      'host-up',
+      'lens',
+      'host-down',
+    ])
+    expect(d.undoStack.push).toHaveBeenCalledTimes(1)
+    const command = d.undoStack.push.mock.calls[0][0]
+    // First split peels the lens+lower composite off the survivor at the upper
+    // boundary; the second splits that fresh row at the lower boundary.
+    splitGeotechBand
+      .mockResolvedValueOnce({
+        ...ABSORB_RESULT,
+        layer_ids: ['host-up', 'new-lens'],
+        created_layer_ids: ['new-lens'],
+        deleted_layer_ids: [],
+      })
+      .mockResolvedValueOnce({
+        ...ABSORB_RESULT,
+        layer_ids: ['new-lens', 'new-down'],
+        created_layer_ids: ['new-down'],
+        deleted_layer_ids: [],
+      })
+    await command.revert()
+    expect(splitGeotechBand).toHaveBeenNthCalledWith(1, 'proj-1', 'geo-model-1', 'host-up', 4.0)
+    expect(splitGeotechBand).toHaveBeenNthCalledWith(2, 'proj-1', 'geo-model-1', 'new-lens', 4.3)
+  })
+
+  it('HK17 — redo after the undo merges the FRESH rows, not the dead ids', async () => {
+    previewMergeGeotechRun.mockResolvedValue(PLAN_WITH_WARNING)
+    mergeGeotechRun.mockResolvedValue(ABSORB_RESULT)
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestAbsorbLens?.('host-up', 'lens', 'host-down', 4.0, 4.3)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const command = d.undoStack.push.mock.calls[0][0]
+    splitGeotechBand
+      .mockResolvedValueOnce({
+        ...ABSORB_RESULT,
+        layer_ids: ['host-up', 'new-lens'],
+        created_layer_ids: ['new-lens'],
+        deleted_layer_ids: [],
+      })
+      .mockResolvedValueOnce({
+        ...ABSORB_RESULT,
+        layer_ids: ['new-lens', 'new-down'],
+        created_layer_ids: ['new-down'],
+        deleted_layer_ids: [],
+      })
+    await command.revert()
+    mergeGeotechRun.mockClear()
+    await command.reapply()
+    expect(mergeGeotechRun).toHaveBeenCalledWith('proj-1', 'geo-model-1', [
+      'host-up',
+      'new-lens',
+      'new-down',
+    ])
   })
 })
