@@ -514,3 +514,67 @@ def test_build_and_band_edit_agree_that_an_unread_window_cannot_be_classified():
         "the build and the band-edit preview disagree about whether this interval "
         "can be classified from the cone resistance"
     )
+
+
+# --- Ruling 7: the representative statistic is the MODEL'S choice -----------
+
+
+def test_statistic_shifts_the_class_of_a_hand_edit_interval():
+    """ST-SUB1 - the chosen statistic governs the class a HAND EDIT derives.
+
+    Ruling 7 (docs/debt.md #227): harmonic is weighted toward the low values
+    that govern bearing and settlement, so the choice systematically shifts
+    classes. The subdivision pipeline itself quantizes bands into same-class
+    runs before classifying (sustained cuts), so the statistic's class-shifting
+    power lives where the owner exercises it: re-deriving an arbitrary
+    interval a hand merge/drag created, spanning a loose/dense boundary.
+    """
+    depths = [0.0, 0.5, 1.0, 1.5, 2.0]
+    # Half-open sampling keeps d in [0.0, 2.0): the union sees [4, 14, 14, 14]
+    # -> median 14.0 (dicht) vs harmonic ~8.6 (matig) — the low excursion that
+    # governs bearing pulls the conservative statistic across the 10 MPa wall.
+    qc = [4.0, 14.0, 14.0, 14.0, 14.0]
+    band = GeotechBand(
+        band_id="band-1",
+        depth_top_m=0.0,
+        depth_base_m=2.0,
+        nad_class=7,
+        source_litho_formation_id="litho-1",
+        source_geo_formation_id=None,
+    )
+    interval = ProposedInterval(depth_top_m=0.0, depth_base_m=2.0, sources=(band,))
+    kwargs = dict(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        intervals=[interval],
+    )
+    median_run = reclassify_intervals(**kwargs)
+    harmonic_run = reclassify_intervals(**kwargs, statistic="harmonic")
+
+    assert median_run[0].nad_class is not None and harmonic_run[0].nad_class is not None
+    assert harmonic_run[0].nad_class < median_run[0].nad_class
+
+
+def test_statistic_default_is_median_identical_output():
+    """ST-SUB2 - omitting the statistic IS the median run (frozen-gate safety).
+
+    Every caller that predates ruling 7 keeps byte-identical output, which is
+    what keeps the CS1 frozen gates green by construction.
+    """
+    depths = [round(0.1 * i, 2) for i in range(31)]
+    qc = [8.0 if d < 1.0 else (12.0 if d < 2.0 else 18.0) for d in depths]
+    kwargs = dict(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
+        gradient_snap=True,
+    )
+    assert suggest_geotech_subdivision(**kwargs) == suggest_geotech_subdivision(
+        **kwargs, statistic="median"
+    )
