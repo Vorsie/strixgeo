@@ -1,38 +1,35 @@
 /**
  * When the borehole preview ghosts are allowed on the geotech axis.
  *
- * Owner ruling (dogfeed 2026-08-06): ghosts appear only once the tie work is
- * done — step 1 alone must leave borehole columns visibly EMPTY. Right after
- * "1 · Subdivide CPTs" no ties exist, so a preview could only use the flank
- * rule; the plan it showed would silently change once step 2/3 land ties,
- * and hatched bands appearing the moment step 1 runs read as "my boreholes
- * got subdivided" (the counterintuitive report this rule answers).
+ * Owner ruling 2026-08-07: the previews are OPT-IN. Two rounds of dogfeed
+ * killed every automatic appearance rule:
+ *  - 2026-08-06 ("boreholes get subdivided when I click subdivide CPTs") —
+ *    the ghosts were then gated on the tie work being done (pending 0,
+ *    accepted > 0);
+ *  - 2026-08-07 ("somewhere the boreholes get subdivided before I click
+ *    divide boreholes — it's on accept all ties — I don't want") — that gate
+ *    auto-opened the instant accept-all drained the pending count, and the
+ *    ghosts still read as real subdivision.
  *
- * Pure predicate so the rule is unit-testable without the SectionsCanvas god
- * component.
+ * So no tie state opens the gate: only the engineer's own "Show borehole
+ * preview" toggle in the geotech Display menu does. The pure predicate stays
+ * so the rule (and its history) has a named, unit-testable home.
  */
-
-import type { GeotechTieStatus } from './useGeotechTieStatus'
 
 /**
  * Whether the divide-boreholes preview ghosts should render.
  *
- * True only when the tie counts are actually KNOWN, nothing is pending, and
- * at least one accepted tie exists — i.e. step 2/3 produced ties and the
- * engineer cleared them, so the preview shows the final tie-informed plan
- * (the same plan pressing "4 · Divide boreholes" commits, DB5 parity).
- * Flagged ties are accepted work awaiting confirmation and do not hide it.
- *
  * Parameters
  * ----------
- * status : GeotechTieStatus
- *     The model's pending / accepted / flagged counts (+ loaded flag).
+ * previewToggledOn : boolean
+ *     The geotech Display menu's "Show borehole preview" toggle.
  *
  * Returns
  * -------
  * boolean
- *     Whether the ghosts may render.
+ *     Whether the ghosts may render — exactly the toggle, never inferred
+ *     from tie status.
  */
-export function shouldShowBoreholePreview(status: GeotechTieStatus): boolean {
-  return status.loaded && status.pending === 0 && status.accepted > 0
+export function shouldShowBoreholePreview(previewToggledOn: boolean): boolean {
+  return previewToggledOn
 }
