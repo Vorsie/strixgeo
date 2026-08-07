@@ -285,6 +285,19 @@ interface Props {
     newDepthM: number,
     preDragDepthM: number,
   ) => void
+  /**
+   * Absorb an enclosed packing lens into its two same-class hosts — one merge over the
+   * ``[upperHost, lens, lowerHost]`` run (geotech axis only). Absent → no lens suggestion.
+   */
+  onRequestGeotechAbsorbLens?: (
+    upperHostId: string,
+    lensId: string,
+    lowerHostId: string,
+    upperBoundaryDepthM: number,
+    lowerBoundaryDepthM: number,
+  ) => void
+  /** The geotech model's "thinnest packing band kept" pref — the lens badge's size gate. */
+  geotechSmallLensThicknessM?: number
   /** Break the litho↔geo coupling on a lithostratigraphic contact.
    * Forwarded straight to ContactsLayer; absent on the geological axis. */
   onUnlinkLithoFromGeo?: (contactId: string) => Promise<void>
@@ -691,6 +704,8 @@ export default function SectionPanel({
   onRequestGeotechSplitBand,
   onRequestGeotechMergeBands,
   onRequestGeotechMoveBoundary,
+  onRequestGeotechAbsorbLens,
+  geotechSmallLensThicknessM,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
   onBatchUpdateContacts,
@@ -849,6 +864,14 @@ export default function SectionPanel({
     geotechUnitCount: refinement?.geotechLayers.length ?? 0,
   })
   const showBands = fillSelection.showBands
+  // The lens suggestion compares NAD classes only; flattened here so the overlay's
+  // column memo sees a stable map identity instead of rebuilding per render.
+  const geotechNadClassByFormationId = useMemo(() => {
+    if (refinement === undefined) return undefined
+    const out = new Map<string, number | null>()
+    for (const [formationId, meta] of refinement.nadMeta) out.set(formationId, meta.nadClass)
+    return out
+  }, [refinement])
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
@@ -3154,6 +3177,9 @@ export default function SectionPanel({
                 onRequestSplit={onRequestGeotechSplitBand}
                 onRequestMerge={onRequestGeotechMergeBands}
                 onRequestMoveBoundary={onRequestGeotechMoveBoundary}
+                onRequestAbsorbLens={onRequestGeotechAbsorbLens}
+                nadClassByFormationId={geotechNadClassByFormationId}
+                smallLensThicknessM={geotechSmallLensThicknessM}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
               />
             )}
