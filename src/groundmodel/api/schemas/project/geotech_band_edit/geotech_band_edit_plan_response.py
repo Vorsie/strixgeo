@@ -29,9 +29,17 @@ class GeotechBandEditPlanResponse(BaseModel):
     warnings : list[GeotechBandWarningItem]
         Advisory consequences. A non-empty list never means the edit is refused —
         a manual override always wins.
+    statistic : str
+        The representative-qc statistic every number in this plan was derived
+        with (owner ruling 7) — the model's choice, so the consequence sheet
+        can label its qc figures honestly ("harmonic representative qc").
     """
 
     kind: str = Field(..., description='"split" or "merge".')
+    statistic: str = Field(
+        "median",
+        description="The model's representative-qc statistic this plan used.",
+    )
     parent_top_m: float = Field(..., description="Top of the enclosing litho body (m).")
     parent_base_m: float = Field(..., description="Base of the enclosing litho body (m).")
     intervals: list[GeotechBandIntervalItem] = Field(
