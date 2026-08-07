@@ -104,11 +104,10 @@ const CONTACT_ARM_COLOR = '#34d399'
 /** Lens-candidate marker colour (amber) — an enclosed contact that correlates
  *  to neither neighbour, i.e. a layer that pinches out rather than continues. */
 const LENS_CANDIDATE_COLOR = '#f59e0b'
-/** Correlate-select reach (px) around each boundary.  A click within this of a
- *  boundary arms it; the MIDDLE of a band taller than 2× this is inert, so a
- *  mid-band click never arms a far boundary (dogfeed 2026-05-29).  Thin bands
- *  (≤ 2× this) are split at their midpoint with no inert gap. */
-const CONTACT_SELECT_NEAR_PX = 14
+// Correlate-select zone geometry (near-boundary reach, thin-band base-line
+// grab) lives in ``correlateBandZones`` — one pure rule, unit-tested, shared
+// with nothing else so the two mis-click dogfeeds it reconciles are pinned in
+// one place (2026-05-29 / 2026-08-05 / 2026-08-07).
 /** Minimum half-height of the invisible right-click hit band drawn over each
  *  correlation edge (#163e) — used when the ribbon has no lithology stripes
  *  and would otherwise collapse to a zero-height seam. */
@@ -323,6 +322,7 @@ import {
   buildContactScreenMap,
   contactStripeColors,
   CONTACT_EDGE_COLOR,
+  correlateBandZones,
   warpAwareEdgePoints,
   warpAwareRibbonOutline,
 } from './correlationEdgesHelpers'
@@ -405,6 +405,13 @@ export default function CorrelationEdgesOverlay({
   /** Edge-level right-click menu (#163e) — opened by right-clicking a
    *  correlation edge's hit band; carries the edge to delete. */
   const [edgeContextMenu, setEdgeContextMenu] = useState<EdgeContextMenuState | null>(null)
+
+  /** Correlate-mode hover preview (owner 2026-08-07): the boundary line a
+   *  click at the current cursor position WOULD arm. Thin bands make
+   *  top-vs-base ambiguous by position alone ("I click the bottom of a clay
+   *  unit but the correlation drew from the top"), so the answer is shown
+   *  BEFORE the click commits. null = no zone hovered. */
+  const [armPreview, setArmPreview] = useState<{ y: number; x1: number; x2: number } | null>(null)
 
   // State for the admixture editor modal opened from the body chip context menu.
   const [admixEditorState, setAdmixEditorState] = useState<{
@@ -1222,7 +1229,6 @@ export default function CorrelationEdgesOverlay({
             // a single thin strip centred on the line.
             const top = band ? band.topY : pt.topY - CONTACT_HIT_HEIGHT / 2
             const bot = band ? band.botY : pt.topY + CONTACT_HIT_HEIGHT / 2
-            const mid = (top + bot) / 2
             // Lower-zone target: the next-deeper contact's top (the boundary
             // below).  The DEEPEST band has no contact below it (its base is the
             // column floor / where the test stopped), so ``lowerId`` is
@@ -1230,24 +1236,17 @@ export default function CorrelationEdgesOverlay({
             // silently arm the band's own TOP (dogfeed 2026-06-08: "tried to
             // connect the bottom of the deepest sand and it grabbed the top").
             const lowerId = nextDeeperContactId.get(c.id)
-            // Near-boundary zones (dogfeed 2026-05-29): a click within
-            // CONTACT_SELECT_NEAR_PX of a boundary arms it; the MIDDLE of a band
-            // taller than 2×NEAR is inert, so a mid-band click never arms a far
-            // boundary.  Thin bands collapse to a midpoint split (no inert gap).
-            // THIN-BAND rule (debt #158, owner mis-clicks 2026-08-04/05): on
-            // a band thinner than 2×NEAR, the midpoint split handed half of a
-            // ~10px target to the NEXT-DEEPER contact — aiming at a thin
-            // CLAY-SF armed the SILT below it, one band low. A thin
-            // NON-deepest band therefore arms its OWN top over its full
-            // height; the boundary below loses nothing because it keeps its
-            // generous twin target as the deeper band's upper zone (the same
-            // contact id). The DEEPEST band keeps its split even when thin —
-            // its base tie has no twin zone below.
-            const isThin = bot - top < 2 * CONTACT_SELECT_NEAR_PX
-            const hasDeeper = nextDeeperContactId.has(c.id)
-            const wholeBandArmsTop = isThin && hasDeeper
-            const topEnd = wholeBandArmsTop ? bot : Math.min(top + CONTACT_SELECT_NEAR_PX, mid)
-            const botStart = wholeBandArmsTop ? bot : Math.max(bot - CONTACT_SELECT_NEAR_PX, mid)
+            // Zone split — "the boundary line always wins" (correlateBandZones):
+            // tall bands keep near-boundary zones + an inert middle (2026-05-29);
+            // a thin band's interior arms its OWN top (the 2026-08-05 one-band-low
+            // mis-click), while its bottom few px arm the base line (2026-08-07:
+            // "I click the bottom of a clay unit but the correlation drew from
+            // the top").
+            const { topEnd, botStart } = correlateBandZones(
+              top,
+              bot,
+              nextDeeperContactId.has(c.id),
+            )
             return (
               <g key={`contact-hit-${c.id}`}>
                 {/* Visible indicator line when this contact's boundary is armed */}
@@ -1275,6 +1274,10 @@ export default function CorrelationEdgesOverlay({
                   strokeWidth={isArmed ? 1 : 0}
                   strokeDasharray="3 2"
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onMouseEnter={() =>
+                    setArmPreview({ y: pt.topY, x1: pt.x - hw, x2: pt.x + hw })
+                  }
+                  onMouseLeave={() => setArmPreview(null)}
                   onContextMenu={e => {
                     e.preventDefault()
                     onRequestDeleteContact?.(c.id)
@@ -1293,6 +1296,7 @@ export default function CorrelationEdgesOverlay({
                     height={botStart - topEnd}
                     fill="transparent"
                     style={{ cursor: 'default', pointerEvents: 'all' }}
+                    onMouseEnter={() => setArmPreview(null)}
                     onClick={e => e.stopPropagation()}
                   />
                 )}
@@ -1313,6 +1317,16 @@ export default function CorrelationEdgesOverlay({
                   height={Math.max(0, bot - botStart)}
                   fill="transparent"
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onMouseEnter={() =>
+                    setArmPreview({
+                      // The boundary a click here arms: the next-deeper
+                      // contact's line, or this band's own base (bottom-tie).
+                      y: lowerId ? (contactScreenMap.get(lowerId)?.topY ?? bot) : bot,
+                      x1: pt.x - hw,
+                      x2: pt.x + hw,
+                    })
+                  }
+                  onMouseLeave={() => setArmPreview(null)}
                   onContextMenu={
                     lowerId
                       ? e => {
@@ -1331,6 +1345,24 @@ export default function CorrelationEdgesOverlay({
               </g>
             )
           })}
+          {/* Hover preview (owner 2026-08-07): the boundary line a click at
+              the hovered zone WOULD arm — dashed and dimmer than the armed
+              line, purely visual. Thin bands make top-vs-base ambiguous by
+              position alone; this shows the answer before the click. */}
+          {armPreview && (
+            <line
+              data-testid="contact-arm-preview"
+              x1={armPreview.x1}
+              y1={armPreview.y}
+              x2={armPreview.x2}
+              y2={armPreview.y}
+              stroke={CONTACT_ARM_COLOR}
+              strokeWidth={2}
+              strokeDasharray="4 3"
+              opacity={0.55}
+              pointerEvents="none"
+            />
+          )}
         </g>
       )}
 
