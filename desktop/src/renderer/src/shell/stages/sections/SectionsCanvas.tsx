@@ -357,6 +357,12 @@ export default function SectionsCanvas(): JSX.Element {
     () => readGeotechSubdivisionPrefs(project?.view_state ?? null).lithoSnapToleranceM,
     [project],
   )
+  // The lens-suggestion size gate: a band the model itself calls "too thin to
+  // keep" is thin enough to suggest absorbing (no second magic number).
+  const geotechMinLayerThicknessM = useMemo(
+    () => readGeotechSubdivisionPrefs(project?.view_state ?? null).minimumLayerThicknessM,
+    [project],
+  )
   // Ghost gate (owner ruling 2026-08-07): the preview is OPT-IN via the
   // Display menu's "Show borehole preview" — no tie state ever opens it
   // uninvited (two dogfeed rounds read the auto-appearing ghosts as "my
@@ -1947,6 +1953,8 @@ export default function SectionsCanvas(): JSX.Element {
           onRequestGeotechMoveBoundary={
             isGeotech ? geotechBandEdit.onRequestMoveBoundary : undefined
           }
+          onRequestGeotechAbsorbLens={isGeotech ? geotechBandEdit.onRequestAbsorbLens : undefined}
+          geotechSmallLensThicknessM={geotechMinLayerThicknessM}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
           // Geotech axis is view-only; geology sync not applicable.
