@@ -11,10 +11,13 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from statistics import median
 
 from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS
 from groundmodel.domain.services.nad_classifier import _variant_for, classify_nad
+from groundmodel.domain.services.representative_statistic import (
+    DEFAULT_STATISTIC,
+    representative_qc,
+)
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
 
@@ -377,12 +380,14 @@ def suggest_geotech_subdivision(
     *,
     gradient_snap: bool = True,
     gradient_snap_window_m: float = 0.5,
+    statistic: str = DEFAULT_STATISTIC,
 ) -> list[GeotechSplit]:
     """Suggest NAD sub-units for one geo-bounded litho segment.
 
     Uses a conservative per-threshold cut pipeline: sustained qc crossings
-    place band boundaries, each band is classified by its median qc (robust to
-    spikes), thin bands absorb into the weaker neighbour, and an optional
+    place band boundaries, each band is classified by its representative qc
+    (the model's chosen statistic — median by default, robust to spikes),
+    thin bands absorb into the weaker neighbour, and an optional
     gradient snap sharpens contacts without ever making the placement less
     conservative. Returns one :class:`GeotechSplit` per surviving packing band.
     A uniform segment (or one with only thin variation) returns a single split
@@ -416,6 +421,13 @@ def suggest_geotech_subdivision(
     gradient_snap_window_m : float, optional
         Maximum distance (metres) an interior boundary may snap toward a
         gradient peak. Default 0.5 m.
+    statistic : str, optional
+        The model's representative-qc statistic (owner ruling 7) — one of
+        ``REPRESENTATIVE_STATISTICS``. Defaults to ``'median'``, which keeps
+        every pre-ruling caller byte-identical. The band-edit previews read
+        the SAME model column through :func:`representative_qc`, so the
+        warning can never predict a class this classifier does not derive
+        (ruling 6).
 
     Returns
     -------
@@ -473,8 +485,9 @@ def suggest_geotech_subdivision(
     # 1. Sustained per-threshold crossings -> cut depths (conservative placement).
     cuts = _sustained_threshold_cuts(seg_depths, seg_qc, soil, admixtures, min_thickness_m)
 
-    # 2. Bands between consecutive cuts, each classified by its MEDIAN qc (robust
-    #    to spikes without the harmonic over-suppression).
+    # 2. Bands between consecutive cuts, each classified by its REPRESENTATIVE
+    #    qc — the model's chosen statistic (ruling 7); median by default,
+    #    robust to spikes without the harmonic over-suppression.
     bands: list[list[float]] = []
     for a, b in zip(cuts, cuts[1:]):
         # Half-open [a, b): the cut at depths[-1] == segment_base_m is excluded
@@ -484,10 +497,16 @@ def suggest_geotech_subdivision(
         in_band = [q for d, q in zip(seg_depths, seg_qc) if a <= d < b]
         if not in_band:
             continue
-        cls = classify_nad(soil, admixtures, median(in_band))
+        cls = classify_nad(soil, admixtures, representative_qc(in_band, statistic))
         bands.append([a, b, cls])
     if not bands:  # degenerate (e.g. single sample) — one band over the segment
-        bands = [[segment_top_m, segment_base_m, classify_nad(soil, admixtures, median(seg_qc))]]
+        bands = [
+            [
+                segment_top_m,
+                segment_base_m,
+                classify_nad(soil, admixtures, representative_qc(seg_qc, statistic)),
+            ]
+        ]
 
     # 3. Conservative min-thickness merge (thin -> weaker neighbour) + 4. weld.
     bands = _weld_same_class_bands(_conservative_merge(bands, min_thickness_m))
