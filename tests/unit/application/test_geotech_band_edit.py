@@ -136,6 +136,7 @@ def _context(
         depth_m=depth_m,
         qc_mpa=qc_mpa,
         min_thickness_m=0.35,
+        statistic="median",
         source_litho_formation_id=LITHO_FID,
         source_geo_formation_id=GEO_FID,
     )
