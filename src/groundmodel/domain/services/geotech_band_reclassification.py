@@ -80,6 +80,7 @@ told — the class is the thing that ships.
 # Plan kinds.
 KIND_SPLIT = "split"
 KIND_MERGE = "merge"
+KIND_MOVE = "move"
 
 
 class GeotechBandEditError(ValueError):
@@ -790,24 +791,87 @@ def plan_merge(
         When the two bands are not adjacent, or do not share both parents (a
         merge never swallows a litho or geological contact).
     """
-    upper_index = _index_of(bands, upper_band_id)
-    lower_index = _index_of(bands, lower_band_id)
-    if upper_index > lower_index:
-        upper_index, lower_index = lower_index, upper_index
-    upper, lower = bands[upper_index], bands[lower_index]
-    if lower_index - upper_index != 1:
-        raise GeotechBandEditError(
-            "Merge rejected: only two ADJACENT packing bands can be merged "
-            f"(bands {upper.band_id} and {lower.band_id} are not neighbours)."
-        )
-    if abs(upper.depth_base_m - lower.depth_top_m) > _ADJACENCY_EPS_M:
-        raise GeotechBandEditError(
-            "Merge rejected: the two bands do not share a boundary "
-            f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
-        )
-    _assert_same_litho_body(upper, lower)
-    parent_top, parent_base = enclosing_litho_bounds(bands, upper_index)
-    proposed = [ProposedInterval(upper.depth_top_m, lower.depth_base_m, (upper, lower))]
+    # The pair is the N=2 case of the run planner — one union path, one set of
+    # refusal rules (extract-on-second-copy: the small-lens absorb is caller
+    # two of the same union).
+    return plan_merge_run(
+        bands=bands,
+        band_ids=[upper_band_id, lower_band_id],
+        soil=soil,
+        admixtures=admixtures,
+        depth_m=depth_m,
+        qc_mpa=qc_mpa,
+        min_thickness_m=min_thickness_m,
+        statistic=statistic,
+    )
+
+
+def plan_merge_run(
+    *,
+    bands: Sequence[GeotechBand],
+    band_ids: Sequence[str],
+    soil: BaseLithology | None,
+    admixtures: tuple[Admixture, ...],
+    depth_m: Sequence[float],
+    qc_mpa: Sequence[float | None],
+    min_thickness_m: float,
+    statistic: str = DEFAULT_STATISTIC,
+) -> BandEditPlan:
+    """Plan a merge of an N-band CONTIGUOUS run into one reclassified band.
+
+    The generalisation the small-lens absorb needs (host + lens + host in ONE
+    atomic plan: one honest preview, one undo step — two sequential pair
+    merges would show an intermediate class that never exists). N=2 is the
+    ordinary pair merge and :func:`plan_merge` delegates here.
+
+    Parameters
+    ----------
+    bands : Sequence[GeotechBand]
+        Every packing band on the edited column, ordered top to bottom.
+    band_ids : Sequence[str]
+        The run to merge, 2..N bands, any order (normalised by depth).
+    soil : BaseLithology | None
+        Main soil type of the parent litho unit.
+    admixtures : tuple[Admixture, ...]
+        Parent unit admixtures.
+    depth_m, qc_mpa : Sequence
+        The column's CPT series.
+    min_thickness_m : float
+        Configured minimum packing-band thickness (advisory only).
+    statistic : str
+        The model's representative-qc statistic (ruling 7).
+
+    Returns
+    -------
+    BandEditPlan
+        One interval spanning the union, re-derived, plus advisory warnings.
+
+    Raises
+    ------
+    GeotechBandEditError
+        When the run has fewer than two distinct bands, is not consecutive,
+        has a hole, or crosses a litho / geological contact (ruling 2 — a
+        union never swallows a contact).
+    """
+    indices = sorted({_index_of(bands, str(band_id)) for band_id in band_ids})
+    if len(indices) < 2:
+        raise GeotechBandEditError("Merge rejected: a merge needs at least two distinct bands.")
+    run = [bands[i] for i in indices]
+    for prev_index, next_index in zip(indices, indices[1:]):
+        upper, lower = bands[prev_index], bands[next_index]
+        if next_index - prev_index != 1:
+            raise GeotechBandEditError(
+                "Merge rejected: only ADJACENT packing bands can be merged "
+                f"(bands {upper.band_id} and {lower.band_id} are not neighbours)."
+            )
+        if abs(upper.depth_base_m - lower.depth_top_m) > _ADJACENCY_EPS_M:
+            raise GeotechBandEditError(
+                "Merge rejected: the two bands do not share a boundary "
+                f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
+            )
+        _assert_same_litho_body(upper, lower)
+    parent_top, parent_base = enclosing_litho_bounds(bands, indices[0])
+    proposed = [ProposedInterval(run[0].depth_top_m, run[-1].depth_base_m, tuple(run))]
     outcomes = reclassify_intervals(
         soil=soil,
         admixtures=admixtures,
@@ -818,6 +882,114 @@ def plan_merge(
     )
     return BandEditPlan(
         kind=KIND_MERGE,
+        parent_top_m=parent_top,
+        parent_base_m=parent_base,
+        intervals=outcomes,
+        warnings=_build_warnings(outcomes, min_thickness_m),
+        statistic=statistic,
+    )
+
+
+def plan_move(
+    *,
+    bands: Sequence[GeotechBand],
+    upper_band_id: str,
+    lower_band_id: str,
+    new_depth_m: float,
+    soil: BaseLithology | None,
+    admixtures: tuple[Admixture, ...],
+    depth_m: Sequence[float],
+    qc_mpa: Sequence[float | None],
+    min_thickness_m: float,
+    statistic: str = DEFAULT_STATISTIC,
+) -> BandEditPlan:
+    """Plan dragging the shared boundary of two adjacent bands, both reclassified.
+
+    Ruling 3 applied to the drag: "you recalculate after drag merge, the qc" —
+    BOTH resulting intervals re-derive from the qc over their new extents. The
+    pair's own envelope is the hard wall: drag is only offered on a
+    same-parentage pair (that boundary is the owner's packing subdivision, not
+    a contact), so the pair's outer edges cannot exceed the litho body and the
+    strictly-inside test subsumes ruling 2's walls. The squeeze-to-collapse
+    case (a survivor thinner than the mm grain) is refused here because the
+    ABSORB gesture is the honest verb for it — the FE converts a past-threshold
+    release into a merge.
+
+    Parameters
+    ----------
+    bands : Sequence[GeotechBand]
+        Every packing band on the edited column, ordered top to bottom.
+    upper_band_id, lower_band_id : str
+        The adjacent pair whose shared boundary moves (order normalised).
+    new_depth_m : float
+        The proposed boundary depth (metres, positive down).
+    soil : BaseLithology | None
+        Main soil type of the parent litho unit.
+    admixtures : tuple[Admixture, ...]
+        Parent unit admixtures.
+    depth_m, qc_mpa : Sequence
+        The column's CPT series.
+    min_thickness_m : float
+        Configured minimum packing-band thickness — ADVISORY (ruling 5: a
+        thin survivor warns, never blocks).
+    statistic : str
+        The model's representative-qc statistic (ruling 7).
+
+    Returns
+    -------
+    BandEditPlan
+        Two intervals with their re-derived classes, plus advisory warnings.
+
+    Raises
+    ------
+    GeotechBandEditError
+        When the bands are not an adjacent same-parentage pair, or the depth
+        is not strictly inside the pair (incl. a survivor thinner than the
+        millimetre grain the DB stores).
+    """
+    upper_index = _index_of(bands, upper_band_id)
+    lower_index = _index_of(bands, lower_band_id)
+    if upper_index > lower_index:
+        upper_index, lower_index = lower_index, upper_index
+    upper, lower = bands[upper_index], bands[lower_index]
+    if lower_index - upper_index != 1:
+        raise GeotechBandEditError(
+            "Move rejected: only the shared boundary of two ADJACENT packing "
+            f"bands can be dragged (bands {upper.band_id} and {lower.band_id} "
+            "are not neighbours)."
+        )
+    if abs(upper.depth_base_m - lower.depth_top_m) > _ADJACENCY_EPS_M:
+        raise GeotechBandEditError(
+            "Move rejected: the two bands do not share a boundary "
+            f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
+        )
+    _assert_same_litho_body(upper, lower)
+    rounded = round(new_depth_m, 3)
+    # Strictly inside the pair, with both survivors at least the millimetre
+    # grain the no-overlap exclusion stores. Not the min-thickness pref — that
+    # is advisory (ruling 5); this is the structural floor below which a row
+    # cannot exist.
+    if not (upper.depth_top_m + _DEPTH_EPS_M < rounded < lower.depth_base_m - _DEPTH_EPS_M):
+        raise GeotechBandEditError(
+            f"Move rejected: {new_depth_m:.2f} m falls outside the pair "
+            f"({upper.depth_top_m:.2f}–{lower.depth_base_m:.2f} m). To collapse a "
+            "band entirely, drag past it — the squeeze becomes a merge."
+        )
+    parent_top, parent_base = enclosing_litho_bounds(bands, upper_index)
+    proposed = [
+        ProposedInterval(upper.depth_top_m, rounded, (upper,)),
+        ProposedInterval(rounded, lower.depth_base_m, (lower,)),
+    ]
+    outcomes = reclassify_intervals(
+        soil=soil,
+        admixtures=admixtures,
+        depth_m=depth_m,
+        qc_mpa=qc_mpa,
+        intervals=proposed,
+        statistic=statistic,
+    )
+    return BandEditPlan(
+        kind=KIND_MOVE,
         parent_top_m=parent_top,
         parent_base_m=parent_base,
         intervals=outcomes,
