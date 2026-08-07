@@ -904,6 +904,8 @@ def _edit_payload(result: GeotechBandEditResult) -> GeotechBandEditResponse:
         created_layer_ids=list(result.created_layer_ids),
         deleted_layer_ids=list(result.deleted_layer_ids),
         deleted_edge_ids=list(result.deleted_edge_ids),
+        flagged_edge_ids=list(result.flagged_edge_ids),
+        cleared_edge_ids=list(result.cleared_edge_ids),
     )
 
 
