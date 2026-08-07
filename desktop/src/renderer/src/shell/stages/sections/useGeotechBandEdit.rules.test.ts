@@ -17,16 +17,20 @@ import { useGeotechBandEdit } from './useGeotechBandEdit'
 
 const previewSplitGeotechBand = vi.fn()
 const previewMergeGeotechBands = vi.fn()
+const previewMoveGeotechBoundary = vi.fn()
 const splitGeotechBand = vi.fn()
 const mergeGeotechBands = vi.fn()
+const moveGeotechBoundary = vi.fn()
 
 vi.mock('../../../api/client', () => ({
   api: {
     geology: {
       previewSplitGeotechBand: (...a: unknown[]) => previewSplitGeotechBand(...a),
       previewMergeGeotechBands: (...a: unknown[]) => previewMergeGeotechBands(...a),
+      previewMoveGeotechBoundary: (...a: unknown[]) => previewMoveGeotechBoundary(...a),
       splitGeotechBand: (...a: unknown[]) => splitGeotechBand(...a),
       mergeGeotechBands: (...a: unknown[]) => mergeGeotechBands(...a),
+      moveGeotechBoundary: (...a: unknown[]) => moveGeotechBoundary(...a),
     },
   },
 }))
@@ -69,6 +73,7 @@ function deps() {
     refetchGeotechPackingEdges: vi.fn().mockResolvedValue(undefined),
     markMutated: vi.fn(),
     toast,
+    undoStack: { push: vi.fn() },
   }
 }
 
@@ -76,8 +81,31 @@ beforeEach(() => {
   vi.clearAllMocks()
   previewSplitGeotechBand.mockResolvedValue(PLAN_WITH_WARNING)
   previewMergeGeotechBands.mockResolvedValue(PLAN_WITH_WARNING)
-  splitGeotechBand.mockResolvedValue({ deleted_edge_ids: [], investigation_id: 'cpt-1' })
-  mergeGeotechBands.mockResolvedValue({ deleted_edge_ids: [], investigation_id: 'cpt-1' })
+  previewMoveGeotechBoundary.mockResolvedValue(PLAN_WITH_WARNING)
+  splitGeotechBand.mockResolvedValue({
+    deleted_edge_ids: [],
+    flagged_edge_ids: [],
+    investigation_id: 'cpt-1',
+    layer_ids: ['band-1', 'new-lower'],
+    created_layer_ids: ['new-lower'],
+    deleted_layer_ids: [],
+  })
+  mergeGeotechBands.mockResolvedValue({
+    deleted_edge_ids: [],
+    flagged_edge_ids: [],
+    investigation_id: 'cpt-1',
+    layer_ids: ['band-upper'],
+    created_layer_ids: [],
+    deleted_layer_ids: ['band-lower'],
+  })
+  moveGeotechBoundary.mockResolvedValue({
+    deleted_edge_ids: [],
+    flagged_edge_ids: [],
+    investigation_id: 'cpt-1',
+    layer_ids: ['band-u', 'band-l'],
+    created_layer_ids: [],
+    deleted_layer_ids: [],
+  })
 })
 
 describe('the consequence is shown before anything is written', () => {
@@ -108,7 +136,7 @@ describe('and then the owner may proceed against it — the override is the feat
   it('HK3 — confirming after a warning commits the merge', async () => {
     const { result } = renderHook(() => useGeotechBandEdit(deps()))
 
-    act(() => result.current.onRequestMergeBands?.('band-2', 'band-3'))
+    act(() => result.current.onRequestMergeBands?.('band-2', 'band-3', 6))
     await waitFor(() => expect(result.current.plan?.warnings).toHaveLength(1))
     await act(async () => {
       await result.current.confirm()
@@ -152,5 +180,158 @@ describe('without a geotech model there is nothing to edit', () => {
 
     expect(result.current.onRequestSplitBand).toBeUndefined()
     expect(result.current.onRequestMergeBands).toBeUndefined()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// HK7+ — the drag verb (owner 2026-08-07) and undo for every band edit
+// ---------------------------------------------------------------------------
+
+describe('the drag verb previews and commits like its siblings', () => {
+  it('HK7 — asking to move a boundary previews first and writes nothing yet', async () => {
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    expect(previewMoveGeotechBoundary).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      'band-u',
+      'band-l',
+      4.6,
+    )
+    expect(moveGeotechBoundary).not.toHaveBeenCalled()
+  })
+
+  it('HK8 — confirming the move commits it', async () => {
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(moveGeotechBoundary).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      'band-u',
+      'band-l',
+      4.6,
+    )
+  })
+})
+
+describe('every committed band edit is undoable (app-wide owner rule)', () => {
+  it('HK9 — undoing a move drags the boundary back where it was', async () => {
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(d.undoStack.push).toHaveBeenCalledTimes(1)
+    const command = d.undoStack.push.mock.calls[0][0]
+    moveGeotechBoundary.mockClear()
+    await command.revert()
+    expect(moveGeotechBoundary).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      'band-u',
+      'band-l',
+      4.0,
+    )
+  })
+
+  it('HK10 — undoing a split merges the two halves back together', async () => {
+    splitGeotechBand.mockResolvedValue({
+      deleted_edge_ids: [],
+      flagged_edge_ids: [],
+      investigation_id: 'cpt-1',
+      layer_ids: ['band-1', 'new-lower'],
+      created_layer_ids: ['new-lower'],
+      deleted_layer_ids: [],
+    })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestSplitBand?.('band-1', 4.5)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const command = d.undoStack.push.mock.calls[0][0]
+    await command.revert()
+    expect(mergeGeotechBands).toHaveBeenCalledWith('proj-1', 'geo-model-1', 'band-1', 'new-lower')
+  })
+
+  it('HK11 — undoing a merge re-splits at the old shared boundary', async () => {
+    mergeGeotechBands.mockResolvedValue({
+      deleted_edge_ids: [],
+      flagged_edge_ids: [],
+      investigation_id: 'cpt-1',
+      layer_ids: ['band-upper'],
+      created_layer_ids: [],
+      deleted_layer_ids: ['band-lower'],
+    })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      // The overlay carries the shared boundary's depth so the undo can restore it.
+      result.current.onRequestMergeBands?.('band-upper', 'band-lower', 4.5)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const command = d.undoStack.push.mock.calls[0][0]
+    await command.revert()
+    expect(splitGeotechBand).toHaveBeenCalledWith('proj-1', 'geo-model-1', 'band-upper', 4.5)
+  })
+
+  it('HK12 — the toast names the flagged ties, not a deletion', async () => {
+    mergeGeotechBands.mockResolvedValue({
+      deleted_edge_ids: [],
+      flagged_edge_ids: ['edge-1', 'edge-2'],
+      investigation_id: 'cpt-1',
+      layer_ids: ['band-upper'],
+      created_layer_ids: [],
+      deleted_layer_ids: ['band-lower'],
+    })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMergeBands?.('band-upper', 'band-lower', 4.5)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const message = toast.mock.calls.at(-1)?.[1] as string
+    expect(message).toMatch(/2.*flagged for review/)
+  })
+
+  it('HK14 — revert refreshes the render exactly as the commit did', async () => {
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const command = d.undoStack.push.mock.calls[0][0]
+    d.requestGeotechLayersRefetch.mockClear()
+    await command.revert()
+    expect(d.requestGeotechLayersRefetch).toHaveBeenCalled()
   })
 })
