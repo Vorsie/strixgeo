@@ -57,7 +57,7 @@ import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
-import { useGeotechTieStatus } from './useGeotechTieStatus'
+import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
@@ -357,21 +357,16 @@ export default function SectionsCanvas(): JSX.Element {
     () => readGeotechSubdivisionPrefs(project?.view_state ?? null).lithoSnapToleranceM,
     [project],
   )
-  // Ghost-timing gate (owner ruling 2026-08-06): the preview waits until the
-  // tie work is done — pending 0 AND at least one accepted tie — so step 1
-  // alone leaves borehole columns visibly empty and the ghosts always show
-  // the final tie-informed plan. Own tie-status fetch (the toolbar's copy is
-  // component-local); keyed on the same layers nonce the preview refreshes on.
-  const { status: previewTieStatus } = useGeotechTieStatus(
-    project?.id ?? null,
-    isGeotech ? (activeGeotechModel?.id ?? null) : null,
-    geotechLayersVersion,
-  )
+  // Ghost gate (owner ruling 2026-08-07): the preview is OPT-IN via the
+  // Display menu's "Show borehole preview" — no tie state ever opens it
+  // uninvited (two dogfeed rounds read the auto-appearing ghosts as "my
+  // boreholes got subdivided").
+  const boreholePreviewOn = useBoreholePreviewOn()
   const boreholePreview = useGeotechBoreholePreview({
     projectId: project?.id ?? null,
     lithoModelId,
     hasGeotechModel: activeGeotechModel !== null,
-    enabled: isGeotech && shouldShowBoreholePreview(previewTieStatus),
+    enabled: isGeotech && shouldShowBoreholePreview(boreholePreviewOn),
     refreshKey: geotechLayersVersion,
     snapToleranceM: geotechSnapToleranceM,
   })
