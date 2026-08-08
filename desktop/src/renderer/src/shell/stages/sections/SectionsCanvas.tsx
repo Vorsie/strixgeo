@@ -655,11 +655,13 @@ export default function SectionsCanvas(): JSX.Element {
   // 2026-06-25). Scoped to the active geotech model + section, mirroring
   // refetchContactEdges but pointed at activeGeotechModel.id â€” never
   // correlationModelId (which is the litho model). No-op off the geotech axis.
-  const refetchGeotechPackingEdges = useCallback(async () => {
+  const refetchGeotechPackingEdges = useCallback(async (): Promise<boolean> => {
     if (!isGeotech || geotechPackingModelId === null) {
       setGeotechPackingEdges([])
       geotechEdgesSectionIdRef.current = selectedSectionId
-      return
+      // Nothing to fetch is not a stale view — there are no ribbons to be
+      // wrong about.
+      return true
     }
     log.debug(
       'section',
@@ -677,7 +679,9 @@ export default function SectionsCanvas(): JSX.Element {
           'section',
           `listGeotechPackingCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} â€” ${currentSectionIdRef.current} is selected now`,
         )
-        return
+        // The caller's section is no longer on screen, so nothing visible to
+        // them is stale; the section they DID switch to loads on its own.
+        return true
       }
       setGeotechPackingEdges(edges)
       geotechEdgesSectionIdRef.current = selectedSectionId
@@ -701,7 +705,12 @@ export default function SectionsCanvas(): JSX.Element {
         'refetchGeotechPackingEdges: listContactCorrelations failed',
         err,
       )
+      // Swallowing the throw keeps the section usable, but a caller that just
+      // committed a write needs to know the ribbons it can see are stale —
+      // otherwise a success toast sits over ties the server already deleted.
+      return false
     }
+    return true
   }, [isGeotech, geotechPackingModelId, project.id, selectedSectionId])
 
   useEffect(() => {
