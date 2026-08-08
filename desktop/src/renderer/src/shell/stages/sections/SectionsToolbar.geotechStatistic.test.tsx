@@ -7,7 +7,7 @@
 // "re-run under <statistic>" tag on the pipeline's Subdivide step — the verb
 // that actually re-classifies.
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -114,5 +114,54 @@ describe('SectionsToolbar — the qc statistic selector (rulings 7+8)', () => {
     expect(screen.getByTestId('geotech-subdivide-cpts').textContent).toMatch(
       /re-run under harmonic/i,
     )
+  })
+})
+
+describe('the re-run tag goes away once the re-run has happened', () => {
+  // Ruling 8's staleness is DERIVED so it can self-clear. Caching the
+  // pre-change 'classified_with' locally defeats that: after the engineer
+  // presses "1 · Subdivide CPTs" the server stamps the new statistic and the
+  // model row refreshes, but a local shadow keeps reporting the old value, so
+  // the amber tag sits there forever. He presses the button again — and every
+  // press wipes and rebuilds every band, shedding ties as it goes.
+  it('ST-UI5 — the tag clears once the refreshed model agrees with the choice', async () => {
+    setGeotechStatistic.mockResolvedValue({
+      representative_statistic: 'harmonic',
+      classified_with_statistic: 'median',
+      bands_stale: true,
+    })
+    renderToolbar(
+      makeCtx('geotechnical', {
+        activeGeotechModel: {
+          ...makeGeotechModel(),
+          representative_statistic: 'median',
+          classified_with_statistic: 'median',
+        },
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    fireEvent.click(screen.getByTestId('geotech-statistic-harmonic'))
+    await waitFor(() => expect(setGeotechStatistic).toHaveBeenCalled())
+    fireEvent.click(screen.getByTestId('geotech-pipeline'))
+    await waitFor(() =>
+      expect(screen.getByTestId('geotech-subdivide-cpts').textContent).toMatch(
+        /re-run under harmonic/,
+      ),
+    )
+    cleanup()
+
+    // The engineer presses step 1. The rebuild stamps harmonic and the model
+    // row refreshes — the tag now has nothing left to report.
+    renderToolbar(
+      makeCtx('geotechnical', {
+        activeGeotechModel: {
+          ...makeGeotechModel(),
+          representative_statistic: 'harmonic',
+          classified_with_statistic: 'harmonic',
+        },
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-pipeline'))
+    expect(screen.getByTestId('geotech-subdivide-cpts').textContent).not.toMatch(/re-run under/)
   })
 })
