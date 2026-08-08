@@ -89,6 +89,18 @@
   --section-column-missing:  #9ca3af;  /* gray-400 — unknown-elevation muted      */
   --section-column-line:     #6b7280;  /* gray-500 — tie-back stroke + sub-label  */
 
+  /* Band-edit gesture chrome (#227) — the live drag / split preview line, its
+   * depth readout, the amber clamp+absorb state and the lens-suggestion badge.
+   * Same reason as the column tokens above: these are SVG attrs that can't take
+   * Tailwind dark: variants, and the literals they replace (#0f172a on the
+   * .dark plot bg #1e293b, ~1.2:1) were invisible in the hero theme. Light
+   * values are the previous literals, so light stays byte-identical. */
+  --section-edit-line:       #0f172a;  /* slate-900 — free-moving preview line     */
+  --section-edit-text:       #0f172a;  /* slate-900 — depth readout text           */
+  --section-edit-warn:       #b45309;  /* amber-700 — clamped line + absorb hint   */
+  --section-edit-suggest:    #f59e0b;  /* amber-500 — enclosed-lens badge fill     */
+  --section-edit-suggest-ring: #b45309; /* amber-700 — badge ring, for light AA    */
+
   /* Chart curve colour tokens — light values mirror the existing hard-coded
    * constants in CptChart.tsx exactly so the light theme is byte-identical
    * after the migration. The ``.dark`` block overrides these to legible
@@ -164,6 +176,16 @@
   --section-column-text:     #e2e8f0;  /* slate-200  — ~11.9:1; was #1f2937 (~1:1, invisible) */
   --section-column-missing:  #94a3b8;  /* slate-400  — ~5.7:1 muted; was #9ca3af              */
   --section-column-line:     #94a3b8;  /* slate-400  — tie-back + sub-label; was #6b7280       */
+
+  /* Band-edit gesture chrome — dark hero values, against --section-plot-bg
+   * (#1e293b). The line and its readout must READ, not merely exist: the
+   * literals they replace scored ~1.2:1 here, which made the drag preview and
+   * the "release to merge" warning invisible in the theme the app ships in. */
+  --section-edit-line:       #e2e8f0;  /* slate-200  — ~10.4:1; was #0f172a (~1.2:1, invisible) */
+  --section-edit-text:       #e2e8f0;  /* slate-200  — ~10.4:1 (AA); was #0f172a               */
+  --section-edit-warn:       #fbbf24;  /* amber-400  — ~8.2:1; was #b45309 (~2.9:1, sub-3:1)   */
+  --section-edit-suggest:    #f59e0b;  /* amber-500  — ~6.8:1 on the dark plot, already passes */
+  --section-edit-suggest-ring: #fbbf24; /* amber-400  — ring stays visible on dark             */
 
   /* Chart curve colours — dark hero values.
    *
