@@ -453,7 +453,13 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
       // mismatches are FLAGGED for review, never silently gone; only pending
       // claims (and duplicates on an absorb) are removed.
       const flagged = result.flagged_edge_ids?.length ?? 0
-      const removed = result.deleted_edge_ids.length
+      // Two removals that mean opposite things: a withdrawn machine proposal
+      // is the engine changing its mind, a deleted ACCEPTED tie is the
+      // engineer's own correlation going away (an absorb can hit a self-loop
+      // or a true duplicate it cannot re-anchor). Naming the second as the
+      // first is the failure the flag-not-drop ruling exists to prevent.
+      const removedAccepted = result.deleted_accepted_edge_ids?.length ?? 0
+      const removedPending = result.deleted_edge_ids.length - removedAccepted
       const verb =
         pending.kind === 'split'
           ? 'Band split; both halves re-classified'
@@ -464,14 +470,20 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
               : 'Boundary moved; both bands re-classified'
       const tieClauses = [
         flagged > 0 ? `${flagged} accepted tie${flagged === 1 ? '' : 's'} flagged for review` : '',
-        removed > 0 ? `${removed} pending tie${removed === 1 ? '' : 's'} removed` : '',
+        removedAccepted > 0
+          ? `${removedAccepted} accepted tie${removedAccepted === 1 ? '' : 's'} deleted`
+          : '',
+        removedPending > 0
+          ? `${removedPending} pending tie${removedPending === 1 ? '' : 's'} removed`
+          : '',
       ].filter(Boolean)
       toast('success', tieClauses.length === 0 ? `${verb}.` : `${verb}; ${tieClauses.join(', ')}.`)
       log.success(
         'section',
         `band-${pending.kind} committed on column ${result.investigation_id}: ` +
           `+${result.created_layer_ids.length} rows, -${result.deleted_layer_ids.length} rows, ` +
-          `${flagged} flagged, -${removed} edges`,
+          `${flagged} flagged, -${removedAccepted} accepted edges, ` +
+          `-${removedPending} pending edges`,
       )
       try {
         await settleAfterWrite()
