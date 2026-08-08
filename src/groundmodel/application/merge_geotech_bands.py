@@ -190,6 +190,8 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             )
             transfer_moves.extend(m.edge_id for m in transfer.moves)
             transfer_drops.extend(transfer.drops)
+            # Pending proposals the accepted transfers evicted are removals too.
+            transfer_drops.extend(transfer.displaced_edge_ids)
             await self._session.delete(absorbed)
         await self._session.flush()
 
