@@ -17,6 +17,7 @@
 // placement does in the browser, with the offset pinned at zero.
 
 import { fireEvent, render, screen, cleanup } from '@testing-library/react'
+import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { LithoLayerResponse } from '../../api/client'
@@ -573,5 +574,38 @@ describe('the small enclosed lens gets a suggestion, never a gesture of its own'
       clientY: yAtDepth(3),
     })
     expect(screen.queryByTestId('geotech-band-menu-absorb-lens')).toBeNull()
+  })
+})
+
+describe('the release asks for exactly one preview, however React re-runs it', () => {
+  // React re-runs state updaters (StrictMode does it deliberately, twice) on
+  // the promise that they are pure. A network call fired from inside one is
+  // therefore not fired once — it is fired once per invocation. Two previews
+  // for one release is the visible symptom; the rule the codebase keeps is
+  // that an updater computes state and nothing else.
+  it('GS36 — a drag release under StrictMode previews the move once, not twice', () => {
+    const onRequestMoveBoundary = vi.fn()
+    render(
+      <React.StrictMode>
+        <svg>
+          <GeotechBandEditOverlay
+            geotechLayers={GEOTECH_LAYERS}
+            lithoLayers={LITHO_LAYERS}
+            placedColumns={[COLUMN]}
+            levelToScreen={levelToScreen}
+            plotTop={0}
+            plotBottom={2000}
+            onRequestSplit={vi.fn()}
+            onRequestMerge={vi.fn()}
+            onRequestMoveBoundary={onRequestMoveBoundary}
+          />
+        </svg>
+      </React.StrictMode>,
+    )
+    const strip = screen.getByTestId('geotech-band-boundary-band-1')
+    fireEvent.mouseDown(strip, { button: 0, clientY: yAtDepth(4) })
+    fireEvent.mouseMove(window, { clientY: yAtDepth(4.9), buttons: 1 })
+    fireEvent.mouseUp(window)
+    expect(onRequestMoveBoundary).toHaveBeenCalledTimes(1)
   })
 })
