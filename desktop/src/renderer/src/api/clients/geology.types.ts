@@ -1265,6 +1265,11 @@ export interface GeotechBandEditResponse {
    * in ``flagged_edge_ids`` instead.
    */
   deleted_edge_ids: string[]
+  /**
+   * The subset of ``deleted_edge_ids`` the engineer had ACCEPTED. Optional so
+   * an older backend simply reports nothing here rather than mislabelling.
+   */
+  deleted_accepted_edge_ids?: string[]
   /** ACCEPTED ties flagged for review (violet badge) — never silently gone. */
   flagged_edge_ids?: string[]
   /** Ties whose restored class match self-healed an earlier flag. */
