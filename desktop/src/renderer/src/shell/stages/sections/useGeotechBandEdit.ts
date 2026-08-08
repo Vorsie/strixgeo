@@ -443,7 +443,11 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
                 )
       setPlan(null)
       setPending(null)
-      await settleAfterWrite()
+      // The write has landed. Everything below is bookkeeping for a fact that
+      // is already true on the server, so it runs BEFORE the refresh: a failed
+      // refetch is a view problem, and letting it fall into the catch below
+      // would report a committed edit as a failure (inviting a second, doubled
+      // edit) and leave that edit permanently unundoable.
       pushUndoFor(pending, result)
       // Name the tie consequences. Flag-not-drop (owner 2026-08-07): accepted
       // mismatches are FLAGGED for review, never silently gone; only pending
@@ -469,6 +473,16 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
           `+${result.created_layer_ids.length} rows, -${result.deleted_layer_ids.length} rows, ` +
           `${flagged} flagged, -${removed} edges`,
       )
+      try {
+        await settleAfterWrite()
+      } catch (err) {
+        // The edit stands; only the view is behind. Say exactly that.
+        log.warn('section', `band-${pending.kind} refresh after commit failed`, err)
+        toast(
+          'warning',
+          'The edit was saved, but the view could not refresh — reopen the section to see it.',
+        )
+      }
     } catch (err) {
       log.warn('section', `band-${pending.kind} commit failed`, err)
       reportFailure(err, 'Could not apply the edit — try again.')
