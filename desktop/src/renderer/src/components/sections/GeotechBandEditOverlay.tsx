@@ -339,6 +339,27 @@ export default function GeotechBandEditOverlay({
     smallLensThicknessM,
   ])
 
+  // The menu closes the ways a menu is expected to close. Mirrored from
+  // ``ContactsLayer``'s litho band menu, wheel handler included: a menu is
+  // positioned in FIXED viewport coordinates, so scrolling or zooming the
+  // section slides the content out from under it and strands it over unrelated
+  // bands — the owner already reported that shape once ("sometimes i get this
+  // random add new suggestion here box when zooming or so"). Escape is the
+  // baseline every CAD tool trains.
+  useEffect(() => {
+    if (menu === null) return
+    const dismiss = (): void => setMenu(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') dismiss()
+    }
+    document.addEventListener('wheel', dismiss, { capture: true })
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('wheel', dismiss, { capture: true })
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
   // Escape abandons a placement, matching every other armed mode in the section editor.
   useEffect(() => {
     if (placing === null) return
@@ -620,7 +641,18 @@ export default function GeotechBandEditOverlay({
                 data-testid={`geotech-lens-badge-${lens.lens.layerId}`}
                 pointerEvents="none"
               >
-                <circle cx={column.x1 + 10} cy={midY} r={6} fill="#f59e0b" fillOpacity={0.9} />
+                {/* The ring is not decoration: amber-500 alone is ~2.1:1 on the
+                    LIGHT plot background, under the 3:1 floor for a graphical
+                    object that carries meaning. */}
+                <circle
+                  cx={column.x1 + 10}
+                  cy={midY}
+                  r={6}
+                  fill="var(--section-edit-suggest, #f59e0b)"
+                  fillOpacity={0.9}
+                  stroke="var(--section-edit-suggest-ring, #b45309)"
+                  strokeWidth={1}
+                />
                 {/* Two chevrons collapsing inward — "this band can fold into its hosts". */}
                 <path
                   d={`M ${column.x1 + 7} ${midY - 3.5} L ${column.x1 + 10} ${midY - 1} L ${column.x1 + 13} ${midY - 3.5}`}
@@ -675,7 +707,11 @@ export default function GeotechBandEditOverlay({
               x2={placing.column.x1 + 6}
               y1={yAt(placing.column, placing.depthM)}
               y2={yAt(placing.column, placing.depthM)}
-              stroke={placing.clampedAt === 'none' ? '#0f172a' : '#b45309'}
+              stroke={
+                placing.clampedAt === 'none'
+                  ? 'var(--section-edit-line, #0f172a)'
+                  : 'var(--section-edit-warn, #b45309)'
+              }
               strokeWidth={1.5}
               strokeDasharray="4 3"
             />
@@ -684,7 +720,7 @@ export default function GeotechBandEditOverlay({
               x={placing.column.x1 + 10}
               y={yAt(placing.column, placing.depthM) + 12}
               fontSize={10}
-              fill="#0f172a"
+              fill="var(--section-edit-text, #0f172a)"
             >
               {`${placing.depthM.toFixed(2)} m — click to place, Esc to cancel`}
             </text>
@@ -694,7 +730,7 @@ export default function GeotechBandEditOverlay({
                 x={placing.column.x1 + 10}
                 y={yAt(placing.column, placing.depthM) - 5}
                 fontSize={10}
-                fill="#b45309"
+                fill="var(--section-edit-warn, #b45309)"
               >
                 {placing.clampReason}
               </text>
@@ -714,7 +750,11 @@ export default function GeotechBandEditOverlay({
             x2={drag.column.x1 + 6}
             y1={yAt(drag.column, drag.depthM)}
             y2={yAt(drag.column, drag.depthM)}
-            stroke={drag.atLimit === 'none' ? '#0f172a' : '#b45309'}
+            stroke={
+              drag.atLimit === 'none'
+                ? 'var(--section-edit-line, #0f172a)'
+                : 'var(--section-edit-warn, #b45309)'
+            }
             strokeWidth={1.5}
             strokeDasharray="4 3"
           />
@@ -732,7 +772,7 @@ export default function GeotechBandEditOverlay({
                   y={Math.min(remainTop, remainBase)}
                   width={drag.column.x1 - drag.column.x0}
                   height={Math.abs(remainBase - remainTop)}
-                  fill="#b45309"
+                  fill="var(--section-edit-warn, #b45309)"
                   fillOpacity={0.25}
                 />
               )
@@ -742,7 +782,7 @@ export default function GeotechBandEditOverlay({
             x={drag.column.x1 + 10}
             y={yAt(drag.column, drag.depthM) + 12}
             fontSize={10}
-            fill="#0f172a"
+            fill="var(--section-edit-text, #0f172a)"
           >
             {drag.absorb !== null
               ? `release to merge into the band ${drag.absorb === 'upper' ? 'below' : 'above'} — class re-derived over the union`
