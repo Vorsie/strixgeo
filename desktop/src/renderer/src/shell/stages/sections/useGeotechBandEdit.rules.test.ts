@@ -443,3 +443,40 @@ describe('absorbing a small enclosed lens is ONE merge over the whole run', () =
     ])
   })
 })
+
+describe('a write that reached the server is never reported as a failure', () => {
+  // The refresh that follows a commit is a VIEW concern. If it fails, the edit
+  // has still happened: telling the engineer "could not apply the edit" invites
+  // them to do it a second time, and skipping the undo push leaves the edit
+  // they were told never happened permanently unundoable.
+  it('HK18 — a failed refresh still pushes the undo command for the committed edit', async () => {
+    const d = deps()
+    d.refetchGeotechPackingEdges = vi.fn().mockRejectedValue(new Error('network blip'))
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(moveGeotechBoundary).toHaveBeenCalledTimes(1)
+    expect(d.undoStack.push).toHaveBeenCalledTimes(1)
+  })
+
+  it('HK19 — a failed refresh never toasts the commit as an error', async () => {
+    const d = deps()
+    d.refetchGeotechPackingEdges = vi.fn().mockRejectedValue(new Error('network blip'))
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const severities = toast.mock.calls.map(c => c[0])
+    expect(severities).toContain('success')
+    expect(severities).not.toContain('error')
+  })
+})
