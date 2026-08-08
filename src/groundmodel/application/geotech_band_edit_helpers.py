@@ -177,6 +177,13 @@ class EdgeRef:
         The ``litho_contact_correlation_edge`` row.
     layer_a_id, layer_b_id : UUID
         Its two endpoints (canonically ordered in the DB).
+    layer_a_side, layer_b_side : str
+        Which SURFACE of each endpoint the tie joins (``top`` / ``base``).
+        Part of the tie's identity, not decoration: the uniqueness triple is
+        ``(model, section, layer_a_id, layer_b_id, layer_a_side,
+        layer_b_side)``, so the same two bands legitimately carry a top-to-top
+        tie AND a base-to-base tie. Deliberately NOT defaulted for the same
+        reason ``user_approved`` is not.
     user_approved : bool
         Whether the engineer accepted this tie. Deliberately NOT defaulted:
         the flag-not-drop rule (owner 2026-08-07) branches on it, and a loader
@@ -190,8 +197,18 @@ class EdgeRef:
     edge_id: UUID
     layer_a_id: UUID
     layer_b_id: UUID
+    layer_a_side: str
+    layer_b_side: str
     user_approved: bool
     review_reason: str | None
+
+    def side_of(self, layer_id: UUID) -> str:
+        """Which surface of ``layer_id`` this tie joins."""
+        return self.layer_a_side if self.layer_a_id == layer_id else self.layer_b_side
+
+    def partner_side(self, layer_id: UUID) -> str:
+        """Which surface of the OTHER endpoint this tie joins."""
+        return self.layer_b_side if self.layer_a_id == layer_id else self.layer_a_side
 
     def partner_of(self, layer_id: UUID) -> UUID:
         """The endpoint that is not ``layer_id``."""
@@ -319,12 +336,58 @@ def edge_review_actions(
         if not matched:
             if not edge.user_approved:
                 to_delete.append(edge.edge_id)
-            elif edge.review_reason != REVIEW_CLASS_CHANGED:
+            elif edge.review_reason is None:
                 to_flag.append(edge.edge_id)
-            # already class_changed-flagged: leave as-is (idempotent).
+            # Already flagged: leave the existing token alone. Re-stamping an
+            # ``ambiguous_band`` tie as ``class_changed`` would hand it to the
+            # self-heal below, and the next restored match would clear a review
+            # the engineer never gave — the badge must survive until they act.
         elif edge.review_reason == REVIEW_CLASS_CHANGED:
             to_clear.append(edge.edge_id)
     return EdgeActions(tuple(to_delete), tuple(to_flag), tuple(to_clear))
+
+
+def tie_key(
+    layer_a_id: UUID, layer_a_side: str, layer_b_id: UUID, layer_b_side: str
+) -> tuple[UUID, str, UUID, str]:
+    """Canonical identity of a tie: BOTH endpoints and BOTH surfaces.
+
+    Mirrors the database uniqueness triple. Keying on ids alone would read a
+    base-to-base tie as a duplicate of a top-to-top tie between the same two
+    bands — two different claims about two different surfaces.
+
+    Parameters
+    ----------
+    layer_a_id, layer_b_id : UUID
+        The endpoints, in any order.
+    layer_a_side, layer_b_side : str
+        Each endpoint's surface (``top`` / ``base``), paired with its own id.
+
+    Returns
+    -------
+    tuple[UUID, str, UUID, str]
+        The pair ordered by id, each side travelling with its own endpoint.
+    """
+    if layer_a_id < layer_b_id:
+        return (layer_a_id, layer_a_side, layer_b_id, layer_b_side)
+    return (layer_b_id, layer_b_side, layer_a_id, layer_a_side)
+
+
+@dataclass(frozen=True)
+class ExistingTie:
+    """A tie the survivor already carries, for the duplicate test.
+
+    Attributes
+    ----------
+    edge_id : UUID
+        The existing row.
+    user_approved : bool
+        Whether it is the engineer's tie or a machine proposal — decides who
+        wins the slot when a transfer lands on it.
+    """
+
+    edge_id: UUID
+    user_approved: bool
 
 
 @dataclass(frozen=True)
@@ -368,10 +431,17 @@ class EdgeTransferPlan:
         duplicate is the same tie, not lost work; both are deleted and
         counted. Pending edges appear in neither list — the row delete's FK
         cascade takes them, which is correct for machine claims.
+    displaced_edge_ids : tuple[UUID, ...]
+        PENDING ties ON THE SURVIVOR whose slot an accepted transfer takes.
+        Flag-not-drop applied to the collision itself: when the two claims to
+        one slot are the engineer's and the machine's, the engineer's wins and
+        the proposal is withdrawn. Deleted BEFORE the moves are written, so the
+        re-point never races the uniqueness constraint.
     """
 
     moves: tuple[TransferMove, ...]
     drops: tuple[UUID, ...]
+    displaced_edge_ids: tuple[UUID, ...] = ()
 
 
 def plan_edge_transfer(
@@ -381,7 +451,7 @@ def plan_edge_transfer(
     to_layer_id: UUID,
     survivor_class: int | None,
     class_by_partner: dict[UUID, int | None],
-    existing_pair_keys: set[tuple[UUID, UUID]],
+    existing_ties: dict[tuple[UUID, str, UUID, str], ExistingTie],
 ) -> EdgeTransferPlan:
     """Decide the fate of every edge on a band about to be absorbed.
 
@@ -404,18 +474,22 @@ def plan_edge_transfer(
         The survivor's re-derived class (decides which flag a move carries).
     class_by_partner : dict[UUID, int | None]
         Current class of each partner layer.
-    existing_pair_keys : set[tuple[UUID, UUID]]
-        Canonical ``(min, max)`` pairs the survivor already carries (same
-        section) — a transfer landing on one is a duplicate.
+    existing_ties : dict[tuple[UUID, str, UUID, str], ExistingTie]
+        Ties the survivor already carries, keyed by :func:`tie_key` — a
+        transfer landing on one collides. An ACCEPTED occupant makes the
+        incoming tie a true duplicate (dropped); a PENDING occupant is
+        displaced instead, because accepted work outranks a proposal.
 
     Returns
     -------
     EdgeTransferPlan
-        The moves and the drops; pending edges are in neither.
+        The moves, the drops, and the displaced pending occupants; the
+        absorbed row's own pending edges are in none of them.
     """
     moves: list[TransferMove] = []
     drops: list[UUID] = []
-    claimed: set[tuple[UUID, UUID]] = set(existing_pair_keys)
+    displaced: list[UUID] = []
+    claimed: dict[tuple[UUID, str, UUID, str], ExistingTie] = dict(existing_ties)
     for edge in edges:
         if not edge.user_approved:
             continue  # the cascade's to take — a machine claim
@@ -423,11 +497,21 @@ def plan_edge_transfer(
         if partner == to_layer_id:
             drops.append(edge.edge_id)  # would become a self-loop
             continue
+        # The tie keeps the surfaces it joined: the absorbed band's own side
+        # travels onto the survivor, the partner's side never moves.
+        moved_side = edge.side_of(from_layer_id)
+        partner_side = edge.partner_side(from_layer_id)
+        key = tie_key(to_layer_id, moved_side, partner, partner_side)
+        occupant = claimed.get(key)
+        if occupant is not None:
+            if occupant.user_approved:
+                drops.append(edge.edge_id)  # the survivor already carries this tie
+                continue
+            # A pending proposal holds the slot: withdraw it, the accepted tie
+            # takes the place (flag-not-drop, applied to the collision itself).
+            displaced.append(occupant.edge_id)
         new_a, new_b = (to_layer_id, partner) if to_layer_id < partner else (partner, to_layer_id)
-        if (new_a, new_b) in claimed:
-            drops.append(edge.edge_id)  # the survivor already carries this tie
-            continue
-        claimed.add((new_a, new_b))
+        claimed[key] = ExistingTie(edge.edge_id, True)
         partner_class = class_by_partner.get(partner)
         mismatched = (
             survivor_class is None or partner_class is None or survivor_class != partner_class
@@ -446,7 +530,7 @@ def plan_edge_transfer(
                 review_reason=REVIEW_CLASS_CHANGED if mismatched else REVIEW_AMBIGUOUS_BAND,
             )
         )
-    return EdgeTransferPlan(tuple(moves), tuple(drops))
+    return EdgeTransferPlan(tuple(moves), tuple(drops), tuple(displaced))
 
 
 async def load_geotech_column_context(
@@ -672,6 +756,8 @@ async def load_edges_for_layers(
             edge_id=r.id,
             layer_a_id=r.layer_a_id,
             layer_b_id=r.layer_b_id,
+            layer_a_side=r.layer_a_side,
+            layer_b_side=r.layer_b_side,
             user_approved=r.user_approved,
             review_reason=r.review_reason,
         )
@@ -907,6 +993,8 @@ async def transfer_accepted_edges(
             edge_id=r.id,
             layer_a_id=r.layer_a_id,
             layer_b_id=r.layer_b_id,
+            layer_a_side=r.layer_a_side,
+            layer_b_side=r.layer_b_side,
             user_approved=r.user_approved,
             review_reason=r.review_reason,
         )
@@ -921,28 +1009,40 @@ async def transfer_accepted_edges(
     # another section carries the same engineering meaning (a duplicate is the
     # same tie, not lost work).
     survivor_rows = (
-        await session.execute(
-            select(
-                LithoContactCorrelationEdgeOrm.layer_a_id,
-                LithoContactCorrelationEdgeOrm.layer_b_id,
-            ).where(
-                LithoContactCorrelationEdgeOrm.model_id == model_id,
-                or_(
-                    LithoContactCorrelationEdgeOrm.layer_a_id == to_layer_id,
-                    LithoContactCorrelationEdgeOrm.layer_b_id == to_layer_id,
-                ),
+        (
+            await session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == model_id,
+                    or_(
+                        LithoContactCorrelationEdgeOrm.layer_a_id == to_layer_id,
+                        LithoContactCorrelationEdgeOrm.layer_b_id == to_layer_id,
+                    ),
+                )
             )
         )
-    ).all()
-    existing_pairs = {(min(a, b), max(a, b)) for a, b in survivor_rows}
+        .scalars()
+        .all()
+    )
+    existing_ties = {
+        tie_key(r.layer_a_id, r.layer_a_side, r.layer_b_id, r.layer_b_side): ExistingTie(
+            r.id, r.user_approved
+        )
+        for r in survivor_rows
+    }
     plan = plan_edge_transfer(
         edges=edges,
         from_layer_id=from_layer_id,
         to_layer_id=to_layer_id,
         survivor_class=survivor_class,
         class_by_partner=class_by_partner,
-        existing_pair_keys=existing_pairs,
+        existing_ties=existing_ties,
     )
+    # Withdraw the displaced proposals FIRST: the re-points below take exactly
+    # the slots those rows occupy, and flushing with both present would hit the
+    # uniqueness constraint.
+    if plan.displaced_edge_ids:
+        await delete_edges(session, plan.displaced_edge_ids)
+        await session.flush()
     row_by_id = {r.id: r for r in rows}
     for move in plan.moves:
         row = row_by_id[move.edge_id]
@@ -955,7 +1055,8 @@ async def transfer_accepted_edges(
     await session.flush()
     logger.debug(
         f"transfer_accepted_edges: from={from_layer_id} to={to_layer_id} "
-        f"moved={len(plan.moves)} dropped={len(plan.drops)}"
+        f"moved={len(plan.moves)} dropped={len(plan.drops)} "
+        f"displaced_pending={len(plan.displaced_edge_ids)}"
     )
     return plan
 
