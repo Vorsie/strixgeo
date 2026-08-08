@@ -58,3 +58,12 @@ class GeotechBandEditResponse(BaseModel):
         default_factory=list, description="Ties whose class_changed flag self-healed."
     )
     deleted_edge_ids: list[UUID] = Field(default_factory=list, description="Correlations dropped.")
+    deleted_accepted_edge_ids: list[UUID] = Field(
+        default_factory=list,
+        description=(
+            "The subset of deleted_edge_ids the engineer had ACCEPTED (a self-loop "
+            "or a true duplicate an absorb could not re-anchor). Separate because a "
+            "withdrawn machine proposal and a deleted accepted tie mean opposite "
+            "things to the engineer."
+        ),
+    )
