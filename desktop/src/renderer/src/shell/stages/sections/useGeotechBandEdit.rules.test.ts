@@ -74,7 +74,7 @@ function deps() {
     activeGeotechModel: { id: 'geo-model-1' } as never,
     projectId: 'proj-1',
     requestGeotechLayersRefetch: vi.fn(),
-    refetchGeotechPackingEdges: vi.fn().mockResolvedValue(undefined),
+    refetchGeotechPackingEdges: vi.fn().mockResolvedValue(true),
     markMutated: vi.fn(),
     toast,
     undoStack: { push: vi.fn() },
@@ -532,5 +532,44 @@ describe('the toast names what actually happened to each tie', () => {
     })
     const message = toast.mock.calls.at(-1)?.[1] as string
     expect(message).toMatch(/1 pending tie/)
+  })
+})
+
+describe('a stale view after a committed edit is said out loud', () => {
+  // HK18/HK19 pin the throwing case. Production does not throw: the packing-edge
+  // refetch catches its own failure and logs, so the hook sees a RESOLVED
+  // promise and — before this test existed — showed a plain success toast over
+  // a section still drawing ties the server had just deleted. The engineer then
+  // judges his model against a correlation picture that no longer exists, and
+  // the violet review badges flag-not-drop exists to raise never appear.
+  it('HK22 — a refetch that reports failure warns that the view is behind', async () => {
+    const d = deps()
+    d.refetchGeotechPackingEdges = vi.fn().mockResolvedValue(false)
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const severities = toast.mock.calls.map(c => c[0])
+    expect(severities).toContain('warning')
+    expect(severities).not.toContain('error')
+    expect(d.undoStack.push).toHaveBeenCalledTimes(1)
+  })
+
+  it('HK23 — a refetch that succeeds says nothing extra', async () => {
+    const d = deps()
+    d.refetchGeotechPackingEdges = vi.fn().mockResolvedValue(true)
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(toast.mock.calls.map(c => c[0])).not.toContain('warning')
   })
 })
