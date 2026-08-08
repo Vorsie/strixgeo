@@ -609,3 +609,66 @@ describe('the release asks for exactly one preview, however React re-runs it', (
     expect(onRequestMoveBoundary).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('the menu closes the ways a menu is expected to close', () => {
+  // The litho band menu already learned this the hard way: the owner reported
+  // "sometimes i get this random add new suggestion here box when zooming or
+  // so", so ContactsLayer dismisses on wheel as well as Escape. A menu pinned
+  // to stale screen coordinates while the section scrolls underneath is the
+  // same bug, and Escape is baseline muscle memory from every CAD tool this
+  // engineer uses.
+  it('GS37 - Escape closes the band menu', () => {
+    renderOverlay()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(4.75),
+    })
+    expect(screen.getByTestId('geotech-band-edit-menu')).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('geotech-band-edit-menu')).toBeNull()
+  })
+
+  it('GS38 - zooming the section closes the band menu instead of stranding it', () => {
+    renderOverlay()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(4.75),
+    })
+    fireEvent.wheel(document, { deltaY: -120 })
+    expect(screen.queryByTestId('geotech-band-edit-menu')).toBeNull()
+  })
+
+  it('GS39 - Escape closes the boundary menu too', () => {
+    renderOverlay()
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-boundary-band-1'))
+    expect(screen.getByTestId('geotech-band-edit-menu')).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('geotech-band-edit-menu')).toBeNull()
+  })
+})
+
+describe('the live gesture chrome survives the dark theme', () => {
+  // SVG attributes cannot use Tailwind dark: variants, which is why the
+  // --section-* token family exists (index.css). Painting the drag line and
+  // its readout in slate-900 put them on slate-800 in dark mode: the same
+  // ~1:1 invisibility the ColumnGlyph tokens were introduced to fix. The
+  // colours must come from themed tokens, not literals.
+  it('GS40 - the drag preview line and readout are themed, not hardcoded slate-900', () => {
+    renderOverlay({ onRequestMoveBoundary: vi.fn() })
+    const strip = screen.getByTestId('geotech-band-boundary-band-1')
+    fireEvent.mouseDown(strip, { button: 0, clientY: yAtDepth(4) })
+    fireEvent.mouseMove(window, { clientY: yAtDepth(4.5), buttons: 1 })
+
+    const line = screen.getByTestId('geotech-drag-preview-line')
+    expect(line.getAttribute('stroke')).toContain('var(--section-edit')
+    const readout = screen.getByTestId('geotech-drag-depth-readout')
+    expect(readout.getAttribute('fill')).toContain('var(--section-edit')
+  })
+
+  it('GS41 - the split placement chrome is themed the same way', () => {
+    renderOverlay()
+    armSplitAt(4.75)
+    const line = screen.getByTestId('geotech-split-preview-line')
+    expect(line.getAttribute('stroke')).toContain('var(--section-edit')
+    const readout = screen.getByTestId('geotech-split-depth-readout')
+    expect(readout.getAttribute('fill')).toContain('var(--section-edit')
+  })
+})
