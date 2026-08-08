@@ -35,6 +35,7 @@ from groundmodel.application.geotech_tie_reanchor import (
     REVIEW_AMBIGUOUS_BAND,
     REVIEW_CLASS_CHANGED,
 )
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
     read_view_state_float,
@@ -144,10 +145,15 @@ class GeotechBandEditResult:
     deleted_layer_ids : tuple[UUID, ...]
         Rows removed by this edit.
     deleted_edge_ids : tuple[UUID, ...]
-        Correlation edges REMOVED — since 2026-08-07 this is narrower than it
-        was: pending mismatches withdrawn, plus transfer drops (self-loops /
-        duplicates) on an absorb. Accepted mismatches are no longer here —
-        they land in ``flagged_edge_ids`` instead (flag-not-drop).
+        EVERY correlation edge removed by this edit — pending mismatches
+        withdrawn, displaced proposals, and the accepted ties an absorb could
+        not re-anchor (self-loops / true duplicates). Accepted MISMATCHES are
+        not here: those are flagged, never deleted (flag-not-drop).
+    deleted_accepted_edge_ids : tuple[UUID, ...]
+        The subset of the above that the engineer had ACCEPTED. Reported
+        separately because the two mean opposite things to him: a withdrawn
+        proposal is the machine changing its mind, while this is his own
+        correlation going away. The UI must never describe one as the other.
     flagged_edge_ids : tuple[UUID, ...]
         ACCEPTED ties flagged for review (``class_changed`` on a mismatch, or
         ``ambiguous_band`` on a transferred anchor) — surviving rows the
@@ -165,6 +171,7 @@ class GeotechBandEditResult:
     deleted_edge_ids: tuple[UUID, ...]
     flagged_edge_ids: tuple[UUID, ...] = ()
     cleared_edge_ids: tuple[UUID, ...] = ()
+    deleted_accepted_edge_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -175,6 +182,11 @@ class EdgeRef:
     ----------
     edge_id : UUID
         The ``litho_contact_correlation_edge`` row.
+    section_id : UUID
+        The cross-section this tie is drawn on. Part of its identity, not
+        context: each section draws its own ribbon, so the same two bands
+        legitimately carry one tie per section and the database says so
+        (``uq_litho_contact_corr_triple`` leads with ``section_id``).
     layer_a_id, layer_b_id : UUID
         Its two endpoints (canonically ordered in the DB).
     layer_a_side, layer_b_side : str
@@ -195,6 +207,7 @@ class EdgeRef:
     """
 
     edge_id: UUID
+    section_id: UUID
     layer_a_id: UUID
     layer_b_id: UUID
     layer_a_side: str
@@ -347,17 +360,38 @@ def edge_review_actions(
     return EdgeActions(tuple(to_delete), tuple(to_flag), tuple(to_clear))
 
 
-def tie_key(
-    layer_a_id: UUID, layer_a_side: str, layer_b_id: UUID, layer_b_side: str
-) -> tuple[UUID, str, UUID, str]:
-    """Canonical identity of a tie: BOTH endpoints and BOTH surfaces.
+DEPTH_DECIMALS = 3
+"""Millimetre precision for every persisted packing-band depth.
 
-    Mirrors the database uniqueness triple. Keying on ids alone would read a
-    base-to-base tie as a duplicate of a top-to-top tie between the same two
-    bands — two different claims about two different surfaces.
+The ``litho_layer`` no-overlap exclusion constraint compares ``round(depth, 3)``,
+so a write at finer precision can slip past the check that is supposed to keep a
+column gap-free. Every band-edit use case rounds through this one value — split,
+merge, run-merge and move — because three copies of the same 3 is three chances
+for one of them to drift.
+"""
+
+
+def tie_key(
+    section_id: UUID,
+    layer_a_id: UUID,
+    layer_a_side: str,
+    layer_b_id: UUID,
+    layer_b_side: str,
+) -> tuple[UUID, UUID, str, UUID, str]:
+    """Canonical identity of a tie: the SECTION, both endpoints, both surfaces.
+
+    Mirrors ``uq_litho_contact_corr_triple`` exactly, and every element earns
+    its place. Dropping the surfaces would read a base-to-base tie as a
+    duplicate of a top-to-top tie between the same bands. Dropping the section
+    would read a tie drawn on one cross-section as a duplicate of one drawn on
+    another — two ribbons the engineer drew separately, on drawings he views
+    separately — and the transfer would delete one of them for a collision the
+    database would never have raised.
 
     Parameters
     ----------
+    section_id : UUID
+        The cross-section the tie belongs to.
     layer_a_id, layer_b_id : UUID
         The endpoints, in any order.
     layer_a_side, layer_b_side : str
@@ -365,12 +399,13 @@ def tie_key(
 
     Returns
     -------
-    tuple[UUID, str, UUID, str]
-        The pair ordered by id, each side travelling with its own endpoint.
+    tuple[UUID, UUID, str, UUID, str]
+        Section first, then the pair ordered by id, each side travelling with
+        its own endpoint.
     """
     if layer_a_id < layer_b_id:
-        return (layer_a_id, layer_a_side, layer_b_id, layer_b_side)
-    return (layer_b_id, layer_b_side, layer_a_id, layer_a_side)
+        return (section_id, layer_a_id, layer_a_side, layer_b_id, layer_b_side)
+    return (section_id, layer_b_id, layer_b_side, layer_a_id, layer_a_side)
 
 
 @dataclass(frozen=True)
@@ -451,7 +486,7 @@ def plan_edge_transfer(
     to_layer_id: UUID,
     survivor_class: int | None,
     class_by_partner: dict[UUID, int | None],
-    existing_ties: dict[tuple[UUID, str, UUID, str], ExistingTie],
+    existing_ties: dict[tuple[UUID, UUID, str, UUID, str], ExistingTie],
 ) -> EdgeTransferPlan:
     """Decide the fate of every edge on a band about to be absorbed.
 
@@ -474,7 +509,7 @@ def plan_edge_transfer(
         The survivor's re-derived class (decides which flag a move carries).
     class_by_partner : dict[UUID, int | None]
         Current class of each partner layer.
-    existing_ties : dict[tuple[UUID, str, UUID, str], ExistingTie]
+    existing_ties : dict[tuple[UUID, UUID, str, UUID, str], ExistingTie]
         Ties the survivor already carries, keyed by :func:`tie_key` — a
         transfer landing on one collides. An ACCEPTED occupant makes the
         incoming tie a true duplicate (dropped); a PENDING occupant is
@@ -489,7 +524,7 @@ def plan_edge_transfer(
     moves: list[TransferMove] = []
     drops: list[UUID] = []
     displaced: list[UUID] = []
-    claimed: dict[tuple[UUID, str, UUID, str], ExistingTie] = dict(existing_ties)
+    claimed: dict[tuple[UUID, UUID, str, UUID, str], ExistingTie] = dict(existing_ties)
     for edge in edges:
         if not edge.user_approved:
             continue  # the cascade's to take — a machine claim
@@ -501,7 +536,8 @@ def plan_edge_transfer(
         # travels onto the survivor, the partner's side never moves.
         moved_side = edge.side_of(from_layer_id)
         partner_side = edge.partner_side(from_layer_id)
-        key = tie_key(to_layer_id, moved_side, partner, partner_side)
+        # The tie stays on its own section — only its anchor row changes.
+        key = tie_key(edge.section_id, to_layer_id, moved_side, partner, partner_side)
         occupant = claimed.get(key)
         if occupant is not None:
             if occupant.user_approved:
@@ -754,6 +790,7 @@ async def load_edges_for_layers(
     return [
         EdgeRef(
             edge_id=r.id,
+            section_id=r.section_id,
             layer_a_id=r.layer_a_id,
             layer_b_id=r.layer_b_id,
             layer_a_side=r.layer_a_side,
@@ -991,6 +1028,7 @@ async def transfer_accepted_edges(
     edges = [
         EdgeRef(
             edge_id=r.id,
+            section_id=r.section_id,
             layer_a_id=r.layer_a_id,
             layer_b_id=r.layer_b_id,
             layer_a_side=r.layer_a_side,
@@ -1002,12 +1040,10 @@ async def transfer_accepted_edges(
     ]
     partner_ids = [e.partner_of(from_layer_id) for e in edges if e.user_approved]
     class_by_partner = await load_nad_class_by_layer(session, partner_ids)
-    # The survivor's existing pairs, PER SECTION: the uniqueness triple is
-    # section-scoped, so the duplicate test must be too. Conservative shortcut:
-    # treat any same-pair edge on the model as a duplicate — the transfer's
-    # source and target rows live on the same column, and the same pair on
-    # another section carries the same engineering meaning (a duplicate is the
-    # same tie, not lost work).
+    # The survivor's existing ties, keyed exactly as the database keys them —
+    # section included. An earlier version treated any same-pair edge anywhere
+    # in the model as a duplicate; that deleted ties drawn on OTHER sections,
+    # which are separate claims on separate drawings.
     survivor_rows = (
         (
             await session.execute(
@@ -1024,9 +1060,9 @@ async def transfer_accepted_edges(
         .all()
     )
     existing_ties = {
-        tie_key(r.layer_a_id, r.layer_a_side, r.layer_b_id, r.layer_b_side): ExistingTie(
-            r.id, r.user_approved
-        )
+        tie_key(
+            r.section_id, r.layer_a_id, r.layer_a_side, r.layer_b_id, r.layer_b_side
+        ): ExistingTie(r.id, r.user_approved)
         for r in survivor_rows
     }
     plan = plan_edge_transfer(
@@ -1059,6 +1095,36 @@ async def transfer_accepted_edges(
         f"displaced_pending={len(plan.displaced_edge_ids)}"
     )
     return plan
+
+
+async def finalize_band_edit(
+    session: AsyncSession,
+    litho_repo: LithoLayerRepository,
+    *,
+    geotech_model_id: UUID,
+) -> None:
+    """Close a band edit: stale the solids, re-resolve bodies, commit once.
+
+    The identical three-line tail of every band-edit commit (split, merge,
+    run-merge, move), hoisted for the same reason the edge helpers above were.
+    Order matters and is the reason this is one function rather than a
+    convention: the 3-D solids must be marked stale BEFORE the commit that
+    publishes the new band geometry, and the resolver must run inside that same
+    transaction (``commit=False``) so a body ordinal can never be observed
+    disagreeing with the rows it describes.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session; this function performs the single commit.
+    litho_repo : LithoLayerRepository
+        Repository owning the solid-staleness flag.
+    geotech_model_id : UUID
+        The edited geotechnical model.
+    """
+    await litho_repo.mark_litho_solids_stale(geotech_model_id)
+    await ResolveLithoInstances(session).execute(model_id=geotech_model_id, commit=False)
+    await session.commit()
 
 
 async def delete_edges(session: AsyncSession, edge_ids: Sequence[UUID]) -> int:
