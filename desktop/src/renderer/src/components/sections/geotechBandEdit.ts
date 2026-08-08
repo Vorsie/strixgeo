@@ -371,8 +371,15 @@ export function dragAbsorbPrediction(
   const lowerRemaining = lower.baseDepthM - depthM
   const upperThreshold = absorbRemainderThresholdM(upper.baseDepthM - upper.topDepthM)
   const lowerThreshold = absorbRemainderThresholdM(lower.baseDepthM - lower.topDepthM)
-  const upperCollapses = upperRemaining < upperThreshold
-  const lowerCollapses = lowerRemaining < lowerThreshold
+  // An absorb is a SQUEEZE: only the band the drag is closing on can be
+  // absorbed. Without this direction test a band that was ALREADY thinner than
+  // the 10 cm floor reads as collapsing at every cursor position — including
+  // at rest and while being GROWN — so the release would silently merge a pair
+  // the engineer meant only to nudge. The pair's resting boundary is the
+  // shared edge the two intervals still carry.
+  const restingBoundaryM = upper.baseDepthM
+  const upperCollapses = depthM < restingBoundaryM && upperRemaining < upperThreshold
+  const lowerCollapses = depthM > restingBoundaryM && lowerRemaining < lowerThreshold
   if (upperCollapses && lowerCollapses) {
     // Pathologically thin pair: the nearer edge wins.
     return upperRemaining <= lowerRemaining ? { side: 'upper' } : { side: 'lower' }
