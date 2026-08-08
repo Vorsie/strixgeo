@@ -5942,6 +5942,31 @@ geotech refetch no longer blinks the NAD fill).
 * **Known accepted infidelities** (documented in code): undo of a split leaves
   `source='manual'` on the restored band (hand-edit count may over-report by
   ≤1); ties FK-cascaded with an absorbed row do not resurrect on undo.
+* **Undo commands re-anchor per command, not across the stack.** Each command
+  closes over its own row ids and re-anchors them across its own redo cycles,
+  but a LATER hand edit that deletes a row an EARLIER command still names
+  leaves that earlier command stale — e.g. split a band, hand-merge the halves
+  back, then Ctrl+Z twice: the second revert names a row the merge deleted.
+  `useUndoStack` fails safe (it clears history and names the action in the
+  toast), so nothing corrupts, but the earlier edits stop being undoable.
+  Fixing it properly means id-independent commands (address rows by column +
+  depth, not by id) — a rework of the shared stack's contract, not of #227.
+
+**Adversarial review 2026-08-08 (5 dimensions over the ~70-commit build).** Six
+defects found and fixed RED-first before the dogfeed: a tie's identity ignored
+its `top`/`base` surfaces, so an absorb could drop an accepted base-to-base tie
+as a "duplicate" of an unrelated top-to-top one; a PENDING proposal on the
+survivor could evict an ACCEPTED tie (now the reverse — the proposal is
+withdrawn); an `ambiguous_band` flag could be overwritten into `class_changed`
+and then self-heal away a review the engineer never gave; the drag's absorb
+prediction had no direction, so a band already thinner than the 10 cm floor
+merged on any nudge, even one growing it; a failed post-commit refetch reported
+a landed edit as a failure and skipped its undo push; and the drag release
+called the preview from inside a `setState` updater (two previews per release
+under StrictMode). An emptied geotech model also kept a stale
+`classified_with_statistic`, advertising a re-run over bands that no longer
+exist. Two review dimensions (wiring-ux, test-honesty) never ran — the run hit
+a credit ceiling — so those angles are UNREVIEWED and worth a second pass.
 
 **When to revisit.** Close after owner dogfeed answers the two questions and
 the litho-interbed slice gets its own entry or a kill.
