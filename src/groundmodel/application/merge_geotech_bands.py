@@ -177,6 +177,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         # cascade to take.
         transfer_moves: list[UUID] = []
         transfer_drops: list[UUID] = []
+        accepted_drops: list[UUID] = []
         absorbed_ids: list[UUID] = []
         for absorbed in absorbed_rows:
             absorbed_ids.append(absorbed.id)
@@ -189,6 +190,10 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
                 survivor_class=merged.nad_class,
             )
             transfer_moves.extend(m.edge_id for m in transfer.moves)
+            # ``drops`` are ACCEPTED ties the absorb could not re-anchor —
+            # a self-loop or a true duplicate. Tracked apart from the displaced
+            # proposals so the toast can tell the engineer whose work went.
+            accepted_drops.extend(transfer.drops)
             transfer_drops.extend(transfer.drops)
             # Pending proposals the accepted transfers evicted are removals too.
             transfer_drops.extend(transfer.displaced_edge_ids)
@@ -217,7 +222,8 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             f"class {merged.previous_nad_class} → {merged.nad_class}; "
             f"{len(absorbed_ids)} band(s) absorbed; "
             f"{len(transfer_moves)} tie(s) transferred+flagged, "
-            f"{len(deleted_edges)} removed, {len(revalidation.cleared_edge_ids)} flag(s) cleared"
+            f"{len(deleted_edges)} removed ({len(accepted_drops)} of them accepted), "
+            f"{len(revalidation.cleared_edge_ids)} flag(s) cleared"
         )
         return GeotechBandEditResult(
             geotech_model_id=geotech_model_id,
