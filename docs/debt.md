@@ -5968,6 +5968,50 @@ under StrictMode). An emptied geotech model also kept a stale
 exist. Two review dimensions (wiring-ux, test-honesty) never ran — the run hit
 a credit ceiling — so those angles are UNREVIEWED and worth a second pass.
 
+**Review round 2, 2026-08-08 (four reviewers over the same bounded diff:
+staff, UX, test-honesty, silent-failure — plus the owner's own `/code-review`).**
+Three reviewers converged independently on the same top defects, which is what
+made them credible. Fixed, each RED-first:
+
+* **A tie's identity was missing its SECTION.** The uniqueness constraint is
+  `(model, section, both endpoints, both surfaces)`; the transfer's duplicate
+  test omitted the section, so absorbing a band could delete an accepted tie
+  drawn on a DIFFERENT cross-section as a false duplicate — and a genuine
+  cross-section collision could raise an IntegrityError, surfacing as a 500.
+  Found independently by two reviewers. `tie_key` now mirrors the constraint.
+* **The toast called deleted ACCEPTED ties "pending".** An absorb may legally
+  delete an accepted tie (self-loop, true duplicate), but reporting it as a
+  withdrawn machine proposal inverts the meaning. The response now carries
+  `deleted_accepted_edge_ids` (additive) and the toast names the two apart.
+* **The drag preview was invisible in dark mode** — slate-900 on the slate-800
+  plot, ~1.2:1, on the theme the app ships as its hero. The "release to merge"
+  warning text was among the unreadable parts. Now themed through
+  `--section-edit-*`, the mechanism that already fixed this for ColumnGlyph.
+* **The band menu ignored Escape and survived zooming** — the litho sibling
+  handles both, the wheel case specifically because the owner reported a
+  stranded menu there.
+* **The "re-run under <statistic>" tag could never clear.** A local cache of
+  the pre-change `classified_with` shadowed the refreshed model row forever, so
+  the tag stayed after the re-subdivide that resolved it — inviting repeated
+  presses of a verb that wipes and rebuilds every band. The local answer is now
+  a bridge that expires when the server row agrees.
+* **The post-commit "view could not refresh" warning was dead code.** The
+  packing-edge refetch catches its own failures, so it never rejected and the
+  branch only fired against a mock — mock drift in a fix made the same day. The
+  refetch now reports success, and a stale section is said out loud.
+* **Coverage holes closed:** `swap_sides` had zero tests (a wrong result stores
+  a base-to-base tie as top-to-top), and **the BUILD arm of ruling 7 was
+  unpinned** — hard-coding `median` in the build while still stamping
+  `harmonic` left every suite green. ST-SUB3 pins it and was negative-controlled
+  (sabotage the build → RED; restore → green).
+
+Not fixed, recorded: the reviewers also flagged that four one-line prop
+deletions would each silently disable a shipped feature (the lens badge and the
+solids-refresh have no test at any level), and that the boundary hit-strips do
+not use `allocateMinHitExpansions`, so two boundaries closer than 10 px overlap
+and the deeper one wins the press (the debt #158 collision class, on a gesture
+that now commits a re-derivation rather than opening a menu).
+
 **When to revisit.** Close after owner dogfeed answers the two questions and
 the litho-interbed slice gets its own entry or a kill.
 
