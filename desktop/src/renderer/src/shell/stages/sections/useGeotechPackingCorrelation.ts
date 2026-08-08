@@ -38,7 +38,7 @@ export interface UseGeotechPackingCorrelationDeps {
   /** Refetch the litho contact-correlation edge list. */
   refetchContactEdges: () => Promise<void>
   /** Refetch the geotech packing edge list. */
-  refetchGeotechPackingEdges: () => Promise<void>
+  refetchGeotechPackingEdges: () => Promise<boolean>
   /** Ask the shell to refetch geotech layers (body_id stamp source). */
   requestGeotechLayersRefetch: () => void
   /** Mark the project dirty (two-stage save model). */
