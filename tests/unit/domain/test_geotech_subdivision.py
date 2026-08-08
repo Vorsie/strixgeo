@@ -578,3 +578,50 @@ def test_statistic_default_is_median_identical_output():
     assert suggest_geotech_subdivision(**kwargs) == suggest_geotech_subdivision(
         **kwargs, statistic="median"
     )
+
+
+def test_st_sub3_the_build_arm_classifies_under_the_models_chosen_statistic() -> None:
+    """ST-SUB3 — ruling 7 reaches the BUILD, not only the preview.
+
+    The preview arm is pinned elsewhere. This is the arm that writes the bands
+    the engineer keeps, and until this test it was unguarded: hard-coding
+    ``median`` inside the build while still stamping
+    ``classified_with_statistic='harmonic'`` left every suite green and every
+    band classified under a statistic the model denied using — the silent
+    divergence ruling 6 exists to forbid.
+
+    The scene is a dicht sand carrying isolated weak readings, scattered so no
+    run of them is long enough to become a band of its own. The segment
+    therefore survives as ONE band and its name is decided purely by the chosen
+    statistic — which is the point of offering the choice. The median shrugs the
+    weak readings off (12 MPa, *dicht*); the harmonic mean is dragged down by
+    them (8.2 MPa, *matig*), which is exactly why a conservative engineer picks
+    it. Same data, same boundaries, different name.
+    """
+    sample_count = 500
+    depth_m = [round(0.02 * i, 3) for i in range(sample_count)]
+    qc_mpa: list[float | None] = [
+        0.5 if i % 50 == 7 else 12.0 for i in range(sample_count)
+    ]
+
+    def bands_under(statistic: str) -> list[tuple[float, float, int | None]]:
+        return [
+            (s.depth_top_m, s.depth_base_m, s.nad_class)
+            for s in suggest_geotech_subdivision(
+                "ZAND",
+                (),
+                depth_m,
+                qc_mpa,
+                segment_top_m=0.0,
+                segment_base_m=10.0,
+                min_thickness_m=0.35,
+                statistic=statistic,
+            )
+        ]
+
+    median_bands = bands_under("median")
+    harmonic_bands = bands_under("harmonic")
+
+    # One band either way — the geometry is not what changed.
+    assert median_bands == [(0.0, 10.0, 7)], median_bands
+    assert harmonic_bands == [(0.0, 10.0, 6)], harmonic_bands
