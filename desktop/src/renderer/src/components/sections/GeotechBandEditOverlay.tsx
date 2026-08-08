@@ -38,7 +38,7 @@
  * eligibility are the pure rules in ``geotechBandEdit.ts``; the consequence of an edit comes
  * from the preview endpoint; this file is the hit targets, the live lines and the menu.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { LithoLayerResponse } from '../../api/client'
@@ -267,6 +267,15 @@ export default function GeotechBandEditOverlay({
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [placing, setPlacing] = useState<SplitPlacement | null>(null)
   const [drag, setDrag] = useState<BoundaryDrag | null>(null)
+  // The drag mirrored in a ref. The window handlers need the LIVE gesture, and
+  // reading it from a ref keeps every state updater pure: React re-runs
+  // updaters (StrictMode does it twice, deliberately), so a preview call made
+  // from inside one is made once per invocation, not once per release.
+  const dragRef = useRef<BoundaryDrag | null>(null)
+  const applyDrag = useCallback((next: BoundaryDrag | null): void => {
+    dragRef.current = next
+    setDrag(next)
+  }, [])
 
   const editable =
     !suspended &&
@@ -346,40 +355,45 @@ export default function GeotechBandEditOverlay({
   useEffect(() => {
     if (drag === null) return
     function onMove(e: MouseEvent): void {
-      setDrag(prev => {
-        if (prev === null) return prev
-        if (e.buttons === 0) return null // released outside the window
-        const raw = depthAtClientY(e.clientY, prev.svgTop, prev.column.surfaceY, prev.column.pxPerMetre)
-        const clamped = clampDragDepth(prev.upper, prev.lower, raw)
-        const absorb = dragAbsorbPrediction(prev.upper, prev.lower, clamped.depthM)
-        return { ...prev, depthM: clamped.depthM, atLimit: clamped.atLimit, absorb: absorb?.side ?? null }
+      const prev = dragRef.current
+      if (prev === null) return
+      if (e.buttons === 0) {
+        applyDrag(null) // released outside the window
+        return
+      }
+      const raw = depthAtClientY(e.clientY, prev.svgTop, prev.column.surfaceY, prev.column.pxPerMetre)
+      const clamped = clampDragDepth(prev.upper, prev.lower, raw)
+      const absorb = dragAbsorbPrediction(prev.upper, prev.lower, clamped.depthM)
+      applyDrag({
+        ...prev,
+        depthM: clamped.depthM,
+        atLimit: clamped.atLimit,
+        absorb: absorb?.side ?? null,
       })
     }
     function onUp(): void {
-      setDrag(prev => {
-        if (prev !== null) {
-          const moved = Math.abs(prev.depthM - prev.preDragDepthM) > 1e-6
-          if (moved && prev.absorb !== null) {
-            // The squeeze collapsed a band: the honest verb is the MERGE of
-            // the pair, previewed and committed by the shipped endpoints.
-            onRequestMerge?.(prev.upper.layerId, prev.lower.layerId, prev.preDragDepthM)
-          } else if (moved) {
-            onRequestMoveBoundary?.(
-              prev.upper.layerId,
-              prev.lower.layerId,
-              prev.depthM,
-              prev.preDragDepthM,
-            )
-          }
-        }
-        return null
-      })
+      const prev = dragRef.current
+      applyDrag(null)
+      if (prev === null) return
+      if (Math.abs(prev.depthM - prev.preDragDepthM) <= 1e-6) return
+      if (prev.absorb !== null) {
+        // The squeeze collapsed a band: the honest verb is the MERGE of the
+        // pair, previewed and committed by the shipped endpoints.
+        onRequestMerge?.(prev.upper.layerId, prev.lower.layerId, prev.preDragDepthM)
+        return
+      }
+      onRequestMoveBoundary?.(
+        prev.upper.layerId,
+        prev.lower.layerId,
+        prev.depthM,
+        prev.preDragDepthM,
+      )
     }
     function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setDrag(null)
+      if (e.key === 'Escape') applyDrag(null)
     }
     function onBlur(): void {
-      setDrag(null)
+      applyDrag(null)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -391,17 +405,17 @@ export default function GeotechBandEditOverlay({
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('blur', onBlur)
     }
-  }, [drag, onRequestMerge, onRequestMoveBoundary])
+  }, [drag, applyDrag, onRequestMerge, onRequestMoveBoundary])
 
   // Correlate mode taking the canvas mid-drag abandons the drag, exactly as the hit
   // targets vanish: a gesture whose surface disappeared must not commit on release.
   useEffect(() => {
     if (suspended) {
-      setDrag(null)
+      applyDrag(null)
       setPlacing(null)
       setMenu(null)
     }
-  }, [suspended])
+  }, [suspended, applyDrag])
 
   /** Follow the cursor while a placement is armed, clamped to the fixed litho body. */
   const trackPlacement = useCallback((clientY: number): void => {
@@ -558,7 +572,7 @@ export default function GeotechBandEditOverlay({
                           e.stopPropagation()
                           const svg = e.currentTarget.ownerSVGElement
                           if (!svg) return
-                          setDrag({
+                          applyDrag({
                             svgTop: svg.getBoundingClientRect().top,
                             column,
                             upper: pair.upper,
