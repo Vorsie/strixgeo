@@ -17,17 +17,20 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from groundmodel.application.geotech_band_edit_helpers import (
-    ExistingTie,
-    tie_key,
     EdgeActions,
     EdgeRef,
+    ExistingTie,
     edge_review_actions,
     plan_edge_transfer,
+    tie_key,
 )
 from groundmodel.application.geotech_tie_reanchor import (
     REVIEW_AMBIGUOUS_BAND,
     REVIEW_CLASS_CHANGED,
 )
+
+SECTION_1 = UUID("11111111-1111-1111-1111-111111111111")
+SECTION_2 = UUID("22222222-2222-2222-2222-222222222222")
 
 
 def _edge(
@@ -38,9 +41,11 @@ def _edge(
     reason: str | None = None,
     a_side: str = "top",
     b_side: str = "top",
+    section: UUID = SECTION_1,
 ) -> EdgeRef:
     return EdgeRef(
         edge_id=uuid4(),
+        section_id=section,
         layer_a_id=a,
         layer_b_id=b,
         layer_a_side=a_side,
@@ -50,10 +55,18 @@ def _edge(
     )
 
 
-def _existing(a: UUID, b: UUID, *, approved: bool, a_side: str = "top", b_side: str = "top"):
+def _existing(
+    a: UUID,
+    b: UUID,
+    *,
+    approved: bool,
+    a_side: str = "top",
+    b_side: str = "top",
+    section: UUID = SECTION_1,
+):
     """One tie the survivor already carries, keyed the way the planner keys it."""
-    edge = _edge(a, b, approved=approved, a_side=a_side, b_side=b_side)
-    return {tie_key(a, a_side, b, b_side): ExistingTie(edge.edge_id, approved)}
+    edge = _edge(a, b, approved=approved, a_side=a_side, b_side=b_side, section=section)
+    return {tie_key(section, a, a_side, b, b_side): ExistingTie(edge.edge_id, approved)}
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +290,96 @@ def test_ea9_an_ambiguous_band_flag_is_never_overwritten_into_a_self_healing_one
     assert actions.to_flag == ()
     assert actions.to_delete == ()
     assert actions.to_clear == ()
+
+
+def test_tr6_a_tie_on_another_section_is_not_a_duplicate() -> None:
+    """TR6 — the database keys a tie by SECTION as well as by endpoints, because
+    each section draws its own ribbon. An accepted tie drawn on section 2 is
+    therefore not the same claim as one on section 1, and absorbing a band must
+    not delete it as a "duplicate" — that is the engineer's own work on a
+    section he was not even looking at."""
+    absorbed, survivor, partner = uuid4(), uuid4(), uuid4()
+    on_section_2 = _edge(absorbed, partner, approved=True, section=SECTION_2)
+    plan = plan_edge_transfer(
+        edges=[on_section_2],
+        from_layer_id=absorbed,
+        to_layer_id=survivor,
+        survivor_class=6,
+        class_by_partner={partner: 6},
+        existing_ties=_existing(survivor, partner, approved=True, section=SECTION_1),
+    )
+    assert plan.drops == ()
+    assert [m.edge_id for m in plan.moves] == [on_section_2.edge_id]
+
+
+def test_tr7_the_duplicate_test_still_bites_within_one_section() -> None:
+    """TR7 — the section is part of the key, not a replacement for it: the same
+    pair on the SAME section is still one tie."""
+    absorbed, survivor, partner = uuid4(), uuid4(), uuid4()
+    same_section = _edge(absorbed, partner, approved=True, section=SECTION_1)
+    plan = plan_edge_transfer(
+        edges=[same_section],
+        from_layer_id=absorbed,
+        to_layer_id=survivor,
+        survivor_class=6,
+        class_by_partner={partner: 6},
+        existing_ties=_existing(survivor, partner, approved=True, section=SECTION_1),
+    )
+    assert plan.moves == ()
+    assert plan.drops == (same_section.edge_id,)
+
+
+def test_tr8_the_sides_travel_with_their_own_endpoints() -> None:
+    """TR8 — a tie says WHICH surfaces it joins, and the re-point must not
+    scramble that. When the absorbed row sat in the ``layer_b`` slot and the
+    survivor lands in ``layer_a``, the two side columns have to swap with the
+    ids or the row now claims a different pair of surfaces correlate — a wrong
+    geological statement written silently, with no error anywhere.
+
+    Here the absorbed band's BASE is tied to the partner's TOP.
+    """
+    partner = UUID("00000000-0000-0000-0000-0000000000aa")
+    absorbed = UUID("00000000-0000-0000-0000-0000000000ff")
+    survivor = UUID("00000000-0000-0000-0000-000000000011")
+    # partner < absorbed, so the absorbed row sits in slot b...
+    assert partner < absorbed
+    # ...and survivor < partner, so after the re-point the survivor takes slot a.
+    assert survivor < partner
+    edge = _edge(partner, absorbed, approved=True, a_side="top", b_side="base")
+
+    plan = plan_edge_transfer(
+        edges=[edge],
+        from_layer_id=absorbed,
+        to_layer_id=survivor,
+        survivor_class=6,
+        class_by_partner={partner: 6},
+        existing_ties={},
+    )
+    move = plan.moves[0]
+    assert move.new_layer_a_id == survivor
+    assert move.new_layer_b_id == partner
+    # The slots swapped ends, so the sides must swap too: the survivor keeps
+    # the absorbed band's BASE, the partner keeps its TOP.
+    assert move.swap_sides is True
+
+
+def test_tr9_sides_stay_put_when_the_slots_do() -> None:
+    """TR9 — the mirror of TR8: when the re-point leaves each endpoint in the
+    slot it already occupied, swapping the sides would be the corruption."""
+    absorbed = UUID("00000000-0000-0000-0000-000000000011")
+    survivor = UUID("00000000-0000-0000-0000-000000000022")
+    partner = UUID("00000000-0000-0000-0000-0000000000ff")
+    # absorbed < partner (slot a), and survivor < partner too — slot a again.
+    edge = _edge(absorbed, partner, approved=True, a_side="base", b_side="top")
+
+    plan = plan_edge_transfer(
+        edges=[edge],
+        from_layer_id=absorbed,
+        to_layer_id=survivor,
+        survivor_class=6,
+        class_by_partner={partner: 6},
+        existing_ties={},
+    )
+    move = plan.moves[0]
+    assert move.new_layer_a_id == survivor
+    assert move.swap_sides is False
