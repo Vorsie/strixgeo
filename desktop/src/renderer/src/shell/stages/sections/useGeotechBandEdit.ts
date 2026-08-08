@@ -84,8 +84,12 @@ export interface UseGeotechBandEditDeps {
   projectId: string
   /** Ask the shell to refetch geotech layers — the edited column's new band stack. */
   requestGeotechLayersRefetch: () => void
-  /** Refetch the geotech packing edge list, since a re-derived class can flag/drop ties. */
-  refetchGeotechPackingEdges: () => Promise<void>
+  /**
+   * Refetch the geotech packing edge list, since a re-derived class can
+   * flag/drop ties. Resolves ``false`` when the refetch failed — the ribbons
+   * on screen are then older than the write that just landed.
+   */
+  refetchGeotechPackingEdges: () => Promise<boolean>
   /** Mark the project dirty (two-stage save model). */
   markMutated: () => void
   /** Toast stack action. */
@@ -180,14 +184,15 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
    * The shared post-write fan-out — commit, revert and reapply all run it, so
    * undo refreshes the render exactly as the original edit did.
    */
-  const settleAfterWrite = useCallback(async (): Promise<void> => {
+  const settleAfterWrite = useCallback(async (): Promise<boolean> => {
     requestGeotechLayersRefetch()
-    await refetchGeotechPackingEdges()
+    const fresh = await refetchGeotechPackingEdges()
     markMutated()
     // The band stack changed on this column, so the TIN-divided borehole bands derived
     // from it are out of date — amber the "Divide boreholes" button, as every other
     // geotech write path does.
     markBoreholesStale()
+    return fresh
   }, [requestGeotechLayersRefetch, refetchGeotechPackingEdges, markMutated])
 
   const onRequestSplitBand = useCallback(
@@ -485,14 +490,23 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
           `${flagged} flagged, -${removedAccepted} accepted edges, ` +
           `-${removedPending} pending edges`,
       )
+      // The edit stands either way; only the VIEW can be behind. The refetch
+      // catches its own failures and reports them as ``false`` rather than
+      // throwing, so both shapes are handled: a stale section must never sit
+      // under a plain success toast, or the engineer judges his model against
+      // correlations the server has already changed.
+      let fresh = true
       try {
-        await settleAfterWrite()
+        fresh = await settleAfterWrite()
       } catch (err) {
-        // The edit stands; only the view is behind. Say exactly that.
         log.warn('section', `band-${pending.kind} refresh after commit failed`, err)
+        fresh = false
+      }
+      if (!fresh) {
         toast(
           'warning',
-          'The edit was saved, but the view could not refresh — reopen the section to see it.',
+          'The edit was saved, but the correlations on screen could not be refreshed — ' +
+            'reopen the section before judging the ties.',
         )
       }
     } catch (err) {
