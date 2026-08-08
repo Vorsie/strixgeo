@@ -292,10 +292,25 @@ The ones that constrain the code:
   hand edit breaks is FLAGGED (`review_reason='class_changed'`, the violet
   badge + Confirm-tie flow), never deleted; restoring the match self-heals the
   flag (GB7). An absorbed row's accepted ties are RE-POINTED to the survivor
-  and flagged (`class_changed` on mismatch, else `ambiguous_band`); duplicates
-  and self-loops drop. Pending mismatches still drop. The toast names both
+  and flagged (`class_changed` on mismatch, else `ambiguous_band`); self-loops
+  and true duplicates drop. Pending mismatches still drop. The toast names both
   counts. (`geotech_band_edit_helpers.py` — `edge_review_actions`,
   `plan_edge_transfer`, `revalidate_layer_edges`.)
+
+  Three rules make "never destroys accepted work" hold literally, each added
+  after the 2026-08-08 review found the case that broke it:
+  * **A tie's identity is both endpoints AND both surfaces** (`tie_key`,
+    mirroring the DB uniqueness triple). The same two bands legitimately carry
+    a top-to-top tie and a base-to-base tie; keying on ids alone read the
+    second as a duplicate of the first and deleted it.
+  * **Accepted outranks pending at a collision.** When the survivor's
+    same-slot tie is only a machine proposal, the proposal is withdrawn
+    (`displaced_edge_ids`, deleted before the re-point so the write never
+    races the constraint) and the engineer's tie takes the slot.
+  * **An existing flag is never overwritten.** Re-stamping an
+    `ambiguous_band` tie as `class_changed` would hand it to the self-heal,
+    and the next restored match would clear a review the engineer never gave.
+    A flagged tie keeps the flag it has until they act on it.
 
 The view-only line is enforced by handler ABSENCE, not by an axis check inside the
 overlays, so every gesture that needs a handler has to be gated where the handler is
