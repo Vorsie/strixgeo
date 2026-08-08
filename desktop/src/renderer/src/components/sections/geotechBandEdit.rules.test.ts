@@ -257,3 +257,28 @@ describe('dragAbsorbPrediction — drag-up-to-collapse becomes a merge', () => {
     expect(absorbRemainderThresholdM(2.0)).toBeCloseTo(0.3, 10)
   })
 })
+
+describe('the absorb needs a squeeze, not merely a thin band', () => {
+  // An absorb means "you pushed this band away". A band that was ALREADY
+  // thinner than the floor has not been pushed anywhere just by existing —
+  // and at rest, before any drag, nothing is being absorbed at all. Without
+  // a direction the prediction fires on a 5 cm band the moment it is touched,
+  // so the release silently MERGES two bands the engineer only meant to nudge.
+  const THIN_UPPER = { topDepthM: 3.0, baseDepthM: 3.05 } // 5 cm — under the 10 cm floor
+  const FAT_LOWER = { topDepthM: 3.05, baseDepthM: 9.05 }
+
+  it('AB6 — a band already thinner than the floor is not absorbed at rest', () => {
+    expect(dragAbsorbPrediction(THIN_UPPER, FAT_LOWER, 3.05)).toBeNull()
+  })
+
+  it('AB7 — dragging away from a thin band GROWS it, which is never an absorb', () => {
+    // 3.05 → 3.09 makes the upper band thicker. Still under the floor, but the
+    // gesture is the opposite of a squeeze.
+    expect(dragAbsorbPrediction(THIN_UPPER, FAT_LOWER, 3.09)).toBeNull()
+  })
+
+  it('AB8 — squeezing that same thin band the other way still absorbs it', () => {
+    // 3.05 → 3.01 shrinks it to 1 cm: the squeeze the verb is for.
+    expect(dragAbsorbPrediction(THIN_UPPER, FAT_LOWER, 3.01)).toEqual({ side: 'upper' })
+  })
+})
