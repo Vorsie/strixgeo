@@ -21,8 +21,11 @@
  * guard cancels on buttons===0), a React flush pause, then the mouseup.
  *
  * Setup is API-driven like the sibling geotech specs: any leftover geotech
- * model is deleted, step 1 (subdivide-cpts) is re-run fresh, and the project
- * is re-opened so the shell sees the new model.
+ * model is deleted, step 1 (subdivide-cpts) is re-run fresh, the thickest CPT
+ * band is split down the middle so the column HAS an internal boundary to drag
+ * (the fixture's uniform qc otherwise yields one band per litho body, and a
+ * litho contact carries no handle by design), and the project is re-opened so
+ * the shell sees the new model.
  *
  * NOTE: this flow MUTATES the fixture (geotech model + a hand edit).
  * Re-seed before a full suite run.
@@ -82,7 +85,57 @@ test.describe('flow_geotech_band_edit', () => {
           )
           if (r.status !== 200) return { error: `subdivide ${r.status}: ${await r.text()}` }
           const payload = (await r.json()) as { geotech_model_id: string }
-          return { geotechModelId: payload.geotech_model_id }
+          const gid = payload.geotech_model_id
+
+          // Give the column a boundary to drag. The synthetic fixture's qc is
+          // uniform enough that subdivision yields ONE packing band per litho
+          // body — and a boundary between two litho bodies is a contact, which
+          // correctly carries no drag handle. So the spec makes its own
+          // internal boundary by splitting the thickest CPT band down the
+          // middle; the two halves share a litho parent, which is exactly the
+          // pair the drag verb is for.
+          const layers = (await (
+            await fetch(`${base}/projects/${pid}/geology/models/${gid}/layers`)
+          ).json()) as {
+            id: string
+            cpt_id: string | null
+            depth_top_m: number
+            depth_base_m: number
+          }[]
+          const cptBands = layers.filter(l => l.cpt_id !== null)
+          if (cptBands.length === 0) return { error: 'subdivide produced no CPT bands' }
+          // Split the thickest band of EVERY CPT, not just the thickest overall:
+          // subdivide is model-wide, so the single thickest band may well sit on
+          // a CPT this spec never opens, leaving the section it does open with
+          // no internal boundary at all.
+          const thickestPerCpt = new Map<string, (typeof cptBands)[number]>()
+          for (const band of cptBands) {
+            const key = band.cpt_id as string
+            const best = thickestPerCpt.get(key)
+            if (
+              best === undefined ||
+              band.depth_base_m - band.depth_top_m > best.depth_base_m - best.depth_top_m
+            ) {
+              thickestPerCpt.set(key, band)
+            }
+          }
+          let splits = 0
+          for (const target of thickestPerCpt.values()) {
+            const midDepth =
+              Math.round(((target.depth_top_m + target.depth_base_m) / 2) * 1000) / 1000
+            const sp = await fetch(
+              `${base}/projects/${pid}/geology/models/${gid}/geotech/bands/split`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ band_id: target.id, split_depth_m: midDepth }),
+              },
+            )
+            // A band too thin to halve is fine — another CPT will carry the pair.
+            if (sp.status === 200) splits += 1
+          }
+          if (splits === 0) return { error: 'no CPT band could be split to make a pair' }
+          return { geotechModelId: gid, splits }
         },
         [API_BASE, FIXTURE_PROJECT_ID] as const,
       )
@@ -106,8 +159,6 @@ test.describe('flow_geotech_band_edit', () => {
       await expect(axisGeotech).toBeEnabled({ timeout: 10_000 })
       await axisGeotech.click()
 
-      // Pick the drag target from the API: the adjacent CPT pair with the
-      // thickest lower band, so a 30 % push can never trip the absorb rule.
       const readLayers = async (): Promise<LayerRow[]> =>
         page.evaluate(
           async ([base, pid, gid]) => {
@@ -116,31 +167,61 @@ test.describe('flow_geotech_band_edit', () => {
           },
           [API_BASE, FIXTURE_PROJECT_ID, geotechModelId] as const,
         )
+      // Take the target from what the overlay actually DREW. A strip exists
+      // only where the merge is legal — same litho body — so two bands that
+      // merely touch across a litho contact carry no handle, by design. Reading
+      // the pair out of the depth table instead picks such a boundary sooner or
+      // later and the spec then waits for a strip that correctly does not exist.
+      // Two different failures wear the same symptom, so name them apart: no
+      // band hit-rects at all means the overlay never mounted (wrong axis, no
+      // refinement bundle); rects but no strips means nothing on THIS section
+      // has two packing bands inside one litho body.
+      const bandRects = page.locator('[data-testid^="geotech-band-hit-"]')
+      await expect(
+        bandRects.first(),
+        'the band-edit overlay must mount on the geotech axis',
+      ).toBeVisible({ timeout: 20_000 })
+      const strips = page.locator('[data-testid^="geotech-band-boundary-"]')
+      await expect(
+        strips.first(),
+        'this section must show a CPT column with two packing bands in one litho body',
+      ).toBeVisible({ timeout: 20_000 })
+      const upperIds = (
+        await strips.evaluateAll(els =>
+          els.map(el =>
+            (el.getAttribute('data-testid') ?? '').replace('geotech-band-boundary-', ''),
+          ),
+        )
+      ).filter(Boolean)
+      expect(
+        upperIds.length,
+        'the geotech axis must draw at least one drag handle',
+      ).toBeGreaterThan(0)
+
       const layers = await readLayers()
-      const byCpt = new Map<string, LayerRow[]>()
-      for (const row of layers) {
-        if (row.cpt_id === null) continue
-        const list = byCpt.get(row.cpt_id) ?? []
-        list.push(row)
-        byCpt.set(row.cpt_id, list)
-      }
+      const byId = new Map(layers.map(r => [r.id, r]))
+      // Of the drawn boundaries, take the one whose LOWER band is thickest, so
+      // a 30 % push can never trip the absorb rule.
       let pair: { upper: LayerRow; lower: LayerRow } | null = null
-      for (const rows of byCpt.values()) {
-        rows.sort((a, b) => a.depth_top_m - b.depth_top_m)
-        for (let i = 0; i < rows.length - 1; i++) {
-          if (Math.abs(rows[i].depth_base_m - rows[i + 1].depth_top_m) > 1e-6) continue
-          const lowerThickness = rows[i + 1].depth_base_m - rows[i + 1].depth_top_m
-          const best = pair === null ? 0 : pair.lower.depth_base_m - pair.lower.depth_top_m
-          if (lowerThickness > best) pair = { upper: rows[i], lower: rows[i + 1] }
-        }
+      for (const upperId of upperIds) {
+        const upperRow = byId.get(upperId)
+        if (upperRow === undefined) continue
+        const lowerRow = layers.find(
+          r =>
+            r.cpt_id !== null &&
+            r.cpt_id === upperRow.cpt_id &&
+            Math.abs(r.depth_top_m - upperRow.depth_base_m) < 1e-6,
+        )
+        if (lowerRow === undefined) continue
+        const lowerThickness = lowerRow.depth_base_m - lowerRow.depth_top_m
+        const best = pair === null ? 0 : pair.lower.depth_base_m - pair.lower.depth_top_m
+        if (lowerThickness > best) pair = { upper: upperRow, lower: lowerRow }
       }
-      expect(pair, 'the fixture must yield at least one adjacent CPT band pair').not.toBeNull()
+      expect(pair, 'a drawn strip must resolve to an adjacent CPT band pair').not.toBeNull()
       const { upper, lower } = pair!
       const boundaryM = upper.depth_base_m
       const lowerThicknessM = lower.depth_base_m - lower.depth_top_m
 
-      // The strip is the drag handle; a merge-illegal boundary has no strip,
-      // so its presence is itself the "this pair is editable" check.
       const strip = page.getByTestId(`geotech-band-boundary-${upper.id}`)
       await expect(strip).toBeVisible({ timeout: 15_000 })
       const stripBox = (await strip.boundingBox())!
@@ -171,7 +252,11 @@ test.describe('flow_geotech_band_edit', () => {
         },
         { x: cx, y0: cy, y1: targetY, steps: 12 },
       )
-      await expect(page.getByTestId('geotech-drag-preview-line')).toBeVisible()
+      // COUNT, not toBeVisible: an SVG <line> is a zero-height box, so
+      // Playwright's visibility test calls it hidden however correctly it
+      // renders (the quirk already recorded against flow_auto_tie). Its
+      // presence is the assertion — it only exists while a drag is live.
+      await expect(page.getByTestId('geotech-drag-preview-line')).toHaveCount(1)
       await page.waitForTimeout(150)
       await page.evaluate(
         ({ x, y1 }) => {
