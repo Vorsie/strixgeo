@@ -429,6 +429,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             # the geotech model no longer reflects the (empty) litho input
             # . Delete, commit the wipe, return zeroed.
             await self._delete_all_geotech_data(geotech_model.id)
+            # Nothing was classified, so nothing can be stale: clear the stamp
+            # to the never-subdivided state the migration deliberately leaves
+            # NULL. Left behind, it makes a later statistic change advertise
+            # "re-run under <statistic>" over bands that no longer exist — and
+            # pressing the verb re-enters this path, so the tag could not clear.
+            geotech_model.classified_with_statistic = None
             await self._session.commit()
             self.warning(
                 "SubdivideAllBodies: no picks in the model — geotech model "
