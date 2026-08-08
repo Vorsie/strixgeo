@@ -480,3 +480,57 @@ describe('a write that reached the server is never reported as a failure', () =>
     expect(severities).not.toContain('error')
   })
 })
+
+describe('the toast names what actually happened to each tie', () => {
+  // The owner's binding rule is that accepted work is never quietly destroyed.
+  // A merge CAN legitimately delete an accepted tie — a self-loop, or a true
+  // duplicate of one the survivor already carries — but calling that "a pending
+  // tie removed" tells him the machine withdrew its own proposal when in fact
+  // a correlation HE drew is gone. The counts must be separated at the wire.
+  it('HK20 — a deleted accepted tie is reported as accepted, never as pending', async () => {
+    mergeGeotechBands.mockResolvedValue({
+      deleted_edge_ids: ['edge-acc'],
+      deleted_accepted_edge_ids: ['edge-acc'],
+      flagged_edge_ids: [],
+      investigation_id: 'cpt-1',
+      layer_ids: ['band-upper'],
+      created_layer_ids: [],
+      deleted_layer_ids: ['band-lower'],
+    })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMergeBands?.('band-upper', 'band-lower', 4.5)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const message = toast.mock.calls.at(-1)?.[1] as string
+    expect(message).toMatch(/1 accepted tie/)
+    expect(message).not.toMatch(/1 pending tie/)
+  })
+
+  it('HK21 — withdrawn machine proposals are still called pending', async () => {
+    mergeGeotechBands.mockResolvedValue({
+      deleted_edge_ids: ['edge-pending'],
+      deleted_accepted_edge_ids: [],
+      flagged_edge_ids: [],
+      investigation_id: 'cpt-1',
+      layer_ids: ['band-upper'],
+      created_layer_ids: [],
+      deleted_layer_ids: ['band-lower'],
+    })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMergeBands?.('band-upper', 'band-lower', 4.5)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    const message = toast.mock.calls.at(-1)?.[1] as string
+    expect(message).toMatch(/1 pending tie/)
+  })
+})
