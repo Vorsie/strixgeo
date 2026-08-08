@@ -5,7 +5,7 @@
 // Sections stage.  All handlers are sourced from useShell() — no props accepted
 // (matches the StageDescriptor.ToolbarComponent contract).
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff, SplitSquareVertical } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
@@ -167,6 +167,23 @@ export default function SectionsToolbar(): JSX.Element {
       : (activeGeotechModel?.classified_with_statistic ?? null)
   const geotechBandsStale =
     geotechClassifiedWith !== null && geotechClassifiedWith !== geotechStatistic
+  // The local answer is a BRIDGE, not a cache: it covers the gap between the
+  // statistic write and the next model refresh, then gets out of the way. Once
+  // the refreshed row agrees about the choice it is authoritative about what
+  // the bands were classified with too — and holding the pre-change value past
+  // that point pins the "re-run under X" tag on forever, inviting the engineer
+  // to press a verb that wipes and rebuilds every band on each press.
+  useEffect(() => {
+    if (statisticState === null) return
+    if (activeGeotechModel === null || activeGeotechModel.id !== statisticState.modelId) {
+      setStatisticState(null)
+      return
+    }
+    if (activeGeotechModel.representative_statistic === statisticState.statistic) {
+      setStatisticState(null)
+    }
+  }, [activeGeotechModel, statisticState])
+
   const handleSetGeotechStatistic = useCallback(
     (statistic: 'median' | 'arithmetic' | 'harmonic' | 'geometric'): void => {
       if (!project || !activeGeotechModel) return
