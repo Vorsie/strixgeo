@@ -672,3 +672,35 @@ describe('the live gesture chrome survives the dark theme', () => {
     expect(readout.getAttribute('fill')).toContain('var(--section-edit')
   })
 })
+
+describe('two boundaries close together each keep their own press', () => {
+  it('GS42 — two boundaries closer than the strip height do not overlap', () => {
+    // Bands 4.0–4.2 and 4.2–4.4 at 10 px/m are 2 px apart. Two 10 px strips
+    // centred on them would overlap almost entirely, and the deeper one would
+    // win every press — the engineer aims at one boundary and drags the other.
+    const layers = [
+      layer('b1', 2, 4), layer('b2', 4, 4.2), layer('b3', 4.2, 4.4), layer('b4', 4.4, 8),
+    ]
+    render(
+      <svg>
+        <GeotechBandEditOverlay
+          geotechLayers={layers}
+          lithoLayers={LITHO_LAYERS}
+          placedColumns={[COLUMN]}
+          levelToScreen={levelToScreen}
+          plotTop={0}
+          plotBottom={2000}
+          onRequestSplit={vi.fn()}
+          onRequestMerge={vi.fn()}
+          onRequestMoveBoundary={vi.fn()}
+        />
+      </svg>,
+    )
+    const rects = ['b2', 'b3'].map(id => {
+      const el = screen.getByTestId(`geotech-band-boundary-${id}`)
+      const y = Number(el.getAttribute('y'))
+      return { top: y, bottom: y + Number(el.getAttribute('height')) }
+    })
+    expect(rects[0].bottom).toBeLessThanOrEqual(rects[1].top)
+  })
+})
