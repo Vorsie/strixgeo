@@ -1633,13 +1633,13 @@ export default function SectionsCanvas(): JSX.Element {
           )
           return
         case 'no-boundary-crossed':
+          // Since the nudge ruling (2026-08-09) this means the release had NO travel at
+          // all — a click that picked the contact or opened a menu, not a failed drag.
+          // It gets no toast: the old wording told the engineer to "drag past a packing
+          // boundary", which is now false advice, and it would fire on every click.
           log.debug(
             'section',
-            `geotech contact drag ignored: released at ${newDepthM.toFixed(3)}m without reaching a packing boundary`,
-          )
-          toast(
-            'warning',
-            'The contact did not move — drag it past a packing boundary to place it there.',
+            `geotech contact drag ignored: released at its own depth (${newDepthM.toFixed(3)}m), no travel`,
           )
           return
         case 'not-a-boundary':
