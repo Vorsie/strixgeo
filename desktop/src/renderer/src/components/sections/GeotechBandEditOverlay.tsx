@@ -714,11 +714,23 @@ export default function GeotechBandEditOverlay({
               )
             })}
 
-          {/* The other half of the answer: a litho contact is not draggable HERE, and the
-              padlock says which of the two kinds it is. Hover-only — a column of
-              interbeds carries a dozen of these, and a dozen padlocks at rest is chrome
-              the engineer stops reading. The mark is the ONLY thing offered: the contact
-              is edited on the litho axis, not by arguing with this one. */}
+          {/* The other half of the answer: which of the two kinds this boundary is.
+              Hover-only — a column of interbeds carries a dozen of these, and a dozen
+              padlocks at rest is chrome the engineer stops reading.
+
+              The mark used to mean "not draggable here, go to the litho axis". Since
+              2026-08-08 it means something better: BOTH kinds are draggable here and they
+              do different things. Dragging a packing boundary re-derives the NAD classes
+              on either side from qc; dragging a contact moves the LITHOSTRATIGRAPHIC row
+              it restates, snapped onto the packing boundaries — an explicit edit of the
+              level above, made from the screen that shows the best evidence for it (the
+              CPT resolves a contact 3-4x finer than the driller's 0.5 m log grid). The
+              padlock is how the engineer tells which gesture the cursor is on before
+              committing to it, so it earns its place more than it did as a refusal.
+
+              The drag itself belongs to ContactsLayer's hit strip beneath this overlay
+              (SectionsCanvas → handleGeotechContactDrag): this overlay still claims no
+              press on a contact, which is why there is still no grip here (GS44). */}
           {column.lithoContacts.map(pair => {
             const y = yAt(column, pair.upper.baseDepthM)
             if (y < plotTop || y > plotBottom) return null
@@ -739,9 +751,11 @@ export default function GeotechBandEditOverlay({
                 onMouseEnter={() => setHoveredContactId(pair.upper.layerId)}
                 onMouseLeave={() => setHoveredContactId(null)}
               >
-                {/* Not a refusal — a redirect. The contact IS editable, on the axis that
-                    owns it, and that is the sentence worth spending a tooltip on. */}
-                <title>Lithostratigraphic contact — edit it on the litho axis</title>
+                {/* Not a refusal and no longer a redirect: it names the CONSEQUENCE. The
+                    engineer is looking at packing bands, so "this one is not packing —
+                    move it and the litho model changes" is the sentence worth spending a
+                    tooltip on. */}
+                <title>Lithostratigraphic contact — dragging it moves the litho model</title>
                 🔒
               </text>
             )
