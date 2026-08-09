@@ -119,6 +119,20 @@ const GEOTECH_LAYERS = [
 // full float depth. Under a millimetre apart — the everyday case on the real model.
 const LITHO_CONTACTS = [contact('L-zand', 4.0000123)]
 
+// The same column shape on a borehole: bands that "Divide boreholes" extrapolated from the
+// CPTs around it, with no cone resistance of their own behind them.
+const ON_BOREHOLE = { cpt_id: null, borehole_id: 'bh-1' }
+const BOREHOLE_GEOTECH = [
+  layer('b1', 0, 2, ON_BOREHOLE),
+  layer('b2', 2, 4, ON_BOREHOLE),
+  layer('b3', 4, 7, ON_BOREHOLE),
+]
+const BOREHOLE_LITHO = [
+  layer('BL-klei', 0, 4, ON_BOREHOLE),
+  layer('BL-zand', 4, 7, ON_BOREHOLE),
+]
+const BOREHOLE_CONTACTS = [{ ...contact('BL-zand', 4), cpt_id: null, borehole_id: 'bh-1' }]
+
 /**
  * Plan one drag on the standard fixture.
  *
@@ -166,7 +180,11 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
   it('GC4 — an internal packing boundary is not a contact drag', () => {
     // g1 and g2 both sit inside the KLEI body, so the boundary at 2 m is the owner's own
     // subdivision — the packing drag owns it and the hierarchy rule stands.
-    expect(plan('g2', 3.5)).toEqual({ kind: 'packing-boundary' })
+    //
+    // The anchor rides along because the caller has to SAY so, and what to say differs:
+    // on a CPT the boundary has a handle of its own beside the column, on a borehole
+    // nothing here can move it at all.
+    expect(plan('g2', 3.5)).toEqual({ kind: 'packing-boundary', anchorIsCpt: true })
   })
 
   it('GC5 — a litho row further than a millimetre away is not the restated row', () => {
@@ -186,24 +204,33 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
     expect(plan('g1', 3)).toEqual({ kind: 'not-a-boundary' })
   })
 
-  it('GC7 — a borehole column offers nothing to land on', () => {
+  it('GC7 — a borehole column offers nothing to land on, and says which nothing that is', () => {
     // A borehole records no cone resistance: its packing bands were extrapolated from
     // the neighbouring CPTs, so there is no reading HERE for the contact to land on.
-    const onBorehole = { cpt_id: null, borehole_id: 'bh-1' }
-    const bhGeotech = [
-      layer('b1', 0, 2, onBorehole),
-      layer('b2', 2, 4, onBorehole),
-      layer('b3', 4, 7, onBorehole),
-    ]
-    const bhLitho = [layer('BL-klei', 0, 4, onBorehole), layer('BL-zand', 4, 7, onBorehole)]
-    const bhContacts = [{ ...contact('BL-zand', 4), cpt_id: null, borehole_id: 'bh-1' }]
+    //
+    // Told apart from GC3 on purpose. "You did not drag far enough" and "there is
+    // nothing on this column to drag to, ever" look identical from the outside — the
+    // handle moves and nothing happens — and only one of them is worth trying again.
     expect(
       plan('b3', 6.5, {
-        geotechLayers: bhGeotech,
-        lithoLayers: bhLitho,
-        lithoContacts: bhContacts,
+        geotechLayers: BOREHOLE_GEOTECH,
+        lithoLayers: BOREHOLE_LITHO,
+        lithoContacts: BOREHOLE_CONTACTS,
       }),
-    ).toEqual({ kind: 'no-boundary-crossed' })
+    ).toEqual({ kind: 'no-packing-boundaries', anchorId: 'bh-1' })
+  })
+
+  it('GC9 — and a borehole packing boundary reports the borehole, not a CPT', () => {
+    // b1 and b2 both sit in the borehole's KLEI body. Same refusal as GC4, different
+    // remedy: a CPT column carries a band handle for this boundary and a borehole
+    // carries none, so the caller must be able to tell the two apart.
+    expect(
+      plan('b2', 3.5, {
+        geotechLayers: BOREHOLE_GEOTECH,
+        lithoLayers: BOREHOLE_LITHO,
+        lithoContacts: BOREHOLE_CONTACTS,
+      }),
+    ).toEqual({ kind: 'packing-boundary', anchorIsCpt: false })
   })
 
   it('GC8 — the move targets the litho row, never the geotech row that was grabbed', () => {
