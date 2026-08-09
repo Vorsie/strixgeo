@@ -16,10 +16,19 @@
 //   GS4  Choosing "snap litho to geological" from the geotech axis writes the geo depth
 //        onto the litho row.
 //   GS5  A refused drag opens nothing: it wrote nothing, so there is nothing to reconcile.
+//   GS6  Choosing "move geological to litho" moves the GEO row to where the litho contact
+//        landed, and rebuilds the surfaces that hang off it.
+//   GS7  Cancelling writes nothing — "keep them separate" has to mean it.
+//
+// GS6 and GS7 are characterisation tests, not TDD: the three option handlers never carried
+// an axis guard, so they worked the moment the prompt could open at all. They are here
+// because the prompt opening is now the only thing standing between this axis and a
+// surface-rebuild cascade, and an untested cascade is one that can rot quietly.
 
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { api } from '../../../api/client'
 import type { FormationContactResponse, LithoLayerResponse } from '../../../api/client'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
@@ -248,4 +257,45 @@ describe('SectionsCanvas — a coupled contact dragged from the geotech axis', (
     expect(patch).not.toHaveBeenCalled()
     expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
   })
+
+  it('GS6 — "move geological to litho" moves the GEO row and rebuilds its surfaces', async () => {
+    const { patch } = await commitDrag('geotechnical', 'g3', 8.5, [
+      contact('GEO-1', 'geo-model-1', 7.05),
+    ])
+    patch.mockClear()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('move-geo-to-litho'))
+    })
+
+    // 7.00 m — where the litho contact actually came to rest, which is the packing
+    // boundary the drag was clamped to. Never 8.50: the release depth is a place the
+    // contact never occupied, and a geological surface dragged there would be answering
+    // a gesture nothing on screen made.
+    expect(patch).toHaveBeenCalledWith('GEO-1', 7, false)
+    // The cascade is the whole reason this option is the heavy one — the geological
+    // surface is interpolated from its contacts, so moving one without rebuilding leaves
+    // the surface hanging at the old depth.
+    expect(api.geology.rebuildSurfaces).toHaveBeenCalledWith('proj-1', 'geo-model-1')
+    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
+  })
+
+  it('GS7 — cancel leaves both contacts exactly where they were', async () => {
+    // "Keep them separate" is a real answer on interbedded ground: the cone resistance
+    // and the geological surface can legitimately disagree by a few centimetres, and the
+    // engineer is allowed to say so. It must cost nothing to say.
+    const { patch } = await commitDrag('geotechnical', 'g3', 8.5, [
+      contact('GEO-1', 'geo-model-1', 7.05),
+    ])
+    patch.mockClear()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('snap-cancel'))
+    })
+
+    expect(patch).not.toHaveBeenCalled()
+    expect(api.geology.rebuildSurfaces).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
+  })
+
 })
