@@ -41,7 +41,21 @@ Nothing new is created on the backend: the write is `MoveLithoLayerBoundary`, al
 
 ## Task 1: Stop the hit strips colliding
 
-The overlay draws a 10 px strip centred on every boundary, so two boundaries closer than 10 px overlap and the later-painted (deeper) one wins the press. `allocateMinHitExpansions` already solves this on the litho axis (debt #158). This must land first — every later task makes the drag more consequential.
+The overlay draws a 10 px strip centred on every boundary, so two boundaries closer than 10 px overlap and the later-painted (deeper) one wins the press. This must land first — every later task makes the drag more consequential.
+
+**Correction, 2026-08-09 (found during implementation).** An earlier draft of this task said
+to reuse `allocateMinHitExpansions`. **It cannot solve this**, and wiring it in is a no-op:
+every strip is constructed exactly `MERGE_HANDLE_PX` tall, and the allocator opens with
+`if (h >= minPx) continue`, so every entry short-circuits to zero growth. It is also the
+wrong tool in principle — it only GROWS a thin band into a fat neighbour'''s slack, which
+deliberately creates overlap. On the litho axis that is fine because the overlapping strips
+sit over a fat band and render order resolves them; here overlap IS the defect. The
+implemented mechanism is a **midpoint clamp**: each strip stops halfway to its neighbour, so
+the nearest boundary wins the press. Later tasks must not assume the allocator is involved.
+
+**Known limitation, accepted:** two boundaries that round to the same screen y produce
+zero-height strips and neither is pressable. Only reachable where the bands between them are
+already sub-pixel; the remedy is to zoom in.
 
 **Files:**
 - Modify: `desktop/src/renderer/src/components/sections/GeotechBandEditOverlay.tsx`
