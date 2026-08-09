@@ -2903,9 +2903,17 @@ export default function SectionPanel({
               // contacts now that cross-merge is off (commit 9d4a01db).
               // Geological axis keeps its cross-merge absorb gesture
               // and stays unclamped (prop undefined).
-              // Geotech mirrors litho (same min-slab discipline).
+              //
+              // The geotech axis is unclamped too, for the opposite reason
+              // to the geological one: its contact drag may ONLY land on a
+              // packing boundary the cone resistance resolved (owner ruling
+              // 2026-08-08, ``geotechContactDrag``). The peers this clamp
+              // measures against on that axis ARE those boundaries, so a
+              // 10 cm floor would stop every drag a hair short of every
+              // destination it is allowed to reach and the gesture would
+              // commit nothing at all. The landing rule is the floor here.
               contactDragClampMinThicknessM={
-                axisMode === 'lithostratigraphic' || axisMode === 'geotechnical' ? 0.1 : undefined
+                axisMode === 'lithostratigraphic' ? 0.1 : undefined
               }
               // Debt #134-B — pre-release "↦ snap on release" hint in
               // the drag readout.  Only meaningful on the litho axis;
