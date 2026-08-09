@@ -1,4 +1,4 @@
-﻿// Geological model state and mutation handlers.
+// Geological model state and mutation handlers.
 //
 // Owns the active geological model, its formations, contacts, and the
 // cached TIN surfaces. Every contact-mutating handler (create, update,
@@ -51,6 +51,9 @@ import { useLithoModelOps } from './useLithoModelOps'
 import { useLithoSuggestions } from './useLithoSuggestions'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit, isGeotechUnit } from '../utils/formationKind'
+import { pairBandsWithLithoParents } from '../utils/geotechBandParents'
+// Aliased: the memo below carries the same name as the rule it calls.
+import { columnsNeedingRederive as columnsNeedingRederiveFromFit } from '../utils/geotechParentFit'
 import { lostTieMessage } from '../utils/lostTieMessage'
 import { log } from '../utils/log'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
@@ -810,6 +813,24 @@ export interface UseGeologicalModelResult {
    */
   geotechFormations: GeologicalFormationResponse[]
   /**
+   * Ids of the CPT columns whose packing bands no longer fit their litho units.
+   *
+   * A band's contract is that it lies inside the litho unit ``Subdivide`` cut it
+   * out of. Dragging that unit's contact — which the geotech axis now allows —
+   * moves the litho row and leaves the band where it was, describing ground the
+   * unit no longer covers. Those columns need ``Subdivide CPTs`` run again.
+   *
+   * DERIVED on every render from ``geotechLayers`` + ``lithoLayers``, never
+   * stored: the comparison cannot outlive its operands, so dragging the contact
+   * back empties this list with nothing to reset (owner ruling — two shipped
+   * bugs came from caching a staleness flag that could never clear).
+   *
+   * CPT columns only. A borehole's bands are re-derived by ``Divide
+   * boreholes``, not by ``Subdivide CPTs``; see
+   * ``utils/geotechBandParents``.
+   */
+  columnsNeedingRederive: string[]
+  /**
    * Request a re-fetch of the geotech layers for the active model.
    *
    * Bumps an internal nonce so the ``geotechLayers`` useEffect re-runs and
@@ -1089,6 +1110,19 @@ export function useGeologicalModel({
   const geotechFormations = useMemo(
     () => formations.filter(isGeotechUnit),
     [formations],
+  )
+  // Which columns' packing bands no longer fit the litho units they subdivide.
+  // The engineer can drag a litho contact from the geotech axis itself, which
+  // moves the litho row and leaves the bands derived against the old boundary
+  // where they were. That mismatch IS the staleness — DERIVED here from the two
+  // live layer sets, never stored (owner ruling), so it self-clears the moment
+  // the contact is dragged back and cannot outlive the condition it describes.
+  const columnsNeedingRederive = useMemo(
+    () =>
+      columnsNeedingRederiveFromFit(
+        pairBandsWithLithoParents(geotechLayers, lithoLayers, geotechFormations),
+      ),
+    [geotechLayers, lithoLayers, geotechFormations],
   )
   // Monotonic nonce that forces the geotechLayers useEffect to re-run
   // after a packing-correlation mutation so body_id stamps update in the
@@ -2623,6 +2657,8 @@ export function useGeologicalModel({
     geotechLayersVersion,
     geotechContacts,
     geotechFormations,
+    // Which columns a litho-contact drag left with out-of-date packing bands.
+    columnsNeedingRederive,
     // Packing-correlation: re-fetch geotech layers after a body_id mutation.
     requestGeotechLayersRefetch,
     // F4 — "Subdivide all bodies" toolbar verb.
