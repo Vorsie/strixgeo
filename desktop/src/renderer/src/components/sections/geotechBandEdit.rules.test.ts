@@ -136,6 +136,22 @@ describe('a merge is bounded by the same litho body', () => {
     expect(result.ok === false && result.reason.toLowerCase()).toContain('litho')
   })
 
+  it('MG5 — and it points at the gesture in front of him, not only at the other axis', () => {
+    // The refusal used to end "edit it on the litho axis instead", which was true when
+    // nothing on this screen could move a contact. Since 2026-08-08 the contact IS
+    // draggable here (owner ruling), so sending the engineer to another axis would send
+    // him away from the answer. The rule is unchanged and stays in the message — what
+    // changed is that there are now two ways to act on it, and the near one comes first.
+    const result = canMergeBands(BANDS[2], BANDS[3], [LITHO_BODY, DEEPER_LITHO_BODY])
+
+    expect(result.ok).toBe(false)
+    if (result.ok === false) {
+      expect(result.reason).toContain('drag the contact')
+      // The rule is the half that did not change; a reword must not quietly drop it.
+      expect(result.reason).toContain('never crosses')
+    }
+  })
+
   it('MG3 — bands that do not touch may not be merged; there is material between them', () => {
     const result = canMergeBands(BANDS[0], BANDS[2], [LITHO_BODY, DEEPER_LITHO_BODY])
 
