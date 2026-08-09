@@ -357,9 +357,15 @@ export function canMergeBands(
   if (upperBody !== lowerBody) {
     return {
       ok: false,
+      // The rule is the half that has not changed and it stays stated in full. What
+      // changed on 2026-08-08 is the remedy: the contact became draggable on this axis
+      // too (``geotechContactDrag``), so naming the litho axis as the ONLY route would
+      // send the engineer away from a gesture he can make where he is standing. Near
+      // remedy first, the other axis as the alternative it now is.
       reason:
-        'These bands sit in different litho bodies. The boundary between them is a litho contact, ' +
-        'and a packing boundary never crosses one — edit it on the litho axis instead.',
+        'These bands sit in different lithostratigraphic units. The boundary between them is a ' +
+        'litho contact, and a packing boundary never crosses one — drag the contact itself to ' +
+        'move it, or edit it on the litho axis.',
     }
   }
   return { ok: true }
