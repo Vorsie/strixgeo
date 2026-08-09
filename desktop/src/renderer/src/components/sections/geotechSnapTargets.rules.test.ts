@@ -39,4 +39,14 @@ describe('what a dragged contact may snap to on the geotech axis', () => {
     expect(out.get('cpt-1')?.map(c => c.depth)).toEqual([4])
     expect(out.get('cpt-2')?.map(c => c.depth)).toEqual([5])
   })
+
+  it('SN5 — the answer does not depend on the order the rows arrived in', () => {
+    // Row order from the API is not guaranteed. Every other case here happens to
+    // arrive already sorted, so without this one the sort could be deleted and
+    // the suite would stay green.
+    const out = packingSnapCandidates([
+      band('c', 6, 9, 'cpt-1'), band('a', 2, 4, 'cpt-1'), band('b', 4, 6, 'cpt-1'),
+    ])
+    expect(out.get('cpt-1')?.map(c => c.depth)).toEqual([4, 6])
+  })
 })
