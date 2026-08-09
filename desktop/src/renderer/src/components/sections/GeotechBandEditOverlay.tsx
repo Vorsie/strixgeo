@@ -323,10 +323,20 @@ export default function GeotechBandEditOverlay({
       }))
       const mergeable: { upper: GeotechBandInterval; lower: GeotechBandInterval }[] = []
       const lithoContacts: { upper: GeotechBandInterval; lower: GeotechBandInterval }[] = []
+      // Every internal boundary's screen Y, in the bands' own top-down order, and which
+      // of them a strip is drawn on. Both kinds are collected because both COMPETE for
+      // pixels even though only one is grabbable — see the clamp below.
+      const internalYs: number[] = []
+      const mergeableIndices: number[] = []
       for (let i = 0; i < bands.length - 1; i++) {
         const pair = { upper: bands[i], lower: bands[i + 1] }
-        if (canMergeBands(bands[i], bands[i + 1], lithoBodies).ok) mergeable.push(pair)
-        else lithoContacts.push(pair)
+        internalYs.push(surface.surfaceY + pair.upper.baseDepthM * surface.pxPerMetre)
+        if (canMergeBands(bands[i], bands[i + 1], lithoBodies).ok) {
+          mergeableIndices.push(i)
+          mergeable.push(pair)
+        } else {
+          lithoContacts.push(pair)
+        }
       }
       // Each strip wants MERGE_HANDLE_PX centred on its boundary, but two boundaries
       // closer than that on screen would hand every press to whichever strip SVG paints
@@ -341,14 +351,20 @@ export default function GeotechBandEditOverlay({
       // NOT ``allocateMinHitExpansions`` (the litho axis's #158 answer): that allocator
       // only GROWS a thin band into a fat neighbour's slack, i.e. it deliberately overlaps
       // strips and leans on render order to resolve them. Here overlap IS the defect.
-      const boundaryYs = mergeable.map(
-        pair => surface.surfaceY + pair.upper.baseDepthM * surface.pxPerMetre,
-      )
-      const stripExtents = boundaryYs.map((y, i) => {
+      //
+      // Litho contacts join the reckoning as BOUNDING PARTICIPANTS: they claim no strip
+      // (nothing on this axis edits one), they only stop their neighbours. Without that a
+      // packing boundary a few px from a contact keeps its full half and lies across it —
+      // ~0.38 m of overhang at the default ~13 px/m — so a press aimed at the contact
+      // lands on the packing boundary. That is the same collision as above, between the
+      // two kinds instead of within one, and it is now real: the contact carries hover
+      // chrome of its own, and a later step makes it draggable.
+      const stripExtents = mergeableIndices.map(idx => {
+        const y = internalYs[idx]
         // The stack's outer edges are open: nothing above the first boundary or below the
         // last competes for the press, so those halves are never contested.
-        const toPrev = i > 0 ? (y - boundaryYs[i - 1]) / 2 : Infinity
-        const toNext = i + 1 < boundaryYs.length ? (boundaryYs[i + 1] - y) / 2 : Infinity
+        const toPrev = idx > 0 ? (y - internalYs[idx - 1]) / 2 : Infinity
+        const toNext = idx + 1 < internalYs.length ? (internalYs[idx + 1] - y) / 2 : Infinity
         return {
           top: y - Math.min(MERGE_HANDLE_PX / 2, toPrev),
           bottom: y + Math.min(MERGE_HANDLE_PX / 2, toNext),
