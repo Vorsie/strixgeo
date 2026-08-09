@@ -23,6 +23,7 @@
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 
 // The electron package ships its own path.txt pointing at the local
 // electron.exe (Windows) / electron (Linux/macOS). We resolve it the
@@ -43,23 +44,46 @@ const DESKTOP_ROOT = path.resolve(__dirname, '..', '..', '..')
 const MAIN_ENTRY = path.join(DESKTOP_ROOT, 'out', 'main', 'index.js')
 
 /**
+ * The suite's OWN userData directory, passed explicitly on every launch.
+ *
+ * The harness was already isolated from a dev build, but only by accident:
+ * ``app.getName()`` reads the package.json beside the main entry, and
+ * ``out/main/index.js`` has none, so Electron fell back to its own default and
+ * wrote to ``<APPDATA>/Electron`` while dev and packaged builds both use
+ * ``ground-model-desktop`` (``productName`` lives inside the electron-builder
+ * ``build`` block, where ``getName()`` never sees it). That isolation is worth
+ * KEEPING — a suite that stores over a hundred launches' worth of recent-project
+ * entries, localStorage chrome and crash-recovery snapshots has no business
+ * writing them into the store a real session uses — but it should be declared
+ * rather than inherited from where a file happens to sit. A refactor that moved
+ * the entry point, or a package.json appearing in ``out/``, would silently point
+ * the whole suite at a real user's data.
+ *
+ * Stable rather than per-run: specs may rely on chrome persisting between the
+ * launches WITHIN a run, and one of them says so explicitly
+ * (``flow_parameters_cpt_profile`` re-expands a panel a previous run collapsed).
+ */
+const E2E_USER_DATA_DIR = path.join(os.tmpdir(), 'strix-e2e-userdata')
+
+/**
  * Discard the FIXTURE project's crash-recovery slots before a launch.
  *
- * The suite launches this binary well over a hundred times against ONE shared
- * userData directory — the same one a dev build uses. Any spec whose app is torn
- * down while the project is dirty leaves a recovery snapshot behind, and the very
- * next launch opens on a modal backdrop asking whether to restore it. That modal
- * covers the whole window, so every remaining spec in the run fails on an
- * intercepted click rather than on anything it was testing: one failing drag spec
- * cost 19 unrelated failures before this existed.
+ * Any spec whose app is torn down while the project is dirty leaves a recovery
+ * snapshot behind, and the very next launch opens on a modal backdrop asking
+ * whether to restore it. That modal covers the whole window, so every remaining
+ * spec in the run fails on an intercepted click rather than on anything it was
+ * testing: one failing drag spec cost 19 unrelated failures before this existed.
  *
- * Scoped to the fixture project id and nothing else. The shared userData means a
- * real project's unsaved work can be sitting in this same directory, and deleting
- * that is not a test's decision to make — the fixture project is rebuilt from
- * scratch every run, so only its own slots are ever safe to drop.
+ * Reads the suite's OWN userData directory, so there is no app-name convention to
+ * guess. Guessing it is exactly how the first version of this function deleted
+ * nothing while appearing to work — the stale slot survived a whole run written to
+ * drop it, and the tell was the dialog citing the same snapshot timestamp twice.
  *
- * Silent when the directory or the app-name convention does not resolve: this is
- * cleanup, and failing to find nothing to clean is not an error.
+ * Still scoped to the fixture project id even inside a directory the suite owns:
+ * narrow deletion costs nothing here and keeps this honest if the path is ever
+ * pointed somewhere shared again.
+ *
+ * Silent when there is nothing to clean — failing to find nothing is not an error.
  *
  * Parameters
  * ----------
@@ -68,34 +92,17 @@ const MAIN_ENTRY = path.join(DESKTOP_ROOT, 'out', 'main', 'index.js')
  */
 function discardFixtureRecoverySlots(projectId: string | undefined): void {
   if (projectId === undefined || projectId === '') return
-  // Electron's userData is <APPDATA>/<package name> on Windows, and the platform
-  // equivalents elsewhere. Matches main/recoveryStore.ts's <userData>/recovery.
-  // BOTH names the app can resolve to, because it resolves to different ones here
-  // and in a packaged build. ``app.getName()`` reads the package.json beside the
-  // main entry; ``out/main/index.js`` has none, so Electron falls back to its own
-  // default and the harness writes to <APPDATA>/Electron — NOT the product name a
-  // packaged build uses. Cleaning only one of them silently cleans nothing, which
-  // is how a stale slot survived a run that was written specifically to drop it.
-  const appNames = ['Electron', 'ground-model-desktop']
-  const base =
-    process.platform === 'win32'
-      ? process.env.APPDATA
-      : process.platform === 'darwin'
-        ? path.join(process.env.HOME ?? '', 'Library', 'Application Support')
-        : (process.env.XDG_CONFIG_HOME ?? path.join(process.env.HOME ?? '', '.config'))
-  if (base === undefined || base === '') return
-  for (const appName of appNames) {
-    const recoveryDir = path.join(base, appName, 'recovery')
-    if (!fs.existsSync(recoveryDir)) continue
-    for (const name of fs.readdirSync(recoveryDir)) {
-      // Every slot variant the store writes for one project starts with its id:
-      // the primary, the declined marker, and the quarantined-corrupt copy.
-      if (!name.startsWith(projectId)) continue
-      try {
-        fs.rmSync(path.join(recoveryDir, name))
-      } catch {
-        /* another launch may have taken it first — nothing to do either way */
-      }
+  // Matches main/recoveryStore.ts's <userData>/recovery.
+  const recoveryDir = path.join(E2E_USER_DATA_DIR, 'recovery')
+  if (!fs.existsSync(recoveryDir)) return
+  for (const name of fs.readdirSync(recoveryDir)) {
+    // Every slot variant the store writes for one project starts with its id:
+    // the primary, the declined marker, and the quarantined-corrupt copy.
+    if (!name.startsWith(projectId)) continue
+    try {
+      fs.rmSync(path.join(recoveryDir, name))
+    } catch {
+      /* another launch may have taken it first — nothing to do either way */
     }
   }
 }
@@ -144,7 +151,12 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
 
   const app = await electron.launch({
     executablePath,
-    args: [MAIN_ENTRY],
+    // The userData directory is DECLARED, not inherited from where the main entry
+    // happens to sit — see E2E_USER_DATA_DIR. Without it the suite's store location
+    // is a side effect of Electron's app-name fallback, and a refactor that moved
+    // the entry point would silently redirect a hundred-plus launches' worth of
+    // recent-project entries, chrome and crash snapshots into a real session's store.
+    args: [MAIN_ENTRY, `--user-data-dir=${E2E_USER_DATA_DIR}`],
     env: {
       ...process.env,
       // Disable GPU acceleration to avoid the 0xC0000005 renderer crash
