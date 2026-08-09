@@ -50,6 +50,9 @@ def _use_case_with_rows(rows: list[LithoLayerOrm]) -> MoveLithoLayerBoundary:
     uc._repo = MagicMock()
     uc._repo.list_layers_by_ids = AsyncMock(return_value=rows)
     uc._repo.mark_litho_solids_stale = AsyncMock()
+    # Awaited only on the coupled-contact path; stubbed for every case so a test that
+    # does not care about geological staleness is not the one that discovers it.
+    uc._repo.mark_geo_surfaces_stale = AsyncMock()
     return uc
 
 
@@ -175,3 +178,36 @@ async def test_uncoupled_boundary_touches_no_geological_contact() -> None:
     await uc.execute(upper_id, lower_id, 3.0)
 
     uc._repo.get_formation_contact.assert_not_awaited()
+
+
+async def test_coupled_geo_move_marks_its_surface_stale() -> None:
+    """Carrying the geological contact invalidates the TIN built from it.
+
+    The surface was interpolated through the contact at its OLD depth; moving the
+    contact and leaving the surface fresh leaves the 3-D model showing a boundary
+    the 2-D section no longer agrees with, with nothing on screen saying so. Every
+    other contact-mutating use case stales here, and this one is a contact mutation
+    wearing a boundary-move's clothes.
+    """
+    upper_id, lower_id = uuid4(), uuid4()
+    bh, geo_contact_id = uuid4(), uuid4()
+    upper = _layer(layer_id=upper_id, depth_top_m=0.0, depth_base_m=2.0, borehole_id=bh)
+    lower = _layer(layer_id=lower_id, depth_top_m=2.0, depth_base_m=4.0, borehole_id=bh)
+    lower.parent_geo_contact_id = geo_contact_id
+    uc = _use_case_with_rows([upper, lower])
+    geo = MagicMock()
+    geo.id = geo_contact_id
+    geo.depth_top_m = 2.0
+    geo.model_id = uuid4()
+    geo.formation_id = uuid4()
+    uc._repo.get_formation_contact = AsyncMock(return_value=geo)
+    uc._repo.mark_geo_surfaces_stale = AsyncMock()
+    uc._session.flush = AsyncMock()
+    uc._session.commit = AsyncMock()
+    uc._session.refresh = AsyncMock()
+
+    await uc.execute(upper_id, lower_id, 3.0)
+
+    uc._repo.mark_geo_surfaces_stale.assert_awaited_once_with(
+        [(geo.model_id, geo.formation_id)]
+    )

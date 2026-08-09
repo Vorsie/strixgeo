@@ -170,6 +170,12 @@ class MoveLithoLayerBoundary(GroundModelLogger):
                     f"{geo_contact.id} {geo_contact.depth_top_m:.3f} → {new_depth_m:.3f} m"
                 )
                 geo_contact.depth_top_m = new_depth_m
+                # The TIN was interpolated THROUGH this contact at its old depth, so it
+                # now describes a boundary the section disagrees with. Same transaction,
+                # same rule every other contact-mutating use case follows.
+                await self._repo.mark_geo_surfaces_stale(
+                    [(geo_contact.model_id, geo_contact.formation_id)]
+                )
             else:
                 self.warning(
                     f"MoveLithoLayerBoundary: layer {lower.id} names geological contact "

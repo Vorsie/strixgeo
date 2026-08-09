@@ -480,6 +480,34 @@ class LithoLayerRepository(GroundModelLogger):
         """
         return await self._session.get(FormationContactOrm, contact_id)
 
+    async def mark_geo_surfaces_stale(self, pairs: list[tuple[UUID, UUID]]) -> int:
+        """Flip ``is_stale=True`` on the listed geological ``(model, formation)`` surfaces.
+
+        A TIN is interpolated THROUGH its contacts, so moving one leaves the surface
+        describing a boundary the section no longer agrees with — and nothing on screen
+        says so until someone notices the 3-D model and the 2-D section disagree.  Every
+        other contact-mutating use case stales here; a boundary move that carries a
+        coupled geological contact is one of those wearing different clothes.
+
+        Delegates to the geology repository rather than duplicating the UPDATE, so the
+        staleness rule keeps one implementation.
+
+        Parameters
+        ----------
+        pairs : list[tuple[UUID, UUID]]
+            ``(model_id, formation_id)`` of each surface to invalidate.
+
+        Returns
+        -------
+        int
+            Rows flipped.  ``0`` when no TIN has been built for them yet (not an error).
+        """
+        from groundmodel.infrastructure.db.repositories.geology_repository import (
+            GeologyRepository,
+        )
+
+        return await GeologyRepository(self._session).mark_surfaces_stale(pairs)
+
     async def list_litho_solids(self, model_id: UUID) -> list[LithoBodySolidOrm]:
         """Return every cached solid for *model_id*.
 
