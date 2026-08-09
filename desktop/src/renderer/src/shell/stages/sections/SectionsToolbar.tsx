@@ -1347,6 +1347,52 @@ export default function SectionsToolbar(): JSX.Element {
           before any geotech model exists. */}
       {isGeotech && (
         <>
+          {/* FIRST in the geotech bar, ahead of the pipeline, because it is a choice
+              made BEFORE subdividing rather than a view option after it (owner,
+              2026-08-09: "add it before subdivide cpt's ... the user chooses before
+              subdividing"). It is a per-model choice and part of that model's
+              provenance.
+
+              The current token is in the LABEL, not only inside the menu: the whole
+              point of putting it first is that the engineer can see what the next
+              subdivide will classify with, without opening anything. */}
+          <ToolbarDropdown
+            icon={<FlaskConical size={13} />}
+            label={`qc: ${geotechStatistic}`}
+            title={
+              'Which representative qc the NAD classifier reads, chosen BEFORE you ' +
+              'subdivide: median (spike-robust default), arithmetic, harmonic ' +
+              '(conservative — weighted toward the low values that govern bearing and ' +
+              'settlement) or geometric. Nothing re-classifies when you change it: the ' +
+              'choice applies to the NEXT "1 · Subdivide CPTs", and bands already on ' +
+              'screen keep the statistic they were built with until you re-run it.'
+            }
+            testid="geotech-statistic-menu"
+            items={[
+              {
+                // Stated inside the menu as well as in the tooltip. A tooltip is not
+                // read before a click, and the one thing that surprises here is that
+                // picking a statistic changes NOTHING on screen by itself.
+                label: 'Applies to the next Subdivide — nothing re-runs now',
+                disabled: true,
+                testid: 'geotech-statistic-note',
+                onClick: () => {},
+              },
+              ...(['median', 'arithmetic', 'harmonic', 'geometric'] as const).map(token => ({
+                label: token,
+                tag: token === geotechStatistic ? 'current' : undefined,
+                disabled: activeGeotechModel === null,
+                title:
+                  token === 'harmonic'
+                    ? 'Conservative: weighted toward the low qc values that govern bearing and settlement.'
+                    : token === 'median'
+                      ? 'The spike-robust default.'
+                      : undefined,
+                testid: `geotech-statistic-${token}`,
+                onClick: () => handleSetGeotechStatistic(token),
+              })),
+            ]}
+          />
           {/* THE FOUR-STEP PIPELINE, folded into one dropdown (owner dogfeed
               2026-08-05 — the four inline buttons crowded the bar, debt #23).
               The pending chip stays OUTSIDE the menu: it is the number step 4
@@ -1509,33 +1555,6 @@ export default function SectionsToolbar(): JSX.Element {
             }
             amber={correlateMode}
             testid="geotech-correlate-packing"
-          />
-          {/* The representative-qc statistic (rulings 7+8): a per-model choice,
-              part of its provenance. Changing it marks the bands stale (the
-              step-1 tag) and re-derives nothing. */}
-          <ToolbarDropdown
-            icon={<FlaskConical size={13} />}
-            label="qc statistic"
-            title={
-              'Which representative qc the NAD classifier reads: median (spike-robust default), ' +
-              'arithmetic, harmonic (conservative - weighted toward the low values that govern ' +
-              'bearing and settlement) or geometric. Changing it marks the bands stale; ' +
-              '"1 · Subdivide CPTs" re-classifies under the new choice.'
-            }
-            testid="geotech-statistic-menu"
-            items={(['median', 'arithmetic', 'harmonic', 'geometric'] as const).map(token => ({
-              label: token,
-              tag: token === geotechStatistic ? 'current' : undefined,
-              disabled: activeGeotechModel === null,
-              title:
-                token === 'harmonic'
-                  ? 'Conservative: weighted toward the low qc values that govern bearing and settlement.'
-                  : token === 'median'
-                    ? 'The spike-robust default.'
-                    : undefined,
-              testid: `geotech-statistic-${token}`,
-              onClick: () => handleSetGeotechStatistic(token),
-            }))}
           />
           {/* View toggles folded into one Display dropdown (owner dogfeed
               2026-08-05 — two standing toggle buttons were toolbar weight for
