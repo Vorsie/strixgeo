@@ -721,3 +721,28 @@ describe('two boundaries close together each keep their own press', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// GS43+ — the two boundary kinds must not look the same
+// ---------------------------------------------------------------------------
+//
+// The owner dogfed this axis and reported "sometimes after merging, i can't grab
+// the contact handles anymore". There was no bug: on his data one CPT column
+// carries 17 internal boundaries of which only 3 are packing boundaries — the
+// other 14 are lithostratigraphic contacts, which correctly refuse the drag.
+// Rendered identically, "you may not drag this" is indistinguishable from "the
+// drag is broken", so the difference has to be visible without trying it.
+
+describe('a boundary says which kind it is before it is touched', () => {
+  it('GS43 — a draggable packing boundary carries a grip at rest', () => {
+    renderOverlay({ onRequestMoveBoundary: vi.fn() })
+    expect(screen.getByTestId('geotech-boundary-grip-band-1')).toBeTruthy()
+  })
+
+  it('GS44 — a litho contact carries no grip, because it is not draggable here', () => {
+    // band-3 ends at 8 m, where LITHO_LAYERS changes body. That boundary is a
+    // litho contact: no strip, and therefore no grip.
+    renderOverlay({ onRequestMoveBoundary: vi.fn() })
+    expect(screen.queryByTestId('geotech-boundary-grip-band-3')).toBeNull()
+  })
+})
