@@ -310,6 +310,22 @@ interface Props {
    *                             in Slice 1.
    */
   axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
+  /**
+   * GEOTECH AXIS — the bands whose TOP restates a lithostratigraphic contact
+   * (``restatingContactIds``). Every other drawn boundary on that axis is an
+   * internal packing boundary.
+   *
+   * The two are not interchangeable and must not look alike. A packing boundary
+   * is the engineer's own subdivision and drags freely; a restated contact is
+   * locked as a packing boundary (ruling 2) and moves only as the contact it is
+   * (design §4c). Measured on the owner's model, one column carries 17 internal
+   * boundaries of which just 3 are the draggable kind — drawn identically, a
+   * correct refusal reads as a broken app, which is exactly what he reported.
+   *
+   * Absent → every boundary keeps the single shared style. That is right for the
+   * geological and litho axes, where the distinction does not exist.
+   */
+  restatingContactIds?: ReadonlySet<string>
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -613,6 +629,7 @@ export default function ContactsLayer({
   renderFormationSurfaces = true,
   correlateMode = false,
   axisMode = 'geological',
+  restatingContactIds,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
   showFormationFill = true,
@@ -2775,7 +2792,20 @@ export default function ContactsLayer({
         // geological contacts keep the formation-coloured line.
         const isLithoContact =
           lithoFormationById.get(layer.formationId)?.litho_main_soil_code != null
-        const lineWidth = isDragged ? 2.5 : 1.75
+        // GEOTECH AXIS — weight carries the meaning (design §5). An internal packing
+        // boundary is the engineer's own subdivision of one litho unit and drags
+        // freely; every other boundary here restates a litho contact, which is locked
+        // as a packing boundary and moves only as the contact it is (§4c). Drawn alike,
+        // a correct refusal reads as a broken app — the owner reached for a locked one
+        // twice in ten minutes, on a column where 14 of 17 boundaries are locked.
+        //
+        // Note this cannot be derived from ``isLithoContact`` above: that asks whether
+        // the FORMATION carries a litho soil code, which is uniformly true of every
+        // packing band, so it gives the same answer for both kinds. The distinction is
+        // about the two bands' litho PARENTS and arrives precomputed.
+        const isPackingBoundary =
+          restatingContactIds !== undefined && !restatingContactIds.has(layer.contactId)
+        const lineWidth = isDragged ? 2.5 : isPackingBoundary ? 1 : 1.75
         return (
           <g key={layer.key}>
             {/* Selection halo — drawn under the top segment so the
@@ -2855,7 +2885,7 @@ export default function ContactsLayer({
                 top, so the boundary reads against its own band fill. */}
             {layer.segY >= plotTop && layer.segY <= plotBottom && (
               <>
-                {isLithoContact && (
+                {isLithoContact && !isPackingBoundary && (
                   <line
                     data-testid={`contact-line-halo-${layer.contactId}`}
                     x1={layer.segLeftX}
@@ -2876,7 +2906,8 @@ export default function ContactsLayer({
                   y2={layer.segY}
                   stroke={isLithoContact ? LITHO_CONTACT_LINE_COLOR : layer.color}
                   strokeWidth={lineWidth}
-                  strokeOpacity={0.95}
+                  strokeDasharray={isPackingBoundary ? '4 3' : undefined}
+                  strokeOpacity={isPackingBoundary ? 0.75 : 0.95}
                   pointerEvents="none"
                 />
               </>
