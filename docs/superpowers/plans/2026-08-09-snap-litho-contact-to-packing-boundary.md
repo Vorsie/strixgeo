@@ -4,7 +4,7 @@
 
 **Goal:** Let the engineer drag a lithostratigraphic contact onto a CPT-derived packing boundary from the geotech axis, so the boundary the cone resistance resolved becomes the boundary in the model.
 
-**Architecture:** No new gesture is invented. The section already has a contact drag with a per-anchor snap-candidate map (`ContactsLayer.snapDepthsByAnchorId`), an allocator that stops hit strips colliding (`allocateMinHitExpansions`), an atomic boundary write (`MoveLithoLayerBoundary`), and a litho↔geo snap prompt (`useLithoGeoSnapDialog`). This plan feeds packing boundaries into the snap map, opens the drag on the geotech axis, clamps it to one boundary per drag, and derives "these packing bands no longer fit their parent" rather than storing a flag.
+**Architecture:** No new gesture is invented. The section already has a contact drag with a per-anchor snap-candidate map (`ContactsLayer.snapDepthsByAnchorId`), an atomic boundary write (`MoveLithoLayerBoundary`), and a litho↔geo snap prompt (`useLithoGeoSnapDialog`). This plan feeds packing boundaries into the snap map, opens the drag on the geotech axis, clamps it to one boundary per drag, and derives "these packing bands no longer fit their parent" rather than storing a flag.
 
 **Tech stack:** React 18 + TypeScript (renderer), FastAPI + SQLAlchemy async (backend), Vitest, pytest, Playwright.
 
@@ -12,13 +12,11 @@
 
 ---
 
-## ⚠ Spec amendment required before Task 6
+## ✅ Spec amendment — RESOLVED (owner, 2026-08-09)
 
 The spec says the coupled geological contact "moves with it in the same transaction". **The app already disagrees, deliberately.** `useLithoGeoSnapDialog` ships a three-option prompt for exactly this case — snap the litho contact to the geo depth, move the geo contact to the litho depth (with a surface-rebuild cascade), or keep them separate — and it is gated to the litho axis by `isLitho`.
 
-Reusing that prompt is better than the spec's silent same-transaction move: it is already built, already handles the surface rebuild, and it keeps one mental model across both axes. **Task 6 reuses it. Confirm with the owner before starting Task 6** — if he wants the silent move instead, Task 6 changes shape.
-
-Tasks 1–5 and 7–8 are unaffected.
+Reusing that prompt is better than the spec's silent same-transaction move: it is already built, already handles the surface rebuild, and it keeps one mental model across both axes. **Owner confirmed 2026-08-09 — "same mental model".** Task 6 reuses the prompt; the spec's same-transaction wording is superseded.
 
 ---
 
@@ -30,7 +28,7 @@ Tasks 1–5 and 7–8 are unaffected.
 | `desktop/src/renderer/src/components/sections/geotechSnapTargets.rules.test.ts` | Its tests | **Create** |
 | `desktop/src/renderer/src/utils/geotechParentFit.ts` | Pure: does a packing band still fit its litho parent (the derived staleness) | **Create** |
 | `desktop/src/renderer/src/utils/geotechParentFit.test.ts` | Its tests | **Create** |
-| `desktop/src/renderer/src/components/sections/GeotechBandEditOverlay.tsx` | Strips use the allocator; boundary-type rendering | Modify |
+| `desktop/src/renderer/src/components/sections/GeotechBandEditOverlay.tsx` | Midpoint-clamped strips; boundary-type rendering | Modify |
 | `desktop/src/renderer/src/components/SectionPanel.tsx` | Feed packing boundaries into `snapDepthsByAnchorId` on the geotech axis | Modify (~2117) |
 | `desktop/src/renderer/src/shell/stages/sections/SectionsCanvas.tsx` | Pass the contact-drag handler through on the geotech axis | Modify |
 | `desktop/src/renderer/src/shell/stages/sections/SectionsToolbar.tsx` | "N columns need re-deriving" tag on Subdivide | Modify |
@@ -53,9 +51,11 @@ sit over a fat band and render order resolves them; here overlap IS the defect. 
 implemented mechanism is a **midpoint clamp**: each strip stops halfway to its neighbour, so
 the nearest boundary wins the press. Later tasks must not assume the allocator is involved.
 
-**Known limitation, accepted:** two boundaries that round to the same screen y produce
-zero-height strips and neither is pressable. Only reachable where the bands between them are
-already sub-pixel; the remedy is to zoom in.
+**Judged unreachable (owner, 2026-08-09).** Two coincident boundaries would produce
+zero-height strips, pressable by neither. The owner ruled it out on the mechanics rather
+than on tolerance: squeezing a boundary that close trips the absorb rule, so the pair MERGES
+rather than persisting a pixel apart. A band that thin cannot survive the gesture that would
+create it. No minimum-height floor is added.
 
 **Files:**
 - Modify: `desktop/src/renderer/src/components/sections/GeotechBandEditOverlay.tsx`
@@ -100,60 +100,32 @@ it('GS42 — two boundaries closer than the strip height do not overlap', () => 
 Run: `cd desktop && npx vitest run src/renderer/src/components/sections/GeotechBandEditOverlay.rules.test.tsx -t GS42`
 Expected: FAIL — the strips overlap, so `rects[0].bottom` exceeds `rects[1].top`.
 
-- [ ] **Step 3: Allocate the strips instead of centring them blindly**
+- [x] **Step 3: Clamp each strip to the midpoint of the gap** *(implemented — commit `2ca51ba5c`)*
 
-In `GeotechBandEditOverlay.tsx`, import the allocator and compute strip extents inside the `columns` memo, storing them on `ColumnModel`:
-
-```tsx
-import { allocateMinHitExpansions } from '../../utils/minHitAllocation'
-```
-
-Add to `ColumnModel`:
+The allocator approach originally written here is a no-op (see the correction above). What
+shipped instead: `ColumnModel` gains `stripExtents`, computed in the `columns` memo from the
+boundary positions alone. Each strip still wants `MERGE_HANDLE_PX / 2` either side, but takes
+no more than half the gap to its neighbour, so the nearest boundary always wins the press.
+The outer edges of the stack are uncontested and keep their full half.
 
 ```tsx
-  /** Screen-space strip extents, allocated so neighbours never overlap. */
-  stripExtents: { top: number; bottom: number }[]
-```
-
-Inside the memo, after `mergeable` is built:
-
-```tsx
-      // Each strip wants MERGE_HANDLE_PX centred on its boundary. Where two
-      // boundaries sit closer than that, the allocator borrows from whichever
-      // neighbour has slack instead of letting the strips overlap — an overlap
-      // hands the press to the deeper boundary and silently edits the wrong one.
-      const surfaceY = surface.surfaceY
-      const pxPerMetre = surface.pxPerMetre
-      const wanted = mergeable.map(pair => {
-        const y = surfaceY + pair.upper.baseDepthM * pxPerMetre
-        return { top: y - MERGE_HANDLE_PX / 2, bottom: y + MERGE_HANDLE_PX / 2 }
+      const boundaryYs = mergeable.map(
+        pair => surface.surfaceY + pair.upper.baseDepthM * surface.pxPerMetre,
+      )
+      const stripExtents = boundaryYs.map((y, i) => {
+        // The stack's outer edges are open: nothing above the first boundary or below the
+        // last competes for the press, so those halves are never contested.
+        const toPrev = i > 0 ? (y - boundaryYs[i - 1]) / 2 : Infinity
+        const toNext = i + 1 < boundaryYs.length ? (boundaryYs[i + 1] - y) / 2 : Infinity
+        return {
+          top: y - Math.min(MERGE_HANDLE_PX / 2, toPrev),
+          bottom: y + Math.min(MERGE_HANDLE_PX / 2, toNext),
+        }
       })
-      const grown = allocateMinHitExpansions(wanted, MERGE_HANDLE_PX)
-      const stripExtents = wanted.map((w, i) => ({
-        top: w.top - grown[i].growTop,
-        bottom: w.bottom + grown[i].growBottom,
-      }))
 ```
 
-Then in the strip render, replace the `y`/`height` attributes:
-
-```tsx
-          {(onRequestMerge !== undefined || draggable) &&
-            column.mergeable.map((pair, i) => {
-              const extent = column.stripExtents[i]
-              const y = yAt(column, pair.upper.baseDepthM)
-              if (y < plotTop || y > plotBottom) return null
-              return (
-                <rect
-                  key={`gbe-boundary-${pair.upper.layerId}`}
-                  data-testid={`geotech-band-boundary-${pair.upper.layerId}`}
-                  x={column.x0}
-                  y={extent.top}
-                  width={column.x1 - column.x0}
-                  height={Math.max(0, extent.bottom - extent.top)}
-```
-
-Add `stripExtents` to the object pushed into `out`.
+The strip render takes an index and reads `column.stripExtents[i]` for `y` / `height`; every
+other attribute, both drag handlers and the context menu are untouched.
 
 - [ ] **Step 4: Run the whole overlay suite**
 
@@ -552,7 +524,8 @@ git commit -m "feat(sections): a litho contact is draggable from the geotech axi
 
 ## Task 6: The coupled geological contact
 
-**⚠ Confirm the spec amendment at the top of this plan with the owner before starting.**
+**Spec amendment CONFIRMED (owner, 2026-08-09): "same mental model".** Reuse the shipped
+three-option prompt rather than the silent same-transaction move. Not blocked.
 
 **Files:**
 - Modify: `desktop/src/renderer/src/shell/stages/sections/useLithoGeoSnapDialog.ts`
