@@ -5952,6 +5952,14 @@ geotech refetch no longer blinks the NAD fill).
   Fixing it properly means id-independent commands (address rows by column +
   depth, not by id) — a rework of the shared stack's contract, not of #227.
 
+**Inherited risk, noted 2026-08-09 (not introduced by the snap work).** The parentage
+probe shared by `canMergeBands` and the new contact-drag rule reads `lithoLayers`, which is
+the unfiltered API list and therefore includes `status=pending` suggestion ghosts;
+`columnBands` does not filter by status either. A pending ghost overlapping an accepted body
+can influence the parentage verdict — identically for both callers, which is the correct
+consequence of sharing one probe rather than a second bug. Pre-dates the snap feature. Worth
+a status filter when either is next touched.
+
 **Adversarial review 2026-08-08 (5 dimensions over the ~70-commit build).** Six
 defects found and fixed RED-first before the dogfeed: a tie's identity ignored
 its `top`/`base` surfaces, so an absorb could drop an accepted base-to-base tie
