@@ -224,20 +224,29 @@ test.describe('flow_per_instance_body', () => {
       expect(shallowBodyId, 'shallow KLEI body (at @2 m) not found in bodies list').toBeTruthy()
       expect(deepBodyId, 'deep KLEI body (at @7 m) not found in bodies list').toBeTruthy()
 
-      const shallowRegion = page
-        .locator(`[data-testid="partition-region-${shallowBodyId!}"]`)
-        .first()
-      const deepRegion = page
-        .locator(`[data-testid="partition-region-${deepBodyId!}"]`)
-        .first()
-      const boxShallow = await shallowRegion.boundingBox()
-      const boxDeep = await deepRegion.boundingBox()
-      expect(boxShallow, 'shallow region bounding box').not.toBeNull()
-      expect(boxDeep, 'deep region bounding box').not.toBeNull()
-      // The deep region's top edge (minY = box.y) must be below the shallow
-      // region's midpoint, proving the deep body did NOT jump up to @2 m.
+      // The HIGHEST point each body reaches, over EVERY region it draws — not the
+      // first region in DOM order. A body is tiled as several regions per gap, and
+      // which of them the DOM happens to list first says nothing about where the
+      // body sits: the shallow body's first-listed region shares its top edge with
+      // the deep body's, so comparing first-to-first compared two arbitrary tiles
+      // and read equal. The claim is about the bodies, so it is measured over them.
+      const highestTopOf = async (bodyId: string): Promise<number> => {
+        const tops = await page
+          .locator(`[data-testid="partition-region-${bodyId}"]`)
+          .evaluateAll(els => els.map(el => el.getBoundingClientRect().top))
+        expect(tops.length, `body ${bodyId} must draw at least one region`).toBeGreaterThan(0)
+        return Math.min(...tops)
+      }
+      const shallowTop = await highestTopOf(shallowBodyId!)
+      const deepTop = await highestTopOf(deepBodyId!)
+      // The deep body's highest point must still sit BELOW the shallow body's,
+      // proving the deep occurrence did not jump up to @2 m (Bug C).
       // "Greater screen-y" = further down the page (SVG y-axis: 0 at top).
-      expect(boxDeep!.y).toBeGreaterThan(boxShallow!.y)
+      expect(
+        deepTop,
+        `the deep KLEI body reaches ${deepTop}px, at or above the shallow body's ` +
+          `${shallowTop}px — it jumped to the shallow occurrence`,
+      ).toBeGreaterThan(shallowTop)
 
       // --- Assertion 3: resolver keeps the two per-instance KLEI levels SEPARATE.
       // The shallow (@2 m) and deep (@7 m) KLEI formations resolve to DISTINCT
