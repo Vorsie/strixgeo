@@ -115,3 +115,63 @@ async def test_adjacency_tolerance_allows_tiny_float_gap() -> None:
     result = await uc.execute(upper_id, lower_id, 1.0)
     assert result.upper.depth_base_m == 1.0
     assert result.lower.depth_top_m == 1.0
+
+
+# ---------------------------------------------------------------------------
+# The coupled geological contact (design §3)
+# ---------------------------------------------------------------------------
+#
+# A third of this model's litho layers are derived from a geological contact and
+# carry ``parent_geo_contact_id``. When such a boundary moves, the geological
+# contact IS that boundary — leaving it behind splits one physical surface into
+# two records that disagree, and the disagreement is invisible until something
+# downstream reconciles them.
+#
+# The design's words: the geological contact moves "in the same transaction, so
+# the coupling can never be left half-applied". A second write after the commit
+# does not satisfy that — anything between the two (a cancel, a failed request,
+# a crash) leaves exactly the half-applied state the sentence forbids.
+
+
+async def test_coupled_geo_contact_moves_with_the_boundary() -> None:
+    """A moved boundary carries its parent geological contact to the new depth."""
+    upper_id, lower_id = uuid4(), uuid4()
+    bh, geo_contact_id = uuid4(), uuid4()
+    upper = _layer(layer_id=upper_id, depth_top_m=0.0, depth_base_m=2.0, borehole_id=bh)
+    lower = _layer(layer_id=lower_id, depth_top_m=2.0, depth_base_m=4.0, borehole_id=bh)
+    # The boundary IS the lower layer's top, so the coupling that matters is the
+    # LOWER row's: the upper layer's parent describes its own top, metres away.
+    lower.parent_geo_contact_id = geo_contact_id
+    uc = _use_case_with_rows([upper, lower])
+    geo = MagicMock()
+    geo.id = geo_contact_id
+    geo.depth_top_m = 2.0
+    uc._repo.get_formation_contact = AsyncMock(return_value=geo)
+    uc._session.flush = AsyncMock()
+    uc._session.commit = AsyncMock()
+    uc._session.refresh = AsyncMock()
+
+    await uc.execute(upper_id, lower_id, 3.0)
+
+    assert geo.depth_top_m == 3.0, "the coupled geological contact must follow the boundary"
+    # Same transaction: the geological row is mutated BEFORE the single commit, so
+    # there is no window in which the two models disagree.
+    assert uc._session.commit.await_count == 1
+
+
+async def test_uncoupled_boundary_touches_no_geological_contact() -> None:
+    """A layer with no parent geological contact triggers no geological read."""
+    upper_id, lower_id = uuid4(), uuid4()
+    bh = uuid4()
+    upper = _layer(layer_id=upper_id, depth_top_m=0.0, depth_base_m=2.0, borehole_id=bh)
+    lower = _layer(layer_id=lower_id, depth_top_m=2.0, depth_base_m=4.0, borehole_id=bh)
+    lower.parent_geo_contact_id = None
+    uc = _use_case_with_rows([upper, lower])
+    uc._repo.get_formation_contact = AsyncMock()
+    uc._session.flush = AsyncMock()
+    uc._session.commit = AsyncMock()
+    uc._session.refresh = AsyncMock()
+
+    await uc.execute(upper_id, lower_id, 3.0)
+
+    uc._repo.get_formation_contact.assert_not_awaited()
