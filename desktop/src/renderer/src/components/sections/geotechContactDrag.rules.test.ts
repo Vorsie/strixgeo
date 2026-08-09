@@ -199,6 +199,35 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
     })
   })
 
+  // GC10/GC11 straddle RESTATED_CONTACT_TOLERANCE_M itself, one on each side of it.
+  //
+  // Without them the constant is undefended: GC1's row is 12 µm away and GC5's is 5 mm,
+  // so ANY threshold between those two keeps this suite green. Tighten it to 1e-4 in a
+  // later tidy-up and the 67 boundaries on the owner's real database that coincide only
+  // within a millimetre would start refusing — silently, on his data, with the suite
+  // still passing. The number came from measuring that database (255 bit-identical, 67
+  // within a millimetre), so it is a finding, and a finding needs a test.
+  it('GC10 — a row 1.0 mm away still is the restated row', () => {
+    const justInside = [contact('L-zand', 4.001)]
+    expect(plan('g3', 8.5, { lithoContacts: justInside })).toEqual({
+      kind: 'move',
+      lithoContactId: 'L-zand',
+      depthM: 7,
+    })
+  })
+
+  it('GC11 — and a row 1.2 mm away is not', () => {
+    // Nothing physical happens between 1.0 mm and 1.2 mm: the tolerance is the width of
+    // the materialiser's mm rounding, so a row further out than that rounding could
+    // explain is a DIFFERENT boundary, not this one seen imprecisely.
+    const justOutside = [contact('L-zand', 4.0012)]
+    expect(plan('g3', 8.5, { lithoContacts: justOutside })).toEqual({
+      kind: 'unmatched',
+      anchorId: 'cpt-1',
+      boundaryDepthM: 4,
+    })
+  })
+
   it('GC6 — the top of the column owns no drag', () => {
     // g1's top is where the cone started, not a boundary between two bands.
     expect(plan('g1', 3)).toEqual({ kind: 'not-a-boundary' })
@@ -233,12 +262,27 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
     ).toEqual({ kind: 'packing-boundary', anchorIsCpt: false })
   })
 
-  it('GC8 — the move targets the litho row, never the geotech row that was grabbed', () => {
-    const result = plan('g3', 8.5)
-
-    // The grabbed row is a geotech band; moving IT is what the next Subdivide discards.
-    // The edit belongs to the litho model, which is why the plan names a litho id.
-    expect(result).toMatchObject({ kind: 'move' })
-    if (result.kind === 'move') expect(result.lithoContactId).not.toBe('g3')
+  it('GC8 — the nearest row ON THIS COLUMN is the restated one, not the first found', () => {
+    // GC1 already fixes the id exactly, so it covers "the plan names a litho row". What
+    // it cannot cover is CHOOSING between rows, because it offers only one. A real
+    // column has several, and two mistakes are easy to make and invisible with one:
+    //
+    //   * dropping the column filter — the decoy below sits at exactly 4 m on ANOTHER
+    //     CPT, so it is nearer than the true row and would win outright;
+    //   * taking the first row inside the tolerance instead of the nearest — the second
+    //     decoy is on this column, inside the millimetre, and listed first.
+    //
+    // Both would move a boundary the engineer never pointed at, on a different column or
+    // at a different depth, and neither would fail any other case in this file.
+    const withDecoys = [
+      { ...contact('L-other-column', 4), cpt_id: 'cpt-2' },
+      contact('L-zand-further', 4.0009),
+      contact('L-zand', 4.0000123),
+    ]
+    expect(plan('g3', 8.5, { lithoContacts: withDecoys })).toEqual({
+      kind: 'move',
+      lithoContactId: 'L-zand',
+      depthM: 7,
+    })
   })
 })
