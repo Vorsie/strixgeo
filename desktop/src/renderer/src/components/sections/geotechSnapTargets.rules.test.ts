@@ -49,6 +49,13 @@ describe('what a dragged contact may snap to on the geotech axis', () => {
     ])
     expect(out.get('cpt-1')?.map(c => c.depth)).toEqual([4, 6])
   })
+
+  it('SN6 — a column the qc never subdivided is absent, not empty', () => {
+    // The TSDoc promises a caller may read "no entry" as "this column offers
+    // nothing". An empty array would satisfy the letter and break that promise.
+    const out = packingSnapCandidates([band('only', 2, 9, 'cpt-1')])
+    expect(out.has('cpt-1')).toBe(false)
+  })
 })
 
 describe('a drag consumes one boundary at a time', () => {
@@ -83,5 +90,14 @@ describe('a drag consumes one boundary at a time', () => {
     // occupies, at zero distance, and the contact could never be moved again.
     expect(clampToNextBoundary(4, 8.5, CANDIDATES)).toBe(6)
     expect(clampToNextBoundary(6, 3.2, CANDIDATES)).toBe(4)
+  })
+
+  it('CB7 — the nearest crossed boundary wins whatever order the candidates arrive in', () => {
+    // Documented as order-independent, so pin it: CANDIDATES above is sorted,
+    // and a future "candidates[0]" or "first one in range" shortcut would ship
+    // green against it. Same answers as CB1 and CB2, descending input.
+    const shuffled = [{ depth: 9 }, { depth: 6 }, { depth: 4 }]
+    expect(clampToNextBoundary(3, 8.5, shuffled)).toBe(4)
+    expect(clampToNextBoundary(7, 3.2, shuffled)).toBe(6)
   })
 })
