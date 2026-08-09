@@ -72,6 +72,7 @@ import ContactsLayer, {
   type SnapCandidate,
 } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
+import { packingSnapCandidates } from './sections/geotechSnapTargets'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import {
   useSectionKeyboardShortcuts,
@@ -2138,9 +2139,26 @@ export default function SectionPanel({
         acc.set(anchorId, list)
       }
     }
+    // Third source, geotech axis only: the CPT's own packing boundaries.
+    //
+    // The cone resistance is the best reading of where the ground changes on
+    // this column, and on finely interbedded ground it resolves the boundary
+    // 3-4x finer than the driller's 0.5 m log grid did.  Offering those
+    // boundaries as snap targets lets a contact drag land on the evidence
+    // rather than near it.  ``packingSnapCandidates`` excludes borehole
+    // columns (their bands were extrapolated from neighbouring CPTs, not
+    // measured here) and each column's own top and base (where the cone
+    // started and stopped, not a place the ground was observed to change).
+    if (axisMode === 'geotechnical' && refinement !== undefined) {
+      for (const [cptId, packing] of packingSnapCandidates(refinement.geotechLayers)) {
+        const list = acc.get(cptId) ?? []
+        list.push(...packing)
+        acc.set(cptId, list)
+      }
+    }
     for (const [k, v] of acc) out.set(k, v)
     return out
-  }, [snapToStratigraphy, boreholeDetails, contacts])
+  }, [snapToStratigraphy, boreholeDetails, contacts, axisMode, refinement])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
