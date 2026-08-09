@@ -771,15 +771,25 @@ describe('a boundary says which kind it is before it is touched', () => {
     expect(padlockLeft).toBeGreaterThanOrEqual(gripRight)
   })
 
-  it('GS49 — and the padlock says what it is and where the edit does live', () => {
-    // Every other affordance on this overlay names itself on hover. A mark that
-    // appears and only refuses is half an answer: the contact IS editable, just on
-    // the other axis, and that is the sentence the owner needs.
+  it('GS49 — and the padlock says what it is and what dragging it would move', () => {
+    // Every other affordance on this overlay names itself on hover. This one used to
+    // send the engineer to the litho axis, which stopped being true on 2026-08-08:
+    // the contact is now draggable from HERE, and the drag edits the litho model
+    // (owner ruling — the CPT resolves a contact 3-4x finer than the driller's 0.5 m
+    // log grid, so this is the screen with the best evidence for the move).
+    //
+    // The mark stays, because what it distinguishes still matters and now matters
+    // MORE: both kinds of boundary can be dragged here, and they do different things.
+    // Dragging a contact moves a litho row; dragging a packing boundary re-derives
+    // NAD classes from qc. The padlock is what tells the engineer which one is under
+    // the cursor before committing to either.
     renderOverlay({ onRequestMoveBoundary: vi.fn() })
     const title = screen
       .getByTestId('geotech-contact-marker-band-3')
       .querySelector('title')
-    expect(title?.textContent).toBe('Lithostratigraphic contact — edit it on the litho axis')
+    expect(title?.textContent).toBe(
+      'Lithostratigraphic contact — dragging it moves the litho model',
+    )
   })
 
   it('GS50 — no grip where dragging is not offered, only right-clicking', () => {
