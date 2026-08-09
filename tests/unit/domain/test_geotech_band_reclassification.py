@@ -636,3 +636,56 @@ def test_mr3_a_run_crossing_a_litho_parent_is_refused() -> None:
             qc_mpa=qc,
             min_thickness_m=0.35,
         )
+
+
+def test_pm7_a_refused_drag_is_called_a_move_not_a_merge() -> None:
+    """PM7 — the refusal must name the verb the engineer actually used.
+
+    Dogfeed 2026-08-09: dragging a boundary across a litho contact answered
+    "Merge rejected: ...". Nothing was being merged; he had dragged. The wall
+    is correct (ruling 2), but a refusal that describes a different gesture
+    reads as a bug in the app rather than a rule about the ground.
+    """
+    depths, qc = _series([(0.0, 4.0, 12.0)])
+    bands = [_band("u", 0.0, 2.0, 7, litho=LITHO_A), _band("l", 2.0, 4.0, 7, litho=LITHO_B)]
+    with pytest.raises(GeotechBandEditError) as excinfo:
+        plan_move(
+            bands=bands,
+            upper_band_id="u",
+            lower_band_id="l",
+            new_depth_m=2.4,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+    assert str(excinfo.value).startswith("Move rejected")
+
+
+def test_pm8_the_refusal_names_the_re_subdivide_that_actually_clears_it() -> None:
+    """PM8 — "edit the contact" alone is necessary but NOT sufficient.
+
+    Dogfeed 2026-08-09, verbatim: *"i tried merging a litho, but it was in
+    separate geo bands, so i updated geo bands and the litho model i tried to
+    merge the bands, but i couldn't ... re-subdivide did the trick though."*
+
+    He did exactly what the message told him and the refusal persisted, because
+    the packing bands still carry the parent units they were built against.
+    Correcting the contact upstairs does not restate them — only re-running
+    Subdivide does. The message has to say the whole fix, or it sends the
+    engineer in a circle.
+    """
+    depths, qc = _series([(0.0, 4.0, 12.0)])
+    bands = [_band("u", 0.0, 2.0, 7, litho=LITHO_A), _band("l", 2.0, 4.0, 7, litho=LITHO_B)]
+    with pytest.raises(GeotechBandEditError, match="[Ss]ubdivide"):
+        plan_merge(
+            bands=bands,
+            upper_band_id="u",
+            lower_band_id="l",
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
