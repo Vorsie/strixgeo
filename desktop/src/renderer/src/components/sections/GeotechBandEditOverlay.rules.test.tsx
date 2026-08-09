@@ -754,3 +754,66 @@ describe('a boundary says which kind it is before it is touched', () => {
     expect(marker.getAttribute('opacity')).toBe('1')
   })
 })
+
+describe('a grab strip never reaches across a litho contact', () => {
+  // The strips already share contested pixels with each OTHER (GS42). A litho
+  // contact was not in that reckoning, so a packing boundary sitting a few px
+  // from one kept its full half-height and lay across it — reaching into a
+  // boundary this axis may not edit. A press aimed at the contact would land on
+  // the packing boundary instead: the exact collision GS42 exists to prevent,
+  // between the two kinds rather than within one.
+  //
+  // 8 m is where LITHO_LAYERS changes body, so it is a litho contact whichever
+  // side the packing boundary is on.
+
+  /** Render one column with a hand-written band stack and return its strip's extent. */
+  function stripExtentOf(
+    layers: LithoLayerResponse[],
+    upperBandId: string,
+  ): { top: number; bottom: number } {
+    render(
+      <svg>
+        <GeotechBandEditOverlay
+          geotechLayers={layers}
+          lithoLayers={LITHO_LAYERS}
+          placedColumns={[COLUMN]}
+          levelToScreen={levelToScreen}
+          plotTop={0}
+          plotBottom={2000}
+          onRequestSplit={vi.fn()}
+          onRequestMerge={vi.fn()}
+          onRequestMoveBoundary={vi.fn()}
+        />
+      </svg>,
+    )
+    const el = screen.getByTestId(`geotech-band-boundary-${upperBandId}`)
+    const top = Number(el.getAttribute('y'))
+    return { top, bottom: top + Number(el.getAttribute('height')) }
+  }
+
+  it('GS46 — a strip below a contact stops short of it, and stays grabbable', () => {
+    // A packing boundary at 8.3 m is 3 px below the contact at this fixture's
+    // scale — closer than the strip's own half-height.
+    const { top, bottom } = stripExtentOf(
+      [layer('c1', 2, 8), layer('c2', 8, 8.3), layer('c3', 8.3, 14)],
+      'c2',
+    )
+    expect(top).toBeGreaterThanOrEqual(yAtDepth(8))
+    // Non-overlap alone is satisfied by a strip with no height, which trades the
+    // wrong boundary being grabbed for none being grabbable — so it must still
+    // straddle the boundary the engineer is aiming at.
+    expect(top).toBeLessThan(yAtDepth(8.3))
+    expect(bottom).toBeGreaterThan(yAtDepth(8.3))
+  })
+
+  it('GS47 — and a strip above a contact stops short of it the same way', () => {
+    // The mirror case: a packing boundary at 7.8 m, 2 px above the contact.
+    const { top, bottom } = stripExtentOf(
+      [layer('d1', 2, 7.8), layer('d2', 7.8, 8), layer('d3', 8, 14)],
+      'd1',
+    )
+    expect(bottom).toBeLessThanOrEqual(yAtDepth(8))
+    expect(top).toBeLessThan(yAtDepth(7.8))
+    expect(bottom).toBeGreaterThan(yAtDepth(7.8))
+  })
+})
