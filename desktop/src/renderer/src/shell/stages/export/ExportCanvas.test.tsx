@@ -200,6 +200,7 @@ function makeStubContext(): ShellContextValue {
       geotechLayersVersion: 0,
       geotechContacts: [],
       geotechFormations: [],
+      columnsNeedingRederive: [],
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
