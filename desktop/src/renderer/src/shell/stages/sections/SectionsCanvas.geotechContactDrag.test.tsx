@@ -24,6 +24,7 @@ import type { FormationContactResponse, LithoLayerResponse } from '../../../api/
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import SectionsCanvas from './SectionsCanvas'
+import { makeLithoLayer } from './__fixtures__/lithoLayer'
 import { makeShellCtx } from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
@@ -96,25 +97,13 @@ function layer(
     borehole_id: null,
   },
 ): LithoLayerResponse {
-  return {
+  return makeLithoLayer({
     id,
-    model_id: 'm',
-    formation_id: `f-${id}`,
-    cpt_id: anchor.cpt_id,
-    borehole_id: anchor.borehole_id,
     depth_top_m: top,
     depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: `body-${id}`,
-    notes: null,
-    created_at: '2026-08-08T00:00:00Z',
-    updated_at: '2026-08-08T00:00:00Z',
-  } as LithoLayerResponse
+    cpt_id: anchor.cpt_id,
+    borehole_id: anchor.borehole_id,
+  })
 }
 
 /** The litho contact the 4 m boundary restates — a hair off, as the real rows are. */
