@@ -46,10 +46,25 @@ export const RESTATED_CONTACT_TOLERANCE_M = 0.0011
 export type GeotechContactDragPlan =
   /** Move this litho contact to this depth. The only outcome that writes anything. */
   | { kind: 'move'; lithoContactId: string; depthM: number }
-  /** The boundary is the owner's own subdivision — the packing drag owns it, not this. */
-  | { kind: 'packing-boundary' }
+  /**
+   * The boundary is the owner's own subdivision — the packing drag owns it, not this.
+   *
+   * ``anchorIsCpt`` because the remedy differs and the caller has to say which one: a CPT
+   * column carries a band handle for this boundary, a borehole carries none at all.
+   */
+  | { kind: 'packing-boundary'; anchorIsCpt: boolean }
   /** The drag crossed no packing boundary, so the contact stays where it was put. */
   | { kind: 'no-boundary-crossed' }
+  /**
+   * The column offers no packing boundary at ALL — told apart from the case above
+   * because "drag further" is worth trying again and this never will be.
+   *
+   * By construction this is the borehole case: a column that got this far has at least
+   * two bands, so a CPT would always have at least one internal boundary, and
+   * ``packingSnapCandidates`` excludes borehole columns entirely (their bands were
+   * extrapolated from the CPTs around them, not measured here).
+   */
+  | { kind: 'no-packing-boundaries'; anchorId: string }
   /** Parentage says contact, but no litho row is within tolerance — refuse, never guess. */
   | { kind: 'unmatched'; anchorId: string; boundaryDepthM: number }
   /** The grabbed row is not an internal boundary of a column (or is not on this axis). */
@@ -117,23 +132,22 @@ export function planGeotechContactDrag(
     baseDepthM: b.baseDepthM,
   }))
   if (!boundaryRestatesLithoContact(upper, lower, lithoBodies)) {
-    return { kind: 'packing-boundary' }
+    return { kind: 'packing-boundary', anchorIsCpt: lower.anchorIsCpt }
   }
 
   const boundaryDepthM = lower.topDepthM
   const match = nearestLithoContact(lithoContacts, anchorId, boundaryDepthM)
   if (match === null) return { kind: 'unmatched', anchorId, boundaryDepthM }
 
+  const candidates = packingSnapCandidates(geotechLayers).get(anchorId) ?? []
+  if (candidates.length === 0) return { kind: 'no-packing-boundaries', anchorId }
+
   // One drag consumes one boundary, however far the cursor travelled — moving a contact
   // two boundaries takes two drags, so each step keeps its own consequence and its own
   // entry on the undo stack. ``null`` means the drag reached none, which is "do not move"
   // rather than "move as far as you can": sliding the contact to the free depth the cursor
   // happened to stop at would record a boundary the cone resistance never resolved.
-  const landing = clampToNextBoundary(
-    boundaryDepthM,
-    toDepthM,
-    packingSnapCandidates(geotechLayers).get(anchorId) ?? [],
-  )
+  const landing = clampToNextBoundary(boundaryDepthM, toDepthM, candidates)
   if (landing === null) return { kind: 'no-boundary-crossed' }
 
   return { kind: 'move', lithoContactId: match.id, depthM: landing }
