@@ -30,24 +30,18 @@
  * on the `Subdivide` verb happen in their own places.
  */
 
+import { COINCIDENT_DEPTH_TOLERANCE_M } from './depthTolerance'
+
 /**
- * The rounding allowance below which a band and its parent are treated as coincident.
+ * How far a band may poke out of its parent and still be judged to fit, in metres.
  *
- * Same value and same reason as `RESTATED_CONTACT_TOLERANCE_M` in
- * `components/sections/geotechContactDrag.ts`: the band materialiser rounds depths to
- * three decimals while litho contacts keep full float precision, so a band top of 9.581
- * genuinely coincides with a parent top of 9.581049712235094. The number was measured on
- * the owner's real database, where boundaries that truly coincide differ by up to a
- * millimetre — a millimetre, plus a hair so the millimetre itself is inside.
- *
- * Compare exactly instead and a fifth of his coincident boundaries would report as
- * overhanging, sending him to `Subdivide` on columns where nothing had moved.
- *
- * It is duplicated rather than imported because this module sits in `utils/` and the
- * sibling in `components/`; a shared depth-tolerance module is the right extraction the
- * moment a third site needs it.
+ * The shared {@link COINCIDENT_DEPTH_TOLERANCE_M}, because what this rule asks is exactly
+ * what that allowance answers: a band top of 2 and a parent top of 2.0004 are the same
+ * boundary recorded at two precisions, not an overhang. Compare exactly and a fifth of
+ * the owner's coincident boundaries would report as overhanging — sending him to
+ * `Subdivide` on columns where nothing has moved, every time he opens the section.
  */
-export const PARENT_FIT_TOLERANCE_M = 0.0011
+const PARENT_FIT_TOLERANCE_M = COINCIDENT_DEPTH_TOLERANCE_M
 
 /** The litho unit a packing band subdivides. Depths are metres below the collar. */
 export interface BandParent {
