@@ -2198,10 +2198,17 @@ export default function SectionPanel({
         c => c.contactId !== contactId,
       )
       const landing = clampToNextBoundary(startDepthM, rawDepthM, candidates)
-      if (landing === null) return { depthM: startDepthM, atLimit: rawDepthM !== startDepthM }
-      // Past the boundary it landed on = the cursor asked for more than one.
-      const overshot = Math.abs(rawDepthM - startDepthM) > Math.abs(landing - startDepthM)
-      return { depthM: landing, atLimit: overshot }
+      // NOTHING crossed → free movement. The contact is being nudged inside the run it
+      // already occupies, which is a refinement like any other: geological → litho →
+      // geotech, each level refining the one above, so a correction made here has to be
+      // able to land where the evidence says rather than only on a band edge.
+      if (landing === null) return { depthM: rawDepthM, atLimit: false }
+      // A boundary WAS crossed → that boundary is the far wall. Anywhere short of it is
+      // free (the nudge); past it is refused, because one drag consumes one boundary and
+      // reaching the next one takes a second drag.
+      const beyond =
+        rawDepthM > startDepthM ? Math.min(rawDepthM, landing) : Math.max(rawDepthM, landing)
+      return { depthM: beyond, atLimit: beyond !== rawDepthM }
     }
   }, [axisMode, refinement, lithoLayers])
 
