@@ -151,7 +151,28 @@ test.describe('flow_geotech_snap_contact', () => {
       }
       const openingScaleV = await readScaleV()
 
-      // ZOOM IN before aiming anything.
+      // Where the drag will be released — decided from the API's depths, before any
+      // pixel is measured, because it is what determines how far the section has to
+      // be zoomed for the gesture to be expressible at all.
+      //
+      // Two constraints pull opposite ways and both are hard. The release must be well
+      // PAST the second boundary, or "it stopped at the first" is not being tested. But
+      // it must also stay INSIDE the layer being dragged: ContactsLayer will not commit
+      // a contact outside its own row, and a release past that is dropped whole rather
+      // than clamped, which then reads exactly like a broken snap. Most of the way to
+      // the base satisfies both with room on each side, and the overshoot still proves
+      // the rule, because ``clampToNextBoundary`` returns the NEAREST boundary crossed.
+      const overshootRoomM = lithoBaseM - secondBoundaryM
+      expect(
+        overshootRoomM,
+        `the dragged layer (${contactDepthM.toFixed(3)}–${lithoBaseM.toFixed(3)}m) must extend ` +
+          `below the second boundary (${secondBoundaryM.toFixed(3)}m), or the drag has nowhere ` +
+          `legal to overshoot to`,
+      ).toBeGreaterThan(0.2)
+      const releaseDepthM = secondBoundaryM + 0.75 * overshootRoomM
+      const travelM = releaseDepthM - contactDepthM
+
+      // ZOOM IN until the gesture is bigger than the rounding in it.
       //
       // The setup cuts the band under the contact into thirds, and a third of this
       // fixture's bands is about a quarter-metre — roughly TWO PIXELS at the scale
@@ -159,32 +180,32 @@ test.describe('flow_geotech_snap_contact', () => {
       // size the rounding decides whether the drag crosses the first boundary, and the
       // spec reports a clamp defect whichever way it falls.
       //
+      // Zoomed to a MEASURED target rather than a fixed number of notches: which column
+      // the fixture offers varies, so a fixed zoom lands wherever that column's depths
+      // happen to put it. Six notches gave a drag of exactly 12px on one run and
+      // comfortably more on the next — the same spec passing or failing on which target
+      // it drew, which is the flakiness this loop removes.
+      //
       // Wheel over the contact itself, which is the gesture the toolbar hint documents
       // ("scroll to zoom"): zooming about the cursor holds the point under it still, so
       // the contact stays where it is while everything around it grows. The vertical
       // exaggeration slider reaches the same scale but is NOT interchangeable — driving
       // it to 25x left the band-edit overlay drawing nothing at all, grips and markers
       // both, which is worth knowing separately and is not this spec's to carry.
-      const zoomAnchor = (await page
-        .locator(`[data-testid="contact-drag-strip"][data-contact-id="${lowerBandId}"]`)
-        .boundingBox())!
-      for (let i = 0; i < 6; i += 1) {
+      const TRAVEL_TARGET_PX = 40
+      let scaleV = openingScaleV
+      for (let i = 0; i < 14 && scaleV * travelM < TRAVEL_TARGET_PX; i += 1) {
+        const anchor = (await page
+          .locator(`[data-testid="contact-drag-strip"][data-contact-id="${lowerBandId}"]`)
+          .boundingBox())!
         await page.mouse.move(
-          Math.round(zoomAnchor.x + zoomAnchor.width / 2),
-          Math.round(zoomAnchor.y + zoomAnchor.height / 2),
+          Math.round(anchor.x + anchor.width / 2),
+          Math.round(anchor.y + anchor.height / 2),
         )
         await page.mouse.wheel(0, -240)
         await page.waitForTimeout(80)
+        scaleV = await readScaleV()
       }
-      await expect
-        .poll(readScaleV, {
-          timeout: 10_000,
-          message:
-            `the section must zoom in before the drag is aimed — it opened at ` +
-            `${openingScaleV} px/m, where a prepared third measures about two pixels`,
-        })
-        .toBeGreaterThan(openingScaleV * 2)
-      const scaleV = await readScaleV()
 
       // The boundary the drag has to land on must be DRAWN before the drag starts.
       // Asserted by name so a missing grip reports itself here, rather than surfacing
@@ -229,30 +250,6 @@ test.describe('flow_geotech_snap_contact', () => {
       const stripBox = (await strip.boundingBox())!
       const cx = Math.round(stripBox.x + stripBox.width / 2)
       const cy = Math.round(stripBox.y + stripBox.height / 2)
-
-      // Release as deep inside the dragged layer as it legally goes.
-      //
-      // Two constraints pull opposite ways and both are hard. The release must be well
-      // PAST the second boundary, or "it stopped at the first" is not being tested —
-      // and the two prepared boundaries are a quarter-metre apart, which is about two
-      // pixels at the scale Section B opens at, so aiming just past the second is
-      // aiming inside the rounding of a single synthesized move. But it must also stay
-      // INSIDE the layer being dragged: ContactsLayer will not commit a contact outside
-      // its own row, and a release past that is dropped whole rather than clamped, which
-      // then reads exactly like a broken snap.
-      //
-      // Halfway from the second boundary to the layer's base satisfies both with the
-      // most room on each side. The overshoot still proves the rule, because
-      // ``clampToNextBoundary`` returns the NEAREST boundary crossed: everything below
-      // the first one is crossed too and must still be passed over.
-      const overshootRoomM = lithoBaseM - secondBoundaryM
-      expect(
-        overshootRoomM,
-        `the dragged layer (${contactDepthM.toFixed(3)}–${lithoBaseM.toFixed(3)}m) must extend ` +
-          `below the second boundary (${secondBoundaryM.toFixed(3)}m), or the drag has nowhere ` +
-          `legal to overshoot to`,
-      ).toBeGreaterThan(0.2)
-      const releaseDepthM = secondBoundaryM + overshootRoomM / 2
 
       // What is actually under the press point, recorded BEFORE the mousedown. The
       // geotech axis stacks several transparent hit surfaces over this pixel, so a
@@ -317,15 +314,19 @@ test.describe('flow_geotech_snap_contact', () => {
       )
       // The gesture has to be bigger than the noise in it. Each synthesized move is
       // rounded to whole pixels, so a travel of a handful of px is decided by rounding
-      // rather than by the clamp — and it would report a clamp defect either way. Stated
-      // here, before the drag, so a section drawn too compressed to express the distance
-      // says so instead of failing 30 s later as an unmoved row.
+      // rather than by the clamp — and it would report a clamp defect either way.
+      //
+      // The zoom loop above exists to satisfy this, so this is the loop's post-condition
+      // rather than an independent hurdle: it fires only if the section could not be
+      // zoomed far enough, and then it says so here instead of failing 30 s later as an
+      // unmoved row. Held below the loop's target so a pixel of slack in the last wheel
+      // notch is not itself a failure.
       expect(
         targetY - (pressClientY as number),
         `the drag from ${contactDepthM.toFixed(3)}m to ${releaseDepthM.toFixed(3)}m must be ` +
           `larger than the rounding in it — at ${scaleV} px/m it spans only ` +
-          `${targetY - (pressClientY as number)}px`,
-      ).toBeGreaterThan(12)
+          `${targetY - (pressClientY as number)}px, and the section would not zoom further`,
+      ).toBeGreaterThanOrEqual(TRAVEL_TARGET_PX / 2)
 
       await page.evaluate(
         ({ x, y0, y1, steps }) => {
