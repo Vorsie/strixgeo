@@ -6,6 +6,10 @@
 // passed to SectionPanel unconditionally, while their siblings on the very same call
 // (`onCreateContact`, and `onRequestDeleteContact` on the correlation overlay) are gated.
 //
+// One of the two came back by ruling on 2026-08-08 — see VO1. It came back as a different
+// handler doing a different thing (moving the LITHO contact a boundary restates), not as
+// the leak being reopened, and every other case here is unchanged.
+//
 // The consequence is not cosmetic. `ContactsLayer` renders its drag hit-strip and its
 // right-click delete whenever an edit handler is present, with no axis check of its own,
 // so a user can move or delete a geotech contact — and the next "Subdivide all bodies"
@@ -72,10 +76,22 @@ describe('SectionsCanvas — the geotech axis hands over no contact-edit handler
     cleanup()
   })
 
-  it('VO1 — a geotech contact cannot be dragged to a new depth', () => {
+  // VO1 was the opposite assertion until 2026-08-08, and it flipped by owner ruling, not
+  // by erosion: a contact drag IS offered here now. It is the ONE deliberate exception,
+  // and it is an exception precisely because it does not do what this suite forbids — the
+  // handler wired here refuses the geotech row and moves the LITHOSTRATIGRAPHIC contact it
+  // restates, so nothing "Subdivide all bodies" rewrites is ever touched. The engineer is
+  // editing the litho model from the screen that shows the best evidence for it (the CPT
+  // resolves a contact 3-4x finer than the driller's 0.5 m log grid).
+  //
+  // That behaviour is pinned in SectionsCanvas.geotechContactDrag.test.tsx; all this case
+  // can see from here is that the handler is present, which is why the rest of the suite —
+  // delete, create and the batch pair — keeps its original assertions unchanged. If a
+  // future change makes this axis editable wholesale, those cases go red, not this one.
+  it('VO1 — a litho contact CAN be dragged from here: the one consented exception', () => {
     renderOn('geotechnical')
 
-    expect(capturedPanelProps.onUpdateContactDepth).toBeUndefined()
+    expect(capturedPanelProps.onUpdateContactDepth).toBeDefined()
   })
 
   it('VO2 — a geotech contact cannot be deleted from its right-click menu', () => {
@@ -84,6 +100,10 @@ describe('SectionsCanvas — the geotech axis hands over no contact-edit handler
     expect(capturedPanelProps.onDeleteContact).toBeUndefined()
   })
 
+  // Still both, and still the control for VO2: withholding delete for everyone would pass
+  // VO2 on its own. The depth half now holds on both axes for different reasons — plain
+  // litho drag there, the restated-contact drag here (VO1) — which is the shape of an
+  // exception rather than of a rule that quietly stopped applying.
   it('VO3 — the litho axis keeps both, so the gate is about the axis and not the feature', () => {
     renderOn('lithostratigraphic')
 
