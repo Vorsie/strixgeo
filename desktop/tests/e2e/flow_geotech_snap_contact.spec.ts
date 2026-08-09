@@ -225,11 +225,11 @@ test.describe('flow_geotech_snap_contact', () => {
       // Polled as a SENTENCE rather than a boolean: a boolean poll prints only
       // "expected true", which is the one thing already known.
       const boundaryOffer = async (): Promise<string> => {
-        const grips = await drawnIds('geotech-boundary-grip-')
-        if (grips.includes(lowerBandId)) return 'drag grip'
+        const strips = await drawnIds('geotech-band-boundary-')
+        if (strips.includes(lowerBandId)) return 'a grab strip'
         const marks = await drawnIds('geotech-contact-marker-')
         if (marks.includes(lowerBandId)) return 'a litho-contact marker, so the drag is refused here'
-        return `nothing — grips drawn: [${grips.join(', ')}]; markers drawn: [${marks.join(', ')}]`
+        return `nothing — strips drawn: [${strips.join(', ')}]; markers drawn: [${marks.join(', ')}]`
       }
       await expect
         .poll(boundaryOffer, {
@@ -238,7 +238,7 @@ test.describe('flow_geotech_snap_contact', () => {
             `the packing boundary at ${firstBoundaryM.toFixed(3)}m (the base of band ` +
             `${lowerBandId}) must offer the drag`,
         })
-        .toBe('drag grip')
+        .toBe('a grab strip')
 
       const strip = page.locator(
         `[data-testid="contact-drag-strip"][data-contact-id="${lowerBandId}"]`,
