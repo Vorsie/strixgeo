@@ -125,3 +125,51 @@ Two rules out of it:
 
 Any `on_conflict_do_update` that omits `updated_at` from its `set_` has this
 bug; the ORM declaration will not save it.
+
+
+## A test guards only what a WRONG implementation would fail (2026-08-09)
+
+Two pure functions shipped with tests that read as thorough and were partly
+blind. `packingSnapCandidates` sorted its input, and every fixture happened to
+arrive already sorted — delete the sort, suite stays green. `clampToNextBoundary`
+documented that it does not depend on candidate order, and its fixture was
+sorted too, so "first crossed" and "nearest to the origin" coincided; a wrong
+implementation that returned the first in range passed the test written to pin
+the nearest.
+
+Both were found the same way, and not by re-reading the assertions: by asking
+*what wrong implementation would still pass this?* and then writing that wrong
+implementation and running it. A careful read had already judged both adequate.
+
+* **Reading a test tells you what it says. Mutating the code tells you what it
+  catches.** Comment out the line the test exists to protect. If it stays green,
+  the test is describing behaviour rather than defending it.
+* **The most suspicious test is the one whose fixture satisfies the property by
+  accident.** Sorted inputs, contiguous depths, values that happen to be
+  distinct — anywhere the data makes two different rules agree, only one of them
+  is actually pinned.
+* **Cost is trivial.** Three edits and three runs covered both functions here,
+  and it surfaced a surviving mutant that a deliberate review pass had missed
+  once already.
+
+Related, from the same session: a test asserting an ABSENCE (no grip on a
+non-draggable boundary) can never go red before the feature exists. It is worth
+keeping as a regression guard, but it is not TDD evidence and must not be
+counted toward a RED-first claim.
+
+## The pre-commit hook serialises concurrent agents (2026-08-09)
+
+`.githooks/pre-commit` runs a project-wide `tsc --noEmit`, so it type-checks the
+whole WORKING TREE, not the files being committed. Two consequences, both hit in
+one session:
+
+* **RED-first commits are impossible without a bypass.** Committing a failing
+  test on its own cannot pass a hook that runs the suite. The sequence that
+  satisfies both: write the test, run it, *record the RED*, commit nothing, write
+  the implementation, confirm green, then commit test and implementation as
+  separate commits — the hook passes on both because the tree is green by then.
+  The RED evidence lives in the transcript, which costs nothing real.
+* **Two agents sharing a worktree block each other even on disjoint files.** One
+  agent's half-written import fails everyone's `tsc`, so all commits stop. Either
+  serialise implementers or give each a worktree. Standing down and waiting is
+  the correct response — never `--no-verify`, never a retry loop.
