@@ -356,7 +356,17 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         is_seriesless = i in _SERIESLESS_CPT_INDICES
         series = _empty_series() if is_seriesless else _make_series(i)
         n_rows = 0 if is_seriesless else _N_ROWS
-        max_depth = 0.0 if is_seriesless else _N_ROWS * _DEPTH_STEP
+        # Every CPT is pushed the same depth. A series-less CPT has no ROWS, but it
+        # was still pushed — the two are different facts, and conflating them wrote
+        # ``max_depth_m = 0.0``, which is not "unknown" to anything downstream.
+        # The litho mirror trigger derives the deepest layer's base as
+        # ``GREATEST(top + 0.001, COALESCE(next_top, borehole.total_depth_m,
+        # cpt.max_depth_m, top + 1.0))``, and COALESCE skips NULL but not zero — so
+        # every series-less column's deepest litho layer collapsed to ONE MILLIMETRE.
+        # Sub-pixel at any zoom, and the partition engine emits nothing for it, which
+        # is what made ``flow_per_instance_body`` fail (filed against the partition
+        # engine for six days) and what left Section D's right-hand gap unfilled.
+        max_depth = _N_ROWS * _DEPTH_STEP
         cpts.append(
             {
                 "id": cpt_id,
