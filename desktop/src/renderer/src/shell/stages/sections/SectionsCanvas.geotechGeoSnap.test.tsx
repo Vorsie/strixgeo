@@ -33,6 +33,7 @@ import type { FormationContactResponse, LithoLayerResponse } from '../../../api/
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import SectionsCanvas from './SectionsCanvas'
+import { makeLithoLayer } from './__fixtures__/lithoLayer'
 import { makeShellCtx } from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
@@ -98,25 +99,7 @@ vi.mock('../../../api/client', async () => {
  * @param base Depth of the base, in metres below the collar.
  */
 function layer(id: string, top: number, base: number): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'm',
-    formation_id: `f-${id}`,
-    cpt_id: 'cpt-1',
-    borehole_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: `body-${id}`,
-    notes: null,
-    created_at: '2026-08-08T00:00:00Z',
-    updated_at: '2026-08-08T00:00:00Z',
-  } as LithoLayerResponse
+  return makeLithoLayer({ id, depth_top_m: top, depth_base_m: base })
 }
 
 /**
