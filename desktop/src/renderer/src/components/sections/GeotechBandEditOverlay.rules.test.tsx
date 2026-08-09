@@ -781,6 +781,16 @@ describe('a boundary says which kind it is before it is touched', () => {
       .querySelector('title')
     expect(title?.textContent).toBe('Lithostratigraphic contact — edit it on the litho axis')
   })
+
+  it('GS50 — no grip where dragging is not offered, only right-clicking', () => {
+    // A grip is a PROMISE that the boundary can be dragged. With only the merge
+    // handler wired, the strip is right-click-only — it owns no press at all
+    // (GS17) — so a grip there advertises a gesture that does not exist, which is
+    // the very confusion the mark was added to end.
+    renderOverlay() // onRequestMerge wired, onRequestMoveBoundary absent
+    expect(screen.getByTestId('geotech-band-boundary-band-1')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-boundary-grip-band-1')).toBeNull()
+  })
 })
 
 describe('a grab strip never reaches across a litho contact', () => {
