@@ -228,3 +228,47 @@ describe('the Subdivide verb says how many columns no longer fit their parent', 
     expect(text).not.toMatch(/re-run under/i)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Where it sits, and what it promises (owner, 2026-08-09)
+// ---------------------------------------------------------------------------
+//
+// "keep it in the toolbar but add it before subdivide cpt's? So the user chooses
+// before subdividing, it should also be clear that it doesn't update dynamically"
+//
+// Both halves are testable and both were wrong before: the selector sat AFTER the
+// pipeline, among the view options, and the only statement that nothing re-runs
+// lived in a hover tooltip, which nobody reads before clicking.
+
+describe('the statistic is chosen BEFORE subdividing, and says it changes nothing yet', () => {
+  it('ST-ORDER — the selector is drawn ahead of the packing pipeline', () => {
+    renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
+
+    const statistic = screen.getByTestId('geotech-statistic-menu')
+    const pipeline = screen.getByTestId('geotech-pipeline')
+
+    // DOCUMENT_POSITION_FOLLOWING: the pipeline comes after the selector in the bar,
+    // so reading left to right the choice is made first.
+    expect(
+      statistic.compareDocumentPosition(pipeline) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the qc statistic must be drawn before the pipeline the choice feeds',
+    ).toBeTruthy()
+  })
+
+  it('ST-LABEL — the current statistic is visible without opening the menu', () => {
+    renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
+
+    expect(screen.getByTestId('geotech-statistic-menu').textContent).toContain('median')
+  })
+
+  it('ST-NOTE — the menu says the choice applies to the NEXT subdivide', () => {
+    // The surprise here is that picking a statistic changes nothing on screen. Saying
+    // so only in a tooltip means it is read after the click that caused the confusion.
+    renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+
+    const note = screen.getByTestId('geotech-statistic-note').textContent ?? ''
+    expect(note).toMatch(/next subdivide/i)
+    expect(note).toMatch(/nothing re-runs/i)
+  })
+})
