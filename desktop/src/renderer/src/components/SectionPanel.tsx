@@ -72,6 +72,7 @@ import ContactsLayer, {
   type SnapCandidate,
 } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
+import { restatingContactIds } from './sections/geotechBoundaryKinds'
 import { packingSnapCandidates } from './sections/geotechSnapTargets'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import {
@@ -2160,6 +2161,19 @@ export default function SectionPanel({
     return out
   }, [snapToStratigraphy, boreholeDetails, contacts, axisMode, refinement])
 
+  // Which of the drawn geotech boundaries are LOCKED litho contacts, so the LINE can
+  // say which kind it is (heavy solid vs thin dashed) rather than a mark beside the
+  // column saying it for them. Built from the same two layer sets the band-edit overlay
+  // is handed below, and from the same predicate, so the two can never disagree about
+  // the same boundary.
+  const restatingBoundaryIds = useMemo(
+    () =>
+      axisMode === 'geotechnical' && refinement !== undefined
+        ? restatingContactIds(refinement.geotechLayers, lithoLayers ?? [])
+        : undefined,
+    [axisMode, refinement, lithoLayers],
+  )
+
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
   // nearest CPT neighbour on the cross-section is far enough away
@@ -2857,6 +2871,7 @@ export default function SectionPanel({
                 handles appeared to do nothing in zoomed-out mode. */}
             <ContactsLayer
               contacts={contacts}
+              restatingContactIds={restatingBoundaryIds}
               liveContactDepthOverride={liveContactDepthOverride}
               formations={formations}
               placedColumns={visibleColumns}
