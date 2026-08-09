@@ -696,13 +696,20 @@ export default function GeotechBandEditOverlay({
 
                       Beside the column, never on the line: anything drawn on the
                       boundary becomes another press target, and Task 1 exists
-                      precisely because that surface is already crowded. */}
-                  <g pointerEvents="none" data-testid={`geotech-boundary-grip-${pair.upper.layerId}`}>
-                    <circle cx={column.x1 + 7} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                    <circle cx={column.x1 + 7} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                    <circle cx={column.x1 + 11} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                    <circle cx={column.x1 + 11} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                  </g>
+                      precisely because that surface is already crowded.
+
+                      Gated on ``draggable``, not on the strip: with only the merge
+                      handler wired the strip is right-click-only and owns no press at
+                      all (GS17), so a grip there would promise a gesture that does not
+                      exist — the same confusion in the opposite direction. */}
+                  {draggable && (
+                    <g pointerEvents="none" data-testid={`geotech-boundary-grip-${pair.upper.layerId}`}>
+                      <circle cx={column.x1 + 7} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                      <circle cx={column.x1 + 7} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                      <circle cx={column.x1 + 11} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                      <circle cx={column.x1 + 11} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                    </g>
+                  )}
                   </Fragment>
               )
             })}
