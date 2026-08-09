@@ -745,4 +745,12 @@ describe('a boundary says which kind it is before it is touched', () => {
     renderOverlay({ onRequestMoveBoundary: vi.fn() })
     expect(screen.queryByTestId('geotech-boundary-grip-band-3')).toBeNull()
   })
+
+  it('GS45 — a litho contact shows a padlock only while hovered', () => {
+    renderOverlay({ onRequestMoveBoundary: vi.fn() })
+    const marker = screen.getByTestId('geotech-contact-marker-band-3')
+    expect(marker.getAttribute('opacity')).toBe('0')
+    fireEvent.mouseEnter(marker)
+    expect(marker.getAttribute('opacity')).toBe('1')
+  })
 })
