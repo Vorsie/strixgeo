@@ -256,6 +256,66 @@ export function columnIsHandEditable(bands: readonly GeotechBandInterval[]): boo
 }
 
 /**
+ * Which litho body each band of a pair sits in.
+ *
+ * Private: the probe both {@link canMergeBands} and {@link boundaryRestatesLithoContact}
+ * ask, kept in one place so a merge and a contact drag can never disagree about which
+ * body a band belongs to.
+ *
+ * @param upper The shallower band of the pair.
+ * @param lower The deeper band of the pair.
+ * @param lithoBodies The litho layers on this column.
+ * @returns The enclosing body of each band; either may be `null` when the band falls
+ *   outside the litho stack.
+ */
+function pairLithoBodies(
+  upper: GeotechBandInterval,
+  lower: GeotechBandInterval,
+  lithoBodies: readonly DepthInterval[],
+): { upperBody: DepthInterval | null; lowerBody: DepthInterval | null } {
+  // Probe each band at its own midpoint: a band that exactly spans its body would otherwise
+  // resolve by its top depth alone and could pick up the body above on a shared contact.
+  return {
+    upperBody: enclosingLithoBody(lithoBodies, (upper.topDepthM + upper.baseDepthM) / 2),
+    lowerBody: enclosingLithoBody(lithoBodies, (lower.topDepthM + lower.baseDepthM) / 2),
+  }
+}
+
+/**
+ * Whether the boundary between two touching bands IS a lithostratigraphic contact.
+ *
+ * The exact condition {@link canMergeBands} refuses on — stated once, so the two callers
+ * can never drift into disagreeing about what a contact is. A merge and a contact drag are
+ * opposite answers to the same question: the boundary a packing merge may NOT cross is
+ * precisely the one the contact drag owns.
+ *
+ * Parameters
+ * ----------
+ * upper : GeotechBandInterval
+ *     The shallower band of the pair.
+ * lower : GeotechBandInterval
+ *     The deeper band of the pair.
+ * lithoBodies : readonly DepthInterval[]
+ *     The litho layers on this column.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when the two bands touch and sit in DIFFERENT litho bodies. A pair inside
+ *     one body is the owner's own subdivision (an internal packing boundary); a pair that
+ *     does not touch, or that falls outside the litho stack entirely, restates nothing.
+ */
+export function boundaryRestatesLithoContact(
+  upper: GeotechBandInterval,
+  lower: GeotechBandInterval,
+  lithoBodies: readonly DepthInterval[],
+): boolean {
+  if (Math.abs(upper.baseDepthM - lower.topDepthM) > BAND_ADJACENCY_TOLERANCE_M) return false
+  const { upperBody, lowerBody } = pairLithoBodies(upper, lower, lithoBodies)
+  return upperBody !== null && lowerBody !== null && upperBody !== lowerBody
+}
+
+/**
  * Decide whether two packing bands may be merged by hand.
  *
  * Refuses on the hierarchy and on nothing else. A refusal here is ruling 2 doing its job;
@@ -287,10 +347,7 @@ export function canMergeBands(
       reason: 'These two bands do not touch — there is other material between them.',
     }
   }
-  // Probe each band at its own midpoint: a band that exactly spans its body would otherwise
-  // resolve by its top depth alone and could pick up the body above on a shared contact.
-  const upperBody = enclosingLithoBody(lithoBodies, (upper.topDepthM + upper.baseDepthM) / 2)
-  const lowerBody = enclosingLithoBody(lithoBodies, (lower.topDepthM + lower.baseDepthM) / 2)
+  const { upperBody, lowerBody } = pairLithoBodies(upper, lower, lithoBodies)
   if (upperBody === null || lowerBody === null) {
     return {
       ok: false,
