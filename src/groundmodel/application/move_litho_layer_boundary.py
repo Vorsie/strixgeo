@@ -149,6 +149,33 @@ class MoveLithoLayerBoundary(GroundModelLogger):
         # Apply the atomic update — same session, single flush + commit.
         upper.depth_base_m = new_depth_m
         lower.depth_top_m = new_depth_m
+        # The coupled geological contact rides along, in this SAME transaction.
+        #
+        # A litho layer derived from the geological model names its origin in
+        # ``parent_geo_contact_id``, and on a real model about a third of them do.
+        # That contact is not merely near this boundary — it IS this boundary, the
+        # same physical surface recorded once per model.  Moving one and not the
+        # other splits it into two records that disagree, and nothing downstream
+        # reports the disagreement.
+        #
+        # The LOWER row's parent is the one that matters: the boundary being moved
+        # is that layer's TOP, whereas the upper layer's parent describes its own
+        # top, metres away and unaffected.  A dangling link (parent since deleted)
+        # carries nothing and is not an error.
+        if lower.parent_geo_contact_id is not None:
+            geo_contact = await self._repo.get_formation_contact(lower.parent_geo_contact_id)
+            if geo_contact is not None:
+                self.debug(
+                    f"MoveLithoLayerBoundary: carrying coupled geological contact "
+                    f"{geo_contact.id} {geo_contact.depth_top_m:.3f} → {new_depth_m:.3f} m"
+                )
+                geo_contact.depth_top_m = new_depth_m
+            else:
+                self.warning(
+                    f"MoveLithoLayerBoundary: layer {lower.id} names geological contact "
+                    f"{lower.parent_geo_contact_id}, which no longer exists — boundary "
+                    f"moved, nothing carried"
+                )
         # Geometry change → 3-D solid cache is stale.  Idempotent no-op when no
         # solid rows exist yet.  Called before commit so the UPDATE is part of the
         # same transaction (mirrors the contact-CRUD cascade sites).
