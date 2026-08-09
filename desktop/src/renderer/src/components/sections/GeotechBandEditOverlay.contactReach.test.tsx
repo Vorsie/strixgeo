@@ -40,6 +40,7 @@ import type {
 } from '../../api/client'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
+import { restatingContactIds } from './geotechBoundaryKinds'
 import GeotechBandEditOverlay, { BAND_HIT_INSET_PX } from './GeotechBandEditOverlay'
 import type { PlacedColumn } from './utils'
 
@@ -271,6 +272,7 @@ function renderStack(opts: { thin?: boolean } = {}): {
         perColumnBandsFromContacts
         onUpdateContactDepth={onUpdateContactDepth}
         axisMode="geotechnical"
+        restatingContactIds={restatingContactIds(geotechLayers, lithoLayers)}
       />
       <GeotechBandEditOverlay
         geotechLayers={geotechLayers}
@@ -353,6 +355,49 @@ describe('a press aimed at a litho contact on the geotech axis', () => {
     const target = topmostRectAt(svg, COLUMN_X, yAtDepth(5))
 
     expect(target?.getAttribute('data-testid')).toBe('geotech-band-boundary-g2')
+  })
+})
+
+describe('the two boundary kinds are told apart by WEIGHT, not only by glyphs', () => {
+  // The approved design (spec §5) leads with the line, not the marks beside it: a litho
+  // contact is a heavy solid line, an internal packing boundary a thin dashed one. Only
+  // the grip and padlock glyphs were built, so every boundary rendered identically and
+  // the glyphs carried the whole distinction alone — which is what the owner rejected on
+  // dogfeed ("i thought we locked in solid and dashed lines, not these ugly marks").
+  //
+  // Asserted on the drawn line because that is the thing being claimed. A test that
+  // checked only the glyph is exactly the test that let this ship half-built.
+  const lineAt = (svg: Element, contactId: string): Element => {
+    const el = svg.querySelector(`[data-testid="contact-line-${contactId}"]`)
+    if (el === null) throw new Error(`no contact line for ${contactId}`)
+    return el
+  }
+
+  it('GS56 — a packing boundary is DASHED', () => {
+    // g3's top at 5 m sits inside ZAND 3–9: the engineer's own subdivision, draggable.
+    const { svg } = renderStack()
+
+    expect(lineAt(svg, 'g3').getAttribute('stroke-dasharray')).toBeTruthy()
+  })
+
+  it('GS57 — a restated litho contact is SOLID', () => {
+    // g2's top at 3 m is the KLEI/ZAND contact. Ruling 2 locks it as a packing boundary,
+    // and §4c makes it draggable as the contact it is — either way it is not the same
+    // kind of line as GS56's and must not be drawn like one.
+    const { svg } = renderStack()
+
+    expect(lineAt(svg, 'g2').getAttribute('stroke-dasharray')).toBeNull()
+  })
+
+  it('GS58 — and the contact is drawn HEAVIER than the packing boundary', () => {
+    // Dash alone is a weak signal at working zoom on a column of thin bands; the design
+    // says weight carries the meaning, so the two must differ in width as well as style.
+    const { svg } = renderStack()
+
+    const contact = Number(lineAt(svg, 'g2').getAttribute('stroke-width'))
+    const packing = Number(lineAt(svg, 'g3').getAttribute('stroke-width'))
+
+    expect(contact).toBeGreaterThan(packing)
   })
 })
 
