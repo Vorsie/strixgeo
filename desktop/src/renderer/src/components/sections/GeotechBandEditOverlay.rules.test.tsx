@@ -696,11 +696,28 @@ describe('two boundaries close together each keep their own press', () => {
         />
       </svg>,
     )
-    const rects = ['b2', 'b3'].map(id => {
+    // A strip is keyed on the UPPER band of its pair, so b2's strip sits on 4.2 m
+    // and b3's on 4.4 m.
+    const rects = [
+      { id: 'b2', boundaryDepthM: 4.2 },
+      { id: 'b3', boundaryDepthM: 4.4 },
+    ].map(({ id, boundaryDepthM }) => {
       const el = screen.getByTestId(`geotech-band-boundary-${id}`)
       const y = Number(el.getAttribute('y'))
-      return { top: y, bottom: y + Number(el.getAttribute('height')) }
+      return {
+        top: y,
+        bottom: y + Number(el.getAttribute('height')),
+        boundaryY: yAtDepth(boundaryDepthM),
+      }
     })
     expect(rects[0].bottom).toBeLessThanOrEqual(rects[1].top)
+    // …and each strip must still STRADDLE its own boundary. Non-overlap alone is
+    // satisfied by giving every strip no height at all, which trades the wrong
+    // boundary being dragged for no boundary being draggable — so the press has to
+    // be catchable from both sides of the line the engineer is aiming at.
+    for (const rect of rects) {
+      expect(rect.top).toBeLessThan(rect.boundaryY)
+      expect(rect.bottom).toBeGreaterThan(rect.boundaryY)
+    }
   })
 })
