@@ -38,6 +38,8 @@ import { SectionScopeContext } from './sections/SectionScopeContext'
 
 /** Updated on every ContactsLayer render — the snap set under test. */
 let capturedSnapDepths: ReadonlyMap<string, readonly SnapCandidate[]> | undefined = undefined
+/** The rest of the same prop bag, for the drag-clamp case. */
+let capturedProps: Record<string, unknown> = {}
 
 vi.mock('./sections/ContactsLayer', () => ({
   default: (props: {
@@ -45,6 +47,7 @@ vi.mock('./sections/ContactsLayer', () => ({
     [key: string]: unknown
   }) => {
     capturedSnapDepths = props.snapDepthsByAnchorId
+    capturedProps = props
     return null
   },
 }))
@@ -255,5 +258,25 @@ describe('SectionPanel — packing boundaries as contact-drag snap targets', () 
 
     // Same refinement bundle in scope; the litho axis must be unchanged.
     expect(depths).toEqual([7.25])
+  })
+
+  it('GS4 — the geotech axis holds a drag off no boundary it is meant to reach', async () => {
+    await snapDepthsForAxis('geotechnical')
+
+    // The min-thickness clamp keeps a dragged contact 10 cm clear of its neighbours, and
+    // on this axis those "neighbours" are the packing boundaries themselves — the only
+    // depths the drag is allowed to land on. Passing it here would stop every drag just
+    // short of every legal destination, so the gesture would commit nothing. What keeps
+    // the drag honest on this axis is the landing rule instead: it may only stop on a
+    // boundary the cone resistance actually resolved.
+    expect(capturedProps.contactDragClampMinThicknessM).toBeUndefined()
+  })
+
+  it('GS5 — the litho axis keeps its 10 cm floor', async () => {
+    await snapDepthsForAxis('lithostratigraphic')
+
+    // Debt #152's floor is untouched: there the drag lands wherever the engineer puts it,
+    // so something has to stop it from slicing a slab thinner than the model allows.
+    expect(capturedProps.contactDragClampMinThicknessM).toBe(0.1)
   })
 })
