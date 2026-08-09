@@ -733,19 +733,16 @@ describe('two boundaries close together each keep their own press', () => {
 // Rendered identically, "you may not drag this" is indistinguishable from "the
 // drag is broken", so the difference has to be visible without trying it.
 
+// GS43 / GS44 / GS48 / GS50 pinned a GRIP GLYPH beside every draggable boundary. The
+// glyph is gone — the owner rejected it on dogfeed ("i thought we locked in solid and
+// dashed lines, not these ugly marks on the right side"), and it was only carrying this
+// job because the half of the design meant to carry it had not been built. The claim
+// itself did not go away: it moved to the LINE, where the design put it, and is pinned
+// by GS56-GS58 in ``GeotechBandEditOverlay.contactReach.test.tsx`` — the packing
+// boundary is dashed and thinner, the restated contact solid and heavier. Those run
+// against the real ContactsLayer, so they test what is actually drawn.
+
 describe('a boundary says which kind it is before it is touched', () => {
-  it('GS43 — a draggable packing boundary carries a grip at rest', () => {
-    renderOverlay({ onRequestMoveBoundary: vi.fn() })
-    expect(screen.getByTestId('geotech-boundary-grip-band-1')).toBeTruthy()
-  })
-
-  it('GS44 — a litho contact carries no grip, because it is not draggable here', () => {
-    // band-3 ends at 8 m, where LITHO_LAYERS changes body. That boundary is a
-    // litho contact: no strip, and therefore no grip.
-    renderOverlay({ onRequestMoveBoundary: vi.fn() })
-    expect(screen.queryByTestId('geotech-boundary-grip-band-3')).toBeNull()
-  })
-
   it('GS45 — a litho contact shows a padlock only while hovered', () => {
     renderOverlay({ onRequestMoveBoundary: vi.fn() })
     const marker = screen.getByTestId('geotech-contact-marker-band-3')
@@ -754,21 +751,17 @@ describe('a boundary says which kind it is before it is touched', () => {
     expect(marker.getAttribute('opacity')).toBe('1')
   })
 
-  it('GS48 — the two marks never share space, because their whole job is to differ', () => {
-    // A packing boundary can sit within a few px of a litho contact — that is the
-    // geometry the strip clamp exists for (GS46/GS47) — so the grip and the padlock
-    // land at nearly the same height on the common case. Two marks stacked on each
-    // other say nothing; they have to occupy separate lanes beside the column.
+  it('GS48 — the padlock sits BESIDE the column, never on the boundary line', () => {
+    // Anything drawn on the line becomes another press target, and that surface is
+    // already contested enough to need Task 1's clamp. This used to be stated as
+    // "clear of the grip lane"; with the grip gone the constraint that survives is the
+    // one about the line itself, which was always the real reason.
     renderOverlay({ onRequestMoveBoundary: vi.fn() })
-    const gripRight = Math.max(
-      ...Array.from(
-        screen.getByTestId('geotech-boundary-grip-band-1').querySelectorAll('circle'),
-      ).map(c => Number(c.getAttribute('cx')) + Number(c.getAttribute('r'))),
-    )
     const padlockLeft = Number(
       screen.getByTestId('geotech-contact-marker-band-3').getAttribute('x'),
     )
-    expect(padlockLeft).toBeGreaterThanOrEqual(gripRight)
+    // The first column is drawn at nudgedX 200, width 40 → its right edge is 220.
+    expect(padlockLeft).toBeGreaterThanOrEqual(220)
   })
 
   it('GS49 — and the padlock says what it is and what dragging it would move', () => {
@@ -792,11 +785,11 @@ describe('a boundary says which kind it is before it is touched', () => {
     )
   })
 
-  it('GS50 — no grip where dragging is not offered, only right-clicking', () => {
-    // A grip is a PROMISE that the boundary can be dragged. With only the merge
-    // handler wired, the strip is right-click-only — it owns no press at all
-    // (GS17) — so a grip there advertises a gesture that does not exist, which is
-    // the very confusion the mark was added to end.
+  it('GS50 — a right-click-only boundary still draws its strip, and no drag mark', () => {
+    // With only the merge handler wired the strip is right-click-only: it owns no press
+    // at all (GS17). Nothing beside it may advertise a drag. The grip that used to be
+    // asserted here is gone entirely, so what is left to pin is that removing it did not
+    // take the strip — and the boundary's own right-click — with it.
     renderOverlay() // onRequestMerge wired, onRequestMoveBoundary absent
     expect(screen.getByTestId('geotech-band-boundary-band-1')).toBeTruthy()
     expect(screen.queryByTestId('geotech-boundary-grip-band-1')).toBeNull()
