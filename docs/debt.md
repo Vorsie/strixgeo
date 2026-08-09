@@ -5930,12 +5930,51 @@ absorbed rows, GB1–GB16 integration coverage, and the two invalidation fixes
 (band edits amber the 3-D Build via `useLithoSolids` `refreshOn`; same-model
 geotech refetch no longer blinks the NAD fill).
 
+**SHIPPED 2026-08-09 — the successor slice: snapping a litho contact to a
+packing boundary.** The 2026-08-09 dogfeed hit the same wall twice in ten
+minutes ("i tried merging a litho, but it was in separate geo bands"; "sometimes
+after merging, i can't grab the contact handles anymore"). Neither was a defect:
+on CPT `019e932e-7c4a`, 14 of 17 internal boundaries ARE litho contacts, which
+ruling 2 correctly refuses to drag as packing boundaries — but they render
+identically to the 3 that are draggable, so a correct refusal read as a broken
+app. The answer the owner ruled for is to make the CONTACT draggable from this
+axis, snapped onto that column's packing boundaries. Design:
+`docs/superpowers/specs/2026-08-09-snap-litho-contact-to-packing-boundary-design.md`
+(APPROVED); current state: `docs/design/geotech-stage.md` §4c. One boundary per
+drag over a half-open `(from, to]` interval, direction decides which layer
+swallows which, derived-not-stored staleness surfaced as a tag on Subdivide,
+heavy-vs-dashed line weight with a rest grip and a hover padlock.
+
+Verified end to end 2026-08-09: `flow_geotech_snap_contact` drives the real
+gesture and passes — **119 passed / 2 failed / 5 skipped**, the 2 being the known
+`flow_per_instance_body` red and one intermittent `flow_section_context_menus_ui`
+body-wedge failure matching the recorded body-detection flake (signature
+confirmed, confirming re-run NOT yet done).
+
+Two harness defects were found getting there and fixed alongside, both older than
+this work: the e2e suite left the fixture's crash-recovery snapshot behind when a
+spec was torn down dirty, so the next launch opened on the "Restore unsaved work?"
+modal and its backdrop failed **19 unrelated specs** on intercepted clicks (run
+8 → 23 min); and the cleanup for it must clear `<APPDATA>/Electron/recovery`,
+because `out/main/index.js` has no adjacent package.json so `app.getName()` falls
+back to Electron's default rather than the product name a packaged build uses.
+That second fact is worth its own look: **the e2e suite has never exercised the
+userData path the real product uses.**
+
 **Remainder (this entry stays open for):**
 * **Owner dogfeed** — drag feel, absorb hint legibility, remove-band menu,
   statistic selector + stale tag, lens badge. Two recorded questions: does a
   FLAGGED tie keep its body union until confirmed/deleted (build proceeds
   keep-union), and should class-consistent transferred ties get a distinct
   `band_absorbed` token instead of `ambiguous_band`?
+* **Owner dogfeed of the snap gesture (§4c)** — whether the heavy/dashed
+  distinction reads at working zoom, whether the hover padlock is discoverable
+  without being noise, whether one-boundary-per-drag feels right or wants a
+  modifier for "go as far as I dragged", and whether the interim overhang should
+  be tinted as provisional rather than drawn plain (left open by the design as a
+  rendering question). Open decision: should the geotech axis get the amber
+  "snap on release" telegraph? It needs a per-frame drag plan, so it is a small
+  build rather than a tweak.
 * **Litho-level thin-interbed merge suggestion** — the CS1 zoom showed much of
   the "mess" at GEO-22/115-S10 is thin LITHO interbeds; the shipped suggestion
   covers only geotech class lenses. Separate slice against litho ghosts.
