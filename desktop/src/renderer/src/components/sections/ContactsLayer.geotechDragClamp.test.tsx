@@ -235,7 +235,11 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     const { committedDepthM, plan } = dragPastTheBoundary(100, 0.1)
 
     expect(committedDepthM).toBeCloseTo(4.9, 5)
-    expect(plan).toEqual({ kind: 'no-boundary-crossed' })
+    // Since the nudge ruling (2026-08-09) the shortfall is no longer thrown away: the
+    // boundary is a wall, and 4.9 m is short of it, so the contact goes where the clamp
+    // left it. The clamp still COSTS the engineer the landing he aimed at — that is the
+    // defect this file measures — but it no longer costs him the whole gesture.
+    expect(plan).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
   })
 
   it('DC2 — withheld, the same drag lands on the boundary', () => {
@@ -264,6 +268,9 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     const { committedDepthM, plan } = dragPastTheBoundary(1, 0.1, null)
 
     expect(committedDepthM).toBeCloseTo(4.9, 5)
-    expect(plan).toEqual({ kind: 'no-boundary-crossed' })
+    // As DC1: the shortfall now lands as a nudge rather than being discarded. The
+    // landing the engineer AIMED at is still lost, which is what this file is here to
+    // record.
+    expect(plan).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
   })
 })

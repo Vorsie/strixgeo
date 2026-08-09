@@ -231,9 +231,10 @@ describe('SectionsCanvas — a coupled contact dragged from the geotech axis', (
   })
 
   it('GS5 — a drag the geotech axis refuses opens nothing', async () => {
-    // Released at 4.4 m without reaching a packing boundary: nothing was written, so
-    // there is no new litho depth for a geological contact to disagree with.
-    const { patch } = await commitDrag('geotechnical', 'g3', 4.4, [
+    // Released exactly where it started: no travel, so nothing was written and there is
+    // no new litho depth for a geological contact to disagree with. (A drag that travels
+    // but crosses no boundary is now a NUDGE and does write — see CD2.)
+    const { patch } = await commitDrag('geotechnical', 'g3', 4, [
       contact('GEO-1', 'geo-model-1', 4.05),
     ])
 

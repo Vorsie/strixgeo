@@ -204,8 +204,19 @@ describe('SectionsCanvas — dragging a litho contact from the geotech axis', ()
     expect(patch).toHaveBeenCalledWith('L-zand', 7, false, 'top')
   })
 
-  it('CD2 — a drag that crosses no boundary writes nothing', async () => {
+  it('CD2 — a drag short of the next boundary NUDGES the contact there', async () => {
+    // Reversed on owner dogfeed 2026-08-09: refusing a sub-boundary drag made a small
+    // correction impossible, and answered "The contact did not move". The boundary is
+    // the wall (CD1 still clamps at it); short of it the depth is the engineer's.
     const { patch } = await commitDrag('geotechnical', 'g3', 4.4)
+
+    expect(patch).toHaveBeenCalled()
+  })
+
+  it('CD2b — but a release with no travel writes nothing', async () => {
+    // The press-and-release that picks a contact or opens a menu is not a nudge, and
+    // must not PATCH the depth the row already has.
+    const { patch } = await commitDrag('geotechnical', 'g3', 4)
 
     expect(patch).not.toHaveBeenCalled()
   })
@@ -233,10 +244,13 @@ describe('SectionsCanvas — dragging a litho contact from the geotech axis', ()
   // only in a DEBUG log the owner will never open. Every path that declines this drag
   // has to answer out loud, in the terms the engineer is working in.
 
-  it('CD5 — a drag that reached no boundary says so', async () => {
-    const { ctx } = await commitDrag('geotechnical', 'g3', 4.4)
+  it('CD5 — a release with no travel says nothing at all', async () => {
+    // It used to warn "drag it past a packing boundary" whenever no boundary was
+    // crossed, which after the nudge ruling would fire on every successful small
+    // correction. A no-travel release is not a failed gesture either — it is a click.
+    const { ctx } = await commitDrag('geotechnical', 'g3', 4)
 
-    expect(ctx.toasts.toast).toHaveBeenCalledWith(
+    expect(ctx.toasts.toast).not.toHaveBeenCalledWith(
       'warning',
       expect.stringContaining('packing boundary'),
     )
