@@ -5946,10 +5946,13 @@ swallows which, derived-not-stored staleness surfaced as a tag on Subdivide,
 heavy-vs-dashed line weight with a rest grip and a hover padlock.
 
 Verified end to end 2026-08-09: `flow_geotech_snap_contact` drives the real
-gesture and passes — **119 passed / 2 failed / 5 skipped**, the 2 being the known
-`flow_per_instance_body` red and one intermittent `flow_section_context_menus_ui`
-body-wedge failure matching the recorded body-detection flake (signature
-confirmed, confirming re-run NOT yet done).
+gesture and passes, in a **fully green suite — 121 passed / 0 failed / 5
+skipped**. That is the new baseline: any red is now a real regression, not an
+expected one. Getting there retired the `flow_per_instance_body` red that had
+been filed against the partition engine since 2026-08-03 (two stacked defects —
+the fixture writing `max_depth_m = 0.0`, which COALESCE takes as a value and so
+collapsed every series-less column's deepest litho layer to 1 mm, and a
+`.first()` comparison the first defect had been masking).
 
 Two harness defects were found getting there and fixed alongside, both older than
 this work: the e2e suite left the fixture's crash-recovery snapshot behind when a
