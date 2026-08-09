@@ -73,7 +73,7 @@ import ContactsLayer, {
 } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { restatingContactIds } from './sections/geotechBoundaryKinds'
-import { packingSnapCandidates } from './sections/geotechSnapTargets'
+import { clampToNextBoundary, packingSnapCandidates } from './sections/geotechSnapTargets'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import {
   useSectionKeyboardShortcuts,
@@ -2174,6 +2174,37 @@ export default function SectionPanel({
     [axisMode, refinement, lithoLayers],
   )
 
+  // Stop a live contact drag at the next packing boundary it crosses (design §2 —
+  // one drag consumes one boundary). The same ``clampToNextBoundary`` the release
+  // path already used, moved onto every frame so the line shows the landing it will
+  // actually commit to instead of trailing the cursor and jumping back.
+  //
+  // ``null`` from the clamp means nothing was crossed — there is nowhere legal to go
+  // in that direction, so the contact holds its own depth and reads as clamped rather
+  // than as an error. That is the case for a litho unit the qc never subdivided.
+  const clampGeotechDragToBoundary = useMemo(() => {
+    if (axisMode !== 'geotechnical' || refinement === undefined) return undefined
+    const candidatesByColumn = packingSnapCandidates(refinement.geotechLayers)
+    return (contactId: string, rawDepthM: number): { depthM: number; atLimit: boolean } => {
+      // Keyed by the GEOTECH band, not the litho row: on this axis the drawn contact
+      // IS a band's top, and the litho row it restates is resolved later, by depth.
+      const dragged = refinement.geotechLayers.find(l => l.id === contactId)
+      const anchorId = dragged?.cpt_id ?? dragged?.borehole_id ?? null
+      const startDepthM = dragged?.depth_top_m
+      if (anchorId === null || startDepthM === undefined) {
+        return { depthM: rawDepthM, atLimit: false }
+      }
+      const candidates = (candidatesByColumn.get(anchorId) ?? []).filter(
+        c => c.contactId !== contactId,
+      )
+      const landing = clampToNextBoundary(startDepthM, rawDepthM, candidates)
+      if (landing === null) return { depthM: startDepthM, atLimit: rawDepthM !== startDepthM }
+      // Past the boundary it landed on = the cursor asked for more than one.
+      const overshot = Math.abs(rawDepthM - startDepthM) > Math.abs(landing - startDepthM)
+      return { depthM: landing, atLimit: overshot }
+    }
+  }, [axisMode, refinement, lithoLayers])
+
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
   // nearest CPT neighbour on the cross-section is far enough away
@@ -2872,6 +2903,7 @@ export default function SectionPanel({
             <ContactsLayer
               contacts={contacts}
               restatingContactIds={restatingBoundaryIds}
+              clampDragToBoundary={clampGeotechDragToBoundary}
               liveContactDepthOverride={liveContactDepthOverride}
               formations={formations}
               placedColumns={visibleColumns}
