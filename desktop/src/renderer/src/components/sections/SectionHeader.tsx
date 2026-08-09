@@ -327,9 +327,15 @@ export default function SectionHeader({
         <span className="tabular-nums w-12 text-right text-text-secondary">{vex.toFixed(1)}×</span>
       </div>
 
+      {/* The rendered scales, and the only place either is stated as a number. The
+          vertical one carries a testid because a drag spec has to convert metres to
+          screen pixels to aim a gesture: measuring that scale off two drawn features
+          costs a pixel of error per feature, which on a compressed section is a large
+          fraction of the distance being aimed at. Reading the value the renderer
+          itself used removes the measurement from the test entirely. */}
       <div className="flex flex-col items-end text-[10px] text-text-muted tabular-nums">
         <span>H: {scaleH.toFixed(2)} px/m</span>
-        <span>V: {scaleV.toFixed(2)} px/m</span>
+        <span data-testid="section-scale-v">V: {scaleV.toFixed(2)} px/m</span>
       </div>
 
       <div className="flex items-center rounded border border-border-subtle overflow-hidden">
