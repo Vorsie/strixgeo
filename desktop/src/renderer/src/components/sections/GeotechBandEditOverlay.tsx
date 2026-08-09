@@ -729,29 +729,20 @@ export default function GeotechBandEditOverlay({
                         : 'Right-click to merge these two packing bands'}
                     </title>
                   </rect>
-                  {/* The grip: what makes THIS boundary legible as the draggable kind at
-                      rest. The owner reported "sometimes after merging, i can't grab the
-                      contact handles anymore" — on his data one column carries 17 internal
-                      boundaries of which 3 are packing boundaries and 14 are litho contacts,
-                      which correctly refuse the drag. Drawn identically, a refusal reads as
-                      a broken gesture, so the two kinds have to differ before being touched.
+                  {/* NO grip glyph here. A four-dot mark beside every draggable boundary
+                      shipped first and the owner rejected it on sight ("i thought we
+                      locked in solid and dashed lines, not these ugly marks on the right
+                      side") — on a column of 20-odd bands it stacks a column of dots down
+                      the section.
 
-                      Beside the column, never on the line: anything drawn on the
-                      boundary becomes another press target, and Task 1 exists
-                      precisely because that surface is already crowded.
-
-                      Gated on ``draggable``, not on the strip: with only the merge
-                      handler wired the strip is right-click-only and owns no press at
-                      all (GS17), so a grip there would promise a gesture that does not
-                      exist — the same confusion in the opposite direction. */}
-                  {draggable && (
-                    <g pointerEvents="none" data-testid={`geotech-boundary-grip-${pair.upper.layerId}`}>
-                      <circle cx={column.x1 + 7} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                      <circle cx={column.x1 + 7} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                      <circle cx={column.x1 + 11} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                      <circle cx={column.x1 + 11} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
-                    </g>
-                  )}
+                      It was only ever load-bearing because the half of the design that
+                      was SUPPOSED to carry this never got built: a packing boundary is a
+                      thin dashed line and a restated litho contact a heavy solid one
+                      (spec §5, "weight carries the meaning"). With the line itself now
+                      saying which kind it is (``ContactsLayer``'s ``restatingContactIds``),
+                      a second mark repeating it is noise. The padlock stays — it appears
+                      on HOVER only, and it names a consequence rather than repeating a
+                      classification. */}
                   </Fragment>
               )
             })}
