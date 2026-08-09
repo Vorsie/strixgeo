@@ -1,0 +1,126 @@
+/**
+ * Which columns' packing bands no longer fit the lithostratigraphic units they subdivide.
+ *
+ * A packing band's whole contract is that it lies inside its litho parent: `Subdivide`
+ * cuts a litho unit into NAD classes, so every band it emits starts at or below the
+ * unit's top and ends at or above nothing deeper than the unit's base. Move the litho
+ * contact — which the engineer can now do from the geotech axis itself — and the bands
+ * on that column keep the depths they were derived against. The unit shrank; the bands
+ * did not. What is on screen is then a moved boundary beside an unmoved band, and the
+ * engineer has to be told the bands are out of date.
+ *
+ * **The staleness is DERIVED, never stored** (owner ruling). The overhang IS the
+ * staleness: if a band pokes out of its parent, that column needs re-deriving, and if
+ * every band fits, nothing is stale — whatever a flag might claim. Consequences of
+ * deriving rather than storing:
+ *
+ * - No migration, no column, no write path that can forget to record it.
+ * - It survives a close-and-reopen for free, because it is not state at all.
+ * - It cannot go out of date: it is recomputed from the two things being compared.
+ * - It self-clears. Drag the contact back and the answer returns to "not stale" with
+ *   nothing to reset.
+ *
+ * That last property is why the ruling was made against evidence rather than taste. An
+ * adversarial review the day before found two bugs in this codebase that were only
+ * possible because staleness had been cached — a "re-run under harmonic" tag that could
+ * never clear, and a stale statistic stamp left on an emptied model. Both were flags
+ * that outlived the condition they described. A comparison cannot outlive its operands.
+ *
+ * This module is the pure rule only. Feeding it the real layers and surfacing the count
+ * on the `Subdivide` verb happen in their own places.
+ */
+
+/**
+ * The rounding allowance below which a band and its parent are treated as coincident.
+ *
+ * Same value and same reason as `RESTATED_CONTACT_TOLERANCE_M` in
+ * `components/sections/geotechContactDrag.ts`: the band materialiser rounds depths to
+ * three decimals while litho contacts keep full float precision, so a band top of 9.581
+ * genuinely coincides with a parent top of 9.581049712235094. The number was measured on
+ * the owner's real database, where boundaries that truly coincide differ by up to a
+ * millimetre — a millimetre, plus a hair so the millimetre itself is inside.
+ *
+ * Compare exactly instead and a fifth of his coincident boundaries would report as
+ * overhanging, sending him to `Subdivide` on columns where nothing had moved.
+ *
+ * It is duplicated rather than imported because this module sits in `utils/` and the
+ * sibling in `components/`; a shared depth-tolerance module is the right extraction the
+ * moment a third site needs it.
+ */
+export const PARENT_FIT_TOLERANCE_M = 0.0011
+
+/** The litho unit a packing band subdivides. Depths are metres below the collar. */
+export interface BandParent {
+  /** The litho formation the band belongs to. */
+  formationId: string
+  /** The unit's top, as it stands NOW — after any contact drag. */
+  topDepthM: number
+  /** The unit's base, as it stands NOW — after any contact drag. */
+  baseDepthM: number
+}
+
+/** One packing band, paired with the litho unit it claims to subdivide. */
+export interface BandFit {
+  /** The column the band sits on; the id reported when it is stale. */
+  cptId: string
+  /** The band's top, as it was derived. */
+  topDepthM: number
+  /** The band's base, as it was derived. */
+  baseDepthM: number
+  /**
+   * The unit the band subdivides, or `null` when none could be resolved.
+   *
+   * A null parent is a data-integrity problem, not "re-derive me" — see
+   * {@link columnsNeedingRederive}.
+   */
+  parent: BandParent | null
+}
+
+/**
+ * True when a band pokes out of its parent by more than the rounding allowance.
+ *
+ * Both directions count: a band above its parent's top belongs to the unit above now,
+ * and a band below its parent's base belongs to the unit below. Either way the band
+ * describes ground the unit no longer covers.
+ *
+ * @param band The band and the unit it claims to subdivide; the parent must not be null.
+ * @param parent The unit's current extent.
+ * @returns Whether the band lies outside `parent` beyond {@link PARENT_FIT_TOLERANCE_M}.
+ */
+function overhangs(band: BandFit, parent: BandParent): boolean {
+  return (
+    parent.topDepthM - band.topDepthM > PARENT_FIT_TOLERANCE_M ||
+    band.baseDepthM - parent.baseDepthM > PARENT_FIT_TOLERANCE_M
+  )
+}
+
+/**
+ * The columns whose packing bands no longer fit their litho parents.
+ *
+ * A band that overhangs its parent — above its top or below its base, beyond
+ * {@link PARENT_FIT_TOLERANCE_M} — was derived against a boundary that has since moved,
+ * so the column it sits on needs `Subdivide` run again. Nothing is read from storage and
+ * nothing is written: the comparison between the bands and the units they subdivide is
+ * the whole answer.
+ *
+ * A band whose parent is `null` is NOT counted. A band with no resolvable unit is a
+ * data-integrity problem — a deleted formation, an unmapped body — and re-deriving the
+ * column cannot fix it. Reporting it here would send the engineer to a verb that cannot
+ * help, and would keep saying so after every attempt.
+ *
+ * @param bands Every packing band to judge, each already paired with its current parent.
+ *   Bands from many columns may be mixed freely.
+ * @returns Each stale column's id, once however many of its bands overhang, in the order
+ *   the columns are first seen in `bands`. Empty when everything fits.
+ */
+export function columnsNeedingRederive(bands: readonly BandFit[]): string[] {
+  const stale: string[] = []
+  const seen = new Set<string>()
+  for (const band of bands) {
+    if (band.parent === null || seen.has(band.cptId)) continue
+    if (!overhangs(band, band.parent)) continue
+    seen.add(band.cptId)
+    stale.push(band.cptId)
+  }
+  return stale
+}
