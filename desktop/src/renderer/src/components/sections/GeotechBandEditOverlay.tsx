@@ -719,13 +719,22 @@ export default function GeotechBandEditOverlay({
               <text
                 key={`gbe-lock-${pair.upper.layerId}`}
                 data-testid={`geotech-contact-marker-${pair.upper.layerId}`}
-                x={column.x1 + 6}
+                // Clear of BOTH marks that already claim space beside the column: the
+                // grip lane (x1+6 .. x1+12) and the lens badge (x1+4 .. x1+16). A
+                // packing boundary can sit a few px from a contact — that is the whole
+                // point of the strip clamp above — so the grip and the padlock land at
+                // nearly the same height routinely, and two marks whose job is to
+                // DIFFER must not be drawn on top of each other.
+                x={column.x1 + 18}
                 y={y + 4}
                 fontSize={9}
                 opacity={hoveredContactId === pair.upper.layerId ? 1 : 0}
                 onMouseEnter={() => setHoveredContactId(pair.upper.layerId)}
                 onMouseLeave={() => setHoveredContactId(null)}
               >
+                {/* Not a refusal — a redirect. The contact IS editable, on the axis that
+                    owns it, and that is the sentence worth spending a tooltip on. */}
+                <title>Lithostratigraphic contact — edit it on the litho axis</title>
                 🔒
               </text>
             )
