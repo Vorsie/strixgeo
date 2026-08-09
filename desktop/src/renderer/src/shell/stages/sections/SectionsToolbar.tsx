@@ -143,6 +143,11 @@ export default function SectionsToolbar(): JSX.Element {
       // the hand-edit count in the re-subdivide confirmation — the rows carry
       // ``source``, so the warning needs no extra fetch.
       geotechLayers,
+      // Derived, never stored: the CPT columns whose packing bands no longer
+      // sit inside the litho parent they were derived against (the engineer
+      // dragged the contact since). Surfaces as a tag on the Subdivide verb —
+      // the verb that re-derives them.
+      columnsNeedingRederive,
       // Geotech correlation triad: accepting a packing tie moves body_id stamps
       // (requestGeotechLayersRefetch) and dirties the project (markMutated).
       requestGeotechLayersRefetch,
@@ -1373,7 +1378,17 @@ export default function SectionsToolbar(): JSX.Element {
                 icon: <SplitSquareVertical size={13} />,
                 // Ruling 8: a statistic change never silently re-derives - this
                 // tag is where the debt surfaces until the re-subdivide runs.
-                tag: geotechBandsStale ? `re-run under ${geotechStatistic}` : undefined,
+                // Two debts land on the same verb; the statistic wins, because
+                // re-running under it re-derives every column anyway and so
+                // subsumes the parentage staleness. Only when the statistic is
+                // settled does the column count get the tag to itself.
+                tag: geotechBandsStale
+                  ? `re-run under ${geotechStatistic}`
+                  : columnsNeedingRederive.length > 0
+                    ? `${columnsNeedingRederive.length} ${
+                        columnsNeedingRederive.length === 1 ? 'column needs' : 'columns need'
+                      } re-deriving`
+                    : undefined,
                 disabled: subdividingBodies || !activeLithoModel,
                 title: !activeLithoModel
                   ? 'Create a lithostratigraphic model in the Lithology stage first'
