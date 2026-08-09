@@ -41,6 +41,7 @@ import type {
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
 import { restatingContactIds } from './geotechBoundaryKinds'
+import { clampToNextBoundary, packingSnapCandidates } from './geotechSnapTargets'
 import GeotechBandEditOverlay, { BAND_HIT_INSET_PX } from './GeotechBandEditOverlay'
 import type { PlacedColumn } from './utils'
 
@@ -273,6 +274,23 @@ function renderStack(opts: { thin?: boolean } = {}): {
         onUpdateContactDepth={onUpdateContactDepth}
         axisMode="geotechnical"
         restatingContactIds={restatingContactIds(geotechLayers, lithoLayers)}
+        clampDragToBoundary={(contactId, rawDepthM) => {
+          // The same closure SectionPanel builds, on the same pure pieces: the
+          // column's packing boundaries, minus the dragged contact's own.
+          const dragged = geotechLayers.find(l => l.id === contactId)
+          const start = dragged?.depth_top_m
+          const anchor = dragged?.cpt_id ?? dragged?.borehole_id ?? null
+          if (anchor === null || start === undefined) return { depthM: rawDepthM, atLimit: false }
+          const cands = (packingSnapCandidates(geotechLayers).get(anchor) ?? []).filter(
+            c => c.contactId !== contactId,
+          )
+          const landing = clampToNextBoundary(start, rawDepthM, cands)
+          if (landing === null) return { depthM: start, atLimit: rawDepthM !== start }
+          return {
+            depthM: landing,
+            atLimit: Math.abs(rawDepthM - start) > Math.abs(landing - start),
+          }
+        }}
       />
       <GeotechBandEditOverlay
         geotechLayers={geotechLayers}
@@ -304,10 +322,13 @@ describe('a press aimed at a litho contact on the geotech axis', () => {
 
     // And pressing what the hit test resolved really does start the contact drag rather
     // than the canvas pan — the geometry is only worth pinning because of what follows it.
+    // Dragged PAST the 5 m packing boundary: a drag that crosses none commits nothing
+    // (design §2 — the contact lands on boundaries, not wherever the cursor stopped),
+    // so a nudge would prove the press was swallowed and a landing that it was not.
     fireEvent.mouseDown(target!, { clientY: yAtDepth(3), button: 0 })
     act(() => {
       document.dispatchEvent(
-        new MouseEvent('mousemove', { clientY: yAtDepth(3.4), buttons: 1, bubbles: true }),
+        new MouseEvent('mousemove', { clientY: yAtDepth(5.4), buttons: 1, bubbles: true }),
       )
     })
     act(() => {
@@ -315,7 +336,7 @@ describe('a press aimed at a litho contact on the geotech axis', () => {
     })
 
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
-    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(3.4, 5)
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(5, 5)
     expect(svgMouseDown).not.toHaveBeenCalled()
   })
 
@@ -355,6 +376,62 @@ describe('a press aimed at a litho contact on the geotech axis', () => {
     const target = topmostRectAt(svg, COLUMN_X, yAtDepth(5))
 
     expect(target?.getAttribute('data-testid')).toBe('geotech-band-boundary-g2')
+  })
+})
+
+describe('the dragged contact STOPS at the next packing boundary', () => {
+  // Design §2: "It clamps at the NEXT packing boundary in the direction of travel. A
+  // single drag can never skip a boundary." The commit path enforced that on RELEASE
+  // (planGeotechContactDrag), but the line followed the cursor the whole way there and
+  // then jumped back — so the drag showed a landing it was never going to honour, and
+  // the only signal that something was refused arrived afterwards, as a toast.
+  //
+  // The column here carries one packing boundary below the contact, at 5 m. The contact
+  // starts at 3 m.
+
+  it('GS59 — a drag released well past the boundary lands ON it, not where the cursor was', () => {
+    const { onUpdateContactDepth } = renderStack()
+
+    const strip = document.querySelector('[data-contact-id="g2"][data-testid="contact-drag-strip"]')
+    fireEvent.mouseDown(strip!, { clientY: yAtDepth(3), button: 0 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: yAtDepth(8), buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(
+      onUpdateContactDepth.mock.calls[0][1],
+      'the drag must stop at the 5 m packing boundary, not follow the cursor to 8 m',
+    ).toBeCloseTo(5, 5)
+  })
+
+  it('GS60 — and it says so while the cursor is still past it', () => {
+    // The clamp is only honest if it is visible DURING the gesture. A landing that
+    // silently differs from where the cursor sits is the thing being fixed.
+    const { svg } = renderStack()
+
+    const strip = document.querySelector('[data-contact-id="g2"][data-testid="contact-drag-strip"]')
+    fireEvent.mouseDown(strip!, { clientY: yAtDepth(3), button: 0 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: yAtDepth(8), buttons: 1, bubbles: true }),
+      )
+    })
+
+    expect(
+      document.querySelector('[data-testid="contact-drag-clamp-popup"]'),
+      'a drag held past the boundary must say it is clamped',
+    ).not.toBeNull()
+
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(svg).toBeTruthy()
   })
 })
 
