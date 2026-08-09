@@ -312,32 +312,47 @@ def _index_of(bands: Sequence[GeotechBand], band_id: str) -> int:
     raise GeotechBandEditError(f"Band {band_id} is not on this column.")
 
 
-def _assert_same_litho_body(upper: GeotechBand, lower: GeotechBand) -> None:
-    """Refuse a merge that would swallow a litho or geological contact.
+def _assert_same_litho_body(upper: GeotechBand, lower: GeotechBand, *, verb: str = "Merge") -> None:
+    """Refuse an edit that would swallow a litho or geological contact.
 
     Parameters
     ----------
     upper, lower : GeotechBand
-        The two bands proposed for merging.
+        The two bands the gesture spans.
+    verb : str
+        The gesture being refused (``"Merge"`` / ``"Move"``). Named by the
+        caller because this wall is shared: telling an engineer who dragged a
+        boundary that a MERGE was rejected describes a gesture he did not make,
+        and reads as a bug in the app rather than a rule about the ground
+        (dogfeed 2026-08-09).
 
     Raises
     ------
     GeotechBandEditError
         When the two bands do not share both parents. The message names WHICH
         wall was hit, because the fix differs: a litho contact is edited on the
-        litho axis, a geological one on the geology axis.
+        litho axis, a geological one on the geology axis. It also names the
+        SECOND half of that fix — packing bands carry the parent units they
+        were built against, so correcting the contact upstairs does not restate
+        them; only re-running Subdivide does. Naming only the first half sends
+        the engineer round in a circle, which is exactly what happened on
+        dogfeed: *"i updated geo bands and the litho model … but i couldn't
+        [merge] … re-subdivide did the trick"*.
     """
     if upper.source_litho_formation_id != lower.source_litho_formation_id:
         raise GeotechBandEditError(
-            "Merge rejected: the two packing bands sit in different "
+            f"{verb} rejected: the two packing bands sit in different "
             "lithostratigraphic units, and a packing band never crosses a "
-            "lithostratigraphic contact. Edit the contact on the litho axis first."
+            "lithostratigraphic contact. Edit the contact on the litho axis, "
+            "then re-run 'Packing pipeline → 1 · Subdivide CPTs' so the packing "
+            "bands are rebuilt against it."
         )
     if upper.source_geo_formation_id != lower.source_geo_formation_id:
         raise GeotechBandEditError(
-            "Merge rejected: the two packing bands sit in different geological "
+            f"{verb} rejected: the two packing bands sit in different geological "
             "units, and a packing band never crosses a geological contact. "
-            "Edit the contact on the geology axis first."
+            "Edit the contact on the geology axis, then re-run 'Packing pipeline "
+            "→ 1 · Subdivide CPTs' so the packing bands are rebuilt against it."
         )
 
 
@@ -963,7 +978,7 @@ def plan_move(
             "Move rejected: the two bands do not share a boundary "
             f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
         )
-    _assert_same_litho_body(upper, lower)
+    _assert_same_litho_body(upper, lower, verb="Move")
     rounded = round(new_depth_m, 3)
     # Strictly inside the pair, with both survivors at least the millimetre
     # grain the no-overlap exclusion stores. Not the min-thickness pref — that
