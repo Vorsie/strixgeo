@@ -217,9 +217,10 @@ See `memory/project_geotech_stage_body_centric.md`.
 
 ## 4. Hand editing of packing sub-bands (2026-08-01, extended 2026-08-08, develop UNPUSHED)
 
-The geotech axis is view-only **except** for the band-edit verbs. Everything
-else stays shut: contacts on this axis still cannot be created, dragged, copied
-or deleted (`SectionsCanvas.geotechViewOnly` pins that, and
+The geotech axis is view-only **except** for the band-edit verbs and the one
+contact gesture in §4c. Everything else stays shut: contacts on this axis cannot
+be created, copied or deleted, and the only drag they accept is the snap in §4c
+(`SectionsCanvas.geotechViewOnly` pins that, and
 `SectionsCanvas.geotechBandEdit` pins the hole's exact width). The verbs are
 allowed because they do not move a contact — they go through their own
 endpoints, which re-derive the NAD class from the qc over each resulting
@@ -385,6 +386,83 @@ HALF-matched surface tie constrains the pinch.** When only one adjacent body
 matches across the tie, the unmatched band (e.g. the clay below the clicked
 clay-base) must taper out to a point AT the tied contact — the tie tells the
 fill exactly where the pinch lands.
+
+## 4c. Dragging a litho contact onto a packing boundary (owner ruling 2026-08-09)
+
+Ruling 2 forbids a *packing* boundary from crossing a litho contact. It never
+said the contact itself may not move — and on interbedded ground the contact is
+usually the thing the engineer wants to move, because the cone resolved it
+better than the driller's 0.5 m log grid did. Measured on the dev model, CPT
+`019e932e-7c4a`: 17 internal boundaries, of which only **3** are packing
+boundaries and **14 are litho contacts**. The owner reached for one of the 14
+twice in ten minutes and read the (correct) refusal as a broken app.
+
+So on the geotech axis a litho contact is draggable, and it **snaps onto that
+column's packing boundaries**. This is an explicit, consented edit of the litho
+model made from the screen that happens to show the best evidence for it — not
+a weakening of ruling 2, which still holds for every packing boundary.
+
+* **One boundary per drag.** The drag clamps at the NEXT packing boundary in the
+  direction of travel, over a half-open `(from, to]` interval — origin-exclusive,
+  or a contact already sitting on a boundary would be stranded there. Moving two
+  boundaries takes two drags, each its own undo step (owner: *"can't skip a
+  boundary right, drag merge first, then drag merge second"*).
+* **Direction decides who swallows whom.** Drag down and the layer above grows;
+  drag up and the reverse. No menu, no above/below choice — the thing grabbed is
+  the thing that moves. An A/B/C "which contact comes to me?" menu was designed
+  and REJECTED in the brainstorm; recorded so it is not re-proposed.
+* **Nowhere to go is a clamp, not an error.** A litho unit the qc never
+  subdivided offers no internal boundary, and the only thing beyond it is the
+  next litho contact — snapping onto that would collapse a unit to nothing. The
+  line stops and reads amber. Subdivide that unit first, or edit it on the litho
+  axis.
+* **Boreholes offer nothing.** Their bands were extrapolated from neighbouring
+  CPTs, so snapping a contact onto one would dress a neighbour's reading up as an
+  observation made here (`packingSnapCandidates` excludes them).
+* **Parentage decides IF, depth decides WHICH.** A boundary is draggable when the
+  bands either side have different `source_litho_formation_id` — it restates a
+  litho contact. Sharing a parent makes it an internal packing boundary, which
+  refuses. Depth proximity picks only WHICH litho row, never whether the gesture
+  is offered.
+
+**What is written: one fact — the contact's depth.** `MoveLithoLayerBoundary`
+does the atomic two-row write; a contact carrying `parent_geo_contact_id` moves
+its geological contact in the SAME transaction, so the coupling can never be left
+half-applied. No packing band is rebuilt, re-derived or deleted, and no
+correlation is touched: a tie is between contacts, so it survives and re-slopes.
+
+**Staleness is DERIVED, never stored (owner's choice).** A packing band's
+contract is that it lies inside its litho parent; after a contact move some bands
+on that column no longer do, and *that comparison IS the staleness*
+(`geotechParentFit.columnsNeedingRederive`). No migration, no table, no write
+path that can forget — and it cannot lie, because a flag can claim staleness the
+data contradicts. Same shape as ruling 8. It was chosen in direct response to the
+2026-08-08 review, which found two bugs that were only possible because staleness
+had been cached.
+
+The interim render is honest rather than hidden: between the drag and the
+re-subdivide the bands genuinely do overhang their parent, and that is what the
+section draws. The Subdivide verb carries a tag naming how many columns need
+re-deriving. **Nothing rebuilds automatically** — `subdivide-cpts` is model-wide
+and begins by deleting every geotech row, so an automatic rebuild would destroy
+every hand edit on every column as a side effect of fixing one contact.
+
+**Telling the two kinds apart** (owner picked option 3 of three mockups): the
+litho contact is a heavy solid line, a packing boundary a thin dashed one; a grip
+glyph sits beside every draggable packing boundary at rest; a padlock appears on a
+litho contact only on HOVER, because at rest an interbedded column would stack 14
+of them. Both glyphs render BESIDE the column, never on the line — anything drawn
+on the line becomes another press target, and that surface is already contested
+(§4's hit-strip clamp).
+
+`flow_geotech_snap_contact` is the only thing that proves the whole chain in the
+real app — rendered hit strip → plan → litho PATCH — and it drives the real
+gesture: drag past two packing boundaries, land on the first, with no packing band
+created or deleted. Two things it had to learn the hard way, both worth keeping in
+mind for any future drag spec: a prepared band third is about **two pixels** at the
+scale a section opens at, so the spec zooms with the wheel before aiming; and
+`ContactsLayer` DISCARDS a commit outside the dragged row rather than clamping it,
+so the release has to stay inside that row's own extent.
 
 ## 5. Carrying accepted ties across a re-subdivide (2026-08-02, develop UNPUSHED)
 
