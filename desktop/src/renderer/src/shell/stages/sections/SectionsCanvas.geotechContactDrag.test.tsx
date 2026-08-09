@@ -87,13 +87,21 @@ vi.mock('../../../api/client', async () => {
  * @param top Depth of the top, in metres below the collar.
  * @param base Depth of the base, in metres below the collar.
  */
-function layer(id: string, top: number, base: number): LithoLayerResponse {
+function layer(
+  id: string,
+  top: number,
+  base: number,
+  anchor: { cpt_id: string | null; borehole_id: string | null } = {
+    cpt_id: 'cpt-1',
+    borehole_id: null,
+  },
+): LithoLayerResponse {
   return {
     id,
     model_id: 'm',
     formation_id: `f-${id}`,
-    cpt_id: 'cpt-1',
-    borehole_id: null,
+    cpt_id: anchor.cpt_id,
+    borehole_id: anchor.borehole_id,
     depth_top_m: top,
     depth_base_m: base,
     status: 'accepted',
@@ -138,16 +146,20 @@ const LITHO_CONTACT = {
 function ctxFor(
   axis: 'geotechnical' | 'lithostratigraphic',
   patch: ReturnType<typeof vi.fn>,
+  onBorehole = false,
 ): ShellContextValue {
   const ctx = makeShellCtx(axis)
+  const anchor = onBorehole ? { cpt_id: null, borehole_id: 'bh-1' } : { cpt_id: 'cpt-1', borehole_id: null }
   ctx.geoModel.geotechLayers = [
-    layer('g1', 0, 2),
-    layer('g2', 2, 4),
-    layer('g3', 4, 7),
-    layer('g4', 7, 10),
+    layer('g1', 0, 2, anchor),
+    layer('g2', 2, 4, anchor),
+    layer('g3', 4, 7, anchor),
+    layer('g4', 7, 10, anchor),
   ]
-  ctx.geoModel.lithoLayers = [layer('L-klei', 0, 4), layer('L-zand', 4, 10)]
-  ctx.geoModel.lithoContacts = [LITHO_CONTACT]
+  ctx.geoModel.lithoLayers = [layer('L-klei', 0, 4, anchor), layer('L-zand', 4, 10, anchor)]
+  ctx.geoModel.lithoContacts = [
+    onBorehole ? { ...LITHO_CONTACT, cpt_id: null, borehole_id: 'bh-1' } : LITHO_CONTACT,
+  ]
   ctx.geoModel.handleUpdateContactDepth = patch as unknown as ShellContextValue['geoModel']['handleUpdateContactDepth']
   return ctx
 }
@@ -164,10 +176,12 @@ async function commitDrag(
   axis: 'geotechnical' | 'lithostratigraphic',
   contactId: string,
   toDepthM: number,
-): Promise<ReturnType<typeof vi.fn>> {
+  onBorehole = false,
+): Promise<{ patch: ReturnType<typeof vi.fn>; ctx: ShellContextValue }> {
   const patch = vi.fn().mockResolvedValue(undefined)
+  const ctx = ctxFor(axis, patch, onBorehole)
   render(
-    <ShellContext.Provider value={ctxFor(axis, patch)}>
+    <ShellContext.Provider value={ctx}>
       <SectionsCanvas />
     </ShellContext.Provider>,
   )
@@ -175,7 +189,7 @@ async function commitDrag(
   await act(async () => {
     await capturedOnUpdateContactDepth!(contactId, toDepthM, false, 'top')
   })
-  return patch
+  return { patch, ctx }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,14 +209,14 @@ describe('SectionsCanvas — dragging a litho contact from the geotech axis', ()
   it('CD1 — a long drag moves the litho row to the FIRST boundary crossed', async () => {
     // Released at 8.5 m, past the packing boundary at 7 m. One drag consumes one
     // boundary, and the row that moves is the litho contact, not the geotech band.
-    const patch = await commitDrag('geotechnical', 'g3', 8.5)
+    const { patch } = await commitDrag('geotechnical', 'g3', 8.5)
 
     expect(patch).toHaveBeenCalledTimes(1)
     expect(patch).toHaveBeenCalledWith('L-zand', 7, false, 'top')
   })
 
   it('CD2 — a drag that crosses no boundary writes nothing', async () => {
-    const patch = await commitDrag('geotechnical', 'g3', 4.4)
+    const { patch } = await commitDrag('geotechnical', 'g3', 4.4)
 
     expect(patch).not.toHaveBeenCalled()
   })
@@ -211,15 +225,69 @@ describe('SectionsCanvas — dragging a litho contact from the geotech axis', ()
     // g1 and g2 both sit in the KLEI body, so the 2 m boundary is packing, not a
     // contact: a packing boundary never crosses a litho contact and this drag is not
     // the verb that moves it.
-    const patch = await commitDrag('geotechnical', 'g2', 3.5)
+    const { patch } = await commitDrag('geotechnical', 'g2', 3.5)
 
     expect(patch).not.toHaveBeenCalled()
   })
 
   it('CD4 — the litho axis commits the depth it was given, unclamped', async () => {
     // The control: without it, deleting the whole contact drag would pass CD2 and CD3.
-    const patch = await commitDrag('lithostratigraphic', 'L-zand', 4.4)
+    const { patch } = await commitDrag('lithostratigraphic', 'L-zand', 4.4)
 
     expect(patch).toHaveBeenCalledWith('L-zand', 4.4, false, 'top')
+  })
+
+  // ── Nothing happened is a thing that has to be SAID ──────────────────────────
+  //
+  // The whole task started from "sometimes I can't grab the contact handles any more":
+  // a gesture that moves under the cursor and then commits nothing, with the reason
+  // only in a DEBUG log the owner will never open. Every path that declines this drag
+  // has to answer out loud, in the terms the engineer is working in.
+
+  it('CD5 — a drag that reached no boundary says so', async () => {
+    const { ctx } = await commitDrag('geotechnical', 'g3', 4.4)
+
+    expect(ctx.toasts.toast).toHaveBeenCalledWith(
+      'warning',
+      expect.stringContaining('packing boundary'),
+    )
+  })
+
+  it('CD6 — on a borehole it says the column has none, which is a different answer', async () => {
+    // Worth telling apart from CD5: "drag further" is worth trying again and "this
+    // column carries no cone resistance" never will be, and both look identical from
+    // the outside.
+    const { patch, ctx } = await commitDrag('geotechnical', 'g3', 8.5, true)
+
+    expect(patch).not.toHaveBeenCalled()
+    expect(ctx.toasts.toast).toHaveBeenCalledWith(
+      'warning',
+      expect.stringContaining('borehole carries no cone resistance'),
+    )
+  })
+
+  it('CD7 — and a packing boundary says which kind of boundary it is', async () => {
+    const { ctx } = await commitDrag('geotechnical', 'g2', 3.5)
+
+    expect(ctx.toasts.toast).toHaveBeenCalledWith(
+      'warning',
+      expect.stringContaining('not a lithostratigraphic contact'),
+    )
+  })
+
+  it('CD8 — a move that lands says nothing: the boundary moving IS the feedback', async () => {
+    // The counterweight to CD5-CD7. A toast on every successful drag would train the
+    // owner to dismiss them without reading, which is how the ones that matter stop
+    // being read too.
+    //
+    // Filtered rather than "never called": this fixture's section sits at (0,0)→(100,0),
+    // outside Lambert 72, so the canvas raises its own CRS warning on mount. Asserting
+    // silence outright would pin that unrelated toast instead of this one.
+    const { ctx } = await commitDrag('geotechnical', 'g3', 8.5)
+
+    const aboutTheDrag = (ctx.toasts.toast as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([, message]) => typeof message === 'string' && message.includes('packing'),
+    )
+    expect(aboutTheDrag).toEqual([])
   })
 })
