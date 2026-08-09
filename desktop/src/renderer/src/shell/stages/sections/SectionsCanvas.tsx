@@ -1599,10 +1599,33 @@ export default function SectionsCanvas(): JSX.Element {
           )
           toast('error', 'This boundary has no lithostratigraphic contact to move — edit it on the litho axis.')
           return
+        // Everything below declines the drag, and every one of them SAYS so. The
+        // complaint this feature came from was "sometimes I can't grab the contact
+        // handles any more" — a handle that moves under the cursor and then commits
+        // nothing, with the reason in a log the owner will never open. Nothing here is
+        // an error, so they are warnings: the gesture was legitimate, this boundary just
+        // is not the one it moves. A landing drag stays silent (the boundary moving is
+        // its own feedback); toasting the successes is how the refusals stop being read.
         case 'packing-boundary':
           log.debug(
             'section',
             `geotech contact drag ignored: ${contactId} is an internal packing boundary, not a litho contact`,
+          )
+          toast(
+            'warning',
+            plan.anchorIsCpt
+              ? 'That is a packing boundary, not a lithostratigraphic contact — drag it with the handle beside the column.'
+              : 'That is a packing boundary, not a lithostratigraphic contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
+          )
+          return
+        case 'no-packing-boundaries':
+          log.info(
+            'section',
+            `geotech contact drag ignored: ${plan.anchorId} offers no packing boundary to land on`,
+          )
+          toast(
+            'warning',
+            'Nothing to snap to on this column — a borehole carries no cone resistance, so there are no packing boundaries here.',
           )
           return
         case 'no-boundary-crossed':
@@ -1610,8 +1633,15 @@ export default function SectionsCanvas(): JSX.Element {
             'section',
             `geotech contact drag ignored: released at ${newDepthM.toFixed(3)}m without reaching a packing boundary`,
           )
+          toast(
+            'warning',
+            'The contact did not move — drag it past a packing boundary to place it there.',
+          )
           return
         case 'not-a-boundary':
+          // No toast: this is not a gesture the engineer can aim at. It means the id did
+          // not resolve to an internal boundary of a column at all (a stale row, the top
+          // of a stack), so there is nothing to explain to him about it.
           log.debug('section', `geotech contact drag ignored: ${contactId} is not an internal boundary`)
           return
       }
