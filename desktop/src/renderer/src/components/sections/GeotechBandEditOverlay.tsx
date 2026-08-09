@@ -148,6 +148,11 @@ interface ColumnModel {
   lithoBodies: DepthInterval[]
   /** Internal boundaries where a merge (and so a drag) is legal — not litho contacts. */
   mergeable: { upper: GeotechBandInterval; lower: GeotechBandInterval }[]
+  /**
+   * Screen-space strip extents, one per {@link ColumnModel.mergeable} entry and in the
+   * same order, allocated so neighbours never overlap.
+   */
+  stripExtents: { top: number; bottom: number }[]
   /** Thin enclosed class lenses — the bands that get the unprompted badge. */
   smallLenses: EnclosedLens[]
 }
@@ -311,6 +316,32 @@ export default function GeotechBandEditOverlay({
           mergeable.push({ upper: bands[i], lower: bands[i + 1] })
         }
       }
+      // Each strip wants MERGE_HANDLE_PX centred on its boundary, but two boundaries
+      // closer than that on screen would hand every press to whichever strip SVG paints
+      // last — the deeper one, since these are emitted top-down — and the engineer would
+      // aim at one boundary and drag the other. At the default 60 m window (~13 px/m)
+      // that is any band under ~0.75 m, well above the 0.35 m the model itself keeps, so
+      // it is the common case rather than an edge one. Each strip therefore stops at the
+      // MIDPOINT to its neighbour: the nearest boundary wins the press, which is the only
+      // split of contested pixels that cannot be wrong. The far side keeps its full half
+      // whenever there is room, so a strip squeezed on one side is only squeezed there.
+      //
+      // NOT ``allocateMinHitExpansions`` (the litho axis's #158 answer): that allocator
+      // only GROWS a thin band into a fat neighbour's slack, i.e. it deliberately overlaps
+      // strips and leans on render order to resolve them. Here overlap IS the defect.
+      const boundaryYs = mergeable.map(
+        pair => surface.surfaceY + pair.upper.baseDepthM * surface.pxPerMetre,
+      )
+      const stripExtents = boundaryYs.map((y, i) => {
+        // The stack's outer edges are open: nothing above the first boundary or below the
+        // last competes for the press, so those halves are never contested.
+        const toPrev = i > 0 ? (y - boundaryYs[i - 1]) / 2 : Infinity
+        const toNext = i + 1 < boundaryYs.length ? (boundaryYs[i + 1] - y) / 2 : Infinity
+        return {
+          top: y - Math.min(MERGE_HANDLE_PX / 2, toPrev),
+          bottom: y + Math.min(MERGE_HANDLE_PX / 2, toNext),
+        }
+      })
       const half = col.width / 2
       out.push({
         investigationId: item.id,
@@ -321,6 +352,7 @@ export default function GeotechBandEditOverlay({
         bands,
         lithoBodies,
         mergeable,
+        stripExtents,
         smallLenses:
           lensAware && nadClassByFormationId !== undefined && smallLensThicknessM !== undefined
             ? findSmallEnclosedLenses(bands, lithoBodies, nadClassByFormationId, smallLensThicknessM)
@@ -569,7 +601,8 @@ export default function GeotechBandEditOverlay({
               only where a merge is legal, so a litho contact simply has no strip — and
               therefore no drag — rather than a gesture that refuses. */}
           {(onRequestMerge !== undefined || draggable) &&
-            column.mergeable.map(pair => {
+            column.mergeable.map((pair, i) => {
+              const extent = column.stripExtents[i]
               const y = yAt(column, pair.upper.baseDepthM)
               if (y < plotTop || y > plotBottom) return null
               return (
@@ -577,9 +610,9 @@ export default function GeotechBandEditOverlay({
                   key={`gbe-boundary-${pair.upper.layerId}`}
                   data-testid={`geotech-band-boundary-${pair.upper.layerId}`}
                   x={column.x0}
-                  y={y - MERGE_HANDLE_PX / 2}
+                  y={extent.top}
                   width={column.x1 - column.x0}
-                  height={MERGE_HANDLE_PX}
+                  height={Math.max(0, extent.bottom - extent.top)}
                   fill="transparent"
                   pointerEvents="all"
                   style={{ cursor: draggable ? 'ns-resize' : 'context-menu' }}
