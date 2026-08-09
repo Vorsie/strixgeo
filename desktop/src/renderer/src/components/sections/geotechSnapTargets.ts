@@ -67,3 +67,71 @@ export function packingSnapCandidates(
   }
   return out
 }
+
+/**
+ * Clamp one contact drag to the first packing boundary it crosses.
+ *
+ * The owner's rule: *"can't skip a boundary right, drag merge first, then drag
+ * merge second"*. However far the cursor travelled, a single drag may only
+ * consume ONE boundary. Dragging past several lands on the first one crossed;
+ * moving a contact two boundaries takes two drags. Each step is then its own
+ * decision, its own consequence sheet, and its own entry on the undo stack —
+ * a long sweep can never silently swallow an interbed on the way past.
+ *
+ * Parameters
+ * ----------
+ * fromDepthM : number
+ *     Where the contact sat when the drag began.
+ * toDepthM : number
+ *     Where the cursor released. May be arbitrarily far past the boundary.
+ * candidates : readonly SnapCandidate[]
+ *     The column's snap targets, from ``packingSnapCandidates``. Order does
+ *     not matter — the nearest crossed candidate is picked by comparison, not
+ *     by position.
+ *
+ * Returns
+ * -------
+ * number | null
+ *     The depth of the first candidate crossed in the direction of travel, or
+ *     ``null`` when the drag crossed none.
+ *
+ * Notes
+ * -----
+ * ``null`` means **the contact does not move at all** — not "move as far as
+ * you can". A drag that reached no boundary is either too short to have been
+ * meant as a move, or is heading somewhere there is no evidence to land on;
+ * in both cases the honest answer is to leave the interpretation where the
+ * engineer last put it deliberately. The alternative — sliding the contact to
+ * the free depth the cursor happened to stop at — would let the gesture
+ * record a boundary the cone resistance never resolved.
+ *
+ * Two boundary conditions, both chosen deliberately:
+ *
+ * - **Releasing exactly on a candidate lands on it.** The destination end of
+ *   the travelled interval is inclusive, because hitting the boundary dead-on
+ *   is the gesture succeeding, not falling short of it.
+ * - **A contact already sitting on a candidate does not count itself.** The
+ *   origin end is exclusive. Were it not, a contact snapped onto a packing
+ *   boundary by its first drag would be stranded there forever: every later
+ *   drag would "cross" the boundary it already occupies at zero distance and
+ *   resolve to a no-op.
+ */
+export function clampToNextBoundary(
+  fromDepthM: number,
+  toDepthM: number,
+  candidates: readonly SnapCandidate[],
+): number | null {
+  if (toDepthM === fromDepthM) return null
+  const downward = toDepthM > fromDepthM
+
+  let nearest: number | null = null
+  for (const { depth } of candidates) {
+    // Half-open interval (from, to] in the direction of travel — see Notes.
+    const crossed = downward
+      ? depth > fromDepthM && depth <= toDepthM
+      : depth < fromDepthM && depth >= toDepthM
+    if (!crossed) continue
+    if (nearest === null || (downward ? depth < nearest : depth > nearest)) nearest = depth
+  }
+  return nearest
+}
