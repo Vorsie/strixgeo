@@ -145,6 +145,16 @@ git commit -m "fix(sections): allocate boundary strips so the deeper one cannot 
 
 ## Task 2: The two boundary kinds look different
 
+**Carried forward from the Task 1 spec review — handle it here.** The Task 1 midpoint clamp
+only considers *mergeable* neighbours, which was right at the time because only mergeable
+boundaries drew a strip. But a packing boundary sitting just under a litho contact keeps its
+full 5 px upward and so extends ACROSS that contact — roughly 0.38 m of overhang at the
+default ~13 px/m. That is harmless only while the litho contact has no press target of its
+own. This task gives litho contacts hover chrome and Task 5 makes them draggable, at which
+point the overhang becomes exactly the collision Task 1 just fixed. **Fold the litho-contact
+depths into the clamp as participants** (they claim no strip of their own, they only bound
+their neighbours), and pin it with a test.
+
 **Files:**
 - Modify: `desktop/src/renderer/src/components/sections/GeotechBandEditOverlay.tsx`
 - Test: `desktop/src/renderer/src/components/sections/GeotechBandEditOverlay.rules.test.tsx`
