@@ -299,6 +299,10 @@ function makeCtx(overrides: {
       geotechLayers: overrides.geotechLayers ?? [],
       geotechContacts: [],
       geotechFormations: [],
+      // Derived by the geo-model hook; the toolbar reads it for the Subdivide
+      // verb's "N columns need re-deriving" tag. This stub is cast through
+      // ``unknown``, so a missing field is a runtime crash, not a tsc error.
+      columnsNeedingRederive: [],
       handleCreateManualLithoGhost: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
