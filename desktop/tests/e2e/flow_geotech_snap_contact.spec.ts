@@ -135,22 +135,89 @@ test.describe('flow_geotech_snap_contact', () => {
         contactDepthM,
         lithoLayerId,
         lithoUpperLayerId,
-        firstBandId,
+        lithoBaseM,
         firstBoundaryM,
-        secondBandId,
         secondBoundaryM,
       } = target as SnapTarget
 
-      // Vertical scale straight off the two prepared bands: the gap between their
-      // drawn tops over the gap between their real depths. Both sit deep inside the
-      // plot, so neither rect is clipped against the plot edge.
-      const firstRect = (await page.getByTestId(`geotech-band-hit-${firstBandId}`).boundingBox())!
-      const secondRect = (await page.getByTestId(`geotech-band-hit-${secondBandId}`).boundingBox())!
-      const pxPerMetre = (secondRect.y - firstRect.y) / (secondBoundaryM - firstBoundaryM)
-      expect(
-        pxPerMetre,
-        'the two prepared bands must give a positive vertical scale',
-      ).toBeGreaterThan(0)
+      // The renderer's own vertical scale — reported, never measured. Deriving it from
+      // drawn features instead would cost a pixel of error per feature, and the two
+      // boundaries this gesture aims between are only a couple of pixels apart to
+      // start with.
+      const readScaleV = async (): Promise<number> => {
+        const text = (await page.getByTestId('section-scale-v').textContent()) ?? ''
+        const match = text.match(/([\d.]+)/)
+        return match === null ? NaN : Number(match[1])
+      }
+      const openingScaleV = await readScaleV()
+
+      // ZOOM IN before aiming anything.
+      //
+      // The setup cuts the band under the contact into thirds, and a third of this
+      // fixture's bands is about a quarter-metre — roughly TWO PIXELS at the scale
+      // Section B opens at. Every synthesized move rounds to whole pixels, so at that
+      // size the rounding decides whether the drag crosses the first boundary, and the
+      // spec reports a clamp defect whichever way it falls.
+      //
+      // Wheel over the contact itself, which is the gesture the toolbar hint documents
+      // ("scroll to zoom"): zooming about the cursor holds the point under it still, so
+      // the contact stays where it is while everything around it grows. The vertical
+      // exaggeration slider reaches the same scale but is NOT interchangeable — driving
+      // it to 25x left the band-edit overlay drawing nothing at all, grips and markers
+      // both, which is worth knowing separately and is not this spec's to carry.
+      const zoomAnchor = (await page
+        .locator(`[data-testid="contact-drag-strip"][data-contact-id="${lowerBandId}"]`)
+        .boundingBox())!
+      for (let i = 0; i < 6; i += 1) {
+        await page.mouse.move(
+          Math.round(zoomAnchor.x + zoomAnchor.width / 2),
+          Math.round(zoomAnchor.y + zoomAnchor.height / 2),
+        )
+        await page.mouse.wheel(0, -240)
+        await page.waitForTimeout(80)
+      }
+      await expect
+        .poll(readScaleV, {
+          timeout: 10_000,
+          message:
+            `the section must zoom in before the drag is aimed — it opened at ` +
+            `${openingScaleV} px/m, where a prepared third measures about two pixels`,
+        })
+        .toBeGreaterThan(openingScaleV * 2)
+      const scaleV = await readScaleV()
+
+      // The boundary the drag has to land on must be DRAWN before the drag starts.
+      // Asserted by name so a missing grip reports itself here, rather than surfacing
+      // 30 s later as an unexplained "the contact did not move". A grip is keyed by
+      // the band ABOVE its boundary, which is why this is the contact's own lower
+      // band and not the band named after ``firstBoundaryM``.
+      //
+      // The failure names both drawn sets, because a missing grip has two very
+      // different causes and they are indistinguishable from the count alone: the
+      // overlay may have classified this boundary as a litho contact (it would then
+      // appear among the markers, and refusing the drag is CORRECT), or it may have
+      // offered no verb here at all.
+      const drawnIds = async (prefix: string): Promise<string[]> =>
+        page
+          .locator(`[data-testid^="${prefix}"]`)
+          .evaluateAll((els, p) => els.map(el => (el.getAttribute('data-testid') ?? '').slice(p)), prefix.length)
+      // Polled as a SENTENCE rather than a boolean: a boolean poll prints only
+      // "expected true", which is the one thing already known.
+      const boundaryOffer = async (): Promise<string> => {
+        const grips = await drawnIds('geotech-boundary-grip-')
+        if (grips.includes(lowerBandId)) return 'drag grip'
+        const marks = await drawnIds('geotech-contact-marker-')
+        if (marks.includes(lowerBandId)) return 'a litho-contact marker, so the drag is refused here'
+        return `nothing — grips drawn: [${grips.join(', ')}]; markers drawn: [${marks.join(', ')}]`
+      }
+      await expect
+        .poll(boundaryOffer, {
+          timeout: 20_000,
+          message:
+            `the packing boundary at ${firstBoundaryM.toFixed(3)}m (the base of band ` +
+            `${lowerBandId}) must offer the drag`,
+        })
+        .toBe('drag grip')
 
       const strip = page.locator(
         `[data-testid="contact-drag-strip"][data-contact-id="${lowerBandId}"]`,
@@ -163,13 +230,29 @@ test.describe('flow_geotech_snap_contact', () => {
       const cx = Math.round(stripBox.x + stripBox.width / 2)
       const cy = Math.round(stripBox.y + stripBox.height / 2)
 
-      // Release WELL past the second boundary — 40 % into the run below it. The
-      // overshoot is the point: the clamp must still hand back the first boundary
-      // crossed, because moving a contact two boundaries takes two drags, each with
-      // its own consequence and its own entry on the undo stack.
-      const releaseDepthM = secondBoundaryM + 0.4 * (secondBoundaryM - firstBoundaryM)
-      const targetY = Math.round(firstRect.y + (releaseDepthM - firstBoundaryM) * pxPerMetre)
-      expect(targetY - cy, 'the drag must span at least a few px').toBeGreaterThan(3)
+      // Release as deep inside the dragged layer as it legally goes.
+      //
+      // Two constraints pull opposite ways and both are hard. The release must be well
+      // PAST the second boundary, or "it stopped at the first" is not being tested —
+      // and the two prepared boundaries are a quarter-metre apart, which is about two
+      // pixels at the scale Section B opens at, so aiming just past the second is
+      // aiming inside the rounding of a single synthesized move. But it must also stay
+      // INSIDE the layer being dragged: ContactsLayer will not commit a contact outside
+      // its own row, and a release past that is dropped whole rather than clamped, which
+      // then reads exactly like a broken snap.
+      //
+      // Halfway from the second boundary to the layer's base satisfies both with the
+      // most room on each side. The overshoot still proves the rule, because
+      // ``clampToNextBoundary`` returns the NEAREST boundary crossed: everything below
+      // the first one is crossed too and must still be passed over.
+      const overshootRoomM = lithoBaseM - secondBoundaryM
+      expect(
+        overshootRoomM,
+        `the dragged layer (${contactDepthM.toFixed(3)}–${lithoBaseM.toFixed(3)}m) must extend ` +
+          `below the second boundary (${secondBoundaryM.toFixed(3)}m), or the drag has nowhere ` +
+          `legal to overshoot to`,
+      ).toBeGreaterThan(0.2)
+      const releaseDepthM = secondBoundaryM + overshootRoomM / 2
 
       // What is actually under the press point, recorded BEFORE the mousedown. The
       // geotech axis stacks several transparent hit surfaces over this pixel, so a
@@ -185,6 +268,27 @@ test.describe('flow_geotech_snap_contact', () => {
         { x: cx, y: cy },
       )
 
+      // Record the clientY the DOM actually reports for the press, because that — not
+      // the number handed to ``page.mouse`` — is the origin ContactsLayer measures its
+      // drag from. Its drag is a DELTA (``draggedSegY = startSegY + (e.clientY -
+      // startClientY)``), so the mousedown's coordinate and the synthesized mousemoves'
+      // coordinates have to come from the same space. Playwright's mouse coordinates and
+      // the renderer's clientY do NOT agree in this Electron harness — measured ~5 px
+      // apart — and mixing them silently stretched the drag by that much, which is
+      // exactly the size of error that overshoots a boundary or falls short of one.
+      // (The sibling band-edit drag is immune: ``GeotechBandEditOverlay`` reads an
+      // ABSOLUTE ``depthAtClientY`` off each move, so it never subtracts a press.)
+      await page.evaluate(() => {
+        const w = window as unknown as { __e2ePressClientY?: number }
+        w.__e2ePressClientY = undefined
+        document.addEventListener(
+          'mousedown',
+          e => {
+            w.__e2ePressClientY = (e as MouseEvent).clientY
+          },
+          { capture: true, once: true },
+        )
+      })
       await page.mouse.move(cx, cy)
       await page.mouse.down()
       await page.waitForTimeout(200)
@@ -198,6 +302,31 @@ test.describe('flow_geotech_snap_contact', () => {
         `the press must arm ContactsLayer’s drag; the element under the cursor was ${pressTarget}`,
       ).toHaveCount(1)
 
+      const pressClientY = await page.evaluate(
+        () => (window as unknown as { __e2ePressClientY?: number }).__e2ePressClientY,
+      )
+      expect(
+        pressClientY,
+        'the mousedown must have reached the document for its clientY to be measurable',
+      ).toBeDefined()
+      // Measured from the PRESS, so the whole gesture stays in the DOM's own coordinate
+      // space: Playwright's mouse space and the renderer's clientY sit a few px apart in
+      // this harness, and ContactsLayer measures its drag as a delta from the press.
+      const targetY = Math.round(
+        (pressClientY as number) + (releaseDepthM - contactDepthM) * scaleV,
+      )
+      // The gesture has to be bigger than the noise in it. Each synthesized move is
+      // rounded to whole pixels, so a travel of a handful of px is decided by rounding
+      // rather than by the clamp — and it would report a clamp defect either way. Stated
+      // here, before the drag, so a section drawn too compressed to express the distance
+      // says so instead of failing 30 s later as an unmoved row.
+      expect(
+        targetY - (pressClientY as number),
+        `the drag from ${contactDepthM.toFixed(3)}m to ${releaseDepthM.toFixed(3)}m must be ` +
+          `larger than the rounding in it — at ${scaleV} px/m it spans only ` +
+          `${targetY - (pressClientY as number)}px`,
+      ).toBeGreaterThan(12)
+
       await page.evaluate(
         ({ x, y0, y1, steps }) => {
           for (let i = 1; i <= steps; i += 1) {
@@ -207,9 +336,16 @@ test.describe('flow_geotech_snap_contact', () => {
             )
           }
         },
-        { x: cx, y0: cy, y1: targetY, steps: 12 },
+        { x: cx, y0: pressClientY as number, y1: targetY, steps: 12 },
       )
       await page.waitForTimeout(150) // let React flush the moved drag state
+      // What the LIVE drag believes, captured while it is still open. This is the one
+      // reading that separates "the moves never reached the drag" from "they did and
+      // the commit refused them" — without it both end as the same silent unmoved row
+      // 30 s later, and the two have completely different causes.
+      const liveReadout = (
+        (await page.getByTestId('contact-drag-readout').textContent()) ?? '(no readout)'
+      ).trim()
       await page.evaluate(
         ({ x, y1 }) => {
           document.dispatchEvent(
@@ -239,8 +375,10 @@ test.describe('flow_geotech_snap_contact', () => {
         .poll(lithoRowState, {
           timeout: 30_000,
           message:
-            `the litho contact at ${contactDepthM.toFixed(3)}m must move; ` +
-            `press landed on ${pressTarget}`,
+            `the litho contact at ${contactDepthM.toFixed(3)}m must move to ` +
+            `${firstBoundaryM.toFixed(3)}m; press landed on ${pressTarget}; the live drag ` +
+            `read "${liveReadout}" after travelling ${targetY - (pressClientY as number)}px ` +
+            `at ${scaleV} px/m`,
         })
         .toBe('moved')
 
