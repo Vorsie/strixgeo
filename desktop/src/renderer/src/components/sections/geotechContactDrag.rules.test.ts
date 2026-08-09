@@ -170,11 +170,22 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
     expect(plan('g3', 1)).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 2 })
   })
 
-  it('GC3 — a drag that reaches no boundary leaves the contact where it was', () => {
-    // Nothing between 4 and 4.4 to land on. The honest answer is to leave the
-    // interpretation where the engineer last put it deliberately, not to slide it to
-    // whatever depth the cursor happened to stop at.
-    expect(plan('g3', 4.4)).toEqual({ kind: 'no-boundary-crossed' })
+  it('GC3 — a drag that reaches no boundary NUDGES the contact to where it was released', () => {
+    // Reversed on owner dogfeed, 2026-08-09: "i want to be able to nudge those solids ...
+    // we're refining from geo-litho-geotech, so if we want to refine in the geotech then
+    // the rest should move too".
+    //
+    // Refusing a sub-boundary drag made a small correction impossible: the gesture either
+    // jumped a whole boundary or reported "The contact did not move", which is what he
+    // hit. The packing boundary is a WALL (GC1/GC2 still clamp at it), not a magnet — so
+    // anywhere short of it is the engineer's to choose.
+    expect(plan('g3', 4.4)).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.4 })
+  })
+
+  it('GC3b — and a release exactly where it started still moves nothing', () => {
+    // No travel is not a nudge. Without this the press-and-release that opens a menu or
+    // just picks the contact would write a PATCH for the depth it already has.
+    expect(plan('g3', 4)).toEqual({ kind: 'no-boundary-crossed' })
   })
 
   it('GC4 — an internal packing boundary is not a contact drag', () => {
