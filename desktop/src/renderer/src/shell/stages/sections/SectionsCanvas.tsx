@@ -49,6 +49,10 @@ import type { InspectLensBodyTarget } from '../../../components/sections/Inspect
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
+import {
+  planGeotechContactDrag,
+  RESTATED_CONTACT_TOLERANCE_M,
+} from '../../../components/sections/geotechContactDrag'
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { implausibleSectionCoordinates } from '../../../utils/sectionCoordinatePlausibility'
@@ -1548,6 +1552,73 @@ export default function SectionsCanvas(): JSX.Element {
     toast,
   })
 
+  // The geotech axis's ONE contact edit (owner ruling 2026-08-08).
+  //
+  // What the engineer grabs here is a geotech band's top, and moving THAT is what the
+  // next "Subdivide all bodies" throws away — so the drag is only offered where the
+  // boundary restates a lithostratigraphic contact, and the write lands on the litho row
+  // instead. `planGeotechContactDrag` decides both halves (which row, and which packing
+  // boundary the drag is allowed to reach); everything it declines is logged with the
+  // reason, because a gesture that silently does nothing is the defect this replaces.
+  //
+  // Snapped is passed through as FALSE regardless: on the litho row `snapped` writes
+  // ``source = 'observation_layer'``, which claims a borehole observation. A packing
+  // boundary is cone resistance on a CPT — a hand move informed by evidence, which is
+  // exactly what ``'manual'`` says.
+  const handleGeotechContactDrag = useCallback(
+    async (
+      contactId: string,
+      newDepthM: number,
+      _snapped: boolean,
+      field: 'top' | 'base' = 'top',
+    ): Promise<void> => {
+      const plan = planGeotechContactDrag({
+        geotechContactId: contactId,
+        toDepthM: newDepthM,
+        geotechLayers,
+        lithoLayers,
+        lithoContacts,
+      })
+      switch (plan.kind) {
+        case 'move':
+          log.info(
+            'section',
+            `geotech contact drag: litho contact ${plan.lithoContactId} → ${plan.depthM.toFixed(3)}m ` +
+              `(grabbed geotech band ${contactId}, released at ${newDepthM.toFixed(3)}m)`,
+          )
+          await handleLithoSnapAwareUpdateContactDepth(plan.lithoContactId, plan.depthM, false, field)
+          return
+        case 'unmatched':
+          // Loud: parentage says this boundary restates a contact and no litho row is
+          // within a millimetre of it, which means the two models disagree about the
+          // column. Guessing a row would move something the engineer never pointed at.
+          log.error(
+            'section',
+            `geotech contact drag refused: no litho contact within ${RESTATED_CONTACT_TOLERANCE_M} m of ` +
+              `${plan.boundaryDepthM.toFixed(4)}m on ${plan.anchorId} (geotech band ${contactId})`,
+          )
+          toast('error', 'This boundary has no lithostratigraphic contact to move — edit it on the litho axis.')
+          return
+        case 'packing-boundary':
+          log.debug(
+            'section',
+            `geotech contact drag ignored: ${contactId} is an internal packing boundary, not a litho contact`,
+          )
+          return
+        case 'no-boundary-crossed':
+          log.debug(
+            'section',
+            `geotech contact drag ignored: released at ${newDepthM.toFixed(3)}m without reaching a packing boundary`,
+          )
+          return
+        case 'not-a-boundary':
+          log.debug('section', `geotech contact drag ignored: ${contactId} is not an internal boundary`)
+          return
+      }
+    },
+    [geotechLayers, lithoLayers, lithoContacts, handleLithoSnapAwareUpdateContactDepth, toast],
+  )
+
   const openExtentLengthM = useMemo(
     () => readLithoSegmenterPrefs(project?.view_state ?? null).openExtentLengthM,
     [project?.view_state],
@@ -1950,7 +2021,16 @@ export default function SectionsCanvas(): JSX.Element {
           // the edit silently, because subdivision rewrites every geotech row in the model.
           // The sibling above and onRequestDeleteContact on the correlation overlay were
           // already gated; these two were missed.
-          onUpdateContactDepth={isGeotech ? undefined : handleLithoSnapAwareUpdateContactDepth}
+          //
+          // ONE exception, and only this one (owner ruling 2026-08-08): the contact DEPTH
+          // handler is wired on the geotech axis too, routed through
+          // ``handleGeotechContactDrag``, which moves the LITHO row a boundary restates
+          // and refuses everything else. Create, delete and the batch pair below stay
+          // withheld — this is not the axis becoming editable, it is one boundary the
+          // engineer is allowed to move from the screen that shows the evidence for it.
+          onUpdateContactDepth={
+            isGeotech ? handleGeotechContactDrag : handleLithoSnapAwareUpdateContactDepth
+          }
           onDeleteContact={isGeotech ? undefined : handleDeleteContact}
           // The bounded exception to the line above (owner spec 2026-08-01). Splitting and
           // merging packing SUB-BANDS is allowed by hand on the geotech axis and nowhere
