@@ -165,3 +165,66 @@ describe('the re-run tag goes away once the re-run has happened', () => {
     expect(screen.getByTestId('geotech-subdivide-cpts').textContent).not.toMatch(/re-run under/)
   })
 })
+
+describe('the Subdivide verb says how many columns no longer fit their parent', () => {
+  // Dragging a lithostratigraphic contact on the geotech axis leaves that
+  // column's packing bands derived against the OLD boundary. Subdivide is the
+  // verb that fixes it — and it is model-wide and destructive, so nothing
+  // rebuilds automatically (owner ruling). The count is how the engineer
+  // learns the debt exists and chooses when to pay it.
+  function subdivideItemText(geoModel: Partial<ShellContextValue['geoModel']>): string {
+    renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel(), ...geoModel }))
+    fireEvent.click(screen.getByTestId('geotech-pipeline'))
+    return screen.getByTestId('geotech-subdivide-cpts').textContent ?? ''
+  }
+
+  it('RD-UI1 — two columns no longer fitting reads as a plural count', () => {
+    expect(subdivideItemText({ columnsNeedingRederive: ['cpt-1', 'cpt-2'] })).toContain(
+      '2 columns need re-deriving',
+    )
+  })
+
+  it('RD-UI2 — one column reads singular, not "1 columns"', () => {
+    const text = subdivideItemText({ columnsNeedingRederive: ['cpt-1'] })
+    expect(text).toContain('1 column needs re-deriving')
+    expect(text).not.toContain('1 columns')
+  })
+
+  it('RD-UI3 — three columns counts three, not a constant', () => {
+    expect(
+      subdivideItemText({ columnsNeedingRederive: ['cpt-1', 'cpt-2', 'cpt-3'] }),
+    ).toContain('3 columns need re-deriving')
+  })
+
+  it('RD-UI4 — every band still fitting its parent shows no tag at all', () => {
+    // The owner's live model is in exactly this state today: 523 bands, all
+    // inside their parents. A tag that shows here is noise on every session.
+    expect(subdivideItemText({ columnsNeedingRederive: [] })).not.toMatch(/re-deriv/i)
+  })
+
+  it('RD-UI5 — a statistic change outranks the column count: re-running re-derives everything', () => {
+    const text = subdivideItemText({
+      activeGeotechModel: {
+        ...makeGeotechModel(),
+        representative_statistic: 'harmonic',
+        classified_with_statistic: 'median',
+      },
+      columnsNeedingRederive: ['cpt-1', 'cpt-2'],
+    })
+    expect(text).toMatch(/re-run under harmonic/i)
+    expect(text).not.toMatch(/re-deriv/i)
+  })
+
+  it('RD-UI6 — with the statistic settled, the column count is what shows', () => {
+    const text = subdivideItemText({
+      activeGeotechModel: {
+        ...makeGeotechModel(),
+        representative_statistic: 'harmonic',
+        classified_with_statistic: 'harmonic',
+      },
+      columnsNeedingRederive: ['cpt-1', 'cpt-2'],
+    })
+    expect(text).toContain('2 columns need re-deriving')
+    expect(text).not.toMatch(/re-run under/i)
+  })
+})
