@@ -86,10 +86,16 @@ describe('SectionsCanvas — split and merge of packing bands open on the geotec
     expect(capturedPanelProps.onRequestGeotechMergeBands).toBeDefined()
   })
 
-  it('BH3 — and nothing else opens: contacts still cannot be dragged or deleted there', () => {
+  // The contact-depth half of this case was dropped on 2026-08-08: a contact drag IS
+  // offered on this axis now (owner ruling), and it is the ONE deliberate exception rather
+  // than the view-only rule relaxing. What it moves is the LITHOSTRATIGRAPHIC contact a
+  // packing boundary restates, not the geotech row — so it still does not create anything
+  // "Subdivide all bodies" would silently discard, which is what this case is guarding.
+  // The exception is pinned in SectionsCanvas.geotechContactDrag.test.tsx and its handler
+  // presence in geotechViewOnly's VO1; create and delete keep their assertions here.
+  it('BH3 — and nothing else opens: contacts still cannot be created or deleted there', () => {
     renderOn('geotechnical')
 
-    expect(capturedPanelProps.onUpdateContactDepth).toBeUndefined()
     expect(capturedPanelProps.onDeleteContact).toBeUndefined()
     expect(capturedPanelProps.onCreateContact).toBeUndefined()
   })
