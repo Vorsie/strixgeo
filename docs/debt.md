@@ -5955,14 +5955,17 @@ collapsed every series-less column's deepest litho layer to 1 mm, and a
 `.first()` comparison the first defect had been masking).
 
 Two harness defects were found getting there and fixed alongside, both older than
-this work: the e2e suite left the fixture's crash-recovery snapshot behind when a
+this work. (1) The suite left the fixture's crash-recovery snapshot behind when a
 spec was torn down dirty, so the next launch opened on the "Restore unsaved work?"
 modal and its backdrop failed **19 unrelated specs** on intercepted clicks (run
-8 → 23 min); and the cleanup for it must clear `<APPDATA>/Electron/recovery`,
-because `out/main/index.js` has no adjacent package.json so `app.getName()` falls
-back to Electron's default rather than the product name a packaged build uses.
-That second fact is worth its own look: **the e2e suite has never exercised the
-userData path the real product uses.**
+8 → 23 min). (2) The suite's userData location was UNDECLARED: `out/main/index.js`
+has no adjacent package.json, so `app.getName()` fell back to Electron's default
+and it wrote to `<APPDATA>/Electron`, while dev and packaged builds both use
+`ground-model-desktop` (`productName` lives inside the electron-builder `build`
+block, where `getName()` never reads it). The isolation that gave the suite is
+worth keeping — it is why a hundred-plus launches of fixture chrome never landed
+in a real store — so it is now passed explicitly via `--user-data-dir` rather than
+inherited from where a file happens to sit. Both fixed; suite verified green after.
 
 **Remainder (this entry stays open for):**
 * **Owner dogfeed** — drag feel, absorb hint legibility, remove-band menu,
