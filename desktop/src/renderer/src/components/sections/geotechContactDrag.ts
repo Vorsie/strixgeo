@@ -26,21 +26,20 @@ import {
   type DepthInterval,
 } from './geotechBandEdit'
 import { clampToNextBoundary, packingSnapCandidates } from './geotechSnapTargets'
+import { COINCIDENT_DEPTH_TOLERANCE_M } from '../../utils/depthTolerance'
 
 /**
  * How far a litho contact may sit from the boundary that restates it, in metres.
  *
- * A millimetre plus a hair, and it is a rounding allowance rather than a matching
- * heuristic: the geotech materialiser stores band depths rounded to 3 decimals while litho
- * contacts keep full float precision, so a boundary at 9.581 restates a contact at
- * 9.581049712235094. On the owner's real model 255 coincident boundaries are bit-identical
- * and 67 are not — exact equality would refuse a fifth of them.
+ * The shared {@link COINCIDENT_DEPTH_TOLERANCE_M}: a boundary at 9.581 restates a contact
+ * at 9.581049712235094 because the two models record the same depth at two precisions, and
+ * exact equality would refuse a fifth of the owner's real coincident boundaries.
  *
- * It never decides WHETHER a boundary is a contact (parentage does that, and depth
- * proximity would be a guess); it only picks WHICH litho row a boundary already known to
- * restate one belongs to.
+ * What this site uses it for is narrow. It never decides WHETHER a boundary is a contact
+ * (parentage does that, and depth proximity would be a guess); it only picks WHICH litho
+ * row a boundary already known to restate one belongs to.
  */
-export const RESTATED_CONTACT_TOLERANCE_M = 0.0011
+export const RESTATED_CONTACT_TOLERANCE_M = COINCIDENT_DEPTH_TOLERANCE_M
 
 /** What a drag on one geotech boundary resolves to. */
 export type GeotechContactDragPlan =
