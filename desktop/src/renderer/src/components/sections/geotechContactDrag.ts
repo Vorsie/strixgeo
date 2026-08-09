@@ -141,15 +141,29 @@ export function planGeotechContactDrag(
   const candidates = packingSnapCandidates(geotechLayers).get(anchorId) ?? []
   if (candidates.length === 0) return { kind: 'no-packing-boundaries', anchorId }
 
-  // One drag consumes one boundary, however far the cursor travelled — moving a contact
-  // two boundaries takes two drags, so each step keeps its own consequence and its own
-  // entry on the undo stack. ``null`` means the drag reached none, which is "do not move"
-  // rather than "move as far as you can": sliding the contact to the free depth the cursor
-  // happened to stop at would record a boundary the cone resistance never resolved.
+  // The next packing boundary is a WALL, not a magnet.
+  //
+  // One drag still consumes one boundary however far the cursor travelled — moving a
+  // contact two boundaries takes two drags, so each step keeps its own consequence and
+  // its own undo entry. But anywhere SHORT of that boundary is the engineer's to choose:
+  // refusing a sub-boundary drag made a small correction impossible, and the gesture
+  // answered "The contact did not move" (owner dogfeed 2026-08-09). The three levels
+  // refine each other — geological, litho, geotech — so a correction made here has to be
+  // able to land where the evidence says, not only on a band edge.
+  //
+  // A release with no travel at all is still nothing: that is the press-and-release that
+  // picks a contact or opens a menu, and it must not write a PATCH for the depth the row
+  // already has.
+  if (toDepthM === boundaryDepthM) return { kind: 'no-boundary-crossed' }
   const landing = clampToNextBoundary(boundaryDepthM, toDepthM, candidates)
-  if (landing === null) return { kind: 'no-boundary-crossed' }
+  const depthM =
+    landing === null
+      ? toDepthM
+      : toDepthM > boundaryDepthM
+        ? Math.min(toDepthM, landing)
+        : Math.max(toDepthM, landing)
 
-  return { kind: 'move', lithoContactId: match.id, depthM: landing }
+  return { kind: 'move', lithoContactId: match.id, depthM }
 }
 
 /**
