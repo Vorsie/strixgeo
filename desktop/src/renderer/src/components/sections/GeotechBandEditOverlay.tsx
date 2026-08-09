@@ -149,6 +149,13 @@ interface ColumnModel {
   /** Internal boundaries where a merge (and so a drag) is legal — not litho contacts. */
   mergeable: { upper: GeotechBandInterval; lower: GeotechBandInterval }[]
   /**
+   * The internal boundaries {@link ColumnModel.mergeable} REJECTED — litho contacts,
+   * where the two bands sit in different litho bodies. They own no gesture on this axis;
+   * they are here so the overlay can SAY so (the hover padlock) and so a neighbouring
+   * strip knows to stop short of one.
+   */
+  lithoContacts: { upper: GeotechBandInterval; lower: GeotechBandInterval }[]
+  /**
    * Screen-space strip extents, one per {@link ColumnModel.mergeable} entry and in the
    * same order, allocated so neighbours never overlap.
    */
@@ -272,6 +279,10 @@ export default function GeotechBandEditOverlay({
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [placing, setPlacing] = useState<SplitPlacement | null>(null)
   const [drag, setDrag] = useState<BoundaryDrag | null>(null)
+  // Which litho contact is under the cursor. HOVER-only, never at rest: one
+  // interbedded column here carries 14 litho contacts, and 14 padlocks stacked
+  // down it would be noise the engineer learns to stop reading.
+  const [hoveredContactId, setHoveredContactId] = useState<string | null>(null)
   // The drag mirrored in a ref. The window handlers need the LIVE gesture, and
   // reading it from a ref keeps every state updater pure: React re-runs
   // updaters (StrictMode does it twice, deliberately), so a preview call made
@@ -311,10 +322,11 @@ export default function GeotechBandEditOverlay({
         baseDepthM: b.baseDepthM,
       }))
       const mergeable: { upper: GeotechBandInterval; lower: GeotechBandInterval }[] = []
+      const lithoContacts: { upper: GeotechBandInterval; lower: GeotechBandInterval }[] = []
       for (let i = 0; i < bands.length - 1; i++) {
-        if (canMergeBands(bands[i], bands[i + 1], lithoBodies).ok) {
-          mergeable.push({ upper: bands[i], lower: bands[i + 1] })
-        }
+        const pair = { upper: bands[i], lower: bands[i + 1] }
+        if (canMergeBands(bands[i], bands[i + 1], lithoBodies).ok) mergeable.push(pair)
+        else lithoContacts.push(pair)
       }
       // Each strip wants MERGE_HANDLE_PX centred on its boundary, but two boundaries
       // closer than that on screen would hand every press to whichever strip SVG paints
@@ -352,6 +364,7 @@ export default function GeotechBandEditOverlay({
         bands,
         lithoBodies,
         mergeable,
+        lithoContacts,
         stripExtents,
         smallLenses:
           lensAware && nadClassByFormationId !== undefined && smallLensThicknessM !== undefined
@@ -677,6 +690,30 @@ export default function GeotechBandEditOverlay({
                   </Fragment>
               )
             })}
+
+          {/* The other half of the answer: a litho contact is not draggable HERE, and the
+              padlock says which of the two kinds it is. Hover-only — a column of
+              interbeds carries a dozen of these, and a dozen padlocks at rest is chrome
+              the engineer stops reading. The mark is the ONLY thing offered: the contact
+              is edited on the litho axis, not by arguing with this one. */}
+          {column.lithoContacts.map(pair => {
+            const y = yAt(column, pair.upper.baseDepthM)
+            if (y < plotTop || y > plotBottom) return null
+            return (
+              <text
+                key={`gbe-lock-${pair.upper.layerId}`}
+                data-testid={`geotech-contact-marker-${pair.upper.layerId}`}
+                x={column.x1 + 6}
+                y={y + 4}
+                fontSize={9}
+                opacity={hoveredContactId === pair.upper.layerId ? 1 : 0}
+                onMouseEnter={() => setHoveredContactId(pair.upper.layerId)}
+                onMouseLeave={() => setHoveredContactId(null)}
+              >
+                🔒
+              </text>
+            )
+          })}
 
           {/* The lens suggestion badge — PASSIVE. ``pointerEvents: none`` because a badge
               that swallowed a press would re-break panning (GS11); the verb lives in the
