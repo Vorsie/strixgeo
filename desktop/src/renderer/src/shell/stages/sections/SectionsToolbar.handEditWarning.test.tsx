@@ -26,6 +26,7 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { LithoLayerResponse, LithoLayerSource } from '../../../api/clients/geology.types'
 import SectionsToolbar from './SectionsToolbar'
+import { makeLithoLayer } from './__fixtures__/lithoLayer'
 import { makeLithoModel, makeShellCtx } from './__fixtures__/sectionsShellContext'
 
 vi.mock('../../../api/client', async () => {
@@ -58,25 +59,16 @@ afterEach(() => cleanup())
 
 /** One geotech layer row — only ``source`` matters to the warning. */
 function layer(id: string, source: LithoLayerSource): LithoLayerResponse {
-  return {
+  return makeLithoLayer({
     id,
+    source,
     model_id: 'geotech-model-1',
     formation_id: 'formation-1',
-    borehole_id: null,
-    cpt_id: 'cpt-1',
-    depth_top_m: 0,
-    depth_base_m: 1,
-    status: 'accepted',
-    source,
     confidence: 'medium',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
     body_id: null,
-    notes: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
-  }
+  })
 }
 
 /**
