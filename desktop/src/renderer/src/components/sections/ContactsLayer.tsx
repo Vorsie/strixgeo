@@ -614,6 +614,14 @@ const LITHO_CONTACT_LINE_COLOR = '#0f172a'
 // dark bands (KLEI blue-grey #6b7280, VEEN dark brown #92400e) where the
 // near-black line alone would muddy. Slightly wider than the line.
 const LITHO_CONTACT_HALO_COLOR = '#f8fafc'
+// GEOTECH AXIS — an internal packing boundary, i.e. a subdivision of one litho unit
+// rather than a boundary between two. Dash and width alone did not carry it: the owner
+// dogfed the first attempt and could not tell the two kinds apart at working zoom, on a
+// column where both are near-black at 1 vs 1.75 px. So the packing boundary also drops
+// to a mid-slate that reads as clearly SUBORDINATE to the near-black contact — the
+// hierarchy is the message (geological → litho → geotech), and the line weight should
+// say which level you are looking at without being measured.
+const PACKING_BOUNDARY_LINE_COLOR = '#94a3b8'
 // Below this drag distance the marquee / drag is treated as a click —
 // no commit, no state change. Mirrors the existing "zero-delta release"
 // no-op rule on the depth-only drag.
@@ -1501,6 +1509,10 @@ export default function ContactsLayer({
   // explicit. Document-level mousemove + mouseup listeners attach
   // only while a drag is active.
   const [drag, setDrag] = useState<DragState | null>(null)
+  // GEOTECH — the contact under the cursor, so the padlock can be shown on the boundary
+  // the engineer is actually pointing at. Set from the grab strip, not from the padlock
+  // itself: a mark at opacity 0 cannot be the thing you hover to make it appear.
+  const [hoveredBoundaryId, setHoveredBoundaryId] = useState<string | null>(null)
 
   // Apply snap-to-stratigraphy (matches the click path's behaviour
   // on borehole anchors). Falls through to the raw depth when there's
@@ -2936,12 +2948,37 @@ export default function ContactsLayer({
                   x2={layer.segRightX}
                   y1={layer.segY}
                   y2={layer.segY}
-                  stroke={isLithoContact ? LITHO_CONTACT_LINE_COLOR : layer.color}
+                  stroke={
+                    isPackingBoundary
+                      ? PACKING_BOUNDARY_LINE_COLOR
+                      : isLithoContact
+                        ? LITHO_CONTACT_LINE_COLOR
+                        : layer.color
+                  }
                   strokeWidth={lineWidth}
-                  strokeDasharray={isPackingBoundary ? '4 3' : undefined}
-                  strokeOpacity={isPackingBoundary ? 0.75 : 0.95}
+                  strokeDasharray={isPackingBoundary ? '5 4' : undefined}
+                  strokeOpacity={isPackingBoundary ? 0.9 : 0.95}
                   pointerEvents="none"
                 />
+                {/* GEOTECH — the padlock, shown only while the cursor is on THIS
+                    boundary. It names the consequence: this line is not packing, and
+                    moving it edits the litho model. Drawn beside the column, never on
+                    the line, because anything on the line becomes another press
+                    target. ``pointerEvents='none'`` so it can never take the press
+                    away from the grab strip that raised it. */}
+                {restatingContactIds?.has(layer.contactId) === true
+                  && hoveredBoundaryId === layer.contactId && (
+                  <text
+                    data-testid={`geotech-contact-marker-${layer.contactId}`}
+                    x={layer.segRightX + 6}
+                    y={layer.segY + 4}
+                    fontSize={10}
+                    pointerEvents="none"
+                  >
+                    <title>Lithostratigraphic contact — dragging it moves the litho model</title>
+                    🔒
+                  </text>
+                )}
               </>
             )}
             {showLabel && (
@@ -3056,6 +3093,24 @@ export default function ContactsLayer({
                             isCoupledToGeo,
                           })
                         }
+                      : undefined
+                  }
+                  // GEOTECH — the padlock is driven from THIS strip, the thing the
+                  // cursor is actually over. It used to be driven from the padlock
+                  // glyph's own onMouseEnter while that glyph rendered at opacity 0,
+                  // so it appeared only if you hovered an invisible 9px mark beside
+                  // the column: undiscoverable by construction, and the owner
+                  // reported exactly that ("no padlock appearing when hovering a
+                  // solid line"). The unit test passed because it fired mouseEnter
+                  // on the element directly.
+                  onMouseEnter={
+                    restatingContactIds !== undefined
+                      ? () => setHoveredBoundaryId(layer.contactId)
+                      : undefined
+                  }
+                  onMouseLeave={
+                    restatingContactIds !== undefined
+                      ? () => setHoveredBoundaryId(null)
                       : undefined
                   }
                   data-contact-id={layer.contactId}
