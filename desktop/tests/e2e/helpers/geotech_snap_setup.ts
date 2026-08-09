@@ -49,6 +49,15 @@ export interface SnapTarget {
   contactDepthM: number
   /** The litho layer whose TOP the contact is — the row the drag must PATCH. */
   lithoLayerId: string
+  /**
+   * That layer's BASE — the deepest a drag on its top may legally land.
+   *
+   * ContactsLayer refuses to commit a contact outside its own layer, so a spec that
+   * wants to release "past the boundaries" still has to release inside this. Without
+   * it a release aimed at the plot floor lands tens of metres below the sounding, the
+   * commit is dropped whole, and the failure reads as a clamp defect.
+   */
+  lithoBaseM: number
   /** The litho layer above it, whose BASE is the same boundary. */
   lithoUpperLayerId: string
   /** The band whose top is the FIRST packing boundary below the contact. */
@@ -149,6 +158,7 @@ export async function prepareGeotechSnapFixture(
         contactDepthM: number
         lithoLayerId: string
         lithoUpperLayerId: string
+        lithoBaseM: number
         firstBoundaryM: number
         secondBoundaryM: number
       }[] = []
@@ -161,6 +171,7 @@ export async function prepareGeotechSnapFixture(
           baseM: number
           lithoLayerId: string
           lithoUpperLayerId: string
+          lithoBaseM: number
         } | null = null
         for (let i = 1; i < col.length; i += 1) {
           const upper = col[i - 1]
@@ -188,6 +199,7 @@ export async function prepareGeotechSnapFixture(
             baseM: lower.depth_base_m,
             lithoLayerId: lithoRow.id,
             lithoUpperLayerId: lithoAbove.id,
+            lithoBaseM: lithoRow.depth_base_m,
           }
           break
         }
@@ -219,6 +231,7 @@ export async function prepareGeotechSnapFixture(
           contactDepthM: chosen.topM,
           lithoLayerId: chosen.lithoLayerId,
           lithoUpperLayerId: chosen.lithoUpperLayerId,
+          lithoBaseM: chosen.lithoBaseM,
           firstBoundaryM: d1,
           secondBoundaryM: d2,
         })
@@ -243,6 +256,7 @@ export async function prepareGeotechSnapFixture(
           contactDepthM: lowerBand.depth_top_m,
           lithoLayerId: p.lithoLayerId,
           lithoUpperLayerId: p.lithoUpperLayerId,
+          lithoBaseM: p.lithoBaseM,
           firstBandId: firstBand.id,
           firstBoundaryM: firstBand.depth_top_m,
           secondBandId: secondBand.id,
