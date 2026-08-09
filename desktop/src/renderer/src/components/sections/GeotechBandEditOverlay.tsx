@@ -150,9 +150,14 @@ interface ColumnModel {
   mergeable: { upper: GeotechBandInterval; lower: GeotechBandInterval }[]
   /**
    * The internal boundaries {@link ColumnModel.mergeable} REJECTED — litho contacts,
-   * where the two bands sit in different litho bodies. They own no gesture on this axis;
-   * they are here so the overlay can SAY so (the hover padlock) and so a neighbouring
-   * strip knows to stop short of one.
+   * where the two bands sit in different litho bodies.
+   *
+   * They own no gesture in THIS overlay: no strip, no grip, no menu. Since 2026-08-08
+   * they are draggable on this axis all the same, through ContactsLayer's hit strip
+   * beneath us (SectionsCanvas → ``handleGeotechContactDrag``), and that drag moves the
+   * litho row rather than a packing band. They are collected here so the overlay can say
+   * WHICH kind a boundary is (the hover padlock) and so a neighbouring strip knows to
+   * stop short of one.
    */
   lithoContacts: { upper: GeotechBandInterval; lower: GeotechBandInterval }[]
   /**
