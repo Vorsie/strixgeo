@@ -44,6 +44,13 @@ import type { SnapCandidate } from './ContactsLayer'
  *   sounding starts and stops — an artefact of how far the cone was pushed,
  *   not a place the ground was observed to change. Only the boundaries
  *   *between* bands are readings.
+ *
+ * Each candidate also carries ``contactId``: the id of the band whose TOP the
+ * boundary is. That is not decoration. On this axis the row being dragged is
+ * itself one of these bands, so its own top appears in its own candidate list,
+ * and ``ContactsLayer`` skips the candidate whose ``contactId`` matches the
+ * dragger (debt #136). Without the id every small drag would snap straight back
+ * to where it started and the boundary would feel stuck to itself.
  */
 export function packingSnapCandidates(
   geotechLayers: readonly LithoLayerResponse[],
@@ -62,7 +69,9 @@ export function packingSnapCandidates(
     // Ascending by top: the boundary between band i-1 and band i is band i's
     // top, so every band after the first contributes exactly one candidate.
     const ordered = [...bands].sort((a, b) => a.depth_top_m - b.depth_top_m)
-    const candidates = ordered.slice(1).map((band) => ({ depth: band.depth_top_m }))
+    const candidates = ordered
+      .slice(1)
+      .map((band) => ({ depth: band.depth_top_m, contactId: band.id }))
     if (candidates.length > 0) out.set(cptId, candidates)
   }
   return out
