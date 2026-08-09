@@ -1544,6 +1544,10 @@ export default function SectionsCanvas(): JSX.Element {
   } = useLithoGeoSnapDialog({
     project,
     isLitho,
+    // The geotech axis asks the same coupling question: its contact drag lands on the
+    // litho row (see handleGeotechContactDrag below), and a third of those rows restate
+    // a geological contact.
+    isGeotech,
     lithoContacts,
     contacts,
     lithoSnapToleranceM,
