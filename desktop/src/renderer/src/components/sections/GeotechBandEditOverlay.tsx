@@ -67,6 +67,28 @@ import type { PlacedColumn } from './utils'
 const MERGE_HANDLE_PX = 10
 
 /**
+ * How far in px the per-band press target stops short of its own top and bottom edges.
+ *
+ * The band rect is the LAST thing painted over those edges — this overlay is a sibling of
+ * ``ContactsLayer`` and mounts after it (``SectionPanel.tsx``) — so whatever it covers, it
+ * wins. Covering its own boundaries made it win the litho contact lines, where it owns no
+ * mousedown at all: the press bubbled to the canvas and started a PAN, and the contact drag
+ * built for this axis could never begin. Task 1 solved the same collision between two grab
+ * strips by clamping each to the midpoint of the gap; this is that fix one layer out.
+ *
+ * Sized against the strip it has to clear, not chosen for looks: ``ContactsLayer`` grabs a
+ * contact within ``DRAG_HIT_HALF_HEIGHT_PX`` = 5 px either side of the line, so 5 is the
+ * floor — below it part of the strip stays covered and the press still lands wrong. 6 buys
+ * one px of slack so the strip's outermost row falls through too, rather than sharing an
+ * edge with the band rect where the later-painted one wins.
+ *
+ * A band under ``2 × BAND_HIT_INSET_PX`` tall gets NO press target (see the render). That
+ * is not a loss: every pixel of such a band is already inside one of the two grab strips on
+ * its own boundaries, so a rect there could only take presses aimed at them.
+ */
+export const BAND_HIT_INSET_PX = 6
+
+/**
  * Width in px of the armed-placement capture rect.
  *
  * Wider than any plausible section viewport so the boundary keeps following the cursor
@@ -541,20 +563,35 @@ export default function GeotechBandEditOverlay({
         <g key={`gbe-${column.investigationId}`}>
           {/* Per-band hit target — RIGHT-CLICK ONLY. It deliberately owns no mousedown:
               left-drag on this canvas pans the section, and a band-wide press target would
-              either swallow that or fight it. */}
+              either swallow that or fight it.
+
+              Which is exactly why it stops BAND_HIT_INSET_PX short of its own top and
+              bottom: those pixels are the boundaries, and a boundary belongs to whichever
+              grab strip is drawn on it — this overlay's own where the boundary is a packing
+              one, ContactsLayer's contact strip beneath us where it is a litho contact.
+              Painted last and spanning the full height, this rect won the contact lines and
+              owned no press to answer with, so the press bubbled to the canvas and panned:
+              the contact drag this axis gained on 2026-08-08 could not be started by mouse
+              at all. Freeing the edges lets a press there fall through to the strip. */}
           {onRequestSplit !== undefined &&
             column.bands.map(band => {
               const y = yAt(column, band.topDepthM)
               const h = (band.baseDepthM - band.topDepthM) * column.pxPerMetre
-              if (h <= 0) return null
+              const top = Math.max(y + BAND_HIT_INSET_PX, plotTop)
+              const bottom = Math.min(y + h - BAND_HIT_INSET_PX, plotBottom)
+              // Nothing left in the middle → no target. A band under 2 × the inset is
+              // entirely inside the two strips on its own boundaries, so a rect here could
+              // only take presses aimed at them; the band is still reachable through those
+              // strips, and zooming in restores its own interior.
+              if (bottom <= top) return null
               return (
                 <rect
                   key={`gbe-band-${band.layerId}`}
                   data-testid={`geotech-band-hit-${band.layerId}`}
                   x={column.x0}
-                  y={Math.max(y, plotTop)}
+                  y={top}
                   width={column.x1 - column.x0}
-                  height={Math.max(0, Math.min(y + h, plotBottom) - Math.max(y, plotTop))}
+                  height={bottom - top}
                   fill="transparent"
                   pointerEvents="all"
                   onContextMenu={e => {
