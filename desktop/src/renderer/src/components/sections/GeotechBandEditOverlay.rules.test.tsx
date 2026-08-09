@@ -743,47 +743,14 @@ describe('two boundaries close together each keep their own press', () => {
 // against the real ContactsLayer, so they test what is actually drawn.
 
 describe('a boundary says which kind it is before it is touched', () => {
-  it('GS45 — a litho contact shows a padlock only while hovered', () => {
-    renderOverlay({ onRequestMoveBoundary: vi.fn() })
-    const marker = screen.getByTestId('geotech-contact-marker-band-3')
-    expect(marker.getAttribute('opacity')).toBe('0')
-    fireEvent.mouseEnter(marker)
-    expect(marker.getAttribute('opacity')).toBe('1')
-  })
-
-  it('GS48 — the padlock sits BESIDE the column, never on the boundary line', () => {
-    // Anything drawn on the line becomes another press target, and that surface is
-    // already contested enough to need Task 1's clamp. This used to be stated as
-    // "clear of the grip lane"; with the grip gone the constraint that survives is the
-    // one about the line itself, which was always the real reason.
-    renderOverlay({ onRequestMoveBoundary: vi.fn() })
-    const padlockLeft = Number(
-      screen.getByTestId('geotech-contact-marker-band-3').getAttribute('x'),
-    )
-    // The first column is drawn at nudgedX 200, width 40 → its right edge is 220.
-    expect(padlockLeft).toBeGreaterThanOrEqual(220)
-  })
-
-  it('GS49 — and the padlock says what it is and what dragging it would move', () => {
-    // Every other affordance on this overlay names itself on hover. This one used to
-    // send the engineer to the litho axis, which stopped being true on 2026-08-08:
-    // the contact is now draggable from HERE, and the drag edits the litho model
-    // (owner ruling — the CPT resolves a contact 3-4x finer than the driller's 0.5 m
-    // log grid, so this is the screen with the best evidence for the move).
-    //
-    // The mark stays, because what it distinguishes still matters and now matters
-    // MORE: both kinds of boundary can be dragged here, and they do different things.
-    // Dragging a contact moves a litho row; dragging a packing boundary re-derives
-    // NAD classes from qc. The padlock is what tells the engineer which one is under
-    // the cursor before committing to either.
-    renderOverlay({ onRequestMoveBoundary: vi.fn() })
-    const title = screen
-      .getByTestId('geotech-contact-marker-band-3')
-      .querySelector('title')
-    expect(title?.textContent).toBe(
-      'Lithostratigraphic contact — dragging it moves the litho model',
-    )
-  })
+  // GS45 / GS48 / GS49 pinned the padlock HERE, and all three passed while the padlock
+  // was unreachable in the real app: they fired the hover on the glyph itself, which was
+  // the one thing a user could not do — it rendered at opacity 0 and raised itself from
+  // its own onMouseEnter. The owner found it in one minute of dogfeeding.
+  //
+  // The padlock now lives in ContactsLayer, raised by the grab strip the cursor is really
+  // over. Its claims moved with it, to GS62-GS64 in the real-stack harness, where the
+  // hover is fired on the strip and not on the thing being tested.
 
   it('GS50 — a right-click-only boundary still draws its strip, and no drag mark', () => {
     // With only the merge handler wired the strip is right-click-only: it owns no press

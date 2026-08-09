@@ -285,11 +285,10 @@ function renderStack(opts: { thin?: boolean } = {}): {
             c => c.contactId !== contactId,
           )
           const landing = clampToNextBoundary(start, rawDepthM, cands)
-          if (landing === null) return { depthM: start, atLimit: rawDepthM !== start }
-          return {
-            depthM: landing,
-            atLimit: Math.abs(rawDepthM - start) > Math.abs(landing - start),
-          }
+          if (landing === null) return { depthM: rawDepthM, atLimit: false }
+          const beyond =
+            rawDepthM > start ? Math.min(rawDepthM, landing) : Math.max(rawDepthM, landing)
+          return { depthM: beyond, atLimit: beyond !== rawDepthM }
         }}
       />
       <GeotechBandEditOverlay
@@ -410,6 +409,33 @@ describe('the dragged contact STOPS at the next packing boundary', () => {
     ).toBeCloseTo(5, 5)
   })
 
+  it('GS61 — but a nudge that crosses NO boundary lands where the cursor did', () => {
+    // Owner, 2026-08-09: "i want to be able to nudge those solids ... we're refining from
+    // geo-litho-geotech, so if we want to refine in the geotech then the rest should move
+    // too". Snapping the contact onto the nearest band edge made a small correction
+    // impossible — the drag either jumped a whole boundary or did nothing at all.
+    //
+    // So the boundary is a WALL, not a magnet: anywhere short of it is free.
+    const { onUpdateContactDepth } = renderStack()
+
+    const strip = document.querySelector('[data-contact-id="g2"][data-testid="contact-drag-strip"]')
+    fireEvent.mouseDown(strip!, { clientY: yAtDepth(3), button: 0 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: yAtDepth(3.4), buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(
+      onUpdateContactDepth.mock.calls[0][1],
+      'a nudge short of the 5 m boundary must land at 3.4 m, not be snapped onto 5 m',
+    ).toBeCloseTo(3.4, 5)
+  })
+
   it('GS60 — and it says so while the cursor is still past it', () => {
     // The clamp is only honest if it is visible DURING the gesture. A landing that
     // silently differs from where the cursor sits is the thing being fixed.
@@ -432,6 +458,59 @@ describe('the dragged contact STOPS at the next packing boundary', () => {
       document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
     })
     expect(svg).toBeTruthy()
+  })
+})
+
+describe('the padlock answers the cursor, not itself', () => {
+  // It used to render at opacity 0 and raise itself from its OWN onMouseEnter, so it
+  // appeared only if the cursor found an invisible 9 px glyph beside the column. The old
+  // tests passed because they fired the hover on that glyph — the one action a user cannot
+  // perform. Owner, 2026-08-09: "no padlock appearing when hovering a solid line".
+  //
+  // These fire the hover on the GRAB STRIP, which is what the cursor is really over.
+
+  it('GS62 — hovering a litho contact raises its padlock', () => {
+    renderStack()
+    const strip = document.querySelector('[data-contact-id="g2"][data-testid="contact-drag-strip"]')
+
+    expect(document.querySelector('[data-testid="geotech-contact-marker-g2"]')).toBeNull()
+    fireEvent.mouseEnter(strip!)
+
+    expect(document.querySelector('[data-testid="geotech-contact-marker-g2"]')).not.toBeNull()
+  })
+
+  it('GS63 — leaving it takes the padlock away again', () => {
+    renderStack()
+    const strip = document.querySelector('[data-contact-id="g2"][data-testid="contact-drag-strip"]')
+
+    fireEvent.mouseEnter(strip!)
+    fireEvent.mouseLeave(strip!)
+
+    expect(document.querySelector('[data-testid="geotech-contact-marker-g2"]')).toBeNull()
+  })
+
+  it('GS64 — a PACKING boundary raises none, because it locks nothing', () => {
+    // g3's top at 5 m is inside one litho unit. A padlock there would claim the drag edits
+    // the litho model, which it does not.
+    renderStack()
+    const strip = document.querySelector('[data-contact-id="g3"][data-testid="contact-drag-strip"]')
+
+    fireEvent.mouseEnter(strip!)
+
+    expect(document.querySelector('[data-testid="geotech-contact-marker-g3"]')).toBeNull()
+  })
+
+  it('GS65 — and it names the consequence, not a redirect', () => {
+    renderStack()
+    const strip = document.querySelector('[data-contact-id="g2"][data-testid="contact-drag-strip"]')
+    fireEvent.mouseEnter(strip!)
+
+    const title = document
+      .querySelector('[data-testid="geotech-contact-marker-g2"]')
+      ?.querySelector('title')
+    expect(title?.textContent).toBe(
+      'Lithostratigraphic contact — dragging it moves the litho model',
+    )
   })
 })
 

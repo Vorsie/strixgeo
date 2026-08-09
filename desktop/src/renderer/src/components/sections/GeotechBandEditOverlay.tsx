@@ -747,52 +747,17 @@ export default function GeotechBandEditOverlay({
               )
             })}
 
-          {/* The other half of the answer: which of the two kinds this boundary is.
-              Hover-only — a column of interbeds carries a dozen of these, and a dozen
-              padlocks at rest is chrome the engineer stops reading.
+          {/* NO padlock here. It used to live in this overlay, keyed by the band ABOVE
+              the boundary and shown at ``opacity 0`` until its OWN onMouseEnter fired —
+              so it appeared only if the cursor found an invisible 9 px glyph beside the
+              column. The owner reported exactly that: "no padlock appearing when hovering
+              a solid line". A unit test passed the whole time, because it fired the hover
+              on the element directly.
 
-              The mark used to mean "not draggable here, go to the litho axis". Since
-              2026-08-08 it means something better: BOTH kinds are draggable here and they
-              do different things. Dragging a packing boundary re-derives the NAD classes
-              on either side from qc; dragging a contact moves the LITHOSTRATIGRAPHIC row
-              it restates, snapped onto the packing boundaries — an explicit edit of the
-              level above, made from the screen that shows the best evidence for it (the
-              CPT resolves a contact 3-4x finer than the driller's 0.5 m log grid). The
-              padlock is how the engineer tells which gesture the cursor is on before
-              committing to it, so it earns its place more than it did as a refusal.
-
-              The drag itself belongs to ContactsLayer's hit strip beneath this overlay
-              (SectionsCanvas → handleGeotechContactDrag): this overlay still claims no
-              press on a contact, which is why there is still no grip here (GS44). */}
-          {column.lithoContacts.map(pair => {
-            const y = yAt(column, pair.upper.baseDepthM)
-            if (y < plotTop || y > plotBottom) return null
-            return (
-              <text
-                key={`gbe-lock-${pair.upper.layerId}`}
-                data-testid={`geotech-contact-marker-${pair.upper.layerId}`}
-                // Clear of BOTH marks that already claim space beside the column: the
-                // grip lane (x1+6 .. x1+12) and the lens badge (x1+4 .. x1+16). A
-                // packing boundary can sit a few px from a contact — that is the whole
-                // point of the strip clamp above — so the grip and the padlock land at
-                // nearly the same height routinely, and two marks whose job is to
-                // DIFFER must not be drawn on top of each other.
-                x={column.x1 + 18}
-                y={y + 4}
-                fontSize={9}
-                opacity={hoveredContactId === pair.upper.layerId ? 1 : 0}
-                onMouseEnter={() => setHoveredContactId(pair.upper.layerId)}
-                onMouseLeave={() => setHoveredContactId(null)}
-              >
-                {/* Not a refusal and no longer a redirect: it names the CONSEQUENCE. The
-                    engineer is looking at packing bands, so "this one is not packing —
-                    move it and the litho model changes" is the sentence worth spending a
-                    tooltip on. */}
-                <title>Lithostratigraphic contact — dragging it moves the litho model</title>
-                🔒
-              </text>
-            )
-          })}
+              The mark now lives in ``ContactsLayer``, raised by the grab strip the cursor
+              is actually over, and keyed by the band BELOW the boundary (a contact IS that
+              band's top). One component owns the line, its press target and its hover, so
+              the three can no longer disagree about which boundary is under the cursor. */}
 
           {/* The lens suggestion badge — PASSIVE. ``pointerEvents: none`` because a badge
               that swallowed a press would re-break panning (GS11); the verb lives in the
