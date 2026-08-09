@@ -201,7 +201,11 @@ test.describe('flow_geotech_band_edit', () => {
       const layers = await readLayers()
       const byId = new Map(layers.map(r => [r.id, r]))
       // Of the drawn boundaries, take the one whose LOWER band is thickest, so
-      // a 30 % push can never trip the absorb rule.
+      // a 30 % push can never trip the absorb rule. Both bands must also have
+      // DRAWN a hit rect: those rects are what the vertical scale is read off
+      // below, and the overlay draws none for a band under 2 × BAND_HIT_INSET_PX
+      // (at that size every pixel of the band already belongs to the two boundary
+      // strips, so a rect there could only steal presses aimed at them).
       let pair: { upper: LayerRow; lower: LayerRow } | null = null
       for (const upperId of upperIds) {
         const upperRow = byId.get(upperId)
@@ -213,11 +217,18 @@ test.describe('flow_geotech_band_edit', () => {
             Math.abs(r.depth_top_m - upperRow.depth_base_m) < 1e-6,
         )
         if (lowerRow === undefined) continue
+        const bothRectsDrawn =
+          (await page.getByTestId(`geotech-band-hit-${upperRow.id}`).count()) === 1 &&
+          (await page.getByTestId(`geotech-band-hit-${lowerRow.id}`).count()) === 1
+        if (!bothRectsDrawn) continue
         const lowerThickness = lowerRow.depth_base_m - lowerRow.depth_top_m
         const best = pair === null ? 0 : pair.lower.depth_base_m - pair.lower.depth_top_m
         if (lowerThickness > best) pair = { upper: upperRow, lower: lowerRow }
       }
-      expect(pair, 'a drawn strip must resolve to an adjacent CPT band pair').not.toBeNull()
+      expect(
+        pair,
+        'a drawn strip must resolve to an adjacent CPT band pair whose bands both drew a hit rect',
+      ).not.toBeNull()
       const { upper, lower } = pair!
       const boundaryM = upper.depth_base_m
       const lowerThicknessM = lower.depth_base_m - lower.depth_top_m
@@ -225,10 +236,22 @@ test.describe('flow_geotech_band_edit', () => {
       const strip = page.getByTestId(`geotech-band-boundary-${upper.id}`)
       await expect(strip).toBeVisible({ timeout: 15_000 })
       const stripBox = (await strip.boundingBox())!
-      const upperRect = (await page
-        .getByTestId(`geotech-band-hit-${upper.id}`)
-        .boundingBox())!
-      const pxPerMetre = upperRect.height / (upper.depth_base_m - upper.depth_top_m)
+      // Vertical scale from the TOPS of the pair's two hit rects — never from one
+      // rect's HEIGHT. The overlay stops every band rect BAND_HIT_INSET_PX short of
+      // its own top and bottom so that a press on a boundary falls through to the
+      // strip that owns it, which makes each rect twice the inset shorter than the
+      // band it stands for: a height-derived scale under-reports by that much and
+      // shrinks the drag with it. The inset is subtracted from both tops alike, so
+      // it cancels exactly in their difference and this reading does not depend on
+      // its value at all. Both bands are interior to the column, so neither top is
+      // clamped against a plot edge.
+      const upperRect = (await page.getByTestId(`geotech-band-hit-${upper.id}`).boundingBox())!
+      const lowerRect = (await page.getByTestId(`geotech-band-hit-${lower.id}`).boundingBox())!
+      const pxPerMetre = (lowerRect.y - upperRect.y) / (lower.depth_top_m - upper.depth_top_m)
+      expect(
+        pxPerMetre,
+        'the pair’s two band rects must give a positive vertical scale',
+      ).toBeGreaterThan(0)
 
       // Push the boundary 30 % into the lower band — far from both the no-op
       // guard and the absorb threshold (max(0.1 m, 15 %) must REMAIN).
