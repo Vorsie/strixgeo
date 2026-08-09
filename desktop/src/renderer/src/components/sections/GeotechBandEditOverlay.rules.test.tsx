@@ -753,6 +753,34 @@ describe('a boundary says which kind it is before it is touched', () => {
     fireEvent.mouseEnter(marker)
     expect(marker.getAttribute('opacity')).toBe('1')
   })
+
+  it('GS48 — the two marks never share space, because their whole job is to differ', () => {
+    // A packing boundary can sit within a few px of a litho contact — that is the
+    // geometry the strip clamp exists for (GS46/GS47) — so the grip and the padlock
+    // land at nearly the same height on the common case. Two marks stacked on each
+    // other say nothing; they have to occupy separate lanes beside the column.
+    renderOverlay({ onRequestMoveBoundary: vi.fn() })
+    const gripRight = Math.max(
+      ...Array.from(
+        screen.getByTestId('geotech-boundary-grip-band-1').querySelectorAll('circle'),
+      ).map(c => Number(c.getAttribute('cx')) + Number(c.getAttribute('r'))),
+    )
+    const padlockLeft = Number(
+      screen.getByTestId('geotech-contact-marker-band-3').getAttribute('x'),
+    )
+    expect(padlockLeft).toBeGreaterThanOrEqual(gripRight)
+  })
+
+  it('GS49 — and the padlock says what it is and where the edit does live', () => {
+    // Every other affordance on this overlay names itself on hover. A mark that
+    // appears and only refuses is half an answer: the contact IS editable, just on
+    // the other axis, and that is the sentence the owner needs.
+    renderOverlay({ onRequestMoveBoundary: vi.fn() })
+    const title = screen
+      .getByTestId('geotech-contact-marker-band-3')
+      .querySelector('title')
+    expect(title?.textContent).toBe('Lithostratigraphic contact — edit it on the litho axis')
+  })
 })
 
 describe('a grab strip never reaches across a litho contact', () => {
