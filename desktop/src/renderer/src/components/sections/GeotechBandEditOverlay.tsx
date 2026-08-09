@@ -38,7 +38,7 @@
  * eligibility are the pure rules in ``geotechBandEdit.ts``; the consequence of an edit comes
  * from the preview endpoint; this file is the hit targets, the live lines and the menu.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { LithoLayerResponse } from '../../api/client'
@@ -606,58 +606,75 @@ export default function GeotechBandEditOverlay({
               const y = yAt(column, pair.upper.baseDepthM)
               if (y < plotTop || y > plotBottom) return null
               return (
-                <rect
-                  key={`gbe-boundary-${pair.upper.layerId}`}
-                  data-testid={`geotech-band-boundary-${pair.upper.layerId}`}
-                  x={column.x0}
-                  y={extent.top}
-                  width={column.x1 - column.x0}
-                  height={Math.max(0, extent.bottom - extent.top)}
-                  fill="transparent"
-                  pointerEvents="all"
-                  style={{ cursor: draggable ? 'ns-resize' : 'context-menu' }}
-                  onMouseDown={
-                    draggable
-                      ? e => {
-                          if (e.button !== 0) return
-                          // The strip owns this press: without the stop, the canvas pan
-                          // would start under the drag (the owner's pan-hand complaint).
-                          e.preventDefault()
-                          e.stopPropagation()
-                          const svg = e.currentTarget.ownerSVGElement
-                          if (!svg) return
-                          applyDrag({
-                            svgTop: svg.getBoundingClientRect().top,
-                            column,
-                            upper: pair.upper,
-                            lower: pair.lower,
-                            preDragDepthM: pair.upper.baseDepthM,
-                            depthM: pair.upper.baseDepthM,
-                            atLimit: 'none',
-                            absorb: null,
-                          })
-                        }
-                      : undefined
-                  }
-                  onContextMenu={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setMenu({
-                      kind: 'merge',
-                      clientX: e.clientX,
-                      clientY: e.clientY,
-                      upperBandId: pair.upper.layerId,
-                      lowerBandId: pair.lower.layerId,
-                      boundaryDepthM: pair.upper.baseDepthM,
-                    })
-                  }}
-                >
-                  <title>
-                    {draggable
-                      ? 'Drag to move this packing boundary · right-click to merge the bands'
-                      : 'Right-click to merge these two packing bands'}
-                  </title>
-                </rect>
+                <Fragment key={`gbe-boundary-${pair.upper.layerId}`}>
+                  <rect
+                    data-testid={`geotech-band-boundary-${pair.upper.layerId}`}
+                    x={column.x0}
+                    y={extent.top}
+                    width={column.x1 - column.x0}
+                    height={Math.max(0, extent.bottom - extent.top)}
+                    fill="transparent"
+                    pointerEvents="all"
+                    style={{ cursor: draggable ? 'ns-resize' : 'context-menu' }}
+                    onMouseDown={
+                      draggable
+                        ? e => {
+                            if (e.button !== 0) return
+                            // The strip owns this press: without the stop, the canvas pan
+                            // would start under the drag (the owner's pan-hand complaint).
+                            e.preventDefault()
+                            e.stopPropagation()
+                            const svg = e.currentTarget.ownerSVGElement
+                            if (!svg) return
+                            applyDrag({
+                              svgTop: svg.getBoundingClientRect().top,
+                              column,
+                              upper: pair.upper,
+                              lower: pair.lower,
+                              preDragDepthM: pair.upper.baseDepthM,
+                              depthM: pair.upper.baseDepthM,
+                              atLimit: 'none',
+                              absorb: null,
+                            })
+                          }
+                        : undefined
+                    }
+                    onContextMenu={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setMenu({
+                        kind: 'merge',
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        upperBandId: pair.upper.layerId,
+                        lowerBandId: pair.lower.layerId,
+                        boundaryDepthM: pair.upper.baseDepthM,
+                      })
+                    }}
+                  >
+                    <title>
+                      {draggable
+                        ? 'Drag to move this packing boundary · right-click to merge the bands'
+                        : 'Right-click to merge these two packing bands'}
+                    </title>
+                  </rect>
+                  {/* The grip: what makes THIS boundary legible as the draggable kind at
+                      rest. The owner reported "sometimes after merging, i can't grab the
+                      contact handles anymore" — on his data one column carries 17 internal
+                      boundaries of which 3 are packing boundaries and 14 are litho contacts,
+                      which correctly refuse the drag. Drawn identically, a refusal reads as
+                      a broken gesture, so the two kinds have to differ before being touched.
+
+                      Beside the column, never on the line: anything drawn on the
+                      boundary becomes another press target, and Task 1 exists
+                      precisely because that surface is already crowded. */}
+                  <g pointerEvents="none" data-testid={`geotech-boundary-grip-${pair.upper.layerId}`}>
+                    <circle cx={column.x1 + 7} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                    <circle cx={column.x1 + 7} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                    <circle cx={column.x1 + 11} cy={y - 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                    <circle cx={column.x1 + 11} cy={y + 2} r={1} fill="var(--section-edit-line, #0f172a)" />
+                  </g>
+                  </Fragment>
               )
             })}
 
