@@ -50,6 +50,21 @@ describe('what a dragged contact may snap to on the geotech axis', () => {
     expect(out.get('cpt-1')?.map(c => c.depth)).toEqual([4, 6])
   })
 
+  it('SN7 — each candidate names the row whose top it is, so a drag cannot snap to itself', () => {
+    // On this axis the row being dragged IS one of these bands, and its own top is one
+    // of these candidates. Untagged, the snap would pull every small drag straight back
+    // to where it started — the exact stickiness debt #136 removed on the litho axis,
+    // where the fix was to let the dragger recognise its own row and skip it. That
+    // recognition is by id, so the id has to be here.
+    const out = packingSnapCandidates([
+      band('a', 2, 4, 'cpt-1'), band('b', 4, 6, 'cpt-1'), band('c', 6, 9, 'cpt-1'),
+    ])
+    expect(out.get('cpt-1')).toEqual([
+      { depth: 4, contactId: 'b' },
+      { depth: 6, contactId: 'c' },
+    ])
+  })
+
   it('SN6 — a column the qc never subdivided is absent, not empty', () => {
     // The TSDoc promises a caller may read "no entry" as "this column offers
     // nothing". An empty array would satisfy the letter and break that promise.
