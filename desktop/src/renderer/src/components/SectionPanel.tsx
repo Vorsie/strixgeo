@@ -2908,10 +2908,20 @@ export default function SectionPanel({
               // to the geological one: its contact drag may ONLY land on a
               // packing boundary the cone resistance resolved (owner ruling
               // 2026-08-08, ``geotechContactDrag``). The peers this clamp
-              // measures against on that axis ARE those boundaries, so a
-              // 10 cm floor would stop every drag a hair short of every
-              // destination it is allowed to reach and the gesture would
-              // commit nothing at all. The landing rule is the floor here.
+              // measures against on that axis ARE those boundaries, so the
+              // 10 cm floor holds the drag short of the only destinations it
+              // has and the landing is lost.
+              //
+              // Not at every zoom, and the exact edge matters because it is
+              // where the engineer works. The clamp runs BEFORE ``snapDepth``,
+              // whose window is SNAP_TOLERANCE_PX = 8, so the 10 cm shortfall
+              // is pulled back onto the boundary while 0.1 m stays under 8 px
+              // — i.e. below ~80 px/m. It bites when zoomed past that (thin
+              // interbeds, the case this feature exists for), and at ANY zoom
+              // when the snap toggle is off, since then there is no candidate
+              // set to snap back to and ``snap_to_stratigraphy`` defaults off.
+              // Pinned as behaviour in ContactsLayer.geotechDragClamp.test.tsx
+              // (DC1-DC4); the landing rule is the floor here instead.
               contactDragClampMinThicknessM={
                 axisMode === 'lithostratigraphic' ? 0.1 : undefined
               }
