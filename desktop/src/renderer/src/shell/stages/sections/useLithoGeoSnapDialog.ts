@@ -8,6 +8,9 @@
  * move the geo contact to the litho depth (with a surface-rebuild cascade),
  * or keep them separate (cancel).
  *
+ * Both axes that edit a litho contact ask it — the litho axis directly, the
+ * geotech axis through the band-boundary drag that resolves to the same row.
+ *
  * Also owns the P1b live contact-depth preview (dogfeed 2026-05-30) that
  * lets the committed contact follow a cross-store suggestion drag visually.
  */
@@ -36,6 +39,17 @@ export interface UseLithoGeoSnapDialogDeps {
   project: { id: string } | null
   /** True when the section axis is lithostratigraphic. */
   isLitho: boolean
+  /**
+   * True when the section axis is geotechnical.
+   *
+   * The geotech axis edits litho contacts too (owner ruling 2026-08-08): a band
+   * boundary that restates a lithostratigraphic contact is draggable there, and the
+   * PATCH lands on the litho row. About a third of the owner's litho layers carry a
+   * ``parent_geo_contact_id``, so that drag runs into a geological contact roughly one
+   * time in three — and the answer has to be the SAME prompt the litho axis already
+   * asks (owner: "same mental model"), not a second mechanism that decides silently.
+   */
+  isGeotech: boolean
   /** Litho contacts on this section (anchor lookup for the dragged contact). */
   lithoContacts: FormationContactResponse[]
   /** Geological contacts (snap-candidate search space). */
@@ -93,6 +107,7 @@ export function useLithoGeoSnapDialog(
   const {
     project,
     isLitho,
+    isGeotech,
     lithoContacts,
     contacts,
     lithoSnapToleranceM,
@@ -128,14 +143,19 @@ export function useLithoGeoSnapDialog(
 
   // Snap-aware wrapper around ``handleUpdateContactDepth``.  Commits the
   // litho contact at the raw drag depth first (so the user sees the drag
-  // result immediately), then — on the litho axis only — checks for any
-  // geological contact within tolerance.  If one or more candidates
-  // exist, opens the prompt; otherwise the wrapper is a no-op past the
-  // initial PATCH.
+  // result immediately), then — on either axis that edits litho contacts —
+  // checks for any geological contact within tolerance.  If one or more
+  // candidates exist, opens the prompt; otherwise the wrapper is a no-op
+  // past the initial PATCH.
+  //
+  // The geotech axis reaches this through ``handleGeotechContactDrag``, which
+  // has already mapped the grabbed band boundary back to the litho row it
+  // restates — so what arrives here is a litho contact on both axes, and the
+  // coupling question it can raise is the same one.
   const handleLithoSnapAwareUpdateContactDepth = useCallback(
     async (contactId: string, newDepthM: number, snapped: boolean, field: 'top' | 'base' = 'top'): Promise<void> => {
       await handleUpdateContactDepth(contactId, newDepthM, snapped, field)
-      if (!isLitho) return
+      if (!isLitho && !isGeotech) return
       const dragged = lithoContacts.find(c => c.id === contactId)
       if (!dragged) return
       const anchorId = dragged.borehole_id ?? dragged.cpt_id
@@ -154,7 +174,7 @@ export function useLithoGeoSnapDialog(
         field,
       })
     },
-    [handleUpdateContactDepth, isLitho, lithoContacts, contacts, lithoSnapToleranceM],
+    [handleUpdateContactDepth, isLitho, isGeotech, lithoContacts, contacts, lithoSnapToleranceM],
   )
 
   const handleSnapLithoToGeo = useCallback(
