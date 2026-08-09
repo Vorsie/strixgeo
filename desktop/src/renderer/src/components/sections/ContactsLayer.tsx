@@ -326,6 +326,23 @@ interface Props {
    * geological and litho axes, where the distinction does not exist.
    */
   restatingContactIds?: ReadonlySet<string>
+  /**
+   * GEOTECH AXIS — clamp a live drag to the next packing boundary it crosses.
+   *
+   * Called every frame with the raw cursor depth; returns where the contact may
+   * actually land and whether that is a LIMIT (the cursor has gone further than
+   * the contact is allowed to). One drag consumes one boundary however far the
+   * cursor travels, so without this the line follows the cursor across several
+   * boundaries and then snaps back on release — showing a landing it was never
+   * going to honour, and reporting the refusal only afterwards as a toast.
+   *
+   * Absent → the drag follows the cursor, which is the litho and geological
+   * behaviour and stays untouched.
+   */
+  clampDragToBoundary?: (
+    contactId: string,
+    rawDepthM: number,
+  ) => { depthM: number; atLimit: boolean }
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -630,6 +647,7 @@ export default function ContactsLayer({
   correlateMode = false,
   axisMode = 'geological',
   restatingContactIds,
+  clampDragToBoundary,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
   showFormationFill = true,
@@ -1670,7 +1688,21 @@ export default function ContactsLayer({
       // (depthAnchorId !== d.anchorId) the dragger's id won't appear
       // in the target's candidate list anyway, so the exclusion is a
       // safe no-op there.
-      const { depth, snapped } = snapDepth(clamped, depthAnchorId, pxPerMetre, d.contactId)
+      // GEOTECH — one drag consumes ONE boundary, and the LINE has to say so while the
+      // cursor is still past it. Applied here rather than only on release: a line that
+      // follows the cursor and then snaps back was showing a landing it would not honour.
+      // It replaces the tolerance snap rather than stacking on it — the boundary IS the
+      // only place this drag can land, so a second "nearest within N px" rule could only
+      // pull it off that.
+      const boundaryClamp =
+        clampDragToBoundary !== undefined ? clampDragToBoundary(d.contactId, clamped) : null
+      const { depth, snapped } =
+        boundaryClamp !== null
+          ? { depth: boundaryClamp.depthM, snapped: true }
+          : snapDepth(clamped, depthAnchorId, pxPerMetre, d.contactId)
+      if (boundaryClamp?.atLimit === true) {
+        clampedDirection = clamped > boundaryClamp.depthM ? 'down' : 'up'
+      }
       setDrag(prev =>
         prev === null
           ? null
@@ -3404,8 +3436,12 @@ export default function ContactsLayer({
             boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
           }}
         >
-          Can&apos;t move further — right-click and delete the adjacent
-          layer first, then drag to the next boundary.
+          {clampDragToBoundary !== undefined
+            ? // Geotech: not a refusal, a rule. One drag consumes one boundary, so
+              // the contact stops at the first one crossed however far the cursor
+              // goes — and the way to reach the next is to drag again.
+              'Stops at this packing boundary — drag again to take the next one.'
+            : 'Can’t move further — right-click and delete the adjacent layer first, then drag to the next boundary.'}
         </div>,
         document.body,
       )}
