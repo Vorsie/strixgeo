@@ -33,6 +33,7 @@ from groundmodel.domain.services.investigation_kind_constants import (
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -455,6 +456,29 @@ class LithoLayerRepository(GroundModelLogger):
         if count:
             self.debug(f"mark_litho_solids_stale: {count} row(s) staled for model={model_id}")
         return count
+
+    async def get_formation_contact(self, contact_id: UUID) -> FormationContactOrm | None:
+        """Return one geological contact row, or ``None`` when it is gone.
+
+        A litho layer derived from the geological model carries
+        ``parent_geo_contact_id``, and that contact IS the layer's top boundary —
+        the same physical surface recorded twice, once per model.  A boundary move
+        therefore has to reach the geological row in the SAME transaction, which
+        is why this read lives on the litho repository rather than forcing the use
+        case to open a second one.
+
+        Parameters
+        ----------
+        contact_id : UUID
+            The ``formation_contact`` row a litho layer names as its parent.
+
+        Returns
+        -------
+        FormationContactOrm | None
+            The row, or ``None`` when the parent has since been deleted — a
+            dangling link is not an error, it just means there is nothing to carry.
+        """
+        return await self._session.get(FormationContactOrm, contact_id)
 
     async def list_litho_solids(self, model_id: UUID) -> list[LithoBodySolidOrm]:
         """Return every cached solid for *model_id*.
