@@ -5969,10 +5969,11 @@ inherited from where a file happens to sit. Both fixed; suite verified green aft
 
 **Remainder (this entry stays open for):**
 * **Owner dogfeed** — drag feel, absorb hint legibility, remove-band menu,
-  statistic selector + stale tag, lens badge. Two recorded questions: does a
-  FLAGGED tie keep its body union until confirmed/deleted (build proceeds
-  keep-union), and should class-consistent transferred ties get a distinct
-  `band_absorbed` token instead of `ambiguous_band`?
+  statistic selector + stale tag, lens badge. **Both recorded questions were
+  ANSWERED and built 2026-08-10:** a flagged tie no longer holds its body union
+  (he found a body spanning NAD 8 and NAD 7 on his own model and ruled "split"),
+  and class-consistent transferred ties now carry their own `band_absorbed`
+  token.
 * **Owner dogfeed of the snap gesture (§4c) — round 2 done 2026-08-09, four
   findings closed, the rest still open.** Answered and shipped: the two boundary
   kinds were NOT distinguishable by dash and width alone (both near-black, 1 px
@@ -5987,6 +5988,15 @@ inherited from where a file happens to sit. Both fixed; suite verified green aft
   rendering question the design left open), and whether the geotech axis should
   get the amber "snap on release" telegraph the litho axis has — it needs a
   per-frame drag plan, so it is a small build rather than a tweak.
+* **Round 3, 2026-08-10 — three more shipped, one accepted as-is.** The
+  solid-on-solid 500 he hit is fixed at both ends (the line stops short of a
+  contact wall, and the planner refuses that landing independently); the drag
+  telegraphs its consequence, which the owner asked for to match the litho axis;
+  and every hand edit that flags accepted ties now asks whether to delete them
+  instead of leaving a violet badge to be found later. He accepted the
+  overlapping boundary hit strips as they are — *"i can't actually click all
+  boundaries by aiming correctly, i think it is fine like this"* — so the #158
+  allocator stays off this surface until it bites.
 * **Litho-level thin-interbed merge suggestion** — the CS1 zoom showed much of
   the "mess" at GEO-22/115-S10 is thin LITHO interbeds; the shipped suggestion
   covers only geotech class lenses. Separate slice against litho ghosts.
