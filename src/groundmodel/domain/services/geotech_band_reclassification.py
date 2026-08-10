@@ -1011,3 +1011,134 @@ def plan_move(
         warnings=_build_warnings(outcomes, min_thickness_m),
         statistic=statistic,
     )
+
+
+def plan_restated_contact_move(
+    *,
+    bands: Sequence[GeotechBand],
+    upper_band_id: str,
+    lower_band_id: str,
+    new_depth_m: float,
+    upper_soil: BaseLithology | None,
+    upper_admixtures: tuple[Admixture, ...],
+    lower_soil: BaseLithology | None,
+    lower_admixtures: tuple[Admixture, ...],
+    depth_m: Sequence[float],
+    qc_mpa: Sequence[float | None],
+    min_thickness_m: float,
+    statistic: str = DEFAULT_STATISTIC,
+) -> BandEditPlan:
+    """Plan dragging the boundary that RESTATES a lithostratigraphic contact.
+
+    The sibling of :func:`plan_move`, for the other kind of boundary. A pair
+    inside one litho unit is the engineer's own packing subdivision and
+    ``plan_move`` owns it; a pair spanning two units is a litho contact recorded
+    once per model, and moving it moves all three levels together (owner ruling,
+    2026-08-09: *"we're refining from geo-litho-geotech, so if we want to refine
+    in the geotech then the rest should move too"*).
+
+    Why this cannot be a flag on ``plan_move``: the two bands subdivide DIFFERENT
+    litho units, so they have different soil types. The chain is soil type → qc →
+    NAD parameters, so each side must re-derive under its OWN soil. Passing one
+    soil for both would classify the sand with the clay's NAD column.
+
+    The classes DO re-derive (ruling 3). Moving the boundary changes both
+    intervals, so it changes the qc each one spans, so it changes what the ground
+    is called there.
+
+    Parameters
+    ----------
+    bands : Sequence[GeotechBand]
+        Every packing band on the edited column, ordered top to bottom.
+    upper_band_id, lower_band_id : str
+        The adjacent pair the contact separates (order normalised by depth).
+    new_depth_m : float
+        Where the contact lands, in metres below the collar.
+    upper_soil, lower_soil : BaseLithology | None
+        Main soil of each band's own litho unit. ``None`` yields "cannot answer"
+        for that side, matching the build's skeleton-band path.
+    upper_admixtures, lower_admixtures : tuple[Admixture, ...]
+        Each unit's admixtures (clean vs secondary NAD variant).
+    depth_m, qc_mpa : Sequence
+        The column's full cone-resistance series.
+    min_thickness_m : float
+        The model's advisory thinnest-band preference (drives warnings only).
+    statistic : str
+        Which representative qc the classifier reads (rulings 6-8).
+
+    Returns
+    -------
+    BandEditPlan
+        Both re-derived intervals, upper first, with the pair envelope as bounds.
+
+    Raises
+    ------
+    GeotechBandEditError
+        When the bands are not adjacent, do not share a boundary, sit in the SAME
+        litho unit (that is the packing drag), or the depth is not strictly
+        inside the pair.
+    """
+    upper_index = _index_of(bands, upper_band_id)
+    lower_index = _index_of(bands, lower_band_id)
+    if upper_index > lower_index:
+        upper_index, lower_index = lower_index, upper_index
+    upper, lower = bands[upper_index], bands[lower_index]
+    if lower_index - upper_index != 1:
+        raise GeotechBandEditError(
+            "Contact move rejected: only the shared boundary of two ADJACENT "
+            f"bands can be dragged (bands {upper.band_id} and {lower.band_id} "
+            "are not neighbours)."
+        )
+    if abs(upper.depth_base_m - lower.depth_top_m) > _ADJACENCY_EPS_M:
+        raise GeotechBandEditError(
+            "Contact move rejected: the two bands do not share a boundary "
+            f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
+        )
+    # The positive form of ruling 2. ``plan_move`` refuses a cross-unit pair; this
+    # refuses a same-unit one, so every boundary has exactly one verb and the two
+    # can never disagree about which consequence a drag carries.
+    if upper.source_litho_formation_id == lower.source_litho_formation_id:
+        raise GeotechBandEditError(
+            "Contact move rejected: these two bands subdivide the SAME "
+            "lithostratigraphic unit, so their boundary is a packing boundary — "
+            "drag it with the packing verb, which re-derives the classes without "
+            "touching the litho model."
+        )
+    rounded = round(new_depth_m, 3)
+    # Strictly inside the pair, both survivors at least the millimetre grain the
+    # no-overlap exclusion stores. Beyond the envelope lies another band, and
+    # landing there would collapse this one to nothing.
+    if not (upper.depth_top_m + _DEPTH_EPS_M < rounded < lower.depth_base_m - _DEPTH_EPS_M):
+        raise GeotechBandEditError(
+            f"Contact move rejected: {new_depth_m:.2f} m falls outside the pair "
+            f"({upper.depth_top_m:.2f}-{lower.depth_base_m:.2f} m)."
+        )
+    # One call per side, because one call cannot carry two soils.
+    (upper_outcome,) = reclassify_intervals(
+        soil=upper_soil,
+        admixtures=upper_admixtures,
+        depth_m=depth_m,
+        qc_mpa=qc_mpa,
+        intervals=[ProposedInterval(upper.depth_top_m, rounded, (upper,))],
+        statistic=statistic,
+    )
+    (lower_outcome,) = reclassify_intervals(
+        soil=lower_soil,
+        admixtures=lower_admixtures,
+        depth_m=depth_m,
+        qc_mpa=qc_mpa,
+        intervals=[ProposedInterval(rounded, lower.depth_base_m, (lower,))],
+        statistic=statistic,
+    )
+    outcomes = (upper_outcome, lower_outcome)
+    return BandEditPlan(
+        kind=KIND_MOVE,
+        # The pair's own outer edges. The usual "parent" bounds are one litho
+        # unit's, and this pair straddles two, so there is no single parent to
+        # report — the envelope is what the gesture is actually bounded by.
+        parent_top_m=upper.depth_top_m,
+        parent_base_m=lower.depth_base_m,
+        intervals=outcomes,
+        warnings=_build_warnings(outcomes, min_thickness_m),
+        statistic=statistic,
+    )
