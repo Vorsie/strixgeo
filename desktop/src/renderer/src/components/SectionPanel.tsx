@@ -73,7 +73,11 @@ import ContactsLayer, {
 } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { restatingContactIds } from './sections/geotechBoundaryKinds'
-import { clampContactDrag, packingSnapCandidates } from './sections/geotechSnapTargets'
+import {
+  clampContactDrag,
+  packingSnapCandidates,
+  type ContactDragRelease,
+} from './sections/geotechSnapTargets'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import {
   useSectionKeyboardShortcuts,
@@ -2197,14 +2201,17 @@ export default function SectionPanel({
     if (axisMode !== 'geotechnical' || refinement === undefined) return undefined
     const candidatesByColumn = packingSnapCandidates(refinement.geotechLayers)
     const restating = restatingBoundaryIds ?? new Set<string>()
-    return (contactId: string, rawDepthM: number): { depthM: number; atLimit: boolean } => {
+    return (
+      contactId: string,
+      rawDepthM: number,
+    ): { depthM: number; atLimit: boolean; release: ContactDragRelease } => {
       // Keyed by the GEOTECH band, not the litho row: on this axis the drawn contact
       // IS a band's top, and the litho row it restates is resolved later, by depth.
       const dragged = refinement.geotechLayers.find(l => l.id === contactId)
       const anchorId = dragged?.cpt_id ?? dragged?.borehole_id ?? null
       const startDepthM = dragged?.depth_top_m
       if (anchorId === null || startDepthM === undefined) {
-        return { depthM: rawDepthM, atLimit: false }
+        return { depthM: rawDepthM, atLimit: false, release: 'move' as const }
       }
       const candidates = (candidatesByColumn.get(anchorId) ?? []).filter(
         c => c.contactId !== contactId,
