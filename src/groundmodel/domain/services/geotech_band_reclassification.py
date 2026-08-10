@@ -1105,9 +1105,40 @@ def plan_restated_contact_move(
             "touching the litho model."
         )
     rounded = round(new_depth_m, 3)
-    # Strictly inside the pair, both survivors at least the millimetre grain the
-    # no-overlap exclusion stores. Beyond the envelope lies another band, and
-    # landing there would collapse this one to nothing.
+    # LANDING ON THE LOWER BAND'S BASE IS A MERGE, not a refusal.
+    #
+    # The owner named this gesture himself — *"can't skip a boundary right, drag
+    # merge, first, then drag merge second"*. Dragging the contact down to the next
+    # packing boundary means the litho unit ABOVE now owns the ground down to it, so
+    # the band that sat between the two collapses into the band above.
+    #
+    # It is the headline case, not an edge one: the clamp lands every such drag
+    # exactly ON a boundary, so a strictly-inside rule refuses the only landing this
+    # gesture can produce. ``plan_move`` is right to demand strictly-inside — a
+    # PACKING boundary may not swallow its neighbour — and inheriting that rule here
+    # is what broke the snap.
+    if abs(rounded - lower.depth_base_m) <= _DEPTH_EPS_M:
+        (survivor,) = reclassify_intervals(
+            soil=upper_soil,
+            admixtures=upper_admixtures,
+            depth_m=depth_m,
+            qc_mpa=qc_mpa,
+            # The union takes the UPPER unit's soil, because that is the unit the
+            # ground now belongs to. Both bands contribute their previous class, so
+            # the consequence sheet can say what each side carried before.
+            intervals=[ProposedInterval(upper.depth_top_m, lower.depth_base_m, (upper, lower))],
+            statistic=statistic,
+        )
+        return BandEditPlan(
+            kind=KIND_MERGE,
+            parent_top_m=upper.depth_top_m,
+            parent_base_m=lower.depth_base_m,
+            intervals=(survivor,),
+            warnings=_build_warnings((survivor,), min_thickness_m),
+            statistic=statistic,
+        )
+    # Anywhere else: strictly inside the pair, both survivors at least the millimetre
+    # grain the no-overlap exclusion stores.
     if not (upper.depth_top_m + _DEPTH_EPS_M < rounded < lower.depth_base_m - _DEPTH_EPS_M):
         raise GeotechBandEditError(
             f"Contact move rejected: {new_depth_m:.2f} m falls outside the pair "
