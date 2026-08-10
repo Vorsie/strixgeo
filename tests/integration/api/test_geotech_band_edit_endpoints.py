@@ -849,3 +849,60 @@ async def test_gb20_a_flagged_tie_stops_unioning_the_two_bands_into_one_body(
     b_top = await db_session.get(LithoLayerOrm, b_top_id)
     assert a_top is not None and b_top is not None
     assert a_top.body_id != b_top.body_id, "a flagged tie must not hold the body together"
+
+
+@pytest.mark.asyncio
+async def test_gb21_undoing_a_merge_gives_both_original_classes_back(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB21 — merge two differently-classed bands, split back, get both classes back.
+
+    The owner, dogfeeding: *"when i merge a dense and very dense sand, and then ctrl z,
+    I get 2 dense sands not the original dense and very dense sand"*.
+
+    Undo of a merge is a split at the carried boundary, and a split re-derives each
+    half from the qc over that half — so the two original classes should return by
+    construction. This pins that at the level the undo command actually works on: the
+    endpoints, against a real column, with classes that genuinely differ.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert len(bands) >= 2, "the scene must give CPT-A at least two packing bands"
+    upper_id, lower_id = bands[0].id, bands[1].id
+    boundary_m = bands[0].depth_base_m
+
+    upper_class = (
+        await db_session.get(GeologicalFormationOrm, bands[0].formation_id)
+    ).nad_class
+    lower_class = (
+        await db_session.get(GeologicalFormationOrm, bands[1].formation_id)
+    ).nad_class
+    # The whole point of the case: the two bands disagree about the packing class, so a
+    # carried class and a re-derived one give different answers.
+    assert upper_class != lower_class, "the fixture must give the two bands DIFFERENT classes"
+
+    merged = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"upper_band_id": str(upper_id), "lower_band_id": str(lower_id)},
+    )
+    assert merged.status_code == 200, merged.text
+
+    # This is what the undo command sends: split the survivor at the carried boundary.
+    undone = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(upper_id), "split_depth_m": boundary_m},
+    )
+    assert undone.status_code == 200, undone.text
+
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    restored_upper = next(b for b in after if b.id == upper_id)
+    restored_lower = next(
+        b for b in after if abs(b.depth_top_m - boundary_m) < 0.002 and b.id != upper_id
+    )
+    assert (
+        await db_session.get(GeologicalFormationOrm, restored_upper.formation_id)
+    ).nad_class == upper_class
+    assert (
+        await db_session.get(GeologicalFormationOrm, restored_lower.formation_id)
+    ).nad_class == lower_class, "the deeper band came back with the wrong packing class"
