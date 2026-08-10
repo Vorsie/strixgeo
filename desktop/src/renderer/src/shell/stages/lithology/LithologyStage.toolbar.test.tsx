@@ -16,7 +16,7 @@
 //   BM8  Reset camera button gates on litho solids (absent without, present with;
 //        surfaces-only does NOT show it).
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -580,3 +580,62 @@ describe('LithologyToolbar Reset camera button', () => {
   })
 })
 
+
+// ---------------------------------------------------------------------------
+// SB — the spine badge says the model is stale
+// ---------------------------------------------------------------------------
+//
+// Owner, 2026-08-10: "add a stale marker on the left stage of the litho pane? the
+// build button is stale already though". The Build button only says so once you are
+// ON the Lithology stage; a contact dragged from the geotech axis stales the litho
+// 3-D model while you are looking at a different stage entirely, and nothing in the
+// spine reports it. The badge is how the stage says "there is work here" without
+// being opened.
+
+describe('the Lithology spine badge reports a stale 3-D model', () => {
+  it('SB1 — amber, and it says stale rather than a unit count', () => {
+    const ctx = makeCtx({ hasStaleLithoSolid: true, hasLithoSolids: true })
+
+    const { result } = renderHook(() => LithologyStage.useStageSummary(), {
+      wrapper: ({ children }) => (
+        <ShellContext.Provider value={ctx}>{children}</ShellContext.Provider>
+      ),
+    })
+
+    expect(result.current.badgeIntent).toBe('amber')
+    // The WORD lives in the label, which is the tooltip and the accessible name. The
+    // badge itself must stay within the spine's 4-character budget — anything longer
+    // renders as an ellipsis and tells the engineer nothing at all.
+    expect(result.current.label).toMatch(/stale/i)
+    expect((result.current.badge ?? '').length).toBeLessThanOrEqual(4)
+    expect(result.current.badge).not.toBeNull()
+  })
+
+  it('SB2 — a fresh model keeps the unit count, in neutral', () => {
+    // The badge has a day job. Staleness borrows it, and must hand it back.
+    const ctx = makeCtx({ hasStaleLithoSolid: false, hasLithoSolids: true })
+
+    const { result } = renderHook(() => LithologyStage.useStageSummary(), {
+      wrapper: ({ children }) => (
+        <ShellContext.Provider value={ctx}>{children}</ShellContext.Provider>
+      ),
+    })
+
+    expect(result.current.badgeIntent).toBe('neutral')
+    expect(result.current.label).not.toMatch(/stale/i)
+  })
+
+  it('SB3 — with nothing built there is nothing to call stale', () => {
+    // hasStaleLithoSolid cannot be true without solids, but the badge must not
+    // invent a warning from an empty model either.
+    const ctx = makeCtx({ hasStaleLithoSolid: false, hasLithoSolids: false })
+
+    const { result } = renderHook(() => LithologyStage.useStageSummary(), {
+      wrapper: ({ children }) => (
+        <ShellContext.Provider value={ctx}>{children}</ShellContext.Provider>
+      ),
+    })
+
+    expect(result.current.badgeIntent).toBe('neutral')
+  })
+})
