@@ -585,3 +585,137 @@ describe('useProjectLifecycle — Discard acts on WHICH revert outcome it got', 
     expect(closeProject).toHaveBeenCalledTimes(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// HW — the window goes away as soon as the question is answered
+// ---------------------------------------------------------------------------
+//
+// Owner, 2026-08-10: "takes a while to shutdown though (can't we close window and
+// let operations run in the background for a while)".
+//
+// The heavy part is the replace-restore of the whole bundle, awaited BEFORE the
+// renderer answers the quit handshake — so the window sits there, apparently
+// hung, for the length of a full project rewrite.
+//
+// Backgrounding it is safe because the restore is ONE transaction: the route
+// commits once and restore_project_bundle never commits internally, so a process
+// that dies mid-restore rolls back. The worst case is "the discard did not
+// happen", never a half-deleted project.
+//
+// It is only safe to hide on the QUIT path. Closing a project keeps the window —
+// it goes back to the welcome screen — so hiding there would be a bug.
+
+describe('HW — the window hides before the slow work, on the quit path only', () => {
+  /** Drive the app-quit handshake so the dialog opens in 'quit-app' mode. */
+  async function openQuitDialog(args: ReturnType<typeof makeArgs>): Promise<{
+    result: { current: ReturnType<typeof useProjectLifecycle> }
+  }> {
+    const onAppBeforeQuit = (
+      globalThis as unknown as {
+        window: { electron: { onAppBeforeQuit: ReturnType<typeof vi.fn> } }
+      }
+    ).window.electron.onAppBeforeQuit
+    const { result } = renderHook(() => useProjectLifecycle(args))
+    const beforeQuitCb = onAppBeforeQuit.mock.calls.at(-1)?.[0] as () => void
+    await act(async () => {
+      beforeQuitCb()
+    })
+    return { result }
+  }
+
+  it('HW1 — Discard hides the window BEFORE the revert finishes', async () => {
+    const order: string[] = []
+    const setWindowVisible = vi.fn().mockImplementation(async (visible: boolean) => {
+      order.push(visible ? 'show' : 'hide')
+    })
+    ;(globalThis as unknown as { window: { electron: Record<string, unknown> } }).window.electron
+      .setWindowVisible = setWindowVisible
+    const revertToLastSaved = vi.fn().mockImplementation(async () => {
+      order.push('revert')
+      return 'reverted'
+    })
+
+    const args = makeArgs({ hasUnsavedMutations: true, revertToLastSaved })
+    const { result } = await openQuitDialog(args)
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(order, 'the window must go before the work, or the wait is what it was').toEqual([
+      'hide',
+      'revert',
+    ])
+  })
+
+  it('HW2 — a FAILED revert brings the window back, because the app is not closing', async () => {
+    // The revert can refuse (the file is not the latest save) or fail. The close is
+    // then aborted and the dialog re-opened — onto a hidden window, unless it is
+    // shown again. A dialog nobody can see is worse than the wait.
+    const setWindowVisible = vi.fn().mockResolvedValue(undefined)
+    ;(globalThis as unknown as { window: { electron: Record<string, unknown> } }).window.electron
+      .setWindowVisible = setWindowVisible
+    const revertToLastSaved = vi.fn().mockResolvedValue('failed')
+
+    const args = makeArgs({ hasUnsavedMutations: true, revertToLastSaved })
+    const { result } = await openQuitDialog(args)
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(setWindowVisible).toHaveBeenLastCalledWith(true)
+  })
+
+  it('HW3 — closing a PROJECT never hides the window', async () => {
+    // Default mode is close-project: the window survives and shows the welcome
+    // screen, so hiding it would blank the app the engineer is still using.
+    const setWindowVisible = vi.fn().mockResolvedValue(undefined)
+    ;(globalThis as unknown as { window: { electron: Record<string, unknown> } }).window.electron
+      .setWindowVisible = setWindowVisible
+    const revertToLastSaved = vi.fn().mockResolvedValue('reverted')
+
+    const { result } = renderHook(() =>
+      useProjectLifecycle(makeArgs({ hasUnsavedMutations: true, revertToLastSaved })),
+    )
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    expect(setWindowVisible).not.toHaveBeenCalled()
+  })
+})
+
+describe('HW4 — Save hides too, and comes back when it fails', () => {
+  it('a failed save re-shows the window, because the retry dialog stays open', async () => {
+    const setWindowVisible = vi.fn().mockResolvedValue(undefined)
+    ;(globalThis as unknown as { window: { electron: Record<string, unknown> } }).window.electron
+      .setWindowVisible = setWindowVisible
+    // saveProject is INTERNAL to the hook, so a failure is driven through the
+    // injected saveMetadata it calls first — overriding saveProject would have been
+    // ignored, and the test would have passed on the happy path while claiming to
+    // cover the failure one.
+    const saveMetadata = vi.fn().mockResolvedValue(false)
+    const onAppBeforeQuit = (
+      globalThis as unknown as {
+        window: { electron: { onAppBeforeQuit: ReturnType<typeof vi.fn> } }
+      }
+    ).window.electron.onAppBeforeQuit
+
+    const { result } = renderHook(() =>
+      useProjectLifecycle(makeArgs({ hasUnsavedMutations: true, saveMetadata })),
+    )
+    const beforeQuitCb = onAppBeforeQuit.mock.calls.at(-1)?.[0] as () => void
+    await act(async () => {
+      beforeQuitCb()
+    })
+
+    await act(async () => {
+      await result.current.handleUnsavedSave()
+    })
+
+    expect(setWindowVisible).toHaveBeenNthCalledWith(1, false)
+    expect(setWindowVisible).toHaveBeenLastCalledWith(true)
+  })
+})
