@@ -30,6 +30,12 @@ from groundmodel.shared.constants.litho_constants import BaseLithology
 QC_REVIEW_MISSING_FRACTION = 0.40  # >40% of unit thickness lacking valid qc → review
 QC_REVIEW_MAX_GAP_M = 0.05  # a ≥5 cm continuous RUN of bad readings → review
 
+# Re-derive-then-weld runs to a fixed point, and every weld strictly reduces the band
+# count, so it reaches one in at most as many passes as there are bands. The cap is a
+# backstop against a future weld rule that could oscillate rather than a tuning knob:
+# if it is ever hit, the pair is not converging and that is a bug, not a slow case.
+_REDERIVE_MAX_PASSES = 12
+
 
 def _is_valid_qc(q: float | None) -> bool:
     """True when a cone-resistance sample is usable: present, finite, non-negative.
@@ -369,6 +375,50 @@ class GeotechSplit:
     nad_class: int | None
 
 
+def _class_over(
+    seg_depths: list[float],
+    seg_qc: list[float],
+    top_m: float,
+    base_m: float,
+    soil: BaseLithology,
+    admixtures: tuple[Admixture, ...],
+    statistic: str,
+    fallback: int | None,
+) -> int | None:
+    """Classify one interval from the cone readings inside it.
+
+    Half-open ``[top_m, base_m)``, the same window the hand-edit path samples, so the
+    build and an edit of the same interval cannot disagree.
+
+    Parameters
+    ----------
+    seg_depths, seg_qc : list[float]
+        The segment's valid readings, parallel.
+    top_m, base_m : float
+        The interval, metres below the collar.
+    soil : BaseLithology
+        Main soil of the litho unit — picks the NAD column.
+    admixtures : tuple[Admixture, ...]
+        Its admixtures — clean versus secondary variant.
+    statistic : str
+        The model's representative statistic (rulings 6-8).
+    fallback : int | None
+        Returned when the interval holds no reading at all, or when the readings
+        cannot name a class: an interval with nothing in it is not evidence that the
+        previous answer was wrong.
+
+    Returns
+    -------
+    int | None
+        The NAD packing class, or ``fallback``.
+    """
+    in_band = [q for d, q in zip(seg_depths, seg_qc) if top_m <= d < base_m]
+    if not in_band:
+        return fallback
+    derived = classify_nad(soil, admixtures, representative_qc(in_band, statistic))
+    return fallback if derived is None else derived
+
+
 def suggest_geotech_subdivision(
     soil: BaseLithology,
     admixtures: tuple[Admixture, ...],
@@ -515,7 +565,45 @@ def suggest_geotech_subdivision(
     if gradient_snap:
         bands = _gradient_snap(bands, seg_depths, seg_qc, gradient_snap_window_m, min_thickness_m)
 
-    # Clamp the outer edges to the fixed litho-segment bounds, then emit.
+    # Clamp the outer edges to the fixed litho-segment bounds.
     bands[0][0] = segment_top_m
     bands[-1][1] = segment_base_m
-    return [GeotechSplit(round(top, 3), round(base, 3), int(cls)) for top, base, cls in bands]
+
+    # 6. Re-derive every class over the interval the band ACTUALLY ends up with.
+    #
+    #    Owner ruling 2026-08-10: *"ofcourse it rederives class after boundaries change,
+    #    because avg qc changes. if you restore the boundary it is exactly the same as
+    #    before so the algorithm behind should ofcourse give it the same class"*.
+    #
+    #    Steps 3, 4 and 5 all MOVE boundaries — the conservative thin-band merge, the
+    #    same-class weld and the gradient snap — and the emit rounds them again. None of
+    #    them asked the cone what the new interval says, so a stored class could belong
+    #    to an interval the band no longer had: 33 of 519 bands on the owner's model,
+    #    every one off by exactly one class.
+    #
+    #    That is not a cosmetic inconsistency. Every hand edit re-derives over the final
+    #    interval, so an edit appeared to change a class it never touched — and undo
+    #    could not give the old class back, because the old class was never derivable
+    #    from the band it sat on. Re-deriving here makes undo an inverse by construction.
+    #
+    #    Rounded FIRST, so the classes are derived from exactly the intervals that get
+    #    written, not from intervals half a millimetre away from them.
+    bands = [[round(top, 3), round(base, 3), cls] for top, base, cls in bands]
+    for _ in range(_REDERIVE_MAX_PASSES):
+        rederived = [
+            [
+                top,
+                base,
+                _class_over(seg_depths, seg_qc, top, base, soil, admixtures, statistic, cls),
+            ]
+            for top, base, cls in bands
+        ]
+        # A re-derivation can make two neighbours agree, and two touching bands of one
+        # class are one band. Welding changes their extent, which changes what the cone
+        # says over it, so the pair runs to a fixed point. Each weld strictly reduces the
+        # band count, so it always reaches one.
+        welded = _weld_same_class_bands(rederived)
+        if welded == bands:
+            break
+        bands = welded
+    return [GeotechSplit(top, base, int(cls)) for top, base, cls in bands]
