@@ -37,6 +37,7 @@ import type {
   ContactGestureState,
 } from '../../../components/sections/CorrelationEdgesOverlay'
 import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
+import FlaggedTiesPromptDialog from '../../../components/sections/FlaggedTiesPromptDialog'
 import MoveRestatedContactDialog from '../../../components/MoveRestatedContactDialog'
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
@@ -60,6 +61,8 @@ import { implausibleSectionCoordinates } from '../../../utils/sectionCoordinateP
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
+import { apiFailureMessage } from '../../../utils/apiFailureMessage'
+import { useFlaggedTiePrompt } from './useFlaggedTiePrompt'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
 import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
@@ -1092,6 +1095,13 @@ export default function SectionsCanvas(): JSX.Element {
   // which re-derive the NAD class from the cone resistance over the new interval instead of
   // moving a contact. The hook previews first, commits only on a second, explicit ask, and
   // pushes every committed edit onto the section undo stack.
+  // The question a hand edit raises about the correlations it broke (owner 2026-08-10).
+  // Declared before the band-edit hook because that hook reports into it.
+  const flaggedTiePrompt = useFlaggedTiePrompt({
+    edges: geotechPackingEdges,
+    deleteEdge: handleDeleteGeotechPackingCorrelation,
+  })
+
   const geotechBandEdit = useGeotechBandEdit({
     activeGeotechModel,
     projectId: project.id,
@@ -1100,6 +1110,7 @@ export default function SectionsCanvas(): JSX.Element {
     markMutated,
     toast,
     undoStack,
+    onAcceptedTiesFlagged: flaggedTiePrompt.askAbout,
   })
 
   // Right-click a pending correlation edge â†’ "Accept correlation" (dogfeed
@@ -1707,12 +1718,23 @@ export default function SectionsCanvas(): JSX.Element {
       )
       // Both models changed, so both views reload: the bands drawn on this axis, and the
       // litho rows the parentage probe reads to decide which boundaries are contacts.
+      // The ties reload too — a move that lands ON the next boundary absorbs a band, and
+      // the accepted ties anchored on it are re-anchored and flagged.
       requestGeotechLayersRefetch()
       await refetchLithoContacts()
+      await refetchGeotechPackingEdges()
       markMutated()
+      // Ask about what the move broke, now that the edge list matches the server.
+      flaggedTiePrompt.askAbout(moved.flagged_edge_ids ?? [])
     } catch (err) {
       log.error('section', 'moveRestatedContact failed', err)
-      toast('error', 'The contact could not be moved — nothing was changed.')
+      // The server's own words when it gave any: a refused move names what it hit —
+      // that landing here would delete the unit below, and where a unit does get
+      // removed. The house sentence said only that nothing happened.
+      toast(
+        'error',
+        apiFailureMessage(err, 'The contact could not be moved — nothing was changed.'),
+      )
     } finally {
       setContactMoveBusy(false)
       setPendingContactMove(null)
@@ -1723,8 +1745,10 @@ export default function SectionsCanvas(): JSX.Element {
     project.id,
     requestGeotechLayersRefetch,
     refetchLithoContacts,
+    refetchGeotechPackingEdges,
     markMutated,
     toast,
+    flaggedTiePrompt,
   ])
 
   const openExtentLengthM = useMemo(
@@ -2413,6 +2437,15 @@ export default function SectionsCanvas(): JSX.Element {
             onCancel={geotechBandEdit.cancel}
           />
         )}
+        {/* Raised AFTER an edit lands, not before it: the question is about what the
+            edit turned out to break, and the ids are resolved against the refetched
+            edge list. Its own count gates it, so it renders unconditionally. */}
+        <FlaggedTiesPromptDialog
+          count={flaggedTiePrompt.flaggedCount}
+          busy={flaggedTiePrompt.busy}
+          onKeep={flaggedTiePrompt.keep}
+          onDelete={() => void flaggedTiePrompt.deleteAll()}
+        />
       </>
     )
   }
