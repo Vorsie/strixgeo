@@ -128,9 +128,28 @@ function LithologyToolbar(): JSX.Element | null {
  */
 function useLithologyStageSummary(): StageSummary {
   const {
-    geoModel: { lithoFormations },
+    geoModel: { lithoFormations, hasStaleLithoSolid },
   } = useShell()
   const count = lithoFormations.length
+  // STALENESS OUTRANKS THE COUNT (owner, 2026-08-10). The Build button already says
+  // stale, but only once you are standing on this stage — and the edit that stales the
+  // 3-D model is usually made somewhere else: dragging a contact on the GEOTECH axis
+  // moves a litho boundary, so the model you are not looking at is the one that went
+  // out of date. The badge is how a stage reports work without being opened.
+  //
+  // It borrows the badge rather than adding a second mark: two indicators on one 20px
+  // button is how a spine stops being readable. The count comes back the moment the
+  // model is rebuilt.
+  if (hasStaleLithoSolid) {
+    // "!" and not "stale": the spine truncates any badge over 4 characters to an
+    // ellipsis, so the word would have rendered as "…" and said nothing. The WORD goes
+    // in the label, which is the button's tooltip and its accessible name.
+    return {
+      label: 'Lithology units — 3-D model is stale, rebuild it',
+      badge: '!',
+      badgeIntent: 'amber',
+    }
+  }
   return {
     label: 'Lithology units',
     badge: count > 0 ? String(count) : null,
