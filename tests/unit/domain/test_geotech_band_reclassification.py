@@ -22,6 +22,7 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.domain.services.geotech_band_reclassification import (
+    KIND_MERGE,
     KIND_MOVE,
     WARNING_BELOW_MINIMUM_THICKNESS,
     WARNING_QC_PULL_DOWN,
@@ -32,8 +33,6 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     enclosing_litho_bounds,
     plan_merge,
     plan_merge_run,
-    KIND_MERGE,
-    KIND_MOVE,
     plan_move,
     plan_restated_contact_move,
     plan_split,
@@ -865,3 +864,45 @@ def test_rc5_a_landing_short_of_the_boundary_is_still_a_move() -> None:
 
     assert plan.kind == KIND_MOVE
     assert len(plan.intervals) == 2
+
+
+def test_rc6_the_merged_band_re_derives_its_class_from_the_new_intervals_qc() -> None:
+    """The survivor is classified from the ground it now covers, never from what it was.
+
+    Owner, on whether a drag-merge should re-derive: *"Ofcourse rederive the Qc, it
+    goes like this -> soil type -> QC -> nad parameters, if you change the interval
+    the qc will differ"*. So a merge that triples a band's thickness has to read the
+    qc again over the whole of it.
+
+    The case is built so that carrying the old class and re-deriving give different
+    answers: the upper band is 2 m of soft ground (qc 5 MPa, its stored class 6) and
+    it absorbs 5 m of dense ground (qc 30 MPa). The union is dominated by the deep
+    part, so a re-derived class must be the dense one — if the survivor came back as
+    class 6, the value was carried.
+    """
+    depths, qc = _series([(0.0, 2.0, 5.0), (2.0, 7.0, 30.0)])
+    bands = [
+        _band("upper", 0.0, 2.0, 6, litho=LITHO_A),
+        _band("lower", 2.0, 7.0, 9, litho=LITHO_B),
+    ]
+
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=7.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    (survivor,) = plan.intervals
+    # Neither band's stored class survives — 6 was the upper band's, 9 the lower's.
+    assert survivor.nad_class not in (6, 9)
+    # The qc read over the merged span, and the class that follows from it.
+    assert survivor.median_qc_mpa == pytest.approx(30.0)
+    assert survivor.nad_class == 8
