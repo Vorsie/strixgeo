@@ -178,6 +178,7 @@ export function useLithoSolids(
   lithoModelId: string | null,
   toast: (type: 'success' | 'error' | 'warning', message: string) => void,
   refreshOn?: unknown,
+  onMutated?: () => void,
 ): UseLithoSolidsResult {
   // hideMarkers must be declared BEFORE the useEffect / useRef calls below
   // so hook order is stable across every render path (including early returns
@@ -278,6 +279,15 @@ export function useLithoSolids(
         // the nonce changes, and re-fetching here would overwrite identical data
         // with an extra round-trip.
         setSolids(result.solids)
+        // A build is an unsaved change like any other. ``litho_solids`` rides in the
+        // .strix bundle, so building genuinely changes what a save would write — and
+        // the close prompt gates on the project's dirty flag. Without this the build
+        // fell out of the save story entirely: no prompt on close, and nothing to
+        // discard against (owner, 2026-08-10).
+        //
+        // AFTER the call lands, never before: a refused build changes nothing, and
+        // marking it dirty would make every failed attempt look like an edit.
+        onMutated?.()
 
         const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
         // A build that produced NOTHING also cleared the stored 3-D model — the

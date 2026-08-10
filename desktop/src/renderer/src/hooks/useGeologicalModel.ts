@@ -2319,6 +2319,9 @@ export function useGeologicalModel({
     //
     // The litho half of the wire the geotech instance below has had since 2026-08-08.
     lithoLayersVersion,
+    // A build changes what a save would write, so it dirties the project like any
+    // other edit. Without it the close prompt never fires for a build.
+    markMutated,
   )
 
   // Geotech body solids — a SECOND useLithoSolids instance pointed at the
@@ -2336,6 +2339,7 @@ export function useGeologicalModel({
     // bumps geotechLayersVersion, and this re-fetch is what turns the Build
     // badge amber without waiting for the next build.
     geotechLayersVersion,
+    markMutated,
   )
 
   // F4 — "Subdivide all bodies" toolbar verb.  Called from the Geotechnical
