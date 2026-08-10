@@ -163,11 +163,11 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
     // Released at 8.5 m, past the packing boundary at 7 AND the column base at 10.
     // One drag consumes one boundary: moving it further takes another drag, and each
     // step is its own decision and its own undo entry.
-    expect(plan('g3', 8.5)).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 7 })
+    expect(plan('g3', 8.5)).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 7 })
   })
 
   it('GC2 — dragging up past two boundaries lands on the first one crossed', () => {
-    expect(plan('g3', 1)).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 2 })
+    expect(plan('g3', 1)).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 2 })
   })
 
   it('GC3 — a drag that reaches no boundary NUDGES the contact to where it was released', () => {
@@ -179,7 +179,7 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
     // jumped a whole boundary or reported "The contact did not move", which is what he
     // hit. The packing boundary is a WALL (GC1/GC2 still clamp at it), not a magnet — so
     // anywhere short of it is the engineer's to choose.
-    expect(plan('g3', 4.4)).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.4 })
+    expect(plan('g3', 4.4)).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.4 })
   })
 
   it('GC3b — and a release exactly where it started still moves nothing', () => {
@@ -220,7 +220,7 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
   // within a millimetre), so it is a finding, and a finding needs a test.
   it('GC10 — a row 1.0 mm away still is the restated row', () => {
     const justInside = [contact('L-zand', 4.001)]
-    expect(plan('g3', 8.5, { lithoContacts: justInside })).toEqual({
+    expect(plan('g3', 8.5, { lithoContacts: justInside })).toMatchObject({
       kind: 'move',
       lithoContactId: 'L-zand',
       depthM: 7,
@@ -290,10 +290,22 @@ describe('planGeotechContactDrag — a contact drag on the geotech axis', () => 
       contact('L-zand-further', 4.0009),
       contact('L-zand', 4.0000123),
     ]
-    expect(plan('g3', 8.5, { lithoContacts: withDecoys })).toEqual({
+    expect(plan('g3', 8.5, { lithoContacts: withDecoys })).toMatchObject({
       kind: 'move',
       lithoContactId: 'L-zand',
       depthM: 7,
     })
   })
+})
+
+
+it('GC11 — the plan names the two BANDS, because they move too', () => {
+  // The write moves the packing boundary and the litho contact together: they are one
+  // boundary recorded in two models, and the first build moved only the litho row —
+  // so a successful drag looked like a no-op and the next one could not find its own
+  // contact. The server resolves the litho pair itself; what it needs from here is
+  // which boundary was grabbed.
+  const p = plan('g3', 8.5)
+
+  expect(p).toMatchObject({ kind: 'move', upperBandId: 'g2', lowerBandId: 'g3' })
 })

@@ -43,8 +43,22 @@ export const RESTATED_CONTACT_TOLERANCE_M = COINCIDENT_DEPTH_TOLERANCE_M
 
 /** What a drag on one geotech boundary resolves to. */
 export type GeotechContactDragPlan =
-  /** Move this litho contact to this depth. The only outcome that writes anything. */
-  | { kind: 'move'; lithoContactId: string; depthM: number }
+  /**
+   * Move the contact to this depth. The only outcome that writes anything.
+   *
+   * Carries the two BANDS, not just the litho row, because the write moves both the
+   * packing boundary and the contact it restates — they are one boundary recorded in
+   * two models, and moving one without the other splits it. The server resolves the
+   * litho pair itself, from the boundary being moved; ``lithoContactId`` is kept for
+   * the caller's log and for naming the consequence, never as the write's target.
+   */
+  | {
+      kind: 'move'
+      lithoContactId: string
+      upperBandId: string
+      lowerBandId: string
+      depthM: number
+    }
   /**
    * The boundary is the owner's own subdivision — the packing drag owns it, not this.
    *
@@ -163,7 +177,13 @@ export function planGeotechContactDrag(
         ? Math.min(toDepthM, landing)
         : Math.max(toDepthM, landing)
 
-  return { kind: 'move', lithoContactId: match.id, depthM }
+  return {
+    kind: 'move',
+    lithoContactId: match.id,
+    upperBandId: upper.layerId,
+    lowerBandId: lower.layerId,
+    depthM,
+  }
 }
 
 /**
