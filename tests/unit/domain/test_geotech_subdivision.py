@@ -652,7 +652,8 @@ _SEG_QC_MPA = [
 ]
 
 
-def test_sc1_every_built_band_carries_the_class_its_own_interval_implies() -> None:
+@pytest.mark.parametrize("statistic", ["median", "harmonic", "arithmetic", "geometric"])
+def test_sc1_every_built_band_carries_the_class_its_own_interval_implies(statistic: str) -> None:
     """SC1 — the build must not leave a class behind on an interval it then changed.
 
     The owner, after a merge-then-undo handed him back the wrong classes: *"ofcourse it
@@ -671,10 +672,16 @@ def test_sc1_every_built_band_carries_the_class_its_own_interval_implies() -> No
     exactly one class. This segment is one of them — 11.63-12.78 m was stored as 7 while
     its own extent implies 6.
 
-    Asserted under the HARMONIC mean because that is what made it visible: the harmonic
-    mean is dominated by its smallest sample, so a boundary that moves by one sample
-    swings it, while the median shrugs it off. The bug is statistic-independent; only
-    its visibility is not.
+    Run under all four statistics, because the defect was never harmonic's. Rebuilding
+    the owner's whole model on the pre-fix code: median 25 bad bands of 525, harmonic 34
+    of 519, arithmetic 37 of 517, geometric 29 of 515. Arithmetic was the worst of them.
+    Harmonic is simply where the owner happened to land on one — under median he had 25
+    waiting and never touched them.
+
+    ONLY the harmonic case went red on this segment before the fix; the other three are
+    regression guards rather than RED evidence, and are worth keeping precisely because
+    a re-derivation that ran under some statistics and not others would look correct
+    from the harmonic case alone.
 
     The comparison goes through ``reclassify_intervals`` — the hand-edit path — rather
     than the build's own arithmetic, because the invariant is that the two AGREE. A test
@@ -688,7 +695,7 @@ def test_sc1_every_built_band_carries_the_class_its_own_interval_implies() -> No
         segment_top_m=7.753,
         segment_base_m=12.78,
         min_thickness_m=0.35,
-        statistic="harmonic",
+        statistic=statistic,
     )
     assert splits, "the segment must yield at least one band"
 
@@ -708,7 +715,7 @@ def test_sc1_every_built_band_carries_the_class_its_own_interval_implies() -> No
             depth_m=_SEG_DEPTH_M,
             qc_mpa=list(_SEG_QC_MPA),
             intervals=[ProposedInterval(split.depth_top_m, split.depth_base_m, (band,))],
-            statistic="harmonic",
+            statistic=statistic,
         )
         if outcome.nad_class != split.nad_class:
             mismatched.append(
