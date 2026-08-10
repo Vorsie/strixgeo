@@ -31,6 +31,14 @@
 # gets wrapped as an ErrorRecord and aborts the script. Check $LASTEXITCODE
 # explicitly instead.
 
+# Capture the caller's arguments under a NAMED variable, at top scope, before
+# anything else runs. Splatting the automatic ``$args`` directly (``@args``) does
+# not survive the nesting further down: at the call site ``$args.Count`` reads 1
+# while ``@args`` expands to nothing, so ``.\run-e2e.ps1 flow_boot_open`` printed
+# the filter and then ran all 126 tests anyway. That cost a full 9-minute suite
+# per attempt on a day of one-spec diagnosis before it was noticed.
+$PlaywrightArgs = $args
+
 $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
 
 # node-postgres (the e2e db_helper) tolerates the +asyncpg suffix; the
@@ -151,8 +159,8 @@ try {
 
     Push-Location desktop
     try {
-        Write-Host "==> npx playwright test $args"
-        npx playwright test @args
+        Write-Host "==> npx playwright test $PlaywrightArgs"
+        npx playwright test @PlaywrightArgs
         $code = $LASTEXITCODE
     } finally {
         Pop-Location
