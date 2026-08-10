@@ -274,3 +274,74 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     expect(plan).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
   })
 })
+
+// ---------------------------------------------------------------------------
+// TG — the telegraph: what a release will do, said before the release
+// ---------------------------------------------------------------------------
+
+/**
+ * Drag the contact at 3 m and read the sentence shown while the button is still down.
+ *
+ * @param release What the clamp says a release would do.
+ * @returns The telegraph's text, or `null` when it is not shown at all.
+ */
+function telegraphDuringDrag(release: 'move' | 'merge' | 'blocked'): string | null {
+  const levelToScreen = (level: number): number => (20 - level) * 100
+  const { container } = render(
+    <svg>
+      <ContactsLayer
+        contacts={CONTACTS}
+        formations={[FORMATION]}
+        placedColumns={[placedColumn()]}
+        levelToScreen={levelToScreen}
+        plotTop={0}
+        plotBottom={3000}
+        perColumnBandsFromContacts
+        onUpdateContactDepth={vi.fn().mockResolvedValue(undefined)}
+        axisMode="geotechnical"
+        clampDragToBoundary={(_contactId, rawDepthM) => ({
+          // Held back only in the blocked case, so 'merge' also proves the telegraph
+          // does not need a clamp to speak — the whole point of separating the two.
+          depthM: release === 'blocked' ? 4.9 : rawDepthM,
+          atLimit: release === 'blocked',
+          release,
+        })}
+      />
+    </svg>,
+  )
+  const strip = container.querySelector('[data-testid="contact-drag-strip"][data-contact-id="g2"]')
+  expect(strip).not.toBeNull()
+  fireEvent.mouseDown(strip!, { clientY: 0, button: 0 })
+  act(() => {
+    document.dispatchEvent(new MouseEvent('mousemove', { clientY: 250, buttons: 1, bubbles: true }))
+  })
+  const popup = document.querySelector('[data-testid="contact-drag-clamp-popup"]')
+  const text = popup?.textContent ?? null
+  act(() => {
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+  return text
+}
+
+describe('the telegraph on the geotech axis', () => {
+  it('TG1 — a landing that absorbs a band says so before the release', () => {
+    // Owner: "sure do the telegraph too, makes it more uniform?" — the litho axis
+    // already tells him what letting go will do. This landing costs a whole band, and
+    // it is NOT clamped, so a telegraph keyed on the clamp would have stayed silent.
+    const text = telegraphDuringDrag('merge')
+    expect(text).not.toBeNull()
+    expect(text).toMatch(/absorbed/i)
+  })
+
+  it('TG2 — a wall that cannot be reached names the unit it would delete', () => {
+    const text = telegraphDuringDrag('blocked')
+    expect(text).toMatch(/delete the unit below/i)
+    expect(text).toMatch(/lithology axis/i)
+  })
+
+  it('TG3 — an ordinary nudge says nothing at all', () => {
+    // The telegraph has to stay quiet for the common gesture, or it becomes chrome that
+    // follows the cursor on every drag and stops being read.
+    expect(telegraphDuringDrag('move')).toBeNull()
+  })
+})
