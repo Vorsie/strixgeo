@@ -49,6 +49,11 @@ export function reviewFlagLabel(reason: string | null | undefined): string {
       return 'The packing class here changed — check this tie still belongs'
     case 'ambiguous_band':
       return 'Several bands could be the one this tie was drawn on — check it'
+    // Distinct from ``ambiguous_band`` because the two ask different questions: that
+    // one means the re-anchor had to choose between candidates, this one means the
+    // band the tie was drawn on is gone. Owner's wording, 2026-08-10.
+    case 'band_absorbed':
+      return 'The band this tie was drawn on was absorbed — check it still belongs'
     default:
       return 'This tie needs checking'
   }
