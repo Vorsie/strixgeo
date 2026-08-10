@@ -55,6 +55,7 @@ import type {
 } from '../../api/client'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
+import type { ContactDragRelease } from './geotechSnapTargets'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
@@ -342,7 +343,7 @@ interface Props {
   clampDragToBoundary?: (
     contactId: string,
     rawDepthM: number,
-  ) => { depthM: number; atLimit: boolean }
+  ) => { depthM: number; atLimit: boolean; release: ContactDragRelease }
   /** Opacity of the filled formation-fill bands between adjacent
    *  contact polylines.  Defaults to 0.18 — the right value on the
    *  geological axis where the bands sit on top of a clean canvas and
@@ -537,6 +538,9 @@ interface DragState {
    *  the deeper-than-below-neighbour case).  ``null`` when the drag
    *  is within bounds.  Drives the popup. */
   currentClamped: 'up' | 'down' | null
+  /** What letting go right now would do — drives the telegraph's wording. Only the
+   *  geotech axis produces anything but ``'move'``. */
+  currentRelease: ContactDragRelease
   /** Target column when the cursor has crossed unambiguously into
    * another column's attraction band. ``null`` ⇒ stay on source.
    * Drives both the cross-column commit + the live preview render. */
@@ -1726,6 +1730,7 @@ export default function ContactsLayer({
               currentClientX: e.clientX,
               currentClientY: e.clientY,
               currentClamped: clampedDirection,
+              currentRelease: boundaryClamp?.release ?? 'move',
             },
       )
     }
@@ -2031,6 +2036,7 @@ export default function ContactsLayer({
         currentClientX: e.clientX,
         currentClientY: e.clientY,
         currentClamped: null,
+        currentRelease: 'move',
         contactsInDrag,
         shiftHeld,
         color: layer.color,
@@ -3470,7 +3476,11 @@ export default function ContactsLayer({
         only when ``contactDragClampMinThicknessM`` is set (litho
         axis) AND the cursor would commit past a peer's near-edge. */}
     {drag !== null
-      && drag.currentClamped !== null
+      // Two reasons to speak: the drag is being held back (the original clamp popup),
+      // or letting go would do more than move a line. The second is the telegraph the
+      // litho axis already had — a drag landing exactly on a packing boundary is not
+      // clamped at all, and releasing it absorbs a whole band.
+      && (drag.currentClamped !== null || drag.currentRelease === 'merge')
       && createPortal(
         <div
           data-testid="contact-drag-clamp-popup"
@@ -3491,12 +3501,17 @@ export default function ContactsLayer({
             boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
           }}
         >
-          {clampDragToBoundary !== undefined
-            ? // Geotech: not a refusal, a rule. One drag consumes one boundary, so
-              // the contact stops at the first one crossed however far the cursor
-              // goes — and the way to reach the next is to drag again.
-              'Stops at this packing boundary — drag again to take the next one.'
-            : 'Can’t move further — right-click and delete the adjacent layer first, then drag to the next boundary.'}
+          {clampDragToBoundary === undefined
+            ? 'Can’t move further — right-click and delete the adjacent layer first, then drag to the next boundary.'
+            : drag.currentRelease === 'merge'
+              ? // The consequence, before the release rather than after it: this is the
+                // drag-merge, and it costs a whole band.
+                'Release here and the band below is absorbed into this unit. One boundary per drag — drag again to take the next.'
+              : drag.currentRelease === 'blocked'
+                ? // The wall is a lithostratigraphic contact, and landing on it would
+                  // leave the unit between the two contacts with nothing in it.
+                  'Stops short of the next lithostratigraphic contact — going further would delete the unit below. Subdivide it first, or edit it on the lithology axis.'
+                : 'Stops at this packing boundary — drag again to take the next one.'}
         </div>,
         document.body,
       )}
