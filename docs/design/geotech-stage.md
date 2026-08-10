@@ -474,9 +474,11 @@ edit that flags accepted ties now raises it, once, after the refetch: keep them
 flagged, or delete them. Keeping is the cancel, because it is also what a dismissal
 means — the flags are already written. Deleting reuses the ordinary disconnect
 gesture, so a tie removed here is indistinguishable afterwards from one disconnected
-by hand. Only ACCEPTED ties reach the question; a pending proposal that stops
-matching is deleted outright, and asking about the machine's own withdrawn guess
-would turn every edit into paperwork.
+by hand. Two things are deliberately kept out of the question. A PENDING proposal
+that stops matching is deleted outright — asking about the machine's own withdrawn
+guess would turn every edit into paperwork — and a tie flagged ``band_absorbed``
+still MATCHES, so offering it for deletion under "these no longer match" would state
+something false about a correlation that is still right.
 
 **A flagged tie stops unioning** (owner ruling 2026-08-10, on his own model). A tie
 does two jobs — it draws the correlation, and it makes its two layers one body — and
