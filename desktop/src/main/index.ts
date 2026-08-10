@@ -955,6 +955,22 @@ ipcMain.handle('app:quit-decision', (_event, allowed: boolean) => {
   mainWindow.close()
 })
 
+ipcMain.handle('app:set-window-visible', (_event, visible: boolean) => {
+  // Lets the renderer take the window away the moment the engineer answers the
+  // save-or-discard question, instead of after the work that answer causes. A
+  // discard replace-restores the whole bundle, which on a real project is seconds
+  // of apparent hang on a window that has already been told to close.
+  //
+  // Safe because that restore is ONE transaction — the route commits once and the
+  // restore never commits internally — so a process that dies mid-flight rolls
+  // back. The worst case is "the discard did not happen", never a half-written
+  // project. HIDE, not close: the process must stay alive to finish the write,
+  // and it quits itself through the existing handshake when it lands.
+  if (mainWindow === null) return
+  if (visible) mainWindow.show()
+  else mainWindow.hide()
+})
+
 ipcMain.handle('api:ready', async () => {
   // Poll /openapi.json — FastAPI serves it without a DB connection, so it
   // passes as soon as uvicorn is listening regardless of PostgreSQL state.

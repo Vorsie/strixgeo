@@ -132,6 +132,15 @@ declare global {
       // the only console a packaged build's dogfeed report can show.
       closeFlowNote: (note: string) => Promise<void>
       setWindowTitle: (title: string | null) => Promise<void>
+      /**
+       * Show or hide the window without closing it.
+       *
+       * The close flow hides it the moment the engineer answers the save-or-discard
+       * prompt, so the work that answer causes (a full replace-restore) runs out of
+       * sight instead of holding a window that has already been told to go. The
+       * process stays alive to finish it and quits through the existing handshake.
+       */
+      setWindowVisible: (visible: boolean) => Promise<void>
       onAppBeforeQuit: (cb: () => void) => () => void
       notifyQuitDecision: (allowed: boolean) => Promise<void>
       onMenuImportCpt: (cb: () => void) => () => void

@@ -143,6 +143,16 @@ contextBridge.exposeInMainWorld('electron', {
   // ``app:quit-decision`` after consulting its dirty state and the
   // user's choice on the unsaved-changes prompt.
   onAppBeforeQuit: (cb: () => void) => onMenuEvent('app:before-quit', cb),
+  /**
+   * Show or hide the main window without closing it.
+   *
+   * Used by the close flow to take the window away as soon as the engineer answers
+   * the save-or-discard prompt, so the work that answer causes runs out of sight.
+   * The process stays alive to finish it.
+   */
+  setWindowVisible: (visible: boolean): Promise<void> =>
+    ipcRenderer.invoke('app:set-window-visible', visible),
+
   notifyQuitDecision: (allowed: boolean): Promise<void> =>
     ipcRenderer.invoke('app:quit-decision', allowed),
 

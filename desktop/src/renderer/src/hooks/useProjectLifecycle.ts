@@ -540,6 +540,11 @@ export function useProjectLifecycle({
   const handleUnsavedSave = useCallback(async () => {
     noteCloseFlow(`unsaved dialog answered: Save (mode=${unsavedDialogMode})`)
     setUnsavedSaving(true)
+    // Same reasoning as Discard: the save is the slow part, and on the quit path the
+    // window has already been told to go. Hidden first, brought back only if the save
+    // FAILS — the dialog stays open for the retry, and a retry nobody can see is not
+    // a retry.
+    if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(false)
     try {
       const ok = await saveProject()
       // The dialog STAYS OPEN on failure — the live state is intact and the
@@ -548,6 +553,7 @@ export function useProjectLifecycle({
       // now explains itself instead of looking like a dead button.
       if (!ok) {
         noteCloseFlow('unsaved dialog: Save failed — dialog kept open for retry')
+        if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(true)
         return
       }
       setUnsavedDialogOpen(false)
@@ -588,6 +594,13 @@ export function useProjectLifecycle({
     setUnsavedError(null)
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
+    // The window goes NOW, not when the work lands. A discard replace-restores the
+    // whole bundle, which on a real project is seconds of apparent hang on a window
+    // the engineer has already told to close (owner, 2026-08-10).
+    //
+    // Only on the quit path: closing a PROJECT keeps the window and returns to the
+    // welcome screen, so hiding there would blank an app still in use.
+    if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(false)
     const outcome = await revertToLastSaved()
     noteCloseFlow(`revertToLastSaved outcome: ${outcome}`)
     if (outcome === 'refused-not-latest-save' || outcome === 'failed') {
@@ -599,6 +612,9 @@ export function useProjectLifecycle({
           : failedRevertMessage(projectFilePath)
       setUnsavedError(message)
       toast('error', message)
+      // The close is aborted, so the window has to come back — the dialog is about to
+      // re-open onto it, and a dialog nobody can see is worse than the wait was.
+      if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(true)
       setUnsavedDialogOpen(true)
       if (unsavedDialogMode === 'quit-app') {
         // Main is waiting on an answer; a cancelled quit is the honest one.
