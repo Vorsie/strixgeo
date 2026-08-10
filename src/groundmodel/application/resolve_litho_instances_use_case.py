@@ -185,7 +185,25 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
     ]
     existing_body_id_by_layer: dict[UUID, UUID | None] = {r.id: r.body_id for r in layer_rows}
 
-    # 2. User-approved edges — endpoints already FK litho_layer.id.
+    # 2. User-approved edges, MINUS the ones under review — endpoints already FK
+    #    litho_layer.id.
+    #
+    #    A tie does two jobs: it draws the correlation, and it unions its two layers
+    #    into one body. A hand edit that breaks the class match keeps the tie and
+    #    flags it (flag-not-drop), and until 2026-08-10 the flagged tie went on
+    #    unioning — which left one body spanning two packing classes. The owner met
+    #    that on his own model: a body holding NAD 8 and NAD 7 at once, and pressing
+    #    Build there would have welded a very dense sand to a dense sand across the
+    #    gap and exported it.
+    #
+    #    A body's contract is one packing class, so a shape that breaks it must not
+    #    survive on the strength of a correlation the engineer has been asked to
+    #    re-judge. The tie itself is untouched: still kept, still self-healing, still
+    #    badged. Only its effect on the model is suspended while it waits.
+    #
+    #    Litho edges are unaffected in practice — nothing on that side writes a review
+    #    reason — so this reads as a geotech rule even though it lives in the shared
+    #    resolver, which is where the union is decided for both.
     edge_rows = (
         await session.execute(
             select(
@@ -194,6 +212,7 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
             ).where(
                 LithoContactCorrelationEdgeOrm.model_id == model_id,
                 LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                LithoContactCorrelationEdgeOrm.review_reason.is_(None),
             )
         )
     ).all()
