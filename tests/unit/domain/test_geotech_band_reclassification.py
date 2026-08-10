@@ -33,6 +33,7 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     plan_merge,
     plan_merge_run,
     plan_move,
+    plan_restated_contact_move,
     plan_split,
     reclassify_intervals,
 )
@@ -688,4 +689,109 @@ def test_pm8_the_refusal_names_the_re_subdivide_that_actually_clears_it() -> Non
             depth_m=depths,
             qc_mpa=qc,
             min_thickness_m=0.35,
+        )
+
+
+# ---------------------------------------------------------------------------
+# RC - plan_restated_contact_move: the boundary between two LITHO units
+# ---------------------------------------------------------------------------
+#
+# The gesture the owner asked for on 2026-08-09: on the geotech axis, drag the
+# boundary that restates a lithostratigraphic contact and take all three levels
+# with it. ``plan_move`` cannot serve it — it REFUSES a cross-body pair, which is
+# ruling 2 doing its job for a packing boundary.
+#
+# What makes this a different plan, not a flag on the old one: the two bands sit
+# in DIFFERENT litho units, so they have different soil types. The owner's chain
+# is soil type → qc → NAD parameters, so each side re-derives with its OWN soil.
+# Passing one soil for both would classify the sand with the clay's column.
+
+
+def test_rc1_a_restated_contact_move_reclassifies_each_side_with_its_own_soil() -> None:
+    """Each band re-derives under the soil of the litho unit it subdivides."""
+    # Same qc either side of the drag, so only the SOIL can explain a class
+    # difference — if both sides came back with one column, this could not fail.
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A),
+        _band("lower", 4.0, 10.0, None, litho=LITHO_B),
+    ]
+
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=5.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    upper, lower = plan.intervals
+    assert (upper.depth_top_m, upper.depth_base_m) == (0.0, 5.0)
+    assert (lower.depth_top_m, lower.depth_base_m) == (5.0, 10.0)
+    # 5 MPa is a real ZAND class and is NOT a KLEI class — the two sides must not
+    # come back with the same answer, which is what one shared soil would give.
+    assert upper.nad_class != lower.nad_class
+
+
+def test_rc2_a_same_litho_pair_is_refused_because_that_is_the_packing_drag() -> None:
+    """A pair inside ONE litho unit is not a restated contact.
+
+    That boundary is the engineer's own packing subdivision and ``plan_move``
+    owns it. Accepting it here would give the same boundary two verbs with
+    different consequences — this one moves the litho model.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A),
+        _band("lower", 4.0, 10.0, None, litho=LITHO_A),
+    ]
+
+    with pytest.raises(GeotechBandEditError, match="packing boundary"):
+        plan_restated_contact_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=5.0,
+            upper_soil="ZAND",
+            upper_admixtures=(),
+            lower_soil="ZAND",
+            lower_admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
+
+
+def test_rc3_the_pair_envelope_is_the_wall() -> None:
+    """The drag stays strictly inside the two bands it separates.
+
+    Beyond the envelope there is another band, and moving the contact there
+    would collapse this one to nothing. The FE clamps first; this is the
+    structural floor that makes a bypass impossible.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A),
+        _band("lower", 4.0, 10.0, None, litho=LITHO_B),
+    ]
+
+    with pytest.raises(GeotechBandEditError, match="outside the pair"):
+        plan_restated_contact_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=10.5,
+            upper_soil="ZAND",
+            upper_admixtures=(),
+            lower_soil="KLEI",
+            lower_admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
         )
