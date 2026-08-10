@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_tie_reanchor import (
-    REVIEW_AMBIGUOUS_BAND,
+    REVIEW_BAND_ABSORBED,
     REVIEW_CLASS_CHANGED,
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -156,7 +156,7 @@ class GeotechBandEditResult:
         correlation going away. The UI must never describe one as the other.
     flagged_edge_ids : tuple[UUID, ...]
         ACCEPTED ties flagged for review (``class_changed`` on a mismatch, or
-        ``ambiguous_band`` on a transferred anchor) — surviving rows the
+        ``band_absorbed`` on a transferred anchor) — surviving rows the
         engineer confirms or deletes via the existing verbs.
     cleared_edge_ids : tuple[UUID, ...]
         Ties whose restored class match self-healed a ``class_changed`` flag.
@@ -441,7 +441,7 @@ class TransferMove:
         ``canonical_contact_order``).
     review_reason : str
         ``class_changed`` when the survivor's class mismatches the partner's,
-        else ``ambiguous_band`` (class-consistent, but the anchor band changed
+        else ``band_absorbed`` (class-consistent, but the anchor band was absorbed
         identity) — cleared by the existing Confirm-tie verbs.
     """
 
@@ -563,7 +563,7 @@ def plan_edge_transfer(
                 new_layer_a_id=new_a,
                 new_layer_b_id=new_b,
                 swap_sides=was_a != now_a,
-                review_reason=REVIEW_CLASS_CHANGED if mismatched else REVIEW_AMBIGUOUS_BAND,
+                review_reason=REVIEW_CLASS_CHANGED if mismatched else REVIEW_BAND_ABSORBED,
             )
         )
     return EdgeTransferPlan(tuple(moves), tuple(drops), tuple(displaced))
