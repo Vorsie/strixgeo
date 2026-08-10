@@ -114,6 +114,14 @@ REASON_BOREHOLE_DEFERRED = "borehole_endpoint_deferred"
 # edge as ``review_reason`` so the flag survives the session that raised it.
 REVIEW_CLASS_CHANGED = "class_changed"
 REVIEW_AMBIGUOUS_BAND = "ambiguous_band"
+# A hand edit absorbed the band this tie was anchored on, and the survivor's class
+# still matches the partner's. Distinct from ``ambiguous_band`` because the two ask
+# the engineer different questions: ambiguous means several bands could have been the
+# one the tie was drawn on and the re-anchor had to choose; absorbed means the band it
+# was drawn on no longer exists as its own row. Owner's choice of wording, 2026-08-10.
+# Like ``ambiguous_band`` and unlike ``class_changed`` it never self-heals — no later
+# class match can answer a question that was never about the class.
+REVIEW_BAND_ABSORBED = "band_absorbed"
 
 # Anchor-kind tokens, mirroring ``litho_layer``'s XOR pair.
 ANCHOR_CPT = "cpt"
