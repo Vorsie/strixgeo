@@ -45,10 +45,12 @@ from groundmodel.application.geotech_band_edit_helpers import (
     load_geotech_column_context,
     require_cpt_anchor,
     revalidate_layer_edges,
+    transfer_accepted_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import (
+    KIND_MERGE,
     GeotechBandEditError,
     plan_restated_contact_move,
 )
@@ -176,7 +178,15 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             min_thickness_m=upper_ctx.min_thickness_m,
             statistic=upper_ctx.statistic,
         )
-        upper_outcome, lower_outcome = plan.intervals
+        # A landing ON the next boundary is a MERGE: the band between the contact and
+        # that boundary is absorbed into the one above, because the litho unit above
+        # now owns the ground down to it. Anything short of it keeps both bands.
+        merging = plan.kind == KIND_MERGE
+        if merging:
+            (upper_outcome,) = plan.intervals
+            lower_outcome = None
+        else:
+            upper_outcome, lower_outcome = plan.intervals
         for warning in plan.warnings:
             self.warning(f"MoveRestatedContact: {warning.code} — {warning.message}")
 
@@ -203,21 +213,43 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             source_litho_formation_id=upper_ctx.source_litho_formation_id,
             source_geo_formation_id=upper_ctx.source_geo_formation_id,
         )
-        lower_formation = await formation_for_class(
-            self,
-            project_id=project_id,
-            nad_class=lower_outcome.nad_class,
-            source_litho_formation_id=lower_ctx.source_litho_formation_id,
-            source_geo_formation_id=lower_ctx.source_geo_formation_id,
+        lower_formation = (
+            None
+            if lower_outcome is None
+            else await formation_for_class(
+                self,
+                project_id=project_id,
+                nad_class=lower_outcome.nad_class,
+                source_litho_formation_id=lower_ctx.source_litho_formation_id,
+                source_geo_formation_id=lower_ctx.source_geo_formation_id,
+            )
         )
 
         # --- the write: three levels, one transaction ------------------------
         upper_row.depth_base_m = boundary_m
         upper_row.formation_id = upper_formation.id
         upper_row.source = "manual"
-        lower_row.depth_top_m = boundary_m
-        lower_row.formation_id = lower_formation.id
-        lower_row.source = "manual"
+        deleted_band_ids: tuple[UUID, ...] = ()
+        if merging:
+            # Accepted ties on the absorbed row are RE-ANCHORED onto the survivor and
+            # flagged for review, never dropped by the FK cascade (flag-not-drop, owner
+            # 2026-08-07). The same helper the band merge uses, so the two verbs cannot
+            # disagree about what happens to the engineer's own correlations.
+            await transfer_accepted_edges(
+                self._session,
+                self,
+                model_id=geotech_model_id,
+                from_layer_id=lower_row.id,
+                to_layer_id=upper_row.id,
+                survivor_class=upper_outcome.nad_class,
+            )
+            deleted_band_ids = (lower_row.id,)
+            await self._session.delete(lower_row)
+        else:
+            assert lower_formation is not None  # noqa: S101 - narrowed by ``merging``
+            lower_row.depth_top_m = boundary_m
+            lower_row.formation_id = lower_formation.id
+            lower_row.source = "manual"
 
         litho_upper.depth_base_m = boundary_m
         litho_lower.depth_top_m = boundary_m
@@ -248,10 +280,14 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             self._session,
             self,
             model_id=geotech_model_id,
-            new_class_by_layer_id={
-                upper_row.id: upper_outcome.nad_class,
-                lower_row.id: lower_outcome.nad_class,
-            },
+            new_class_by_layer_id=(
+                {upper_row.id: upper_outcome.nad_class}
+                if merging
+                else {
+                    upper_row.id: upper_outcome.nad_class,
+                    lower_row.id: lower_outcome.nad_class,  # type: ignore[union-attr]
+                }
+            ),
         )
 
         # Both models' 3-D caches: the packing bands moved AND the litho column did.
@@ -269,9 +305,9 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
                 geotech_model_id=geotech_model_id,
                 investigation_id=upper_ctx.investigation_id,
                 plan=plan,
-                layer_ids=(upper_row.id, lower_row.id),
+                layer_ids=(upper_row.id,) if merging else (upper_row.id, lower_row.id),
                 created_layer_ids=(),
-                deleted_layer_ids=(),
+                deleted_layer_ids=deleted_band_ids,
                 deleted_edge_ids=revalidation.deleted_edge_ids,
                 flagged_edge_ids=revalidation.flagged_edge_ids,
                 cleared_edge_ids=revalidation.cleared_edge_ids,
