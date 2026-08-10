@@ -1096,6 +1096,12 @@ export function useGeologicalModel({
   // reading the first meaning while the second was true.
   const [geotechLayersLoaded, setGeotechLayersLoaded] = useState(false)
   const [geotechLayersVersion, setGeotechLayersVersion] = useState(0)
+  // Bumped whenever the litho layer stack is re-read. Feeds the litho solids'
+  // ``refreshOn`` so a geometry change reaches the Build badge. A COUNTER rather than
+  // the array's identity: identity depends on the transport handing back a fresh array,
+  // which is true of a real fetch and not of a cache or a stub — the signal has to be
+  // something the code states, not something a layer below happens to do.
+  const [lithoLayersVersion, setLithoLayersVersion] = useState(0)
   // Which model the current geotechLayers rows belong to — the load effect
   // clears eagerly only when this identity changes, so a same-model refetch
   // (every band edit) keeps the last rows visible instead of blinking the fill.
@@ -1548,7 +1554,10 @@ export function useGeologicalModel({
     // shape see the new state on the next render.
     void api.geology
       .listLayers(project.id, model.id)
-      .then(setLithoLayers)
+      .then(rows => {
+        setLithoLayers(rows)
+        setLithoLayersVersion(v => v + 1)
+      })
       .catch(err => {
         log.warn('geology', `litho listLayers refetch failed`, err)
       })
@@ -2303,6 +2312,13 @@ export function useGeologicalModel({
     project?.id ?? null,
     activeLithoModel?.id ?? null,
     toast,
+    // Any litho GEOMETRY change stales these solids server-side — a boundary move
+    // from either axis does it. Without a re-read the flag never reaches the Build
+    // badge: the owner's DB showed 81 solids go from 0 stale to 81 stale across one
+    // contact drag while the button kept the state it had read at load.
+    //
+    // The litho half of the wire the geotech instance below has had since 2026-08-08.
+    lithoLayersVersion,
   )
 
   // Geotech body solids — a SECOND useLithoSolids instance pointed at the
