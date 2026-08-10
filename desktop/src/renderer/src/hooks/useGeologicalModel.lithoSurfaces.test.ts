@@ -334,3 +334,39 @@ describe('handleRebuildLithoSurfaces (Slice A, #55)', () => {
     expect(vi.mocked(apiMock.geology.rebuildSurfaces).mock.calls.length).toBe(rebuildCallsBefore)
   })
 })
+
+// ---------------------------------------------------------------------------
+// LS1 — a litho geometry change re-reads the litho SOLIDS
+// ---------------------------------------------------------------------------
+//
+// The backend stales the litho solids whenever a litho boundary moves, and the
+// owner's DB proved it does: 81 solids, 0 stale before a contact drag, 81 stale
+// after. The amber Build badge still did not appear, because nothing re-read the
+// list — the litho `useLithoSolids` instance was created without a `refreshOn`,
+// so its fetch only re-ran on a build.
+//
+// The geotech instance has had this channel since 2026-08-08 (it passes
+// geotechLayersVersion; the channel itself is pinned by RF1 in
+// useLithoSolids.buildRefusal.test.ts). This is the litho half of the same wire.
+
+describe('LS1 — the litho solids are re-read when the litho layers change', () => {
+  it('re-fetches the solid list after refetchLithoContacts', async () => {
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    const before = vi.mocked(apiMock.geology.listLithoSolids).mock.calls.length
+
+    // The exact call the contact move makes after a committed write.
+    await act(async () => {
+      result.current.refetchLithoContacts()
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect(
+      vi.mocked(apiMock.geology.listLithoSolids).mock.calls.length,
+      'a litho geometry change must re-read the solids, or the Build badge cannot amber',
+    ).toBeGreaterThan(before)
+  })
+})
