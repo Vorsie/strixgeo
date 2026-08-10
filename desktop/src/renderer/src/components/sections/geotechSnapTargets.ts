@@ -146,6 +146,19 @@ export function clampToNextBoundary(
 }
 
 /**
+ * What letting go of a contact drag would do.
+ *
+ * Separate from "is the drag clamped" because the two answer different questions and
+ * the engineer needs the second one: a drag landing exactly on a packing boundary is
+ * not clamped at all, and releasing it absorbs a whole band.
+ *
+ * - ``move`` — the contact simply lands where the line is.
+ * - ``merge`` — the line is on a packing boundary; the band between is absorbed.
+ * - ``blocked`` — the line is held short of a litho contact and cannot reach it.
+ */
+export type ContactDragRelease = 'move' | 'merge' | 'blocked'
+
+/**
  * Clamp one contact drag, knowing which walls may be landed on and which may not.
  *
  * The wrapper around :func:`clampToNextBoundary` that carries the rest of the rule.
@@ -182,10 +195,11 @@ export function clampToNextBoundary(
  *
  * Returns
  * -------
- * { depthM: number; atLimit: boolean }
- *     Where the line may be drawn, and whether it is being held back. ``atLimit``
- *     drives the amber readout, so it is true whenever the answer differs from what
- *     the cursor asked for — including the case where the drag cannot move at all.
+ * { depthM: number; atLimit: boolean; release: ContactDragRelease }
+ *     Where the line may be drawn, whether it is being held back, and what letting go
+ *     would do. ``atLimit`` drives the amber; ``release`` drives the sentence, and the
+ *     two are NOT the same question — a drag landing exactly on a packing boundary is
+ *     not clamped at all and still absorbs a whole band.
  */
 export function clampContactDrag(
   fromDepthM: number,
@@ -193,12 +207,12 @@ export function clampContactDrag(
   candidates: readonly SnapCandidate[],
   restatingContactIds: ReadonlySet<string>,
   contactWallGapM: number,
-): { depthM: number; atLimit: boolean } {
+): { depthM: number; atLimit: boolean; release: ContactDragRelease } {
   const landing = clampToNextBoundary(fromDepthM, toDepthM, candidates)
   // Nothing crossed → free movement. The contact is being nudged inside the run it
   // already occupies, which is a refinement like any other: geological → litho →
   // geotech, each level refining the one above.
-  if (landing === null) return { depthM: toDepthM, atLimit: false }
+  if (landing === null) return { depthM: toDepthM, atLimit: false, release: 'move' }
 
   const downward = toDepthM > fromDepthM
   // ``contactId`` is optional on the candidate, and an anonymous boundary cannot be
@@ -217,5 +231,9 @@ export function clampContactDrag(
   }
 
   const depthM = downward ? Math.min(toDepthM, limit) : Math.max(toDepthM, limit)
-  return { depthM, atLimit: depthM !== toDepthM }
+  // A boundary was crossed, so the line is sitting on it or held short of it. Which of
+  // the two decides the sentence: on a packing boundary the release absorbs the band
+  // between, short of a contact wall it does nothing more than the nudge already did.
+  const release: ContactDragRelease = wallIsContact ? 'blocked' : 'merge'
+  return { depthM, atLimit: depthM !== toDepthM, release }
 }
