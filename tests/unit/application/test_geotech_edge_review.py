@@ -26,6 +26,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
 )
 from groundmodel.application.geotech_tie_reanchor import (
     REVIEW_AMBIGUOUS_BAND,
+    REVIEW_BAND_ABSORBED,
     REVIEW_CLASS_CHANGED,
 )
 
@@ -178,8 +179,10 @@ def test_ea8_already_flagged_mismatch_is_idempotent() -> None:
 def test_tr1_accepted_tie_transfers_to_the_survivor_and_is_flagged() -> None:
     """TR1 — the tie survives the absorb, re-anchored + flagged for review.
 
-    The survivor's class still matches the partner here, so the flag names the
-    anchor change (``ambiguous_band``), not a class change.
+    The survivor's class still matches the partner here, so the flag says what
+    actually happened — a band was absorbed under the tie — rather than the vaguer
+    ``ambiguous_band``, which belongs to the re-subdivide's anchor-identity doubt.
+    Owner, asked to choose between the two: *"band absorbed seems better?"*
     """
     absorbed, survivor, partner = uuid4(), uuid4(), uuid4()
     edge = _edge(absorbed, partner, approved=True)
@@ -196,7 +199,7 @@ def test_tr1_accepted_tie_transfers_to_the_survivor_and_is_flagged() -> None:
     assert move.edge_id == edge.edge_id
     assert {move.new_layer_a_id, move.new_layer_b_id} == {survivor, partner}
     assert move.new_layer_a_id < move.new_layer_b_id  # canonical order restored
-    assert move.review_reason == REVIEW_AMBIGUOUS_BAND
+    assert move.review_reason == REVIEW_BAND_ABSORBED
     assert plan.drops == ()
 
 
