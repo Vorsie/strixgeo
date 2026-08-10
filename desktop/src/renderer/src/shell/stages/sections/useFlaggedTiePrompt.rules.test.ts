@@ -11,7 +11,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LithoContactCorrelationEdge } from '../../../api/clients/geology.types'
 import { useFlaggedTiePrompt } from './useFlaggedTiePrompt'
 
-function edge(id: string, a: string, b: string): LithoContactCorrelationEdge {
+function edge(
+  id: string,
+  a: string,
+  b: string,
+  reason: string | null = 'class_changed',
+): LithoContactCorrelationEdge {
   return {
     id,
     layer_a_id: a,
@@ -19,7 +24,7 @@ function edge(id: string, a: string, b: string): LithoContactCorrelationEdge {
     layer_a_side: 'top',
     layer_b_side: 'base',
     user_approved: true,
-    review_reason: 'class_changed',
+    review_reason: reason,
   } as LithoContactCorrelationEdge
 }
 
@@ -119,5 +124,27 @@ describe('the flagged-tie question', () => {
       expect(result.current.flaggedCount).toBe(0)
       expect(result.current.busy).toBe(false)
     })
+  })
+
+  it('FT7 — an absorbed-band flag is not a mismatch, so it is not asked about', () => {
+    // The question is "these no longer match — delete them?". A tie flagged
+    // band_absorbed still MATCHES: the band it was drawn on was absorbed and the
+    // survivor carries the same class. Asking about it would state something false
+    // and invite the engineer to delete a correlation that is still right.
+    const edges = [edge('e1', 'la-1', 'lb-1'), edge('e2', 'la-2', 'lb-2', 'band_absorbed')]
+    const { result } = renderHook(() => useFlaggedTiePrompt({ edges, deleteEdge: vi.fn() }))
+    act(() => {
+      result.current.askAbout(['e1', 'e2'])
+    })
+    expect(result.current.flaggedCount).toBe(1)
+  })
+
+  it('FT8 — an edit that flagged only absorbed-band ties opens nothing', () => {
+    const edges = [edge('e1', 'la-1', 'lb-1', 'band_absorbed')]
+    const { result } = renderHook(() => useFlaggedTiePrompt({ edges, deleteEdge: vi.fn() }))
+    act(() => {
+      result.current.askAbout(['e1'])
+    })
+    expect(result.current.flaggedCount).toBe(0)
   })
 })
