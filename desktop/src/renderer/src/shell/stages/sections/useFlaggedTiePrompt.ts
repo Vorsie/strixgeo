@@ -16,7 +16,7 @@
  * No React rendering here; the dialog is a separate component.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import type { LithoContactCorrelationEdge } from '../../../api/clients/geology.types'
 import { log } from '../../../utils/log'
@@ -67,16 +67,31 @@ export interface UseFlaggedTiePromptResult {
  */
 export function useFlaggedTiePrompt(deps: UseFlaggedTiePromptDeps): UseFlaggedTiePromptResult {
   const { edges, deleteEdge } = deps
-  const [flaggedIds, setFlaggedIds] = useState<readonly string[]>([])
+  const [askedIds, setAskedIds] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
+
+  // The question is "these no longer MATCH — delete them?", so only the ties that
+  // stopped matching belong in it. An edit flags two different things: ``class_changed``
+  // is the mismatch, ``band_absorbed`` says the band the tie was drawn on was absorbed
+  // and the survivor carries the same class — still a correct correlation, still worth
+  // a badge, and not something to be offered for deletion under a sentence that would
+  // be false about it.
+  //
+  // Derived at render rather than filtered when the question is raised, so a slow edge
+  // refetch delays the dialog instead of emptying it.
+  const flaggedIds = useMemo(
+    () =>
+      askedIds.filter((id) => edges.find((e) => e.id === id)?.review_reason === 'class_changed'),
+    [askedIds, edges],
+  )
 
   const askAbout = useCallback((edgeIds: readonly string[]): void => {
     if (edgeIds.length === 0) return
-    setFlaggedIds(edgeIds)
+    setAskedIds(edgeIds)
   }, [])
 
   const keep = useCallback((): void => {
-    setFlaggedIds([])
+    setAskedIds([])
   }, [])
 
   const deleteAll = useCallback(async (): Promise<void> => {
@@ -118,7 +133,7 @@ export function useFlaggedTiePrompt(deps: UseFlaggedTiePromptDeps): UseFlaggedTi
       }
     } finally {
       setBusy(false)
-      setFlaggedIds([])
+      setAskedIds([])
     }
   }, [edges, deleteEdge, flaggedIds])
 
