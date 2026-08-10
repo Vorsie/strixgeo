@@ -173,3 +173,30 @@ one session:
   agent's half-written import fails everyone's `tsc`, so all commits stop. Either
   serialise implementers or give each a worktree. Standing down and waiting is
   the correct response — never `--no-verify`, never a retry loop.
+
+## Hiding a window to let its work finish is what stops the work (2026-08-10)
+
+The close flow hides the main window as soon as the engineer answers
+save-or-discard, then finishes the restore in the background so the desktop comes
+back immediately. Chromium backgrounds a hidden window and throttles its timers,
+so the hide starved the very work it existed to permit: the app never reached its
+own quit handshake and the process lingered with no window to show for it.
+`webPreferences.backgroundThrottling: false` is the fix.
+
+Three things worth carrying:
+
+* **Any renderer work that must outlive the window's visibility needs the flag.**
+  Hiding is not backgrounding-in-the-colloquial-sense; to Chromium it is a signal
+  that nothing on the page matters any more.
+* **The symptom was nowhere near the cause.** It surfaced as an e2e worker
+  teardown timeout on `flow_litho_facies` — a spec about lithology groups, which
+  passed alone in 14 s and hung for the full 180 s test timeout in any group run.
+  The failure screenshot showed the build complete and no dialog, i.e. the test
+  had finished its assertions; the hang was in `closeApp`. Spec-scoped debugging
+  would never have reached the window options.
+* **Bisect by disabling the suspect, not by reasoning about it.** Two theories
+  (a slow restore, a large payload fetch) were both plausible and both wrong; a
+  measurement killed the first (a replace-restore took 0.3 s). Making the hide a
+  no-op and re-running the failing pair answered it in four minutes: 16.4 s,
+  green. Then restore the suspect and fix it properly, so the fix is verified
+  against the real failure rather than against its absence.
