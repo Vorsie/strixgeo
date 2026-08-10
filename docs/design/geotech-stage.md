@@ -416,6 +416,21 @@ packing boundary.
   two collapses into the band above and the survivor is classified from the qc
   over the whole of its new extent. This is the headline case rather than an edge
   one — the clamp lands the drag exactly on the boundary every time.
+* **A wall that is itself a litho contact may NOT be reached.** Merging there
+  would absorb the last packing band of the unit between the two contacts, which
+  deletes the unit — and a drag on this axis refines a boundary, it does not
+  remove a layer. The line stops one minimum thickness short (the litho axis's own
+  0.1 m drag floor, shared so the two axes cannot disagree about how thin a layer
+  may become) and says what it hit. The planner refuses the same case
+  independently, so a clamp bug cannot reach the database; before that guard
+  existed it did, and the litho contiguity rule stopped it as an unhandled error
+  — which the owner met as a bare "nothing was changed" with no reason attached.
+* **The drag telegraphs its consequence**, as the litho axis already did (owner:
+  *"sure do the telegraph too, makes it more uniform?"*). Being clamped and
+  landing on something are different questions and the engineer needs the second:
+  a drag onto a packing boundary is not clamped at all and still costs a whole
+  band. So the clamp returns a verdict — move, merge or blocked — and the readout
+  says which.
 * **Direction decides who swallows whom.** Drag down and the layer above grows;
   drag up and the reverse. No menu, no above/below choice — the thing grabbed is
   the thing that moves. An A/B/C "which contact comes to me?" menu was designed
@@ -447,6 +462,32 @@ be asked again); the litho contact it restates; and the geological contact the
 litho row is derived from, when it carries one (about a third do). No correlation
 is touched: a tie is between contacts, so it survives and re-slopes. Nothing else
 on the column is re-derived (ruling 4).
+
+**What happens to the correlations it breaks.** Both bands re-derive, so an
+accepted tie anchored on one of them can stop matching its partner. Flag-not-drop
+keeps it and badges it violet — the machine does not throw away the engineer's own
+correlation on the strength of one edit — but that left him to find the badge later
+and reconstruct which edit put it there. He did exactly that once and asked for the
+question instead: *"check the correlations after merge ... then prompt user, do you
+want to delete correlation band because packing densities mismatch?"*. So every hand
+edit that flags accepted ties now raises it, once, after the refetch: keep them
+flagged, or delete them. Keeping is the cancel, because it is also what a dismissal
+means — the flags are already written. Deleting reuses the ordinary disconnect
+gesture, so a tie removed here is indistinguishable afterwards from one disconnected
+by hand. Only ACCEPTED ties reach the question; a pending proposal that stops
+matching is deleted outright, and asking about the machine's own withdrawn guess
+would turn every edit into paperwork.
+
+**A flagged tie stops unioning** (owner ruling 2026-08-10, on his own model). A tie
+does two jobs — it draws the correlation, and it makes its two layers one body — and
+until this ruling the flagged one went on doing the second. That left a body spanning
+NAD 8 and NAD 7, and pressing Build there would have welded a very dense sand to a
+dense sand across the gap and exported it. A body's contract is one packing class, so
+a shape that breaks it must not survive on a correlation the engineer has been asked
+to re-judge. The tie is otherwise untouched: still kept, still self-healing, still
+badged. Two review tokens tell the two questions apart — ``ambiguous_band`` means the
+re-anchor had to choose between candidate bands, ``band_absorbed`` means the band the
+tie was drawn on no longer exists as its own row.
 
 **The drag names its blast radius before it commits.** Every other verb on this
 axis stays inside the geotechnical model; this one gesture reaches up the
