@@ -788,3 +788,64 @@ async def test_gb19_the_litho_model_is_refused_by_the_kind_guard(
         json={"statistic": "harmonic"},
     )
     assert stat.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_gb20_a_flagged_tie_stops_unioning_the_two_bands_into_one_body(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB20 — a tie under review no longer joins its two bands into one body.
+
+    Owner ruling 2026-08-10, on his own data: a hand edit had left one body
+    spanning NAD 8 and NAD 7, and pressing Build there would have welded a very
+    dense sand to a dense sand across the gap and exported it. A body's contract
+    is one packing class, so a shape that breaks it must not survive on the
+    strength of a correlation the engineer has been asked to re-judge.
+
+    The flag itself is unchanged — the tie is still kept, still self-heals, and
+    still shows its violet badge. Only its effect on the model is suspended while
+    it waits.
+
+    The control move exists because "the two bands do not share a body" passes
+    trivially if they never shared one. It runs the resolver with the tie in place
+    and matching, which is the state the ruling changes.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    b_bands = await _bands_on(db_session, gid, band_scene["cpt_b_id"])
+    # Held as plain values: ``expire_all`` below detaches every loaded attribute, and
+    # reading one back would lazy-load from inside the assertion.
+    a_top_id, a_low_id, b_top_id = a_bands[0].id, a_bands[1].id, b_bands[0].id
+    boundary_m = a_bands[0].depth_base_m
+    accepted = await _insert_edge(db_session, band_scene, gid, a_top_id, b_top_id, approved=True)
+    move_url = _band_url(band_scene, gid, "move")
+    pair = {"upper_band_id": str(a_top_id), "lower_band_id": str(a_low_id)}
+
+    # Control: a nudge too small to change either class, so the tie still matches.
+    resp = await async_client.post(
+        move_url, json={**pair, "new_depth_m": round(boundary_m + 0.2, 3)}
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    edge = await db_session.get(LithoContactCorrelationEdgeOrm, accepted)
+    assert edge is not None
+    assert edge.review_reason is None, "the control move was supposed to keep the classes"
+    a_top = await db_session.get(LithoLayerOrm, a_top_id)
+    b_top = await db_session.get(LithoLayerOrm, b_top_id)
+    assert a_top is not None and b_top is not None
+    assert a_top.body_id is not None
+    assert a_top.body_id == b_top.body_id, "an accepted, matching tie unions its bands"
+
+    # GB6's class-breaking move: the tie survives, flagged.
+    resp = await async_client.post(move_url, json={**pair, "new_depth_m": 6.5})
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    edge = await db_session.get(LithoContactCorrelationEdgeOrm, accepted)
+    assert edge is not None
+    assert edge.review_reason == "class_changed"
+    a_top = await db_session.get(LithoLayerOrm, a_top_id)
+    b_top = await db_session.get(LithoLayerOrm, b_top_id)
+    assert a_top is not None and b_top is not None
+    assert a_top.body_id != b_top.body_id, "a flagged tie must not hold the body together"
