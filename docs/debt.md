@@ -5973,14 +5973,20 @@ inherited from where a file happens to sit. Both fixed; suite verified green aft
   FLAGGED tie keep its body union until confirmed/deleted (build proceeds
   keep-union), and should class-consistent transferred ties get a distinct
   `band_absorbed` token instead of `ambiguous_band`?
-* **Owner dogfeed of the snap gesture (§4c)** — whether the heavy/dashed
-  distinction reads at working zoom, whether the hover padlock is discoverable
-  without being noise, whether one-boundary-per-drag feels right or wants a
-  modifier for "go as far as I dragged", and whether the interim overhang should
-  be tinted as provisional rather than drawn plain (left open by the design as a
-  rendering question). Open decision: should the geotech axis get the amber
-  "snap on release" telegraph? It needs a per-frame drag plan, so it is a small
-  build rather than a tweak.
+* **Owner dogfeed of the snap gesture (§4c) — round 2 done 2026-08-09, four
+  findings closed, the rest still open.** Answered and shipped: the two boundary
+  kinds were NOT distinguishable by dash and width alone (both near-black, 1 px
+  vs 1.75 px) — the packing boundary is now mid-slate as well; the hover padlock
+  never appeared because it armed itself from an invisible glyph (a real defect,
+  and three unit tests passed throughout by hovering the one thing a user cannot
+  hover); the next boundary was demoted from a magnet to a WALL so a contact can
+  be nudged freely short of it; and landing on the boundary now merges rather
+  than 422s. The consequence prompt the owner asked for twice is built and names
+  the geological contact when the row carries one. **Still open:** whether the
+  interim overhang should be tinted as provisional rather than drawn plain (a
+  rendering question the design left open), and whether the geotech axis should
+  get the amber "snap on release" telegraph the litho axis has — it needs a
+  per-frame drag plan, so it is a small build rather than a tweak.
 * **Litho-level thin-interbed merge suggestion** — the CS1 zoom showed much of
   the "mess" at GEO-22/115-S10 is thin LITHO interbeds; the shipped suggestion
   covers only geotech class lenses. Separate slice against litho ghosts.
