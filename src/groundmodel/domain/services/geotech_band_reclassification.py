@@ -1118,6 +1118,26 @@ def plan_restated_contact_move(
     # PACKING boundary may not swallow its neighbour — and inheriting that rule here
     # is what broke the snap.
     if abs(rounded - lower.depth_base_m) <= _DEPTH_EPS_M:
+        # A merge absorbs the lower band, so the contact lands on that band's BASE.
+        # That is a legal refinement while the lower unit keeps band below it — the
+        # unit simply starts deeper. It is a deletion when the absorbed band is the
+        # unit's last one, because then the contact lands on the NEXT contact and the
+        # unit between them ceases to exist.
+        #
+        # Refused here rather than left to the database. The write is one transaction
+        # across three models, so the litho contiguity rule does stop it — but as an
+        # unhandled error, which reaches the engineer as a bare failure with no reason
+        # attached (the owner met it as "this happens when i try to move a solid on
+        # another solid"). A drag on this axis refines a boundary; removing a unit is
+        # the litho axis's job, and the message says so.
+        below = bands[lower_index + 1] if lower_index + 1 < len(bands) else None
+        if below is None or below.source_litho_formation_id != lower.source_litho_formation_id:
+            raise GeotechBandEditError(
+                "Contact move rejected: landing here would absorb the last packing "
+                "band of the lithostratigraphic unit below, which would delete the "
+                "unit itself. Stop short of that boundary, subdivide the unit below "
+                "first, or remove the unit on the lithology axis."
+            )
         (survivor,) = reclassify_intervals(
             soil=upper_soil,
             admixtures=upper_admixtures,
