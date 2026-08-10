@@ -234,3 +234,52 @@ describe('useLithoSolids — RF1: a band edit re-fetches the solids', () => {
     expect(countGets()).toBe(getsAfterMount + 1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// BD — a build is an unsaved change like any other
+// ---------------------------------------------------------------------------
+//
+// Owner, 2026-08-10: "i build the litho model, i clicked the x on top right, i
+// didn't even get a discard all changes. when i reopen the model is still there".
+//
+// He is right that this breaks the rule the rest of the app follows. The close
+// prompt gates on ``projectDirty`` (useProjectLifecycle.attemptClose), and building
+// never set it — so a build slipped out of the save story entirely: no prompt on
+// close, and nothing to discard against. It is not a derived cache that can be
+// shrugged off either; ``litho_solids`` is carried in the .strix bundle, so a build
+// genuinely changes what a save would write.
+
+describe('useLithoSolids — BD1: a completed build marks the project dirty', () => {
+  it('calls onMutated after the build lands', async () => {
+    const toast = vi.fn()
+    const onMutated = vi.fn()
+
+    const { result } = renderHook(() =>
+      useLithoSolids('proj-1', 'model-1', toast, undefined, onMutated),
+    )
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    expect(onMutated).toHaveBeenCalledTimes(1)
+  })
+
+  it('BD2 — but a REFUSED build changes nothing, so it marks nothing', async () => {
+    // The negative control. Without it, calling onMutated unconditionally at the top
+    // of the function would pass BD1 and make every failed attempt look like an edit.
+    buildReply = { status: 422, body: { detail: 'refused' } }
+    const toast = vi.fn()
+    const onMutated = vi.fn()
+
+    const { result } = renderHook(() =>
+      useLithoSolids('proj-1', 'model-1', toast, undefined, onMutated),
+    )
+
+    await act(async () => {
+      await result.current.buildLithoSolids(builder as never)
+    })
+
+    expect(onMutated).not.toHaveBeenCalled()
+  })
+})
