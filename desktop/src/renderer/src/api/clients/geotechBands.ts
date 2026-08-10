@@ -20,6 +20,7 @@ import type {
   GeotechBandEditPlanResponse,
   GeotechBandEditResponse,
   GeotechStatisticResponse,
+  RestatedContactMoveResponse,
 } from './geology.types'
 
 export const geotechBandsClient = {
@@ -149,6 +150,32 @@ export const geotechBandsClient = {
     newDepthM: number,
   ): Promise<GeotechBandEditResponse> =>
     post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/move`, {
+      upper_band_id: upperBandId,
+      lower_band_id: lowerBandId,
+      new_depth_m: newDepthM,
+    }),
+
+  /**
+   * POST .../geotech/contact/move — drag the boundary that RESTATES a
+   * lithostratigraphic contact, moving every model that records it.
+   *
+   * The sibling of ``moveGeotechBoundary``, for the other kind of boundary.
+   * That one moves a packing boundary inside one litho unit; this one moves the
+   * boundary BETWEEN two units, so the packing bands, the litho contact and —
+   * when the row carries one — the geological contact all move in a single
+   * transaction. Both bands re-derive their class, because their extents
+   * changed and the chain is soil type → qc → NAD parameters.
+   *
+   * The response names what was carried, so the UI can say it.
+   */
+  moveRestatedContact: (
+    projectId: string,
+    geotechModelId: string,
+    upperBandId: string,
+    lowerBandId: string,
+    newDepthM: number,
+  ): Promise<RestatedContactMoveResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/contact/move`, {
       upper_band_id: upperBandId,
       lower_band_id: lowerBandId,
       new_depth_m: newDepthM,

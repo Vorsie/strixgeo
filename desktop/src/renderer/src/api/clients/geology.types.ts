@@ -1276,6 +1276,26 @@ export interface GeotechBandEditResponse {
   cleared_edge_ids?: string[]
 }
 
+/**
+ * Response of ``geotech/contact/move`` — the band outcome plus what else moved.
+ *
+ * Extends the band-edit payload because the geotech half of this gesture IS a
+ * band move. What it adds is the answer to "what else did I just change": a
+ * restated contact is one boundary recorded in two or three models, and the
+ * engineer has to be told which ones the drag will carry.
+ */
+export interface RestatedContactMoveResponse extends GeotechBandEditResponse {
+  /** The litho layer above the contact; its base moved. */
+  litho_upper_layer_id: string
+  /** The litho layer below; its top moved. */
+  litho_lower_layer_id: string
+  /**
+   * The geological contact carried with it, or null when the litho row is not
+   * derived from one. About a third are, so neither answer is the safe default.
+   */
+  geo_contact_id: string | null
+}
+
 /** The statistic state of a geotech model after a change (rulings 7+8). */
 export interface GeotechStatisticResponse {
   /** The choice now stored on the model. */
