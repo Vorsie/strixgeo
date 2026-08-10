@@ -36,6 +36,7 @@ import type {
   GeotechBandEditResponse,
 } from '../../../api/client'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
+import { apiFailureMessage } from '../../../utils/apiFailureMessage'
 import { log } from '../../../utils/log'
 
 /** The edit being previewed, kept so the commit repeats it exactly. */
@@ -96,6 +97,21 @@ export interface UseGeotechBandEditDeps {
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
   /** The section undo stack; every committed band edit pushes onto it. */
   undoStack: BandEditUndoStack
+  /**
+   * Report the accepted ties this edit flagged, once the view matches the server.
+   *
+   * Flag-not-drop keeps a broken correlation and badges it, which leaves the engineer
+   * to find the badge and judge it later. The owner did exactly that once and asked
+   * for the question instead: *"check the correlations after merge ... then prompt
+   * user, do you want to delete correlation band because packing densities
+   * mismatch?"*. The hook does not own that prompt — it only says what happened, and
+   * only after the refetch, so the ids can be resolved against a list that matches
+   * the server.
+   *
+   * Only ever ACCEPTED ties: a pending proposal that stops matching is deleted
+   * outright, so it never reaches this.
+   */
+  onAcceptedTiesFlagged?: (edgeIds: readonly string[]) => void
 }
 
 /** The preview lifecycle plus the request handlers. */
@@ -161,6 +177,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     markMutated,
     toast,
     undoStack,
+    onAcceptedTiesFlagged,
   } = deps
 
   const [pending, setPending] = useState<PendingEdit | null>(null)
@@ -172,10 +189,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
   /** Report a failed call using the server's own words when it gave any. */
   const reportFailure = useCallback(
     (err: unknown, fallback: string): void => {
-      // ``post()`` throws ``new Error(detail.detail)`` for non-2xx, so on a 422 the message
-      // IS the domain message — the one that names the wall and the axis to fix it on.
-      const message = err instanceof Error ? err.message : fallback
-      toast('error', message)
+      toast('error', apiFailureMessage(err, fallback))
     },
     [toast],
   )
@@ -509,13 +523,27 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
             'reopen the section before judging the ties.',
         )
       }
+      // Ask about the broken correlations while the engineer still has the context of
+      // the edit that broke them. After the refetch on purpose: the listener resolves
+      // these ids against the on-screen edge list, which has just been re-read.
+      const flaggedIds = result.flagged_edge_ids ?? []
+      if (flaggedIds.length > 0) onAcceptedTiesFlagged?.(flaggedIds)
     } catch (err) {
       log.warn('section', `band-${pending.kind} commit failed`, err)
       reportFailure(err, 'Could not apply the edit — try again.')
     } finally {
       setBusy(false)
     }
-  }, [modelId, pending, projectId, settleAfterWrite, pushUndoFor, toast, reportFailure])
+  }, [
+    modelId,
+    pending,
+    projectId,
+    settleAfterWrite,
+    pushUndoFor,
+    toast,
+    reportFailure,
+    onAcceptedTiesFlagged,
+  ])
 
   return {
     onRequestSplitBand: modelId === null ? undefined : onRequestSplitBand,
