@@ -55,6 +55,7 @@ from groundmodel.api.schemas.project.geotech_band_edit import (
     GeotechStatisticResponse,
     MergeGeotechBandsRequest,
     MoveGeotechBoundaryRequest,
+    RestatedContactMoveResponse,
     SetGeotechStatisticRequest,
     SplitGeotechBandRequest,
 )
@@ -77,6 +78,7 @@ from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditRes
 from groundmodel.application.geotech_tie_status import load_geotech_tie_status
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
 from groundmodel.application.move_geotech_band_boundary import MoveGeotechBandBoundary
+from groundmodel.application.move_restated_contact import MoveRestatedContact
 from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
 from groundmodel.application.set_geotech_statistic import SetGeotechStatistic
 from groundmodel.application.split_geotech_band import SplitGeotechBand
@@ -1397,3 +1399,81 @@ async def move_geotech_boundary(
         f"removed={len(result.deleted_edge_ids)}"
     )
     return _edit_payload(result)
+
+
+@router.post(
+    "/models/{model_id}/geotech/contact/move",
+    response_model=RestatedContactMoveResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Drag a restated litho contact; bands, litho and geology move together",
+    tags=["geotech"],
+)
+async def move_restated_contact(
+    project_id: UUID,
+    model_id: UUID,
+    request: MoveGeotechBoundaryRequest,
+    session: AsyncSession = Depends(get_session),
+) -> RestatedContactMoveResponse:
+    """Move a contact restated by a packing boundary, in every model that records it.
+
+    The sibling of ``geotech/bands/move``, for the OTHER kind of boundary. That
+    one drags a packing boundary inside one litho unit; this one drags the
+    boundary BETWEEN two units, which is a lithostratigraphic contact recorded
+    once per model. Moving it in one model and not the others splits one physical
+    boundary into records that disagree — and the disagreement is invisible until
+    the next drag on the same line cannot find its own contact.
+
+    Both bands re-derive their NAD class, because their extents changed and the
+    chain is soil type -> qc -> NAD parameters (ruling 3).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : MoveGeotechBoundaryRequest
+        The adjacent pair + the new contact depth. Same body as the packing move.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    RestatedContactMoveResponse
+        The band outcome plus the litho rows and geological contact carried.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the pair is not an adjacent cross-unit pair, the depth falls outside
+        it, the column is a borehole, or no litho contact sits at the boundary.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/contact/move "
+        f"upper={request.upper_band_id} lower={request.lower_band_id} "
+        f"depth={request.new_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/contact/move")
+    try:
+        result = await MoveRestatedContact(session).execute(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            upper_band_id=request.upper_band_id,
+            lower_band_id=request.lower_band_id,
+            new_depth_m=request.new_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    logger.info(
+        f"move_restated_contact ok investigation={result.band_result.investigation_id} "
+        f"depth={request.new_depth_m} geo_contact={result.geo_contact_id}"
+    )
+    base = _edit_payload(result.band_result)
+    return RestatedContactMoveResponse(
+        **base.model_dump(),
+        litho_upper_layer_id=result.litho_upper_layer_id,
+        litho_lower_layer_id=result.litho_lower_layer_id,
+        geo_contact_id=result.geo_contact_id,
+    )
