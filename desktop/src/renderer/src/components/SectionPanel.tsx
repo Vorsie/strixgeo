@@ -73,7 +73,7 @@ import ContactsLayer, {
 } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { restatingContactIds } from './sections/geotechBoundaryKinds'
-import { clampToNextBoundary, packingSnapCandidates } from './sections/geotechSnapTargets'
+import { clampContactDrag, packingSnapCandidates } from './sections/geotechSnapTargets'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import {
   useSectionKeyboardShortcuts,
@@ -133,6 +133,17 @@ import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
 
 /** Stable empty map so the PartitionFillOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
+
+/**
+ * Thinnest layer a contact drag may leave behind, in metres.
+ *
+ * Serves both axes, which is why it is named rather than repeated. On the litho axis
+ * it is the floor a drag keeps from its neighbouring contacts; on the geotech axis it
+ * is how far short of a restated litho contact the line stops, so that reaching the
+ * wall can never delete the unit between the two contacts. One value, so the two axes
+ * cannot disagree about how thin a layer is allowed to become.
+ */
+const CONTACT_DRAG_MIN_THICKNESS_M = 0.1
 
 // Litho free-draw master switch — shared module so the voxel build gates on the SAME
 // flag (off = off end to end, owner ruling 2026-08-07). Withholding onSaveBoundary /
@@ -2174,17 +2185,18 @@ export default function SectionPanel({
     [axisMode, refinement, lithoLayers],
   )
 
-  // Stop a live contact drag at the next packing boundary it crosses (design §2 —
-  // one drag consumes one boundary). The same ``clampToNextBoundary`` the release
-  // path already used, moved onto every frame so the line shows the landing it will
-  // actually commit to instead of trailing the cursor and jumping back.
+  // Stop a live contact drag at the next boundary it crosses (design §4c — one drag
+  // consumes one boundary). Evaluated on every frame, so the line shows the landing it
+  // will actually commit to instead of trailing the cursor and jumping back.
   //
-  // ``null`` from the clamp means nothing was crossed — there is nowhere legal to go
-  // in that direction, so the contact holds its own depth and reads as clamped rather
-  // than as an error. That is the case for a litho unit the qc never subdivided.
+  // Which boundary may be LANDED on is the other half of the rule, and it is why the
+  // restating set is passed in: a packing boundary may (that is the drag-merge), a
+  // boundary restating a litho contact may not (it would delete the unit between the
+  // two contacts). ``clampContactDrag`` holds both.
   const clampGeotechDragToBoundary = useMemo(() => {
     if (axisMode !== 'geotechnical' || refinement === undefined) return undefined
     const candidatesByColumn = packingSnapCandidates(refinement.geotechLayers)
+    const restating = restatingBoundaryIds ?? new Set<string>()
     return (contactId: string, rawDepthM: number): { depthM: number; atLimit: boolean } => {
       // Keyed by the GEOTECH band, not the litho row: on this axis the drawn contact
       // IS a band's top, and the litho row it restates is resolved later, by depth.
@@ -2197,20 +2209,15 @@ export default function SectionPanel({
       const candidates = (candidatesByColumn.get(anchorId) ?? []).filter(
         c => c.contactId !== contactId,
       )
-      const landing = clampToNextBoundary(startDepthM, rawDepthM, candidates)
-      // NOTHING crossed → free movement. The contact is being nudged inside the run it
-      // already occupies, which is a refinement like any other: geological → litho →
-      // geotech, each level refining the one above, so a correction made here has to be
-      // able to land where the evidence says rather than only on a band edge.
-      if (landing === null) return { depthM: rawDepthM, atLimit: false }
-      // A boundary WAS crossed → that boundary is the far wall. Anywhere short of it is
-      // free (the nudge); past it is refused, because one drag consumes one boundary and
-      // reaching the next one takes a second drag.
-      const beyond =
-        rawDepthM > startDepthM ? Math.min(rawDepthM, landing) : Math.max(rawDepthM, landing)
-      return { depthM: beyond, atLimit: beyond !== rawDepthM }
+      return clampContactDrag(
+        startDepthM,
+        rawDepthM,
+        candidates,
+        restating,
+        CONTACT_DRAG_MIN_THICKNESS_M,
+      )
     }
-  }, [axisMode, refinement, lithoLayers])
+  }, [axisMode, refinement, lithoLayers, restatingBoundaryIds])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
@@ -2977,7 +2984,7 @@ export default function SectionPanel({
               // Pinned as behaviour in ContactsLayer.geotechDragClamp.test.tsx
               // (DC1-DC4); the landing rule is the floor here instead.
               contactDragClampMinThicknessM={
-                axisMode === 'lithostratigraphic' ? 0.1 : undefined
+                axisMode === 'lithostratigraphic' ? CONTACT_DRAG_MIN_THICKNESS_M : undefined
               }
               // Debt #134-B — pre-release "↦ snap on release" hint in
               // the drag readout.  Only meaningful on the litho axis;
