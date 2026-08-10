@@ -14,16 +14,18 @@
  *
  * Every rule shipped unit-tested in isolation (``geotechSnapTargets``,
  * ``geotechContactDrag``, the SectionsCanvas seam). This spec is the only thing
- * that proves the CHAIN — rendered hit strip → plan → litho PATCH — in the real
- * app. It walks:
+ * that proves the CHAIN — rendered hit strip → plan → prompt → write — in the
+ * real app. It walks:
  *
  *   1. press the contact's hit strip on the geotech axis and drag PAST two
  *      packing boundaries;
- *   2. the LITHO contact moves to the FIRST boundary crossed (one drag consumes
- *      one boundary — "can't skip a boundary right, drag merge first, then drag
+ *   2. the drag ASKS before it writes, naming what moves with the contact;
+ *   3. the contact lands on the FIRST boundary crossed (one drag consumes one
+ *      boundary — "can't skip a boundary right, drag merge first, then drag
  *      merge second");
- *   3. not one packing band is created or deleted — the drag moved a litho row,
- *      it never re-derives the subdivision.
+ *   4. not one packing band is created or deleted. The boundary between two of
+ *      them moves and both re-derive their class, but the subdivision itself is
+ *      never re-run.
  *
  * The action is a real UI gesture; every side-effect check goes through the API,
  * because the rows are deterministic and the paint is not. The drag synthesis is
@@ -98,37 +100,38 @@ test.describe('flow_geotech_snap_contact', () => {
       await expect(axisGeotech).toBeEnabled({ timeout: 10_000 })
       await axisGeotech.click()
 
-      // Take the target from what the overlay actually DREW, the way the sibling
-      // band-edit spec takes its drag pair from the strips. The padlock marker is
-      // rendered on exactly the boundaries the overlay classified as litho contacts
-      // — the same predicate the drag plan runs — so a prepared column that carries
-      // no marker here is one this section correctly does not offer the gesture on.
-      // Name the two failures apart: no band hit rects at all means the overlay
-      // never mounted (wrong axis, no refinement bundle); rects but no marker means
-      // nothing on THIS section restates a litho contact.
+      // The band rects prove the overlay MOUNTED at all, which is a different failure
+      // from "it mounted and offers nothing here" — worth telling apart, because the
+      // first means the wrong axis or a missing refinement bundle.
       const bandRects = page.locator('[data-testid^="geotech-band-hit-"]')
       await expect(
         bandRects.first(),
         'the band-edit overlay must mount on the geotech axis',
       ).toBeVisible({ timeout: 20_000 })
-      const markers = page.locator('[data-testid^="geotech-contact-marker-"]')
-      await markers.first().waitFor({ state: 'attached', timeout: 20_000 })
-      const markedUpperIds = (
-        await markers.evaluateAll(els =>
-          els.map(el =>
-            (el.getAttribute('data-testid') ?? '').replace('geotech-contact-marker-', ''),
-          ),
-        )
-      ).filter(Boolean)
-      expect(
-        markedUpperIds.length,
-        'this section must draw at least one restated litho contact',
-      ).toBeGreaterThan(0)
 
-      const target = targets.find(t => markedUpperIds.includes(t.upperBandId))
+      // Take the target from the DRAG STRIPS, not from padlock markers.
+      //
+      // This used to wait for ``geotech-contact-marker-*`` to be attached. The padlock
+      // was rendered on every restated contact at ``opacity 0`` and raised itself from
+      // its own hover, so it was always in the DOM — and always unreachable to a user,
+      // which is the defect the owner found on 2026-08-09. It now renders only while
+      // the boundary is hovered, so waiting for one at rest waits forever.
+      //
+      // The strip is the better anchor anyway: it is the surface that owns the press,
+      // so a boundary that has one is a boundary this gesture can actually start on.
+      // Note the id — a strip is keyed by the band BELOW the boundary (a contact IS
+      // that band's top), which is ``lowerBandId``, not the ``upperBandId`` the
+      // padlock used.
+      const strips = page.locator('[data-testid="contact-drag-strip"]')
+      await strips.first().waitFor({ state: 'attached', timeout: 20_000 })
+      const drawnContactIds = (
+        await strips.evaluateAll(els => els.map(el => el.getAttribute('data-contact-id') ?? ''))
+      ).filter(Boolean)
+
+      const target = targets.find(t => drawnContactIds.includes(t.lowerBandId))
       expect(
         target,
-        `a drawn contact marker must resolve to a prepared column — drawn=[${markedUpperIds.join(', ')}]`,
+        `a drawn contact strip must resolve to a prepared column — drawn=[${drawnContactIds.join(', ')}]`,
       ).toBeDefined()
       const {
         lowerBandId,
@@ -363,6 +366,18 @@ test.describe('flow_geotech_snap_contact', () => {
       )
       await page.mouse.up()
 
+      // ANSWER THE CONSEQUENCE PROMPT. The release no longer writes: it asks first,
+      // naming the litho contact and — when the row carries one — the geological
+      // contact that will move with it (owner, 2026-08-09: "the warning, moving this
+      // boundary will move litho alongside it didn't appear"). A spec that skipped
+      // the dialog would be testing a gesture the engineer cannot perform.
+      const moveDialog = page.getByTestId('move-restated-contact-dialog')
+      await expect(
+        moveDialog,
+        'the drag must ASK before it moves anything up the hierarchy',
+      ).toBeVisible({ timeout: 15_000 })
+      await page.getByTestId('move-restated-contact-confirm').click()
+
       // Polled as a WORD, not a depth: a missing row would make a numeric
       // ``not.toBeCloseTo`` pass on NaN, i.e. a deleted contact would read as a
       // successful move. Three named outcomes cannot do that.
@@ -383,11 +398,11 @@ test.describe('flow_geotech_snap_contact', () => {
         })
         .toBe('moved')
 
-      // The litho↔geo coupling prompt can open on top once the PATCH lands (a third
-      // of litho rows restate a geological contact). It is inert — the depth is
-      // already written — but dismiss it so nothing is left modal.
-      const snapCancel = page.getByTestId('snap-cancel')
-      if (await snapCancel.isVisible().catch(() => false)) await snapCancel.click()
+      // The old litho↔geo prompt is NOT dismissed here any more, because it no longer
+      // opens on this axis. A coupled geological contact is carried inside the same
+      // transaction as the litho row, so there is no direction left to choose — the
+      // consequence dialog above states it instead. (The three-option prompt is still
+      // live on the litho axis; SectionsCanvas.geotechGeoSnap GS3 guards it.)
 
       const lithoAfter = await readModelLayers(page, API_BASE, FIXTURE_PROJECT_ID, lithoModelId)
       const movedRow = lithoAfter.find(r => r.id === lithoLayerId)!
@@ -410,13 +425,23 @@ test.describe('flow_geotech_snap_contact', () => {
       // litho column stays gap-free.
       expect(partnerRow.depth_base_m).toBeCloseTo(movedRow.depth_top_m, 3)
 
-      // The subdivision is untouched: the drag moved a litho row, it never
-      // re-derives, splits or merges a packing band.
+      // The drag landed ON the next boundary, so the band between the contact and that
+      // boundary is ABSORBED into the one above — the litho unit above now owns the
+      // ground down to it. The owner's own name for the gesture is "drag merge".
+      //
+      // What must NOT happen is a re-subdivision: exactly one band goes, none appear,
+      // and every other band on every other column is left alone. Asserting the whole
+      // id set rather than a count is what makes that second half real.
       const bandsAfter = await readModelLayers(page, API_BASE, FIXTURE_PROJECT_ID, geotechModelId)
+      const afterIds = bandsAfter.map(b => b.id).sort()
+      const goneIds = bandIdsBefore.filter(id => !afterIds.includes(id))
+      const newIds = afterIds.filter(id => !bandIdsBefore.includes(id))
+
+      expect(newIds, 'a contact drag may never CREATE a packing band').toEqual([])
       expect(
-        bandsAfter.map(b => b.id).sort(),
-        'no packing band may be created or deleted by a contact drag',
-      ).toEqual(bandIdsBefore)
+        goneIds,
+        'exactly the absorbed band goes — the one whose top was the contact',
+      ).toEqual([lowerBandId])
 
       // Put the litho contact back where the fixture had it — other specs read this
       // model, and the geotech model is the only thing this flow means to rebuild.
