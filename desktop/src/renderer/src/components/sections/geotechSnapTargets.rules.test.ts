@@ -134,10 +134,12 @@ describe('the wall a contact drag stops against', () => {
     expect(clampContactDrag(3, 4, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 4,
       atLimit: false,
+      release: 'merge',
     })
     expect(clampContactDrag(3, 8.5, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 4,
       atLimit: true,
+      release: 'merge',
     })
   })
 
@@ -150,10 +152,12 @@ describe('the wall a contact drag stops against', () => {
     expect(clampContactDrag(7, 9, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 8.9,
       atLimit: true,
+      release: 'blocked',
     })
     expect(clampContactDrag(7, 20, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 8.9,
       atLimit: true,
+      release: 'blocked',
     })
   })
 
@@ -161,6 +165,7 @@ describe('the wall a contact drag stops against', () => {
     expect(clampContactDrag(9.5, 9, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 9.1,
       atLimit: true,
+      release: 'blocked',
     })
   })
 
@@ -170,6 +175,7 @@ describe('the wall a contact drag stops against', () => {
     expect(clampContactDrag(4.5, 5.2, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 5.2,
       atLimit: false,
+      release: 'move',
     })
   })
 
@@ -180,6 +186,26 @@ describe('the wall a contact drag stops against', () => {
     expect(clampContactDrag(8.95, 9, CANDIDATES, RESTATING, GAP)).toEqual({
       depthM: 8.95,
       atLimit: true,
+      release: 'blocked',
     })
+  })
+})
+
+describe('what a release will do, said before the release', () => {
+  const CANDIDATES = [
+    { depth: 4, contactId: 'pack-a' },
+    { depth: 9, contactId: 'contact-band' },
+  ]
+  const RESTATING = new Set(['contact-band'])
+
+  it('GW6 — the telegraph is about the landing, not about being clamped', () => {
+    // The litho axis tells the engineer what a release will do before he lets go.
+    // The geotech axis said only "stops here", which is true of a nudge held at a
+    // wall AND of a landing that absorbs a whole band — two very different releases.
+    // Owner: "sure do the telegraph too, makes it more uniform?".
+    //
+    // Dragging exactly onto the boundary is not clamped at all, and it still merges.
+    expect(clampContactDrag(3, 4, CANDIDATES, RESTATING, 0.1).atLimit).toBe(false)
+    expect(clampContactDrag(3, 4, CANDIDATES, RESTATING, 0.1).release).toBe('merge')
   })
 })
