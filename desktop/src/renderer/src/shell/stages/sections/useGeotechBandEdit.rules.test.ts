@@ -68,6 +68,7 @@ const PLAN_WITH_WARNING = {
 }
 
 const toast = vi.fn()
+const onAcceptedTiesFlagged = vi.fn()
 
 function deps() {
   return {
@@ -78,6 +79,7 @@ function deps() {
     markMutated: vi.fn(),
     toast,
     undoStack: { push: vi.fn() },
+    onAcceptedTiesFlagged,
   }
 }
 
@@ -321,6 +323,46 @@ describe('every committed band edit is undoable (app-wide owner rule)', () => {
     })
     const message = toast.mock.calls.at(-1)?.[1] as string
     expect(message).toMatch(/2.*flagged for review/)
+  })
+
+  it('HK15 — a flagged tie is reported so the engineer can be asked about it', async () => {
+    // Owner, after hunting a violet badge down by hand: "check the correlations
+    // after merge ... then prompt user, do you want to delete correlation band
+    // because packing densities mismatch?". The toast alone does not ask anything,
+    // so the ids go out to whoever owns the prompt. Reported AFTER the refetch, so
+    // the ids can be looked up in a list that matches the server.
+    mergeGeotechBands.mockResolvedValue({
+      deleted_edge_ids: [],
+      flagged_edge_ids: ['edge-1', 'edge-2'],
+      investigation_id: 'cpt-1',
+      layer_ids: ['band-upper'],
+      created_layer_ids: [],
+      deleted_layer_ids: ['band-lower'],
+    })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMergeBands?.('band-upper', 'band-lower', 4.5)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(onAcceptedTiesFlagged).toHaveBeenCalledWith(['edge-1', 'edge-2'])
+  })
+
+  it('HK16 — an edit that flagged nothing asks nothing', async () => {
+    // Every split, merge and move would otherwise open a dialog over a list of none.
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestMoveBoundary?.('band-u', 'band-l', 4.6, 4.0)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(onAcceptedTiesFlagged).not.toHaveBeenCalled()
   })
 
   it('HK14 — revert refreshes the render exactly as the commit did', async () => {
