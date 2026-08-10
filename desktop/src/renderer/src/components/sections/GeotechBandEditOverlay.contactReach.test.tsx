@@ -41,7 +41,7 @@ import type {
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
 import { restatingContactIds } from './geotechBoundaryKinds'
-import { clampToNextBoundary, packingSnapCandidates } from './geotechSnapTargets'
+import { clampContactDrag, packingSnapCandidates } from './geotechSnapTargets'
 import GeotechBandEditOverlay, { BAND_HIT_INSET_PX } from './GeotechBandEditOverlay'
 import type { PlacedColumn } from './utils'
 
@@ -275,20 +275,26 @@ function renderStack(opts: { thin?: boolean } = {}): {
         axisMode="geotechnical"
         restatingContactIds={restatingContactIds(geotechLayers, lithoLayers)}
         clampDragToBoundary={(contactId, rawDepthM) => {
-          // The same closure SectionPanel builds, on the same pure pieces: the
-          // column's packing boundaries, minus the dragged contact's own.
+          // The REAL rule, not a copy of it. This spec used to re-implement the clamp
+          // inline, which meant it went on passing after the rule changed underneath —
+          // it kept letting a drag land on a litho contact long after that became the
+          // refusal. Only the lookup of the dragged row is local.
           const dragged = geotechLayers.find(l => l.id === contactId)
           const start = dragged?.depth_top_m
           const anchor = dragged?.cpt_id ?? dragged?.borehole_id ?? null
-          if (anchor === null || start === undefined) return { depthM: rawDepthM, atLimit: false }
+          if (anchor === null || start === undefined) {
+            return { depthM: rawDepthM, atLimit: false, release: 'move' as const }
+          }
           const cands = (packingSnapCandidates(geotechLayers).get(anchor) ?? []).filter(
             c => c.contactId !== contactId,
           )
-          const landing = clampToNextBoundary(start, rawDepthM, cands)
-          if (landing === null) return { depthM: rawDepthM, atLimit: false }
-          const beyond =
-            rawDepthM > start ? Math.min(rawDepthM, landing) : Math.max(rawDepthM, landing)
-          return { depthM: beyond, atLimit: beyond !== rawDepthM }
+          return clampContactDrag(
+            start,
+            rawDepthM,
+            cands,
+            restatingContactIds(geotechLayers, lithoLayers),
+            0.1,
+          )
         }}
       />
       <GeotechBandEditOverlay
