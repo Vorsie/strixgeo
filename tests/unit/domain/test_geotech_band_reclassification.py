@@ -816,6 +816,9 @@ def test_rc4_landing_on_the_next_boundary_is_a_MERGE_not_a_move() -> None:
     bands = [
         _band("upper", 0.0, 4.0, None, litho=LITHO_A),
         _band("lower", 4.0, 7.0, None, litho=LITHO_B),
+        # LITHO_B keeps band below the absorbed one, so the unit survives the merge
+        # as a thinner unit. Without it this is RC7's refusal, not a merge.
+        _band("floor", 7.0, 10.0, None, litho=LITHO_B),
     ]
 
     plan = plan_restated_contact_move(
@@ -880,10 +883,12 @@ def test_rc6_the_merged_band_re_derives_its_class_from_the_new_intervals_qc() ->
     part, so a re-derived class must be the dense one — if the survivor came back as
     class 6, the value was carried.
     """
-    depths, qc = _series([(0.0, 2.0, 5.0), (2.0, 7.0, 30.0)])
+    depths, qc = _series([(0.0, 2.0, 5.0), (2.0, 7.0, 30.0), (7.0, 10.0, 30.0)])
     bands = [
         _band("upper", 0.0, 2.0, 6, litho=LITHO_A),
         _band("lower", 2.0, 7.0, 9, litho=LITHO_B),
+        # LITHO_B survives the merge as a thinner unit — see RC4.
+        _band("floor", 7.0, 10.0, 9, litho=LITHO_B),
     ]
 
     plan = plan_restated_contact_move(
@@ -906,3 +911,41 @@ def test_rc6_the_merged_band_re_derives_its_class_from_the_new_intervals_qc() ->
     # The qc read over the merged span, and the class that follows from it.
     assert survivor.median_qc_mpa == pytest.approx(30.0)
     assert survivor.nad_class == 8
+
+
+def test_rc7_a_merge_that_would_consume_a_whole_litho_unit_is_refused() -> None:
+    """Dragging a contact onto the NEXT contact would delete the unit between them.
+
+    The owner hit this: *"this happens when i try to move a solid on another
+    solid"*, and it answered with a 500. The merge absorbs the lower band, so the
+    contact lands on that band's base — which is fine while the unit has more band
+    below, and is the unit's own floor when it does not. Consuming the floor
+    deletes the lithostratigraphic unit, which no drag on the geotech axis is
+    allowed to do: the engineer is refining a boundary, not removing a layer.
+
+    It has to be refused HERE rather than left to the database. The write is one
+    transaction across three models, so the litho contiguity rule does stop it —
+    but as an unhandled error, which reaches the engineer as "nothing was changed"
+    with no reason attached.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A),
+        # The only band of LITHO_B. Absorbing it leaves the unit with nothing.
+        _band("lower", 4.0, 7.0, None, litho=LITHO_B),
+    ]
+
+    with pytest.raises(GeotechBandEditError, match="lithostratigraphic unit"):
+        plan_restated_contact_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=7.0,
+            upper_soil="ZAND",
+            upper_admixtures=(),
+            lower_soil="KLEI",
+            lower_admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
