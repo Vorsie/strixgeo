@@ -397,16 +397,25 @@ better than the driller's 0.5 m log grid did. Measured on the dev model, CPT
 boundaries and **14 are litho contacts**. The owner reached for one of the 14
 twice in ten minutes and read the (correct) refusal as a broken app.
 
-So on the geotech axis a litho contact is draggable, and it **snaps onto that
-column's packing boundaries**. This is an explicit, consented edit of the litho
-model made from the screen that happens to show the best evidence for it — not
-a weakening of ruling 2, which still holds for every packing boundary.
+So on the geotech axis a litho contact is draggable. This is an explicit,
+consented edit of the litho model made from the screen that happens to show the
+best evidence for it — not a weakening of ruling 2, which still holds for every
+packing boundary.
 
-* **One boundary per drag.** The drag clamps at the NEXT packing boundary in the
-  direction of travel, over a half-open `(from, to]` interval — origin-exclusive,
-  or a contact already sitting on a boundary would be stranded there. Moving two
-  boundaries takes two drags, each its own undo step (owner: *"can't skip a
-  boundary right, drag merge first, then drag merge second"*).
+* **The next packing boundary is a WALL, not a magnet** (owner reversed the
+  original snap-only ruling on dogfeed: *"i want to be able to nudge those
+  solids"*). The contact goes anywhere the engineer puts it short of that
+  boundary; it is stopped BY it, not pulled ONTO it. A refinement of a few
+  centimetres is the common case and the first build threw it away.
+* **One boundary per drag.** The clamp is a half-open `(from, to]` interval —
+  origin-exclusive, or a contact already sitting on a boundary would be stranded
+  there. Moving two boundaries takes two drags, each its own undo step (owner:
+  *"can't skip a boundary right, drag merge first, then drag merge second"*).
+* **Landing ON the boundary is a MERGE**, and the owner named it: the litho unit
+  above now owns the ground down to it, so the packing band that sat between the
+  two collapses into the band above and the survivor is classified from the qc
+  over the whole of its new extent. This is the headline case rather than an edge
+  one — the clamp lands the drag exactly on the boundary every time.
 * **Direction decides who swallows whom.** Drag down and the layer above grows;
   drag up and the reverse. No menu, no above/below choice — the thing grabbed is
   the thing that moves. An A/B/C "which contact comes to me?" menu was designed
@@ -425,11 +434,27 @@ a weakening of ruling 2, which still holds for every packing boundary.
   refuses. Depth proximity picks only WHICH litho row, never whether the gesture
   is offered.
 
-**What is written: one fact — the contact's depth.** `MoveLithoLayerBoundary`
-does the atomic two-row write; a contact carrying `parent_geo_contact_id` moves
-its geological contact in the SAME transaction, so the coupling can never be left
-half-applied. No packing band is rebuilt, re-derived or deleted, and no
-correlation is touched: a tie is between contacts, so it survives and re-slopes.
+**What is written: one boundary, in all three models, in one transaction**
+(`MoveRestatedContact`). A contact restated in three models is ONE physical
+boundary, so moving it in only one splits it — which is exactly what the first
+build did, and it produced two symptoms that look unrelated and are not: the line
+did not move (the geotech axis draws the BANDS), and the second drag on the same
+line was refused, because the litho row is resolved by matching the band's depth
+and the two no longer coincided. So one call writes: the geotech band boundary,
+with **both bands re-derived** from the qc over their new extents (ruling 3 and
+the owner's chain — soil type → qc → NAD parameters, so a changed interval must
+be asked again); the litho contact it restates; and the geological contact the
+litho row is derived from, when it carries one (about a third do). No correlation
+is touched: a tie is between contacts, so it survives and re-slopes. Nothing else
+on the column is re-derived (ruling 4).
+
+**The drag names its blast radius before it commits.** Every other verb on this
+axis stays inside the geotechnical model; this one gesture reaches up the
+hierarchy, and nothing on screen says the row is shared. So the release opens a
+consequence prompt that lists what will move, built from the row rather than
+assumed — the geological line appears only when `parent_geo_contact_id` is set.
+It is not styled as a destructive confirm: nothing is lost, the move is one undo
+step, and refining a contact from the evidence is the intended workflow.
 
 **Staleness is DERIVED, never stored (owner's choice).** A packing band's
 contract is that it lies inside its litho parent; after a contact move some bands
@@ -448,21 +473,34 @@ and begins by deleting every geotech row, so an automatic rebuild would destroy
 every hand edit on every column as a side effect of fixing one contact.
 
 **Telling the two kinds apart** (owner picked option 3 of three mockups): the
-litho contact is a heavy solid line, a packing boundary a thin dashed one; a grip
-glyph sits beside every draggable packing boundary at rest; a padlock appears on a
-litho contact only on HOVER, because at rest an interbedded column would stack 14
-of them. Both glyphs render BESIDE the column, never on the line — anything drawn
-on the line becomes another press target, and that surface is already contested
+litho contact is a heavy near-black solid line, a packing boundary a thin dashed
+one in mid-slate. Dash and width alone did NOT carry it on dogfeed — both kinds
+read as near-black at 1 px versus 1.75 px — so the packing boundary is also
+lighter, which puts it where it belongs: subordinate to the contact. A grip glyph
+sits beside every draggable packing boundary at rest; a padlock appears on a litho
+contact only on HOVER, because at rest an interbedded column would stack 14 of
+them. Both glyphs render BESIDE the column, never on the line — anything drawn on
+the line becomes another press target, and that surface is already contested
 (§4's hit-strip clamp).
 
+The padlock is raised by the **grab strip**, not by itself. It first drew at
+`opacity 0` and listened for its own `onMouseEnter`, so it appeared only if the
+engineer hovered an invisible 9 px glyph — which is why the owner reported no
+padlock at all. Three unit tests passed throughout, because each fired the hover
+on the glyph: the one action a user cannot perform. Any hover-revealed affordance
+has to be armed by the surface that is actually hoverable.
+
 `flow_geotech_snap_contact` is the only thing that proves the whole chain in the
-real app — rendered hit strip → plan → litho PATCH — and it drives the real
-gesture: drag past two packing boundaries, land on the first, with no packing band
-created or deleted. Two things it had to learn the hard way, both worth keeping in
-mind for any future drag spec: a prepared band third is about **two pixels** at the
-scale a section opens at, so the spec zooms with the wheel before aiming; and
-`ContactsLayer` DISCARDS a commit outside the dragged row rather than clamping it,
-so the release has to stay inside that row's own extent.
+real app — rendered hit strip → consequence prompt → plan → the three-model write
+— and it drives the real gesture: drag past two packing boundaries, land on the
+first, confirm, and assert that the absorbed band is gone and no band was created.
+Three things it had to learn the hard way, all worth keeping in mind for any
+future drag spec: a prepared band third is about **two pixels** at the scale a
+section opens at, so the spec zooms with the wheel before aiming; `ContactsLayer`
+DISCARDS a commit outside the dragged row rather than clamping it, so the release
+has to stay inside that row's own extent; and the vertical-exaggeration slider is
+not a substitute for the wheel — at 25× the band-edit overlay stops rendering its
+grips altogether.
 
 ## 5. Carrying accepted ties across a re-subdivide (2026-08-02, develop UNPUSHED)
 
