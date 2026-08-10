@@ -625,3 +625,97 @@ def test_st_sub3_the_build_arm_classifies_under_the_models_chosen_statistic() ->
     # One band either way — the geometry is not what changed.
     assert median_bands == [(0.0, 10.0, 7)], median_bands
     assert harmonic_bands == [(0.0, 10.0, 6)], harmonic_bands
+
+
+# The cone series over one lithostratigraphic segment of CPT 019e932e-7c2b on the
+# owner's model — 7.753 to 12.78 m of ZAND, 101 readings, verbatim. Synthetic data was
+# tried twice and reproduced nothing, which is its own finding: the divergence needs the
+# shape real ground has, not a step and some noise.
+_SEG_DEPTH_M = [
+    7.79, 7.84, 7.89, 7.94, 7.99, 8.04, 8.09, 8.14, 8.19, 8.24, 8.29, 8.34, 8.39, 8.44, 8.49,
+    8.54, 8.59, 8.64, 8.69, 8.74, 8.79, 8.84, 8.89, 8.94, 8.99, 9.04, 9.09, 9.14, 9.19, 9.24,
+    9.29, 9.34, 9.39, 9.44, 9.49, 9.54, 9.59, 9.64, 9.69, 9.74, 9.79, 9.84, 9.89, 9.94, 9.99,
+    10.04, 10.09, 10.14, 10.19, 10.24, 10.29, 10.34, 10.39, 10.44, 10.49, 10.54, 10.59, 10.64,
+    10.69, 10.74, 10.79, 10.84, 10.89, 10.94, 10.99, 11.04, 11.09, 11.13, 11.18, 11.23, 11.28,
+    11.33, 11.38, 11.43, 11.48, 11.53, 11.58, 11.63, 11.68, 11.73, 11.78, 11.83, 11.88, 11.93,
+    11.98, 12.03, 12.08, 12.13, 12.18, 12.23, 12.28, 12.33, 12.38, 12.43, 12.48, 12.53, 12.58,
+    12.63, 12.68, 12.73, 12.78
+]
+_SEG_QC_MPA = [
+    4.41, 4.63, 4.4, 4.69, 6.64, 7.89, 7.82, 8.15, 7.86, 7.94, 7.82, 6.84, 6.04, 5.71, 5.34,
+    5.06, 4.75, 5.34, 5.92, 6.1, 7.19, 7.75, 7.69, 7.53, 7.26, 7.58, 7.21, 7.13, 6.86, 6.1,
+    5.15, 5.16, 6.32, 6.42, 5.44, 4.49, 3.85, 3.88, 3.99, 4.14, 4.85, 6.38, 8.18, 10.03, 8.63,
+    7.81, 6.94, 7.02, 8.09, 8.85, 11.27, 12.89, 13.13, 12.88, 11.63, 10.16, 9.05, 8.97, 8.32,
+    7.24, 6.57, 5.96, 5.41, 4.6, 5.14, 5.53, 5.53, 6.05, 6.65, 6.85, 6.23, 6.29, 6.2, 6.39,
+    5.79, 5.73, 7.56, 12.72, 15.47, 15.82, 14.92, 13.64, 13.72, 14.28, 11.84, 9.02, 5.58, 5.25,
+    5.93, 7.34, 9.78, 13.33, 16.99, 16.62, 14.44, 11.79, 9.48, 8.5, 8.72, 5.54, 2.48
+]
+
+
+def test_sc1_every_built_band_carries_the_class_its_own_interval_implies() -> None:
+    """SC1 — the build must not leave a class behind on an interval it then changed.
+
+    The owner, after a merge-then-undo handed him back the wrong classes: *"ofcourse it
+    rederives class after boundaries change, because avg qc changes. if you restore the
+    boundary it is exactly the same as before so the algorithm behind should ofcourse
+    give it the same class"*. He is right, and this is that invariant.
+
+    The build classified each band, then moved the boundaries three more times — the
+    conservative thin-band merge, the same-class weld and the gradient snap — and
+    rounded the depths at emit, without asking the qc again. So a stored class could
+    belong to an interval the band no longer had. Every hand edit DOES re-derive over
+    the final interval, so an edit appeared to change a class it never touched, and undo
+    could not give the old one back.
+
+    Measured on the owner's real model before the fix: 33 of 519 bands, every one off by
+    exactly one class. This segment is one of them — 11.63-12.78 m was stored as 7 while
+    its own extent implies 6.
+
+    Asserted under the HARMONIC mean because that is what made it visible: the harmonic
+    mean is dominated by its smallest sample, so a boundary that moves by one sample
+    swings it, while the median shrugs it off. The bug is statistic-independent; only
+    its visibility is not.
+
+    The comparison goes through ``reclassify_intervals`` — the hand-edit path — rather
+    than the build's own arithmetic, because the invariant is that the two AGREE. A test
+    written against the build's own helper could not see them diverge.
+    """
+    splits = suggest_geotech_subdivision(
+        "ZAND",
+        (),
+        _SEG_DEPTH_M,
+        list(_SEG_QC_MPA),
+        segment_top_m=7.753,
+        segment_base_m=12.78,
+        min_thickness_m=0.35,
+        statistic="harmonic",
+    )
+    assert splits, "the segment must yield at least one band"
+
+    mismatched: list[tuple[float, float, int | None, int | None]] = []
+    for split in splits:
+        band = GeotechBand(
+            band_id="b",
+            depth_top_m=split.depth_top_m,
+            depth_base_m=split.depth_base_m,
+            nad_class=split.nad_class,
+            source_litho_formation_id="litho",
+            source_geo_formation_id=None,
+        )
+        (outcome,) = reclassify_intervals(
+            soil="ZAND",
+            admixtures=(),
+            depth_m=_SEG_DEPTH_M,
+            qc_mpa=list(_SEG_QC_MPA),
+            intervals=[ProposedInterval(split.depth_top_m, split.depth_base_m, (band,))],
+            statistic="harmonic",
+        )
+        if outcome.nad_class != split.nad_class:
+            mismatched.append(
+                (split.depth_top_m, split.depth_base_m, split.nad_class, outcome.nad_class)
+            )
+
+    assert mismatched == [], (
+        "these built bands carry a class their own depth range does not imply "
+        f"(top, base, stored, own-extent): {mismatched}"
+    )
