@@ -37,6 +37,7 @@ import type {
   ContactGestureState,
 } from '../../../components/sections/CorrelationEdgesOverlay'
 import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
+import MoveRestatedContactDialog from '../../../components/MoveRestatedContactDialog'
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { readGeotechSubdivisionPrefs } from '../../../utils/geotechSubdivisionPrefs'
@@ -568,6 +569,20 @@ export default function SectionsCanvas(): JSX.Element {
       packingEdges,
     }
   }, [isGeotech, geotechFormations, lithoFormations, geotechLayers, geotechPackingEdges])
+
+  // A restated-contact drag waiting for the engineer to accept its consequences.
+  //
+  // The gesture reaches UP the hierarchy — it edits the litho model, and one row in three
+  // also carries a geological contact — and nothing on the geotech axis says so. The owner
+  // asked for the prompt in the first brainstorm and again after dogfeeding without it.
+  const [pendingContactMove, setPendingContactMove] = useState<{
+    upperBandId: string
+    lowerBandId: string
+    depthM: number
+    lithoContactId: string
+    movesGeology: boolean
+  } | null>(null)
+  const [contactMoveBusy, setContactMoveBusy] = useState(false)
 
   // Armed contact id â€” the source boundary the user clicked first.
   // Null = nothing armed (idle).
@@ -1584,14 +1599,28 @@ export default function SectionsCanvas(): JSX.Element {
         lithoContacts,
       })
       switch (plan.kind) {
-        case 'move':
+        case 'move': {
           log.info(
             'section',
-            `geotech contact drag: litho contact ${plan.lithoContactId} → ${plan.depthM.toFixed(3)}m ` +
+            `geotech contact drag: contact ${plan.lithoContactId} → ${plan.depthM.toFixed(3)}m ` +
               `(grabbed geotech band ${contactId}, released at ${newDepthM.toFixed(3)}m)`,
           )
-          await handleLithoSnapAwareUpdateContactDepth(plan.lithoContactId, plan.depthM, false, field)
+          if (geotechPackingModelId === null) return
+          // ASK FIRST. Every other verb on this axis stays inside the geotechnical model;
+          // this one edits the level above, and sometimes the level above that. Nothing on
+          // screen says the row is shared, so the consequence is named before it happens
+          // rather than reported afterwards.
+          setPendingContactMove({
+            upperBandId: plan.upperBandId,
+            lowerBandId: plan.lowerBandId,
+            depthM: plan.depthM,
+            lithoContactId: plan.lithoContactId,
+            movesGeology:
+              (lithoContacts.find(c => c.id === plan.lithoContactId)?.parent_geo_contact_id ??
+                null) !== null,
+          })
           return
+        }
         case 'unmatched':
           // Loud: parentage says this boundary restates a contact and no litho row is
           // within a millimetre of it, which means the two models disagree about the
@@ -1652,6 +1681,51 @@ export default function SectionsCanvas(): JSX.Element {
     },
     [geotechLayers, lithoLayers, lithoContacts, handleLithoSnapAwareUpdateContactDepth, toast],
   )
+
+  // Commit the restated-contact move the prompt is holding.
+  //
+  // ONE call, all three models. The earlier build patched only the litho row, which left
+  // the packing band where it was: this axis draws the BAND, so a successful drag looked
+  // like a no-op, and the NEXT drag was refused because the band and the contact had
+  // stopped coinciding ("no litho contact within 0.0011 m of 16.9700m" — the owner's log).
+  const handleConfirmContactMove = useCallback(async (): Promise<void> => {
+    if (pendingContactMove === null || geotechPackingModelId === null) return
+    setContactMoveBusy(true)
+    try {
+      const moved = await api.geology.moveRestatedContact(
+        project.id,
+        geotechPackingModelId,
+        pendingContactMove.upperBandId,
+        pendingContactMove.lowerBandId,
+        pendingContactMove.depthM,
+      )
+      log.success(
+        'section',
+        `contact moved in ${moved.geo_contact_id !== null ? '3' : '2'} model(s): ` +
+          `bands ${moved.layer_ids.join(', ')}, litho ${moved.litho_lower_layer_id}` +
+          (moved.geo_contact_id !== null ? `, geology ${moved.geo_contact_id}` : ''),
+      )
+      // Both models changed, so both views reload: the bands drawn on this axis, and the
+      // litho rows the parentage probe reads to decide which boundaries are contacts.
+      requestGeotechLayersRefetch()
+      await refetchLithoContacts()
+      markMutated()
+    } catch (err) {
+      log.error('section', 'moveRestatedContact failed', err)
+      toast('error', 'The contact could not be moved — nothing was changed.')
+    } finally {
+      setContactMoveBusy(false)
+      setPendingContactMove(null)
+    }
+  }, [
+    pendingContactMove,
+    geotechPackingModelId,
+    project.id,
+    requestGeotechLayersRefetch,
+    refetchLithoContacts,
+    markMutated,
+    toast,
+  ])
 
   const openExtentLengthM = useMemo(
     () => readLithoSegmenterPrefs(project?.view_state ?? null).openExtentLengthM,
@@ -2309,6 +2383,15 @@ export default function SectionsCanvas(): JSX.Element {
           onMoveGeoToLitho={(id) => void handleMoveGeoToLitho(id)}
           onCancel={handleSnapDialogCancel}
           busy={lithoGeoSnapBusy}
+        />
+        {/* Names what a restated-contact drag will move, before it moves it. */}
+        <MoveRestatedContactDialog
+          open={pendingContactMove !== null}
+          depthM={pendingContactMove?.depthM ?? 0}
+          movesGeology={pendingContactMove?.movesGeology ?? false}
+          busy={contactMoveBusy}
+          onCancel={() => setPendingContactMove(null)}
+          onConfirm={() => void handleConfirmContactMove()}
         />
         {/* Name / rename a lens (body). Replaces the dead-end window.prompt â€”
             Electron disables prompt() in the renderer. */}
