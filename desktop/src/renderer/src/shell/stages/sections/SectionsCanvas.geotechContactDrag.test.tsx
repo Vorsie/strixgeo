@@ -17,9 +17,10 @@
 //   CD3  An internal packing boundary writes nothing — the hierarchy rule stands.
 //   CD4  The litho axis is untouched: the depth it commits is the depth it was given.
 
-import { render, cleanup, act } from '@testing-library/react'
+import { render, cleanup, act, fireEvent, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { api } from '../../../api/client'
 import type { FormationContactResponse, LithoLayerResponse } from '../../../api/client'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
@@ -65,6 +66,12 @@ vi.mock('../../../api/client', async () => {
         deleteContactCorrelation: vi.fn().mockResolvedValue(undefined),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
         listGeotechPackingCorrelations: vi.fn().mockResolvedValue([]),
+        moveRestatedContact: vi.fn().mockResolvedValue({
+          layer_ids: ['g2', 'g3'],
+          litho_upper_layer_id: 'L-klei',
+          litho_lower_layer_id: 'L-zand',
+          geo_contact_id: null,
+        }),
         rebuildSurfaces: vi.fn().mockResolvedValue(undefined),
       },
       virtueleBoring: { getModels: vi.fn().mockResolvedValue([]) },
@@ -181,6 +188,18 @@ async function commitDrag(
   return { patch, ctx }
 }
 
+/**
+ * Accept the consequence prompt the drag opened.
+ *
+ * The gesture is two steps now: the drag names what it will move, the engineer agrees.
+ * A test that skipped the prompt would pass over the one thing the owner asked for.
+ */
+async function confirmMove(): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('move-restated-contact-confirm'))
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -195,22 +214,58 @@ describe('SectionsCanvas — dragging a litho contact from the geotech axis', ()
     vi.clearAllMocks()
   })
 
-  it('CD1 — a long drag moves the litho row to the FIRST boundary crossed', async () => {
-    // Released at 8.5 m, past the packing boundary at 7 m. One drag consumes one
-    // boundary, and the row that moves is the litho contact, not the geotech band.
-    const { patch } = await commitDrag('geotechnical', 'g3', 8.5)
+  it('CD1 — a long drag moves the boundary to the FIRST one crossed, in every model', async () => {
+    // Released at 8.5 m, past the packing boundary at 7 m. One drag consumes one boundary.
+    // What moves is no longer the litho row ALONE: the packing bands either side move with
+    // it, because a restated contact is one boundary recorded in two models and moving one
+    // of them splits it — the owner's log showed the second drag then failing to find its
+    // own contact.
+    await commitDrag('geotechnical', 'g3', 8.5)
+    await confirmMove()
 
-    expect(patch).toHaveBeenCalledTimes(1)
-    expect(patch).toHaveBeenCalledWith('L-zand', 7, false, 'top')
+    expect(api.geology.moveRestatedContact).toHaveBeenCalledTimes(1)
+    expect(api.geology.moveRestatedContact).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      'g2',
+      'g3',
+      7,
+    )
   })
 
   it('CD2 — a drag short of the next boundary NUDGES the contact there', async () => {
     // Reversed on owner dogfeed 2026-08-09: refusing a sub-boundary drag made a small
     // correction impossible, and answered "The contact did not move". The boundary is
     // the wall (CD1 still clamps at it); short of it the depth is the engineer's.
-    const { patch } = await commitDrag('geotechnical', 'g3', 4.4)
+    await commitDrag('geotechnical', 'g3', 4.4)
+    await confirmMove()
 
-    expect(patch).toHaveBeenCalled()
+    expect(api.geology.moveRestatedContact).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      'g2',
+      'g3',
+      4.4,
+    )
+  })
+
+  it('CD2c — and the drag ASKS before it writes anything', async () => {
+    // The owner asked for this twice: "the warning, moving this boundary will move litho
+    // alongside it didn't appear." Every other verb on this axis stays inside the
+    // geotechnical model; this one edits the level above, and nothing on screen says so.
+    await commitDrag('geotechnical', 'g3', 8.5)
+
+    expect(screen.queryByTestId('move-restated-contact-dialog')).not.toBeNull()
+    expect(api.geology.moveRestatedContact).not.toHaveBeenCalled()
+  })
+
+  it('CD2d — and cancelling it writes nothing at all', async () => {
+    await commitDrag('geotechnical', 'g3', 8.5)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('move-restated-contact-cancel'))
+    })
+
+    expect(api.geology.moveRestatedContact).not.toHaveBeenCalled()
   })
 
   it('CD2b — but a release with no travel writes nothing', async () => {

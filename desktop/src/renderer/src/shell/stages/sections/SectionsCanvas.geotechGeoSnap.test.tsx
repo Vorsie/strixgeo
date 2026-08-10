@@ -132,6 +132,17 @@ function contact(id: string, modelId: string, depthTopM: number): FormationConta
 
 /** The litho contact the 4 m packing boundary restates — a hair off, as the real rows are. */
 const LITHO_CONTACT = contact('L-zand', 'litho-model-1', 4.0000123)
+/**
+ * The same contact, DERIVED from a geological one.
+ *
+ * Coupling is a property of the row (``parent_geo_contact_id``), not of how close some
+ * geological contact happens to be. The old prompt keyed on proximity, which is why this
+ * fixture did not need it; the consequence dialog asks the row, so the fixture has to say.
+ */
+const COUPLED_LITHO_CONTACT = {
+  ...LITHO_CONTACT,
+  parent_geo_contact_id: 'GEO-1',
+} as FormationContactResponse
 
 /**
  * Render the canvas on one axis and fire one drag commit through the captured handler.
@@ -147,6 +158,7 @@ async function commitDrag(
   contactId: string,
   toDepthM: number,
   geoContacts: FormationContactResponse[],
+  coupled = false,
 ): Promise<{ patch: ReturnType<typeof vi.fn>; ctx: ShellContextValue }> {
   const patch = vi.fn().mockResolvedValue(undefined)
   const ctx = makeShellCtx(axis)
@@ -157,7 +169,7 @@ async function commitDrag(
     layer('g4', 7, 10),
   ]
   ctx.geoModel.lithoLayers = [layer('L-klei', 0, 4), layer('L-zand', 4, 10)]
-  ctx.geoModel.lithoContacts = [LITHO_CONTACT]
+  ctx.geoModel.lithoContacts = [coupled ? COUPLED_LITHO_CONTACT : LITHO_CONTACT]
   ctx.geoModel.contacts = geoContacts
   ctx.geoModel.handleUpdateContactDepth =
     patch as unknown as ShellContextValue['geoModel']['handleUpdateContactDepth']
@@ -188,23 +200,35 @@ describe('SectionsCanvas — a coupled contact dragged from the geotech axis', (
     vi.clearAllMocks()
   })
 
-  it('GS1 — landing within tolerance of a geological contact opens the prompt', async () => {
-    await commitDrag('geotechnical', 'g3', 8.5, [contact('GEO-1', 'geo-model-1', 7.05)])
+  it('GS1 — a coupled drag says the geological contact moves too', async () => {
+    // Superseded 2026-08-10. This axis used to open the litho↔geo prompt and ask the
+    // engineer which way to reconcile. One of its options — "snap litho to geological" —
+    // pulls the contact BACK to the geological depth, which is the opposite of what this
+    // screen is for: he is refining downward, geological → litho → geotech, so geology
+    // follows the refinement rather than overruling it.
+    //
+    // So the geological contact is carried in the SAME write (the backend does it; see
+    // the MoveRestatedContact unit tests), and the prompt's job here shrinks to naming
+    // the consequence — which is exactly what the owner asked for: "the warning, moving
+    // this boundary will move litho alongside it didn't appear. Or might even be litho
+    // and geo sometimes."
+    await commitDrag('geotechnical', 'g3', 8.5, [contact('GEO-1', 'geo-model-1', 7.05)], true)
 
-    expect(screen.getByTestId('litho-geo-snap-dialog')).toBeTruthy()
-    // The one candidate is named by depth, so the engineer can see which surface he is
-    // about to move before he picks a direction.
-    expect(screen.getByText(/7\.05 m/)).toBeTruthy()
+    expect(screen.getByTestId('move-restated-contact-dialog')).toBeTruthy()
+    expect(screen.getByTestId('move-restated-contact-geology')).toBeTruthy()
+    // And NOT the old three-option prompt: two dialogs answering the same question with
+    // different rules is how the two models drift apart.
+    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
   })
 
-  it('GS2 — landing nowhere near one opens nothing', async () => {
-    // 7.50 m is 0.50 m from the committed 7.00 m — outside the 0.20 m default tolerance.
-    const { patch } = await commitDrag('geotechnical', 'g3', 8.5, [
-      contact('GEO-1', 'geo-model-1', 7.5),
-    ])
+  it('GS2 — an uncoupled drag names only the litho contact', async () => {
+    // The coupling is read from the litho ROW's parent, not from depth proximity: about
+    // one row in three carries one, so a dialog that always claimed geology would be
+    // wrong most of the time, and one that never did would hide the cascade.
+    await commitDrag('geotechnical', 'g3', 8.5, [])
 
-    expect(patch).toHaveBeenCalledWith('L-zand', 7, false, 'top')
-    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
+    expect(screen.getByTestId('move-restated-contact-dialog')).toBeTruthy()
+    expect(screen.queryByTestId('move-restated-contact-geology')).toBeNull()
   })
 
   it('GS3 — the litho axis still opens it, unchanged', async () => {
@@ -213,21 +237,6 @@ describe('SectionsCanvas — a coupled contact dragged from the geotech axis', (
     await commitDrag('lithostratigraphic', 'L-zand', 7, [contact('GEO-1', 'geo-model-1', 7.05)])
 
     expect(screen.getByTestId('litho-geo-snap-dialog')).toBeTruthy()
-  })
-
-  it('GS4 — "snap litho to geological" writes the geo depth onto the litho row', async () => {
-    const { patch } = await commitDrag('geotechnical', 'g3', 8.5, [
-      contact('GEO-1', 'geo-model-1', 7.05),
-    ])
-    patch.mockClear()
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('snap-litho-to-geo'))
-    })
-
-    // snapped=true, and the drag's own edge — a base-edge drag must never write a top.
-    expect(patch).toHaveBeenCalledWith('L-zand', 7.05, true, 'top')
-    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
   })
 
   it('GS5 — a drag the geotech axis refuses opens nothing', async () => {
@@ -242,44 +251,13 @@ describe('SectionsCanvas — a coupled contact dragged from the geotech axis', (
     expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
   })
 
-  it('GS6 — "move geological to litho" moves the GEO row and rebuilds its surfaces', async () => {
-    const { patch } = await commitDrag('geotechnical', 'g3', 8.5, [
-      contact('GEO-1', 'geo-model-1', 7.05),
-    ])
-    patch.mockClear()
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('move-geo-to-litho'))
-    })
-
-    // 7.00 m — where the litho contact actually came to rest, which is the packing
-    // boundary the drag was clamped to. Never 8.50: the release depth is a place the
-    // contact never occupied, and a geological surface dragged there would be answering
-    // a gesture nothing on screen made.
-    expect(patch).toHaveBeenCalledWith('GEO-1', 7, false)
-    // The cascade is the whole reason this option is the heavy one — the geological
-    // surface is interpolated from its contacts, so moving one without rebuilding leaves
-    // the surface hanging at the old depth.
-    expect(api.geology.rebuildSurfaces).toHaveBeenCalledWith('proj-1', 'geo-model-1')
-    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
-  })
-
-  it('GS7 — cancel leaves both contacts exactly where they were', async () => {
-    // "Keep them separate" is a real answer on interbedded ground: the cone resistance
-    // and the geological surface can legitimately disagree by a few centimetres, and the
-    // engineer is allowed to say so. It must cost nothing to say.
-    const { patch } = await commitDrag('geotechnical', 'g3', 8.5, [
-      contact('GEO-1', 'geo-model-1', 7.05),
-    ])
-    patch.mockClear()
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('snap-cancel'))
-    })
-
-    expect(patch).not.toHaveBeenCalled()
-    expect(api.geology.rebuildSurfaces).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('litho-geo-snap-dialog')).toBeNull()
-  })
+  // GS4 / GS6 / GS7 drove the old prompt's three options FROM this axis. Those options
+  // are gone here: geology follows the refinement, in the same transaction, so there is
+  // no direction left to choose. The claims did not vanish with them —
+  //   * that the geological contact ends up at the new depth, and that its surfaces are
+  //     staled, is pinned on the write itself (test_move_litho_layer_boundary.py and the
+  //     MoveRestatedContact tests), where it cannot be bypassed by a UI change;
+  //   * that cancelling costs nothing is CD2d.
+  // The three options remain live on the LITHO axis, which is what GS3 above guards.
 
 })

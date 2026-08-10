@@ -239,7 +239,7 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     // boundary is a wall, and 4.9 m is short of it, so the contact goes where the clamp
     // left it. The clamp still COSTS the engineer the landing he aimed at — that is the
     // defect this file measures — but it no longer costs him the whole gesture.
-    expect(plan).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
+    expect(plan).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
   })
 
   it('DC2 — withheld, the same drag lands on the boundary', () => {
@@ -248,7 +248,7 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     const { committedDepthM, plan } = dragPastTheBoundary(100, undefined)
 
     expect(committedDepthM).toBeCloseTo(5.5, 5)
-    expect(plan).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 5 })
+    expect(plan).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 5 })
   })
 
   it('DC3 — zoomed out the snap window rescues the shortfall, so the clamp is harmless', () => {
@@ -258,7 +258,7 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     const { committedDepthM, plan } = dragPastTheBoundary(1, 0.1)
 
     expect(committedDepthM).toBeCloseTo(5, 5)
-    expect(plan).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 5 })
+    expect(plan).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 5 })
   })
 
   it('DC4 — with the snap toggle off there is nothing to rescue it, at any zoom', () => {
@@ -271,6 +271,6 @@ describe('the min-thickness clamp against the geotech landing rule', () => {
     // As DC1: the shortfall now lands as a nudge rather than being discarded. The
     // landing the engineer AIMED at is still lost, which is what this file is here to
     // record.
-    expect(plan).toEqual({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
+    expect(plan).toMatchObject({ kind: 'move', lithoContactId: 'L-zand', depthM: 4.9 })
   })
 })
