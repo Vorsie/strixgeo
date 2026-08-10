@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampToNextBoundary, packingSnapCandidates } from './geotechSnapTargets'
+import { clampContactDrag, clampToNextBoundary, packingSnapCandidates } from './geotechSnapTargets'
 import type { LithoLayerResponse } from '../../api/client'
 
 function band(id: string, top: number, base: number, cptId: string | null): LithoLayerResponse {
@@ -114,5 +114,72 @@ describe('a drag consumes one boundary at a time', () => {
     const shuffled = [{ depth: 9 }, { depth: 6 }, { depth: 4 }]
     expect(clampToNextBoundary(3, 8.5, shuffled)).toBe(4)
     expect(clampToNextBoundary(7, 3.2, shuffled)).toBe(6)
+  })
+})
+
+describe('the wall a contact drag stops against', () => {
+  // Two packing boundaries at 4 and 6, and a boundary at 9 that RESTATES a litho
+  // contact — the top of the band with id 'contact-band'.
+  const CANDIDATES = [
+    { depth: 4, contactId: 'pack-a' },
+    { depth: 6, contactId: 'pack-b' },
+    { depth: 9, contactId: 'contact-band' },
+  ]
+  const RESTATING = new Set(['contact-band'])
+  const GAP = 0.1
+
+  it('GW1 — a packing boundary may be landed on: that is the drag-merge', () => {
+    // Owner's own term. Reaching it absorbs the band between, so the boundary is
+    // reachable rather than a hard wall.
+    expect(clampContactDrag(3, 4, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 4,
+      atLimit: false,
+    })
+    expect(clampContactDrag(3, 8.5, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 4,
+      atLimit: true,
+    })
+  })
+
+  it('GW2 — a boundary that restates a litho contact is NOT reachable', () => {
+    // Landing on it would absorb the last band of the unit between the two
+    // contacts, which deletes the unit. The owner met that as a bare failure:
+    // "this happens when i try to move a solid on another solid". The line now
+    // stops a minimum thickness short and says so, instead of travelling all the
+    // way and refusing on release.
+    expect(clampContactDrag(7, 9, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 8.9,
+      atLimit: true,
+    })
+    expect(clampContactDrag(7, 20, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 8.9,
+      atLimit: true,
+    })
+  })
+
+  it('GW3 — the same wall applies dragging UP', () => {
+    expect(clampContactDrag(9.5, 9, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 9.1,
+      atLimit: true,
+    })
+  })
+
+  it('GW4 — nothing crossed is free movement, not a refusal', () => {
+    // The nudge. Anywhere inside the run the contact already occupies is a
+    // refinement like any other.
+    expect(clampContactDrag(4.5, 5.2, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 5.2,
+      atLimit: false,
+    })
+  })
+
+  it('GW5 — a contact wall closer than the gap leaves nowhere to go', () => {
+    // Starting 5 cm above a litho contact, with a 10 cm floor: there is no legal
+    // depth in that direction, so the contact does not move at all. It must not
+    // travel BACKWARDS past where the engineer grabbed it.
+    expect(clampContactDrag(8.95, 9, CANDIDATES, RESTATING, GAP)).toEqual({
+      depthM: 8.95,
+      atLimit: true,
+    })
   })
 })
