@@ -376,6 +376,16 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Keep the renderer running at full speed when the window is not visible.
+      //
+      // The close flow HIDES the window as soon as the engineer answers the
+      // save-or-discard prompt, then finishes the work — a replace-restore of the
+      // whole bundle — and quits itself. Chromium backgrounds a hidden window by
+      // default and throttles its timers, which starves exactly the work the hide
+      // exists to let run: e2e caught it as a teardown that never completed (the
+      // app never reached its own quit handshake), and a user would have seen the
+      // window vanish and the process linger.
+      backgroundThrottling: false,
       // Deny renderer access to obscure / dangerous webContents APIs
       // (clipboard, full-screen on file:// pages, etc.). Hardens
       // against the same XSS-as-RCE escalation #36 / #37 protect.
