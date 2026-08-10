@@ -38,13 +38,21 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # the caller passed. Lets you do ``run-integration-tests.ps1 -q`` for
 # the full suite quiet, or ``run-integration-tests.ps1 tests/integration/api/test_cross_section.py``
 # for a narrow target. (Path args override the default; flag args extend it.)
-$pathArgs = @()
-$flagArgs = @()
-foreach ($a in $args) {
-    if ($a.StartsWith("-")) { $flagArgs += $a } else { $pathArgs += $a }
+#
+# The caller's arguments are passed through IN ORDER. Sorting them into paths and
+# flags looked harmless and quietly broke every option that takes a separate value:
+# ``-k gb20`` became ``-k`` in one bucket and ``gb20`` in the other, so pytest saw a
+# ``-k`` with no argument and a test path named "gb20".
+$CallerArgs = $args
+$hasTarget = $false
+foreach ($a in $CallerArgs) {
+    if ($a -like '-*') { continue }
+    # A target names a file or a directory. Anything else is some flag's value.
+    if ($a -like '*/*' -or $a -like '*\*' -or $a -like '*.py' -or $a -like 'tests*') {
+        $hasTarget = $true
+    }
 }
-if ($pathArgs.Count -eq 0) { $pathArgs = @("tests/integration") }
-$pytestArgs = $pathArgs + $flagArgs
+$pytestArgs = if ($hasTarget) { $CallerArgs } else { @("tests/integration") + $CallerArgs }
 
 Write-Host "==> pytest $pytestArgs"
 uv run pytest @pytestArgs
