@@ -144,3 +144,78 @@ export function clampToNextBoundary(
   }
   return nearest
 }
+
+/**
+ * Clamp one contact drag, knowing which walls may be landed on and which may not.
+ *
+ * The wrapper around :func:`clampToNextBoundary` that carries the rest of the rule.
+ * Two boundaries are drawn the same and behave differently:
+ *
+ * - **A packing boundary may be landed on.** Reaching it absorbs the band between —
+ *   the owner's own drag-merge — so it stops the travel but is itself reachable.
+ * - **A boundary that restates a lithostratigraphic contact may not.** Landing on it
+ *   would absorb the last packing band of the unit between the two contacts, which
+ *   deletes the unit; a drag on this axis refines a boundary, it does not remove a
+ *   layer. The line therefore stops a minimum thickness short of it.
+ *
+ * The gap has to be applied HERE and not only in the refusal, because the engineer
+ * meets the wall with the cursor. Letting the line travel all the way and then
+ * refusing on release reads as the app losing the gesture — which is how the owner
+ * met it: *"this happens when i try to move a solid on another solid"*, answered by
+ * a bare failure. The backend keeps its own refusal as the second line of defence.
+ *
+ * Parameters
+ * ----------
+ * fromDepthM : number
+ *     Where the contact sat when the drag began.
+ * toDepthM : number
+ *     Where the cursor is now, in metres below the collar.
+ * candidates : readonly SnapCandidate[]
+ *     The column's internal boundaries, from ``packingSnapCandidates``.
+ * restatingContactIds : ReadonlySet<string>
+ *     Ids of the bands whose TOP restates a litho contact, from
+ *     ``restatingContactIds``. A candidate names that same band in ``contactId``,
+ *     so membership answers "is this wall a contact?" directly.
+ * contactWallGapM : number
+ *     Thickness to preserve below a contact wall. The litho axis's own drag floor,
+ *     so the two axes cannot disagree about how thin a layer may become.
+ *
+ * Returns
+ * -------
+ * { depthM: number; atLimit: boolean }
+ *     Where the line may be drawn, and whether it is being held back. ``atLimit``
+ *     drives the amber readout, so it is true whenever the answer differs from what
+ *     the cursor asked for — including the case where the drag cannot move at all.
+ */
+export function clampContactDrag(
+  fromDepthM: number,
+  toDepthM: number,
+  candidates: readonly SnapCandidate[],
+  restatingContactIds: ReadonlySet<string>,
+  contactWallGapM: number,
+): { depthM: number; atLimit: boolean } {
+  const landing = clampToNextBoundary(fromDepthM, toDepthM, candidates)
+  // Nothing crossed → free movement. The contact is being nudged inside the run it
+  // already occupies, which is a refinement like any other: geological → litho →
+  // geotech, each level refining the one above.
+  if (landing === null) return { depthM: toDepthM, atLimit: false }
+
+  const downward = toDepthM > fromDepthM
+  // ``contactId`` is optional on the candidate, and an anonymous boundary cannot be
+  // matched against the restating set — so it is treated as a packing boundary, which
+  // is the reachable kind. The backend refusal still covers it.
+  const wallIsContact = candidates.some(
+    (c) => c.depth === landing && c.contactId !== undefined && restatingContactIds.has(c.contactId),
+  )
+
+  let limit = landing
+  if (wallIsContact) {
+    limit = downward ? landing - contactWallGapM : landing + contactWallGapM
+    // A wall closer than the gap leaves nowhere legal to go. The contact then stays
+    // exactly where it was grabbed — it must never be pushed BACKWARDS to make room.
+    if (downward ? limit < fromDepthM : limit > fromDepthM) limit = fromDepthM
+  }
+
+  const depthM = downward ? Math.min(toDepthM, limit) : Math.max(toDepthM, limit)
+  return { depthM, atLimit: depthM !== toDepthM }
+}
