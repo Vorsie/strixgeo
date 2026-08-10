@@ -32,6 +32,8 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     enclosing_litho_bounds,
     plan_merge,
     plan_merge_run,
+    KIND_MERGE,
+    KIND_MOVE,
     plan_move,
     plan_restated_contact_move,
     plan_split,
@@ -795,3 +797,71 @@ def test_rc3_the_pair_envelope_is_the_wall() -> None:
             qc_mpa=qc,
             min_thickness_m=0.1,
         )
+
+
+def test_rc4_landing_on_the_next_boundary_is_a_MERGE_not_a_move() -> None:
+    """Snapping a contact onto the next packing boundary absorbs the band between.
+
+    The gesture the owner named himself: *"can't skip a boundary right, drag merge,
+    first, then drag merge second"*. Dragging the contact down to the next boundary
+    means the litho unit above now owns everything down to it — so the packing band
+    that sat between the two collapses into the band above.
+
+    This is the HEADLINE case, not an edge one: the clamp lands the drag exactly ON a
+    boundary every time, so a plan that demands a depth strictly inside the pair
+    refuses the only landing the gesture can produce. e2e caught it; the strictly-
+    inside rule was inherited from ``plan_move``, where it is right because a packing
+    boundary genuinely may not swallow its neighbour.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A),
+        _band("lower", 4.0, 7.0, None, litho=LITHO_B),
+    ]
+
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=7.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    # ONE surviving interval, spanning both bands, under the UPPER unit's soil —
+    # the ground down there now belongs to the unit above.
+    assert plan.kind == KIND_MERGE
+    assert len(plan.intervals) == 1
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (0.0, 7.0)
+
+
+def test_rc5_a_landing_short_of_the_boundary_is_still_a_move() -> None:
+    """The nudge keeps two bands. Without this, every drag would merge."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A),
+        _band("lower", 4.0, 7.0, None, litho=LITHO_B),
+    ]
+
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=5.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    assert plan.kind == KIND_MOVE
+    assert len(plan.intervals) == 2
