@@ -906,3 +906,38 @@ async def test_gb21_undoing_a_merge_gives_both_original_classes_back(
     assert (
         await db_session.get(GeologicalFormationOrm, restored_lower.formation_id)
     ).nad_class == lower_class, "the deeper band came back with the wrong packing class"
+
+
+@pytest.mark.asyncio
+async def test_gb22_a_dropped_accepted_tie_is_named_as_accepted_on_the_wire(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB22 — ``deleted_accepted_edge_ids`` carries the accepted ties an absorb drops.
+
+    The field was added in the 2026-08-08 review round so the toast could stop
+    calling a deleted ACCEPTED tie a withdrawn pending proposal — and then no use
+    case ever populated it (audit F10): it was defined, defaulted, wired through
+    the router, and empty in every response, so every suite stayed green while the
+    misreport it existed to prevent came back.
+
+    The scene: an accepted tie between the two bands being merged. After the
+    absorb it would connect the survivor to itself, so the transfer must DROP it —
+    and the response must say an accepted tie went, not a pending one.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    upper_id, lower_id = bands[0].id, bands[1].id
+    self_loop_tie = await _insert_edge(
+        db_session, band_scene, gid, upper_id, lower_id, approved=True
+    )
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"upper_band_id": str(upper_id), "lower_band_id": str(lower_id)},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+
+    assert str(self_loop_tie) in payload["deleted_edge_ids"]
+    # The pin this test exists for: the ACCEPTED list is not empty on the wire.
+    assert payload["deleted_accepted_edge_ids"] == [str(self_loop_tie)]
