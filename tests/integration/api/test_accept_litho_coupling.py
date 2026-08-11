@@ -28,6 +28,7 @@ from uuid6 import uuid7
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 # ---------------------------------------------------------------------------
@@ -349,4 +350,76 @@ async def test_cp3_geo_surface_rebuilt_after_coupling_snap(
     assert stale_surface.is_stale is False, (
         "After a coupling snap the parent geo model's surface for the touched "
         f"formation must be rebuilt (is_stale=False); got is_stale={stale_surface.is_stale}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CP4 — a re-accept RESTORES a severed link (owner ruling F34)
+# ---------------------------------------------------------------------------
+
+
+async def test_cp4_a_reaccept_restores_a_severed_link_without_resnapping(
+    async_client: AsyncClient,
+    project: ProjectOrm,
+    stack: dict,
+    db_session: AsyncSession,
+) -> None:
+    """CP4 — the found-existing branch re-links; it still never re-snaps.
+
+    The branch deliberately skips the SNAP on re-accept ("a re-accept never
+    silently snaps a geo contact a second time") — and used to throw the LINK
+    out with it, which is how the dev model grew litho rows sitting bit-for-bit
+    on a geological contact with no ``parent_geo_contact_id``. Owner ruling
+    2026-08-11 (audit F34): *"it shouldn't be that easy to unlink them."* A
+    re-accept that finds the layer unlinked and a geo contact within tolerance
+    restores the link; the geo contact's depth is left exactly where it is.
+    """
+    bh_id = str(stack["borehole"].id)
+    litho_mid = stack["litho_model"]["id"]
+    geo_contact_id = stack["geo_contact"]["id"]
+
+    await _accept(
+        async_client, project.id, litho_mid,
+        top=2.95, base=8.0, lithology="KLEI", borehole_id=bh_id,
+    )
+
+    # Sever the link the way history did — the label goes, the depths stay.
+    layer = (
+        await db_session.execute(
+            select(LithoLayerOrm).where(
+                LithoLayerOrm.model_id == litho_mid,
+                LithoLayerOrm.depth_top_m == 2.95,
+            )
+        )
+    ).scalar_one()
+    layer.parent_geo_contact_id = None
+    await db_session.commit()
+    layer_id = layer.id
+
+    # Nudge the geo contact slightly so a re-snap would be observable.
+    geo_row = (
+        await db_session.execute(
+            select(FormationContactOrm).where(FormationContactOrm.id == geo_contact_id)
+        )
+    ).scalar_one()
+    geo_row.depth_top_m = 3.05  # still within the 0.20 m couple tolerance
+    await db_session.commit()
+    geo_row_id = geo_row.id  # plain value: expire_all detaches loaded attributes
+
+    # The same suggestion again — the found-existing path.
+    await _accept(
+        async_client, project.id, litho_mid,
+        top=2.95, base=8.0, lithology="KLEI", borehole_id=bh_id,
+    )
+
+    db_session.expire_all()
+    layer_after = await db_session.get(LithoLayerOrm, layer_id)
+    assert layer_after is not None
+    assert str(layer_after.parent_geo_contact_id) == geo_contact_id, (
+        "the re-accept must restore the severed link"
+    )
+    geo_after = await db_session.get(FormationContactOrm, geo_row_id)
+    assert geo_after is not None
+    assert geo_after.depth_top_m == pytest.approx(3.05, abs=1e-6), (
+        "the re-accept must NOT re-snap the geo contact — only the link returns"
     )
