@@ -413,12 +413,37 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             .scalars()
             .all()
         )
-        upper = next((r for r in rows if abs(r.depth_base_m - boundary_m) <= _COINCIDENT_M), None)
-        lower = next((r for r in rows if abs(r.depth_top_m - boundary_m) <= _COINCIDENT_M), None)
-        if upper is None or lower is None or upper.model_id != lower.model_id:
+        # NEAREST match, not first match. The tolerance (1.1 mm) exceeds the litho
+        # minimum thickness (1.0 mm), so a legal sliver layer beside the contact
+        # can put TWO rows' edges inside it — and an unordered first-match then
+        # picks whichever row the driver returned first (audit F18: the write
+        # could nondeterministically resize the wrong litho row, or return one
+        # sliver as BOTH sides and degenerate it to zero thickness).
+        upper_candidates = sorted(
+            (r for r in rows if abs(r.depth_base_m - boundary_m) <= _COINCIDENT_M),
+            key=lambda r: abs(r.depth_base_m - boundary_m),
+        )
+        lower_candidates = sorted(
+            (r for r in rows if abs(r.depth_top_m - boundary_m) <= _COINCIDENT_M),
+            key=lambda r: abs(r.depth_top_m - boundary_m),
+        )
+        upper = upper_candidates[0] if upper_candidates else None
+        lower = lower_candidates[0] if lower_candidates else None
+        if upper is None or lower is None:
             raise GeotechBandEditError(
                 f"Contact move rejected: no lithostratigraphic contact is recorded at "
                 f"{boundary_m:.3f} m on this column, so there is nothing to move. The "
                 "two models disagree about where this boundary is."
+            )
+        # The pair must be the two SIDES of one contact: distinct rows whose
+        # shared edge is the boundary itself. One sliver matching both
+        # predicates, or two rows that do not actually touch, is the two models
+        # disagreeing — refuse rather than resize something the engineer never
+        # pointed at.
+        if upper.id == lower.id or abs(upper.depth_base_m - lower.depth_top_m) > _COINCIDENT_M:
+            raise GeotechBandEditError(
+                f"Contact move rejected: the litho rows around {boundary_m:.3f} m do "
+                "not meet at one contact (a sub-millimetre layer sits beside it). "
+                "Repair the lithostratigraphic column first."
             )
         return upper, lower
