@@ -411,11 +411,17 @@ packing boundary.
   origin-exclusive, or a contact already sitting on a boundary would be stranded
   there. Moving two boundaries takes two drags, each its own undo step (owner:
   *"can't skip a boundary right, drag merge first, then drag merge second"*).
-* **Landing ON the boundary is a MERGE**, and the owner named it: the litho unit
-  above now owns the ground down to it, so the packing band that sat between the
-  two collapses into the band above and the survivor is classified from the qc
-  over the whole of its new extent. This is the headline case rather than an edge
-  one — the clamp lands the drag exactly on the boundary every time.
+* **Landing ON a neighbouring boundary is a MERGE, in BOTH directions** (the
+  owner named the gesture; audit F02 found the upward half missing — the
+  renderer telegraphed and confirmed it while the backend always refused it).
+  Down: the unit above grows, the band between collapses into the band above.
+  Up: the reverse — the unit below grows and the band above the contact
+  collapses into the band below, classified under the LOWER unit's soil. Either
+  way the survivor is classified from the qc over the whole of its new extent,
+  and the plan names which side it swallows (``absorbs``) because the writer
+  keeps different rows alive per direction. This is the headline case rather
+  than an edge one — the clamp lands the drag exactly on the boundary every
+  time.
 * **A wall that is itself a litho contact may NOT be reached.** Merging there
   would absorb the last packing band of the unit between the two contacts, which
   deletes the unit — and a drag on this axis refines a boundary, it does not
@@ -492,6 +498,14 @@ right — and since that flag never self-heals and is deliberately excluded from
 keep-or-delete prompt, suspending for it too made every routine contact drag-merge
 silently and durably fragment bodies. The tie is otherwise untouched in every case:
 still kept, still badged, ``class_changed`` still self-healing.
+
+**The move is undoable, merge included.** The dialog has promised "One step on
+the undo stack" since it shipped; audit F11 found nothing ever pushed that step.
+A plain move's inverse is a move back (classes re-derive from restored extents,
+so the round trip is exact). A merge's inverse is two calls in a fixed order —
+move the contact back, THEN split the neighbour at the old boundary; reversed,
+the split would land on the litho contact and be refused. Redo cycles re-anchor
+onto the rows each revert's split creates (``restatedContactUndo.ts``).
 
 **The drag names its blast radius before it commits.** Every other verb on this
 axis stays inside the geotechnical model; this one gesture reaches up the
