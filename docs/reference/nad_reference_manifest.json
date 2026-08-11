@@ -3,11 +3,12 @@
     "purpose": "Committed audit reference for the Belgian NAD packing-class table (1-31). The classifier constants are validated against this snapshot by tests/unit/domain/services/test_nad_reference_manifest.py, so any change to the qc thresholds or class names is a deliberate, reviewed edit (must update this file too) rather than a silent drift.",
     "code_source": "src/groundmodel/domain/services/nad_classification_constants.py (NAD_QC_BANDS) + src/groundmodel/shared/constants/litho_constants.py (NAD_CLASSES)",
     "workbook_filename": "Correlaties uit S en NAD_NEN_v2.xlsx",
-    "workbook_sha256": null,
-    "workbook_sheet": null,
-    "verified_against_workbook": false,
+    "workbook_sha256": "77d4811f48b655c87a8c0749090764919f2221b85096c87bb4a86add7bc134f2",
+    "workbook_sheet": "NAD-NEN",
+    "verified_against_workbook": true,
     "generated": "2026-07-26",
-    "owner_todo": "qc thresholds + names were transcribed from the CODE on 2026-07-26 and are UNVERIFIED against Daniel workbook. Reconcile each class qc_upper_mpa + name against the xlsx, fill workbook_sha256/sheet/workbook_row, then set verified_against_workbook true. qc_upper_mpa is the OPEN upper bound of the class band in MPa (null = densest/open-topped band); the band is [previous upper, this upper)."
+    "verified": "2026-08-11, owner-assisted (audit F30)",
+    "verification": "Three-way check 2026-08-11: (1) every qc_upper_mpa + band inclusivity matches the printed NBN EN 1997-1 ANB Tabel 2.1 the owner supplied (zand 2/4/10/15, leem+klei 0.4/1/2/4, veen 0.2/0.5/1, grind 10/20; open bands INCLUSIVE 'qc >= X' in the norm, so the classifier's >= reading is the norm's own — the workbook's '>' shorthand is not; audit F20 resolved in the code's favour). (2) All 31 workbook rows' characteristic qc values (NAD-NEN sheet col C, rows 5-35) classify to their own class through the shipped classify_nad, silty-clay's 0.55 included. (3) The class numbering 1-31 and names match the workbook's Laagnummer column and NO26043 Tabel 1-2 exactly. characteristic_qc_mpa is the workbook's per-class value, committed so the manifest test pins the classifier against WORKBOOK data, never code-vs-code."
   },
   "classes": [
     {
@@ -16,7 +17,8 @@
       "variant": "clean",
       "name": "GRIND, matig gp",
       "qc_upper_mpa": 20.0,
-      "workbook_row": null
+      "workbook_row": 5,
+      "characteristic_qc_mpa": 15.0
     },
     {
       "class": 2,
@@ -24,7 +26,8 @@
       "variant": "clean",
       "name": "GRIND, dicht gp",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 6,
+      "characteristic_qc_mpa": 20.0
     },
     {
       "class": 3,
@@ -32,7 +35,8 @@
       "variant": "secondary",
       "name": "GRIND, silt-/kleihoudend, matig gp",
       "qc_upper_mpa": 20.0,
-      "workbook_row": null
+      "workbook_row": 7,
+      "characteristic_qc_mpa": 15.0
     },
     {
       "class": 4,
@@ -40,7 +44,8 @@
       "variant": "secondary",
       "name": "GRIND, silt- of kleihoudend, dicht gp",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 8,
+      "characteristic_qc_mpa": 20.0
     },
     {
       "class": 5,
@@ -48,7 +53,8 @@
       "variant": "clean",
       "name": "ZAND, los gp",
       "qc_upper_mpa": 4.0,
-      "workbook_row": null
+      "workbook_row": 9,
+      "characteristic_qc_mpa": 3.0
     },
     {
       "class": 6,
@@ -56,7 +62,8 @@
       "variant": "clean",
       "name": "ZAND, matig gp",
       "qc_upper_mpa": 10.0,
-      "workbook_row": null
+      "workbook_row": 10,
+      "characteristic_qc_mpa": 7.0
     },
     {
       "class": 7,
@@ -64,7 +71,8 @@
       "variant": "clean",
       "name": "ZAND, dicht gp",
       "qc_upper_mpa": 15.0,
-      "workbook_row": null
+      "workbook_row": 11,
+      "characteristic_qc_mpa": 12.5
     },
     {
       "class": 8,
@@ -72,7 +80,8 @@
       "variant": "clean",
       "name": "ZAND, zeer dicht gp",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 12,
+      "characteristic_qc_mpa": 15.0
     },
     {
       "class": 9,
@@ -80,7 +89,8 @@
       "variant": "secondary",
       "name": "ZAND, silt-/kleihoudend, los gp",
       "qc_upper_mpa": 4.0,
-      "workbook_row": null
+      "workbook_row": 13,
+      "characteristic_qc_mpa": 3.0
     },
     {
       "class": 10,
@@ -88,7 +98,8 @@
       "variant": "secondary",
       "name": "ZAND, silt-/kleihoudend, matig gp",
       "qc_upper_mpa": 10.0,
-      "workbook_row": null
+      "workbook_row": 14,
+      "characteristic_qc_mpa": 7.0
     },
     {
       "class": 11,
@@ -96,7 +107,8 @@
       "variant": "secondary",
       "name": "ZAND, silt-/kleihoudend, dicht gp",
       "qc_upper_mpa": 15.0,
-      "workbook_row": null
+      "workbook_row": 15,
+      "characteristic_qc_mpa": 12.5
     },
     {
       "class": 12,
@@ -104,7 +116,8 @@
       "variant": "secondary",
       "name": "ZAND, silt-/kleihoudend, zeer dicht gp",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 16,
+      "characteristic_qc_mpa": 15.0
     },
     {
       "class": 13,
@@ -112,7 +125,8 @@
       "variant": "clean",
       "name": "SILT, weinig vast",
       "qc_upper_mpa": 1.0,
-      "workbook_row": null
+      "workbook_row": 17,
+      "characteristic_qc_mpa": 0.7
     },
     {
       "class": 14,
@@ -120,7 +134,8 @@
       "variant": "clean",
       "name": "SILT, matig vast",
       "qc_upper_mpa": 2.0,
-      "workbook_row": null
+      "workbook_row": 18,
+      "characteristic_qc_mpa": 1.5
     },
     {
       "class": 15,
@@ -128,7 +143,8 @@
       "variant": "clean",
       "name": "SILT, vrij vast",
       "qc_upper_mpa": 4.0,
-      "workbook_row": null
+      "workbook_row": 19,
+      "characteristic_qc_mpa": 3.0
     },
     {
       "class": 16,
@@ -136,7 +152,8 @@
       "variant": "clean",
       "name": "SILT, vast",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 20,
+      "characteristic_qc_mpa": 4.0
     },
     {
       "class": 17,
@@ -144,7 +161,8 @@
       "variant": "secondary",
       "name": "SILT, zandhoudend, weinig vast",
       "qc_upper_mpa": 1.0,
-      "workbook_row": null
+      "workbook_row": 21,
+      "characteristic_qc_mpa": 0.7
     },
     {
       "class": 18,
@@ -152,7 +170,8 @@
       "variant": "secondary",
       "name": "SILT, zandhoudend, matig vast",
       "qc_upper_mpa": 2.0,
-      "workbook_row": null
+      "workbook_row": 22,
+      "characteristic_qc_mpa": 1.5
     },
     {
       "class": 19,
@@ -160,7 +179,8 @@
       "variant": "secondary",
       "name": "SILT, zandhoudend, vrij vast",
       "qc_upper_mpa": 4.0,
-      "workbook_row": null
+      "workbook_row": 23,
+      "characteristic_qc_mpa": 3.0
     },
     {
       "class": 20,
@@ -168,7 +188,8 @@
       "variant": "secondary",
       "name": "SILT, zandhoudend, vast",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 24,
+      "characteristic_qc_mpa": 4.0
     },
     {
       "class": 21,
@@ -176,7 +197,8 @@
       "variant": "clean",
       "name": "KLEI, weinig vast",
       "qc_upper_mpa": 1.0,
-      "workbook_row": null
+      "workbook_row": 25,
+      "characteristic_qc_mpa": 0.7
     },
     {
       "class": 22,
@@ -184,7 +206,8 @@
       "variant": "clean",
       "name": "KLEI, matig vast",
       "qc_upper_mpa": 2.0,
-      "workbook_row": null
+      "workbook_row": 26,
+      "characteristic_qc_mpa": 1.5
     },
     {
       "class": 23,
@@ -192,7 +215,8 @@
       "variant": "clean",
       "name": "KLEI, vrij vast",
       "qc_upper_mpa": 4.0,
-      "workbook_row": null
+      "workbook_row": 27,
+      "characteristic_qc_mpa": 3.0
     },
     {
       "class": 24,
@@ -200,7 +224,8 @@
       "variant": "clean",
       "name": "KLEI, vast",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 28,
+      "characteristic_qc_mpa": 4.0
     },
     {
       "class": 25,
@@ -208,7 +233,8 @@
       "variant": "secondary",
       "name": "KLEI, zandhoudend, weinig vast",
       "qc_upper_mpa": 1.0,
-      "workbook_row": null
+      "workbook_row": 29,
+      "characteristic_qc_mpa": 0.55
     },
     {
       "class": 26,
@@ -216,7 +242,8 @@
       "variant": "secondary",
       "name": "KLEI, zandhoudend, matig vast",
       "qc_upper_mpa": 2.0,
-      "workbook_row": null
+      "workbook_row": 30,
+      "characteristic_qc_mpa": 1.5
     },
     {
       "class": 27,
@@ -224,7 +251,8 @@
       "variant": "secondary",
       "name": "KLEI, zandhoudend, vrij vast",
       "qc_upper_mpa": 4.0,
-      "workbook_row": null
+      "workbook_row": 31,
+      "characteristic_qc_mpa": 3.0
     },
     {
       "class": 28,
@@ -232,7 +260,8 @@
       "variant": "secondary",
       "name": "KLEI, zandhoudend, vast",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 32,
+      "characteristic_qc_mpa": 4.0
     },
     {
       "class": 29,
@@ -240,7 +269,8 @@
       "variant": "clean",
       "name": "VEEN, weinig vast",
       "qc_upper_mpa": 0.5,
-      "workbook_row": null
+      "workbook_row": 33,
+      "characteristic_qc_mpa": 0.35
     },
     {
       "class": 30,
@@ -248,7 +278,8 @@
       "variant": "clean",
       "name": "VEEN, matig vast",
       "qc_upper_mpa": 1.0,
-      "workbook_row": null
+      "workbook_row": 34,
+      "characteristic_qc_mpa": 0.75
     },
     {
       "class": 31,
@@ -256,7 +287,8 @@
       "variant": "clean",
       "name": "VEEN, vast",
       "qc_upper_mpa": null,
-      "workbook_row": null
+      "workbook_row": 35,
+      "characteristic_qc_mpa": 1.0
     }
   ]
 }
