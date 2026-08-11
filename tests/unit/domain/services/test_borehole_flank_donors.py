@@ -31,6 +31,7 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.domain.services.borehole_flank_donors import (
+    confidence_from_donor_distance,
     DonorBand,
     DonorStack,
     SectionPlacement,
@@ -333,3 +334,26 @@ def test_f10_a_vanishing_weight_is_a_single_donor_not_a_pretend_blend() -> None:
     assert selection.mode == "single_donor"
     assert [d.stack.investigation_id for d in selection.donors] == ["NEAR"]
     assert selection.donors[0].weight == 1.0
+
+
+class TestConfidenceFromDonorDistance:
+    """DC — confidence follows the distance to the nearest donor (owner, F08).
+
+    Ruling 2026-08-11, verbatim: *"map the confidence honestly, just take
+    distance to nearest cpt as a measure for now"*. Every committed borehole
+    band used to say ``high`` — tie-backed, lone flank 623 m out, or the
+    map-distance last resort, all indistinguishable rows after commit.
+    """
+
+    def test_dc1_the_three_rungs(self) -> None:
+        assert confidence_from_donor_distance(0.0) == "high"
+        assert confidence_from_donor_distance(50.0) == "high"
+        assert confidence_from_donor_distance(50.1) == "medium"
+        assert confidence_from_donor_distance(200.0) == "medium"
+        assert confidence_from_donor_distance(200.1) == "low"
+        assert confidence_from_donor_distance(623.0) == "low"
+
+    def test_dc2_no_donor_is_the_floor(self) -> None:
+        # The conservative fallbacks (body_min / absolute_min) have no donor at
+        # all; ``None`` must never read better than the farthest real one.
+        assert confidence_from_donor_distance(None) == "low"
