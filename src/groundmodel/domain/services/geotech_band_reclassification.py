@@ -248,6 +248,14 @@ class BandEditPlan:
         with (ruling 7) — the MODEL'S choice, so the consequence sheet can name
         it and can never quote a number the classifier would not produce
         (ruling 6).
+    absorbs : str | None
+        Which side of the pair a merge swallows — ``"lower"`` for the downward
+        landing (the unit above grows), ``"upper"`` for the upward one (the
+        reverse), ``None`` for anything that is not a merge. Direction decides
+        who swallows whom (owner, §4c), and the WRITER needs the answer: the two
+        merges keep different rows alive and classify the survivor under
+        different units' soils, so inferring the direction from depths at write
+        time would be a second copy of this rule.
     """
 
     kind: str
@@ -256,6 +264,7 @@ class BandEditPlan:
     intervals: tuple[IntervalOutcome, ...]
     warnings: tuple[BandEditWarning, ...]
     statistic: str = DEFAULT_STATISTIC
+    absorbs: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1156,6 +1165,49 @@ def plan_restated_contact_move(
             intervals=(survivor,),
             warnings=_build_warnings((survivor,), min_thickness_m),
             statistic=statistic,
+            absorbs="lower",
+        )
+    # LANDING ON THE PAIR'S TOP IS THE UPWARD MERGE — the mirror, not a variation.
+    #
+    # Direction decides who swallows whom (owner, §4c): "Down = the layer above grows;
+    # up = the reverse." Dragging the contact UP onto the previous packing boundary
+    # means the litho unit BELOW now owns the ground up to it, so the upper band
+    # collapses into the band below and the survivor is classified under the LOWER
+    # unit's soil. Until this branch existed the renderer clamped every upward drag
+    # onto exactly this landing, telegraphed "release to merge", opened the
+    # consequence dialog — and the confirm was answered with the strictly-inside
+    # refusal (audit F02, found by three lenses independently).
+    if abs(rounded - upper.depth_top_m) <= _DEPTH_EPS_M:
+        # The RC7 mirror: absorbing the upper unit's LAST band deletes the unit
+        # above. The renderer's contact-wall clamp stops an upward drag short of
+        # this landing, so reaching it means the clamp failed — this refusal is the
+        # second line of defence, exactly as the downward guard is.
+        above = bands[upper_index - 1] if upper_index > 0 else None
+        if above is None or above.source_litho_formation_id != upper.source_litho_formation_id:
+            raise GeotechBandEditError(
+                "Contact move rejected: landing here would absorb the last packing "
+                "band of the lithostratigraphic unit above, which would delete the "
+                "unit itself. Stop short of that boundary, subdivide the unit above "
+                "first, or remove the unit on the lithology axis."
+            )
+        (survivor,) = reclassify_intervals(
+            soil=lower_soil,
+            admixtures=lower_admixtures,
+            depth_m=depth_m,
+            qc_mpa=qc_mpa,
+            # The union takes the LOWER unit's soil — the ground up there now
+            # belongs to the unit below.
+            intervals=[ProposedInterval(upper.depth_top_m, lower.depth_base_m, (upper, lower))],
+            statistic=statistic,
+        )
+        return BandEditPlan(
+            kind=KIND_MERGE,
+            parent_top_m=upper.depth_top_m,
+            parent_base_m=lower.depth_base_m,
+            intervals=(survivor,),
+            warnings=_build_warnings((survivor,), min_thickness_m),
+            statistic=statistic,
+            absorbs="upper",
         )
     # Anywhere else: strictly inside the pair, both survivors at least the millimetre
     # grain the no-overlap exclusion stores.
