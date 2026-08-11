@@ -726,3 +726,108 @@ def test_sc1_every_built_band_carries_the_class_its_own_interval_implies(statist
         "these built bands carry a class their own depth range does not imply "
         f"(top, base, stored, own-extent): {mismatched}"
     )
+
+
+# ---------------------------------------------------------------------------
+# MC — the missing-qc gate covers the whole segment, and both paths agree
+# ---------------------------------------------------------------------------
+
+
+def _uniform(n: int, qc: float | None, start: float = 0.0, step: float = 0.02):
+    """n samples of one qc from ``start`` at ``step`` spacing."""
+    return (
+        [round(start + i * step, 4) for i in range(n)],
+        [qc] * n,
+    )
+
+
+def test_mc1_a_trailing_run_of_invalid_qc_flags_the_unit_for_review() -> None:
+    """MC1 — a bottom-of-unit sensor failure must flag, not classify (audit F12).
+
+    ``_missing_qc_coverage`` counted an invalid run only when BRACKETED by valid
+    samples: a leading run was skipped and a trailing run never flushed, on the
+    reasoning that "the segment simply stops being covered". That reasoning
+    belongs to depths the cone never SAMPLED — these are recorded samples the
+    validator rejected, and a cone that wrote garbage for the bottom two thirds
+    of a unit is exactly the >40 % case the owner's rule exists for. Reproduced
+    on the pre-fix code by the audit: this scene classified confidently.
+    """
+    top_d, top_q = _uniform(50, 5.0, start=0.0)  # 1 m of good readings
+    bot_d, bot_q = _uniform(100, None, start=1.0)  # 2 m the sensor lost
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), top_d + bot_d, top_q + bot_q,
+        segment_top_m=0.0, segment_base_m=3.0, min_thickness_m=0.35,
+    )
+    assert [s.nad_class for s in splits] == [None], (
+        "67 % of the unit is unreadable — the whole unit is a needs-review band"
+    )
+
+
+def test_mc2_a_leading_run_of_invalid_qc_flags_the_unit_for_review() -> None:
+    """MC2 — the mirror: the failure at the TOP of the unit counts the same."""
+    top_d, top_q = _uniform(100, None, start=0.0)
+    bot_d, bot_q = _uniform(50, 5.0, start=2.0)
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), top_d + bot_d, top_q + bot_q,
+        segment_top_m=0.0, segment_base_m=3.0, min_thickness_m=0.35,
+    )
+    assert [s.nad_class for s in splits] == [None]
+
+
+def test_mc3_one_isolated_bad_sample_still_never_flags() -> None:
+    """MC3 — the owner's rule the gate must keep: a single dropout is free."""
+    depths, qc = _uniform(150, 8.0)
+    qc[75] = None  # one void reading mid-unit
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=3.0, min_thickness_m=0.35,
+    )
+    assert all(s.nad_class is not None for s in splits)
+
+
+def test_mc4_every_classified_band_passes_the_edit_paths_own_gate() -> None:
+    """MC4 — build and hand-edit agree about what can be answered (audit F14).
+
+    The build gated coverage once per SEGMENT and then classified every band with
+    no local check; the edit path gates per INTERVAL. A band the build classified
+    over locally-thin coverage was irrecoverably downgraded to "cannot answer" by
+    ANY touch — merge it, undo, and the restored band came back needs-review.
+
+    The scene: a dense half-metre at 4.0–4.5 m whose readings alternate valid and
+    void. Segment-wide the voids are ~2.5 % (passes) and every run is a single
+    sample (span 0, passes) — but INSIDE the band they are 50 %, which the edit
+    path refuses. The build must refuse it too, and the two answers must be equal
+    for every emitted band, because the docstrings promise exactly that parity.
+    """
+    depths: list[float] = []
+    qc: list[float | None] = []
+    d = 0.0
+    while d < 10.0 - 1e-9:
+        if 4.0 - 1e-9 <= d < 4.5 - 1e-9:
+            qc.append(None if int(round(d / 0.02)) % 2 == 0 else 30.0)
+        else:
+            qc.append(5.0)
+        depths.append(round(d, 4))
+        d += 0.02
+
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+    )
+    for split in splits:
+        band = GeotechBand(
+            band_id="b",
+            depth_top_m=split.depth_top_m,
+            depth_base_m=split.depth_base_m,
+            nad_class=split.nad_class,
+            source_litho_formation_id="litho",
+            source_geo_formation_id=None,
+        )
+        (outcome,) = reclassify_intervals(
+            soil="ZAND", admixtures=(), depth_m=depths, qc_mpa=qc,
+            intervals=[ProposedInterval(split.depth_top_m, split.depth_base_m, (band,))],
+        )
+        assert outcome.nad_class == split.nad_class, (
+            f"band {split.depth_top_m}-{split.depth_base_m}: build says "
+            f"{split.nad_class}, the edit path says {outcome.nad_class}"
+        )
