@@ -9,12 +9,16 @@ packing band; the band's upper bound is the next (denser) class's qc, so e.g.
 ``>`` marker in the sheet). The same sheet also carries the per-class design
 parameters (γ, φ′, c′, cu, m) — those are the Phase-5 table, NOT used here.
 
-Classification is on RAW qc (MPa), no Dr, no σ′v (spec §5, owner directive). The
-NAD sheet's *official* method NORMALISES qc for sand/gravel (its ``qc,gem,norm``
-column, a Qtn-style overburden normalisation that can shift a sand one band
-up/down); per owner directive raw qc is the default and the normalised/Qtn path
-is a deferred Settings option (spec §5 "Qtn toggle"), applied to the same
-thresholds before lookup. Non-sand soils are never normalised.
+Classification is on RAW qc (MPa), no Dr, no σ′v — and that is the SOURCE'S own
+method, not a shortcut: the workbook's notes state the NAD soil-type assignment
+is made "waar geen normalisatie wordt toegepast" (where NO normalisation is
+applied). Verified against the workbook 2026-08-11 (audit F06 closed). The
+normalisation the sheet warns about belongs to the NEN TABLE ENTRY — converting
+field qc via ``qc;tabel = qc;terrein × Cqc`` with ``Cqc = (100/σ′v)^0.67``
+before pulling PARAMETERS (E100, φ′, C′p, Cc/(1+e0), Csw/(1+e0); grind/zand and
+to a limited degree leem and sterk zandige klei) — plus the sheet's own
+one-line up/down shift, implemented for ZAND only. That conversion ships with
+the Phase-5 NEN parameter port and has no role in packing classification.
 
 A variant is ``"clean"`` or ``"secondary"``. ``"secondary"`` means the soil
 carries its single admixture variant that the NAD table defines:
