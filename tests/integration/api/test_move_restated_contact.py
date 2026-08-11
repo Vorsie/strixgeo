@@ -409,3 +409,65 @@ async def test_st_sub4_the_build_rederives_under_the_models_chosen_statistic(
         "harmonic run: the weak spikes drag the representative below 4 MPa — "
         "los (5). Class 6 here means the build ignored the model's statistic."
     )
+
+
+@pytest.mark.asyncio
+async def test_rm6_a_coinciding_but_unlinked_geo_contact_is_carried_and_relinked(
+    contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RM6 — coincidence couples at move time, and the move heals the link (F34).
+
+    The dev model held two litho rows sitting bit-for-bit ON a geological
+    contact with no ``parent_geo_contact_id`` — provably once-coupled (only the
+    accept-time snap copies the float exactly) and severed later, most likely by
+    a delete + re-accept whose found-existing branch skipped re-coupling. Owner:
+    *"it shouldn't be that easy to unlink them."* So a move that finds no link
+    but a geo contact within the coincidence tolerance carries it anyway AND
+    writes the link back — self-healing on touch, exactly as the litho↔geotech
+    seam already resolves by depth.
+    """
+    gid = await _subdivide(async_client, contact_scene)
+    upper, lower = await _contact_pair(db_session, gid, contact_scene["cpt_id"])
+    upper_id, lower_id = upper.id, lower.id
+
+    geo_formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=UUID(contact_scene["project_id"]),
+        name="RM-Formatie-unlinked",
+        color="#888888",
+        display_order=1,
+    )
+    db_session.add(geo_formation)
+    await db_session.flush()
+    geo_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=UUID(contact_scene["geo_model_id"]),
+        formation_id=geo_formation.id,
+        cpt_id=contact_scene["cpt_id"],
+        depth_top_m=6.0,  # coincides with the restated contact — NO link set
+        source="manual_pick",
+    )
+    db_session.add(geo_contact)
+    await db_session.commit()
+    geo_contact_id = geo_contact.id
+
+    resp = await async_client.post(
+        _move_url(contact_scene, gid),
+        json={
+            "upper_band_id": str(upper_id),
+            "lower_band_id": str(lower_id),
+            "new_depth_m": 6.4,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["geo_contact_id"] == str(geo_contact_id), (
+        "the coinciding geological contact must be carried even without the link"
+    )
+
+    db_session.expire_all()
+    moved = await db_session.get(FormationContactOrm, geo_contact_id)
+    assert moved is not None and moved.depth_top_m == pytest.approx(6.4)
+    litho = await _litho_rows(db_session, contact_scene["litho_model_id"], contact_scene["cpt_id"])
+    assert litho[1].parent_geo_contact_id == geo_contact_id, (
+        "the move must heal the severed link, not just carry the contact once"
+    )
