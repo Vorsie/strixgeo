@@ -1718,7 +1718,7 @@ export default function SectionsCanvas(): JSX.Element {
           return
       }
     },
-    [geotechLayers, lithoLayers, lithoContacts, handleLithoSnapAwareUpdateContactDepth, toast],
+    [geotechLayers, lithoLayers, lithoContacts, geotechPackingModelId, toast],
   )
 
   // Commit the restated-contact move the prompt is holding.
@@ -1734,6 +1734,10 @@ export default function SectionsCanvas(): JSX.Element {
     await refetchLithoContacts()
     await refetchGeotechPackingEdges()
     markMutated()
+    // The move resizes (or absorbs) CPT packing bands and re-derives both
+    // classes — the borehole division borrows exactly those bands, so amber
+    // "Divide boreholes" as every other geotech write path does (audit F22).
+    markBoreholesStale()
   }, [requestGeotechLayersRefetch, refetchLithoContacts, refetchGeotechPackingEdges, markMutated])
 
   const handleConfirmContactMove = useCallback(async (): Promise<void> => {
