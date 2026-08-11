@@ -618,8 +618,31 @@ async def test_divide_boreholes_litho_confined(
             zand_layers.append(row)
 
     assert len(zand_layers) >= 1, "DB-4: expected ≥ 1 ZAND borehole band for BH-1"
-    high_confidence_zand = [r for r in zand_layers if r.confidence == "high"]
-    assert len(high_confidence_zand) >= 1, (
-        f"DB-4: expected ≥ 1 ZAND band with confidence='high' (CPT-interpolated); "
-        f"got confidence values: {[r.confidence for r in zand_layers]}"
+    # CPT interpolation is proven by the PLAN's provenance, not the confidence.
+    # This assertion used confidence='high' as the provenance proxy until the
+    # 2026-08-11 owner ruling made confidence follow the donor DISTANCE — and
+    # this scene's donors sit 300 m out, so every band honestly reads 'low' and
+    # the proxy collapsed. The planner's own FillBand.source is the record:
+    # 'cpt_interpolated' for the ZAND extent (same-litho donor data reached it),
+    # never a conservative fallback token.
+    replan = await DivideBoreholes(db_session).plan(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    zand_sources = {
+        band.source
+        for seg in replan.segments
+        for band in seg.bands
+        if (src := source_litho_formations.get(band.source_litho_formation_id)) is not None
+        and src.litho_main_soil_code == "ZAND"
+    }
+    assert "cpt_interpolated" in zand_sources, (
+        f"DB-4: the ZAND extent must be filled by CPT interpolation; plan "
+        f"sources were {sorted(zand_sources)}"
+    )
+    # And the committed confidence tells the distance truth: 300 m from the
+    # nearest donor is beyond the 200 m medium rung — 'low', honestly.
+    assert all(r.confidence == "low" for r in zand_layers), (
+        f"DB-4: 300 m donors must stamp 'low'; got "
+        f"{[r.confidence for r in zand_layers]}"
     )
