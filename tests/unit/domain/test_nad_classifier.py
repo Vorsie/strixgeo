@@ -3,7 +3,7 @@
 import pytest
 
 from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS
-from groundmodel.domain.services.nad_classifier import classify_nad
+from groundmodel.domain.services.nad_classifier import classify_nad, loosest_class_for
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES
 
@@ -186,3 +186,30 @@ def test_bands_cover_every_nad_class_1_to_31():
     29–31, so classes may repeat across columns — coverage, not uniqueness."""
     classes = {cls for bands in NAD_QC_BANDS.values() for _upper, cls in bands}
     assert classes == set(range(1, 32)), f"NAD_QC_BANDS does not cover 1..31 exactly: {classes}"
+
+
+class TestLoosestClassFor:
+    """ALC — the absolute-min fallback keeps the admixture variant (audit F19).
+
+    ``LITHO_ABSOLUTE_MIN_NAD`` carried one class per soil FAMILY — the clean
+    column's floor — so an absolute-min band on a silthoudend zand was stamped
+    class 5, the clean column, instead of 9. Harmless while nothing keys on the
+    number; wrong the day anything does, and the Phase-5 parameter table is
+    exactly a per-class lookup.
+    """
+
+    def test_alc1_secondary_sand_floors_to_the_secondary_column(self) -> None:
+        silty = (Admixture(soil_code="SI", amount=None, locally=False),)
+        assert loosest_class_for("ZAND", silty) == 9
+
+    def test_alc2_clean_sand_floors_to_the_clean_column(self) -> None:
+        assert loosest_class_for("ZAND", ()) == 5
+
+    def test_alc3_an_unknown_soil_floors_to_nothing(self) -> None:
+        # The caller SKIPS the group rather than guessing a family — same rule
+        # the old constant enforced with its None get().
+        assert loosest_class_for("MYSTERY", ()) is None
+
+    def test_alc4_veen_has_no_secondary_column_so_both_floor_the_same(self) -> None:
+        sandy = (Admixture(soil_code="ZN", amount=None, locally=False),)
+        assert loosest_class_for("VEEN", sandy) == loosest_class_for("VEEN", ()) == 29
