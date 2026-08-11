@@ -969,6 +969,7 @@ export function useGeologicalModel({
   project,
   toast,
   pushUndo,
+  clearUndo,
   addToManifest,
   removeFromManifest,
   addToSessionImports,
@@ -981,6 +982,14 @@ export function useGeologicalModel({
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
+  /**
+   * Clear the section undo stack. A re-subdivide deletes and rewrites every
+   * geotech row, so the band UUIDs the stack's commands hold stop meaning
+   * anything — the first stale Ctrl+Z used to 422 and the failure handler then
+   * discarded the WHOLE history, litho entries included (audit F23). Optional
+   * so callers without a stack (tests, secondary shells) need not thread one.
+   */
+  clearUndo?: () => void
   pushUndo: (cmd: UndoCommand) => void
   addToManifest: (kind: 'formation', ids: string[]) => void
   removeFromManifest: (kind: 'formation', ids: Iterable<string>) => void
@@ -2377,6 +2386,12 @@ export function useGeologicalModel({
         toast('error', `${deriveEdges ? 'Subdivide all bodies' : 'Subdivide CPTs'} failed — see console.`)
         return
       }
+      // The rebuild has landed: every geotech row the undo commands referenced is
+      // gone. Clearing HERE (success only) keeps a failed request from wiping
+      // valid history, and beats the alternative the owner met — the first stale
+      // Ctrl+Z 422s and the failure handler discards the whole stack anyway,
+      // litho entries included (audit F23).
+      clearUndo?.()
       log.success(
         'geology',
         `${verb} ok geotech_model=${result.geotech_model_id}` +
