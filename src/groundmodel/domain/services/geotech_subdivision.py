@@ -209,7 +209,18 @@ def _sustained_threshold_cuts(
     admixtures : tuple[Admixture, ...]
         Segment admixtures (pick clean vs secondary NAD variant).
     min_thickness_m : float
-        Persistence length — a crossing must hold this long to place a cut.
+        Sets the persistence length: a crossing must hold for HALF this long to
+        place a cut. Half, not the whole (owner ruling 2026-08-11, audit F05):
+        with full-thickness persistence a coherent run just under the minimum —
+        a real 0.34 m dense seam at the 0.35 m setting — was erased at the
+        CUTTER and its material silently upgraded whatever band swallowed it,
+        with no decision point anywhere. At half, such a seam becomes a cut
+        candidate and the no-silent-upgrade merge decides its fate: absorbed
+        where a neighbour's class survives, STANDING as a sub-minimum band for
+        the engineer where every absorption would upgrade ("i'd rather get a
+        smaller sliver and make the user choose"). Features shorter than half
+        the minimum remain noise — filtered here, influencing only the
+        representative statistic, which is the harmonic's documented job.
 
     Returns
     -------
@@ -218,7 +229,7 @@ def _sustained_threshold_cuts(
     """
     if not depths:
         return []
-    persist = max(1, round(min_thickness_m / _median_increment(depths)))
+    persist = max(1, round((min_thickness_m / 2.0) / _median_increment(depths)))
     variant = _variant_for(soil, admixtures)
     thresholds = [u for u, _c in NAD_QC_BANDS[(soil, variant)] if u is not None]
     cuts: set[float] = {depths[0], depths[-1]}
@@ -230,37 +241,75 @@ def _sustained_threshold_cuts(
     return sorted(cuts)
 
 
-def _conservative_merge(bands: list[list[float]], min_thickness_m: float) -> list[list[float]]:
-    """Absorb sub-min bands into their LOWER-density (lower NAD class) neighbour.
+def _conservative_merge(
+    bands: list[list[float]],
+    min_thickness_m: float,
+    union_class=None,
+) -> list[list[float]]:
+    """Absorb sub-min bands — but never in a way that silently upgrades a band.
 
     Within one soil family the NAD class number is ordered loose->dense /
-    weak->firm, so the lower number is the weaker class. Absorbing a thin band
-    into the weaker neighbour makes the weaker class claim a threshold-oscillation
-    zone — the conservative placement the owner asked for. Mutates a copy.
+    weak->firm, so the lower number is the weaker class. The weaker neighbour is
+    tried first (the conservative placement the owner asked for) — but a
+    neighbour may only take the sliver if the re-derived union does NOT come out
+    DENSER than that neighbour's own class. Owner ruling 2026-08-11 (audit F05),
+    verbatim: *"this would make a matig zand jump to a dense one, i don't like
+    this, in this case i'd rather get a smaller sliver and make the user
+    choose"*. So when every neighbour would be upgraded by the absorption, the
+    sliver STANDS as its own sub-minimum band and the engineer judges it with
+    the shipped band verbs (the merge sheet warns about the class pull — manual
+    override always wins). Going LOOSER stays automatic: that is the
+    conservative direction the weaker-neighbour rule exists for.
+
+    Mutates a copy.
 
     Parameters
     ----------
     bands : list[list[float]]
         ``[top_m, base_m, nad_class]`` bands, ordered top-to-bottom, contiguous.
     min_thickness_m : float
-        Minimum band thickness; thinner bands are absorbed.
+        Minimum band thickness; thinner bands are absorption candidates.
+    union_class : callable | None
+        ``union_class(top_m, base_m) -> int | None`` — the class the union would
+        re-derive to (the model's statistic over the joined extent). ``None``
+        (legacy callers) restores the unconditional weaker-neighbour absorb; a
+        ``None`` RESULT (the union cannot be classified) counts as
+        non-upgrading, because no class claim is being made.
 
     Returns
     -------
     list[list[float]]
-        Bands all >= ``min_thickness_m`` (unless only one remains).
+        Bands >= ``min_thickness_m`` except the slivers the ruling keeps.
     """
     out = [list(b) for b in bands]
+    # ``id(list)`` keys survive the index shifts the deletions cause.
+    standing: set[int] = set()
     changed = True
     while changed and len(out) > 1:
         changed = False
-        for i, (top, base, _cls) in enumerate(out):
-            if (base - top) >= min_thickness_m:
+        for i, band in enumerate(out):
+            top, base, _cls = band
+            if (base - top) >= min_thickness_m or id(band) in standing:
                 continue
             prev = out[i - 1] if i > 0 else None
             nxt = out[i + 1] if i < len(out) - 1 else None
-            candidates = [c for c in (prev, nxt) if c is not None]
-            target = min(candidates, key=lambda c: c[2])  # lowest NAD class wins
+            # Weaker neighbour first — the original preference, kept.
+            candidates = sorted((c for c in (prev, nxt) if c is not None), key=lambda c: c[2])
+            target = None
+            for cand in candidates:
+                if union_class is not None:
+                    joined_top = min(cand[0], top)
+                    joined_base = max(cand[1], base)
+                    union_cls = union_class(joined_top, joined_base)
+                    if union_cls is not None and union_cls > cand[2]:
+                        continue  # taking the sliver would upgrade this neighbour
+                target = cand
+                break
+            if target is None:
+                # Every neighbour would come out denser: the sliver stands for
+                # the engineer to judge, and the loop must not revisit it.
+                standing.add(id(band))
+                continue
             if target is prev:
                 out[i - 1][1] = base  # extend prev's base over the thin band
             else:
@@ -290,6 +339,7 @@ def _gradient_snap(
     qc: list[float],
     window_m: float,
     min_thickness_m: float,
+    union_class=None,
 ) -> list[list[float]]:
     """Snap each interior boundary to a nearby sharp |dqc/dz| peak, conservatively.
 
@@ -353,7 +403,11 @@ def _gradient_snap(
             # merge+weld repairs any sub-min or same-class artefact a snap creates.
             bands[k][1] = peak
             bands[k + 1][0] = peak
-    return _weld_same_class_bands(_conservative_merge(bands, min_thickness_m))
+    # The same no-silent-upgrade rule as the main pass — without the callback the
+    # legacy absorb here would swallow a standing sliver right back (audit F05).
+    return _weld_same_class_bands(
+        _conservative_merge(bands, min_thickness_m, union_class=union_class)
+    )
 
 
 @dataclass(frozen=True)
@@ -579,11 +633,36 @@ def suggest_geotech_subdivision(
         ]
 
     # 3. Conservative min-thickness merge (thin -> weaker neighbour) + 4. weld.
-    bands = _weld_same_class_bands(_conservative_merge(bands, min_thickness_m))
+    # The union-class probe the no-silent-upgrade rule consults: the same
+    # re-derivation (same statistic, same per-interval coverage gate) the final
+    # emit runs, so the merge's refusals agree with what step 6 would have said.
+    def _union_class(top_m: float, base_m: float) -> int | None:
+        return _class_over(
+            seg_depths,
+            seg_qc,
+            top_m,
+            base_m,
+            soil,
+            admixtures,
+            statistic,
+            None,
+            all_samples=in_range,
+        )
+
+    bands = _weld_same_class_bands(
+        _conservative_merge(bands, min_thickness_m, union_class=_union_class)
+    )
 
     # 5. Optional bounded gradient snap (sharpens real contacts, never less conservative).
     if gradient_snap:
-        bands = _gradient_snap(bands, seg_depths, seg_qc, gradient_snap_window_m, min_thickness_m)
+        bands = _gradient_snap(
+            bands,
+            seg_depths,
+            seg_qc,
+            gradient_snap_window_m,
+            min_thickness_m,
+            union_class=_union_class,
+        )
 
     # Clamp the outer edges to the fixed litho-segment bounds.
     bands[0][0] = segment_top_m
@@ -638,6 +717,4 @@ def suggest_geotech_subdivision(
         bands = welded
     # ``cls`` can be None now: the per-interval coverage gate (audit F14) flags a
     # band whose own window cannot answer, exactly like the whole-segment path.
-    return [
-        GeotechSplit(top, base, None if cls is None else int(cls)) for top, base, cls in bands
-    ]
+    return [GeotechSplit(top, base, None if cls is None else int(cls)) for top, base, cls in bands]
