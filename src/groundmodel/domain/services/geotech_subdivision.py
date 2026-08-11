@@ -80,8 +80,12 @@ def _missing_qc_coverage(
     Only samples the cone wrote and the validator rejected count; a stretch the
     cone simply did not sample (a coarser logging interval, a rod-change depth
     jump, an electric→mechanical increment change mid-test) contributes nothing,
-    because nothing there is corrupt. Sub-CPT-coverage at the segment ends is NOT
-    counted as missing either (that is coverage limit, not corrupt data).
+    because nothing there is corrupt. That exemption is automatic — unsampled
+    ground has no samples here to count — and it is the ONLY end-of-segment
+    exemption: a recorded-but-invalid run at either end counts like any other
+    (audit F12 — the old code skipped leading runs and never flushed trailing
+    ones, so a bottom-of-unit sensor failure classified confidently where the
+    owner's >40 % rule demanded review).
 
     Parameters
     ----------
@@ -106,12 +110,11 @@ def _missing_qc_coverage(
     # median spacing is the honest nominal for that: it is immune to the rod-change
     # jumps and method switches that a mean would smear across the whole unit.
     nominal = _median_increment([d for d, _q in ordered])
-    invalid_counted = 0  # invalid samples inside a counted (bracketed) run
+    invalid_counted = 0  # invalid samples across every run, edges included
     max_gap = 0.0
     run_start: float | None = None  # depth of the first invalid sample of the run
     run_end: float | None = None  # depth of the last invalid sample seen so far
     run_len = 0  # invalid samples in the run so far
-    seen_valid = False  # a leading bad run is coverage limit, not a gap
     for depth, q in ordered:
         if _is_valid_qc(q):
             if run_start is not None and run_end is not None:
@@ -119,16 +122,17 @@ def _missing_qc_coverage(
                 invalid_counted += run_len
             run_start = run_end = None
             run_len = 0
-            seen_valid = True
-            continue
-        if not seen_valid:
             continue
         if run_start is None:
             run_start = depth
         run_end = depth
         run_len += 1
-    # A trailing bad run (no valid sample after it) is left uncounted for the
-    # same reason as a leading one: the segment simply stops being covered.
+    # Flush a trailing run: the cone wrote these samples and the validator
+    # rejected them, which is corrupt data wherever it sits — the coverage-limit
+    # exemption belongs only to depths with no samples at all.
+    if run_start is not None and run_end is not None:
+        max_gap = max(max_gap, run_end - run_start)
+        invalid_counted += run_len
     return min(invalid_counted * nominal / thickness, 1.0), max_gap
 
 
@@ -384,11 +388,17 @@ def _class_over(
     admixtures: tuple[Admixture, ...],
     statistic: str,
     fallback: int | None,
+    all_samples: list[tuple[float, float | None]] | None = None,
 ) -> int | None:
     """Classify one interval from the cone readings inside it.
 
-    Half-open ``[top_m, base_m)``, the same window the hand-edit path samples, so the
-    build and an edit of the same interval cannot disagree.
+    Half-open ``[top_m, base_m)``, the same window the hand-edit path samples, and —
+    when ``all_samples`` is given — gated by the SAME per-interval coverage
+    thresholds the hand-edit path applies, so the build and an edit of the same
+    interval cannot disagree (audit F14: the build used to gate once per SEGMENT
+    and then classify every band with no local check, so a band classified over
+    locally-thin coverage was irrecoverably downgraded to needs-review by any
+    touch — merge it, undo, and the restored band came back unanswerable).
 
     Parameters
     ----------
@@ -406,12 +416,22 @@ def _class_over(
         Returned when the interval holds no reading at all, or when the readings
         cannot name a class: an interval with nothing in it is not evidence that the
         previous answer was wrong.
+    all_samples : list[tuple[float, float | None]] | None
+        The segment's raw in-range samples, validity included — what the coverage
+        gate judges. ``None`` skips the gate (legacy callers).
 
     Returns
     -------
     int | None
-        The NAD packing class, or ``fallback``.
+        The NAD packing class; ``fallback`` for an empty interval; ``None``
+        (needs review) when the interval's own coverage fails the thresholds.
     """
+    if all_samples is not None:
+        window = [(d, q) for d, q in all_samples if top_m <= d < base_m]
+        if window:
+            missing_fraction, max_gap_m = _missing_qc_coverage(window, top_m, base_m)
+            if missing_fraction > QC_REVIEW_MISSING_FRACTION or max_gap_m >= QC_REVIEW_MAX_GAP_M:
+                return None
     in_band = [q for d, q in zip(seg_depths, seg_qc) if top_m <= d < base_m]
     if not in_band:
         return fallback
@@ -594,7 +614,17 @@ def suggest_geotech_subdivision(
             [
                 top,
                 base,
-                _class_over(seg_depths, seg_qc, top, base, soil, admixtures, statistic, cls),
+                _class_over(
+                    seg_depths,
+                    seg_qc,
+                    top,
+                    base,
+                    soil,
+                    admixtures,
+                    statistic,
+                    cls,
+                    all_samples=in_range,
+                ),
             ]
             for top, base, cls in bands
         ]
@@ -606,4 +636,8 @@ def suggest_geotech_subdivision(
         if welded == bands:
             break
         bands = welded
-    return [GeotechSplit(top, base, int(cls)) for top, base, cls in bands]
+    # ``cls`` can be None now: the per-interval coverage gate (audit F14) flags a
+    # band whose own window cannot answer, exactly like the whole-segment path.
+    return [
+        GeotechSplit(top, base, None if cls is None else int(cls)) for top, base, cls in bands
+    ]
