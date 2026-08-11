@@ -281,6 +281,52 @@ class SubdivideAllBodiesResult:
 # ---------------------------------------------------------------------------
 
 
+def _mm_clamped_intervals(
+    splits: list,
+    geo_top_m: float,
+    geo_base_m: float,
+) -> tuple[list[tuple[float, float]], list[int | None]]:
+    """Clamp a segment's A3 splits into its geo-bounded extent, on the mm grid.
+
+    The splits arrive mm-rounded (the build rounds at emit); the geo bounds arrive
+    RAW from TIN interpolation. Clamping rounded edges against raw bounds put the
+    band above and the band below a segment boundary on different values of the
+    same physical depth — 72 of 479 adjacent pairs on the owner's model carried a
+    sub-mm no-band sliver, and the drag-merge 422d at half of them because the
+    landing "fell outside the pair" (audit F13). Rounding the BOUNDS first puts
+    every edge on the same millimetre grid: two segments sharing a boundary share
+    its rounded value, so their bands meet exactly.
+
+    A band may thereby extend up to half a millimetre past the raw TIN surface —
+    three orders of magnitude inside the DB contiguity tolerance (1 cm) and far
+    below anything a render or export resolves.
+
+    Parameters
+    ----------
+    splits : list
+        The segment's ``GeotechSplit``s, mm-rounded, tiling the segment.
+    geo_top_m, geo_base_m : float
+        The geo-bounded extent, raw.
+
+    Returns
+    -------
+    tuple[list[tuple[float, float]], list[int | None]]
+        The clamped ``(top, base)`` intervals and their classes, parallel; empty
+        when the extent degenerates on the mm grid.
+    """
+    top_r = round(geo_top_m, 3)
+    base_r = round(geo_base_m, 3)
+    intervals: list[tuple[float, float]] = []
+    classes: list[int | None] = []
+    for sp in splits:
+        top_m = max(sp.depth_top_m, top_r)
+        base_m = min(sp.depth_base_m, base_r)
+        if base_m - top_m > 1e-6:
+            intervals.append((top_m, base_m))
+            classes.append(sp.nad_class)
+    return intervals, classes
+
+
 @dataclass
 class _ColumnPlan:
     """Computed per-column sub-interval depths for one body group.
@@ -972,18 +1018,22 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 # sand whose qc crosses 10/15 MPa splits los/matig/dicht on THIS
                 # test even if its neighbours disagree. The A3 splits already tile
                 # [seg.top, seg.base] (== the geo-bounded extent); clamp defensively.
-                for sp in profile.splits:
-                    top_m = max(sp.depth_top_m, geo_top)
-                    base_m = min(sp.depth_base_m, geo_base)
-                    if base_m - top_m > 1e-6:
-                        sub_intervals.append((top_m, base_m))
-                        nad_classes.append(sp.nad_class)
+                sub_intervals, nad_classes = _mm_clamped_intervals(
+                    profile.splits, geo_top, geo_base
+                )
 
             if not sub_intervals:
                 # Borehole (no qc), or a CPT with no usable segmentation → ONE band
                 # spanning the geo-bounded extent, classified later by Phase-8b
                 # extrapolation (nearest CPT). ``None`` flags the skeleton path.
-                sub_intervals = [(geo_top, geo_base)]
+                # Same mm grid as the split path, so a skeleton band meets its
+                # neighbours exactly; only a sub-millimetre extent keeps the raw
+                # pair (rounding would degenerate it into a zero-width row).
+                top_r, base_r = round(geo_top, 3), round(geo_base, 3)
+                if base_r - top_r > 1e-6:
+                    sub_intervals = [(top_r, base_r)]
+                else:
+                    sub_intervals = [(geo_top, geo_base)]
                 nad_classes = [None]
 
             col_plans.append(
