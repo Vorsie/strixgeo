@@ -66,9 +66,9 @@ export default function FlaggedTiesPromptDialog({
             class needs another look.
           </p>
           <p className="mt-2 text-text-secondary">
-            Deleting is one step on the undo stack. While a tie is flagged it no longer joins
-            its two bands into one body, so the 3-D model will not weld them together either
-            way.
+            Deleting is one step on the undo stack. While a mismatched tie waits for review it
+            no longer joins its two bands into one body, so the 3-D model will not weld them
+            together either way.
           </p>
         </>
       }
