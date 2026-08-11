@@ -1112,3 +1112,85 @@ def test_rc11_an_upward_merge_landing_on_a_geological_contact_is_refused() -> No
             qc_mpa=qc,
             min_thickness_m=0.1,
         )
+
+
+def test_sp_r1_the_split_previews_the_depth_the_commit_writes() -> None:
+    """SP-R1 — plan_split rounds before validating and classifying (audit F15).
+
+    Its two sibling planners round to the millimetre first; plan_split validated
+    and built both intervals at the RAW depth while the commit wrote the rounded
+    one — so a sample inside the sub-millimetre difference belonged to one half in
+    the preview and the other half on disk. The scene puts an extreme reading at
+    exactly 4.0 m: splitting at 4.0004 m must classify [top, 4.0), which excludes
+    it, because 4.0 is what the commit writes.
+    """
+    depths, qc = _series([(0.0, 3.98, 5.0), (3.98, 4.02, 60.0), (4.02, 9.0, 5.0)])
+    bands = [_band("b1", 0.0, 9.0, 6)]
+    plan = plan_split(
+        bands=bands,
+        band_id="b1",
+        split_depth_m=4.0004,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    # The intervals ARE the commit's intervals — mm-rounded.
+    assert plan.intervals[0].depth_base_m == pytest.approx(4.0)
+    assert plan.intervals[1].depth_top_m == pytest.approx(4.0)
+
+
+def test_sp_r2_a_split_that_rounds_onto_the_bands_edge_is_refused_not_written() -> None:
+    """SP-R2 — the zero-width-row 500, closed at the planner (audit F15).
+
+    A split at 4.0004 m inside a band whose top is 4.0 m passed the raw
+    strictly-inside check and then the commit rounded it onto the band's own
+    edge — a zero-width row and a constraint error mid-transaction. Validating
+    the rounded depth turns it into the ordinary refusal.
+    """
+    depths, qc = _series([(0.0, 9.0, 5.0)])
+    bands = [
+        _band("b0", 0.0, 4.0, 6),
+        _band("b1", 4.0, 9.0, 6),
+    ]
+    with pytest.raises(GeotechBandEditError, match="not inside the band"):
+        plan_split(
+            bands=bands,
+            band_id="b1",
+            split_depth_m=4.0004,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+
+
+def test_pt1_the_edit_window_is_the_builds_window_to_the_last_sample() -> None:
+    """PT1 — no epsilon shift between the two paths' sampling (audit F17).
+
+    The edit path sampled ``top - 1e-6 <= d < base - 1e-6`` while the build
+    samples ``top <= d < base`` — the whole window shifted by a micron, under
+    docstrings in BOTH files claiming exact parity. Real depth grids never put a
+    sample in that sliver, but the parity claim was false as written and the trap
+    arms itself if the epsilon is ever widened toward the 1 cm adjacency epsilon
+    four lines above it.
+
+    The scene plants a sample at base - 5e-7 — inside the disputed sliver — whose
+    extreme value decides the class. The build's window includes it; the edit
+    path must agree.
+    """
+    depths = [0.0, 1.0, 2.0, 3.0 - 5e-7]
+    qc: list[float | None] = [5.0, 5.0, 60.0, 60.0]
+    band = _band("b1", 0.0, 3.0, 6)
+    (outcome,) = reclassify_intervals(
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        intervals=[ProposedInterval(0.0, 3.0, (band,))],
+    )
+    # All four samples in [0, 3): median of [5, 5, 60, 60] = 32.5 → zeer dicht.
+    assert outcome.median_qc_mpa == pytest.approx(32.5)
+    assert outcome.nad_class == 8
