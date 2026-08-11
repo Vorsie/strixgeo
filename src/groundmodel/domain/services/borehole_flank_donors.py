@@ -611,3 +611,39 @@ def _fraction(stack: DonorStack, depth_m: float) -> float:
     if thickness <= 0.0:
         return 0.0
     return min(1.0, max(0.0, (depth_m - stack.extent_top_m) / thickness))
+
+
+# Confidence rungs for a donor-derived band, in metres to the NEAREST donor CPT
+# (owner ruling 2026-08-11, audit F08: "map the confidence honestly, just take
+# distance to nearest cpt as a measure for now"). The 50 m rung is the scale of
+# the section projection buffer (default 60 m) — the corridor the owner himself
+# uses to say a test "is here"; 200 m is beyond the typical CPT spacing on the
+# dev model's sections (~50 m), i.e. several tests' worth of extrapolation.
+# "For now" per the ruling — tune on dogfeed, in one place.
+DONOR_CONFIDENCE_HIGH_M = 50.0
+DONOR_CONFIDENCE_MEDIUM_M = 200.0
+
+
+def confidence_from_donor_distance(distance_m: float | None) -> str:
+    """Confidence of a borrowed band, from how far its nearest donor sits.
+
+    Parameters
+    ----------
+    distance_m : float | None
+        Metres to the nearest donor CPT — along-section where the donor came
+        from a section flank, map distance for the fallback. ``None`` means no
+        donor at all (the conservative body_min / absolute_min fills), which
+        must never read better than the farthest real donor.
+
+    Returns
+    -------
+    str
+        ``"high"`` (≤ 50 m), ``"medium"`` (≤ 200 m) or ``"low"``.
+    """
+    if distance_m is None:
+        return "low"
+    if distance_m <= DONOR_CONFIDENCE_HIGH_M:
+        return "high"
+    if distance_m <= DONOR_CONFIDENCE_MEDIUM_M:
+        return "medium"
+    return "low"
