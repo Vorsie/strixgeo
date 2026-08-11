@@ -1052,3 +1052,63 @@ def test_rc9_an_upward_merge_that_would_consume_the_unit_above_is_refused() -> N
             qc_mpa=qc,
             min_thickness_m=0.1,
         )
+
+
+def test_rc10_a_downward_merge_landing_on_a_geological_contact_is_refused() -> None:
+    """RC10 — the merge guard walls BOTH parents, like every packing verb does.
+
+    A litho unit can span a geological contact (``enclosing_litho_bounds`` models
+    exactly that), and the guard checked only the litho parent — so a merge could
+    land ON the geological contact, the harder of the two walls (audit F03). The
+    packing verbs wall both via ``_assert_same_litho_body``; the restated planner
+    must too.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, None, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, None, litho=LITHO_B, geo=GEO_1),
+        # Same litho unit as "lower" but the OTHER geological formation: the
+        # boundary at 7.0 m IS a geological contact interior to unit B.
+        _band("floor", 7.0, 10.0, None, litho=LITHO_B, geo=GEO_2),
+    ]
+
+    with pytest.raises(GeotechBandEditError, match="geological"):
+        plan_restated_contact_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=7.0,
+            upper_soil="ZAND",
+            upper_admixtures=(),
+            lower_soil="KLEI",
+            lower_admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
+
+
+def test_rc11_an_upward_merge_landing_on_a_geological_contact_is_refused() -> None:
+    """RC11 — the mirror for the upward direction."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("ceiling", 0.0, 3.0, None, litho=LITHO_A, geo=GEO_1),
+        # Same litho unit as "upper" but across a geological contact at 3.0 m.
+        _band("upper", 3.0, 5.0, None, litho=LITHO_A, geo=GEO_2),
+        _band("lower", 5.0, 10.0, None, litho=LITHO_B, geo=GEO_2),
+    ]
+
+    with pytest.raises(GeotechBandEditError, match="geological"):
+        plan_restated_contact_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=3.0,
+            upper_soil="ZAND",
+            upper_admixtures=(),
+            lower_soil="KLEI",
+            lower_admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
