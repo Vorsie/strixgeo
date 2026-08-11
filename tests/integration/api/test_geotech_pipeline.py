@@ -45,6 +45,7 @@ from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -502,8 +503,12 @@ async def test_gp6_a_subset_of_the_boreholes_can_be_divided(
     await _auto_correlate(async_client, pipeline_scene, geotech_model_id)
     await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
 
-    # A subset naming a borehole that exists in the project but is not BH-S:
-    # the one borehole in the scene must be left alone.
+    # A subset naming an id that exists in NO table: unknown ids are silently
+    # ignored (200, zero layers) and the scene's one real borehole is left
+    # alone. Honest scope note (audit F29): this scene has exactly one borehole,
+    # so subset SELECTION among several real boreholes is pinned nowhere at this
+    # level — the ghost right-click e2e flow covers the gesture, not the
+    # two-real-boreholes API case.
     other_borehole_id = str(uuid7())
     resp = await async_client.post(
         f"/projects/{pipeline_scene['project_id']}/geology/models/"
@@ -669,10 +674,25 @@ async def test_gp9_a_subset_preview_shows_exactly_what_the_subset_commit_writes(
         .scalars()
         .all()
     )
+    # FULL tuples — depth, class AND confidence (audit F28: the depths-only
+    # compare let a subset commit write the previewed depths with different
+    # classes; DB5 pins four-field parity only for the whole-model call).
+    class_by_formation = {
+        f.id: f.nad_class
+        for f in (
+            (await db_session.execute(select(GeologicalFormationOrm))).scalars().all()
+        )
+    }
     committed = sorted(
-        (round(r.depth_top_m, 3), round(r.depth_base_m, 3)) for r in committed_rows
+        (
+            round(r.depth_top_m, 3),
+            round(r.depth_base_m, 3),
+            class_by_formation.get(r.formation_id),
+            r.confidence,
+        )
+        for r in committed_rows
     )
-    expected = sorted((t, b) for t, b, _n, _c in previewed[str(pipeline_scene["bh_id"])])
+    expected = sorted((t, b, n, c) for t, b, n, c in previewed[str(pipeline_scene["bh_id"])])
     assert committed == expected, (
         f"GP9: subset ghosts {expected} != subset commit {committed}"
     )
