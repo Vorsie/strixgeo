@@ -57,3 +57,62 @@ def test_manifest_thresholds_match_nad_qc_bands() -> None:
                 f"class {cls}: manifest qc_upper {row['qc_upper_mpa']} != code {upper} "
                 "— update docs/reference/nad_reference_manifest.json when the thresholds change"
             )
+
+
+def test_every_workbook_characteristic_qc_classifies_to_its_own_class() -> None:
+    """WB1 — the classifier against WORKBOOK data, never code against code.
+
+    Audit F30's finding was that the strongest classifier test compared the
+    implementation to a transcription OF the implementation. The manifest now
+    carries each class's characteristic qc as read from the owner's workbook
+    (``Correlaties uit S en NAD_NEN_v2.xlsx``, NAD-NEN sheet, sha256 in _meta) —
+    values the code never contained — and every one must classify back to its
+    own class. A mis-typed threshold that shifts any band edge past a
+    characteristic value goes RED here, whichever copy drifted.
+
+    Verified against the printed NBN EN 1997-1 ANB Tabel 2.1 on 2026-08-11
+    (owner-supplied): zand 2/4/10/15, leem+klei 0.4/1/2/4, veen 0.2/0.5/1,
+    grind 10/20 — all matching the shipped constants.
+    """
+    from groundmodel.domain.services.nad_classifier import classify_nad
+    from groundmodel.domain.value_objects.admixture import Admixture
+
+    manifest = _load()
+    assert manifest["_meta"]["verified_against_workbook"] is True
+    for row in manifest["classes"]:
+        soil = row["family"]
+        admixtures = (
+            (
+                Admixture(
+                    soil_code="SI" if soil in ("GRIND", "ZAND") else "ZN",
+                    amount=None,
+                    locally=False,
+                ),
+            )
+            if row["variant"] == "secondary"
+            else ()
+        )
+        got = classify_nad(soil, admixtures, row["characteristic_qc_mpa"])
+        assert got == row["class"], (
+            f"workbook row {row['workbook_row']}: characteristic qc "
+            f"{row['characteristic_qc_mpa']} MPa classifies to {got}, not {row['class']}"
+        )
+
+
+def test_open_band_boundaries_are_inclusive_as_the_norm_prints_them() -> None:
+    """WB2 — the norm writes ``qc >= X`` for every open band; so does the code.
+
+    Audit F20 asked whether the workbook's ``>`` shorthand meant the boundary
+    value belongs to the looser class. The printed ANB Tabel 2.1 answers: the
+    norm's own marker is ``>=`` (zand zeer dicht ``qc >= 15``, grind dicht
+    ``qc >= 20``, leem/klei vast ``qc >= 4``, veen vast ``qc >= 1``), so a qc
+    exactly on the mark is the DENSER class — the reading the classifier has
+    always had, now pinned against the source rather than assumed.
+    """
+    from groundmodel.domain.services.nad_classifier import classify_nad
+
+    assert classify_nad("ZAND", (), 15.0) == 8
+    assert classify_nad("GRIND", (), 20.0) == 2
+    assert classify_nad("SILT", (), 4.0) == 16
+    assert classify_nad("KLEI", (), 4.0) == 24
+    assert classify_nad("VEEN", (), 1.0) == 31
