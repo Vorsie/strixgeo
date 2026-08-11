@@ -664,9 +664,31 @@ def suggest_geotech_subdivision(
             union_class=_union_class,
         )
 
-    # Clamp the outer edges to the fixed litho-segment bounds.
-    bands[0][0] = segment_top_m
-    bands[-1][1] = segment_base_m
+    # Reach the fixed litho-segment bounds — honestly (owner ruling 2026-08-11,
+    # audit F32, option c). Ground the cone never sampled is not silently claimed:
+    # an unread head or tail LONGER than the minimum layer thickness becomes its
+    # own needs-review band instead of stretching the nearest class over it, and
+    # the engineer decides what it is — by correlating the packing density across
+    # columns, under the same 2/1/0 rule as the litho stage (owner: "the user
+    # will have to correlate the packing density and make a good decision, the
+    # 2/1/0 will stand in geotech stage also"). A shorter gap still stretches to
+    # the boundary, so mm-scale under-coverage never litters review tails.
+    first_read = seg_depths[0]
+    # The unread ground starts one sample spacing BELOW the last reading (the
+    # reading covers its own increment) — and the half-open windows then leave
+    # the tail genuinely sample-free, so neither the re-derive loop nor the
+    # edit path can conjure a class for it from the one boundary sample.
+    last_read = min(seg_depths[-1] + _median_increment(seg_depths), segment_base_m)
+    if first_read - segment_top_m > min_thickness_m:
+        bands[0][0] = first_read
+        bands.insert(0, [segment_top_m, first_read, None])
+    else:
+        bands[0][0] = segment_top_m
+    if segment_base_m - last_read > min_thickness_m:
+        bands[-1][1] = last_read
+        bands.append([last_read, segment_base_m, None])
+    else:
+        bands[-1][1] = segment_base_m
 
     # 6. Re-derive every class over the interval the band ACTUALLY ends up with.
     #
