@@ -231,7 +231,7 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             # flagged for review, never dropped by the FK cascade (flag-not-drop, owner
             # 2026-08-07). The same helper the band merge uses, so the two verbs cannot
             # disagree about what happens to the engineer's own correlations.
-            await transfer_accepted_edges(
+            transfer = await transfer_accepted_edges(
                 self._session,
                 self,
                 model_id=geotech_model_id,
@@ -239,6 +239,13 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
                 to_layer_id=survivor_row.id,
                 survivor_class=merged_outcome.nad_class,
             )
+            # The plan is the record of what happened to the engineer's OWN ties —
+            # discarding it (audit F09) meant a contact drag-merge flagged and
+            # deleted accepted correlations without the response ever saying so,
+            # and the keep-or-delete prompt never fired for this gesture.
+            transfer_flagged = tuple(m.edge_id for m in transfer.moves)
+            transfer_deleted = tuple(transfer.drops) + tuple(transfer.displaced_edge_ids)
+            accepted_drops = tuple(transfer.drops)
             survivor_row.depth_top_m = merged_outcome.depth_top_m
             survivor_row.depth_base_m = merged_outcome.depth_base_m
             survivor_row.formation_id = survivor_formation.id
@@ -246,6 +253,10 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             deleted_band_ids = (absorbed_row.id,)
             await self._session.delete(absorbed_row)
         else:
+            survivor_row = upper_row  # unused in this branch; bound for the shared tail
+            transfer_flagged = ()
+            transfer_deleted = ()
+            accepted_drops = ()
             assert upper_outcome is not None and lower_outcome is not None  # noqa: S101
             upper_formation = await formation_for_class(
                 self,
@@ -298,10 +309,10 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             self,
             model_id=geotech_model_id,
             new_class_by_layer_id=(
-                {upper_row.id: upper_outcome.nad_class}
+                {survivor_row.id: merged_outcome.nad_class}  # type: ignore[union-attr]
                 if merging
                 else {
-                    upper_row.id: upper_outcome.nad_class,
+                    upper_row.id: upper_outcome.nad_class,  # type: ignore[union-attr]
                     lower_row.id: lower_outcome.nad_class,  # type: ignore[union-attr]
                 }
             ),
@@ -317,16 +328,22 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             f"MoveRestatedContact: contact at {boundary_m:.3f} m moved in "
             f"{'3' if geo_contact_id is not None else '2'} model(s)"
         )
+        # The transferred ties were flagged BY the transfer; the revalidation judged
+        # the survivor's pre-existing ones. The union is what the UI reports — the
+        # same rule MergeGeotechBands applies, so the two merge verbs cannot tell
+        # the engineer different stories about one operation.
+        flagged = tuple(dict.fromkeys(transfer_flagged + tuple(revalidation.flagged_edge_ids)))
         return RestatedContactMoveResult(
             band_result=GeotechBandEditResult(
                 geotech_model_id=geotech_model_id,
                 investigation_id=upper_ctx.investigation_id,
                 plan=plan,
-                layer_ids=(upper_row.id,) if merging else (upper_row.id, lower_row.id),
+                layer_ids=(survivor_row.id,) if merging else (upper_row.id, lower_row.id),
                 created_layer_ids=(),
                 deleted_layer_ids=deleted_band_ids,
-                deleted_edge_ids=revalidation.deleted_edge_ids,
-                flagged_edge_ids=revalidation.flagged_edge_ids,
+                deleted_edge_ids=transfer_deleted + tuple(revalidation.deleted_edge_ids),
+                deleted_accepted_edge_ids=accepted_drops,
+                flagged_edge_ids=flagged,
                 cleared_edge_ids=revalidation.cleared_edge_ids,
             ),
             litho_upper_layer_id=litho_upper.id,
