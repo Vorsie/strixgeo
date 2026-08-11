@@ -1,8 +1,9 @@
 """Pure NAD packing classifier — ``(soil, admixture, qc) → NAD class`` (spec §5).
 
 Lithology is hard truth: qc never promotes or demotes a unit across soil types.
-The band table is provisional; only the STRUCTURE of this module is final (spec §5,
-Task T0 swaps in the production thresholds from the owner's xlsx).
+The band table carries the production thresholds (Task T0 done), verified against
+the printed NBN EN 1997-1 ANB Tabel 2.1 and the owner's workbook on 2026-08-11 —
+see ``docs/reference/nad_reference_manifest.json`` and the WB1/WB2 pins.
 """
 
 from __future__ import annotations
