@@ -136,6 +136,7 @@ from groundmodel.domain.services.borehole_flank_donors import (
     DonorStack,
     FlankSelection,
     SectionPlacement,
+    confidence_from_donor_distance,
     flank_packing_surfaces,
     select_flank_donors,
 )
@@ -168,16 +169,13 @@ from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 # 1 mm — the grain `litho_layer` stores intervals at.
 _DEPTH_OVERLAP_EPS = 0.001
 
-# FillBand.source → litho_layer.confidence. Both conservative fallback sources
-# (body_min, absolute_min) map to 'low': they are engineer-acknowledged
-# estimates with no CPT data at that borehole, not CPT-anchored values. The
-# full 3-tier provenance lives on FillBand.source and (Task 4) on the sample;
-# 'confidence' is a confidence rating, not a provenance ledger.
-_BOREHOLE_CONFIDENCE_MAP: dict[str, str] = {
-    "cpt_interpolated": "high",
-    "body_min": "low",
-    "absolute_min": "low",
-}
+# FillBand.source → litho_layer.confidence used to be a flat map that stamped
+# every donor-derived band 'high' — a tie-backed band and a lone flank 623 m out
+# were indistinguishable rows after commit (audit F08). Owner ruling 2026-08-11:
+# "map the confidence honestly, just take distance to nearest cpt as a measure
+# for now" — donor-derived bands take confidence_from_donor_distance(nearest
+# donor); the conservative fallbacks (body_min, absolute_min) have no donor and
+# stay 'low' via the same helper's None arm.
 
 
 @dataclass(frozen=True)
@@ -832,6 +830,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     )
                     for donor in selection.donors
                 )
+                # The measure the ruling names: metres to the NEAREST donor —
+                # along-section where the donor came from a flank, map distance
+                # for the fallback. min() over the selection's donors.
+                nearest_donor_distance_m: float | None = None
+                for donor in selection.donors:
+                    d = (
+                        donor.along_distance_m
+                        if donor.along_distance_m is not None
+                        else donor.stack.map_distance_m
+                    )
+                    if d is not None and (
+                        nearest_donor_distance_m is None or d < nearest_donor_distance_m
+                    ):
+                        nearest_donor_distance_m = d
                 planned_segments.append(
                     PlannedBoreholeSegment(
                         borehole_id=inv_uuid,
@@ -842,7 +854,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                                 depth_base_m=fb.base,
                                 nad_class=fb.nad_class,
                                 source=fb.source,
-                                confidence=_BOREHOLE_CONFIDENCE_MAP.get(fb.source, "low"),
+                                confidence=(
+                                    confidence_from_donor_distance(nearest_donor_distance_m)
+                                    if fb.source == "cpt_interpolated"
+                                    else "low"
+                                ),
                                 body_id=body_id,
                                 source_litho_formation_id=source_litho_fid,
                                 source_geo_formation_id=source_geo_fid,
