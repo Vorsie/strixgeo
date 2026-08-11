@@ -379,8 +379,8 @@ def _representative_qc_over(
 ) -> tuple[float | None, str | None]:
     """Representative qc over ``[top_m, base_m)``, or why there is none.
 
-    Half-open sampling matches ``geotech_subdivision`` (``a <= d < b``, line 441)
-    so this number is the one the build would classify on. Coverage is judged by
+    Half-open sampling matches ``geotech_subdivision._class_over`` (``top <= d <
+    base``) so this number is the one the build would classify on. Coverage is judged by
     the SAME thresholds the build uses to flag a unit "needs review", so preview
     and build never disagree about whether an interval can be answered. The
     statistic is the MODEL'S choice (ruling 7), read through the one shared
@@ -402,8 +402,13 @@ def _representative_qc_over(
     tuple[float | None, str | None]
         ``(representative_qc_mpa, reason)`` — exactly one is ``None``.
     """
+    # The build's window, VERBATIM (``top <= d < base`` — _class_over). This was
+    # epsilon-shifted for years under a docstring claiming exact parity; the
+    # 1 µm sliver never bit on real depth grids, but the trap armed itself the
+    # day anyone widened _DEPTH_EPS_M toward the 1 cm adjacency epsilon four
+    # lines above it (audit F17).
     in_range: list[tuple[float, float | None]] = [
-        (d, q) for d, q in zip(depth_m, qc_mpa) if top_m - _DEPTH_EPS_M <= d < base_m - _DEPTH_EPS_M
+        (d, q) for d, q in zip(depth_m, qc_mpa) if top_m <= d < base_m
     ]
     if not in_range:
         # Deliberately NOT the build's borehole fallback (no samples → qc 0.0 →
@@ -736,6 +741,12 @@ def plan_split(
     index = _index_of(bands, band_id)
     target = bands[index]
     parent_top, parent_base = enclosing_litho_bounds(bands, index)
+    # Rounded FIRST, like plan_move and plan_restated_contact_move: the commit
+    # writes round(depth, 3), so validating or classifying at the raw depth
+    # previews a split the disk never gets — and a raw depth strictly inside the
+    # band can round ONTO its edge, which used to reach the database as a
+    # zero-width row and a constraint error mid-transaction (audit F15).
+    split_depth_m = round(split_depth_m, 3)
     if not (parent_top + _DEPTH_EPS_M < split_depth_m < parent_base - _DEPTH_EPS_M):
         raise GeotechBandEditError(
             f"Split rejected: {split_depth_m:.2f} m falls outside the band's own litho "
