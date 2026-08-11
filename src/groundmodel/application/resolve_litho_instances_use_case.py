@@ -201,6 +201,17 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
     #    re-judge. The tie itself is untouched: still kept, still self-healing, still
     #    badged. Only its effect on the model is suspended while it waits.
     #
+    #    The suspension is scoped to the flags that cast doubt on the UNION itself
+    #    (owner ruling refined 2026-08-11, audit F31): ``class_changed`` means the
+    #    two ends no longer describe the same ground, ``ambiguous_band`` means the
+    #    re-anchor could not be sure WHICH band the tie was drawn on — both doubts
+    #    a union must not ride on. ``band_absorbed`` is different: the band the tie
+    #    was drawn on was absorbed and the survivor still MATCHES the partner, so
+    #    the correlation is still right — and since that flag never self-heals and
+    #    is deliberately excluded from the keep-or-delete prompt (asking "these no
+    #    longer match" about it would be false), suspending for it too meant every
+    #    routine contact drag-merge silently and durably fragmented bodies.
+    #
     #    Litho edges are unaffected in practice — nothing on that side writes a review
     #    reason — so this reads as a geotech rule even though it lives in the shared
     #    resolver, which is where the union is decided for both.
@@ -212,7 +223,10 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
             ).where(
                 LithoContactCorrelationEdgeOrm.model_id == model_id,
                 LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-                LithoContactCorrelationEdgeOrm.review_reason.is_(None),
+                LithoContactCorrelationEdgeOrm.review_reason.notin_(
+                    ["class_changed", "ambiguous_band"]
+                )
+                | LithoContactCorrelationEdgeOrm.review_reason.is_(None),
             )
         )
     ).all()
