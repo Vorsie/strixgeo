@@ -62,6 +62,7 @@ import { inCorridorInvestigationIds } from '../../../utils/sectionClassification
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
 import { apiFailureMessage } from '../../../utils/apiFailureMessage'
+import { buildRestatedContactUndoCommand } from './restatedContactUndo'
 import { useFlaggedTiePrompt } from './useFlaggedTiePrompt'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
@@ -584,6 +585,12 @@ export default function SectionsCanvas(): JSX.Element {
     depthM: number
     lithoContactId: string
     movesGeology: boolean
+    /** Where the contact sat before the drag — the undo command's target. */
+    preDragDepthM: number
+    /** Neighbours captured BEFORE the commit; a merge's inverse addresses them,
+     *  and the response cannot name them (it only says what was deleted). */
+    belowBandId: string | null
+    aboveBandId: string | null
   } | null>(null)
   const [contactMoveBusy, setContactMoveBusy] = useState(false)
 
@@ -1621,15 +1628,36 @@ export default function SectionsCanvas(): JSX.Element {
           // this one edits the level above, and sometimes the level above that. Nothing on
           // screen says the row is shared, so the consequence is named before it happens
           // rather than reported afterwards.
-          setPendingContactMove({
-            upperBandId: plan.upperBandId,
-            lowerBandId: plan.lowerBandId,
-            depthM: plan.depthM,
-            lithoContactId: plan.lithoContactId,
-            movesGeology:
-              (lithoContacts.find(c => c.id === plan.lithoContactId)?.parent_geo_contact_id ??
-                null) !== null,
-          })
+          {
+            // The undo command's capture, taken while the pre-merge rows still exist:
+            // the pair's shared boundary, and the bands directly beyond each side.
+            const upperBand = geotechLayers.find(l => l.id === plan.upperBandId)
+            const lowerBand = geotechLayers.find(l => l.id === plan.lowerBandId)
+            const anchor = upperBand?.cpt_id ?? upperBand?.borehole_id ?? null
+            const neighbour = (at: number | undefined, side: 'top' | 'base'): string | null => {
+              if (at === undefined || anchor === null) return null
+              const hit = geotechLayers.find(
+                l =>
+                  (l.cpt_id ?? l.borehole_id) === anchor &&
+                  Math.abs((side === 'top' ? l.depth_top_m : l.depth_base_m) - at) < 1e-6 &&
+                  l.id !== plan.upperBandId &&
+                  l.id !== plan.lowerBandId,
+              )
+              return hit?.id ?? null
+            }
+            setPendingContactMove({
+              upperBandId: plan.upperBandId,
+              lowerBandId: plan.lowerBandId,
+              depthM: plan.depthM,
+              lithoContactId: plan.lithoContactId,
+              movesGeology:
+                (lithoContacts.find(c => c.id === plan.lithoContactId)?.parent_geo_contact_id ??
+                  null) !== null,
+              preDragDepthM: lowerBand?.depth_top_m ?? plan.depthM,
+              belowBandId: neighbour(lowerBand?.depth_base_m, 'top'),
+              aboveBandId: neighbour(upperBand?.depth_top_m, 'base'),
+            })
+          }
           return
         }
         case 'unmatched':
@@ -1699,6 +1727,15 @@ export default function SectionsCanvas(): JSX.Element {
   // the packing band where it was: this axis draws the BAND, so a successful drag looked
   // like a no-op, and the NEXT drag was refused because the band and the contact had
   // stopped coinciding ("no litho contact within 0.0011 m of 16.9700m" — the owner's log).
+  // The post-write fan-out the commit AND its undo share, so Ctrl+Z refreshes the
+  // render exactly as the original gesture did.
+  const settleContactMove = useCallback(async (): Promise<void> => {
+    requestGeotechLayersRefetch()
+    await refetchLithoContacts()
+    await refetchGeotechPackingEdges()
+    markMutated()
+  }, [requestGeotechLayersRefetch, refetchLithoContacts, refetchGeotechPackingEdges, markMutated])
+
   const handleConfirmContactMove = useCallback(async (): Promise<void> => {
     if (pendingContactMove === null || geotechPackingModelId === null) return
     setContactMoveBusy(true)
@@ -1720,10 +1757,32 @@ export default function SectionsCanvas(): JSX.Element {
       // litho rows the parentage probe reads to decide which boundaries are contacts.
       // The ties reload too — a move that lands ON the next boundary absorbs a band, and
       // the accepted ties anchored on it are re-anchored and flagged.
-      requestGeotechLayersRefetch()
-      await refetchLithoContacts()
-      await refetchGeotechPackingEdges()
-      markMutated()
+      await settleContactMove()
+      // The dialog promises "One step on the undo stack. Ctrl+Z puts all of it back",
+      // and until audit F11 nothing pushed that step — Ctrl+Z silently reverted an
+      // unrelated earlier edit instead.
+      const undoCommand = buildRestatedContactUndoCommand(
+        {
+          projectId: project.id,
+          modelId: geotechPackingModelId,
+          upperBandId: pendingContactMove.upperBandId,
+          lowerBandId: pendingContactMove.lowerBandId,
+          preDragDepthM: pendingContactMove.preDragDepthM,
+          landedDepthM: pendingContactMove.depthM,
+          belowBandId: pendingContactMove.belowBandId,
+          aboveBandId: pendingContactMove.aboveBandId,
+        },
+        moved.deleted_layer_ids,
+        api.geology,
+        settleContactMove,
+      )
+      if (undoCommand !== null) {
+        undoStack.push(undoCommand)
+      } else {
+        // A wrong undo is worse than a missing one — say which gesture is not on
+        // the stack instead of silently letting Ctrl+Z hit the previous edit.
+        log.warn('section', 'contact move committed without an undo entry (no anchor row)')
+      }
       // Ask about what the move broke, now that the edge list matches the server.
       flaggedTiePrompt.askAbout(moved.flagged_edge_ids ?? [])
     } catch (err) {
@@ -1743,10 +1802,8 @@ export default function SectionsCanvas(): JSX.Element {
     pendingContactMove,
     geotechPackingModelId,
     project.id,
-    requestGeotechLayersRefetch,
-    refetchLithoContacts,
-    refetchGeotechPackingEdges,
-    markMutated,
+    settleContactMove,
+    undoStack,
     toast,
     flaggedTiePrompt,
   ])
