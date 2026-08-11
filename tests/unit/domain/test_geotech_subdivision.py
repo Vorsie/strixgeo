@@ -562,22 +562,31 @@ def test_statistic_default_is_median_identical_output():
 
     Every caller that predates ruling 7 keeps byte-identical output, which is
     what keeps the CS1 frozen gates green by construction.
+
+    The fixture is ST-SUB3's spiky sand rather than the original stepped one,
+    because on stepped plateaus every band's qc is constant and all four
+    statistics coincide — the old pin held for ANY default (audit F27: a
+    silently-changed default would have shipped green). Here median and harmonic
+    give different classes, so the equality below is falsifiable, and the third
+    assertion proves it on the spot.
     """
-    depths = [round(0.1 * i, 2) for i in range(31)]
-    qc = [8.0 if d < 1.0 else (12.0 if d < 2.0 else 18.0) for d in depths]
+    sample_count = 500
+    depths = [round(0.02 * i, 3) for i in range(sample_count)]
+    qc: list[float | None] = [0.5 if i % 50 == 7 else 12.0 for i in range(sample_count)]
     kwargs = dict(
         soil="ZAND",
         admixtures=(),
         depth_m=depths,
         qc_mpa=qc,
         segment_top_m=0.0,
-        segment_base_m=3.0,
+        segment_base_m=10.0,
         min_thickness_m=0.35,
         gradient_snap=True,
     )
-    assert suggest_geotech_subdivision(**kwargs) == suggest_geotech_subdivision(
-        **kwargs, statistic="median"
-    )
+    default_run = suggest_geotech_subdivision(**kwargs)
+    assert default_run == suggest_geotech_subdivision(**kwargs, statistic="median")
+    # The teeth: on this data a harmonic default would NOT satisfy the pin.
+    assert default_run != suggest_geotech_subdivision(**kwargs, statistic="harmonic")
 
 
 def test_st_sub3_the_build_arm_classifies_under_the_models_chosen_statistic() -> None:
