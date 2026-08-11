@@ -100,6 +100,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.geotech_band_edit_helpers import _parse_admixtures
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
@@ -142,7 +143,6 @@ from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
     fill_borehole_litho_body_extent,
 )
-from groundmodel.domain.services.geotech_subdivision_constants import LITHO_ABSOLUTE_MIN_NAD
 from groundmodel.domain.services.geotech_tie_donors import (
     AcceptedTie,
     select_tie_informed_donors,
@@ -152,6 +152,7 @@ from groundmodel.domain.services.litho_geo_bounding import (
     divide_picks_by_geology,
     mark_and_truncate_shallow_tests,
 )
+from groundmodel.domain.services.nad_classifier import loosest_class_for
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -750,7 +751,16 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             soil_code: str | None = (
                 source_litho_orm.litho_main_soil_code if source_litho_orm is not None else None
             )
-            litho_abs_min_class = LITHO_ABSOLUTE_MIN_NAD.get(soil_code or "")
+            # Variant-aware floor (audit F19): a silthoudend zand floors to the
+            # SECONDARY column's loosest class (9), not the clean one (5) —
+            # derived from the classifier's own table + variant rule, so the
+            # fallback and the classifier can never disagree about columns.
+            unit_admixtures = (
+                _parse_admixtures(source_litho_orm) if source_litho_orm is not None else ()
+            )
+            litho_abs_min_class = (
+                loosest_class_for(soil_code, unit_admixtures) if soil_code else None
+            )
             if litho_abs_min_class is None:
                 # Cannot determine the lithology floor for an unknown soil code.
                 # SKIP this group's borehole fill rather than default to a
@@ -760,7 +770,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 # of the five families; this guards a malformed/manual formation.
                 self.warning(
                     f"DivideBoreholes: formation {source_litho_fid} has "
-                    f"soil_code={soil_code!r} not in LITHO_ABSOLUTE_MIN_NAD — "
+                    f"soil_code={soil_code!r} has no NAD column (loosest_class_for) — "
                     "skipping this group's borehole fill (no lithology floor)"
                 )
                 continue
@@ -1488,7 +1498,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             litho extent (``top_depth_m``, ``base_depth_m``).
         litho_abs_min_class : int
             Absolute weakest NAD class for the lithology family (from
-            ``LITHO_ABSOLUTE_MIN_NAD[soil_code]``).
+            ``loosest_class_for(soil, admixtures)`` — the variant-aware floor).
         geotech_layer_by_inv_depth : dict
             ALL CPT geotech layers keyed by investigation id string.
         cpt_xy : dict[UUID, tuple[float, float, float]]
