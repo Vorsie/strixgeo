@@ -448,14 +448,26 @@ export default function GeotechBandEditOverlay({
     }
   }, [menu])
 
-  // Escape abandons a placement, matching every other armed mode in the section editor.
+  // Escape abandons a placement, matching every other armed mode in the section
+  // editor — and so does the WHEEL, for the same reason the menu dismisses on it
+  // (audit F26): the placement freezes svgTop / surfaceY / pxPerMetre at arm
+  // time, so a zoom or scroll re-draws the bands under a preview line that is
+  // still converting through the old geometry, and the committed split would
+  // land at a depth visibly different from where the cursor points. Cheaper and
+  // more honest than re-deriving the frozen geometry per frame: the engineer
+  // re-arms with one right-click.
   useEffect(() => {
     if (placing === null) return
+    const dismiss = (): void => setPlacing(null)
     function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setPlacing(null)
+      if (e.key === 'Escape') dismiss()
     }
+    document.addEventListener('wheel', dismiss, { capture: true })
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('wheel', dismiss, { capture: true })
+      window.removeEventListener('keydown', onKey)
+    }
   }, [placing])
 
   // The boundary drag lives on WINDOW listeners (the litho-proven shape): the split
