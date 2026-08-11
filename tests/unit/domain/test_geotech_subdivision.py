@@ -840,3 +840,98 @@ def test_mc4_every_classified_band_passes_the_edit_paths_own_gate() -> None:
             f"band {split.depth_top_m}-{split.depth_base_m}: build says "
             f"{split.nad_class}, the edit path says {outcome.nad_class}"
         )
+
+
+# ---------------------------------------------------------------------------
+# CMD — absorbing may never silently make a band denser (owner ruling F05)
+# ---------------------------------------------------------------------------
+
+
+def _spans(spans, step=0.02):
+    """Depths + qc from contiguous (top, base, qc) spans."""
+    base = spans[-1][1]
+    depths, qc = [], []
+    d = 0.0
+    while d < base - 1e-9:
+        for top, b, q in spans:
+            if top - 1e-9 <= d < b - 1e-9:
+                qc.append(q)
+                break
+        depths.append(round(d, 4))
+        d += 0.02
+    return depths, qc
+
+
+def test_cmd1_a_sliver_whose_absorption_would_upgrade_the_host_STANDS() -> None:
+    """CMD1 — the owner's ruling, verbatim geometry (the audit's F05 'Case 2').
+
+    A 0.36 m matig band (qc 9) with a 0.34 m very dense sliver (qc 30) below it
+    and nothing else in the unit. Absorbing the sliver upward re-derives the
+    union at harmonic 13.64 MPa → dicht — a matig band silently jumping a class.
+    Owner: *"this would make a matig zand jump to a dense one, i don't like
+    this, in this case i'd rather get a smaller sliver and make the user
+    choose"*. So the sliver stays as its own band, below the minimum, and the
+    engineer judges it with the shipped band verbs (the merge sheet warns about
+    the class pull — manual override always wins).
+    """
+    depths, qc = _spans([(0.0, 0.36, 9.0), (0.36, 0.70, 30.0)])
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=0.70, min_thickness_m=0.35,
+        statistic="harmonic",
+    )
+    assert [(s.depth_top_m, s.depth_base_m, s.nad_class) for s in splits] == [
+        (0.0, 0.36, 6),   # the matig band keeps its own name
+        (0.36, 0.70, 8),  # the sliver stands, sub-minimum, honestly zeer dicht
+    ]
+
+
+def test_cmd2_a_sliver_with_a_non_upgrading_neighbour_still_absorbs_there() -> None:
+    """CMD2 — the common case stays absorbed: dense sliver into the dense side.
+
+    The owner confirmed this direction: *"in case 1 it seems correct (absorb the
+    very dense into the dense, keeping it dense)"*. The weaker neighbour is
+    tried first and refused (it would upgrade); the denser one takes the sliver
+    without changing class, so no sub-minimum band survives.
+    """
+    depths, qc = _spans([(0.0, 0.40, 9.0), (0.40, 0.70, 30.0), (0.70, 2.10, 12.0)])
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=2.10, min_thickness_m=0.35,
+        statistic="harmonic",
+    )
+    bands = [(s.depth_top_m, s.depth_base_m, s.nad_class) for s in splits]
+    assert bands == [(0.0, 0.40, 6), (0.40, 2.10, 7)]
+
+
+def test_cmd3_the_conservative_direction_is_untouched_a_weak_sliver_absorbs() -> None:
+    """CMD3 — the ruling is about UPGRADES only; going looser stays automatic.
+
+    A thin weak seam inside dicht sand still absorbs (the host may come out
+    looser — that is the conservative direction the weaker-neighbour rule and
+    the harmonic statistic both deliberately produce).
+    """
+    depths, qc = _spans([(0.0, 1.00, 12.0), (1.00, 1.30, 2.0), (1.30, 2.30, 12.0)])
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=2.30, min_thickness_m=0.35,
+        statistic="harmonic",
+    )
+    assert all((s.depth_base_m - s.depth_top_m) >= 0.35 - 1e-9 for s in splits), (
+        "a weak sliver must still be absorbed, not left standing"
+    )
+
+
+def test_cmd4_a_sliver_both_of_whose_neighbours_would_upgrade_stands_between_them() -> None:
+    """CMD4 — no non-upgrading neighbour at all: the sliver stands mid-unit."""
+    depths, qc = _spans([(0.0, 0.40, 9.0), (0.40, 0.70, 30.0), (0.70, 1.10, 9.0)])
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=1.10, min_thickness_m=0.35,
+        statistic="harmonic",
+    )
+    assert [(s.depth_top_m, s.depth_base_m, s.nad_class) for s in splits] == [
+        (0.0, 0.40, 6),
+        (0.40, 0.70, 8),
+        (0.70, 1.10, 6),
+    ]
