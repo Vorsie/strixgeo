@@ -5988,6 +5988,19 @@ inherited from where a file happens to sit. Both fixed; suite verified green aft
   rendering question the design left open), and whether the geotech axis should
   get the amber "snap on release" telegraph the litho axis has — it needs a
   per-frame drag plan, so it is a small build rather than a tweak.
+* **Audit fix wave, 2026-08-11 — 17 of the overnight audit's 26 confirmed
+  findings FIXED on develop** (report: `.superpowers/audit-geotech-2026-08-10.md`,
+  STATUS annex at the top). Both merge directions work and are guarded on both
+  hierarchy walls; the contact move is undoable, reports its tie consequences
+  honestly, ambers Divide boreholes, and refuses ambiguity beside 1 mm layers;
+  the coverage gate counts edge runs and runs per interval in build AND edit;
+  the sliver gaps are gone; a re-subdivide clears the undo stack it invalidated;
+  the contact move finally has DB-level coverage including the geological arm,
+  and the build's statistic thread is sabotage-pinned. Owner rulings still open:
+  F05 (conservative-merge vs re-derive), F06 (raw-qc disclosure), F08-mode
+  (persist donor provenance), F20 (sheet's '>' vs '≥'), F30 (verify thresholds
+  against the xlsx), F32 (stretch over unread ground), F33 (flank-donor rules),
+  F34 (coinciding-but-unlinked geo contact + 2-row repair).
 * **Round 3, 2026-08-10 — three more shipped, one accepted as-is.** The
   solid-on-solid 500 he hit is fixed at both ends (the line stops short of a
   contact wall, and the planner refuses that landing independently); the drag
