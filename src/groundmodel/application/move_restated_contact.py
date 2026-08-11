@@ -178,14 +178,17 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             min_thickness_m=upper_ctx.min_thickness_m,
             statistic=upper_ctx.statistic,
         )
-        # A landing ON the next boundary is a MERGE: the band between the contact and
-        # that boundary is absorbed into the one above, because the litho unit above
-        # now owns the ground down to it. Anything short of it keeps both bands.
+        # A landing ON a neighbouring boundary is a MERGE, and the plan says which
+        # side it swallows: the downward landing absorbs the lower band (the unit
+        # above grows), the upward one absorbs the upper band (the reverse — owner,
+        # §4c: "Down = the layer above grows; up = the reverse"). Anything short of
+        # either boundary keeps both bands.
         merging = plan.kind == KIND_MERGE
         if merging:
-            (upper_outcome,) = plan.intervals
-            lower_outcome = None
+            (merged_outcome,) = plan.intervals
+            upper_outcome = lower_outcome = None
         else:
+            merged_outcome = None
             upper_outcome, lower_outcome = plan.intervals
         for warning in plan.warnings:
             self.warning(f"MoveRestatedContact: {warning.code} — {warning.message}")
@@ -206,31 +209,24 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             boundary_m=upper_row.depth_base_m,
         )
 
-        upper_formation = await formation_for_class(
-            self,
-            project_id=project_id,
-            nad_class=upper_outcome.nad_class,
-            source_litho_formation_id=upper_ctx.source_litho_formation_id,
-            source_geo_formation_id=upper_ctx.source_geo_formation_id,
-        )
-        lower_formation = (
-            None
-            if lower_outcome is None
-            else await formation_for_class(
-                self,
-                project_id=project_id,
-                nad_class=lower_outcome.nad_class,
-                source_litho_formation_id=lower_ctx.source_litho_formation_id,
-                source_geo_formation_id=lower_ctx.source_geo_formation_id,
-            )
-        )
-
         # --- the write: three levels, one transaction ------------------------
-        upper_row.depth_base_m = boundary_m
-        upper_row.formation_id = upper_formation.id
-        upper_row.source = "manual"
         deleted_band_ids: tuple[UUID, ...] = ()
         if merging:
+            assert merged_outcome is not None  # noqa: S101 - narrowed by ``merging``
+            # The survivor belongs to the unit that now owns the ground, so its
+            # formation is derived under THAT side's parentage — the upper unit's
+            # when the lower band is absorbed, the lower unit's for the reverse.
+            absorbing_down = plan.absorbs == "lower"
+            survivor_ctx = upper_ctx if absorbing_down else lower_ctx
+            survivor_row = upper_row if absorbing_down else lower_row
+            absorbed_row = lower_row if absorbing_down else upper_row
+            survivor_formation = await formation_for_class(
+                self,
+                project_id=project_id,
+                nad_class=merged_outcome.nad_class,
+                source_litho_formation_id=survivor_ctx.source_litho_formation_id,
+                source_geo_formation_id=survivor_ctx.source_geo_formation_id,
+            )
             # Accepted ties on the absorbed row are RE-ANCHORED onto the survivor and
             # flagged for review, never dropped by the FK cascade (flag-not-drop, owner
             # 2026-08-07). The same helper the band merge uses, so the two verbs cannot
@@ -239,14 +235,35 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
                 self._session,
                 self,
                 model_id=geotech_model_id,
-                from_layer_id=lower_row.id,
-                to_layer_id=upper_row.id,
-                survivor_class=upper_outcome.nad_class,
+                from_layer_id=absorbed_row.id,
+                to_layer_id=survivor_row.id,
+                survivor_class=merged_outcome.nad_class,
             )
-            deleted_band_ids = (lower_row.id,)
-            await self._session.delete(lower_row)
+            survivor_row.depth_top_m = merged_outcome.depth_top_m
+            survivor_row.depth_base_m = merged_outcome.depth_base_m
+            survivor_row.formation_id = survivor_formation.id
+            survivor_row.source = "manual"
+            deleted_band_ids = (absorbed_row.id,)
+            await self._session.delete(absorbed_row)
         else:
-            assert lower_formation is not None  # noqa: S101 - narrowed by ``merging``
+            assert upper_outcome is not None and lower_outcome is not None  # noqa: S101
+            upper_formation = await formation_for_class(
+                self,
+                project_id=project_id,
+                nad_class=upper_outcome.nad_class,
+                source_litho_formation_id=upper_ctx.source_litho_formation_id,
+                source_geo_formation_id=upper_ctx.source_geo_formation_id,
+            )
+            lower_formation = await formation_for_class(
+                self,
+                project_id=project_id,
+                nad_class=lower_outcome.nad_class,
+                source_litho_formation_id=lower_ctx.source_litho_formation_id,
+                source_geo_formation_id=lower_ctx.source_geo_formation_id,
+            )
+            upper_row.depth_base_m = boundary_m
+            upper_row.formation_id = upper_formation.id
+            upper_row.source = "manual"
             lower_row.depth_top_m = boundary_m
             lower_row.formation_id = lower_formation.id
             lower_row.source = "manual"
