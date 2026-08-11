@@ -111,3 +111,37 @@ def classify_nad(
     # invariant the constants table (and any Task T0 threshold swap) must preserve.
     # Present as a safety net to satisfy the type-checker and avoid an implicit None.
     return bands[-1][1]
+
+
+def loosest_class_for(
+    soil: BaseLithology | str,
+    admixtures: tuple[Admixture, ...],
+) -> int | None:
+    """The loosest NAD class of the soil's OWN column — variant included.
+
+    The absolute-min borehole fallback used a per-family constant that always
+    named the CLEAN column's floor, so a silthoudend zand was stamped class 5
+    instead of 9 (audit F19) — the right packing degree in the wrong NAD column,
+    harmless until anything keys on the class number, which the Phase-5
+    parameter table is. This derives the floor from the same table and the same
+    variant rule the classifier proper uses, so the two can never disagree.
+
+    Parameters
+    ----------
+    soil : BaseLithology | str
+        Main soil of the litho unit.
+    admixtures : tuple[Admixture, ...]
+        The unit's admixtures — picks clean vs secondary, via the classifier's
+        own :func:`_variant_for`.
+
+    Returns
+    -------
+    int | None
+        The first (loosest) class of the ``(soil, variant)`` column, or ``None``
+        for a soil the table does not know — the caller skips rather than
+        guesses a family.
+    """
+    bands = NAD_QC_BANDS.get((soil, _variant_for(soil, admixtures)))  # type: ignore[arg-type]
+    if bands is None:
+        return None
+    return bands[0][1]
