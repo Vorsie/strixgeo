@@ -213,3 +213,33 @@ class TestLoosestClassFor:
     def test_alc4_veen_has_no_secondary_column_so_both_floor_the_same(self) -> None:
         sandy = (Admixture(soil_code="ZN", amount=None, locally=False),)
         assert loosest_class_for("VEEN", sandy) == loosest_class_for("VEEN", ()) == 29
+
+
+class TestOpenBottomsOwnerRuling:
+    """WB3 — the bottoms are open too, for every soil (owner ruling 2026-08-11).
+
+    The printed ANB Tabel 2.1 closes each soil's loosest band at a floor (zand
+    2, leem/klei 0.4, veen 0.2, grind 10) and says nothing about qc below it.
+    The owner's ruling, verbatim: *"Keep the open ends to the bottom also, we're
+    starting from litho so this is conservative"* — the soil type is already
+    fixed by the litho model (lithology is hard truth), so a reading below the
+    table's floor still belongs to that soil and takes its LOOSEST class, the
+    conservative answer. Previously this was justified as a spec inference; it
+    is a ruling now, and pinned per family and variant.
+    """
+
+    def test_wb3_below_floor_readings_take_the_loosest_class(self) -> None:
+        silty = (Admixture(soil_code="SI", amount=None, locally=False),)
+        sandy = (Admixture(soil_code="ZN", amount=None, locally=False),)
+        assert classify_nad("GRIND", (), 3.0) == 1  # below the 10 MPa floor
+        assert classify_nad("GRIND", silty, 3.0) == 3
+        assert classify_nad("ZAND", (), 1.0) == 5  # below the 2 MPa floor
+        assert classify_nad("ZAND", silty, 1.0) == 9
+        assert classify_nad("SILT", (), 0.1) == 13  # below the 0.4 MPa floor
+        assert classify_nad("SILT", sandy, 0.1) == 17
+        assert classify_nad("KLEI", (), 0.1) == 21
+        assert classify_nad("KLEI", sandy, 0.1) == 25
+        assert classify_nad("VEEN", (), 0.05) == 29  # below the 0.2 MPa floor
+        # And a zero reading is data, not a sentinel (owner rule 2026-07-25):
+        # the loosest class again, never an error.
+        assert classify_nad("ZAND", (), 0.0) == 5
