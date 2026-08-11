@@ -40,6 +40,19 @@ To make such seams visible to the merge at all, the cut persistence is HALF the
 minimum thickness (a 0.34 m coherent run cuts at the 0.35 m setting; isolated
 spikes stay noise for the statistic). Pinned: CMD1–CMD4.
 
+### 1c. Unread ground is not silently claimed (owner ruling 2026-08-11, audit F32)
+
+An unread head or tail of a litho segment LONGER than the minimum layer
+thickness becomes its own needs-review band; shorter gaps stretch to the
+boundary as before. No machine inference across columns fills it — the owner's
+completion of the ruling, verbatim: *"the user will have to correlate the
+packing density and make a good decision, the 2/1/0 will stand in geotech stage
+also."* The engineer correlates the packing bands; the fill follows the same
+2/1/0 contact-correlation rule as the litho stage. The tail starts one sample
+spacing below the last reading, so it is genuinely sample-free and neither the
+re-derive loop nor the edit path can classify it from the orphan boundary
+sample. Pinned: UC1–UC3.
+
 ## 2. Fraction-space refinement — the geotech render model (shipped 2026-07-07)
 
 Worktree `feat-geotech-fraction-refinement` off `feat-geotech-body-samples-3d`,
