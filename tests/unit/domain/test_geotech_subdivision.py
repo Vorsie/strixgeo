@@ -935,3 +935,52 @@ def test_cmd4_a_sliver_both_of_whose_neighbours_would_upgrade_stands_between_the
         (0.40, 0.70, 8),
         (0.70, 1.10, 6),
     ]
+
+
+# ---------------------------------------------------------------------------
+# UC — unread ground is not silently claimed (owner ruling F32, option c)
+# ---------------------------------------------------------------------------
+
+
+def test_uc1_an_unread_tail_beyond_the_minimum_becomes_its_own_review_band() -> None:
+    """UC1 — classify where read, say "needs review" where not (audit F32).
+
+    The litho unit runs 0–10 m; the cone stopped at 7 m. The old outer clamp
+    stretched the deepest band to 10 m, so three metres of never-read ground
+    wore a class derived from the ground above — a guess with a derived value's
+    provenance. Owner's ruling: split honestly. The read part keeps its class;
+    the unread tail is its own band with no class, for the engineer to judge.
+    """
+    depths, qc = _uniform(350, 12.0)  # readings 0–6.98 m
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+    )
+    assert splits[-1].nad_class is None, "the unread tail must be a needs-review band"
+    assert splits[-1].depth_base_m == 10.0
+    assert splits[-1].depth_top_m == pytest.approx(6.98, abs=0.03)
+    assert splits[-2].nad_class == 7, "the read part keeps its own class (qc 12 → dicht)"
+
+
+def test_uc2_a_short_unread_tail_still_stretches_to_the_boundary() -> None:
+    """UC2 — the threshold is the minimum layer thickness, so no 2 cm tails."""
+    depths, qc = _uniform(490, 12.0)  # readings 0–9.78 m; tail 0.22 < 0.35
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+    )
+    assert all(s.nad_class is not None for s in splits)
+    assert splits[-1].depth_base_m == 10.0
+
+
+def test_uc3_an_unread_head_gets_the_same_honesty() -> None:
+    """UC3 — the mirror at the top: the unit starts above the first reading."""
+    depths, qc = _uniform(350, 12.0, start=3.0)  # readings 3.0–9.98 m
+    splits = suggest_geotech_subdivision(
+        "ZAND", (), depths, qc,
+        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+    )
+    assert splits[0].nad_class is None, "the unread head must be a needs-review band"
+    assert splits[0].depth_top_m == 0.0
+    assert splits[0].depth_base_m == pytest.approx(3.0, abs=0.03)
+    assert splits[1].nad_class == 7
