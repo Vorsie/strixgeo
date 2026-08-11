@@ -102,8 +102,12 @@ def classify_nad(
         )
     # Walk ascending bands; return the first whose upper bound exceeds qc.
     # A ``None`` upper bound is open-topped (the densest class for this column).
-    # qc below the very first band's upper bound returns that first (loosest) class
-    # — the nearest-class fallback required by spec §5.
+    # qc below the very first band's upper bound returns that first (loosest)
+    # class — the bottoms are open too (owner ruling 2026-08-11: "Keep the open
+    # ends to the bottom also, we're starting from litho so this is
+    # conservative" — the soil is already fixed by the litho model, so a reading
+    # below the printed table's floor still belongs to it and takes its loosest
+    # class).
     for upper, nad_class in bands:
         if upper is None or qc_mpa < upper:
             return nad_class
