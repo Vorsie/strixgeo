@@ -23,6 +23,23 @@ consistent-split / 73 % one-class / 7 % borehole-only.
 Deferred: e2e spec/fixture (F6); `parameter_group` analytical layer (#223,
 Slice 3, waits for lab-test import).
 
+### 1b. No silent upgrades — the standing sliver (owner ruling 2026-08-11, audit F05)
+
+A sub-minimum seam is absorbed into a neighbour only if that neighbour's class
+SURVIVES the union's re-derivation (weaker neighbour tried first, as always).
+When every absorption would come out denser — the owner's case: a near-minimum
+matig band with a near-minimum very dense seam and nothing else in the unit —
+the seam STANDS as its own band below the minimum thickness, and the engineer
+decides with the shipped band verbs (the merge sheet warns about the class
+pull). His words: *"this would make a matig zand jump to a dense one, i don't
+like this, in this case i'd rather get a smaller sliver and make the user
+choose."* Going LOOSER stays automatic — that is the conservative direction the
+weaker-neighbour rule exists for, and the harmonic statistic's documented bias.
+
+To make such seams visible to the merge at all, the cut persistence is HALF the
+minimum thickness (a 0.34 m coherent run cuts at the 0.35 m setting; isolated
+spikes stay noise for the statistic). Pinned: CMD1–CMD4.
+
 ## 2. Fraction-space refinement — the geotech render model (shipped 2026-07-07)
 
 Worktree `feat-geotech-fraction-refinement` off `feat-geotech-body-samples-3d`,
