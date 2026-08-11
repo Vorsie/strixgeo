@@ -233,6 +233,11 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             created_layer_ids=(),
             deleted_layer_ids=tuple(absorbed_ids),
             deleted_edge_ids=deleted_edges,
+            # Tracked apart since the 2026-08-08 review round and then never wired
+            # (audit F10): the field defaulted to empty in every response, so the
+            # toast called every deleted ACCEPTED tie a withdrawn pending proposal —
+            # the exact misreport the split was made to prevent.
+            deleted_accepted_edge_ids=tuple(accepted_drops),
             flagged_edge_ids=flagged,
             cleared_edge_ids=revalidation.cleared_edge_ids,
         )
