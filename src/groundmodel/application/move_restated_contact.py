@@ -48,6 +48,10 @@ from groundmodel.application.geotech_band_edit_helpers import (
     transfer_accepted_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.litho_geo_link_helpers import (
+    load_geo_contacts_at_investigation,
+    nearest_geo_contact_within_tolerance,
+)
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import (
     KIND_MERGE,
@@ -203,10 +207,11 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
         # band's depth to a contact depth, which stopped working the moment the
         # two stopped coinciding; here they are moved together, so they cannot
         # drift apart in the first place.
+        pre_move_boundary_m = upper_row.depth_base_m
         litho_upper, litho_lower = await self._litho_pair_at(
             geotech_model_id=geotech_model_id,
             investigation_id=upper_ctx.investigation_id,
-            boundary_m=upper_row.depth_base_m,
+            boundary_m=pre_move_boundary_m,
         )
 
         # --- the write: three levels, one transaction ------------------------
@@ -283,6 +288,40 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
         litho_lower.depth_top_m = boundary_m
 
         geo_contact_id: UUID | None = litho_lower.parent_geo_contact_id
+        if geo_contact_id is None:
+            # COINCIDENCE COUPLES (owner ruling 2026-08-11, audit F34). The dev
+            # model held litho rows sitting bit-for-bit ON a geological contact
+            # with no link — provably once-coupled (only the accept-time snap
+            # copies the float exactly) and severed later, e.g. by a delete +
+            # re-accept. Owner: "it shouldn't be that easy to unlink them." So
+            # the move resolves the geological contact the same way it resolves
+            # the litho pair — by depth, within the same 1.1 mm tolerance, at
+            # which distance accidental coincidence does not exist — carries it,
+            # and WRITES THE LINK BACK so the record self-heals on touch.
+            geo_model_id = (
+                await self._session.execute(
+                    select(GeologicalModelOrm.parent_model_id).where(
+                        GeologicalModelOrm.id == litho_lower.model_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if geo_model_id is not None:
+                geo_at_inv = await load_geo_contacts_at_investigation(
+                    self._session,
+                    geo_model_id,
+                    borehole_id=litho_lower.borehole_id,
+                    cpt_id=litho_lower.cpt_id,
+                )
+                healed = nearest_geo_contact_within_tolerance(
+                    pre_move_boundary_m, geo_at_inv, _COINCIDENT_M
+                )
+                if healed is not None:
+                    litho_lower.parent_geo_contact_id = healed
+                    geo_contact_id = healed
+                    self.info(
+                        f"MoveRestatedContact: healed severed litho→geo link — layer "
+                        f"{litho_lower.id} re-coupled to coinciding contact {healed}"
+                    )
         if geo_contact_id is not None:
             geo_contact = await self._litho_repo.get_formation_contact(geo_contact_id)
             if geo_contact is None:
