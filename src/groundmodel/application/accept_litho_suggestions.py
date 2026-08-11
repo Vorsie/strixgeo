@@ -433,6 +433,25 @@ class AcceptLithoSuggestions(GroundModelLogger):
             # existing contact leave its existing coupling unchanged so
             # a re-accept never silently snaps a geo contact a second
             # time if the litho depth has since been dragged.
+            #
+            # BUT a re-accept that finds the layer with NO coupling restores
+            # the LINK — snap still skipped (owner ruling 2026-08-11, audit
+            # F34: "it shouldn't be that easy to unlink them"). The old skip
+            # threw the link out with the snap: delete + re-accept was enough
+            # to leave a litho row sitting bit-for-bit on a geological contact
+            # with no parent_geo_contact_id, and the dev model grew two.
+            if not was_created and geology_contacts_at_inv:
+                existing_layer = await self._session.get(LithoLayerOrm, layer_id)
+                if existing_layer is not None and existing_layer.parent_geo_contact_id is None:
+                    relink_id = nearest_geo_contact_within_tolerance(
+                        existing_layer.depth_top_m, geology_contacts_at_inv, couple_tolerance_m
+                    )
+                    if relink_id is not None:
+                        existing_layer.parent_geo_contact_id = relink_id
+                        self.info(
+                            f"  Restored severed litho→geo link: layer {layer_id} "
+                            f"re-coupled to {relink_id} (no snap)"
+                        )
             if was_created and geology_contacts_at_inv:
                 geo_contact_id = nearest_geo_contact_within_tolerance(
                     sug.depth_top_m, geology_contacts_at_inv, couple_tolerance_m
