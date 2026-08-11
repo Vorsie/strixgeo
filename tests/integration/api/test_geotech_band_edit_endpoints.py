@@ -234,6 +234,7 @@ async def _insert_edge(
     layer_b,
     *,
     approved: bool,
+    review_reason: str | None = None,
 ) -> UUID:
     """Insert one packing tie directly, returning its id."""
     lo, hi = (layer_a, layer_b) if layer_a < layer_b else (layer_b, layer_a)
@@ -248,6 +249,7 @@ async def _insert_edge(
             layer_a_side="top",
             layer_b_side="top",
             user_approved=approved,
+            review_reason=review_reason,
             source="auto",
         )
     )
@@ -941,3 +943,63 @@ async def test_gb22_a_dropped_accepted_tie_is_named_as_accepted_on_the_wire(
     assert str(self_loop_tie) in payload["deleted_edge_ids"]
     # The pin this test exists for: the ACCEPTED list is not empty on the wire.
     assert payload["deleted_accepted_edge_ids"] == [str(self_loop_tie)]
+
+
+@pytest.mark.asyncio
+async def test_gb23_a_band_absorbed_tie_still_unions_its_two_bands(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB23 — only a MISMATCH suspends the body union, not every review flag.
+
+    The 2026-08-10 "split" ruling was made on a class-mismatch case: one body
+    spanning NAD 8 and NAD 7 that a Build would have welded and exported. But a
+    §4c merge stamps ``band_absorbed`` on every tie it re-anchors even when the
+    survivor's class still MATCHES the partner — a correlation the design doc
+    itself calls "still right" — and that flag never self-heals and is excluded
+    from the keep-or-delete prompt. Suspending the union for it too meant every
+    routine contact drag-merge silently and durably fragmented bodies (audit F31).
+
+    So the rule is scoped to what the ruling was about: ``class_changed`` and
+    ``ambiguous_band`` suspend (mismatched ends / doubtful anchor identity);
+    ``band_absorbed`` keeps unioning. GB20 pins the class_changed half; this pins
+    the band_absorbed half, and the ambiguous_band guard alongside it.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    b_bands = await _bands_on(db_session, gid, band_scene["cpt_b_id"])
+    # Held as plain values: ``expire_all`` below detaches every loaded attribute.
+    a_top_id, a_low_id = a_bands[0].id, a_bands[1].id
+    b_top_id, b_low_id = b_bands[0].id, b_bands[1].id
+    boundary_m = a_bands[0].depth_base_m
+    await _insert_edge(
+        db_session, band_scene, gid, a_top_id, b_top_id,
+        approved=True, review_reason="band_absorbed",
+    )
+    await _insert_edge(
+        db_session, band_scene, gid, a_low_id, b_low_id,
+        approved=True, review_reason="ambiguous_band",
+    )
+
+    # Any committed edit runs the resolver; the control nudge changes no class.
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "move"),
+        json={
+            "upper_band_id": str(a_top_id),
+            "lower_band_id": str(a_low_id),
+            "new_depth_m": round(boundary_m + 0.2, 3),
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    a_top = await db_session.get(LithoLayerOrm, a_top_id)
+    b_top = await db_session.get(LithoLayerOrm, b_top_id)
+    assert a_top is not None and b_top is not None
+    assert a_top.body_id is not None
+    # The pin: a still-matching correlation keeps doing its job while it waits.
+    assert a_top.body_id == b_top.body_id, "a band_absorbed tie must keep unioning"
+    a_low = await db_session.get(LithoLayerOrm, a_low_id)
+    b_low = await db_session.get(LithoLayerOrm, b_low_id)
+    assert a_low is not None and b_low is not None
+    # And the doubt-flags still suspend: anchor identity in question, no union.
+    assert a_low.body_id != b_low.body_id, "an ambiguous_band tie must NOT union"
