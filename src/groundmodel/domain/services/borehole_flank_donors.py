@@ -36,7 +36,15 @@ The model here
   down the sand at one CPT is 40 % down the sand at the borehole, whatever the
   sand's thickness there.
 
-Two rules below are INTERPRETATIONS, flagged for owner veto:
+Two rules below were INTERPRETATIONS flagged for owner veto — RULED KEPT
+2026-08-11 (audit F33). The owner's reasoning, verbatim: *"we correlate over the
+boreholes from cpt to cpt, so the user's ties will define this. Normally the
+closest cpt will be on section, section is the guideline."* That is the
+authority ladder this module already sits under: an accepted tie straddling the
+borehole (``tie_interpolated``) outranks everything here, so the flank rules
+below are only the PRE-correlation ghost — the engineer's own correlations
+supersede them the moment they exist — and the section stays the guideline for
+that fallback. Kept as written:
 
 1. **Mismatched sequences → the nearer flank alone.**  When the two flanks do
    not read the same ordered class list there is no honest pairing of their
