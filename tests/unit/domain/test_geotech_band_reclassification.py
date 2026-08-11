@@ -949,3 +949,106 @@ def test_rc7_a_merge_that_would_consume_a_whole_litho_unit_is_refused() -> None:
             qc_mpa=qc,
             min_thickness_m=0.1,
         )
+
+
+def test_rc8_landing_on_the_pairs_TOP_is_the_upward_merge() -> None:
+    """Dragging the contact UP onto the previous packing boundary absorbs the UPPER band.
+
+    Direction decides who swallows whom (owner, §4c): *"Down = the layer above grows;
+    up = the reverse."* The downward landing has been a merge since RC4; the upward one
+    was refused "falls outside the pair" — while the renderer clamps every upward drag
+    onto exactly this landing and telegraphs *release to merge* (audit F02, found by
+    three lenses independently).
+
+    The survivor spans both bands and is classified under the LOWER unit's soil,
+    because the ground up there now belongs to the unit below. The case is built so
+    carrying and re-deriving disagree: the absorbed upper band is 2 m of dense ground
+    (qc 30) joining 5 m of soft (qc 5), so the union's qc is the soft side's.
+    """
+    depths, qc = _series([(0.0, 3.0, 30.0), (3.0, 5.0, 30.0), (5.0, 10.0, 5.0)])
+    bands = [
+        # LITHO_A keeps band above the absorbed one, so the unit survives — see RC9.
+        _band("ceiling", 0.0, 3.0, 8, litho=LITHO_A),
+        _band("upper", 3.0, 5.0, 8, litho=LITHO_A),
+        _band("lower", 5.0, 10.0, 22, litho=LITHO_B),
+    ]
+
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=3.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    assert plan.kind == KIND_MERGE
+    assert plan.absorbs == "upper"
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (3.0, 10.0)
+    # Classified under KLEI (the lower unit's soil) over the whole union: harmonic-free
+    # median of [30]*100 + [5]*250 samples is 5 → KLEI "vast" is qc ≥ 4 → class 24.
+    assert survivor.nad_class == 24
+
+
+def test_rc8b_an_upward_landing_short_of_the_boundary_is_still_a_move() -> None:
+    """The upward nudge keeps two bands, exactly as RC5 pinned for the downward one."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("ceiling", 0.0, 3.0, None, litho=LITHO_A),
+        _band("upper", 3.0, 5.0, None, litho=LITHO_A),
+        _band("lower", 5.0, 10.0, None, litho=LITHO_B),
+    ]
+
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=4.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    assert plan.kind == KIND_MOVE
+    assert plan.absorbs is None
+    assert len(plan.intervals) == 2
+
+
+def test_rc9_an_upward_merge_that_would_consume_the_unit_above_is_refused() -> None:
+    """The RC7 mirror: absorbing the upper unit's LAST band deletes the unit above.
+
+    The renderer's contact-wall clamp stops an upward drag short of this landing, so
+    reaching it means the clamp failed — the refusal is the second line of defence,
+    exactly as RC7 is for the downward direction.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        # LITHO_A's only band — absorbing it leaves the unit with nothing.
+        _band("upper", 3.0, 5.0, None, litho=LITHO_A),
+        _band("lower", 5.0, 10.0, None, litho=LITHO_B),
+    ]
+
+    with pytest.raises(GeotechBandEditError, match="lithostratigraphic unit"):
+        plan_restated_contact_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=3.0,
+            upper_soil="ZAND",
+            upper_admixtures=(),
+            lower_soil="KLEI",
+            lower_admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
