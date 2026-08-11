@@ -490,6 +490,7 @@ export default function App() {
     project,
     toast,
     pushUndo,
+    clearUndo,
     addToManifest,
     removeFromManifest,
     addToSessionImports,
