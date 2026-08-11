@@ -480,16 +480,18 @@ guess would turn every edit into paperwork — and a tie flagged ``band_absorbed
 still MATCHES, so offering it for deletion under "these no longer match" would state
 something false about a correlation that is still right.
 
-**A flagged tie stops unioning** (owner ruling 2026-08-10, on his own model). A tie
-does two jobs — it draws the correlation, and it makes its two layers one body — and
-until this ruling the flagged one went on doing the second. That left a body spanning
-NAD 8 and NAD 7, and pressing Build there would have welded a very dense sand to a
-dense sand across the gap and exported it. A body's contract is one packing class, so
-a shape that breaks it must not survive on a correlation the engineer has been asked
-to re-judge. The tie is otherwise untouched: still kept, still self-healing, still
-badged. Two review tokens tell the two questions apart — ``ambiguous_band`` means the
-re-anchor had to choose between candidate bands, ``band_absorbed`` means the band the
-tie was drawn on no longer exists as its own row.
+**A DOUBTED tie stops unioning** (owner ruling 2026-08-10, scoped 2026-08-11 after
+audit F31). A tie does two jobs — it draws the correlation, and it makes its two
+layers one body — and a flag that casts doubt on the union suspends the second:
+``class_changed`` (the two ends no longer describe the same ground — the original
+ruling's case, a body spanning NAD 8 and NAD 7 that a Build would have welded and
+exported) and ``ambiguous_band`` (the re-anchor could not be sure WHICH band the tie
+was drawn on). ``band_absorbed`` does NOT suspend: the band the tie was drawn on was
+absorbed but the survivor still matches the partner, so the correlation is still
+right — and since that flag never self-heals and is deliberately excluded from the
+keep-or-delete prompt, suspending for it too made every routine contact drag-merge
+silently and durably fragment bodies. The tie is otherwise untouched in every case:
+still kept, still badged, ``class_changed`` still self-healing.
 
 **The drag names its blast radius before it commits.** Every other verb on this
 axis stays inside the geotechnical model; this one gesture reaches up the
