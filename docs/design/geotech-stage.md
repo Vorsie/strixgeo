@@ -485,6 +485,15 @@ packing boundary.
   refuses. Depth proximity picks only WHICH litho row, never whether the gesture
   is offered.
 
+**A severed litho→geo link self-heals** (owner ruling 2026-08-11, audit F34:
+*"it shouldn't be that easy to unlink them"*). The accept-time snap copies the
+litho depth onto the geological contact bit-for-bit, so a coinciding-but-unlinked
+pair is always a severed coupling, never chance. Three defences: a re-accept
+restores the link it used to throw out with the skipped snap; the contact move
+resolves the geological contact by the same 1.1 mm coincidence it uses for the
+litho pair, carries it, and writes the link back; and migration ``b3c4d5e6f7a8``
+repaired the pairs that already existed. Only the explicit Unlink gesture severs.
+
 **What is written: one boundary, in all three models, in one transaction**
 (`MoveRestatedContact`). A contact restated in three models is ONE physical
 boundary, so moving it in only one splits it — which is exactly what the first
