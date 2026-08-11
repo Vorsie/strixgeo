@@ -17,6 +17,10 @@ from __future__ import annotations
 # VEEN  : 29–31  (weinig vast / matig vast / vast — no secondary variant)
 #
 # Source: Belgian NAD table (ANB Tabel 2.1 + NAD-NEN sheet, Task T0).
+# NOTE (audit F19): the borehole absolute-min fallback no longer reads this —
+# it uses ``nad_classifier.loosest_class_for``, which is variant-aware (a
+# silthoudend zand floors to 9, not 5). This constant stays for the integration
+# suite's family-floor assertions, which are variant-blind by construction.
 LITHO_ABSOLUTE_MIN_NAD: dict[str, int] = {
     "GRIND": 1,
     "ZAND": 5,
