@@ -147,13 +147,6 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
             `stale_dropped=${result.facts_dropped_stale} merged=${result.bodies_merged} ` +
             `split=${result.bodies_split} renamed=${result.renamed.length}`,
         )
-        if (result.unresolved_body_ids.length > 0) {
-          log.warn(
-            'body-recompute',
-            `recompute ${modelId}: ${result.unresolved_body_ids.length} unresolved body id(s): ` +
-              result.unresolved_body_ids.join(', '),
-          )
-        }
         const visibleChanges =
           result.bodies_merged + result.bodies_split + result.renamed.length
         if (visibleChanges > 0) {
