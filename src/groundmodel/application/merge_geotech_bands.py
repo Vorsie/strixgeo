@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
+    geo_parent_for_interval,
     load_geotech_column_context,
     require_cpt_anchor,
     revalidate_layer_edges,
@@ -141,6 +142,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         plan = plan_merge_run(
             bands=context.bands,
             band_ids=[str(b) for b in run],
+            live_geo_depths_m=context.live_geo_depths_m,
             soil=context.soil,
             admixtures=context.admixtures,
             depth_m=context.depth_m,
@@ -163,7 +165,10 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             project_id=project_id,
             nad_class=merged.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
-            source_geo_formation_id=context.source_geo_formation_id,
+            # Live-first: the union may legally span ground whose build-time
+            # stamps went stale (the engineer moved a geological contact on its
+            # own axis) — the write heals the parentage instead of copying it.
+            source_geo_formation_id=geo_parent_for_interval(context, merged.depth_top_m),
         )
         survivor.depth_base_m = round(absorbed_rows[-1].depth_base_m, _DEPTH_DECIMALS)
         survivor.formation_id = formation.id
