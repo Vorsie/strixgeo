@@ -28,6 +28,7 @@ from sqlalchemy.orm import selectinload
 
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -197,6 +198,16 @@ async def _build_project_bundle_impl(
         )
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
+    # Geometric body-connectivity facts (owner ruling 2026-08-12). Scoped
+    # through geological_model like the edges — same anchor, same reason.
+    geometry_facts_stmt = (
+        select(BodyGeometryFactOrm)
+        .join(
+            GeologicalModelOrm,
+            BodyGeometryFactOrm.model_id == GeologicalModelOrm.id,
+        )
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
     # Lens boundary shapes + nodes (#163f Slice 2). Scoped through
     # geological_model (the shape carries model_id; nodes hang off the shape).
     lens_shapes_stmt = (
@@ -233,6 +244,7 @@ async def _build_project_bundle_impl(
     lenses = (await session.execute(lenses_stmt)).scalars().all()
     absences = (await session.execute(absences_stmt)).scalars().all()
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
+    geometry_facts = (await session.execute(geometry_facts_stmt)).scalars().all()
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
     litho_solids = (
@@ -322,6 +334,12 @@ async def _build_project_bundle_impl(
         "litho_contact_correlation_edges": [
             _column_to_json(ce, _SKIP_COLUMNS) for ce in contact_edges
         ],
+        # Geometric body-connectivity facts (owner ruling 2026-08-12). Each row
+        # carries (model_id, layer_a_id, layer_b_id) — the persisted stage-3
+        # merge evidence, so a restored project keeps its merged bodies without
+        # waiting for the first recompute. Additive: older bundles open cleanly
+        # via the schema's default_factory=list.
+        "body_geometry_facts": [_column_to_json(f, _SKIP_COLUMNS) for f in geometry_facts],
         # Body boundary shapes + control nodes (#163f Slice 2). Shapes carry
         # (model_id, body_id, render_style); nodes carry (shape_id,
         # boundary, node_index, along_m, elevation_m). Additive — bundles saved
