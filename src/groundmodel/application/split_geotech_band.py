@@ -42,6 +42,7 @@ from uuid6 import uuid7
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
+    geo_parent_for_interval,
     load_geotech_column_context,
     require_cpt_anchor,
     revalidate_layer_edges,
@@ -142,7 +143,8 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             project_id=project_id,
             nad_class=upper_outcome.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
-            source_geo_formation_id=context.source_geo_formation_id,
+            # Live-first, so a hand edit heals a stale build-time stamp on touch.
+            source_geo_formation_id=geo_parent_for_interval(context, upper_outcome.depth_top_m),
         )
         target.depth_base_m = boundary_m
         target.formation_id = upper_formation.id
@@ -154,7 +156,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             project_id=project_id,
             nad_class=lower_outcome.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
-            source_geo_formation_id=context.source_geo_formation_id,
+            source_geo_formation_id=geo_parent_for_interval(context, lower_outcome.depth_top_m),
         )
         lower_row = LithoLayerOrm(
             id=uuid7(),
