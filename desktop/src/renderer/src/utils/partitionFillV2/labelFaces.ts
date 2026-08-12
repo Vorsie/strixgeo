@@ -22,6 +22,7 @@
  */
 
 import { type LensLabel } from './emitLenses'
+import { faceLayerIds, withFaceLayerIds } from './faceLayerIds'
 import { type ColumnGeom } from './sectionGeom'
 import {
   buildSegCurveMap,
@@ -72,6 +73,17 @@ export interface LabelledFace {
   klass: FaceClass
   /** The bounding column-vertical unit refs (colIndex, unitIndex). */
   units: { ci: number; ui: number }[]
+  /**
+   * The ``litho_layer`` ids of the drilled units that PRODUCED this face's paint:
+   * the bounding units matching the face's own formation (plus, on the seed path,
+   * a ``col<ci>:lens<j>`` seed's enclosed-lens unit; on an enclosed-lens face, the
+   * lens's own layer). Deduped, deterministic order. ABSENT when empty and on
+   * fallback faces — inferred fill names no layer. Forwarded onto the sliced
+   * region (``slice.ts``) as ``SectionRegion.layerIds`` for the body recompute's
+   * label-independent identity evidence (layer ids never change; body ids are the
+   * labels the recompute itself rewrites).
+   */
+  layerIds?: string[]
   /**
    * Flag-ON seed path only (SEED_FILL_MANDATE §B): the ``col<ci>:u<ui>`` seed refs whose picked
    * unit's formation painted this face (kept for diagnostics + the 8j body merge provenance).
@@ -220,14 +232,22 @@ export function labelFaces(
         // composition (geometry) via the original label path, so the region shape is unchanged;
         // only the formationId/bodyId are overridden to the seed.
         const { bodyId } = seedBody(seed.seedRefs, seed.seedFormations[0], columns)
-        out.push({
+        const entry: LabelledFace = {
           ...(base ?? { face, klass: 'band' as FaceClass, units: unitsOf(face) }),
           face,
           formationId: seed.seedFormations[0],
           bodyId,
           seedRefs: seed.seedRefs,
           seedClass: 'single-seed',
-        })
+        }
+        // ``layerIds`` follows the OVERRIDDEN (seed) formation, never the base's — the
+        // spread above may have inherited ids resolved under a different paint.
+        out.push(
+          withFaceLayerIds(
+            entry,
+            faceLayerIds(seed.seedFormations[0], entry.units, columns, seed.seedRefs),
+          ),
+        )
         continue
       }
       if (seed.classification === 'explicit-void') {
@@ -432,7 +452,17 @@ function labelOneFace(
     if (lensLabel && !nonLensBoundary && nLensCurves > 0 && !spansGap) {
       // The enclosed lens's OWN face — mark it so the seed path keeps this true lens litho rather
       // than repainting it from the enclosing-matrix column edge (the pinned host-split limitation).
-      return { face, formationId: lensLabel.formationId, bodyId: lensLabel.bodyId, klass: 'lens', units, enclosedLens: true }
+      // ``layerIds``: the lens's OWN layer, from its label — its minority unit was spliced out of
+      // ``col.units`` by the matrix merge, so the bounding refs (all matrix) cannot resolve it.
+      return {
+        face,
+        formationId: lensLabel.formationId,
+        bodyId: lensLabel.bodyId,
+        klass: 'lens',
+        units,
+        enclosedLens: true,
+        ...(lensLabel.layerId !== undefined ? { layerIds: [lensLabel.layerId] } : {}),
+      }
     }
     // A sub-TD substrate wedge is bounded only by flat-floor + curtain curves — no
     // column vertical reaches below TD, so ``units`` is empty. Stamp it from the
@@ -475,7 +505,10 @@ function labelOneFace(
     // lens/onlap face touches only its OWN column vertical, so it never enters this branch.
     const spanBand = spansGap && hasAnchorSpan
     const klass = spanBand ? 'band' : classifyFace(nTie, nClose)
-    return { face, formationId, bodyId, klass, units }
+    // ``layerIds``: the drilled same-formation bounding units that produced this paint
+    // (absent when none match — never an empty array, so layerless pins stay byte-equal).
+    const layerIds = faceLayerIds(formationId, units, columns)
+    return { face, formationId, bodyId, klass, units, ...(layerIds.length > 0 ? { layerIds } : {}) }
   }
 }
 
