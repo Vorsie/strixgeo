@@ -250,6 +250,7 @@ class ProjectBundleService(GroundModelLogger):
         bodies_payload: list[dict[str, Any]] | None = None,
         formation_absences_payload: list[dict[str, Any]] | None = None,
         litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
+        body_geometry_facts_payload: list[dict[str, Any]] | None = None,
         body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
         body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
         litho_solids_payload: list[dict[str, Any]] | None = None,
@@ -285,6 +286,8 @@ class ProjectBundleService(GroundModelLogger):
             Formation-absence rows.
         litho_contact_correlation_edges_payload : list[dict[str, Any]] | None
             Litho contact correlation edge rows.
+        body_geometry_facts_payload : list[dict[str, Any]] | None
+            Geometric body-connectivity fact rows (owner ruling 2026-08-12).
         body_boundary_shapes_payload : list[dict[str, Any]] | None
             Lens boundary shape rows.
         body_boundary_nodes_payload : list[dict[str, Any]] | None
@@ -320,6 +323,7 @@ class ProjectBundleService(GroundModelLogger):
             bodies_payload,
             formation_absences_payload,
             litho_contact_correlation_edges_payload,
+            body_geometry_facts_payload,
             body_boundary_shapes_payload,
             body_boundary_nodes_payload,
             litho_solids_payload,
@@ -371,6 +375,7 @@ async def restore_project_bundle(
     bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
+    body_geometry_facts_payload: list[dict[str, Any]] | None = None,
     body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     litho_solids_payload: list[dict[str, Any]] | None = None,
@@ -405,6 +410,8 @@ async def restore_project_bundle(
         Formation-absence rows.
     litho_contact_correlation_edges_payload : list[dict[str, Any]] | None
         Correlation edge rows.
+    body_geometry_facts_payload : list[dict[str, Any]] | None
+        Geometric body-connectivity fact rows.
     body_boundary_shapes_payload : list[dict[str, Any]] | None
         Lens boundary shape rows.
     body_boundary_nodes_payload : list[dict[str, Any]] | None
@@ -436,6 +443,7 @@ async def restore_project_bundle(
         bodies_payload,
         formation_absences_payload,
         litho_contact_correlation_edges_payload,
+        body_geometry_facts_payload,
         body_boundary_shapes_payload,
         body_boundary_nodes_payload,
         litho_solids_payload,
