@@ -474,6 +474,9 @@ function makeCtx(overrides: {
       sectionsDeepLinkTarget: null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
+      bodyRecomputeLithoNonce: 0,
+      bodyRecomputeGeotechNonce: 0,
+      requestBodyRecompute: vi.fn(),
     },
     mapState: {
       hiddenCptTypes: new Set(),
