@@ -266,6 +266,15 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
+    # Geometric body-connectivity facts (owner ruling 2026-08-12: connected
+    # same-litho units share one body id). Additive — absent in older bundles.
+    # Restore order: after litho layers (both endpoints FK litho_layer.id).
+    # Same ceiling as edges: facts are all-pairs per merged component, which
+    # stays far below the complete-graph bound on any real project.
+    body_geometry_facts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
+    )
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive — absent
     # in older bundles; default_factory=list. Restore order: shapes after
     # geological_models (model_id FK), nodes after shapes (shape_id FK).
@@ -339,6 +348,8 @@ class ProjectBundleResponse(BaseModel):
     # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
     # in bundles saved before this field shipped.
     litho_contact_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
+    # Geometric body-connectivity facts (owner ruling 2026-08-12). Additive.
+    body_geometry_facts: list[dict[str, Any]] = Field(default_factory=list)
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive.
     body_boundary_shapes: list[dict[str, Any]] = Field(default_factory=list)
     body_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
