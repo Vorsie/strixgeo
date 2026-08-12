@@ -93,6 +93,9 @@ export interface UseGeotechBandEditDeps {
   refetchGeotechPackingEdges: () => Promise<boolean>
   /** Mark the project dirty (two-stage save model). */
   markMutated: () => void
+  /** Schedule the geotech model's body-identity recompute (slice 5). Optional so
+   *  hand-rolled test fixtures need not supply it; call sites guard with ``?.()``. */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   /** Toast stack action. */
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
   /** The section undo stack; every committed band edit pushes onto it. */
@@ -175,6 +178,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     requestGeotechLayersRefetch,
     refetchGeotechPackingEdges,
     markMutated,
+    requestBodyRecompute,
     toast,
     undoStack,
     onAcceptedTiesFlagged,
@@ -206,8 +210,12 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     // from it are out of date — amber the "Divide boreholes" button, as every other
     // geotech write path does.
     markBoreholesStale()
+    // Every band verb (split/merge/move/absorb/remove, and every undo closure)
+    // funnels through this fan-out, so ONE bump covers them all: the geotech
+    // model's body geometry moved — schedule its identity recompute (slice 5).
+    requestBodyRecompute?.('geotech')
     return fresh
-  }, [requestGeotechLayersRefetch, refetchGeotechPackingEdges, markMutated])
+  }, [requestGeotechLayersRefetch, refetchGeotechPackingEdges, markMutated, requestBodyRecompute])
 
   const onRequestSplitBand = useCallback(
     (bandId: string, depthM: number): void => {
