@@ -41,7 +41,7 @@ import {
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
-import { sectionsBodyRecomputeCallback } from './SectionsCanvas'
+import { sectionsBodyRecomputeCallback } from '../../../hooks/useProjectBodyRecompute'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
 
 /**
@@ -607,10 +607,10 @@ export default function SectionsToolbar(): JSX.Element {
   const isGeotech = sectionModelAxis === 'geotechnical'
 
   // Manual "Recompute bodies" verb (slice 5): fires the ACTIVE axis's model
-  // through the canvas's scheduler ref (module-ref bridge — the debounced
-  // scheduler lives in SectionsCanvas, which owns the model/layer state).
-  // ``recomputeNow`` toasts its own errors (manual fires do; background
-  // debounce fires stay console-only).
+  // through the shell scheduler's ref (module-ref bridge — the debounced
+  // scheduler lives in useProjectBodyRecompute, mounted in App, which owns the
+  // model/layer state). ``recomputeNow`` toasts its own errors (manual fires
+  // do; background debounce fires stay console-only).
   const [recomputingBodies, setRecomputingBodies] = useState(false)
   const recomputeModelId = isGeotech
     ? (activeGeotechModel?.id ?? null)
@@ -621,10 +621,10 @@ export default function SectionsToolbar(): JSX.Element {
     if (recomputeModelId === null || recomputingBodies) return
     const run = sectionsBodyRecomputeCallback.current
     if (run === null) {
-      // Unreachable while the Sections stage is mounted (the canvas assigns the
-      // ref every render) — fail loud rather than silently doing nothing.
-      log.error('sections', 'recompute-bodies: canvas scheduler ref is empty')
-      toast('error', 'Recompute bodies is unavailable — reopen the Sections stage.')
+      // Unreachable while a project is open (the shell hook assigns the ref
+      // every App render) — fail loud rather than silently doing nothing.
+      log.error('sections', 'recompute-bodies: shell scheduler ref is empty')
+      toast('error', 'Recompute bodies is unavailable — reopen the project.')
       return
     }
     setRecomputingBodies(true)
