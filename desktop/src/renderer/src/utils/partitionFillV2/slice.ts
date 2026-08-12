@@ -137,6 +137,12 @@ export function sliceFaces(
               // The key stays ABSENT (not ``undefined``) on tie-born regions so existing
               // deep-equal pins on the region shape are byte-identical.
               ...(lf.fallback ? { fallback: true as const } : {}),
+              // Producing layers (label-independent recompute evidence) — same
+              // absent-when-empty contract as ``fallback``; every slice of one face
+              // shares the face's ids (copied so slices never alias one array).
+              ...(lf.layerIds !== undefined && lf.layerIds.length > 0
+                ? { layerIds: [...lf.layerIds] }
+                : {}),
             })
           }
       }
