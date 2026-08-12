@@ -149,6 +149,9 @@ export interface UseShellContextValueArgs {
   sectionsDeepLinkTarget: ShellContextValue['coordinator']['sectionsDeepLinkTarget']
   setSectionsDeepLinkTarget: ShellContextValue['coordinator']['setSectionsDeepLinkTarget']
   correlationEdgesRefetchNonce: ShellContextValue['coordinator']['correlationEdgesRefetchNonce']
+  bodyRecomputeLithoNonce: ShellContextValue['coordinator']['bodyRecomputeLithoNonce']
+  bodyRecomputeGeotechNonce: ShellContextValue['coordinator']['bodyRecomputeGeotechNonce']
+  requestBodyRecompute: ShellContextValue['coordinator']['requestBodyRecompute']
   handleSelectWithoutView: ShellContextValue['coordinator']['handleSelectWithoutView']
   markMutated: ShellContextValue['coordinator']['markMutated']
 }
@@ -202,7 +205,8 @@ export function useShellContextValue(
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
-    correlationEdgesRefetchNonce, handleSelectWithoutView, markMutated,
+    correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
+    requestBodyRecompute, handleSelectWithoutView, markMutated,
   } = argsWithoutGeo
 
   // Re-destructure geo so the dep array stays byte-identical to the
@@ -374,6 +378,9 @@ export function useShellContextValue(
       sectionsDeepLinkTarget,
       setSectionsDeepLinkTarget,
       correlationEdgesRefetchNonce,
+      bodyRecomputeLithoNonce,
+      bodyRecomputeGeotechNonce,
+      requestBodyRecompute,
       handleSelectWithoutView,
       markMutated,
     },
