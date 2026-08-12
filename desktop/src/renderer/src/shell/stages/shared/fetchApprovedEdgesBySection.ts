@@ -50,6 +50,25 @@ export interface ApprovedEdgesFetchResult {
 }
 
 /**
+ * ``review_reason`` values whose accepted edges the body RESOLVER suspends from unioning
+ * (owner ruling F31, 2026-08-10: ``class_changed`` / ``ambiguous_band`` stop the union;
+ * ``band_absorbed`` keeps unioning). Geometry built for body identity must drop the same
+ * edges, or the payload welds what the flag suspends.
+ */
+export const SUSPENDED_REVIEW_REASONS: readonly string[] = ['class_changed', 'ambiguous_band']
+
+/** Options for ``fetchApprovedEdgesBySection``. */
+export interface FetchApprovedEdgesOptions {
+  /**
+   * Drop approved edges whose ``review_reason`` is one of ``SUSPENDED_REVIEW_REASONS``.
+   * Default false — the render/build consumers keep today's behavior (a flagged tie still
+   * draws its band); the body-identity recompute passes true so its unions match the
+   * resolver's.
+   */
+  dropSuspendedReviewEdges?: boolean
+}
+
+/**
  * Fetch each section's correlation edges in parallel and keep the approved ones.
  *
  * Parameters
@@ -60,6 +79,8 @@ export interface ApprovedEdgesFetchResult {
  *     The litho / geotech model id the edges belong to.
  * sections : readonly { id: string }[]
  *     The visible sections to fan out over.
+ * opts : FetchApprovedEdgesOptions, optional
+ *     ``dropSuspendedReviewEdges`` filters out resolver-suspended flagged ties.
  *
  * Returns
  * -------
@@ -70,7 +91,9 @@ export async function fetchApprovedEdgesBySection(
   projectId: string,
   modelId: string,
   sections: readonly { id: string }[],
+  opts?: FetchApprovedEdgesOptions,
 ): Promise<ApprovedEdgesFetchResult> {
+  const dropSuspended = opts?.dropSuspendedReviewEdges === true
   const failedSectionIds: string[] = []
   const edgeResults = await Promise.all(
     sections.map(section =>
@@ -81,7 +104,15 @@ export async function fetchApprovedEdgesBySection(
             [
               section.id,
               edges
-                .filter(e => e.user_approved)
+                .filter(
+                  e =>
+                    e.user_approved &&
+                    !(
+                      dropSuspended &&
+                      e.review_reason != null &&
+                      SUSPENDED_REVIEW_REASONS.includes(e.review_reason)
+                    ),
+                )
                 .map(e => ({
                   a: e.layer_a_id,
                   b: e.layer_b_id,
