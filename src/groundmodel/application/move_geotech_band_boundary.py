@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
+    geo_parent_for_interval,
     load_geotech_column_context,
     require_cpt_anchor,
     revalidate_layer_edges,
@@ -117,6 +118,7 @@ class MoveGeotechBandBoundary(GeotechBoreholeMaterialiser):
             bands=context.bands,
             upper_band_id=str(upper_band_id),
             lower_band_id=str(lower_band_id),
+            live_geo_depths_m=context.live_geo_depths_m,
             new_depth_m=new_depth_m,
             soil=context.soil,
             admixtures=context.admixtures,
@@ -140,14 +142,15 @@ class MoveGeotechBandBoundary(GeotechBoreholeMaterialiser):
             project_id=project_id,
             nad_class=upper_outcome.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
-            source_geo_formation_id=context.source_geo_formation_id,
+            # Live-first, so a hand edit heals a stale build-time stamp on touch.
+            source_geo_formation_id=geo_parent_for_interval(context, upper_outcome.depth_top_m),
         )
         lower_formation = await formation_for_class(
             self,
             project_id=project_id,
             nad_class=lower_outcome.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
-            source_geo_formation_id=context.source_geo_formation_id,
+            source_geo_formation_id=geo_parent_for_interval(context, lower_outcome.depth_top_m),
         )
         # The atomic two-row write: both rows move in one transaction, and both
         # become the engineer's decision (the hand-edit counter keys on it).
