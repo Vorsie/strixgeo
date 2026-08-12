@@ -520,11 +520,14 @@ export const geologyClient = {
   /**
    * POST .../bodies/recompute — persist geometric body identity (slice 5).
    *
-   * Sends the FE-assembled per-section partitions + fallback-excluding merge
-   * groups + body membership; the backend rewrites the geometry facts and
-   * re-resolves body identity. 422 ``empty_recompute_payload`` when the payload
-   * carries no sections/regions — the caller gates on a non-null assembly, so
-   * that status is a bug signal, never a user-facing error.
+   * Sends the FE-assembled per-section partitions (regions carrying
+   * ``layer_ids``) + fallback-excluding LAYER-id merge groups; the backend
+   * rewrites the geometry facts and re-resolves body identity. Layer ids are
+   * the only wire currency — body-id evidence erased itself after every
+   * successful merge (facts flapping 74→3→69 live, 2026-08-12). 422
+   * ``empty_recompute_payload`` when the payload carries no sections/regions —
+   * the caller gates on a non-null assembly, so that status is a bug signal,
+   * never a user-facing error.
    *
    * Parameters
    * ----------
