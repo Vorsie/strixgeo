@@ -6757,8 +6757,9 @@ renders and makes no network call. Corrected in the docstring 2026-07-27 — tha
 wording is what made two separate investigations assume the merge had run.
 
 **Why it matters (owner-visible).** Body identity is the CONNECTED COMPONENTS of
-the user-approved correlation-edge graph (`ResolveLithoInstances`); body SHAPE is
-the partition fill. They are separate pipelines, so a sand that Fill bands draws
+the user-approved correlation-edge graph unioned with the persisted
+`body_geometry_fact` rows (`ResolveLithoInstances`; facts added 2026-08-12 —
+see body-model.md); body SHAPE is the partition fill. They are separate pipelines, so a sand that Fill bands draws
 as one continuous body around a carved-out lens can carry two `body_id`s. On the
 dev model, CPT GEO-05/040-S4's sand is `417604` above the silt lens and `6ceedf`
 below it, while the neighbouring BH GEO-10/117-B4 (0.49 m away) logs one
@@ -6837,12 +6838,17 @@ frac 0.5  BEFORE: ZAND 3.13/2.80 · SILT 2.80/0.18 · ZAND 0.16/-4.59
 frac 0.5  AFTER : ZAND 3.13/-4.58
 ```
 
-**Remaining.** Owner dogfeed of the 3-D model after a Build. Two follow-ups, both
-open: (a) the DB's `body_id` still carries the pre-merge split — this pass fixes
-the payload the 3-D build reads, not the stored identity, so "one body in the
-data" is true for the model but not yet for the rows; (b) `buildProjectFence`
-(the 3-D fence view) does not run the pass, so fence panels can still show the
-per-section ids.
+**Remaining.** Owner dogfeed of the 3-D model after a Build. The two follow-ups
+CLOSED 2026-08-12 (owner ruling "every same litho that is connected should get
+the same body id"): (a) the stored identity is now persisted — `RecomputeBodies`
+writes `body_geometry_fact` rows and the resolver stamps the merged `body_id`
+into the DB (stage 3 of this entry's staged model; see
+docs/design/body-model.md); (b) follows from (a) — `buildProjectFence` reads
+region body ids off the DB layers, which now carry the merged identity, so
+fence panels converge without running the pass themselves. One deliberate
+asymmetry remains, recorded in body-model.md: the build's alias pass still
+unions through fallback-painted regions for blending; the persisted identity
+never does (owner: "there should be no fallbacks in a properly built model").
 
 ## 245. Litho 3-D build is too slow (M — owner-raised 2026-07-28, partially addressed)
 
@@ -7209,6 +7215,12 @@ the full payload.
 **The alias map is DERIVED build data with provenance and must never be read back
 as a user correlation.** It records a geometric merge, not user intent; the
 owner's ties remain exactly the owner's ties.
+*(Scope narrowed 2026-08-12: the GENERATION row's stored alias map stays
+provenance-only, and no correlation edge is ever minted from geometry — but the
+geometric merge itself now persists as first-class `body_geometry_fact` rows via
+`POST .../bodies/recompute`, owner ruling: "every same litho that is connected
+should get the same body id". Facts are resolver input, never correlations, and
+never touch the fill. See docs/design/body-model.md.)*
 
 **VERIFIED on the real model 2026-07-29.** Rebuilding generation
 `019fae07-b05d-7143` from the database alone returns grid 311x326x107, 81 bodies
