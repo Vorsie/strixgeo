@@ -4,6 +4,7 @@ from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
@@ -42,6 +43,7 @@ __all__ = [
     "AtterbergLimitsOrm",
     "BodyBoundaryNodeOrm",
     "BodyBoundaryShapeOrm",
+    "BodyGeometryFactOrm",
     "BodyOrm",
     "BoreholeOrm",
     "CaCO3ContentOrm",
