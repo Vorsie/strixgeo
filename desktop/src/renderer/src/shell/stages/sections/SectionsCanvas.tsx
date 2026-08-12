@@ -70,9 +70,31 @@ import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
+import { useBodyRecompute } from '../../../hooks/useBodyRecompute'
+import { assembleBodyRecomputePayload } from '../shared/makeBodyRecomputeBuilder'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
 import { useManualLithoUnit } from './useManualLithoUnit'
 import { SectionScopeContext } from '../../../components/sections/SectionScopeContext'
+
+// ---------------------------------------------------------------------------
+// Body-identity recompute plumbing (slice 5) — module level on purpose.
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-ref bridge to the toolbar's manual "Recompute bodies" verb — the same
+ * pattern as ``lithoVoxelRequestCallback``: the canvas assigns ``recomputeNow``
+ * every render; ``SectionsToolbar`` (a sibling with no access to the scheduler)
+ * invokes it with the active axis's model id.
+ */
+export const sectionsBodyRecomputeCallback: { current: ((modelId: string) => Promise<void>) | null } = {
+  current: null,
+}
+
+// Last PROCESSED recompute nonce per ``project|model`` — module level so a
+// stage remount does not re-fire a recompute this session already ran. A
+// missing entry means first entry this session → one initial recompute.
+const processedLithoRecomputeNonces = new Map<string, number>()
+const processedGeotechRecomputeNonces = new Map<string, number>()
 
 /**
  * Center canvas for the Sections stage.
@@ -213,6 +235,11 @@ export default function SectionsCanvas(): JSX.Element {
       handleExportSectionDxf,
       setGeoDeepLinkTarget,
       correlationEdgesRefetchNonce,
+      // Slice 5: body-identity recompute channel — mutations bump, this canvas
+      // schedules the debounced POST for the bumped axis's model.
+      bodyRecomputeLithoNonce,
+      bodyRecomputeGeotechNonce,
+      requestBodyRecompute,
     },
     mapState: {
       hiddenCptTypes,
@@ -863,12 +890,15 @@ export default function SectionsCanvas(): JSX.Element {
           return next
         })
         markMutated()
+        // A saved boundary reshapes the body — schedule the litho identity
+        // recompute (slice 5).
+        requestBodyRecompute('litho')
       } catch (err) {
         log.warn('section', 'handleSaveLensShape: saveBodyBoundary failed', err)
         toast('error', 'Could not save lens shape â€” see console.')
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, toast, markMutated],
+    [activeLithoModel, project.id, selectedSectionId, toast, markMutated, requestBodyRecompute],
   )
 
   const handleCreateContactCorrelation = useCallback(
@@ -897,6 +927,9 @@ export default function SectionsCanvas(): JSX.Element {
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
+        // A tie create/delete moves body geometry — schedule the litho identity
+        // recompute (slice 5). Mirrored in the undo closures above/below.
+        requestBodyRecompute('litho')
         // Deselect BOTH contacts after a successful two-click correlate (owner
         // directive 2026-06-08). This retires the #135 sticky lens-pinch-out
         // gesture (the source staying armed for a second target) in favour of a
@@ -933,6 +966,7 @@ export default function SectionsCanvas(): JSX.Element {
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
+            requestBodyRecompute('litho')
           },
           reapply: async () => {
             await api.geology.createContactCorrelation(
@@ -946,6 +980,7 @@ export default function SectionsCanvas(): JSX.Element {
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
+            requestBodyRecompute('litho')
           },
         })
         toast('success', 'Boundary correlation added.')
@@ -963,7 +998,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not create the boundary correlation â€” try again.')
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated, undoStack],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated, undoStack, requestBodyRecompute],
   )
 
   // S103 correlate-on-drag persist: a stable wrapper so the boundary-drag effect's dep on
@@ -1022,6 +1057,9 @@ export default function SectionsCanvas(): JSX.Element {
         )
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
+        // A tie create/delete moves body geometry — schedule the litho identity
+        // recompute (slice 5). Mirrored in the undo closures above/below.
+        requestBodyRecompute('litho')
         // Mirror of the create path â€” undo restores the edge,
         // redo removes it again. Symmetric so a Ctrl-Z + Ctrl-Y
         // round-trip leaves no drift.
@@ -1039,6 +1077,7 @@ export default function SectionsCanvas(): JSX.Element {
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
+            requestBodyRecompute('litho')
           },
           reapply: async () => {
             await api.geology.deleteContactCorrelation(
@@ -1052,6 +1091,7 @@ export default function SectionsCanvas(): JSX.Element {
             )
             await Promise.all([refetchContactEdges(), refetchLithoContacts()])
             markMutated()
+            requestBodyRecompute('litho')
           },
         })
         log.success(
@@ -1067,7 +1107,7 @@ export default function SectionsCanvas(): JSX.Element {
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, markMutated, undoStack, requestBodyRecompute],
   )
 
   // Geotech packing-correlation handlers (spec §5) — extracted to
@@ -1084,6 +1124,7 @@ export default function SectionsCanvas(): JSX.Element {
     refetchContactEdges,
     refetchGeotechPackingEdges,
     requestGeotechLayersRefetch,
+    requestBodyRecompute,
     markMutated,
     toast,
     setArmedContactId,
@@ -1115,6 +1156,7 @@ export default function SectionsCanvas(): JSX.Element {
     refetchGeotechPackingEdges,
     requestGeotechLayersRefetch,
     markMutated,
+    requestBodyRecompute,
     toast,
     undoStack,
     onAcceptedTiesFlagged: flaggedTiePrompt.askAbout,
@@ -1140,6 +1182,8 @@ export default function SectionsCanvas(): JSX.Element {
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         await refetchLensData()
         markMutated()
+        // An accepted tie joins bodies — schedule the litho identity recompute (slice 5).
+        requestBodyRecompute('litho')
         log.success(
           'section',
           `contact-accept: edge=${edgeId} accepted=${result.edges_accepted} ` +
@@ -1150,7 +1194,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not accept the correlation. Try again or refresh.')
       }
     },
-    [activeLithoModel, project.id, refetchContactEdges, refetchLensData, markMutated, toast],
+    [activeLithoModel, project.id, refetchContactEdges, refetchLensData, markMutated, toast, requestBodyRecompute],
   )
 
   // Right-click a lens wedge â†’ dissolve the lens (dogfeed 2026-05-29).
@@ -1328,6 +1372,7 @@ export default function SectionsCanvas(): JSX.Element {
     refetchLithoContacts,
     refetchLensData,
     markMutated,
+    requestBodyRecompute,
     toast,
   })
 
@@ -1738,7 +1783,12 @@ export default function SectionsCanvas(): JSX.Element {
     // classes — the borehole division borrows exactly those bands, so amber
     // "Divide boreholes" as every other geotech write path does (audit F22).
     markBoreholesStale()
-  }, [requestGeotechLayersRefetch, refetchLithoContacts, refetchGeotechPackingEdges, markMutated])
+    // The three-model write moves litho rows AND packing bands, so BOTH models'
+    // body geometry moved — schedule both identity recomputes (slice 5). The
+    // undo command shares this fan-out, so Ctrl+Z/Ctrl+Y reschedule too.
+    requestBodyRecompute('litho')
+    requestBodyRecompute('geotech')
+  }, [requestGeotechLayersRefetch, refetchLithoContacts, refetchGeotechPackingEdges, markMutated, requestBodyRecompute])
 
   const handleConfirmContactMove = useCallback(async (): Promise<void> => {
     if (pendingContactMove === null || geotechPackingModelId === null) return
@@ -2103,6 +2153,88 @@ export default function SectionsCanvas(): JSX.Element {
       ) ?? null
     )
   }, [inspectTarget, inspectLenses])
+
+  // ---------------------------------------------------------------------------
+  // Body-identity recompute (slice 5). The debounced scheduler lives HERE
+  // because this canvas is the one place that can reach BOTH axes' model +
+  // layer state; mutation sites everywhere else signal through the
+  // coordinator nonces. All hooks below sit ABOVE the selectedSection early
+  // return (Rules of Hooks).
+  // ---------------------------------------------------------------------------
+  const recomputeInvestigations = useMemo(
+    () => [
+      ...visibleCpts.map(c => ({
+        id: c.id,
+        location_x: c.location_x,
+        location_y: c.location_y,
+        elevation_m: c.elevation_m,
+      })),
+      ...visibleBoreholes.map(b => ({
+        id: b.id,
+        location_x: b.location_x,
+        location_y: b.location_y,
+        elevation_m: b.elevation_m,
+      })),
+    ],
+    [visibleCpts, visibleBoreholes],
+  )
+
+  const buildRecomputePayloadForModel = useCallback(
+    (modelId: string) => {
+      // Which axis's layer snapshot feeds the payload follows the MODEL, not the
+      // rendered axis — a litho mutation must recompute litho even while the
+      // user looks at the geotech axis.
+      const isGeotechTarget = modelId === geotechPackingModelId
+      return assembleBodyRecomputePayload({
+        projectId: project.id,
+        modelId,
+        visibleSections,
+        investigations: recomputeInvestigations,
+        layers: isGeotechTarget ? geotechLayers : lithoLayers,
+        logLabel: isGeotechTarget ? 'geotech-recompute' : 'litho-recompute',
+      })
+    },
+    [project.id, geotechPackingModelId, visibleSections, recomputeInvestigations, geotechLayers, lithoLayers],
+  )
+
+  const { scheduleRecompute, recomputeNow } = useBodyRecompute({
+    projectId: project.id,
+    buildPayload: buildRecomputePayloadForModel,
+    dataLoaded: visibleSections.length > 0,
+    toast,
+  })
+
+  // Module-ref bridge to the toolbar's manual "Recompute bodies" verb (same
+  // pattern as lithoVoxelRequestCallback). Assigned every render, above the
+  // early return, so the ref is always populated while the canvas is mounted.
+  sectionsBodyRecomputeCallback.current = recomputeNow
+
+  // One recompute per model on FIRST ENTRY per session (the module-level map
+  // survives stage remounts), then one per nonce bump. Gated on data-loaded so
+  // a half-loaded model never assembles a payload.
+  useEffect(() => {
+    if (lithoModelId === null || visibleSections.length === 0 || lithoLayers.length === 0) return
+    const key = `${project.id}|${lithoModelId}`
+    if (processedLithoRecomputeNonces.get(key) !== bodyRecomputeLithoNonce) {
+      processedLithoRecomputeNonces.set(key, bodyRecomputeLithoNonce)
+      scheduleRecompute(lithoModelId)
+    }
+  }, [project.id, lithoModelId, visibleSections.length, lithoLayers.length, bodyRecomputeLithoNonce, scheduleRecompute])
+
+  useEffect(() => {
+    if (
+      geotechPackingModelId === null ||
+      visibleSections.length === 0 ||
+      !geotechLayersLoaded ||
+      geotechLayers.length === 0
+    )
+      return
+    const key = `${project.id}|${geotechPackingModelId}`
+    if (processedGeotechRecomputeNonces.get(key) !== bodyRecomputeGeotechNonce) {
+      processedGeotechRecomputeNonces.set(key, bodyRecomputeGeotechNonce)
+      scheduleRecompute(geotechPackingModelId)
+    }
+  }, [project.id, geotechPackingModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, bodyRecomputeGeotechNonce, scheduleRecompute])
 
   if (selectedSection !== null) {
     // WHY Fragment: InspectLensBodyPanel and CompanionOfferDialog are SectionsCanvas-
