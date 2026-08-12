@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
@@ -845,6 +846,137 @@ async def _restore_contact_edges(
             f"missing FK, or legacy section-less edge)"
         )
     return new_edges, skipped, dropped
+
+
+async def _restore_geometry_facts(
+    session: AsyncSession,
+    project_id: UUID,
+    body_geometry_facts_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    geological_models_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert geometric body-connectivity facts from the bundle.
+
+    Facts (owner ruling 2026-08-12) are layer-pair union evidence the resolver
+    consumes alongside correlation edges. Restored after the litho layers so
+    both FK endpoints resolve, and BEFORE ``reconcile_bodies_after_restore``
+    runs, so the restored resolver pass already unions them — a reopened
+    project keeps its merged bodies without waiting for the first recompute.
+
+    Guards mirror ``_restore_contact_edges``: dedupe by id, model-scope guard,
+    endpoint layers must belong to this project (DB rows or rows queued in
+    this transaction). Endpoints are also re-canonicalised (``a < b``) so a
+    clone whose id remap flipped the order cannot trip the CHECK constraint.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    body_geometry_facts_payload : list[dict[str, Any]]
+        Raw fact dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts — includes litho layers queued in this transaction.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_facts, skipped_facts, dropped_facts)``.
+    """
+    valid_layer_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(LithoLayerOrm.id)
+                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for m_payload in geological_models_payload:
+        for ly in m_payload.get("litho_layers") or []:
+            lid = _uuid(ly.get("id"))
+            if lid is not None:
+                valid_layer_ids.add(lid)
+
+    existing = set(
+        (
+            await session.execute(
+                select(BodyGeometryFactOrm.id)
+                .join(GeologicalModelOrm, BodyGeometryFactOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_facts = 0
+    skipped = 0
+    dropped = 0
+    total = len(body_geometry_facts_payload)
+    if total:
+        logger.info(
+            f"restore_project_bundle({project_id}): restoring {total} body geometry fact(s)"
+        )
+    for i, fact_payload in enumerate(body_geometry_facts_payload, start=1):
+        fact_id = _uuid(fact_payload.get("id"))
+        if fact_id is None:
+            logger.debug(f"[{i}/{total}] geometry fact skipped — payload has no id")
+            skipped += 1
+            continue
+        if fact_id in existing:
+            logger.debug(f"[{i}/{total}] geometry fact {fact_id} already present — skipped")
+            skipped += 1
+            continue
+        fact_model_id = _require_fk(
+            fact_payload,
+            "model_id",
+            valid_model_ids,
+            label=f"geometry fact {fact_id}",
+            note="bundle-injection guard",
+            i=i,
+            total=total,
+            logger=logger,
+        )
+        if fact_model_id is None:
+            dropped += 1
+            continue
+        a_id = _uuid(fact_payload.get("layer_a_id"))
+        b_id = _uuid(fact_payload.get("layer_b_id"))
+        if a_id is None or b_id is None or a_id == b_id:
+            logger.warning(f"[{i}/{total}] geometry fact {fact_id} has no valid pair — dropped")
+            dropped += 1
+            continue
+        if a_id not in valid_layer_ids or b_id not in valid_layer_ids:
+            logger.warning(
+                f"[{i}/{total}] geometry fact {fact_id}: layer endpoint(s) not in this "
+                f"project — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        if str(a_id) > str(b_id):
+            a_id, b_id = b_id, a_id
+        session.add(
+            BodyGeometryFactOrm(
+                id=fact_id, model_id=fact_model_id, layer_a_id=a_id, layer_b_id=b_id
+            )
+        )
+        new_facts += 1
+        logger.debug(f"[{i}/{total}] geometry fact {fact_id} queued for insert")
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} geometry fact(s) "
+            f"(model or layer not in project)"
+        )
+    return new_facts, skipped, dropped
 
 
 async def _restore_litho_solids(
