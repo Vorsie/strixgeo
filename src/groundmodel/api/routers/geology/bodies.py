@@ -61,6 +61,10 @@ from groundmodel.api.schemas.project.formation_absence import (
     UpsertFormationAbsenceRequest,
     UpsertFormationAbsenceResponse,
 )
+from groundmodel.api.schemas.project.recompute_bodies import (
+    RecomputeBodiesRequest,
+    RecomputeBodiesResponse,
+)
 from groundmodel.application.body_boundary import (
     BodyNoPrimarySectionError,
     BodyNotFoundError,
@@ -74,13 +78,18 @@ from groundmodel.application.delete_body import DeleteBody
 from groundmodel.application.get_body_geo_labels import GetBodyGeoLabels
 from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
+from groundmodel.application.recompute_bodies import RecomputeBodies
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.session import get_session
-from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
+from groundmodel.shared.constants.model_kind import (
+    MODEL_KIND_LITHOSTRATIGRAPHIC,
+    NON_STRATIGRAPHIC_KINDS,
+)
+from groundmodel.shared.exceptions import EmptyRecomputePayloadError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 logger = LoggerFactory.get_logger(__name__)
@@ -215,6 +224,99 @@ async def merge_enclosed_lenses(
     return MergeEnclosedLensResponse(
         edges_created=result.edges_created,
         edges_skipped_existing=result.edges_skipped_existing,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Recompute geometric body identity (POST)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/bodies/recompute",
+    response_model=RecomputeBodiesResponse,
+)
+async def recompute_bodies(
+    project_id: UUID,
+    model_id: UUID,
+    request: RecomputeBodiesRequest,
+    session: AsyncSession = Depends(get_session),
+) -> RecomputeBodiesResponse:
+    """Persist the geometric body merge and re-stamp ``litho_layer.body_id``.
+
+    Owner ruling 2026-08-12: every set of same-lithology units whose fill
+    regions connect shares one body id. The frontend posts what it renders
+    (fallback regions omitted) plus its merge groups and layer snapshot; the
+    server unions that with the cross-section alias rule, replaces the model's
+    geometry facts, and re-runs the resolver.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        A lithostratigraphic OR geotechnical model in this project — both
+        carry bodies (packing bodies drive qc-per-body extraction).
+    request : RecomputeBodiesRequest
+        Sections + per-section merge groups + body→layer snapshot.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    RecomputeBodiesResponse
+        The diff for the frontend's toast.
+
+    Raises
+    ------
+    HTTPException(404)
+        Model not found in the project.
+    HTTPException(422)
+        Model kind carries no bodies, or the payload is empty (an empty
+        payload would wipe every geometric merge — refused, never applied).
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+    if model.kind not in NON_STRATIGRAPHIC_KINDS:
+        # Mirrors require_model_kind's shape; that helper takes ONE kind and
+        # this verb legitimately serves two.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": (
+                    f"bodies/recompute needs a lithostratigraphic or geotechnical "
+                    f"model; {model_id} is '{model.kind}'"
+                ),
+            },
+        )
+    try:
+        result = await RecomputeBodies(session).execute(
+            model_id=model_id,
+            sections=request.to_domain_sections(),
+            section_body_groups=request.body_groups or [[] for _ in request.sections],
+            body_members=request.body_members,
+        )
+    except EmptyRecomputePayloadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "empty_recompute_payload", "message": str(exc)},
+        ) from exc
+    logger.success(
+        f"recompute_bodies: project={project_id} model={model_id} "
+        f"facts={result.facts_written} merged={result.bodies_merged} "
+        f"split={result.bodies_split}"
+    )
+    return RecomputeBodiesResponse(
+        facts_written=result.facts_written,
+        facts_dropped_stale=result.facts_dropped_stale,
+        bodies_merged=result.bodies_merged,
+        bodies_split=result.bodies_split,
+        unresolved_body_ids=list(result.unresolved_body_ids),
+        renamed=list(result.renamed),
     )
 
 
