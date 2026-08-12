@@ -5,8 +5,9 @@ import {
   buildRecoverySnapshot,
   ghostsFromSnapshot,
   parseRecoverySnapshot,
+  snapshotHasDbDelta,
 } from './recoverySnapshot'
-import type { RecoverySnapshotInputs } from './recoverySnapshot'
+import type { RecoverySnapshotInputs, RecoverySnapshotV1 } from './recoverySnapshot'
 import type { BulkAnchorGhost } from '../hooks/useGeologicalModel'
 import type { ProjectResponse } from '../api/client'
 
@@ -284,5 +285,114 @@ describe('parseRecoverySnapshot refuses what it cannot trust', () => {
       false,
     )
     expect(parsed!.metadataDraftPatch.name).toBe('Kanaal Noord (rev B)')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// snapshotHasDbDelta — the Discard fast-path predicate
+// ---------------------------------------------------------------------------
+//
+// Owner defect 2026-08-12: "Delete backup holds the app busy for too long."
+// The pre-discard revert replace-restores the ENTIRE project tree and then
+// reloads it — tens of seconds — even when the crashed session never touched
+// the database. This predicate is what licenses skipping that revert: it may
+// answer "no delta" ONLY when the snapshot proves the DB already equals the
+// last save. Session-created rows count as a delta — the replace-restore is
+// what REMOVES creates — and a snapshot that cannot prove cleanliness
+// (missing fields, foreign shape) must take the slow path.
+
+/** A snapshot recording a session that never touched the database. */
+function cleanSnapshot(overrides: Partial<RecoverySnapshotV1> = {}): RecoverySnapshotV1 {
+  return {
+    snapshot_version: RECOVERY_SNAPSHOT_VERSION,
+    filePath: 'C:/projects/kanaal.strix',
+    lumping: { current: null, revision: null },
+    ghosts: [],
+    metadataDraftPatch: {},
+    manifests: { cpt: [], borehole: [], formation: [], section: [] },
+    sessionImports: { cpt: [], borehole: [], formation: [], section: [], contact: [] },
+    hasUnsavedMutations: false,
+    ...overrides,
+  }
+}
+
+describe('snapshotHasDbDelta', () => {
+  it('answers no delta for a session that never touched the database', () => {
+    expect(snapshotHasDbDelta(cleanSnapshot())).toBe(false)
+  })
+
+  it('renderer-only work is not a DB delta — ghosts, lumping and metadata do not force the revert', () => {
+    // The three at-risk items that live ONLY in the renderer: losing them is
+    // what the backup file protects against, but discarding them needs no
+    // database revert — the DB never saw them.
+    const snapshot = cleanSnapshot({
+      ghosts: [
+        [
+          'anchor-1',
+          {
+            kind: 'cpt',
+            suggestions: [],
+            surfaceElevationM: null,
+            accepted: [0],
+            rejected: [],
+            edits: [],
+          },
+        ],
+      ],
+      lumping: {
+        current: { schema_version: 1, applied_at: '2026-08-12T09:00:00Z', map: { A: 'B' } },
+        revision: 3,
+      },
+      metadataDraftPatch: { name: 'renamed but unsaved' },
+    })
+    expect(snapshotHasDbDelta(snapshot)).toBe(false)
+  })
+
+  it('unsaved mutations are a DB delta', () => {
+    expect(snapshotHasDbDelta(cleanSnapshot({ hasUnsavedMutations: true }))).toBe(true)
+  })
+
+  it.each(['cpt', 'borehole', 'formation', 'section'] as const)(
+    'a non-empty %s manifest is a DB delta',
+    key => {
+      const snapshot = cleanSnapshot()
+      snapshot.manifests[key] = ['some-id']
+      expect(snapshotHasDbDelta(snapshot)).toBe(true)
+    },
+  )
+
+  it.each(['cpt', 'borehole', 'formation', 'section', 'contact'] as const)(
+    'a session-imported %s is a DB delta — the replace-restore is what removes creates',
+    key => {
+      const snapshot = cleanSnapshot()
+      snapshot.sessionImports[key] = ['some-id']
+      expect(snapshotHasDbDelta(snapshot)).toBe(true)
+    },
+  )
+
+  // Defensive default: never skip the revert on absence of evidence. Today's
+  // parser guarantees these fields, so these pin the behaviour for a payload
+  // the compiler never saw (a future snapshot version, a foreign file).
+  it.each(['hasUnsavedMutations', 'manifests', 'sessionImports'] as const)(
+    'a snapshot missing %s counts as HAVING a delta',
+    field => {
+      const snapshot = cleanSnapshot() as unknown as Record<string, unknown>
+      delete snapshot[field]
+      expect(snapshotHasDbDelta(snapshot as unknown as RecoverySnapshotV1)).toBe(true)
+    },
+  )
+
+  it('a manifest group of the wrong shape counts as HAVING a delta', () => {
+    const snapshot = cleanSnapshot() as unknown as { manifests: unknown }
+    snapshot.manifests = null
+    expect(snapshotHasDbDelta(snapshot as unknown as RecoverySnapshotV1)).toBe(true)
+  })
+
+  it('a missing id list inside a group counts as HAVING a delta', () => {
+    const snapshot = cleanSnapshot() as unknown as {
+      sessionImports: Record<string, unknown>
+    }
+    delete snapshot.sessionImports.contact
+    expect(snapshotHasDbDelta(snapshot as unknown as RecoverySnapshotV1)).toBe(true)
   })
 })
