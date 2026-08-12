@@ -447,6 +447,54 @@ const MANIFEST_KEYS = ['cpt', 'borehole', 'formation', 'section'] as const
 const SESSION_IMPORT_KEYS = ['cpt', 'borehole', 'formation', 'section', 'contact'] as const
 
 /**
+ * Does this snapshot record any database-visible work by the crashed session?
+ *
+ * Powers the Discard fast path (owner defect 2026-08-12: "Delete backup
+ * holds the app busy for too long"): the pre-discard revert re-reads the
+ * whole ``.strix`` and replace-restores the ENTIRE project tree, then the
+ * post-discard reload re-opens it — tens of seconds of blocked dialog on a
+ * real model. When the snapshot proves the session never touched the
+ * database, both are semantic no-ops and the caller may skip them.
+ *
+ * Session-CREATED rows count as a delta: the replace-restore is what
+ * REMOVES creates, so skipping while creates exist would leave them alive
+ * after "the session never happened". The manifest sets count for the same
+ * reason — a non-empty manifest records structure the last save does not
+ * carry.
+ *
+ * Defensive default: a snapshot missing any of these fields — a legacy or
+ * foreign payload the compiler never saw — counts as HAVING a delta. The
+ * revert is never skipped on absence of evidence, so every unexpected shape
+ * degrades to the slow-but-safe path.
+ *
+ * @param snapshot - A parsed recovery snapshot.
+ * @returns ``true`` when discarding this backup requires the database
+ *   revert; ``false`` only when the snapshot proves the DB already equals
+ *   the last save.
+ */
+export function snapshotHasDbDelta(snapshot: RecoverySnapshotV1): boolean {
+  // Read defensively even though the type promises every field: the whole
+  // point of the default is surviving a payload TypeScript never checked.
+  const raw = snapshot as Partial<RecoverySnapshotV1>
+  // ``!== false`` on purpose: ``true`` AND ``undefined`` (field absent) both
+  // mean the revert must run.
+  if (raw.hasUnsavedMutations !== false) return true
+
+  for (const [group, keys] of [
+    [raw.manifests, MANIFEST_KEYS],
+    [raw.sessionImports, SESSION_IMPORT_KEYS],
+  ] as const) {
+    const record = asRecord(group)
+    if (record === null) return true
+    for (const key of keys) {
+      const ids = record[key]
+      if (!Array.isArray(ids) || ids.length > 0) return true
+    }
+  }
+  return false
+}
+
+/**
  * Narrow a recovery payload read back off disk.
  *
  * Never throws — a corrupt or foreign file must degrade to "no recovery
