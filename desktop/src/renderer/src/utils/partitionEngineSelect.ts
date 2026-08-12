@@ -49,6 +49,7 @@ import type {
 import {
   classifyOverrideOutcome,
   computeSectionFillV2,
+  type FillIdentity,
   type OverrideOutcome,
   type ReviewFlag,
   type TieConflict,
@@ -242,6 +243,50 @@ export function computeSectionFillActive(
     }
   }
   return computeSectionFill(columns, edges, lensApexOverrides, alongM)
+}
+
+/**
+ * Identity-carrying variant of {@link computeSectionFillActive} (slice 5, "persist
+ * geometric body identity"): the partition regions relabelled by the FALLBACK-EXCLUDING
+ * body weld, plus that weld's merge groups (original body ids per connected component).
+ *
+ * The v2 engine's ordinary output welds same-litho regions THROUGH substrate/flood
+ * fallback paint so the render reads coherently; the identity the backend persists must
+ * not — see ``partitionFillV2/fillIdentity.ts``. The v1 engine has no client-side body
+ * merge at all, so its identity is its plain output with no groups.
+ *
+ * Parameters mirror ``computeSectionFillActive``.
+ *
+ * Returns
+ * -------
+ * { regions: SectionRegion[]; groups: string[][]; engineV2: boolean }
+ *     ``regions`` — the identity-relabelled partition (v2) or the plain v1 output.
+ *     ``groups`` — the per-component ORIGINAL body ids (``[]`` on v1).
+ *     ``engineV2`` — which engine produced them (payload logging).
+ */
+export function computeSectionFillActiveWithIdentity(
+  columns: readonly PartitionColumn[],
+  edges: readonly CorrelationEdge[] = [],
+  lensApexOverrides?: ReadonlyMap<string, LensApexOverride>,
+  alongM?: readonly number[],
+): { regions: SectionRegion[]; groups: string[][]; engineV2: boolean } {
+  const useV2 = isPartitionEngineV2Active()
+  if (!useV2) {
+    return { regions: computeSectionFill(columns, edges, lensApexOverrides, alongM), groups: [], engineV2: false }
+  }
+  // Same flag-ON wiring as computeSectionFillActive — see the comment there.
+  const prev = setTwoSidedTerminations(true)
+  try {
+    const outcome = classifyOverrideOutcome(columns, edges, lensApexOverrides, alongM, {
+      withIdentity: true,
+    })
+    // ``identity`` is present by construction when ``withIdentity`` was passed; the
+    // fallback arm keeps the type honest without inventing groups.
+    const identity: FillIdentity = outcome.identity ?? { regions: outcome.regions, groups: [] }
+    return { regions: identity.regions, groups: identity.groups, engineV2: true }
+  } finally {
+    setTwoSidedTerminations(prev)
+  }
 }
 
 /**
