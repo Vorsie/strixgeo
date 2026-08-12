@@ -30,6 +30,7 @@ import type {
   CorrelationEdge,
   LensApexOverride,
   PartitionColumn,
+  SectionRegion,
 } from "./partitionFill";
 import {
   computeSectionFillActive,
@@ -208,63 +209,61 @@ export function deriveSectionApexOverrides(
 }
 
 /**
- * Assemble the voxel-builder payload from the project's per-section fence inputs.
+ * One section's fully-derived partition FRAME: everything a payload builder needs to run
+ * the partition engine, minus the engine call itself. Extracted (2026-08-12) because the
+ * body-identity recompute payload (``buildBodyRecomputePayload``) is the second consumer
+ * of the exact canonical-columns + alongM + screen-free-overrides prefix ``buildVoxelRequest``
+ * assembled inline — the engine CALL is what differs (plain fill vs identity fill).
+ */
+export interface SectionPartitionFrame {
+  /** The section's raw fence input (line + layers + this section's edges). */
+  input: FenceSectionInput;
+  /** Assembled partition columns, left→right (engine input). */
+  columns: PartitionColumn[];
+  /** Payload columns with canonical world positions, 1:1 with ``columns``. */
+  payloadColumns: SectionColumnInput[];
+  /** True along-section metres per column, 1:1 with ``columns``. */
+  alongM: number[];
+  /** Screen-free hand-drawn apex/contact overrides for this section. */
+  apexOverrides: Map<string, LensApexOverride>;
+  /** Which engine the overrides were derived for (v2 consumes contact overrides). */
+  partitionEngineV2: boolean;
+}
+
+/**
+ * Assemble one partition frame per fillable section (columns.length >= 2).
  *
- * This is the partition-payload sibling of ``buildProjectFence``: for each
- * section it assembles the partition columns (accepted layers + ordered
- * columns), reuses the SAME canonical-world-position reconciliation so a tie
- * column and a cross-section column for the same test agree at the crossing,
- * runs ``computeSectionFill`` with that section's approved edges AND the same
- * hand-drawn apex/contact overrides the overlay renders with, and reshapes the
- * result into a ``SectionPartitionInput``. The partition itself is never altered —
- * the backend voxel labeller sees exactly the regions the user sees on screen.
- *
- * That last sentence was FALSE until 2026-07-30: the overrides were not passed, so
- * anything the user had reshaped by hand was drawn one way and built another. Pass
- * ``boundariesByBodyId`` to keep the two in step; omitting it reproduces the old
- * no-override partition and is only correct for a model with nothing drawn.
- *
- * Sections whose assembled ``columns.length < 2`` (no fillable gap) are skipped,
- * matching ``buildProjectFence``.
+ * Pass 1 is shared with ``buildProjectFence`` so crossings agree: every section is
+ * assembled together and the canonical per-test world positions reconciled. Pass 2
+ * stamps each column's canonical position and derives the section's screen-free
+ * hand-drawn overrides (owner directive 2026-07-30 — the build and the render MUST
+ * consume the same overrides; see ``deriveSectionApexOverrides``).
  *
  * Parameters
  * ----------
  * sections : readonly FenceSectionInput[]
- *     One entry per section in the litho model (order is irrelevant — each
- *     section is independent).
- * horizontalM : number
- *     X/Y (map-plane) voxel spacing in metres. Emitted as both
- *     ``grid_spacing_m`` (cubic fallback / back-compat) and the explicit
- *     ``horizontal_spacing_m``.
- * verticalM : number
- *     Z (elevation) voxel spacing in metres. Emitted as ``vertical_spacing_m``.
- *     A finer value than ``horizontalM`` catches thin layers at the cost of more
- *     voxels; the backend collapses ``verticalM === horizontalM`` to a cubic grid.
+ *     One entry per section (order irrelevant — sections are independent).
  * boundariesByBodyId : ReadonlyMap<string, BodyBoundaryResponse>, optional
- *     Every body's stored hand-drawn boundary (the same map the section overlay
- *     renders from). Used to derive the apex/contact overrides so the built model
- *     matches the drawn partition. Omit only when nothing is drawn.
+ *     Every body's stored hand-drawn boundary; omit only when nothing is drawn.
  *
  * Returns
  * -------
- * VoxelBuildRequest
- *     ``{ sections, grid_spacing_m, horizontal_spacing_m, vertical_spacing_m }``
- *     ready to POST to the backend voxel builder. Empty input yields a payload
- *     with ``sections: []`` and the same three spacing fields.
+ * SectionPartitionFrame[]
+ *     One frame per assembled section, ready for an engine call + payload reshape.
+ *
+ * Raises
+ * ------
+ * Error
+ *     When an assembled column has no canonical world position (unreachable by
+ *     construction; failing loud beats emitting NaN → JSON null at the backend).
  */
-export function buildVoxelRequest(
+export function assembleSectionPartitionFrames(
   sections: readonly FenceSectionInput[],
-  horizontalM: number,
-  verticalM: number,
   boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>,
-): VoxelBuildRequest {
-  // Pass 1 (shared with buildProjectFence so crossings agree): assemble every
-  // section + compute the canonical per-test world positions.
+): SectionPartitionFrame[] {
   const { assembled, canonical } = assembleSectionsWithCanonical(sections);
 
-  // Pass 2: reshape each section's columns + regions into the payload, stamping
-  // each column's canonical world position.
-  const out: SectionPartitionInput[] = [];
+  const frames: SectionPartitionFrame[] = [];
   for (const { input, columns, orderedColumns } of assembled) {
     const payloadColumns: SectionColumnInput[] = orderedColumns.map((c) => {
       const w = canonical.get(c.investigationId);
@@ -320,27 +319,105 @@ export function buildVoxelRequest(
       partitionEngineV2,
     );
 
+    frames.push({ input, columns, payloadColumns, alongM, apexOverrides, partitionEngineV2 });
+  }
+  return frames;
+}
+
+/**
+ * Map engine regions to the wire ``RegionInput`` shape.
+ *
+ * Carries the engine's CLASSIFICATION, not just its geometry (debt #256). The
+ * builder used to receive four fields and re-derive the rest from the polygons,
+ * which it cannot do: a band, an onlap and an enclosed lens are three different
+ * terminations with identical outlines. Optional fields are omitted rather than
+ * sent as null so the payload stays the same shape when the engine sets nothing.
+ *
+ * Parameters
+ * ----------
+ * engineRegions : readonly SectionRegion[]
+ *     The engine's per-gap regions.
+ *
+ * Returns
+ * -------
+ * RegionInput[]
+ *     The wire regions, 1:1 with the input.
+ */
+export function toRegionInputs(engineRegions: readonly SectionRegion[]): RegionInput[] {
+  return engineRegions.map((r) => ({
+    formation_id: r.formationId,
+    body_id: r.bodyId,
+    polygon: r.polygon.map((p) => [p.fraction, p.elevation] as [number, number]),
+    gap_index: r.gapIndex,
+    kind: r.kind,
+    ...(r.overlayTier !== undefined ? { overlay_tier: r.overlayTier } : {}),
+    ...(r.tiedBandBase !== undefined ? { tied_band_base: r.tiedBandBase } : {}),
+    ...(r.tieClipped !== undefined ? { tie_clipped: r.tieClipped } : {}),
+  }));
+}
+
+/**
+ * Assemble the voxel-builder payload from the project's per-section fence inputs.
+ *
+ * This is the partition-payload sibling of ``buildProjectFence``: for each
+ * section it assembles the partition columns (accepted layers + ordered
+ * columns), reuses the SAME canonical-world-position reconciliation so a tie
+ * column and a cross-section column for the same test agree at the crossing,
+ * runs ``computeSectionFill`` with that section's approved edges AND the same
+ * hand-drawn apex/contact overrides the overlay renders with, and reshapes the
+ * result into a ``SectionPartitionInput``. The partition itself is never altered —
+ * the backend voxel labeller sees exactly the regions the user sees on screen.
+ *
+ * That last sentence was FALSE until 2026-07-30: the overrides were not passed, so
+ * anything the user had reshaped by hand was drawn one way and built another. Pass
+ * ``boundariesByBodyId`` to keep the two in step; omitting it reproduces the old
+ * no-override partition and is only correct for a model with nothing drawn.
+ *
+ * Sections whose assembled ``columns.length < 2`` (no fillable gap) are skipped,
+ * matching ``buildProjectFence``.
+ *
+ * Parameters
+ * ----------
+ * sections : readonly FenceSectionInput[]
+ *     One entry per section in the litho model (order is irrelevant — each
+ *     section is independent).
+ * horizontalM : number
+ *     X/Y (map-plane) voxel spacing in metres. Emitted as both
+ *     ``grid_spacing_m`` (cubic fallback / back-compat) and the explicit
+ *     ``horizontal_spacing_m``.
+ * verticalM : number
+ *     Z (elevation) voxel spacing in metres. Emitted as ``vertical_spacing_m``.
+ *     A finer value than ``horizontalM`` catches thin layers at the cost of more
+ *     voxels; the backend collapses ``verticalM === horizontalM`` to a cubic grid.
+ * boundariesByBodyId : ReadonlyMap<string, BodyBoundaryResponse>, optional
+ *     Every body's stored hand-drawn boundary (the same map the section overlay
+ *     renders from). Used to derive the apex/contact overrides so the built model
+ *     matches the drawn partition. Omit only when nothing is drawn.
+ *
+ * Returns
+ * -------
+ * VoxelBuildRequest
+ *     ``{ sections, grid_spacing_m, horizontal_spacing_m, vertical_spacing_m }``
+ *     ready to POST to the backend voxel builder. Empty input yields a payload
+ *     with ``sections: []`` and the same three spacing fields.
+ */
+export function buildVoxelRequest(
+  sections: readonly FenceSectionInput[],
+  horizontalM: number,
+  verticalM: number,
+  boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>,
+): VoxelBuildRequest {
+  const out: SectionPartitionInput[] = [];
+  for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
+    const { input, columns, payloadColumns, alongM, apexOverrides, partitionEngineV2 } = frame;
+
     const engineRegions = computeSectionFillActive(
       columns,
       input.edges,
       apexOverrides,
       alongM,
     );
-    // Carry the engine's CLASSIFICATION, not just its geometry (debt #256). The
-    // builder used to receive four fields and re-derive the rest from the polygons,
-    // which it cannot do: a band, an onlap and an enclosed lens are three different
-    // terminations with identical outlines. Optional fields are omitted rather than
-    // sent as null so the payload stays the same shape when the engine sets nothing.
-    const regions: RegionInput[] = engineRegions.map((r) => ({
-      formation_id: r.formationId,
-      body_id: r.bodyId,
-      polygon: r.polygon.map((p) => [p.fraction, p.elevation] as [number, number]),
-      gap_index: r.gapIndex,
-      kind: r.kind,
-      ...(r.overlayTier !== undefined ? { overlay_tier: r.overlayTier } : {}),
-      ...(r.tiedBandBase !== undefined ? { tied_band_base: r.tiedBandBase } : {}),
-      ...(r.tieClipped !== undefined ? { tie_clipped: r.tieClipped } : {}),
-    }));
+    const regions = toRegionInputs(engineRegions);
 
     // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
     // not match a bench run of the same engine on the same inputs is visible
