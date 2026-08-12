@@ -258,7 +258,7 @@ async def recompute_bodies(
         A lithostratigraphic OR geotechnical model in this project — both
         carry bodies (packing bodies drive qc-per-body extraction).
     request : RecomputeBodiesRequest
-        Sections + per-section merge groups + body→layer snapshot.
+        Sections (regions carrying layer ids) + per-section layer groups.
     session : AsyncSession
         Database session provided by DI.
 
@@ -297,8 +297,7 @@ async def recompute_bodies(
         result = await RecomputeBodies(session).execute(
             model_id=model_id,
             sections=request.to_domain_sections(),
-            section_body_groups=request.body_groups or [[] for _ in request.sections],
-            body_members=request.body_members,
+            section_layer_groups=request.layer_groups or [[] for _ in request.sections],
         )
     except EmptyRecomputePayloadError as exc:
         raise HTTPException(
@@ -315,7 +314,6 @@ async def recompute_bodies(
         facts_dropped_stale=result.facts_dropped_stale,
         bodies_merged=result.bodies_merged,
         bodies_split=result.bodies_split,
-        unresolved_body_ids=list(result.unresolved_body_ids),
         renamed=list(result.renamed),
     )
 
