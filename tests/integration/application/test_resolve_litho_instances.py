@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -397,3 +398,170 @@ async def test_named_orphan_body_is_preserved_while_unnamed_orphan_is_deleted(
     assert unnamed_body_id not in surviving_ids
     assert len(surviving) == 1
     assert surviving[0].name == "Kept"
+
+
+def _canonical_fact(*, model_id: UUID, layer_x: UUID, layer_y: UUID) -> BodyGeometryFactOrm:
+    """Build a geometry fact with canonical endpoint order.
+
+    ``body_geometry_fact`` enforces ``layer_a_id < layer_b_id`` (CHECK +
+    caller normalisation, the correlation-edge pattern), so the two layer
+    ids are sorted before assignment.
+
+    Parameters
+    ----------
+    model_id : UUID
+        The model the fact belongs to.
+    layer_x, layer_y : UUID
+        The two litho_layer endpoints (order does not matter — sorted here).
+
+    Returns
+    -------
+    BodyGeometryFactOrm
+        A fact row ready to ``session.add``.
+    """
+    a_id, b_id = sorted((layer_x, layer_y), key=str)
+    return BodyGeometryFactOrm(id=uuid7(), model_id=model_id, layer_a_id=a_id, layer_b_id=b_id)
+
+
+@pytest.mark.asyncio
+async def test_fact_edge_unions_two_uncorrelated_same_litho_layers(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """A geometry fact unions like an approved tie (owner ruling 2026-08-12).
+
+    *"every same litho that is connected should get the same body id"* — the
+    fact records observed geometric adjacency, and the resolver must union it
+    exactly as it unions a user-approved correlation edge. No tie exists in
+    this scene, so before the fact the two SAND layers are two bodies (the
+    pin above); with the fact they must be ONE.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    layers = (
+        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.model_id == ctx.model_id)))
+        .scalars()
+        .all()
+    )
+    body_ids = {ly.body_id for ly in layers}
+    assert None not in body_ids
+    assert len(body_ids) == 1, "the geometry fact must union the two layers into one body"
+
+
+@pytest.mark.asyncio
+async def test_fact_edge_across_lithologies_is_dropped(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """The one-lithology invariant filters facts exactly like ties.
+
+    A fact can only be born same-formation (the union rule requires it), but
+    a later litho edit can flip one endpoint's soil. The pure resolver's
+    soil-code filter must drop such a fact rather than weld a sand to a clay.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    klei = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=ctx.project_id,
+        name="KLEI-RBI",
+        color="#8a9a5b",
+        display_order=1,
+        litho_main_soil_code="KLEI",
+        instance_ordinal=0,
+    )
+    db_session.add(klei)
+    await db_session.flush()
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_b is not None
+    layer_b.formation_id = klei.id
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    layers = (
+        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.model_id == ctx.model_id)))
+        .scalars()
+        .all()
+    )
+    body_ids = {ly.body_id for ly in layers}
+    assert len(body_ids) == 2, "a cross-lithology fact must never union"
+
+
+@pytest.mark.asyncio
+async def test_fact_edge_to_rejected_layer_is_ignored(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """The dangling-endpoint guard neutralises a fact whose layer was rejected.
+
+    A status flip leaves the fact row in place (no cascade fires); the pure
+    resolver ignores edges whose endpoints are not in the accepted-node set,
+    and the fact must ride the same guard until the next recompute replaces it.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_b is not None
+    layer_b.status = "rejected"
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    layer_a = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
+    assert layer_a is not None
+    assert layer_a.body_id is not None, "the surviving layer still gets its own body"
+    facts = (
+        (
+            await db_session.execute(
+                select(BodyGeometryFactOrm).where(BodyGeometryFactOrm.model_id == ctx.model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(facts) == 1, "a status flip must NOT delete the fact — only a recompute replaces it"
+
+
+@pytest.mark.asyncio
+async def test_fact_edge_to_deleted_layer_cascades_away(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """Deleting a layer takes its facts with it (FK CASCADE), and resolve survives."""
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    await db_session.commit()
+
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_b is not None
+    await db_session.delete(layer_b)
+    await db_session.commit()
+
+    facts = (
+        (
+            await db_session.execute(
+                select(BodyGeometryFactOrm).where(BodyGeometryFactOrm.model_id == ctx.model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert facts == [], "the FK cascade must remove facts whose layer died"
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    layer_a = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
+    assert layer_a is not None
+    assert layer_a.body_id is not None
