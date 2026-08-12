@@ -176,8 +176,7 @@ class CrossLithoBodyCorrelationError(GroundModelError):
         """
         named = f"{band_a} and {band_b} are" if band_a and band_b else "these bands are"
         super().__init__(
-            f"{named} in different litho bodies — "
-            "correlate the lithology first in the litho stage"
+            f"{named} in different litho bodies — correlate the lithology first in the litho stage"
         )
 
 
@@ -235,3 +234,16 @@ class DemUpstreamRecentlyFailedError(GroundModelError):
         """Initialise with the message and the remaining suppression window."""
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+
+
+class EmptyRecomputePayloadError(GroundModelError):
+    """Raised when a body-identity recompute arrives with no partition content.
+
+    The recompute REPLACES a model's geometry facts wholesale, so a payload
+    with zero sections or zero regions is never a legitimate "nothing is
+    connected" statement — it is a frontend that fired before its data loaded
+    (or whose section assembly failed). Accepting it would wipe every
+    geometric merge and silently split bodies across the model. The router
+    maps this to 422; the frontend gates its triggers on data-loaded and
+    treats the 422 as a bug signal, not a user error.
+    """
