@@ -36,6 +36,7 @@ export {
   classifyOverrideOutcome,
   computeSectionFillV2,
   computeSectionFillV2WithConflicts,
+  type FillIdentity,
   type OverrideOutcome,
 } from './computeSectionFillV2'
 export { type TieConflict, type ResolvedTie } from './emitCurves'
