@@ -461,6 +461,20 @@ packing boundary.
   independently, so a clamp bug cannot reach the database; before that guard
   existed it did, and the litho contiguity rule stopped it as an unhandled error
   — which the owner met as a bare "nothing was changed" with no reason attached.
+* **A landing that IS a geological contact merges AND couples** (owner
+  2026-08-12, reversing the audit-F03 geo wall: *"yes allow it and couple them,
+  this is unnecessary friction"*). He hit the wall on GEO-10/170-S6: a silt
+  unit spans a geological contact, so the drag-merge's only landing was exactly
+  that interior boundary — and the swallowed interval stayed inside ONE
+  formation, the geo contact neither moved nor was crossed. The litho contact
+  comes to IT: the writer sets ``parent_geo_contact_id`` on the surviving row,
+  so the boundary is a normal restated contact from then on and the next drag
+  carries both (RC10/RC11 plan it, RM7 pins the coupling). ONE landing stays
+  refused, in the writer: a contact already carrying its OWN geological contact
+  may not land on another one — that would put two geological contacts at one
+  depth. Before this guard the collision wrote straight through whenever the
+  bands predated the geo contact, because the old wall read the bands' build-time
+  geo stamps (RM8).
 * **The drag telegraphs its consequence**, as the litho axis already did (owner:
   *"sure do the telegraph too, makes it more uniform?"*). Being clamped and
   landing on something are different questions and the engineer needs the second:
