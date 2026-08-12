@@ -36,6 +36,9 @@ export interface UseEdgeDragRetargetDeps {
   refetchLensData: () => void
   /** Mark the project dirty (two-stage save model). */
   markMutated: () => void
+  /** Schedule the litho model's body-identity recompute (slice 5). Optional so
+   *  existing test fixtures need not supply it; call sites guard with ``?.()``. */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   /** Toast stack action. */
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
 }
@@ -95,6 +98,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
     refetchLithoContacts,
     refetchLensData,
     markMutated,
+    requestBodyRecompute,
     toast,
   } = deps
 
@@ -280,6 +284,8 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
           await Promise.all([refetchContactEdges(), refetchLithoContacts()])
           void refetchLensData()
           markMutated()
+          // New edges band geometry — schedule the litho identity recompute (slice 5).
+          requestBodyRecompute?.('litho')
           log.success('section', 'edgeDrag: extra correlation created (anchor â†” both targets)')
           toast('success', 'Correlation added â€” a wedge forms when it spans the layer.')
         } catch (err) {
@@ -320,6 +326,8 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
         // 3. Refetch so the section reflects the re-targeted edge.
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
+        // The tie moved — the litho body identity moved with it (slice 5).
+        requestBodyRecompute?.('litho')
         log.success(
           'section',
           `edgeDrag: edge retargeted to ${capturedDrag.anchorContactId} â†” ${dropContactId}`,
