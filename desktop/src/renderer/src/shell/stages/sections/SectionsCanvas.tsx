@@ -70,31 +70,9 @@ import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
-import { useBodyRecompute } from '../../../hooks/useBodyRecompute'
-import { assembleBodyRecomputePayload } from '../shared/makeBodyRecomputeBuilder'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
 import { useManualLithoUnit } from './useManualLithoUnit'
 import { SectionScopeContext } from '../../../components/sections/SectionScopeContext'
-
-// ---------------------------------------------------------------------------
-// Body-identity recompute plumbing (slice 5) — module level on purpose.
-// ---------------------------------------------------------------------------
-
-/**
- * Module-ref bridge to the toolbar's manual "Recompute bodies" verb — the same
- * pattern as ``lithoVoxelRequestCallback``: the canvas assigns ``recomputeNow``
- * every render; ``SectionsToolbar`` (a sibling with no access to the scheduler)
- * invokes it with the active axis's model id.
- */
-export const sectionsBodyRecomputeCallback: { current: ((modelId: string) => Promise<void>) | null } = {
-  current: null,
-}
-
-// Last PROCESSED recompute nonce per ``project|model`` — module level so a
-// stage remount does not re-fire a recompute this session already ran. A
-// missing entry means first entry this session → one initial recompute.
-const processedLithoRecomputeNonces = new Map<string, number>()
-const processedGeotechRecomputeNonces = new Map<string, number>()
 
 /**
  * Center canvas for the Sections stage.
@@ -235,10 +213,9 @@ export default function SectionsCanvas(): JSX.Element {
       handleExportSectionDxf,
       setGeoDeepLinkTarget,
       correlationEdgesRefetchNonce,
-      // Slice 5: body-identity recompute channel — mutations bump, this canvas
-      // schedules the debounced POST for the bumped axis's model.
-      bodyRecomputeLithoNonce,
-      bodyRecomputeGeotechNonce,
+      // Slice 5: this canvas only BUMPS the recompute nonces from its mutation
+      // sites; the scheduler + nonce watch live at the shell level
+      // (useProjectBodyRecompute in App).
       requestBodyRecompute,
     },
     mapState: {
@@ -2154,87 +2131,11 @@ export default function SectionsCanvas(): JSX.Element {
     )
   }, [inspectTarget, inspectLenses])
 
-  // ---------------------------------------------------------------------------
-  // Body-identity recompute (slice 5). The debounced scheduler lives HERE
-  // because this canvas is the one place that can reach BOTH axes' model +
-  // layer state; mutation sites everywhere else signal through the
-  // coordinator nonces. All hooks below sit ABOVE the selectedSection early
-  // return (Rules of Hooks).
-  // ---------------------------------------------------------------------------
-  const recomputeInvestigations = useMemo(
-    () => [
-      ...visibleCpts.map(c => ({
-        id: c.id,
-        location_x: c.location_x,
-        location_y: c.location_y,
-        elevation_m: c.elevation_m,
-      })),
-      ...visibleBoreholes.map(b => ({
-        id: b.id,
-        location_x: b.location_x,
-        location_y: b.location_y,
-        elevation_m: b.elevation_m,
-      })),
-    ],
-    [visibleCpts, visibleBoreholes],
-  )
-
-  const buildRecomputePayloadForModel = useCallback(
-    (modelId: string) => {
-      // Which axis's layer snapshot feeds the payload follows the MODEL, not the
-      // rendered axis — a litho mutation must recompute litho even while the
-      // user looks at the geotech axis.
-      const isGeotechTarget = modelId === geotechPackingModelId
-      return assembleBodyRecomputePayload({
-        projectId: project.id,
-        modelId,
-        visibleSections,
-        investigations: recomputeInvestigations,
-        layers: isGeotechTarget ? geotechLayers : lithoLayers,
-        logLabel: isGeotechTarget ? 'geotech-recompute' : 'litho-recompute',
-      })
-    },
-    [project.id, geotechPackingModelId, visibleSections, recomputeInvestigations, geotechLayers, lithoLayers],
-  )
-
-  const { scheduleRecompute, recomputeNow } = useBodyRecompute({
-    projectId: project.id,
-    buildPayload: buildRecomputePayloadForModel,
-    dataLoaded: visibleSections.length > 0,
-    toast,
-  })
-
-  // Module-ref bridge to the toolbar's manual "Recompute bodies" verb (same
-  // pattern as lithoVoxelRequestCallback). Assigned every render, above the
-  // early return, so the ref is always populated while the canvas is mounted.
-  sectionsBodyRecomputeCallback.current = recomputeNow
-
-  // One recompute per model on FIRST ENTRY per session (the module-level map
-  // survives stage remounts), then one per nonce bump. Gated on data-loaded so
-  // a half-loaded model never assembles a payload.
-  useEffect(() => {
-    if (lithoModelId === null || visibleSections.length === 0 || lithoLayers.length === 0) return
-    const key = `${project.id}|${lithoModelId}`
-    if (processedLithoRecomputeNonces.get(key) !== bodyRecomputeLithoNonce) {
-      processedLithoRecomputeNonces.set(key, bodyRecomputeLithoNonce)
-      scheduleRecompute(lithoModelId)
-    }
-  }, [project.id, lithoModelId, visibleSections.length, lithoLayers.length, bodyRecomputeLithoNonce, scheduleRecompute])
-
-  useEffect(() => {
-    if (
-      geotechPackingModelId === null ||
-      visibleSections.length === 0 ||
-      !geotechLayersLoaded ||
-      geotechLayers.length === 0
-    )
-      return
-    const key = `${project.id}|${geotechPackingModelId}`
-    if (processedGeotechRecomputeNonces.get(key) !== bodyRecomputeGeotechNonce) {
-      processedGeotechRecomputeNonces.set(key, bodyRecomputeGeotechNonce)
-      scheduleRecompute(geotechPackingModelId)
-    }
-  }, [project.id, geotechPackingModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, bodyRecomputeGeotechNonce, scheduleRecompute])
+  // Body-identity recompute (slice 5): the debounced scheduler, the project-open
+  // trigger, and the coordinator nonce watch all live at the SHELL level now
+  // (``useProjectBodyRecompute`` in App — owner ruling 2026-08-12: the initial
+  // recompute fires on PROJECT OPEN, stage-independent). This canvas only BUMPS
+  // the nonces from its mutation sites (``requestBodyRecompute`` calls above).
 
   if (selectedSection !== null) {
     // WHY Fragment: InspectLensBodyPanel and CompanionOfferDialog are SectionsCanvas-
