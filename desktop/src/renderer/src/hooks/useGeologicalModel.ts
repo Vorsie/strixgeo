@@ -978,6 +978,7 @@ export function useGeologicalModel({
   currentLumping,
   stageLumping,
   requestCorrelationEdgesRefetch,
+  requestBodyRecompute,
   markMutated,
 }: {
   project: ProjectResponse | null
@@ -1014,6 +1015,12 @@ export function useGeologicalModel({
    * auto-correlate makes the overlay refresh without a manual reload.
    */
   requestCorrelationEdgesRefetch: () => void
+  /**
+   * Coordinator signal that schedules the body-identity recompute for the
+   * mutated model axis (slice 5). Optional so the many hand-rolled geoModel
+   * test mocks need not supply it; call sites guard with ``?.()``.
+   */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   /**
    * Coordinator signal that marks the project dirty after a geology
    * MUTATION (a depth drag, a delete, a batch depth change) — changes to
@@ -2281,6 +2288,7 @@ export function useGeologicalModel({
     pushUndo,
     markMutated,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
     refetchLithoContacts,
     refetchFormations,
     toast,
@@ -2428,6 +2436,9 @@ export function useGeologicalModel({
       // action is acceptable for mechanism-consistency with the manual gesture
       // path (the packing-correlate handler also bumps this nonce).
       requestGeotechLayersRefetch()
+      // A subdivide rewrites every packing band, so the geotech model's body
+      // geometry has moved — schedule its identity recompute (slice 5).
+      requestBodyRecompute?.('geotech')
       // (d): record new NAD-class formations as session imports so markMutated
       // lights the dirty flag and they land in the next .gmproj save.
       if (result.created_formation_ids.length > 0) {
@@ -2477,8 +2488,8 @@ export function useGeologicalModel({
     },
     // reason: activeLithoModelRef is a ref (always current) so listing it would
     // cause no-op dep churn; refreshModels, refetchFormations, addToSessionImports,
-    // markMutated, toast, requestCorrelationEdgesRefetch, requestGeotechLayersRefetch
-    // are all stable callbacks.
+    // markMutated, toast, requestCorrelationEdgesRefetch, requestGeotechLayersRefetch,
+    // requestBodyRecompute are all stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [project, refreshModels, refetchFormations, addToSessionImports, markMutated, toast],
   )
