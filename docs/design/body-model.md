@@ -6,12 +6,45 @@
 
 ## What a body is
 
-* A **body** = a resolver connected-component of approved layer↔layer
-  `LithoContactCorrelationEdge`s (each links two `litho_layer.id`). The
-  resolver stamps `litho_layer.body_id` on every member.
+* A **body** = a resolver connected-component over TWO edge kinds unioned
+  together: approved layer↔layer `LithoContactCorrelationEdge`s AND
+  `body_geometry_fact` rows (owner ruling 2026-08-12: *"every same litho that
+  is connected should get the same body id"*). The resolver stamps
+  `litho_layer.body_id` on every member. Applies to litho AND geotech models
+  (packing bodies drive qc/sample-per-body extraction).
+* A **geometry fact** is an observed geometric adjacency between two
+  same-lithology layers, read off the partition fill (tie-born band/onlap/lens
+  regions only — fallback paint NEVER defines identity) per section, plus
+  cross-section at shared columns and fence crossings (the stage-2 rule in
+  `merge_bodies_across_sections.py`). Facts exist because a tie is overloaded:
+  it defines the 2/1/0 fill geometry AND body membership, so "same body,
+  different boundary drawing" (the owner's silt-onlap case) needs its own
+  record. Facts draw NOTHING — the fill never reads them, so persisting a
+  merge can never redraw a section.
+* Facts are written ONLY by `RecomputeBodies`
+  (`POST .../bodies/recompute`): advisory-locked wholesale replace per model
+  from the frontend's partition evidence, empty payloads refused (never a
+  wipe), then the resolver re-stamps and a layer-stamp diff
+  (merged/split/renamed counts) returns for the toast. The frontend fires it
+  debounced in the background after tie/layer edits and on demand. Facts
+  ride the bundle (save/restore/Save As), restore before the post-restore
+  reconcile, and cascade with their layers.
+* **Deliberate asymmetry**: the voxel BUILD's own alias pass still unions
+  through fallback regions for blending; the PERSISTED identity does not.
+  Two bodies connected only through fallback paint render welded but stay
+  two bodies in the data — the owner's "no fallbacks in a properly built
+  model" ruling accepts this.
+* **User state follows the body, not the row** (lineage adoption): the
+  `(formation, ordinal)` key recycles `BodyOrm` rows on renumbering, so on
+  every resolve the surviving component adopts name (oldest name wins —
+  owner ruling), display colour, primary section, and the hand-drawn
+  boundary shape from the previous bodies of its member layers. A displaced
+  name is reported in the diff.
 * `ResolveLithoInstances` runs inline on every correlation-mutating use case
   (correlate / uncorrelate / accept / delete contact / delete layer /
-  cross-merge update) to keep instance ordinals coherent.
+  cross-merge update) to keep instance ordinals coherent — persisted facts
+  ride every one of those runs, so a tie edit cannot revert a geometric
+  merge; stale facts self-heal at the next recompute.
 * `body_id` is **identity, not shape** — it over-lumps heterogeneous packages,
   so the fill engine matches on real edges, never on `body_id`
   (see [section-fill.md](section-fill.md)).
