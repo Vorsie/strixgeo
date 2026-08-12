@@ -419,7 +419,20 @@ sides share at least one ("if one matches it matches"): the tie is then a
 surface tie of the shared body's boundary, mirroring the litho stage's own
 cross-lithology surface ties. Disjoint sets still refuse — two separate sand
 bodies never merge by this gesture — and body formation stays safe because the
-resolver never unions cross-class bands. The refusal toast names both judged
+resolver never unions cross-class bands.
+
+**An enclosed lens cannot borrow its wrapper as licence** (owner ruling
+2026-08-12 late evening, GC-5). When the tied band's litho unit has the SAME
+body immediately above and below it, that wrapping body is dropped from the
+contact's licensor set: the unit is a lens inside the wrapper, its boundaries
+are the lens's own, and a tie licensed by the wrapper would bisect the very
+body that licensed it (*"adding this correlation would mean we would split
+the clay body in 2 at this location which is wrong"* — the S9 silt, enclosed
+in the clay that wraps through B9, versus S10's silt). The rule became urgent
+the day the persisted geometric merge shipped: wrapping bodies now correctly
+weld through boreholes, so the one-adjacent-match door opened far more often.
+The unit's OWN body always stays a licensor, and GC-4's surface tie (shared
+clay above, no wrap below) is unchanged. The refusal toast names both judged
 bands ("KLEI (NAD 23) on GEO-22/115-S10 and SILT (NAD 13) on GEO-10/170-S6
 are in different litho bodies"), because the click that provoked this ruling
 had silently landed one band below its target (thin-band hit area, debt #158).
