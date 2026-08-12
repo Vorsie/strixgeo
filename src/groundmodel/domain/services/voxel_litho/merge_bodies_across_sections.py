@@ -69,7 +69,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     SectionPartitionInput,
 )
 
-__all__ = ["plan_body_aliases", "apply_body_aliases"]
+__all__ = ["apply_body_aliases", "plan_body_aliases", "plan_layer_groups"]
 
 #: Minimum elevation overlap (m) for two spans to count as the same unit. Strict
 #: overlap, not contact: 1 mm is the arrangement snap grid, so float slop never
@@ -312,6 +312,132 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
                                 union(str(body_a), str(body_b))
 
     return {body: find(body) for body in parent}
+
+
+def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
+    """Group LAYER ids whose regions meet across sections — label-independent.
+
+    The sibling of :func:`plan_body_aliases` for the persisted body recompute
+    (owner ruling 2026-08-12). Same two geometric tests — shared investigation
+    column with elevation overlap, and fence crossings — but the union-find is
+    keyed on REGION IDENTITY ``(section, region)`` and the output is groups of
+    ``layer_ids``, never body ids. Body-labelled evidence cannot survive its
+    own success: once a recompute merges two bodies, the refetched regions all
+    carry the merged id, the next payload's body evidence collapses to
+    singletons, the wholesale replace erases the facts that held the merge,
+    and the bodies split again — measured live as facts flapping 74 → 3 → 69
+    on the dev model (dogfeed 2026-08-12 evening). Layer ids never change, so
+    the same geometry always yields the same groups and the recompute is
+    idempotent by construction.
+
+    Regions with no ``layer_ids`` still participate as connectivity NODES
+    (they can bridge two layered regions) — they just contribute no layers.
+
+    Parameters
+    ----------
+    sections : list of SectionPartitionInput
+        The per-section 2-D partitions exactly as POSTed by the frontend
+        (fallback regions already omitted — they never define identity).
+
+    Returns
+    -------
+    list of set of str
+        One set of layer ids per cross-section-connected region component;
+        components contributing fewer than two layers are dropped (they state
+        nothing the per-section groups do not already state).
+    """
+    parent: dict[tuple[int, int], tuple[int, int]] = {}
+
+    def find(node: tuple[int, int]) -> tuple[int, int]:
+        """Union-find root with path compression."""
+        parent.setdefault(node, node)
+        root = node
+        while parent[root] != root:
+            root = parent[root]
+        while parent[node] != root:
+            parent[node], node = root, parent[node]
+        return root
+
+    def union(a: tuple[int, int], b: tuple[int, int]) -> None:
+        """Union two region components (representative choice is irrelevant)."""
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    # Shared investigation columns: bucket every region's reach at its gap's
+    # two columns by (investigation, formation), then union overlapping pairs.
+    buckets: dict[tuple[str, str], list[tuple[tuple[int, int], float, float]]] = defaultdict(list)
+    for si, section in enumerate(sections):
+        for ri, region in enumerate(section.regions):
+            key = (si, ri)
+            find(key)
+            touch = _gap_touch_fraction(section, region.gap_index)
+            for fraction, column_index in ((0.0, region.gap_index), (1.0, region.gap_index + 1)):
+                if column_index >= len(section.columns):
+                    continue
+                span = _span_at_fraction(region, fraction, touch)
+                if span is None:
+                    continue
+                buckets[
+                    (section.columns[column_index].investigation_id, region.formation_id)
+                ].append((key, span[0], span[1]))
+
+    for bucket in buckets.values():
+        for i, (key_a, low_a, high_a) in enumerate(bucket):
+            for key_b, low_b, high_b in bucket[i + 1 :]:
+                # Same-section pairs are welcome too: within-section
+                # connectivity arrives separately from the frontend's own
+                # groups, and a duplicate union is a no-op.
+                if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
+                    union(key_a, key_b)
+
+    # Fence crossings — identical geometry to plan_body_aliases, region-keyed.
+    for i, section_a in enumerate(sections):
+        for j_offset, section_b in enumerate(sections[i + 1 :]):
+            j = i + 1 + j_offset
+            for gap_a in range(len(section_a.columns) - 1):
+                col_a0 = section_a.columns[gap_a]
+                col_a1 = section_a.columns[gap_a + 1]
+                for gap_b in range(len(section_b.columns) - 1):
+                    col_b0 = section_b.columns[gap_b]
+                    col_b1 = section_b.columns[gap_b + 1]
+                    hit = _segment_crossing(
+                        col_a0.world_x,
+                        col_a0.world_y,
+                        col_a1.world_x,
+                        col_a1.world_y,
+                        col_b0.world_x,
+                        col_b0.world_y,
+                        col_b1.world_x,
+                        col_b1.world_y,
+                    )
+                    if hit is None:
+                        continue
+                    frac_a, frac_b = hit
+                    spans_a = [
+                        ((i, ri), r.formation_id, span)
+                        for ri, r in enumerate(section_a.regions)
+                        if r.gap_index == gap_a
+                        for span in _spans_at_fraction(r, frac_a)
+                    ]
+                    spans_b = [
+                        ((j, ri), r.formation_id, span)
+                        for ri, r in enumerate(section_b.regions)
+                        if r.gap_index == gap_b
+                        for span in _spans_at_fraction(r, frac_b)
+                    ]
+                    for key_a, form_a, (low_a, high_a) in spans_a:
+                        for key_b, form_b, (low_b, high_b) in spans_b:
+                            if form_a != form_b:
+                                continue
+                            if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
+                                union(key_a, key_b)
+
+    components: dict[tuple[int, int], set[str]] = defaultdict(set)
+    for key in parent:
+        si, ri = key
+        components[find(key)].update(sections[si].regions[ri].layer_ids)
+    return [layers for layers in components.values() if len(layers) >= 2]
 
 
 def apply_body_aliases(
