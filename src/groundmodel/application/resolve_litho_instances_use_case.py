@@ -36,6 +36,7 @@ from groundmodel.domain.services.resolve_litho_instances import (
     LayerNode,
     resolve_litho_instances,
 )
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -232,7 +233,29 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
     ).all()
     edges = [LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in edge_rows]
 
-    logger.debug(f"_run_resolver: {len(nodes)} layer(s), {len(edges)} edge(s)")
+    # 2b. Geometry facts union like ties (owner ruling 2026-08-12: "every same
+    #     litho that is connected should get the same body id"). A fact records
+    #     observed geometric adjacency in the partition fill — connectivity a
+    #     tie cannot state without redrawing the fill, because a tie defines
+    #     both the 2/1/0 geometry AND body membership. Facts are written only
+    #     by RecomputeBodies (full replace per model) and ride the SAME guards
+    #     as ties inside the pure resolver: the one-lithology filter and the
+    #     dangling-endpoint guard, so a rejected or deleted layer neutralises a
+    #     stale fact until the next recompute refreshes it.
+    fact_rows = (
+        await session.execute(
+            select(
+                BodyGeometryFactOrm.layer_a_id,
+                BodyGeometryFactOrm.layer_b_id,
+            ).where(BodyGeometryFactOrm.model_id == model_id)
+        )
+    ).all()
+    edges.extend(LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in fact_rows)
+
+    logger.debug(
+        f"_run_resolver: {len(nodes)} layer(s), {len(edge_rows)} edge(s), "
+        f"{len(fact_rows)} geometry fact(s)"
+    )
 
     result = resolve_litho_instances(layers=nodes, edges=edges)
 
