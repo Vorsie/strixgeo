@@ -197,6 +197,7 @@ def _minimal_section(s: _Scene) -> dict:
                 "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, -2.0], [0.0, -2.0]],
                 "gap_index": 0,
                 "kind": "quad",
+                "layer_ids": [str(s.layer_a_id)],
             },
             {
                 "formation_id": str(s.formation_id),
@@ -204,20 +205,17 @@ def _minimal_section(s: _Scene) -> dict:
                 "polygon": [[0.0, -10.0], [1.0, -10.0], [1.0, -12.0], [0.0, -12.0]],
                 "gap_index": 0,
                 "kind": "quad",
+                "layer_ids": [str(s.layer_b_id)],
             },
         ],
     }
 
 
 def _merge_payload(s: _Scene) -> dict:
-    """Union evidence: one per-section group joining the two bodies."""
+    """Union evidence: one per-section connectivity group joining the LAYERS."""
     return {
         "sections": [_minimal_section(s)],
-        "body_groups": [[[str(s.body_a_id), str(s.body_b_id)]]],
-        "body_members": {
-            str(s.body_a_id): [str(s.layer_a_id)],
-            str(s.body_b_id): [str(s.layer_b_id)],
-        },
+        "layer_groups": [[[str(s.layer_a_id), str(s.layer_b_id)]]],
     }
 
 
@@ -280,7 +278,7 @@ async def test_rb2_the_full_replace_splits_when_the_evidence_disappears(
     assert len(await _body_ids(db_session, scene)) == 1
 
     no_union = _merge_payload(scene)
-    no_union["body_groups"] = [[]]
+    no_union["layer_groups"] = [[]]
     resp2 = await async_client.post(_url(scene), json=no_union)
     assert resp2.status_code == 200, resp2.text
     assert resp2.json()["facts_written"] == 0
@@ -309,9 +307,7 @@ async def test_rb4_an_empty_payload_is_refused_and_wipes_nothing(
     assert resp.status_code == 200, resp.text
     assert await _fact_count(db_session, scene) == 1
 
-    resp2 = await async_client.post(
-        _url(scene), json={"sections": [], "body_groups": [], "body_members": {}}
-    )
+    resp2 = await async_client.post(_url(scene), json={"sections": [], "layer_groups": []})
     assert resp2.status_code == 422, resp2.text
     assert resp2.json()["detail"]["code"] == "empty_recompute_payload"
     assert await _fact_count(db_session, scene) == 1, "the refusal must write NOTHING"
@@ -324,7 +320,7 @@ async def test_rb5_a_stale_layer_id_is_dropped_not_a_500(
 ) -> None:
     """RB5 — a snapshot older than the database degrades gracefully."""
     payload = _merge_payload(scene)
-    payload["body_members"][str(scene.body_b_id)] = [str(uuid7())]  # layer never existed
+    payload["layer_groups"] = [[[str(scene.layer_a_id), str(uuid7())]]]  # layer never existed
     resp = await async_client.post(_url(scene), json=payload)
     assert resp.status_code == 200, resp.text
     assert resp.json()["facts_dropped_stale"] == 1
@@ -369,6 +365,7 @@ async def test_rb8_the_cross_section_alias_arm_unions_without_groups(
                 "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, -5.0], [0.0, -5.0]],
                 "gap_index": 0,
                 "kind": "quad",
+                "layer_ids": [str(scene.layer_a_id)],
             }
         ],
     }
@@ -398,18 +395,51 @@ async def test_rb8_the_cross_section_alias_arm_unions_without_groups(
                 "polygon": [[0.0, -1.0], [1.0, -1.0], [1.0, -4.0], [0.0, -4.0]],
                 "gap_index": 0,
                 "kind": "quad",
+                "layer_ids": [str(scene.layer_b_id)],
             }
         ],
     }
     payload = {
         "sections": [section_a, section_b],
-        "body_groups": [],
-        "body_members": {
-            str(scene.body_a_id): [str(scene.layer_a_id)],
-            str(scene.body_b_id): [str(scene.layer_b_id)],
-        },
+        "layer_groups": [],
     }
     resp = await async_client.post(_url(scene), json=payload)
     assert resp.status_code == 200, resp.text
     assert resp.json()["bodies_merged"] == 1
+    assert len(await _body_ids(db_session, scene)) == 1
+
+
+@pytest.mark.asyncio
+async def test_rb9_the_post_merge_snapshot_holds_the_merge(
+    scene: _Scene, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RB9 — the oscillator pin: a merge must survive its own success.
+
+    The live failure (dogfeed 2026-08-12 evening): after a merge, the frontend
+    refetches and every region carries the MERGED body id. Under the body-id
+    wire design the next payload's evidence collapsed to singletons, the
+    wholesale replace erased the facts that held the merge, and the bodies
+    split again — facts flapping 74 → 3 → 69 on the dev model. With layer-id
+    evidence, the post-merge payload describes the SAME geometry, so the facts
+    and the bodies must not move.
+    """
+    resp = await async_client.post(_url(scene), json=_merge_payload(scene))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["bodies_merged"] == 1
+    merged_ids = await _body_ids(db_session, scene)
+    assert len(merged_ids) == 1
+    (merged_id,) = merged_ids
+
+    # The POST-merge snapshot: identical geometry and layer evidence, but every
+    # region now labelled with the merged body id — exactly what the frontend
+    # sends after its refetch.
+    post_merge = _merge_payload(scene)
+    for region in post_merge["sections"][0]["regions"]:
+        region["body_id"] = str(merged_id)
+
+    resp2 = await async_client.post(_url(scene), json=post_merge)
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["facts_written"] == 1, "the evidence must not collapse"
+    assert resp2.json()["bodies_split"] == 0, "the merge must hold"
+    assert resp2.json()["bodies_merged"] == 0
     assert len(await _body_ids(db_session, scene)) == 1
