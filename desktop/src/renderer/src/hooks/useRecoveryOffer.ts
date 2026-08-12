@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { log } from '../utils/log'
-import { parseRecoverySnapshot } from '../utils/recoverySnapshot'
+import { parseRecoverySnapshot, snapshotHasDbDelta } from '../utils/recoverySnapshot'
 import type { RecoverySnapshotV1 } from '../utils/recoverySnapshot'
 
 /** A pending "restore unsaved work?" offer for the open project. */
@@ -56,12 +56,19 @@ export interface UseRecoveryOfferOptions {
    * returns false to ABORT the discard (revert refused or failed): the
    * backup must then survive, because it is the only remaining record of
    * the session the user just tried to erase.
+   *
+   * SKIPPED when the snapshot records no database delta
+   * (``snapshotHasDbDelta``) — the revert would be a tens-of-seconds no-op
+   * (owner defect 2026-08-12: "Delete backup holds the app busy for too
+   * long").
    */
   onBeforeDiscard?: () => Promise<boolean>
   /**
    * Called after a successful discard (file gone, residue gone). The caller
    * reloads the project from disk so the reverted database state is what
    * the user is looking at, not the crashed session's leftovers in memory.
+   * Skipped together with ``onBeforeDiscard`` on the no-DB-delta fast path —
+   * nothing reverted, so there is nothing new to load.
    */
   onAfterDiscard?: () => Promise<void>
 }
@@ -322,7 +329,22 @@ export function useRecoveryOffer({
       // happened. The caller reverts the DATABASE to the last save first;
       // an aborted revert keeps the backup — it is the only remaining
       // record of the session the user asked to erase.
-      if (onBeforeDiscard !== undefined) {
+      //
+      // Fast path (owner defect 2026-08-12: "Delete backup holds the app
+      // busy for too long"): when the snapshot proves the session never
+      // touched the database, the revert — a full replace-restore of the
+      // project tree — and the post-discard reload are semantic no-ops
+      // costing tens of seconds of blocked dialog, so BOTH are skipped and
+      // Discard is instant. A snapshot that cannot prove cleanliness takes
+      // the slow path; see ``snapshotHasDbDelta`` for what counts as proof.
+      const dbDelta = snapshotHasDbDelta(current.snapshot)
+      if (!dbDelta) {
+        log.info(
+          'recovery',
+          `no DB delta recorded for ${current.projectId} — revert skipped`,
+        )
+      }
+      if (dbDelta && onBeforeDiscard !== undefined) {
         const proceed = await onBeforeDiscard()
         if (!proceed) {
           log.warn(
@@ -351,10 +373,12 @@ export function useRecoveryOffer({
           )
         }
       }
-      if (onAfterDiscard !== undefined) {
+      if (dbDelta && onAfterDiscard !== undefined) {
         // Reload so the reverted database is what the user is looking at.
         // Failure is logged, not fatal: the data is already correct on disk
         // and in the DB; a manual close-and-reopen shows the same thing.
+        // Skipped with the revert on the fast path — nothing reverted, so
+        // there is nothing new to look at.
         try {
           await onAfterDiscard()
         } catch (err) {
