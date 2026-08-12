@@ -18,6 +18,12 @@
  * ``bodyId``). The +197/+457/+666-hole history is an EMISSION risk (deleting the merge
  * suppression), owned by ``drawTermination``/``emitEnclosingFlood`` — NOT this relabel.
  *
+ * ``mergeTouchingBodiesWithGroups`` is the opt-in second entry point (slice 4, "persist
+ * geometric body identity"): the same merge, but the union-find's components are RETURNED as
+ * merge groups (original pre-merge body ids) instead of discarded, and ``excludeFallback``
+ * keeps substrate/flood-painted regions (``fallback === true``) from welding drilled bodies.
+ * The legacy ``mergeTouchingBodies`` delegates to it with defaults — behavior unchanged.
+ *
  * CONNECT (two same-formation regions are one body when they TOUCH) — EXACT SNAPPED GEOMETRY,
  * never a display raster (audit item 8, S37). Bodies are the product's commercial identity;
  * two regions that do NOT touch must NEVER merge (the pre-S37 GX=200 raster false-merged a
@@ -242,8 +248,53 @@ export function mergeTouchingBodies(
   regions: readonly SectionRegion[],
   columns: readonly ColumnGeom[],
 ): SectionRegion[] {
+  return mergeTouchingBodiesWithGroups(regions, columns).regions
+}
+
+/** Options for ``mergeTouchingBodiesWithGroups``. */
+export interface MergeTouchingBodiesOptions {
+  /**
+   * When true, a region carrying ``fallback === true`` (substrate / flood-painted fill —
+   * see ``PartitionRegion.fallback``) neither creates unions nor joins groups: it is
+   * skipped from BOTH adjacency scans, so inferred fill can never weld two drilled bodies
+   * into one persisted identity. Its own ``bodyId`` is left untouched (a singleton
+   * component). Default false — identical to the legacy merge.
+   */
+  excludeFallback?: boolean
+}
+
+/**
+ * Same merge as ``mergeTouchingBodies``, but ALSO exposes the union-find's merge GROUPS —
+ * the ORIGINAL (pre-merge) non-null body ids per connected component — instead of
+ * discarding them after the relabel. This is what lets a consumer PERSIST geometric body
+ * identity: the relabelled output only names the representative; the groups name every
+ * member that representative absorbed.
+ *
+ * Parameters
+ * ----------
+ * regions, columns : as ``mergeTouchingBodies``.
+ * opts : MergeTouchingBodiesOptions, optional
+ *     ``excludeFallback`` keeps fallback-painted regions out of the adjacency scan and out
+ *     of the groups. Defaults preserve the legacy behavior exactly.
+ *
+ * Returns
+ * -------
+ * { regions, groups }
+ *     ``regions`` — the relabelled regions (identical to ``mergeTouchingBodies`` under
+ *     default options). ``groups`` — one entry per connected component that carries at
+ *     least one non-null original body id, each listing those ids deduplicated in the
+ *     component's deterministic member order (the same (gapIndex, minFraction, maxElev)
+ *     order the representative pick uses).
+ */
+export function mergeTouchingBodiesWithGroups(
+  regions: readonly SectionRegion[],
+  columns: readonly ColumnGeom[],
+  opts?: MergeTouchingBodiesOptions,
+): { regions: SectionRegion[]; groups: string[][] } {
+  const excludeFallback = opts?.excludeFallback === true
+  /** Whether a region takes part in the adjacency scan / groups at all. */
+  const participates = (i: number): boolean => !(excludeFallback && regions[i].fallback === true)
   const n = regions.length
-  if (n < 2) return regions.slice()
   const parent = Array.from({ length: n }, (_, i) => i)
   const union = (a: number, b: number): void => {
     const ra = ufFind(parent, a)
@@ -271,6 +322,7 @@ export function mergeTouchingBodies(
   // apex) welds; a real vacant strip (the 0.499|0.501 sub-cell gap) does not.
   const byGapForm = new Map<string, number[]>()
   for (let i = 0; i < n; i++) {
+    if (!participates(i)) continue // excluded fallback fill: no unions through it
     const key = `${regions[i].gapIndex}|${regions[i].formationId}`
     let arr = byGapForm.get(key)
     if (!arr) {
@@ -303,6 +355,7 @@ export function mergeTouchingBodies(
   // edge-elevation intervals → one continuous body across the column. Index regions by gap.
   const byGap = new Map<number, number[]>()
   for (let i = 0; i < n; i++) {
+    if (!participates(i)) continue // excluded fallback fill: no cross-gap bridge through it
     const g = regions[i].gapIndex
     let arr = byGap.get(g)
     if (!arr) {
@@ -350,6 +403,7 @@ export function mergeTouchingBodies(
     arr.push(i)
   }
   const bodyForRoot = new Map<number, string | null>()
+  const groups: string[][] = []
   for (const [root, idxs] of members) {
     // Deterministic order: smallest (gapIndex, minFraction, maxElev). The first member carrying a
     // non-null bodyId in that order wins (a real drilled body id); else null.
@@ -368,10 +422,23 @@ export function mergeTouchingBodies(
       }
     }
     bodyForRoot.set(root, chosen)
+    // The merge GROUP: this component's ORIGINAL (pre-merge) non-null body ids, deduplicated
+    // in the same deterministic member order as the representative pick. An excluded fallback
+    // region joins no group (under ``excludeFallback`` it is a singleton component anyway, but
+    // the skip also keeps its id out of the identity record). Components with no non-null id
+    // (all-synthesized fill) report nothing — there is no identity to persist for them.
+    const ids: string[] = []
+    for (const i of ordered) {
+      if (!participates(i)) continue
+      const b = regions[i].bodyId
+      if (b != null && !ids.includes(b)) ids.push(b)
+    }
+    if (ids.length > 0) groups.push(ids)
   }
 
-  return regions.map((r, i) => {
+  const merged = regions.map((r, i) => {
     const body = bodyForRoot.get(ufFind(parent, i)) ?? null
     return body === r.bodyId ? r : { ...r, bodyId: body }
   })
+  return { regions: merged, groups }
 }
