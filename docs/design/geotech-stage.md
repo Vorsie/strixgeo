@@ -424,6 +424,16 @@ bands ("KLEI (NAD 23) on GEO-22/115-S10 and SILT (NAD 13) on GEO-10/170-S6
 are in different litho bodies"), because the click that provoked this ruling
 had silently landed one band below its target (thin-band hit area, debt #158).
 
+**The litho body ids this guard reads are the PERSISTED geometric merge**
+(owner ruling 2026-08-12: *"every same litho that is connected should get the
+same body id"*). Connected same-litho units — per-section fill adjacency plus
+cross-section shared columns and fence crossings — share one `body_id`, kept
+current by the background body recompute (`POST .../bodies/recompute`,
+`body_geometry_fact` rows into the resolver; see docs/design/body-model.md).
+So a sand the fill draws as one mass passes this guard without extra ties; the
+same persisted identity is what qc-per-body and sample-per-body extraction
+read on the geotech model.
+
 **Geometry consequence recorded for the 2/1/0 fill (owner, same evening): a
 HALF-matched surface tie constrains the pinch.** When only one adjacent body
 matches across the tie, the unmatched band (e.g. the clay below the clicked
