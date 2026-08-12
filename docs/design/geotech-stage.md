@@ -300,7 +300,20 @@ The ones that constrain the code:
   litho body" enforces both walls in one test
   (`components/sections/geotechBandEdit.ts` — `clampSplitDepth`,
   `clampDragDepth`, `canMergeBands`). This is the ONE refusal that is correct
-  rather than a defect.
+  rather than a defect. **The server's geo wall reads the LIVE contacts, not
+  the bands' build-time stamps** (dogfeed 2026-08-12, GEO-23/125-S6): the
+  engineer moved a geological contact on its own axis and the stamp-reading
+  wall kept refusing his merges forever, with a message that steered him
+  toward a re-subdivide — which deletes every hand edit on every column. Now
+  `load_geotech_column_context` carries the live contacts, the planners refuse
+  only a contact strictly inside the span (GW1–GW4, GL1/GL2), and every
+  band-edit writer takes the written interval's geological parent from the
+  live model (`geo_parent_for_interval`), so a hand edit heals a stale stamp
+  on touch. Residual, deliberate: bands NOT touched after a geology-axis
+  contact move keep their stale stamps (and their `enclosing_litho_bounds`
+  clamp runs split at the old position) until an edit or a re-subdivide
+  touches them — the reverse coupling (a geo-axis move carrying a coinciding
+  band boundary) is undesigned.
 * **The class is derived (ruling 3), locally (ruling 4).** The server re-derives
   each resulting interval from qc and re-scopes nothing beyond the edited
   column (GB9 pins it at the database).
