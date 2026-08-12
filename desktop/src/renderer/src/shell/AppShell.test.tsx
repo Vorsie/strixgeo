@@ -74,6 +74,9 @@ function makeCtx(
       sectionsDeepLinkTarget: null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
+      bodyRecomputeLithoNonce: 0,
+      bodyRecomputeGeotechNonce: 0,
+      requestBodyRecompute: vi.fn(),
     },
   } as unknown as ShellContextValue
   return { setSelectedId, setSelectedBoreholeId, setView, ctx }
