@@ -92,6 +92,16 @@ export interface LabelledFace {
    */
   defect?: FaceDefect
   /**
+   * True when the face's paint came from a FALLBACK label authority — the sub-TD substrate
+   * label (``emitBottomTieSubstrate``) or the flood-closure label (``emitLonePinch`` /
+   * ``emitFloodWedge``): no column vertical bounds the face, so the litho is inferred fill,
+   * not drilled data. Stamped by ``labelOneFace`` (the one place both label authorities
+   * live), so the flag-ON seed path inherits it through its ``...base`` spreads and the
+   * marker cannot flip with ``twoSidedTerminationsEnabled()``. Forwarded onto the sliced
+   * region (``slice.ts``) as ``SectionRegion.fallback``.
+   */
+  fallback?: true
+  /**
    * Internal marker: this is an ENCLOSED-LENS's OWN face (the ``lensLabel`` branch of
    * ``labelOneFace``). Such a face carries the collapsed lens's TRUE litho, which the seed
    * classifier CANNOT see — the lens's minority unit was merged out of ``col.units`` at the
@@ -430,7 +440,8 @@ function labelOneFace(
     // vertical is real drilled data — the column label wins (handled below), so the
     // substrate label only applies when there is no column vertical.
     if (substrateLabel && units.length === 0) {
-      return { face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units }
+      // ``fallback``: the paint is the substrate label's carry, not drilled data (see LabelledFace).
+      return { face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units, fallback: true }
     }
     // A lone-side flood wedge is bounded only by flood/close/bracket curves (its
     // corner->conv->apex triangles never carry a full facing column vertical), so
@@ -439,7 +450,8 @@ function labelOneFace(
     // substrate label, a wedge face that ALSO has a real column vertical is drilled data;
     // the column label wins (handled below).
     if (floodLabel && units.length === 0) {
-      return { face, formationId: floodLabel.formationId, bodyId: floodLabel.bodyId, klass: 'band', units }
+      // ``fallback``: the paint is the flood label's inference, not drilled data (see LabelledFace).
+      return { face, formationId: floodLabel.formationId, bodyId: floodLabel.bodyId, klass: 'band', units, fallback: true }
     }
     if (units.length === 0) return null // no column vertical bounds this cell — skip.
 
