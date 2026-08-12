@@ -34,6 +34,8 @@ export interface UseGeotechCorrelationVerbsDeps {
   markMutated: () => void
   /** Bump the nonce that makes ``SectionsCanvas`` re-GET its correlation edges. */
   requestCorrelationEdgesRefetch?: () => void
+  /** Schedule the geotech model's body-identity recompute (slice 5). */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   /** Ask the shell to refetch geotech layers (the ``body_id`` stamp source). */
   requestGeotechLayersRefetch: () => void
   /**
@@ -80,6 +82,7 @@ export function useGeotechCorrelationVerbs(
     toast,
     markMutated,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
     requestGeotechLayersRefetch,
     refreshTieStatus,
   } = deps
@@ -113,6 +116,9 @@ export function useGeotechCorrelationVerbs(
           `no_lcs=${result.skipped_no_lcs} empty_stack=${result.skipped_empty_stack}`,
       )
       if (emitted > 0) markMutated()
+      // Born-accepted restatements band immediately — schedule the geotech
+      // identity recompute (slice 5). Pending proposals move nothing yet.
+      if (accepted > 0) requestBodyRecompute?.('geotech')
       // The edge list must come back for both kinds; the pending ones also
       // move the tie-status chip. (Body membership from the born-accepted
       // restatements re-resolves on the next accept/divide verb — the banding
@@ -155,6 +161,7 @@ export function useGeotechCorrelationVerbs(
     toast,
     markMutated,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
     refreshTieStatus,
   ])
 
@@ -179,6 +186,8 @@ export function useGeotechCorrelationVerbs(
         // reads have moved and the borehole division is now out of date.
         requestGeotechLayersRefetch()
         markBoreholesStale()
+        // …and the geotech body identity moved with them (slice 5).
+        requestBodyRecompute?.('geotech')
       }
       requestCorrelationEdgesRefetch?.()
       refreshTieStatus?.()
@@ -202,6 +211,7 @@ export function useGeotechCorrelationVerbs(
     toast,
     markMutated,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
     requestGeotechLayersRefetch,
     refreshTieStatus,
   ])
