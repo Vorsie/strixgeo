@@ -58,6 +58,7 @@ from .bundle_restore_litho import (
     _attach_companion_body_links,
     _restore_bodies,
     _restore_contact_edges,
+    _restore_geometry_facts,
     _restore_formation_absences,
     _restore_geological_models,
     _restore_lens_shapes_and_nodes,
@@ -624,6 +625,7 @@ async def _restore_project_bundle_impl(
     bodies_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
     litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
+    body_geometry_facts_payload: list[dict[str, Any]] | None = None,
     body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     litho_solids_payload: list[dict[str, Any]] | None = None,
@@ -678,6 +680,9 @@ async def _restore_project_bundle_impl(
         Formation-absence rows.
     litho_contact_correlation_edges_payload : list[dict[str, Any]] | None
         Litho contact correlation edge rows.
+    body_geometry_facts_payload : list[dict[str, Any]] | None
+        Geometric body-connectivity fact rows (owner ruling 2026-08-12) —
+        restored after litho layers, unioned by the post-restore resolver.
     body_boundary_shapes_payload : list[dict[str, Any]] | None
         Lens boundary shape rows.
     body_boundary_nodes_payload : list[dict[str, Any]] | None
@@ -713,6 +718,7 @@ async def _restore_project_bundle_impl(
     bodies_payload = bodies_payload or []
     formation_absences_payload = formation_absences_payload or []
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
+    body_geometry_facts_payload = body_geometry_facts_payload or []
     body_boundary_shapes_payload = body_boundary_shapes_payload or []
     body_boundary_nodes_payload = body_boundary_nodes_payload or []
     # Legacy tolerance: a bundle saved before the litho_solids field existed
@@ -863,6 +869,19 @@ async def _restore_project_bundle_impl(
         session,
         project_id,
         litho_contact_correlation_edges_payload,
+        valid_model_ids,
+        geological_models_payload,
+        logger=logger,
+    )
+
+    # ---- Phase 10b: Body geometry facts -----------------------------------
+    # After the litho layers (both endpoints FK litho_layer.id) and before the
+    # route's reconcile_bodies_after_restore, so the restored resolver run
+    # already unions the facts (owner ruling 2026-08-12).
+    new_facts, skipped_facts, dropped_facts = await _restore_geometry_facts(
+        session,
+        project_id,
+        body_geometry_facts_payload,
         valid_model_ids,
         geological_models_payload,
         logger=logger,
