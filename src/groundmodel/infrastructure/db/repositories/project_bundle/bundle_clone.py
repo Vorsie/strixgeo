@@ -125,6 +125,9 @@ async def clone_project_children(
     remapped["litho_contact_correlation_edges"] = [
         _canonicalise_edge_endpoints(edge) for edge in remapped["litho_contact_correlation_edges"]
     ]
+    remapped["body_geometry_facts"] = [
+        _canonicalise_fact_endpoints(fact) for fact in remapped["body_geometry_facts"]
+    ]
 
     await _restore_project_bundle_impl(
         session,
@@ -187,6 +190,32 @@ def _canonicalise_edge_endpoints(edge: dict[str, Any]) -> dict[str, Any]:
         edge.get("layer_b_side"),
         edge.get("layer_a_side"),
     )
+    return swapped
+
+
+def _canonicalise_fact_endpoints(fact: dict[str, Any]) -> dict[str, Any]:
+    """Restore a geometry fact's ``layer_a_id < layer_b_id`` ordering.
+
+    The sibling of :func:`_canonicalise_edge_endpoints` for
+    ``body_geometry_fact`` — same CHECK constraint, same re-key hazard, but a
+    fact carries no side columns, so only the ids swap.
+
+    Parameters
+    ----------
+    fact : dict[str, Any]
+        A remapped geometry-fact payload.
+
+    Returns
+    -------
+    dict[str, Any]
+        The same payload with its endpoints in canonical order. Returned
+        unchanged when either endpoint is missing.
+    """
+    a_id, b_id = fact.get("layer_a_id"), fact.get("layer_b_id")
+    if not isinstance(a_id, str) or not isinstance(b_id, str) or a_id <= b_id:
+        return fact
+    swapped = dict(fact)
+    swapped["layer_a_id"], swapped["layer_b_id"] = b_id, a_id
     return swapped
 
 
