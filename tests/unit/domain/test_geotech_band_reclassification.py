@@ -1205,3 +1205,122 @@ def test_pt1_the_edit_window_is_the_builds_window_to_the_last_sample() -> None:
     # All four samples in [0, 3): median of [5, 5, 60, 60] = 32.5 → zeer dicht.
     assert outcome.median_qc_mpa == pytest.approx(32.5)
     assert outcome.nad_class == 8
+
+
+# ---------------------------------------------------------------------------
+# GW — the geo wall reads the LIVE geological contacts, not build-time stamps
+# ---------------------------------------------------------------------------
+#
+# Owner dogfeed 2026-08-12 (GEO-23/125-S6): his early geological-stage pick sat
+# ~1 m below the litho clay base, so the build broke the sand bands there and
+# stamped the sides Holoceen/Pleistoceen. Moving the geological contact on the
+# geology axis changed NOTHING — the wall read the stamps, so the only offered
+# unlock was a full re-subdivide, which deletes every hand edit. With
+# ``live_geo_depths_m`` provided, the wall judges the LIVE contacts; the stamps
+# stay authoritative only for legacy callers that pass nothing.
+
+
+def test_gw1_a_merge_across_stale_stamps_is_allowed_when_no_live_contact_remains() -> None:
+    """GW1 — stamps disagree, the live geological model has moved on: merge."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        # Build-time stamp says the OTHER formation — the contact sat at 4.0 m
+        # when the bands were built, and the engineer has since moved it away.
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
+    ]
+
+    plan = plan_merge(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+        live_geo_depths_m=[0.0],  # the live contact now coincides with the top
+    )
+
+    assert plan.kind == KIND_MERGE
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (0.0, 7.0)
+
+
+def test_gw2_a_live_contact_inside_the_union_still_refuses_without_resubdivide_advice() -> None:
+    """GW2 — the wall itself stands; only its data source and its advice change."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
+    ]
+
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_merge(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+            live_geo_depths_m=[4.0],  # the contact really is between them
+        )
+    message = str(err.value)
+    assert "geology axis" in message
+    assert "Subdivide" not in message, (
+        "the old advice steered the engineer into a re-subdivide that deletes "
+        "every hand edit — the live-reading wall must not repeat it"
+    )
+
+
+def test_gw3_a_live_contact_on_the_unions_outer_edge_does_not_refuse() -> None:
+    """GW3 — coinciding with the union's own edge is the legal resting place."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 2.0, 4.0, 6, litho=LITHO_A, geo=GEO_2),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
+    ]
+
+    plan = plan_merge(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+        # One contact exactly on the union top, one on its base (band
+        # boundaries are mm-rounded, contacts keep full floats — 1.1 mm apart
+        # is the same depth).
+        live_geo_depths_m=[2.0005, 7.0],
+    )
+
+    assert plan.kind == KIND_MERGE
+
+
+def test_gw4_a_move_across_stale_stamps_is_allowed_when_no_live_contact_remains() -> None:
+    """GW4 — the move verb reads the same live wall as the merge."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
+    ]
+
+    plan = plan_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=5.0,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+        live_geo_depths_m=[0.0],
+    )
+
+    assert plan.kind == KIND_MOVE
+    assert len(plan.intervals) == 2
