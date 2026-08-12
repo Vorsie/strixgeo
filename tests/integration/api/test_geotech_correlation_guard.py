@@ -545,8 +545,12 @@ async def test_gc4_surface_tie_with_one_shared_adjacent_body_is_allowed(
         max_depth_m=8.0,
     )
     cpt_d.series = CptSeriesOrm(
-        depths_m=depths, qc_mpa=qc, fs_mpa=[0.05] * len(depths),
-        u2_mpa=None, rf_pct=None, q_total_mpa=None,
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
     )
     cpt_e = CptOrm(
         id=uuid7(),
@@ -563,8 +567,12 @@ async def test_gc4_surface_tie_with_one_shared_adjacent_body_is_allowed(
         max_depth_m=8.0,
     )
     cpt_e.series = CptSeriesOrm(
-        depths_m=depths, qc_mpa=qc, fs_mpa=[0.05] * len(depths),
-        u2_mpa=None, rf_pct=None, q_total_mpa=None,
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=[0.05] * len(depths),
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
     )
     db_session.add_all([cpt_d, cpt_e])
     await db_session.commit()
@@ -583,7 +591,11 @@ async def test_gc4_surface_tie_with_one_shared_adjacent_body_is_allowed(
     )
     # One shared body for the two KLEI layers; the deep ZAND/SILT stay apart.
     await _correlate_litho(
-        async_client, pid, litho_model_id, contact_a=d_klei, contact_b=e_klei,
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=d_klei,
+        contact_b=e_klei,
         section_id=section_id,
     )
 
@@ -627,3 +639,217 @@ async def test_gc4_surface_tie_with_one_shared_adjacent_body_is_allowed(
         f"GC-4 FAIL: the clay-base surface tie (one shared adjacent body) must be "
         f"allowed, got {resp.status_code}: {resp.text}"
     )
+
+
+@pytest_asyncio.fixture
+async def gc_lens_scene(
+    db_session: AsyncSession,
+    gc_project: ProjectOrm,
+    async_client: AsyncClient,
+) -> dict:
+    """Enclosed-lens guard scene (owner ruling 2026-08-12 late evening).
+
+    CPT-L: KLEI 0-3 / SILT 3-5 / KLEI 5-8 — BOTH clays litho-tied to CPT-R's
+    single KLEI 0-2, so the resolver wraps one clay body around L's silt: the
+    silt is an enclosed lens. CPT-R: KLEI 0-2 / SILT 2-4 / ZAND 4-8; R's silt
+    is NOT enclosed (sand below) and NOT tied to L's silt — different bodies.
+
+    The live failure this pins (GEO-10/170-S9 vs GEO-23/125-S10): the shared
+    wrapping clay licensed a silt↔silt packing tie via the one-adjacent-match
+    rule, and accepting it would have split the clay body in two at the tie.
+    """
+    pid = str(gc_project.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "GC5-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "GC5-Litho",
+            "kind": "lithostratigraphic",
+            "parent_model_id": geo_resp.json()["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "GC5-Section",
+            "start_x": 148_700.0,
+            "start_y": 201_000.0,
+            "end_x": 151_200.0,
+            "end_y": 201_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    depths, qc = _uniform_qc_series(n=400, qc_mpa=10.0)
+    cpts = []
+    for name, x in (("CPT-L", 149_000.0), ("CPT-R", 149_500.0)):
+        cpt = CptOrm(
+            id=uuid7(),
+            name=name,
+            cpt_type="CPTU",
+            project_id="GC5",
+            test_id=f"GC5/{name}",
+            app_project_id=gc_project.id,
+            location_x=x,
+            location_y=201_000.0,
+            elevation_m=5.0,
+            z_epsg=5710,
+            epsg=31370,
+            max_depth_m=8.0,
+        )
+        cpt.series = CptSeriesOrm(
+            depths_m=depths,
+            qc_mpa=qc,
+            fs_mpa=[0.05] * len(depths),
+            u2_mpa=None,
+            rf_pct=None,
+            q_total_mpa=None,
+        )
+        cpts.append(cpt)
+    cpt_l, cpt_r = cpts
+    db_session.add_all(cpts)
+    await db_session.commit()
+
+    l_klei_top = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_l.id), top=0.0, base=3.0, soil="KLEI"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_l.id), top=3.0, base=5.0, soil="SILT"
+    )
+    l_klei_low = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_l.id), top=5.0, base=8.0, soil="KLEI"
+    )
+    r_klei = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_r.id), top=0.0, base=2.0, soil="KLEI"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_r.id), top=2.0, base=4.0, soil="SILT"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_r.id), top=4.0, base=8.0, soil="ZAND"
+    )
+
+    # Both of L's clays tie to R's single clay: ONE clay body wraps L's silt.
+    await _correlate_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=l_klei_top,
+        contact_b=r_klei,
+        section_id=section_id,
+    )
+    await _correlate_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=l_klei_low,
+        contact_b=r_klei,
+        section_id=section_id,
+    )
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=gc_project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    assert result.geotech_model_id is not None
+
+    return {
+        "project": gc_project,
+        "litho_model_id": litho_model_id,
+        "geotech_model_id": str(result.geotech_model_id),
+        "section_id": section_id,
+        "cpt_l_id": str(cpt_l.id),
+        "cpt_r_id": str(cpt_r.id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_gc5_an_enclosed_lens_cannot_borrow_its_wrapper_as_licence(
+    gc_lens_scene: dict,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """GC-5 — a silt lens enclosed in one clay body refuses the silt↔silt tie.
+
+    Owner ruling 2026-08-12 (verbatim): *"the silt in between lenses and is in
+    no way connected to the silt on S10, adding this correlation would mean we
+    would split the clay body in 2 at this location which is wrong."* The
+    wrapping body sits on BOTH sides of the tied horizon, so tying "its"
+    surface at a lens boundary would bisect it — an enclosed band's enclosing
+    body is dropped from the licensor set. GC-4's surface tie stays allowed:
+    there the shared clay does not wrap below the tied sands.
+    """
+    pid = gc_lens_scene["project"].id
+    geotech_model_id = gc_lens_scene["geotech_model_id"]
+
+    async def _silt_band(cpt_id: str) -> LithoLayerOrm:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == UUID(geotech_model_id),
+                        LithoLayerOrm.cpt_id == UUID(cpt_id),
+                        LithoLayerOrm.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # The silt band is the one whose extent sits inside the silt unit.
+        for r in rows:
+            if r.depth_top_m >= 1.9 and r.depth_base_m <= 5.1:
+                return r
+        raise AssertionError(
+            f"no silt band found on {cpt_id}: {[(r.depth_top_m, r.depth_base_m) for r in rows]}"
+        )
+
+    band_l = await _silt_band(gc_lens_scene["cpt_l_id"])
+    band_r = await _silt_band(gc_lens_scene["cpt_r_id"])
+
+    resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{geotech_model_id}/contact-correlations",
+        json={
+            "layer_a_id": str(band_l.id),
+            "layer_b_id": str(band_r.id),
+            "request_section_id": gc_lens_scene["section_id"],
+        },
+    )
+    assert resp.status_code == 422, (
+        f"GC-5 FAIL: the wrapping clay licensed a tie that would bisect it — "
+        f"got {resp.status_code}: {resp.text}"
+    )
+
+    edge = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id),
+                    or_(
+                        and_(
+                            LithoContactCorrelationEdgeOrm.layer_a_id == band_l.id,
+                            LithoContactCorrelationEdgeOrm.layer_b_id == band_r.id,
+                        ),
+                        and_(
+                            LithoContactCorrelationEdgeOrm.layer_a_id == band_r.id,
+                            LithoContactCorrelationEdgeOrm.layer_b_id == band_l.id,
+                        ),
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert edge is None, "GC-5 FAIL: an edge row was committed for the refused lens tie"
