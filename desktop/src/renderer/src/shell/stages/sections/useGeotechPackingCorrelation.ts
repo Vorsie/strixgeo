@@ -41,6 +41,9 @@ export interface UseGeotechPackingCorrelationDeps {
   refetchGeotechPackingEdges: () => Promise<boolean>
   /** Ask the shell to refetch geotech layers (body_id stamp source). */
   requestGeotechLayersRefetch: () => void
+  /** Schedule the geotech model's body-identity recompute (slice 5). Optional so
+   *  hand-rolled test fixtures need not supply it; call sites guard with ``?.()``. */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   /** Mark the project dirty (two-stage save model). */
   markMutated: () => void
   /** Toast stack action. */
@@ -109,6 +112,7 @@ export function useGeotechPackingCorrelation(
     refetchContactEdges,
     refetchGeotechPackingEdges,
     requestGeotechLayersRefetch,
+    requestBodyRecompute,
     markMutated,
     toast,
     setArmedContactId,
@@ -161,6 +165,7 @@ export function useGeotechPackingCorrelation(
         await refetchContactEdges()
         await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
+        requestBodyRecompute?.('geotech')
         markMutated()
         // Bodies changed → the borehole division is now out of date (amber the
         // "Divide boreholes" button until the engineer re-divides).
@@ -190,6 +195,7 @@ export function useGeotechPackingCorrelation(
       refetchContactEdges,
       refetchGeotechPackingEdges,
       requestGeotechLayersRefetch,
+      requestBodyRecompute,
       markMutated,
       toast,
       setArmedContactId,
@@ -245,6 +251,7 @@ export function useGeotechPackingCorrelation(
         await refetchContactEdges()
         await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
+        requestBodyRecompute?.('geotech')
         markMutated()
         // Bodies changed → the borehole division is now out of date.
         markBoreholesStale()
@@ -270,6 +277,7 @@ export function useGeotechPackingCorrelation(
             await refetchContactEdges()
             await refetchGeotechPackingEdges()
             requestGeotechLayersRefetch()
+            requestBodyRecompute?.('geotech')
             markMutated()
             markBoreholesStale()
           },
@@ -286,6 +294,7 @@ export function useGeotechPackingCorrelation(
             await refetchContactEdges()
             await refetchGeotechPackingEdges()
             requestGeotechLayersRefetch()
+            requestBodyRecompute?.('geotech')
             markMutated()
             markBoreholesStale()
           },
@@ -308,6 +317,7 @@ export function useGeotechPackingCorrelation(
         // Refresh geotech layers too (mirrors the success path) so body_id
         // stamps stay consistent even if an intermediate mutation changed them.
         requestGeotechLayersRefetch()
+        requestBodyRecompute?.('geotech')
         // The removal was OPTIMISTIC and has just been rolled back by the two
         // refetches above, so the tie reappears on the canvas with no
         // explanation. Dogfeed 2026-08-02: the backend had gone away, the edge
@@ -324,6 +334,7 @@ export function useGeotechPackingCorrelation(
       refetchContactEdges,
       refetchGeotechPackingEdges,
       requestGeotechLayersRefetch,
+      requestBodyRecompute,
       markMutated,
       setContactCorrelationEdges,
       setGeotechPackingEdges,
@@ -356,6 +367,7 @@ export function useGeotechPackingCorrelation(
         )
         await refetchGeotechPackingEdges()
         requestGeotechLayersRefetch()
+        requestBodyRecompute?.('geotech')
         markMutated()
         markBoreholesStale()
         log.success(
@@ -373,6 +385,7 @@ export function useGeotechPackingCorrelation(
       projectId,
       refetchGeotechPackingEdges,
       requestGeotechLayersRefetch,
+      requestBodyRecompute,
       markMutated,
       toast,
     ],
