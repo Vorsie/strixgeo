@@ -189,6 +189,45 @@ describe('without a geotech model there is nothing to edit', () => {
   })
 })
 
+describe('a committed band edit schedules the geotech body-identity recompute (slice 5)', () => {
+  it('HK7 — one verb success is one geotech bump; the preview alone bumps nothing', async () => {
+    const requestBodyRecompute = vi.fn()
+    const { result } = renderHook(() => useGeotechBandEdit({ ...deps(), requestBodyRecompute }))
+
+    act(() => result.current.onRequestSplitBand?.('band-2', 4.75))
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    // A preview writes nothing, so it must not reschedule identity either.
+    expect(requestBodyRecompute).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(requestBodyRecompute).toHaveBeenCalledTimes(1)
+    expect(requestBodyRecompute).toHaveBeenCalledWith('geotech')
+  })
+
+  it('HK8 — the pushed undo command reschedules on revert too', async () => {
+    const requestBodyRecompute = vi.fn()
+    const push = vi.fn()
+    const { result } = renderHook(() =>
+      useGeotechBandEdit({ ...deps(), undoStack: { push }, requestBodyRecompute }),
+    )
+
+    act(() => result.current.onRequestSplitBand?.('band-2', 4.75))
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(push).toHaveBeenCalledTimes(1)
+
+    // Ctrl+Z moves the geometry back — the identity must follow it back too.
+    requestBodyRecompute.mockClear()
+    await push.mock.calls[0][0].revert()
+    expect(requestBodyRecompute).toHaveBeenCalledTimes(1)
+    expect(requestBodyRecompute).toHaveBeenCalledWith('geotech')
+  })
+})
+
 
 // ---------------------------------------------------------------------------
 // HK7+ — the drag verb (owner 2026-08-07) and undo for every band edit
