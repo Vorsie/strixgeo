@@ -27,6 +27,7 @@ the domain service.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timezone
 from uuid import UUID
 
 import pytest
@@ -36,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -445,7 +447,11 @@ async def test_fact_edge_unions_two_uncorrelated_same_litho_layers(
     await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
 
     layers = (
-        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.model_id == ctx.model_id)))
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == ctx.model_id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -488,7 +494,11 @@ async def test_fact_edge_across_lithologies_is_dropped(
     await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
 
     layers = (
-        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.model_id == ctx.model_id)))
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == ctx.model_id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -565,3 +575,135 @@ async def test_fact_edge_to_deleted_layer_cascades_away(
     layer_a = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
     assert layer_a is not None
     assert layer_a.body_id is not None
+
+
+async def _bodies_of(db_session: AsyncSession, model_id: UUID) -> list[BodyOrm]:
+    """All body rows of a model, oldest first."""
+    return list(
+        (
+            await db_session.execute(
+                select(BodyOrm).where(BodyOrm.model_id == model_id).order_by(BodyOrm.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@pytest.mark.asyncio
+async def test_merge_of_two_named_bodies_keeps_the_oldest_name(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """Owner ruling 2026-08-12: when named bodies merge, the OLDEST name wins.
+
+    Age is the BODY's age via its layers' lineage, not the surviving row's
+    ``created_at`` — ordinal renumbering recycles rows, so the row's age lies.
+    The displaced name is reported so the toast can say what happened.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    db_session.expire_all()
+    layer_a = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_a is not None and layer_b is not None
+    body_a = await db_session.get(BodyOrm, layer_a.body_id)
+    body_b = await db_session.get(BodyOrm, layer_b.body_id)
+    assert body_a is not None and body_b is not None
+    body_a.name = "Oldest sand"
+    body_a.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    body_b.name = "Younger sand"
+    body_b.created_at = datetime(2026, 6, 1, tzinfo=UTC)
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    await db_session.commit()
+
+    result = await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    db_session.expire_all()
+    layer_a = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
+    assert layer_a is not None
+    survivor = await db_session.get(BodyOrm, layer_a.body_id)
+    assert survivor is not None
+    assert survivor.name == "Oldest sand"
+    assert "Younger sand" in result.renamed, "the displaced name must be reported"
+    names = [b.name for b in await _bodies_of(db_session, ctx.model_id) if b.name]
+    assert names.count("Oldest sand") == 1, "one name, one owner"
+
+
+@pytest.mark.asyncio
+async def test_merge_adopts_the_single_donors_name_onto_the_survivor(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """An unnamed survivor takes the lineage's only name — nothing is lost."""
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    db_session.expire_all()
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_b is not None
+    body_b = await db_session.get(BodyOrm, layer_b.body_id)
+    assert body_b is not None
+    body_b.name = "Solo"
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    db_session.expire_all()
+    bodies = await _bodies_of(db_session, ctx.model_id)
+    assert len(bodies) == 1, "the merge leaves one body row — the donor's name MOVED"
+    assert bodies[0].name == "Solo"
+
+
+@pytest.mark.asyncio
+async def test_ordinal_shift_alone_keeps_name_and_boundary(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """A renumbering must not strip a body of its name or hand-drawn boundary.
+
+    Deleting the shallow body's layer shifts the deep component's ordinal
+    1 → 0, so the (formation, ordinal) key lands on the OTHER row. Without
+    lineage adoption the live body forgot its name and the boundary shape
+    died with the recycled row (FK CASCADE) — user-authored state destroyed
+    by a background renumbering.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    db_session.expire_all()
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_b is not None
+    body_b = await db_session.get(BodyOrm, layer_b.body_id)
+    assert body_b is not None
+    body_b.name = "Keep"
+    body_b.display_color = "#123456"
+    db_session.add(BodyBoundaryShapeOrm(id=uuid7(), body_id=body_b.id, model_id=ctx.model_id))
+    layer_a = await db_session.get(LithoLayerOrm, ctx.layer_a_id)
+    assert layer_a is not None
+    await db_session.delete(layer_a)
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+
+    db_session.expire_all()
+    layer_b = await db_session.get(LithoLayerOrm, ctx.layer_b_id)
+    assert layer_b is not None
+    live = await db_session.get(BodyOrm, layer_b.body_id)
+    assert live is not None
+    assert live.name == "Keep"
+    assert live.display_color == "#123456"
+    shapes = (
+        (
+            await db_session.execute(
+                select(BodyBoundaryShapeOrm).where(BodyBoundaryShapeOrm.body_id == live.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(shapes) == 1, "the hand-drawn boundary must follow the surviving body"
+    assert len(await _bodies_of(db_session, ctx.model_id)) == 1
