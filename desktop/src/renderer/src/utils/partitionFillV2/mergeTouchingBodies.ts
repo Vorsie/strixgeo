@@ -202,12 +202,43 @@ function polygonsTouch(
 }
 
 /**
+ * The fraction width of one 1 mm snap cell in gap ``g`` (real metres gap width) — the exact
+ * gap-edge / same-gap contact tolerance the body weld uses. Falls back to the fraction-snap
+ * floor when the width is unknown (test calls with ``columns = []``) or degenerate. Bounded
+ * below by the snap floor so it never collapses to zero. Exported so the identity
+ * augmentation (``fillIdentity.ts``) samples column edges with the SAME tolerance the weld's
+ * cross-gap touch uses — one notion of "reaches the column", never two.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly ColumnGeom[]
+ *     The normalised section columns (x in real metres).
+ * g : number
+ *     The gap index (between ``columns[g]`` and ``columns[g+1]``).
+ *
+ * Returns
+ * -------
+ * number
+ *     The fraction tolerance for gap ``g``.
+ */
+export function gapEdgeFractionTol(columns: readonly ColumnGeom[], g: number): number {
+  const x0 = columns[g]?.x
+  const x1 = columns[g + 1]?.x
+  if (x0 == null || x1 == null) return FRACTION_SNAP
+  const w = x1 - x0
+  if (!(w > 0)) return FRACTION_SNAP
+  return Math.max(SNAP_GRID_M / w, FRACTION_SNAP)
+}
+
+/**
  * The elevation interval a region covers AT a column edge (fraction ``edgeFrac`` = 0 or 1). A
  * scanline just inside that edge crosses the polygon at an even number of points; the min/max are
  * the covered interval. Returns ``null`` when the region does not reach that edge. Sampled at the
  * edge tolerance so a vertical polygon edge sitting exactly on the column is still crossed.
+ * Exported for the identity augmentation (``fillIdentity.ts``) — same envelope the weld's
+ * cross-gap touch reads.
  */
-function edgeElevInterval(
+export function edgeElevInterval(
   poly: readonly PartitionPoint[],
   edgeFrac: 0 | 1,
   edgeFracTol: number,
@@ -311,17 +342,8 @@ export function mergeTouchingBodiesWithGroups(
 
   const ext = regions.map((r) => extent(r.polygon))
 
-  /** The fraction width of one 1 mm snap cell in gap ``g`` (real metres gap width) — the exact
-   *  same-gap contact tolerance. Falls back to the fraction-snap floor when the width is unknown
-   *  or degenerate. Bounded below by the snap floor so it never collapses to zero. */
-  const fracTolForGap = (g: number): number => {
-    const x0 = columns[g]?.x
-    const x1 = columns[g + 1]?.x
-    if (x0 == null || x1 == null) return FRACTION_SNAP
-    const w = x1 - x0
-    if (!(w > 0)) return FRACTION_SNAP
-    return Math.max(SNAP_GRID_M / w, FRACTION_SNAP)
-  }
+  /** Per-gap snap-cell fraction tolerance — see the exported ``gapEdgeFractionTol``. */
+  const fracTolForGap = (g: number): number => gapEdgeFractionTol(columns, g)
 
   // ---- (1) SAME-GAP boundary-contact adjacency, per gap, per formation. ----
   // Group same-formation regions of one gap; union any pair whose polygon boundaries touch
