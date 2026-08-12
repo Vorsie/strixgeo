@@ -6,8 +6,8 @@
  * same-litho regions THROUGH substrate/flood fallback paint so the render reads as one
  * coherent body. The identity the backend PERSISTS must not: inferred fill is not
  * evidence that two drilled bodies are one. This module runs the same weld with
- * ``excludeFallback`` on the PRE-merge sliced regions — so the groups carry the
- * ORIGINAL body ids — and is invoked only when a caller asks
+ * ``excludeFallback`` on the PRE-merge sliced regions — the groups carry LAYER ids
+ * (see ``FillIdentity``) — and is invoked only when a caller asks
  * (``classifyOverrideOutcome``'s ``withIdentity``); the render path never pays it.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
@@ -20,8 +20,13 @@ import { type SectionRegion } from '../partitionFill'
 
 /**
  * The identity view of a fill pass: the sliced regions relabelled by the
- * fallback-excluding weld, plus that weld's merge groups (original body ids
- * per connected component).
+ * fallback-excluding weld, plus that weld's merge groups in LAYER-id space —
+ * per connected component, the union of member regions' ``layerIds``
+ * (components contributing fewer than two layers are dropped). Layer ids are
+ * the wire currency of the recompute because they never change; body-id
+ * groups could not survive their own success (a merge relabelled the
+ * refetched regions and erased its own evidence — facts flapping 74→3→69
+ * live, dogfeed 2026-08-12 evening).
  */
 export interface FillIdentity {
   regions: SectionRegion[]
