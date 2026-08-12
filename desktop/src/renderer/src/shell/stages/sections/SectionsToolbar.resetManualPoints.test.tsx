@@ -383,6 +383,9 @@ function makeCtx(overrides: {
       sectionsDeepLinkTarget: null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
+      bodyRecomputeLithoNonce: 0,
+      bodyRecomputeGeotechNonce: 0,
+      requestBodyRecompute: vi.fn(),
     },
   } as unknown as ShellContextValue
 }
