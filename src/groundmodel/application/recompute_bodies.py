@@ -210,7 +210,9 @@ class RecomputeBodies(GroundModelLogger):
             )
         await self._session.flush()
 
-        await ResolveLithoInstances(self._session).execute(model_id=model_id, commit=False)
+        resolve_result = await ResolveLithoInstances(self._session).execute(
+            model_id=model_id, commit=False
+        )
 
         post_rows = (
             await self._session.execute(
@@ -234,6 +236,7 @@ class RecomputeBodies(GroundModelLogger):
             bodies_merged=merged,
             bodies_split=split,
             unresolved_body_ids=planned.unresolved_body_ids,
+            renamed=resolve_result.renamed,
         )
 
 
