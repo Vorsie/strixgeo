@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TypedDict
 from uuid import UUID
 
@@ -36,6 +37,7 @@ from groundmodel.domain.services.resolve_litho_instances import (
     LayerNode,
     resolve_litho_instances,
 )
+from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -115,12 +117,19 @@ class ResolveResult:
         One entry per body created/removed during reconciliation.  Empty
         when the resolver ran but the body set already matched the resolved
         instances (idempotent no-op).
+    renamed : tuple[str, ...]
+        Names displaced by lineage adoption (a merge where the oldest name
+        won, or a shift where the survivor's own name gave way). Surfaced so
+        the recompute toast can say what happened to the engineer's labels.
     """
 
     updated: list[OrdinalUpdate]
+    renamed: tuple[str, ...] = ()
 
 
-async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChange]:
+async def _run_resolver(
+    session: AsyncSession, model_id: UUID
+) -> tuple[list[_BodyChange], tuple[str, ...]]:
     """Resolve instances over layers, reconcile bodies, stamp body_id.
 
     Loads accepted litho layers + user-approved correlation edges (layer-id
@@ -139,9 +148,10 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
 
     Returns
     -------
-    list[_BodyChange]
+    tuple[list[_BodyChange], tuple[str, ...]]
         One ``{"formation_id": str, "new_ordinal": int}`` per body whose
-        ordinal changed (drives the section's stale-surface cue).
+        ordinal changed (drives the section's stale-surface cue), plus the
+        names displaced by lineage adoption.
     """
     repo = GeologyRepository(session)
     logger = _RunResolverLogger()
@@ -150,7 +160,7 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
     model = await session.get(GeologicalModelOrm, model_id)
     if model is None:
         logger.warning(f"_run_resolver: model {model_id} gone — skipping")
-        return []
+        return [], ()
 
     # 1. Accepted layers joined to their formation for (parent, soil).
     layer_rows = (
@@ -291,6 +301,84 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
         for lid in inst.member_layer_ids:
             layer_to_body_id[lid] = body.id
 
+    # 3b. LINEAGE ADOPTION — user-authored state follows the BODY, not the row
+    #     (owner ruling 2026-08-12: "oldest name wins"). The (formation,
+    #     ordinal) key recycles rows on every renumbering, so ``created_at`` of
+    #     the surviving ROW is not the body's age; age comes from the lineage —
+    #     the rows that stamped this component's members before this run. A
+    #     donor still representing its own component keeps everything (a split
+    #     must not strip the remainder); a donor that stops representing
+    #     anything hands its name over (the name MOVES — one name, one owner)
+    #     and may then be deleted as an unnamed orphan in step 4, while its
+    #     hand-drawn boundary and colour fill the survivor's holes instead of
+    #     dying with the recycled row (the boundary FK is ON DELETE CASCADE).
+    body_by_id: dict[UUID, BodyOrm] = {b.id: b for b in existing_bodies}
+    shape_by_body: dict[UUID, BodyBoundaryShapeOrm] = {}
+    if body_by_id:
+        shape_rows = (
+            (
+                await session.execute(
+                    select(BodyBoundaryShapeOrm).where(
+                        BodyBoundaryShapeOrm.body_id.in_(list(body_by_id.keys()))
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        shape_by_body = {s.body_id: s for s in shape_rows}
+    # New rows have no created_at until flush — treat them as youngest.
+    _age_floor = datetime.max.replace(tzinfo=UTC)
+
+    def _age(b: BodyOrm) -> tuple[datetime, str]:
+        return (b.created_at or _age_floor, str(b.id))
+
+    renamed: list[str] = []
+    for inst in result.instances:
+        target = body_by_key[(inst.formation_id, inst.ordinal)]
+        lineage_ids = {existing_body_id_by_layer.get(lid) for lid in inst.member_layer_ids}
+        lineage_ids.discard(None)
+        lineage_ids.discard(target.id)
+        donors: list[BodyOrm] = []
+        for bid in lineage_ids:
+            donor = body_by_id.get(bid) if bid is not None else None
+            if donor is None:
+                continue
+            if (donor.formation_id, donor.body_ordinal) in wanted_keys:
+                continue  # still representing its own component (a split)
+            donors.append(donor)
+        if not donors:
+            continue
+        donors.sort(key=_age)
+        named = sorted((b for b in (target, *donors) if b.name), key=_age)
+        if named:
+            winner = named[0]
+            if winner is not target:
+                if target.name:
+                    renamed.append(target.name)
+                target.name = winner.name
+                winner.name = None
+                logger.debug(
+                    f"_run_resolver: body {target.id} adopted name {target.name!r} "
+                    f"from lineage donor {winner.id}"
+                )
+            for loser in named:
+                if loser is winner or loser is target or not loser.name:
+                    continue
+                renamed.append(loser.name)
+        for donor in donors:
+            if target.display_color is None and donor.display_color:
+                target.display_color = donor.display_color
+            if target.primary_section_id is None and donor.primary_section_id is not None:
+                target.primary_section_id = donor.primary_section_id
+        if target.id not in shape_by_body:
+            for donor in donors:
+                shape = shape_by_body.pop(donor.id, None)
+                if shape is not None:
+                    shape.body_id = target.id
+                    shape_by_body[target.id] = shape
+                    break
+
     # 4. Delete orphan bodies (no longer a wanted instance) UNLESS named.
     for (f_id, ordn), body in body_by_key.items():
         if (f_id, ordn) in wanted_keys:
@@ -332,7 +420,7 @@ async def _run_resolver(session: AsyncSession, model_id: UUID) -> list[_BodyChan
     else:
         logger.debug(f"_run_resolver: no changes for model {model_id}")
 
-    return changed
+    return changed, tuple(renamed)
 
 
 class _RunResolverLogger(GroundModelLogger):
@@ -397,7 +485,7 @@ class ResolveLithoInstances(GroundModelLogger):
         """
         self.info(f"ResolveLithoInstances: resolving model {model_id}")
 
-        raw_updates = await _run_resolver(self._session, model_id)
+        raw_updates, renamed = await _run_resolver(self._session, model_id)
 
         # Commit or flush depending on whether the caller owns the transaction.
         if commit:
@@ -417,6 +505,8 @@ class ResolveLithoInstances(GroundModelLogger):
             )
             for item in raw_updates
         ]
+        if renamed:
+            self.info(f"ResolveLithoInstances: {len(renamed)} name(s) displaced: {list(renamed)}")
 
         if updated:
             self.success(
@@ -428,4 +518,4 @@ class ResolveLithoInstances(GroundModelLogger):
                 f"ResolveLithoInstances: no ordinal changes for model {model_id} (idempotent no-op)"
             )
 
-        return ResolveResult(updated=updated)
+        return ResolveResult(updated=updated, renamed=renamed)
