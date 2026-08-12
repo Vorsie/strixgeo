@@ -22,28 +22,25 @@ class RecomputeBodiesRequest(BaseModel):
     Attributes
     ----------
     sections : list[SectionPartitionInputSchema]
-        Every section's partition as rendered (fallback regions omitted).
-    body_groups : list[list[list[str]]]
-        Per section, parallel to ``sections``: the per-section merge groups of
-        ORIGINAL body ids (frontend ``mergeTouchingBodies`` union-find output).
-        Carried separately because payload regions arrive already relabeled to
-        per-section representatives.
-    body_members : dict[str, list[str]]
-        Body id → member layer ids, from the SAME frontend snapshot that
-        produced the regions — the layer ids are the wire currency, so a
-        previous recompute's restamp can never orphan this payload.
+        Every section's partition as rendered (fallback regions omitted);
+        regions carry ``layer_ids``.
+    layer_groups : list[list[list[str]]]
+        Per section, parallel to ``sections``: the fill's connectivity groups
+        of LAYER ids. Layer ids are the ONLY wire currency — body ids are the
+        labels the recompute itself rewrites, and body-labelled evidence
+        oscillated in production (a merge erased its own grounds on the next
+        payload; dogfeed 2026-08-12 evening).
     """
 
     sections: list[SectionPartitionInputSchema] = Field(default_factory=list)
-    body_groups: list[list[list[str]]] = Field(default_factory=list)
-    body_members: dict[str, list[str]] = Field(default_factory=dict)
+    layer_groups: list[list[list[str]]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _groups_parallel_to_sections(self) -> RecomputeBodiesRequest:
-        """``body_groups`` must be empty or exactly one entry per section."""
-        if self.body_groups and len(self.body_groups) != len(self.sections):
+        """``layer_groups`` must be empty or exactly one entry per section."""
+        if self.layer_groups and len(self.layer_groups) != len(self.sections):
             raise ValueError(
-                f"body_groups carries {len(self.body_groups)} entries for "
+                f"layer_groups carries {len(self.layer_groups)} entries for "
                 f"{len(self.sections)} sections — must be parallel or empty"
             )
         return self
@@ -67,8 +64,6 @@ class RecomputeBodiesResponse(BaseModel):
         Previously-distinct bodies fused into survivors (layer-stamp diff).
     bodies_split : int
         The mirror count.
-    unresolved_body_ids : list[str]
-        Body ids named by the evidence with no member layers in the snapshot.
     renamed : list[str]
         Names displaced by a merge (oldest name wins).
     """
@@ -77,5 +72,4 @@ class RecomputeBodiesResponse(BaseModel):
     facts_dropped_stale: int
     bodies_merged: int
     bodies_split: int
-    unresolved_body_ids: list[str] = Field(default_factory=list)
     renamed: list[str] = Field(default_factory=list)
