@@ -38,6 +38,15 @@ import { type InputCurve, type Point } from './types'
 export interface LensLabel {
   formationId: string
   bodyId: string | null
+  /**
+   * The lens unit's own ``litho_layer`` id, when the label names a REAL drilled
+   * unit (an enclosed lens). Substrate/flood labels — inferred fill carrying a
+   * neighbour's formation — leave it unset: fallback paint names no layer. The
+   * enclosed-lens face reads this for ``LabelledFace.layerIds`` because the
+   * lens's minority unit was spliced out of ``col.units`` by the matrix merge,
+   * so no bounding ``col:u`` ref can resolve it.
+   */
+  layerId?: string
 }
 
 /**
@@ -128,7 +137,7 @@ function emitOne(
 ): void {
   const colX = col.x
   const dir = side === 'left' ? 1 : -1
-  const label: LensLabel = { formationId: lens.formationId, bodyId: lens.bodyId }
+  const label: LensLabel = { formationId: lens.formationId, bodyId: lens.bodyId, layerId: lens.layerId }
   const push = (points: Point[]): void => {
     const id = nextId()
     labels.set(id, label)
