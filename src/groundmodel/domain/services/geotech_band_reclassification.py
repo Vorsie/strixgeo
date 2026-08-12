@@ -1158,16 +1158,13 @@ def plan_restated_contact_move(
                 "unit itself. Stop short of that boundary, subdivide the unit below "
                 "first, or remove the unit on the lithology axis."
             )
-        # BOTH walls, like every packing verb (audit F03). A litho unit can span a
-        # geological contact, and when the absorbed band ends exactly there the
-        # landing IS that contact — the harder of the two walls, and a litho-only
-        # check accepted it.
-        if below.source_geo_formation_id != lower.source_geo_formation_id:
-            raise GeotechBandEditError(
-                "Contact move rejected: the boundary here is a geological contact — "
-                "a lithostratigraphic contact can never be merged onto one from the "
-                "geotechnical axis. Edit the geological model on its own axis."
-            )
+        # NO geo wall here — REVERSED (owner, 2026-08-12). The audit-F03 wall
+        # refused a landing ON a geological contact; the owner hit it on
+        # GEO-10/170-S6 where the swallowed interval stayed inside one formation
+        # and ruled: "yes allow it and couple them, this is unnecessary
+        # friction." The landing does not move or cross the geo contact — the
+        # WRITER couples the litho contact to it, and refuses the one dangerous
+        # case: carrying a DIFFERENT geological contact onto this one.
         (survivor,) = reclassify_intervals(
             soil=upper_soil,
             admixtures=upper_admixtures,
@@ -1211,13 +1208,8 @@ def plan_restated_contact_move(
                 "unit itself. Stop short of that boundary, subdivide the unit above "
                 "first, or remove the unit on the lithology axis."
             )
-        # The geo wall, mirrored (audit F03) — see the downward guard.
-        if above.source_geo_formation_id != upper.source_geo_formation_id:
-            raise GeotechBandEditError(
-                "Contact move rejected: the boundary here is a geological contact — "
-                "a lithostratigraphic contact can never be merged onto one from the "
-                "geotechnical axis. Edit the geological model on its own axis."
-            )
+        # NO geo wall here either — the same 2026-08-12 reversal as the downward
+        # branch: landing ON a geological contact couples, in the writer.
         (survivor,) = reclassify_intervals(
             soil=lower_soil,
             admixtures=lower_admixtures,
