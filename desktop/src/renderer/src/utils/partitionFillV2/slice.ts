@@ -133,6 +133,10 @@ export function sliceFaces(
               kind,
               polygon: sub,
               gapIndex: gi,
+              // Provenance: a substrate/flood-painted face marks every slice it yields.
+              // The key stays ABSENT (not ``undefined``) on tie-born regions so existing
+              // deep-equal pins on the region shape are byte-identical.
+              ...(lf.fallback ? { fallback: true as const } : {}),
             })
           }
       }
