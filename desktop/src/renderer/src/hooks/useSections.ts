@@ -278,6 +278,7 @@ export function useSections({
   ready,
   toast,
   pushUndo,
+  requestBodyRecompute,
   manifestSectionIds,
   addToManifest,
   removeFromManifest,
@@ -303,6 +304,12 @@ export function useSections({
   ready: boolean
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
+  /**
+   * Schedule the body-identity recompute for a model axis (slice 5). A section
+   * create/delete adds/removes a whole partition, so BOTH axes' geometry moves.
+   * Optional so hand-rolled test fixtures need not supply it.
+   */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   manifestSectionIds: ReadonlySet<string>
   addToManifest: (kind: 'section', ids: string[]) => void
   removeFromManifest: (kind: 'section', ids: Iterable<string>) => void
@@ -598,6 +605,10 @@ export function useSections({
         setSections(prev => [...prev, created])
         setSelectedSectionId(created.id)
         handleSectionCreated(created.id)
+        // A new section adds a whole partition, so BOTH model axes' body
+        // geometry moved (slice 5).
+        requestBodyRecompute?.('litho')
+        requestBodyRecompute?.('geotech')
         log.success('section', `created ${created.name} from map draw`)
         const projectId = project.id
         let currentId = created.id
@@ -607,6 +618,8 @@ export function useSections({
             await api.section.delete(projectId, currentId)
             setSections(prev => prev.filter(s => s.id !== currentId))
             setSelectedSectionId(prev => (prev === currentId ? null : prev))
+            requestBodyRecompute?.('litho')
+            requestBodyRecompute?.('geotech')
           },
           reapply: async () => {
             const recreated = await api.section.create(projectId, createPayload)
@@ -614,6 +627,8 @@ export function useSections({
             setSections(prev => [...prev, recreated])
             setSelectedSectionId(recreated.id)
             handleSectionCreated(recreated.id)
+            requestBodyRecompute?.('litho')
+            requestBodyRecompute?.('geotech')
           },
         })
       } catch (err) {
@@ -621,7 +636,7 @@ export function useSections({
         toast('error', 'Could not create the cross-section.')
       }
     },
-    [project, effectiveHorizontalEpsg, visibleSections.length, handleSectionCreated, pushUndo],
+    [project, effectiveHorizontalEpsg, visibleSections.length, handleSectionCreated, pushUndo, requestBodyRecompute],
   )
 
   const handleDeleteSection = useCallback(
@@ -635,6 +650,9 @@ export function useSections({
         setSections(prev => prev.filter(s => s.id !== id))
         if (selectedSectionId === id) setSelectedSectionId(null)
         handleSectionDeleted(id)
+        // Removing a section removes its whole partition from both axes (slice 5).
+        requestBodyRecompute?.('litho')
+        requestBodyRecompute?.('geotech')
         log.info('section', `deleted ${id}`)
         const projectId = project.id
         const recreatePayload = {
@@ -656,6 +674,8 @@ export function useSections({
             currentId = recreated.id
             setSections(prev => [...prev, recreated])
             handleSectionCreated(recreated.id)
+            requestBodyRecompute?.('litho')
+            requestBodyRecompute?.('geotech')
           },
           reapply: async () => {
             if (!currentId) return
@@ -664,6 +684,8 @@ export function useSections({
             setSections(prev => prev.filter(s => s.id !== deletedId))
             setSelectedSectionId(prev => (prev === deletedId ? null : prev))
             currentId = null
+            requestBodyRecompute?.('litho')
+            requestBodyRecompute?.('geotech')
           },
         })
       } catch (err) {
@@ -678,6 +700,7 @@ export function useSections({
       handleSectionCreated,
       sections,
       pushUndo,
+      requestBodyRecompute,
     ],
   )
 
