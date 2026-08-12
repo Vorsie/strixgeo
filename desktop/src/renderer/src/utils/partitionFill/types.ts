@@ -207,6 +207,17 @@ export interface PartitionRegion {
    * fallback fill out of the persisted geometric body identity.
    */
   fallback?: true
+  /**
+   * The ``litho_layer`` ids whose drilled units PRODUCED this region's paint
+   * (v2 label paths only; deduped). This is the label-independent identity
+   * currency of the body recompute — layer ids never change, whereas
+   * ``bodyId`` is the label the recompute itself rewrites (body-labelled
+   * evidence fed back on itself and oscillated: facts flapping 74→3→69 live,
+   * dogfeed 2026-08-12). OPTIONAL and ABSENT-WHEN-EMPTY so v1 output and
+   * every existing deep-equal pin on v1 regions are untouched; fallback
+   * (substrate/flood) regions never carry it — inferred fill names no layer.
+   */
+  layerIds?: string[]
 }
 
 // ---------------------------------------------------------------------------
