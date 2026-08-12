@@ -504,6 +504,7 @@ async def restore_project(
             bodies_payload=request.bodies,
             formation_absences_payload=request.formation_absences,
             litho_contact_correlation_edges_payload=request.litho_contact_correlation_edges,
+            body_geometry_facts_payload=request.body_geometry_facts,
             body_boundary_shapes_payload=request.body_boundary_shapes,
             body_boundary_nodes_payload=request.body_boundary_nodes,
             litho_solids_payload=request.litho_solids,
