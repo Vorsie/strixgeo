@@ -153,6 +153,12 @@ async def scene(db_session: AsyncSession) -> _Scene:
     return await _build_scene(db_session)
 
 
+def _canonical_fact_pair(layer_x: UUID, layer_y: UUID) -> tuple[UUID, UUID]:
+    """Order a layer pair canonically (a < b), as the fact CHECK demands."""
+    a, b = sorted((layer_x, layer_y), key=str)
+    return a, b
+
+
 def _url(s: _Scene) -> str:
     return f"/projects/{s.project_id}/geology/models/{s.model_id}/bodies/recompute"
 
