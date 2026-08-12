@@ -7,8 +7,13 @@
  *     engine paints from the bottom-tie label is OMITTED from the payload;
  *   * a resolver-SUSPENDED flagged tie (``review_reason='class_changed'``) must
  *     not band the payload's geometry — the same edge without the flag does;
- *   * ``body_members`` maps each body to its member layer ids from the SAME
- *     layer snapshot (accepted only; a null body_id has no identity);
+ *   * the wire evidence is LAYER-id space: regions carry ``layer_ids`` and the
+ *     per-section ``layer_groups`` name the layers whose fill regions touch —
+ *     never body ids (the labels the recompute itself rewrites);
+ *   * LABEL-INDEPENDENCE: relabelling every layer's body_id to one merged id
+ *     leaves ``layer_groups`` + regions' ``layer_ids`` deep-equal — the exact
+ *     property whose absence made the first wire design oscillate (a merge
+ *     erased its own evidence on the next payload; facts 74→3→69 live);
  *   * a section whose edge fetch failed refuses the WHOLE assembly (null);
  *   * an empty assembly (no sections / no fillable gap) is null — never a POST.
  *
@@ -176,22 +181,35 @@ describe('assembleBodyRecomputePayload', () => {
     expect(flaggedBand).toBeUndefined()
   })
 
-  it('body_members maps body -> member layer ids from the SAME snapshot (accepted, non-null only)', async () => {
+  it('the tied band names its PRODUCING layers on the wire (regions.layer_ids + layer_groups)', async () => {
     listContactCorrelations.mockResolvedValue(sandTies(null))
-    const layers = [
-      ...sandLayers(12),
-      layerRow('L-peat', 'L', 'peat', 'bodyL', 12, 13), // second member of bodyL
-      layerRow('L-ghost', 'L', 'silt', 'bodyGhost', 13, 14, 'suggested'), // not accepted
-      layerRow('R-loose', 'R', 'silt', null, 12, 13), // no body identity
-    ]
-    const payload = await assembleBodyRecomputePayload(params(layers))
+    const payload = await assembleBodyRecomputePayload(params(sandLayers(12)))
     expect(payload).not.toBeNull()
-    expect(payload!.body_members).toEqual({
-      bodyClayL: ['L-clay'],
-      bodyL: ['L-sand', 'L-peat'],
-      bodyClayR: ['R-clay'],
-      bodyR: ['R-sand'],
-    })
+    // The tie-born sand band was produced by BOTH columns' sand layers.
+    const band = regionAt(payload!.sections[0].regions, 0.5, 5)
+    expect(band?.formation_id).toBe('sand')
+    expect([...(band?.layer_ids ?? [])].sort()).toEqual(['L-sand', 'R-sand'])
+    // ...and the section's connectivity groups name that touching pair.
+    expect(payload!.layer_groups[0]).toContainEqual(
+      expect.arrayContaining(['L-sand', 'R-sand']),
+    )
+  })
+
+  it('LABEL-INDEPENDENCE: one merged body id for every layer leaves the layer evidence deep-equal', async () => {
+    // The oscillation pin: after a successful merge the refetched layers all
+    // carry ONE body id. The payload's evidence must not change shape — layer
+    // ids are the wire currency precisely because they survive the relabel.
+    listContactCorrelations.mockResolvedValue(sandTies(null))
+    const before = await assembleBodyRecomputePayload(params(sandLayers(12)))
+    expect(before).not.toBeNull()
+    const relabelled = sandLayers(12).map(l => ({ ...l, body_id: 'merged-one' }))
+    const after = await assembleBodyRecomputePayload(params(relabelled))
+    expect(after).not.toBeNull()
+    // body_id fields MAY differ; the layer evidence must not.
+    expect(after!.layer_groups).toEqual(before!.layer_groups)
+    expect(
+      after!.sections.map(s => s.regions.map(r => r.layer_ids ?? [])),
+    ).toEqual(before!.sections.map(s => s.regions.map(r => r.layer_ids ?? [])))
   })
 
   it('returns null when a section failed to load its edges (partial input refusal)', async () => {
@@ -215,16 +233,18 @@ describe('assembleBodyRecomputePayload', () => {
     ).toBeNull()
   })
 
-  it('carries per-section merge groups parallel to sections', async () => {
+  it('carries per-section merge groups parallel to sections, in LAYER-id space', async () => {
     listContactCorrelations.mockResolvedValue(sandTies(null))
     const payload = await assembleBodyRecomputePayload(params(sandLayers(12)))
     expect(payload).not.toBeNull()
-    expect(payload!.body_groups).toHaveLength(payload!.sections.length)
-    // Every group id names a body the layer snapshot knows.
-    const known = new Set(['bodyClayL', 'bodyL', 'bodyClayR', 'bodyR'])
-    for (const group of payload!.body_groups[0]) {
-      expect(group.length).toBeGreaterThan(0)
-      for (const id of group) expect(known.has(id)).toBe(true)
+    expect(payload!.layer_groups).toHaveLength(payload!.sections.length)
+    // Every group id names a LAYER the snapshot knows — NEVER a body id (the
+    // labels the recompute rewrites; body evidence erased itself after a merge).
+    const knownLayers = new Set(['L-clay', 'L-sand', 'R-clay', 'R-sand'])
+    for (const group of payload!.layer_groups[0]) {
+      // A group of fewer than two layers states no connectivity fact.
+      expect(group.length).toBeGreaterThanOrEqual(2)
+      for (const id of group) expect(knownLayers.has(id)).toBe(true)
     }
   })
 })
