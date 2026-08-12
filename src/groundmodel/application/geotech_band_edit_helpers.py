@@ -35,6 +35,7 @@ from groundmodel.application.geotech_tie_reanchor import (
     REVIEW_BAND_ABSORBED,
     REVIEW_CLASS_CHANGED,
 )
+from groundmodel.application.litho_geo_link_helpers import load_geo_contacts_at_investigation
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
@@ -105,8 +106,15 @@ class GeotechColumnContext:
     source_litho_formation_id : UUID
         The edited band's litho parent (a hard wall).
     source_geo_formation_id : UUID | None
-        The edited band's geological parent (a hard wall); ``None`` for the open
-        shallow band.
+        The edited band's geological parent AS BUILT; ``None`` for the open
+        shallow band. Kept for callers with no live geological data — where
+        ``geo_contacts`` is non-empty, the live list is authoritative (dogfeed
+        2026-08-12: stamps go stale the moment the engineer moves a geological
+        contact on its own axis, and stale stamps walled his merges forever).
+    geo_contacts : tuple[tuple[float, UUID], ...]
+        The LIVE geological contacts on this investigation as
+        ``(depth_top_m, formation_id)``, depth-ascending. Empty when the litho
+        model has no parent geological model.
     """
 
     project_id: UUID
@@ -123,6 +131,12 @@ class GeotechColumnContext:
     statistic: str
     source_litho_formation_id: UUID
     source_geo_formation_id: UUID | None
+    geo_contacts: tuple[tuple[float, UUID], ...] = ()
+
+    @property
+    def live_geo_depths_m(self) -> tuple[float, ...]:
+        """The live geological contact depths, for the planners' geo wall."""
+        return tuple(depth for depth, _fid in self.geo_contacts)
 
 
 @dataclass(frozen=True)
@@ -696,6 +710,26 @@ async def load_geotech_column_context(
     model = await session.get(GeologicalModelOrm, geotech_model_id)
     statistic = model.representative_statistic if model is not None else DEFAULT_STATISTIC
 
+    # The LIVE geological contacts on this column (two hops: geotech → litho →
+    # geological model). The planners' geo wall judges THESE, never the bands'
+    # build-time stamps — a stamp is stale the moment the engineer moves a
+    # geological contact on its own axis, and a stale stamp walled his merges
+    # with no unlock short of a hand-edit-destroying re-subdivide (dogfeed
+    # 2026-08-12, GEO-23/125-S6).
+    geo_contacts: tuple[tuple[float, UUID], ...] = ()
+    litho_model_id = model.parent_model_id if model is not None else None
+    if litho_model_id is not None:
+        litho_model = await session.get(GeologicalModelOrm, litho_model_id)
+        geo_model_id = litho_model.parent_model_id if litho_model is not None else None
+        if geo_model_id is not None:
+            loaded = await load_geo_contacts_at_investigation(
+                session,
+                geo_model_id,
+                borehole_id=None if anchor_is_cpt else investigation_id,
+                cpt_id=investigation_id if anchor_is_cpt else None,
+            )
+            geo_contacts = tuple((depth, formation_id) for depth, formation_id, _cid in loaded)
+
     logger.debug(
         f"load_geotech_column_context: band={band_id} "
         f"investigation={investigation_id} bands={len(bands)} "
@@ -717,7 +751,64 @@ async def load_geotech_column_context(
         statistic=statistic,
         source_litho_formation_id=target_formation.source_litho_formation_id,
         source_geo_formation_id=target_formation.source_geo_formation_id,
+        geo_contacts=geo_contacts,
     )
+
+
+def live_geo_formation_id_at(
+    top_m: float,
+    geo_contacts: tuple[tuple[float, UUID], ...],
+) -> UUID | None:
+    """The geological formation containing a band that starts at ``top_m``.
+
+    Reads the LIVE contacts: the deepest contact at or above ``top_m`` (within
+    the 1.1 mm coincidence — band tops are mm-rounded, contacts keep full
+    floats) names the geological band the interval sits in. ``None`` means the
+    open shallow band above the first contact — the same meaning the build
+    gives an unstamped band.
+
+    Parameters
+    ----------
+    top_m : float
+        The written interval's top, metres below the collar.
+    geo_contacts : tuple[tuple[float, UUID], ...]
+        Live ``(depth_top_m, formation_id)`` pairs from the column context.
+
+    Returns
+    -------
+    UUID | None
+        The containing formation's id, or ``None`` above the first contact.
+    """
+    best: tuple[float, UUID] | None = None
+    for depth, formation_id in geo_contacts:
+        if depth <= top_m + 0.0011 and (best is None or depth > best[0]):
+            best = (depth, formation_id)
+    return best[1] if best is not None else None
+
+
+def geo_parent_for_interval(context: GeotechColumnContext, top_m: float) -> UUID | None:
+    """The geological parent a written band should carry, live-first.
+
+    Live contacts win when they exist; the build-time stamp is the fallback for
+    a litho model with no parent geological model. Every band-edit writer calls
+    this so a hand edit heals a stale stamp on touch instead of copying it
+    forward.
+
+    Parameters
+    ----------
+    context : GeotechColumnContext
+        The edited column.
+    top_m : float
+        The written interval's top.
+
+    Returns
+    -------
+    UUID | None
+        The parent geological formation id for ``formation_for_class``.
+    """
+    if context.geo_contacts:
+        return live_geo_formation_id_at(top_m, context.geo_contacts)
+    return context.source_geo_formation_id
 
 
 def _parse_admixtures(formation: GeologicalFormationOrm) -> tuple[Admixture, ...]:
