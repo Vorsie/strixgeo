@@ -64,6 +64,12 @@ _ADJACENCY_EPS_M = 0.01
 # band, not on its own edge).
 _DEPTH_EPS_M = 1e-6
 
+# The allowance within which a LIVE geological contact and a band edge are the
+# same depth: band boundaries are mm-rounded, contacts keep full floats, so one
+# boundary is recorded at two precisions. Mirrors ``_COINCIDENT_M`` in
+# ``move_restated_contact`` and ``COINCIDENT_DEPTH_TOLERANCE_M`` in the renderer.
+_LIVE_GEO_COINCIDENT_M = 0.0011
+
 # Warning codes. The UI switches on these; the message carries the prose.
 WARNING_QC_PULL_DOWN = "qc_pull_down"
 WARNING_QC_PULL_UP = "qc_pull_up"
@@ -321,7 +327,13 @@ def _index_of(bands: Sequence[GeotechBand], band_id: str) -> int:
     raise GeotechBandEditError(f"Band {band_id} is not on this column.")
 
 
-def _assert_same_litho_body(upper: GeotechBand, lower: GeotechBand, *, verb: str = "Merge") -> None:
+def _assert_same_litho_body(
+    upper: GeotechBand,
+    lower: GeotechBand,
+    *,
+    verb: str = "Merge",
+    live_geo_depths_m: Sequence[float] | None = None,
+) -> None:
     """Refuse an edit that would swallow a litho or geological contact.
 
     Parameters
@@ -334,19 +346,22 @@ def _assert_same_litho_body(upper: GeotechBand, lower: GeotechBand, *, verb: str
         boundary that a MERGE was rejected describes a gesture he did not make,
         and reads as a bug in the app rather than a rule about the ground
         (dogfeed 2026-08-09).
+    live_geo_depths_m : Sequence[float] | None
+        The LIVE geological contact depths on this investigation. When given,
+        the geo wall judges these instead of the bands' build-time stamps —
+        dogfeed 2026-08-12 (GEO-23/125-S6): the engineer moved the geological
+        contact on its own axis and the stamp-reading wall kept refusing
+        forever; the only offered unlock was a re-subdivide that deletes every
+        hand edit. ``None`` (legacy callers, mostly tests) keeps the stamp
+        check; the application layer always passes the live list.
 
     Raises
     ------
     GeotechBandEditError
-        When the two bands do not share both parents. The message names WHICH
-        wall was hit, because the fix differs: a litho contact is edited on the
-        litho axis, a geological one on the geology axis. It also names the
-        SECOND half of that fix — packing bands carry the parent units they
-        were built against, so correcting the contact upstairs does not restate
-        them; only re-running Subdivide does. Naming only the first half sends
-        the engineer round in a circle, which is exactly what happened on
-        dogfeed: *"i updated geo bands and the litho model … but i couldn't
-        [merge] … re-subdivide did the trick"*.
+        When the two bands sit in different litho units, or a geological
+        contact lies strictly inside their union. The message names WHICH wall
+        was hit, because the fix differs: a litho contact is edited on the
+        litho axis, a geological one on the geology axis.
     """
     if upper.source_litho_formation_id != lower.source_litho_formation_id:
         raise GeotechBandEditError(
@@ -356,7 +371,21 @@ def _assert_same_litho_body(upper: GeotechBand, lower: GeotechBand, *, verb: str
             "then re-run 'Packing pipeline → 1 · Subdivide CPTs' so the packing "
             "bands are rebuilt against it."
         )
-    if upper.source_geo_formation_id != lower.source_geo_formation_id:
+    if live_geo_depths_m is not None:
+        span_top, span_base = upper.depth_top_m, lower.depth_base_m
+        inside = [
+            d
+            for d in live_geo_depths_m
+            if span_top + _LIVE_GEO_COINCIDENT_M < d < span_base - _LIVE_GEO_COINCIDENT_M
+        ]
+        if inside:
+            raise GeotechBandEditError(
+                f"{verb} rejected: a geological contact sits at {inside[0]:.2f} m, "
+                "inside the span of these bands — a packing band never crosses a "
+                "geological contact. Move that contact on the geology axis first; "
+                "the packing verbs follow its live position."
+            )
+    elif upper.source_geo_formation_id != lower.source_geo_formation_id:
         raise GeotechBandEditError(
             f"{verb} rejected: the two packing bands sit in different geological "
             "units, and a packing band never crosses a geological contact. "
@@ -793,6 +822,7 @@ def plan_merge(
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
     statistic: str = DEFAULT_STATISTIC,
+    live_geo_depths_m: Sequence[float] | None = None,
 ) -> BandEditPlan:
     """Plan a hand merge of two adjacent packing bands, reclassified as one.
 
@@ -838,6 +868,7 @@ def plan_merge(
         qc_mpa=qc_mpa,
         min_thickness_m=min_thickness_m,
         statistic=statistic,
+        live_geo_depths_m=live_geo_depths_m,
     )
 
 
@@ -851,6 +882,7 @@ def plan_merge_run(
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
     statistic: str = DEFAULT_STATISTIC,
+    live_geo_depths_m: Sequence[float] | None = None,
 ) -> BandEditPlan:
     """Plan a merge of an N-band CONTIGUOUS run into one reclassified band.
 
@@ -904,7 +936,7 @@ def plan_merge_run(
                 "Merge rejected: the two bands do not share a boundary "
                 f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
             )
-        _assert_same_litho_body(upper, lower)
+        _assert_same_litho_body(upper, lower, live_geo_depths_m=live_geo_depths_m)
     parent_top, parent_base = enclosing_litho_bounds(bands, indices[0])
     proposed = [ProposedInterval(run[0].depth_top_m, run[-1].depth_base_m, tuple(run))]
     outcomes = reclassify_intervals(
@@ -937,6 +969,7 @@ def plan_move(
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
     statistic: str = DEFAULT_STATISTIC,
+    live_geo_depths_m: Sequence[float] | None = None,
 ) -> BandEditPlan:
     """Plan dragging the shared boundary of two adjacent bands, both reclassified.
 
@@ -998,7 +1031,7 @@ def plan_move(
             "Move rejected: the two bands do not share a boundary "
             f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
         )
-    _assert_same_litho_body(upper, lower, verb="Move")
+    _assert_same_litho_body(upper, lower, verb="Move", live_geo_depths_m=live_geo_depths_m)
     rounded = round(new_depth_m, 3)
     # Strictly inside the pair, with both survivors at least the millimetre
     # grain the no-overlap exclusion stores. Not the min-thickness pref — that
