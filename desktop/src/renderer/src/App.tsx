@@ -366,6 +366,18 @@ export default function App() {
     setCorrelationEdgesRefetchNonce(n => n + 1)
   }, [])
 
+  // Body-identity recompute nonces (slice 5). Mutation sites spread across
+  // hooks / toolbars bump the AXIS whose model they changed (litho tie edits →
+  // litho; geotech verbs + subdivide → geotech); SectionsCanvas watches the
+  // nonces and schedules the debounced ``bodies/recompute`` POST for that
+  // model. Same soft-coupling bus as ``correlationEdgesRefetchNonce``.
+  const [bodyRecomputeLithoNonce, setBodyRecomputeLithoNonce] = useState(0)
+  const [bodyRecomputeGeotechNonce, setBodyRecomputeGeotechNonce] = useState(0)
+  const requestBodyRecompute = useCallback((kind: 'litho' | 'geotech') => {
+    if (kind === 'litho') setBodyRecomputeLithoNonce(n => n + 1)
+    else setBodyRecomputeGeotechNonce(n => n + 1)
+  }, [])
+
   // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
   // all lifted to App so the Sidebar can read/write the same state as
   // MapView, but grouped in a hook so App stays a thin coordinator.
@@ -499,6 +511,7 @@ export default function App() {
     currentLumping,
     stageLumping,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
     markMutated,
   })
   // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
@@ -817,6 +830,7 @@ export default function App() {
     ready,
     toast,
     pushUndo,
+    requestBodyRecompute,
     manifestSectionIds,
     addToManifest,
     removeFromManifest,
@@ -1215,7 +1229,8 @@ export default function App() {
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
     geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
-    correlationEdgesRefetchNonce, handleSelectWithoutView, markMutated,
+    correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
+    requestBodyRecompute, handleSelectWithoutView, markMutated,
   })
 
   // ---------------------------------------------------------------------------
