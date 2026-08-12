@@ -31,6 +31,7 @@ from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -237,6 +238,16 @@ async def _make_project_with_every_collection(db_session: AsyncSession) -> Proje
             layer_b_side="top",
             source="manual",
             user_approved=True,
+        )
+    )
+    # One geometry fact (owner ruling 2026-08-12) so the registry guard below
+    # actually checks the collection's copy path.
+    db_session.add(
+        BodyGeometryFactOrm(
+            id=uuid7(),
+            model_id=litho_model.id,
+            layer_a_id=min(cpt_layer.id, bh_layer.id),
+            layer_b_id=max(cpt_layer.id, bh_layer.id),
         )
     )
     db_session.add(
