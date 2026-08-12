@@ -507,7 +507,12 @@ describe('useRecoveryOffer', () => {
     // the crashed session's DATABASE mutations revert too, not just the
     // renderer-only extras. Order is load-bearing: revert (can refuse) →
     // delete file → residue → reload.
-    const electron = installElectron()
+    //
+    // The snapshot here records unsaved DB mutations — the case the revert
+    // exists for. A snapshot with no DB delta skips it (see below).
+    const electron = installElectron({
+      readRecovery: vi.fn().mockResolvedValue(makeSnapshot({ hasUnsavedMutations: true })),
+    })
     const order: string[] = []
     electron.deleteRecovery.mockImplementation(async () => {
       order.push('delete')
@@ -532,8 +537,11 @@ describe('useRecoveryOffer', () => {
   it('an aborted revert keeps the backup file', async () => {
     // A refused/failed revert means the backup is the ONLY remaining record
     // of the session the user tried to erase — deleting it anyway would
-    // destroy the work twice over.
-    const electron = installElectron()
+    // destroy the work twice over. (Dirty snapshot: only a recorded DB delta
+    // reaches the revert at all.)
+    const electron = installElectron({
+      readRecovery: vi.fn().mockResolvedValue(makeSnapshot({ hasUnsavedMutations: true })),
+    })
     const onBeforeDiscard = vi.fn(async () => false)
     const { hook } = mount(PROJECT_ID, undefined, onBeforeDiscard)
     await waitFor(() => expect(hook.result.current.offer).not.toBeNull())
