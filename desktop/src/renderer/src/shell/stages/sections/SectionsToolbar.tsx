@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff, SplitSquareVertical } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff, SplitSquareVertical, RefreshCw } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 import ReSubdivideConfirmDialog from '../../../components/ReSubdivideConfirmDialog'
@@ -41,6 +41,7 @@ import {
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
+import { sectionsBodyRecomputeCallback } from './SectionsCanvas'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
 
 /**
@@ -159,6 +160,8 @@ export default function SectionsToolbar(): JSX.Element {
       selectedBoreholeId,
       handleExportSectionDxf,
       handleExportSectionPdf,
+      // Slice 5: mutation verbs bump the mutated axis's body-identity recompute.
+      requestBodyRecompute,
     },
     toasts: { toast },
   } = useShell()
@@ -456,6 +459,8 @@ export default function SectionsToolbar(): JSX.Element {
       // section reselect or auto-correlate). Without this the user sees the
       // suggestion unchanged even though the accept succeeded.
       requestCorrelationEdgesRefetch?.()
+      // Newly-approved ties band geometry — schedule the litho identity recompute (slice 5).
+      if (result.edges_accepted > 0) requestBodyRecompute('litho')
       toast(
         'success',
         `Accepted ${result.edges_accepted} correlation${result.edges_accepted === 1 ? '' : 's'}.`,
@@ -473,6 +478,7 @@ export default function SectionsToolbar(): JSX.Element {
     project.id,
     toast,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
   ])
 
   // "Reset manual points" — clear every hand-drawn body boundary override for
@@ -493,6 +499,9 @@ export default function SectionsToolbar(): JSX.Element {
       // Force the canvas to re-GET body boundaries so the overlay drops the
       // now-deleted overrides and re-renders the clean engine partition.
       requestCorrelationEdgesRefetch?.()
+      // Deleted boundary shapes reshape bodies — schedule the litho identity
+      // recompute (slice 5).
+      if (result.shapes_deleted > 0) requestBodyRecompute('litho')
       toast(
         'success',
         result.shapes_deleted > 0
@@ -505,7 +514,7 @@ export default function SectionsToolbar(): JSX.Element {
     } finally {
       setResettingBoundaries(false)
     }
-  }, [activeLithoModel, resettingBoundaries, project.id, requestCorrelationEdgesRefetch, toast])
+  }, [activeLithoModel, resettingBoundaries, project.id, requestCorrelationEdgesRefetch, requestBodyRecompute, toast])
 
   /**
    * The model whose contacts a section export must contain.
@@ -596,6 +605,35 @@ export default function SectionsToolbar(): JSX.Element {
   // enabled and silently writing the wrong level — audit 2026-08-02.)
   const isLitho = sectionModelAxis === 'lithostratigraphic'
   const isGeotech = sectionModelAxis === 'geotechnical'
+
+  // Manual "Recompute bodies" verb (slice 5): fires the ACTIVE axis's model
+  // through the canvas's scheduler ref (module-ref bridge — the debounced
+  // scheduler lives in SectionsCanvas, which owns the model/layer state).
+  // ``recomputeNow`` toasts its own errors (manual fires do; background
+  // debounce fires stay console-only).
+  const [recomputingBodies, setRecomputingBodies] = useState(false)
+  const recomputeModelId = isGeotech
+    ? (activeGeotechModel?.id ?? null)
+    : isLitho
+      ? (activeLithoModel?.id ?? null)
+      : null
+  const handleRecomputeBodies = useCallback(async (): Promise<void> => {
+    if (recomputeModelId === null || recomputingBodies) return
+    const run = sectionsBodyRecomputeCallback.current
+    if (run === null) {
+      // Unreachable while the Sections stage is mounted (the canvas assigns the
+      // ref every render) — fail loud rather than silently doing nothing.
+      log.error('sections', 'recompute-bodies: canvas scheduler ref is empty')
+      toast('error', 'Recompute bodies is unavailable — reopen the Sections stage.')
+      return
+    }
+    setRecomputingBodies(true)
+    try {
+      await run(recomputeModelId)
+    } finally {
+      setRecomputingBodies(false)
+    }
+  }, [recomputeModelId, recomputingBodies, toast])
 
   const hasModel = isLitho
     ? activeLithoModel !== null
@@ -807,6 +845,7 @@ export default function SectionsToolbar(): JSX.Element {
     markMutated,
     requestCorrelationEdgesRefetch,
     requestGeotechLayersRefetch,
+    requestBodyRecompute,
     refreshTieStatus,
   })
 
@@ -1763,6 +1802,27 @@ export default function SectionsToolbar(): JSX.Element {
           },
         ]}
       />
+      {/* Manual body-identity recompute (slice 5) — acts on the ACTIVE axis's
+          model (litho / geotech). The debounced background recompute usually
+          keeps identity current; this is the explicit "do it now" escape hatch
+          (and the one path that toasts recompute errors). */}
+      {(isLitho || isGeotech) && (
+        <ToolbarButton
+          icon={<RefreshCw size={13} />}
+          label={recomputingBodies ? 'Recomputing…' : 'Recompute bodies'}
+          onClick={() => void handleRecomputeBodies()}
+          disabled={recomputeModelId === null || recomputingBodies}
+          busy={recomputingBodies}
+          title={
+            recomputeModelId === null
+              ? `No active ${isGeotech ? 'geotech' : 'lithostratigraphic'} model to recompute`
+              : recomputingBodies
+                ? 'Recomputing…'
+                : 'Re-derive the persisted geometric body identity from the current sections now'
+          }
+          testid="sections-recompute-bodies"
+        />
+      )}
       <ReportMetadataDialog
         open={pdfDialogOpen}
         defaultTitle={pdfDefaultTitle}
