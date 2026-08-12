@@ -5,6 +5,7 @@ import { useMapOverlays } from './hooks/useMapOverlays'
 import { useGeologicalModel } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
 import { useInvestigationData } from './hooks/useInvestigationData'
+import { useProjectBodyRecompute } from './hooks/useProjectBodyRecompute'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
 import { useRecoveryAutosave } from './hooks/useRecoveryAutosave'
 import { useRecoveryOffer } from './hooks/useRecoveryOffer'
@@ -368,9 +369,11 @@ export default function App() {
 
   // Body-identity recompute nonces (slice 5). Mutation sites spread across
   // hooks / toolbars bump the AXIS whose model they changed (litho tie edits →
-  // litho; geotech verbs + subdivide → geotech); SectionsCanvas watches the
-  // nonces and schedules the debounced ``bodies/recompute`` POST for that
-  // model. Same soft-coupling bus as ``correlationEdgesRefetchNonce``.
+  // litho; geotech verbs + subdivide → geotech); ``useProjectBodyRecompute``
+  // (below) watches the nonces STAGE-INDEPENDENTLY and schedules the debounced
+  // ``bodies/recompute`` POST for that model — it also owns the once-per-
+  // project-open initial recompute (owner ruling 2026-08-12). Same
+  // soft-coupling bus as ``correlationEdgesRefetchNonce``.
   const [bodyRecomputeLithoNonce, setBodyRecomputeLithoNonce] = useState(0)
   const [bodyRecomputeGeotechNonce, setBodyRecomputeGeotechNonce] = useState(0)
   const requestBodyRecompute = useCallback((kind: 'litho' | 'geotech') => {
@@ -1075,6 +1078,28 @@ export default function App() {
       boreholes.filter(b => manifestBoreholeIds.has(b.id) && !removedBoreholeIds.has(b.id)),
     [boreholes, manifestBoreholeIds, removedBoreholeIds],
   )
+
+  // Shell-level body-identity recompute wiring (slice 5, owner ruling
+  // 2026-08-12): the initial recompute fires on PROJECT OPEN (once per model
+  // per open, event-driven — a closed data gate at open fires later when it
+  // opens), and mutation-site nonce bumps schedule regardless of which stage
+  // is on screen. Lives HERE because the shell owns every assembly input
+  // (investigations + layers + sections); the Sections stage no longer needs
+  // to be mounted for identity to persist.
+  useProjectBodyRecompute({
+    projectId: project?.id ?? null,
+    visibleSections,
+    visibleCpts,
+    visibleBoreholes,
+    lithoModelId: geo.activeLithoModel?.id ?? null,
+    lithoLayers: geo.lithoLayers,
+    geotechModelId: geo.activeGeotechModel?.id ?? null,
+    geotechLayers: geo.geotechLayers,
+    geotechLayersLoaded: geo.geotechLayersLoaded,
+    bodyRecomputeLithoNonce,
+    bodyRecomputeGeotechNonce,
+    toast,
+  })
 
   // R4 (debt #12): the manifest-filtered formation list moved INTO
   // useGeologicalModel (it now takes manifestFormationIds). App no
