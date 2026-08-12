@@ -33,6 +33,7 @@ import { geotechBandsClient } from './geotechBands'
 import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
 import type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
+import type { RecomputeBodiesRequest } from '../../utils/buildBodyRecomputePayload'
 
 // All request/response types live in geology.types.ts; re-export the
 // full catalogue so existing callers keep importing from this module.
@@ -71,6 +72,7 @@ import type {
   DeduplicateContactsResponse,
   LithoBodySolidResponse,
   RebuildLithoSolidsResponse,
+  RecomputeBodiesResponse,
   UpdateBodyColorResponse,
   RebuildSurfacesResponse,
   FormationSurfaceResponse,
@@ -514,6 +516,31 @@ export const geologyClient = {
       `/projects/${projectId}/geology/models/${modelId}/litho-solids/build-voxel`,
       request,
     ),
+
+  /**
+   * POST .../bodies/recompute — persist geometric body identity (slice 5).
+   *
+   * Sends the FE-assembled per-section partitions + fallback-excluding merge
+   * groups + body membership; the backend rewrites the geometry facts and
+   * re-resolves body identity. 422 ``empty_recompute_payload`` when the payload
+   * carries no sections/regions — the caller gates on a non-null assembly, so
+   * that status is a bug signal, never a user-facing error.
+   *
+   * Parameters
+   * ----------
+   * projectId
+   *     Project scope guard.
+   * modelId
+   *     The litho / geotech model id whose bodies to recompute.
+   * request
+   *     The assembled ``RecomputeBodiesRequest`` (see ``buildBodyRecomputePayload``).
+   */
+  recomputeBodies: (
+    projectId: string,
+    modelId: string,
+    request: RecomputeBodiesRequest,
+  ): Promise<RecomputeBodiesResponse> =>
+    post(`/projects/${projectId}/geology/models/${modelId}/bodies/recompute`, request),
 
   /**
    * PATCH .../bodies/{bodyId}/color — set or clear the per-body display colour.
