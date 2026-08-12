@@ -20,7 +20,12 @@
  *
  * ``mergeTouchingBodiesWithGroups`` is the opt-in second entry point (slice 4, "persist
  * geometric body identity"): the same merge, but the union-find's components are RETURNED as
- * merge groups (original pre-merge body ids) instead of discarded, and ``excludeFallback``
+ * merge groups — in LAYER-id space (the union of member regions' ``layerIds``; components
+ * contributing fewer than two layers are dropped). Layer ids never change, so the same
+ * geometry always yields the same groups; the first design returned BODY ids and oscillated
+ * in production (a successful merge relabelled every refetched region to the merged id, the
+ * next payload's evidence collapsed to singletons, and the wholesale fact replace undid the
+ * merge — facts flapping 74→3→69 live, dogfeed 2026-08-12 evening). ``excludeFallback``
  * keeps substrate/flood-painted regions (``fallback === true``) from welding drilled bodies.
  * The legacy ``mergeTouchingBodies`` delegates to it with defaults — behavior unchanged.
  *
@@ -265,10 +270,12 @@ export interface MergeTouchingBodiesOptions {
 
 /**
  * Same merge as ``mergeTouchingBodies``, but ALSO exposes the union-find's merge GROUPS —
- * the ORIGINAL (pre-merge) non-null body ids per connected component — instead of
- * discarding them after the relabel. This is what lets a consumer PERSIST geometric body
- * identity: the relabelled output only names the representative; the groups name every
- * member that representative absorbed.
+ * in LAYER-id space — instead of discarding them after the relabel. Each group is the
+ * union of one connected component's member regions' ``layerIds`` (the drilled layers
+ * whose fill regions form one touching component); components contributing fewer than two
+ * layers are dropped — they state no connectivity fact. Layer ids are the wire currency
+ * of the body recompute BECAUSE they never change: body-id groups could not survive their
+ * own success (see the module doc).
  *
  * Parameters
  * ----------
@@ -281,8 +288,8 @@ export interface MergeTouchingBodiesOptions {
  * -------
  * { regions, groups }
  *     ``regions`` — the relabelled regions (identical to ``mergeTouchingBodies`` under
- *     default options). ``groups`` — one entry per connected component that carries at
- *     least one non-null original body id, each listing those ids deduplicated in the
+ *     default options). ``groups`` — one entry per connected component contributing at
+ *     least two distinct layer ids, each listing those ids deduplicated in the
  *     component's deterministic member order (the same (gapIndex, minFraction, maxElev)
  *     order the representative pick uses).
  */
@@ -422,18 +429,22 @@ export function mergeTouchingBodiesWithGroups(
       }
     }
     bodyForRoot.set(root, chosen)
-    // The merge GROUP: this component's ORIGINAL (pre-merge) non-null body ids, deduplicated
-    // in the same deterministic member order as the representative pick. An excluded fallback
-    // region joins no group (under ``excludeFallback`` it is a singleton component anyway, but
-    // the skip also keeps its id out of the identity record). Components with no non-null id
-    // (all-synthesized fill) report nothing — there is no identity to persist for them.
+    // The merge GROUP: this component's LAYER ids — the union of member regions'
+    // ``layerIds``, deduplicated in the same deterministic member order as the
+    // representative pick. NEVER body ids: those are the labels the recompute rewrites,
+    // and evidence expressed in them erased itself after every successful merge. An
+    // excluded fallback region joins no group (under ``excludeFallback`` it is a singleton
+    // component anyway, but the skip also keeps its layers out of the identity record).
+    // Components contributing fewer than two layers report nothing — a single layer (or a
+    // layerless all-synthesized component) states no connectivity fact.
     const ids: string[] = []
     for (const i of ordered) {
       if (!participates(i)) continue
-      const b = regions[i].bodyId
-      if (b != null && !ids.includes(b)) ids.push(b)
+      for (const lid of regions[i].layerIds ?? []) {
+        if (!ids.includes(lid)) ids.push(lid)
+      }
     }
-    if (ids.length > 0) groups.push(ids)
+    if (ids.length >= 2) groups.push(ids)
   }
 
   const merged = regions.map((r, i) => {
