@@ -65,6 +65,9 @@ export interface UseLithoSuggestionsParams {
   pushUndo: (cmd: UndoCommand) => void
   markMutated: () => void
   requestCorrelationEdgesRefetch: () => void
+  /** Schedule the litho model's body-identity recompute (slice 5). Optional so
+   *  hand-rolled test fixtures need not supply it; call sites guard with ``?.()``. */
+  requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
   refetchLithoContacts: () => void
   refetchFormations: () => void
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -246,6 +249,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     pushUndo,
     markMutated,
     requestCorrelationEdgesRefetch,
+    requestBodyRecompute,
     refetchLithoContacts,
     refetchFormations,
     toast,
@@ -306,6 +310,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       // of the toolbar that fired this), so signal it to refetch — otherwise
       // the new edges/banners don't render until a manual section reselect.
       requestCorrelationEdgesRefetch()
+      // New edges can band geometry — schedule the litho identity recompute (slice 5).
+      if (result.edges_created > 0) requestBodyRecompute?.('litho')
       if (result.edges_created === 0 && result.edges_skipped_existing === 0) {
         // No contacts with a valid litho code + parent formation — the model
         // is empty or has no correlatable units yet. Guide the user toward
@@ -336,7 +342,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       log.error('geology', 'autoCorrelate failed', err)
       toast('error', 'Auto-correlate failed — see console.')
     }
-  }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch, markMutated])
+  }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch, requestBodyRecompute, markMutated])
 
   // #179 — Clear suggestions: remove all unapproved (auto) correlation edges
   // for the model without re-running auto-correlate. Approved manual
@@ -930,6 +936,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         o => o.createdContactIds.length > 0 || o.createdFormationIds.length > 0,
       )
       if (!hasWork) return
+      // Accepted layers are committed geometry — schedule the litho identity
+      // recompute (slice 5). Every accept handler funnels through here on
+      // success (see the helper doc above), so ONE bump site covers them all.
+      requestBodyRecompute?.('litho')
       const projectId = project.id
       // Flip the ghost overlay's accepted set for every captured entry:
       // accepted=false on revert (back to pending), true on redo.
@@ -971,6 +981,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           setAccepted(false)
           refetchLithoContacts()
           refetchFormations()
+          // Deleting the accepted rows moves body geometry back — reschedule (slice 5).
+          requestBodyRecompute?.('litho')
         },
         reapply: async () => {
           // Re-POST each body; the server mints fresh ids, so capture
@@ -992,10 +1004,12 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
           setAccepted(true)
           refetchLithoContacts()
           refetchFormations()
+          // The re-created rows moved body geometry again — reschedule (slice 5).
+          requestBodyRecompute?.('litho')
         },
       })
     },
-    [project, pushUndo, refetchLithoContacts, refetchFormations],
+    [project, pushUndo, refetchLithoContacts, refetchFormations, requestBodyRecompute],
   )
 
   // ---- Shared post-accept tail (audit 2026-07-12 FE-HOOKS-04, debt #232) ----
