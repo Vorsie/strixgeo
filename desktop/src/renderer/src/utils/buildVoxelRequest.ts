@@ -78,6 +78,14 @@ export interface RegionInput {
    * never be merged back across that tie.
    */
   tie_clipped?: boolean;
+  /**
+   * The ``litho_layer`` ids whose drilled units produced this region (v2 label
+   * paths; deduped; omitted when empty). The body recompute's cross-section rule
+   * runs server-side over these — label-independent evidence that survives the
+   * recompute's own body relabels. The voxel build ignores the field (additive on
+   * ``RegionInputSchema``).
+   */
+  layer_ids?: string[];
 }
 
 /** One investigation column of a section, with its canonical world position. */
@@ -353,6 +361,7 @@ export function toRegionInputs(engineRegions: readonly SectionRegion[]): RegionI
     ...(r.overlayTier !== undefined ? { overlay_tier: r.overlayTier } : {}),
     ...(r.tiedBandBase !== undefined ? { tied_band_base: r.tiedBandBase } : {}),
     ...(r.tieClipped !== undefined ? { tie_clipped: r.tieClipped } : {}),
+    ...(r.layerIds !== undefined && r.layerIds.length > 0 ? { layer_ids: [...r.layerIds] } : {}),
   }));
 }
 
