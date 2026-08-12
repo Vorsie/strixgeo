@@ -237,8 +237,10 @@ export interface Coordinator {
    * tie create/delete/accept + their undo closures, edge-drag retargets, the
    * toolbar auto-correlate / accept-all verbs, the geotech packing verbs,
    * subdivide-cpts, section create/delete, litho layer accepts, and
-   * boundary-shape saves. Read by ``SectionsCanvas``, which schedules the
-   * debounced ``bodies/recompute`` POST for the bumped axis's model.
+   * boundary-shape saves. Watched by ``useProjectBodyRecompute`` (mounted in
+   * App, stage-independent), which schedules the debounced
+   * ``bodies/recompute`` POST for the bumped axis's model and also owns the
+   * once-per-project-open initial recompute.
    */
   bodyRecomputeLithoNonce: number
   bodyRecomputeGeotechNonce: number
