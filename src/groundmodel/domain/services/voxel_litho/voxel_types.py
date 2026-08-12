@@ -78,6 +78,14 @@ class RegionInput:
         ``True`` when the 2-D pass deliberately kept this region only
         ABOVE a sloping cross-lithology tie, so it must never be merged
         back across that tie.
+    layer_ids : tuple of str
+        The ``litho_layer`` ids whose units produced this region. Carried for
+        the body recompute (owner ruling 2026-08-12): geometric-connectivity
+        evidence must name LAYERS, whose ids never change, never bodies,
+        whose ids the recompute itself restamps — body-labelled evidence fed
+        back on itself and oscillated (dogfeed 2026-08-12 evening). Empty on
+        voxel-build payloads (the build never reads it) and on pre-existing
+        stored payloads.
 
     Notes
     -----
@@ -95,6 +103,7 @@ class RegionInput:
     overlay_tier: Literal["onlap", "lens"] | None = None
     tied_band_base: float | None = None
     tie_clipped: bool = False
+    layer_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
