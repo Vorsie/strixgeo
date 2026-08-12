@@ -85,8 +85,10 @@ class RestatedContactMoveResult:
     litho_upper_layer_id, litho_lower_layer_id : UUID
         The litho rows that were resized.
     geo_contact_id : UUID | None
-        The geological contact carried along, or ``None`` when the litho row is
-        not derived from one.
+        The geological contact carried along — or, for a merge that landed
+        exactly ON one, the contact the litho boundary was COUPLED to (owner
+        ruling 2026-08-12). ``None`` when the litho row is not derived from one
+        and the landing coincides with none.
     """
 
     band_result: GeotechBandEditResult
@@ -214,6 +216,79 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             boundary_m=pre_move_boundary_m,
         )
 
+        # --- the geological arm, resolved BEFORE anything is written ---------
+        # Its one refusal (two geological contacts colliding, below) must leave
+        # the transaction untouched, so every lookup happens up front.
+        linked_geo_id: UUID | None = litho_lower.parent_geo_contact_id
+        geo_at_inv: list[tuple[float, UUID, UUID]] = []
+        if linked_geo_id is None or merging:
+            geo_model_id = (
+                await self._session.execute(
+                    select(GeologicalModelOrm.parent_model_id).where(
+                        GeologicalModelOrm.id == litho_lower.model_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if geo_model_id is not None:
+                geo_at_inv = await load_geo_contacts_at_investigation(
+                    self._session,
+                    geo_model_id,
+                    borehole_id=litho_lower.borehole_id,
+                    cpt_id=litho_lower.cpt_id,
+                )
+        # COINCIDENCE COUPLES (owner ruling 2026-08-11, audit F34). The dev
+        # model held litho rows sitting bit-for-bit ON a geological contact
+        # with no link — provably once-coupled (only the accept-time snap
+        # copies the float exactly) and severed later, e.g. by a delete +
+        # re-accept. Owner: "it shouldn't be that easy to unlink them." So
+        # the move resolves the geological contact the same way it resolves
+        # the litho pair — by depth, within the same 1.1 mm tolerance, at
+        # which distance accidental coincidence does not exist — carries it,
+        # and WRITES THE LINK BACK so the record self-heals on touch.
+        healed_geo_id: UUID | None = None
+        if linked_geo_id is None:
+            healed_geo_id = nearest_geo_contact_within_tolerance(
+                pre_move_boundary_m, geo_at_inv, _COINCIDENT_M
+            )
+        geo_contact_id: UUID | None = linked_geo_id or healed_geo_id
+        coupled_geo_id: UUID | None = None
+        if merging:
+            # A merge may land exactly ON a geological contact — the audit-F03
+            # wall REVERSED (owner, 2026-08-12: "yes allow it and couple them,
+            # this is unnecessary friction"). The landing neither moves nor
+            # crosses the geo contact; the litho contact comes to IT, so the
+            # two are coupled and the next drag carries both. The one landing
+            # that stays refused: this contact already carrying a DIFFERENT
+            # geological contact, which the merge would drop onto the landing's
+            # one — two geological contacts at one depth, a corrupt column.
+            landing_geo_id = nearest_geo_contact_within_tolerance(
+                boundary_m, geo_at_inv, _COINCIDENT_M
+            )
+            if landing_geo_id is not None and landing_geo_id != geo_contact_id:
+                if geo_contact_id is not None:
+                    raise GeotechBandEditError(
+                        "Contact move rejected: this contact carries its own "
+                        "geological contact, and another geological contact "
+                        "already sits at the landing — the merge would make the "
+                        "two coincide. Merge or move them on the geological "
+                        "axis first."
+                    )
+                coupled_geo_id = landing_geo_id
+                geo_contact_id = landing_geo_id
+        if geo_contact_id is not None and linked_geo_id is None:
+            litho_lower.parent_geo_contact_id = geo_contact_id
+            if coupled_geo_id is not None:
+                self.info(
+                    f"MoveRestatedContact: merge lands on geological contact "
+                    f"{coupled_geo_id} — litho layer {litho_lower.id} coupled to it "
+                    "(owner ruling 2026-08-12)"
+                )
+            else:
+                self.info(
+                    f"MoveRestatedContact: healed severed litho→geo link — layer "
+                    f"{litho_lower.id} re-coupled to coinciding contact {geo_contact_id}"
+                )
+
         # --- the write: three levels, one transaction ------------------------
         deleted_band_ids: tuple[UUID, ...] = ()
         if merging:
@@ -287,41 +362,6 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
         litho_upper.depth_base_m = boundary_m
         litho_lower.depth_top_m = boundary_m
 
-        geo_contact_id: UUID | None = litho_lower.parent_geo_contact_id
-        if geo_contact_id is None:
-            # COINCIDENCE COUPLES (owner ruling 2026-08-11, audit F34). The dev
-            # model held litho rows sitting bit-for-bit ON a geological contact
-            # with no link — provably once-coupled (only the accept-time snap
-            # copies the float exactly) and severed later, e.g. by a delete +
-            # re-accept. Owner: "it shouldn't be that easy to unlink them." So
-            # the move resolves the geological contact the same way it resolves
-            # the litho pair — by depth, within the same 1.1 mm tolerance, at
-            # which distance accidental coincidence does not exist — carries it,
-            # and WRITES THE LINK BACK so the record self-heals on touch.
-            geo_model_id = (
-                await self._session.execute(
-                    select(GeologicalModelOrm.parent_model_id).where(
-                        GeologicalModelOrm.id == litho_lower.model_id
-                    )
-                )
-            ).scalar_one_or_none()
-            if geo_model_id is not None:
-                geo_at_inv = await load_geo_contacts_at_investigation(
-                    self._session,
-                    geo_model_id,
-                    borehole_id=litho_lower.borehole_id,
-                    cpt_id=litho_lower.cpt_id,
-                )
-                healed = nearest_geo_contact_within_tolerance(
-                    pre_move_boundary_m, geo_at_inv, _COINCIDENT_M
-                )
-                if healed is not None:
-                    litho_lower.parent_geo_contact_id = healed
-                    geo_contact_id = healed
-                    self.info(
-                        f"MoveRestatedContact: healed severed litho→geo link — layer "
-                        f"{litho_lower.id} re-coupled to coinciding contact {healed}"
-                    )
         if geo_contact_id is not None:
             geo_contact = await self._litho_repo.get_formation_contact(geo_contact_id)
             if geo_contact is None:
