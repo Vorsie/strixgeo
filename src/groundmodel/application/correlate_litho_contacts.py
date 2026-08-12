@@ -268,8 +268,10 @@ class CorrelateLithoContacts(GroundModelLogger):
                 band_b = await self._describe_geotech_band(cb.id)
                 self.warning(
                     f"CorrelateLithoContacts: cross-litho-body geotech correlation blocked — "
-                    f"contact_a={ca.id} ({band_a}) bodies={sorted(litho_bodies_of.get(str(ca.id), set()))!r} "
-                    f"contact_b={cb.id} ({band_b}) bodies={sorted(litho_bodies_of.get(str(cb.id), set()))!r}"
+                    f"contact_a={ca.id} ({band_a}) "
+                    f"bodies={sorted(litho_bodies_of.get(str(ca.id), set()))!r} "
+                    f"contact_b={cb.id} ({band_b}) "
+                    f"bodies={sorted(litho_bodies_of.get(str(cb.id), set()))!r}"
                 )
                 raise CrossLithoBodyCorrelationError(band_a=band_a, band_b=band_b)
 
@@ -439,14 +441,29 @@ class CorrelateLithoContacts(GroundModelLogger):
                 .first()
             )
 
+            # An enclosed unit's WRAPPER may not license this contact (owner
+            # ruling 2026-08-12 late evening): the wrapper exists on both
+            # sides of a lens boundary, so a tie licensed by it would bisect
+            # the very body that licensed it. The unit's OWN body always
+            # stays — same-body ties are the legitimate case.
+            excluded: set[str] = set()
             for band in (below, above):
                 if band is None:
                     continue
-                body = await self._containing_litho_body(
-                    litho_model_id=litho_model_id, band=band
+                unit = await self._containing_litho_layer(litho_model_id=litho_model_id, band=band)
+                if unit is None or unit.body_id is None:
+                    continue
+                result[key].add(str(unit.body_id))
+                wrapper = await self._enclosing_body_of(litho_model_id=litho_model_id, unit=unit)
+                if wrapper is not None:
+                    excluded.add(wrapper)
+            if excluded & result[key]:
+                self.debug(
+                    f"_resolve_litho_bodies_for_geotech: contact {contact_id} — "
+                    f"wrapper bodies {sorted(excluded & result[key])!r} excluded "
+                    "(enclosed-lens rule)"
                 )
-                if body is not None:
-                    result[key].add(body)
+            result[key] -= excluded
             self.debug(
                 f"_resolve_litho_bodies_for_geotech: geotech contact {contact_id} "
                 f"-> adjacent litho bodies {sorted(result[key])!r}"
@@ -475,6 +492,31 @@ class CorrelateLithoContacts(GroundModelLogger):
             The containing accepted litho layer's ``body_id``, or ``None``
             when no containing layer exists or its body is not yet stamped.
         """
+        litho_layer = await self._containing_litho_layer(litho_model_id=litho_model_id, band=band)
+        if litho_layer is None or litho_layer.body_id is None:
+            return None
+        return str(litho_layer.body_id)
+
+    async def _containing_litho_layer(
+        self,
+        *,
+        litho_model_id: UUID,
+        band: LithoLayerOrm,
+    ) -> LithoLayerOrm | None:
+        """Return the accepted litho layer containing *band*, or ``None``.
+
+        Parameters
+        ----------
+        litho_model_id : UUID
+            The parent lithostratigraphic model.
+        band : LithoLayerOrm
+            A geotech band (litho_layer row on the geotech model).
+
+        Returns
+        -------
+        LithoLayerOrm | None
+            The containing accepted litho layer row.
+        """
         if band.cpt_id is not None:
             inv_filter = LithoLayerOrm.cpt_id == band.cpt_id
         elif band.borehole_id is not None:
@@ -492,17 +534,78 @@ class CorrelateLithoContacts(GroundModelLogger):
                     LithoLayerOrm.depth_base_m >= band.depth_base_m - _DEPTH_CONTAINMENT_EPS_M,
                 )
             )
-            # At most one accepted litho layer can contain a geotech band on
-            # this anchor (the ``litho_layer_accepted_no_overlap`` exclusion
-            # constraint). The ``order_by`` keeps the pick deterministic if
-            # that constraint is ever relaxed or bypassed by a migration.
             .order_by(LithoLayerOrm.depth_top_m)
             .limit(1)
         )
-        litho_layer = (await self._session.execute(stmt)).scalars().first()
-        if litho_layer is None or litho_layer.body_id is None:
+        return (await self._session.execute(stmt)).scalars().first()
+
+    async def _enclosing_body_of(
+        self,
+        *,
+        litho_model_id: UUID,
+        unit: LithoLayerOrm,
+    ) -> str | None:
+        """The body wrapping *unit* above AND below, or ``None``.
+
+        Owner ruling 2026-08-12 (late evening): a unit whose litho-stack
+        neighbours share one body is an ENCLOSED LENS in that body — its
+        boundaries are the lens's, not a through-going horizon of the
+        wrapper. Tying "the wrapper's surface" at a lens boundary would
+        bisect the wrapper (*"adding this correlation would mean we would
+        split the clay body in 2"*), so the wrapper may not license a tie at
+        this unit's contacts.
+
+        Parameters
+        ----------
+        litho_model_id : UUID
+            The parent lithostratigraphic model.
+        unit : LithoLayerOrm
+            The accepted litho layer whose neighbourhood is inspected.
+
+        Returns
+        -------
+        str | None
+            The wrapping body id when the stack neighbours above and below
+            both exist and share one non-null body that differs from the
+            unit's own; ``None`` otherwise.
+        """
+        if unit.cpt_id is not None:
+            inv_filter = LithoLayerOrm.cpt_id == unit.cpt_id
+        elif unit.borehole_id is not None:
+            inv_filter = LithoLayerOrm.borehole_id == unit.borehole_id
+        else:
             return None
-        return str(litho_layer.body_id)
+
+        async def _neighbour(above: bool) -> LithoLayerOrm | None:
+            anchor = unit.depth_top_m if above else unit.depth_base_m
+            column = LithoLayerOrm.depth_base_m if above else LithoLayerOrm.depth_top_m
+            stmt = (
+                select(LithoLayerOrm)
+                .where(
+                    and_(
+                        LithoLayerOrm.model_id == litho_model_id,
+                        LithoLayerOrm.status == "accepted",
+                        inv_filter,
+                        column >= anchor - _DEPTH_CONTAINMENT_EPS_M,
+                        column <= anchor + _DEPTH_CONTAINMENT_EPS_M,
+                        LithoLayerOrm.id != unit.id,
+                    )
+                )
+                .limit(1)
+            )
+            return (await self._session.execute(stmt)).scalars().first()
+
+        above_unit = await _neighbour(above=True)
+        below_unit = await _neighbour(above=False)
+        if above_unit is None or below_unit is None:
+            return None
+        if above_unit.body_id is None or above_unit.body_id != below_unit.body_id:
+            return None
+        if unit.body_id is not None and above_unit.body_id == unit.body_id:
+            # Same-body enclosure is the enclosed-lens-merge family, not a
+            # wrapper — dropping the unit's own body would empty legit sets.
+            return None
+        return str(above_unit.body_id)
 
     async def _describe_geotech_band(self, contact_id: UUID) -> str:
         """Name a geotech band for the refusal toast: formation @ investigation.
