@@ -73,6 +73,7 @@ BUNDLE_COLLECTION_KEYS: tuple[str, ...] = (
     "bodies",
     "formation_absences",
     "litho_contact_correlation_edges",
+    "body_geometry_facts",
     "body_boundary_shapes",
     "body_boundary_nodes",
     "litho_solids",
