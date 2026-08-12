@@ -209,6 +209,14 @@ export interface RawLayerContact {
   topElev: number
   /** Raw base-contact elevation (mTAW). */
   baseElev: number
+  /**
+   * The raw unit's formation — consumed by the IDENTITY augmentation
+   * (``fillIdentity.ts``): a region's column-edge span attributes only
+   * SAME-formation drilled units, and the enclosed-lens merge may have spliced
+   * the unit out of ``ColumnGeom.units`` (or grown a host over it), so the
+   * normalised stack cannot answer "what formation was drilled here".
+   */
+  formationId: string
 }
 
 /** The whole normalised section, ready for curve emission. */
@@ -301,6 +309,7 @@ export function buildSectionInput(
         colIndex: survivingColIndex,
         topElev: u.topElev,
         baseElev: u.baseElev,
+        formationId: u.formationId,
       })
     }
     // Enclosed-lens extraction (matrix merge + lens-as-hole) — guarded OFF; see the
