@@ -124,5 +124,5 @@ export async function assembleBodyRecomputePayload(
     lithoLayers: layers,
     edgesBySectionId,
   })
-  return buildBodyRecomputePayload(sectionInputs, layers, boundariesByBodyId, logLabel)
+  return buildBodyRecomputePayload(sectionInputs, boundariesByBodyId, logLabel)
 }
