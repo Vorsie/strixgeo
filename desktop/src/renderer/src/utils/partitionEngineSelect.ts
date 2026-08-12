@@ -248,7 +248,10 @@ export function computeSectionFillActive(
 /**
  * Identity-carrying variant of {@link computeSectionFillActive} (slice 5, "persist
  * geometric body identity"): the partition regions relabelled by the FALLBACK-EXCLUDING
- * body weld, plus that weld's merge groups (original body ids per connected component).
+ * body weld, plus that weld's merge groups in LAYER-id space (per connected component,
+ * the union of member regions' ``layerIds``; components with fewer than two layers are
+ * dropped — see ``partitionFillV2/fillIdentity.ts`` for why layer ids, never body ids,
+ * are the wire currency).
  *
  * The v2 engine's ordinary output welds same-litho regions THROUGH substrate/flood
  * fallback paint so the render reads coherently; the identity the backend persists must
@@ -261,7 +264,7 @@ export function computeSectionFillActive(
  * -------
  * { regions: SectionRegion[]; groups: string[][]; engineV2: boolean }
  *     ``regions`` — the identity-relabelled partition (v2) or the plain v1 output.
- *     ``groups`` — the per-component ORIGINAL body ids (``[]`` on v1).
+ *     ``groups`` — the per-component LAYER ids (``[]`` on v1).
  *     ``engineV2`` — which engine produced them (payload logging).
  */
 export function computeSectionFillActiveWithIdentity(
