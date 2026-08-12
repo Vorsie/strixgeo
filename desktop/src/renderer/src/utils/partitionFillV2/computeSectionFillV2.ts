@@ -34,7 +34,7 @@ import { clearForceOnlapUnits, parseForceOnlapKey, type ReviewFlag, setForceOnla
 import { computeFillIdentity, type FillIdentity } from './fillIdentity'
 import { labelFaces } from './labelFaces'
 import { mergeTouchingBodies } from './mergeTouchingBodies'
-import { buildSectionInput, type ColumnGeom } from './sectionGeom'
+import { buildSectionInput, type ColumnGeom, type RawLayerContact } from './sectionGeom'
 import { sliceFaces } from './slice'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 import {
@@ -149,6 +149,10 @@ type FillPass = {
    *  identity merge (``FillIdentity``) runs with the SAME per-gap snap tolerance the display
    *  merge used rather than the columns-unknown fallback. */
   sectionColumns: readonly ColumnGeom[]
+  /** The pass's RAW picked-unit contacts (pre-enclosed-lens-merge), feeding the identity
+   *  path's geometric column-edge attribution (``fillIdentity.ts``) — the normalised stack
+   *  cannot answer "what was drilled here" once the merge spliced a unit out. */
+  rawLayerContacts?: ReadonlyMap<string, RawLayerContact>
 }
 
 /**
@@ -223,7 +227,14 @@ export function classifyOverrideOutcome(
   ): FillPass => {
     const section = buildSectionInput(columns, edges, ov, alongM)
     if (section.columns.length < 2)
-      return { sliced: [], merged: [], conflicts: [], repaired: [], sectionColumns: section.columns }
+      return {
+        sliced: [],
+        merged: [],
+        conflicts: [],
+        repaired: [],
+        sectionColumns: section.columns,
+        rawLayerContacts: section.rawLayerContacts,
+      }
     const onePass = (): { sliced: SectionRegion[]; merged: SectionRegion[]; conflicts: TieConflict[]; sectionColumns: readonly ColumnGeom[] } => {
       const { curves, conflicts, lensLabels } = emitCurves(section)
       const arrangement = buildArrangement(curves)
@@ -240,7 +251,8 @@ export function classifyOverrideOutcome(
     }
     let result = onePass()
     // Flag-OFF (frozen v1 seam) never enters the repair — it has no HOIST onlap to force.
-    if (!twoSidedTerminationsEnabled()) return { ...result, repaired: [] }
+    if (!twoSidedTerminationsEnabled())
+      return { ...result, repaired: [], rawLayerContacts: section.rawLayerContacts }
     // Accumulate the forced-onlap set across up to REPAIR_ITERS re-runs: each pass may reveal a
     // fresh flooded unit; stop as soon as a pass adds nothing new (fixed point) or the cap is hit.
     const forced = new Set<string>()
@@ -259,13 +271,15 @@ export function classifyOverrideOutcome(
     // ``repaired`` (the forced-onlap keys) are exposed as REVIEW FLAGS: the uncorrelated same-litho
     // neighbours the repair re-emitted. The engine fixed the data loss; the UI surfaces them so the
     // user can correlate the pair into one band (or confirm separate).
-    return { ...result, repaired: [...forced] }
+    return { ...result, repaired: [...forced], rawLayerContacts: section.rawLayerContacts }
   }
 
   // The identity view of the pass a return hands out (see ``fillIdentity.ts``). Computed only
   // on request, and only at the ONE return that wins — never per repair iteration.
   const identityOf = (pass: FillPass): FillIdentity | undefined =>
-    opts?.withIdentity === true ? computeFillIdentity(pass.sliced, pass.sectionColumns) : undefined
+    opts?.withIdentity === true
+      ? computeFillIdentity(pass.sliced, pass.sectionColumns, pass.rawLayerContacts)
+      : undefined
 
   // No override → the byte-identical single-pass fill, reported as ``unsupported`` (nothing to apply).
   if (!lensApexOverrides || lensApexOverrides.size === 0) {
