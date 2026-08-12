@@ -671,6 +671,26 @@ export interface LithoBodySolidResponse {
 }
 
 /**
+ * Result of ``POST .../bodies/recompute`` — the geometric-body-identity recompute
+ * (slice 5). The backend consumes the FE's per-section partitions + merge groups,
+ * rewrites the geometry facts, and re-resolves body identity.
+ */
+export interface RecomputeBodiesResponse {
+  /** Geometry-fact rows written by this recompute. */
+  facts_written: number
+  /** Stale fact rows dropped (superseded by this payload). */
+  facts_dropped_stale: number
+  /** Bodies unified by the re-resolve. */
+  bodies_merged: number
+  /** Bodies split apart by the re-resolve. */
+  bodies_split: number
+  /** Body ids named in the payload the backend could not resolve. */
+  unresolved_body_ids: string[]
+  /** Bodies whose display name was displaced by a merge/split. */
+  renamed: string[]
+}
+
+/**
  * Result of ``POST .../litho-solids/build-voxel``.
  *
  * Mirrors ``RebuildSurfacesResponse`` for the geological TIN pipeline,
