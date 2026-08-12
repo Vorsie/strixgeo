@@ -672,8 +672,9 @@ export interface LithoBodySolidResponse {
 
 /**
  * Result of ``POST .../bodies/recompute`` — the geometric-body-identity recompute
- * (slice 5). The backend consumes the FE's per-section partitions + merge groups,
- * rewrites the geometry facts, and re-resolves body identity.
+ * (slice 5). The backend consumes the FE's per-section partitions + LAYER-id
+ * groups (label-independent evidence — body-id evidence oscillated in
+ * production), rewrites the geometry facts, and re-resolves body identity.
  */
 export interface RecomputeBodiesResponse {
   /** Geometry-fact rows written by this recompute. */
@@ -684,8 +685,6 @@ export interface RecomputeBodiesResponse {
   bodies_merged: number
   /** Bodies split apart by the re-resolve. */
   bodies_split: number
-  /** Body ids named in the payload the backend could not resolve. */
-  unresolved_body_ids: string[]
   /** Bodies whose display name was displaced by a merge/split. */
   renamed: string[]
 }
