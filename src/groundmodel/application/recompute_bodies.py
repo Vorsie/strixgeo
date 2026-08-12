@@ -14,12 +14,13 @@ The flow, one transaction:
    a frontend that fired before its data loaded, not a statement.
 2. Take a per-model advisory lock: two concurrent recomputes would interleave
    their full-replaces and the stale one could land last.
-3. ``plan_body_aliases`` over the payload sections (cross-section unions at
-   shared columns and fence crossings — the existing stage-2 rule, reused
-   verbatim), unioned with the frontend's per-section merge groups, translated
-   to layer-pair facts by :func:`plan_geometry_facts` (layer ids from the
-   payload's OWN snapshot, so a previous recompute's restamp can never orphan
-   this one).
+3. All evidence in LAYER-id space: the frontend's per-section connectivity
+   groups plus ``plan_layer_groups`` over the payload sections (the stage-2
+   geometric tests — shared columns and fence crossings — keyed on region
+   identity). Layer ids never change, so the recompute is idempotent by
+   construction. The first design used BODY ids and oscillated in production:
+   a merge erased its own evidence on the next payload (facts 74 → 3 → 69,
+   dogfeed 2026-08-12 evening).
 4. Facts referencing layers the model no longer holds are dropped and counted
    (a stale snapshot degrades to slightly-old facts, never to a 500).
 5. Full replace of the model's facts, then ``ResolveLithoInstances`` stamps
@@ -41,7 +42,7 @@ from uuid6 import uuid7
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.body_fact_translation import plan_geometry_facts
 from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (
-    plan_body_aliases,
+    plan_layer_groups,
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
@@ -69,9 +70,6 @@ class RecomputeBodiesResult:
     bodies_split : int
         The mirror: per prior body, distinct surviving bodies among its
         members, minus one.
-    unresolved_body_ids : tuple[str, ...]
-        Body ids named by the payload's evidence with no member layers —
-        their adjacency could not be persisted.
     renamed : tuple[str, ...]
         Names displaced by a merge (oldest name wins). Filled by the
         lineage-adoption step; empty until then.
@@ -81,7 +79,6 @@ class RecomputeBodiesResult:
     facts_dropped_stale: int
     bodies_merged: int
     bodies_split: int
-    unresolved_body_ids: tuple[str, ...]
     renamed: tuple[str, ...] = ()
 
 
@@ -105,8 +102,7 @@ class RecomputeBodies(GroundModelLogger):
         *,
         model_id: UUID,
         sections: list[SectionPartitionInput],
-        section_body_groups: list[list[list[str]]],
-        body_members: dict[str, list[str]],
+        section_layer_groups: list[list[list[str]]],
     ) -> RecomputeBodiesResult:
         """Replace the model's geometry facts and re-stamp body ids.
 
@@ -119,11 +115,11 @@ class RecomputeBodies(GroundModelLogger):
             Every section's partition, as the frontend renders it (fallback
             regions already omitted — the owner's rule: fallback paint never
             defines identity).
-        section_body_groups : list[list[list[str]]]
-            Per section (parallel to ``sections``), the frontend's per-section
-            merge groups of ORIGINAL body ids.
-        body_members : dict[str, list[str]]
-            Body id → member layer ids, from the frontend's own snapshot.
+        section_layer_groups : list[list[list[str]]]
+            Per section (parallel to ``sections``), the frontend's fill
+            connectivity groups of LAYER ids — label-independent evidence
+            (body-labelled evidence oscillated: a merge erased its own
+            grounds on the next payload).
 
         Returns
         -------
@@ -137,8 +133,7 @@ class RecomputeBodies(GroundModelLogger):
         """
         self.info(
             f"RecomputeBodies: model={model_id} sections={len(sections)} "
-            f"groups={sum(len(g) for g in section_body_groups)} "
-            f"bodies_in_snapshot={len(body_members)}"
+            f"layer_groups={sum(len(g) for g in section_layer_groups)}"
         )
         if not sections or all(len(s.regions) == 0 for s in sections):
             raise EmptyRecomputePayloadError(
@@ -154,18 +149,10 @@ class RecomputeBodies(GroundModelLogger):
             {"k": f"recompute-bodies:{model_id}"},
         )
 
-        aliases = plan_body_aliases(sections)
         planned = plan_geometry_facts(
-            section_body_groups=section_body_groups,
-            cross_section_aliases=aliases,
-            body_members=body_members,
+            section_layer_groups=section_layer_groups,
+            cross_section_layer_groups=plan_layer_groups(sections),
         )
-        if planned.unresolved_body_ids:
-            self.warning(
-                f"RecomputeBodies: {len(planned.unresolved_body_ids)} body id(s) in the "
-                f"evidence carry no member layers — their adjacency is dropped: "
-                f"{list(planned.unresolved_body_ids)[:5]}"
-            )
 
         # Pre-image: the layer→body partition BEFORE the resolve, and the set
         # of live layer ids the stale filter checks against.
@@ -235,7 +222,6 @@ class RecomputeBodies(GroundModelLogger):
             facts_dropped_stale=dropped,
             bodies_merged=merged,
             bodies_split=split,
-            unresolved_body_ids=planned.unresolved_body_ids,
             renamed=resolve_result.renamed,
         )
 
