@@ -231,6 +231,19 @@ export interface Coordinator {
    * as ``geoDeepLinkTarget``.
    */
   correlationEdgesRefetchNonce: number
+  /**
+   * Body-identity recompute nonces (slice 5), one per model axis. Bumped (via
+   * ``requestBodyRecompute``) by every mutation that can move body geometry —
+   * tie create/delete/accept + their undo closures, edge-drag retargets, the
+   * toolbar auto-correlate / accept-all verbs, the geotech packing verbs,
+   * subdivide-cpts, section create/delete, litho layer accepts, and
+   * boundary-shape saves. Read by ``SectionsCanvas``, which schedules the
+   * debounced ``bodies/recompute`` POST for the bumped axis's model.
+   */
+  bodyRecomputeLithoNonce: number
+  bodyRecomputeGeotechNonce: number
+  /** Bump the recompute nonce of the model axis a mutation changed. */
+  requestBodyRecompute: (kind: 'litho' | 'geotech') => void
 }
 
 /**
