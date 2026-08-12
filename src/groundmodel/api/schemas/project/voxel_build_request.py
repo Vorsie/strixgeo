@@ -67,6 +67,11 @@ class RegionInputSchema(BaseModel):
     overlay_tier: Literal["onlap", "lens"] | None = None
     tied_band_base: float | None = None
     tie_clipped: bool = False
+    # Layer-level provenance for the body recompute (owner ruling 2026-08-12):
+    # connectivity evidence must name LAYERS, never bodies — the recompute
+    # restamps body ids, so body-labelled evidence fed back on itself and
+    # oscillated. The voxel build ignores it; additive, default empty.
+    layer_ids: list[str] = Field(default_factory=list)
 
     def to_domain(self) -> RegionInput:
         """Convert to the frozen domain :class:`RegionInput` value object."""
@@ -79,6 +84,7 @@ class RegionInputSchema(BaseModel):
             overlay_tier=self.overlay_tier,
             tied_band_base=self.tied_band_base,
             tie_clipped=self.tie_clipped,
+            layer_ids=tuple(self.layer_ids),
         )
 
 
