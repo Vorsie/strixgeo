@@ -1054,14 +1054,17 @@ def test_rc9_an_upward_merge_that_would_consume_the_unit_above_is_refused() -> N
         )
 
 
-def test_rc10_a_downward_merge_landing_on_a_geological_contact_is_refused() -> None:
-    """RC10 — the merge guard walls BOTH parents, like every packing verb does.
+def test_rc10_a_downward_merge_may_land_on_a_geological_contact() -> None:
+    """RC10 — landing ON a geological contact is a legal merge (owner, 2026-08-12).
 
-    A litho unit can span a geological contact (``enclosing_litho_bounds`` models
-    exactly that), and the guard checked only the litho parent — so a merge could
-    land ON the geological contact, the harder of the two walls (audit F03). The
-    packing verbs wall both via ``_assert_same_litho_body``; the restated planner
-    must too.
+    The audit-F03 wall refused this landing outright. The owner hit it on
+    GEO-10/170-S6 — the swallowed interval stayed inside ONE formation, the geo
+    contact did not move and was not crossed, the drag only landed exactly on
+    it — and reversed the wall: *"yes allow it and couple them, this is
+    unnecessary friction."* The planner now plans the merge; the WRITER couples
+    the litho contact to the coinciding geological contact (RM7) and still
+    refuses the one dangerous case, carrying a DIFFERENT geological contact
+    onto this one (RM8).
     """
     depths, qc = _series([(0.0, 10.0, 5.0)])
     bands = [
@@ -1072,24 +1075,28 @@ def test_rc10_a_downward_merge_landing_on_a_geological_contact_is_refused() -> N
         _band("floor", 7.0, 10.0, None, litho=LITHO_B, geo=GEO_2),
     ]
 
-    with pytest.raises(GeotechBandEditError, match="geological"):
-        plan_restated_contact_move(
-            bands=bands,
-            upper_band_id="upper",
-            lower_band_id="lower",
-            new_depth_m=7.0,
-            upper_soil="ZAND",
-            upper_admixtures=(),
-            lower_soil="KLEI",
-            lower_admixtures=(),
-            depth_m=depths,
-            qc_mpa=qc,
-            min_thickness_m=0.1,
-        )
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=7.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    assert plan.kind == KIND_MERGE
+    assert plan.absorbs == "lower"
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (0.0, 7.0)
 
 
-def test_rc11_an_upward_merge_landing_on_a_geological_contact_is_refused() -> None:
-    """RC11 — the mirror for the upward direction."""
+def test_rc11_an_upward_merge_may_land_on_a_geological_contact() -> None:
+    """RC11 — the mirror for the upward direction (same 2026-08-12 ruling)."""
     depths, qc = _series([(0.0, 10.0, 5.0)])
     bands = [
         _band("ceiling", 0.0, 3.0, None, litho=LITHO_A, geo=GEO_1),
@@ -1098,20 +1105,24 @@ def test_rc11_an_upward_merge_landing_on_a_geological_contact_is_refused() -> No
         _band("lower", 5.0, 10.0, None, litho=LITHO_B, geo=GEO_2),
     ]
 
-    with pytest.raises(GeotechBandEditError, match="geological"):
-        plan_restated_contact_move(
-            bands=bands,
-            upper_band_id="upper",
-            lower_band_id="lower",
-            new_depth_m=3.0,
-            upper_soil="ZAND",
-            upper_admixtures=(),
-            lower_soil="KLEI",
-            lower_admixtures=(),
-            depth_m=depths,
-            qc_mpa=qc,
-            min_thickness_m=0.1,
-        )
+    plan = plan_restated_contact_move(
+        bands=bands,
+        upper_band_id="upper",
+        lower_band_id="lower",
+        new_depth_m=3.0,
+        upper_soil="ZAND",
+        upper_admixtures=(),
+        lower_soil="KLEI",
+        lower_admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    assert plan.kind == KIND_MERGE
+    assert plan.absorbs == "upper"
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (3.0, 10.0)
 
 
 def test_sp_r1_the_split_previews_the_depth_the_commit_writes() -> None:
