@@ -471,3 +471,126 @@ async def test_rm6_a_coinciding_but_unlinked_geo_contact_is_carried_and_relinked
     assert litho[1].parent_geo_contact_id == geo_contact_id, (
         "the move must heal the severed link, not just carry the contact once"
     )
+
+
+async def _geo_contact_at(db_session: AsyncSession, scene: dict, name: str, depth_m: float) -> UUID:
+    """Create an unlinked geological contact at ``depth_m`` on the scene's CPT."""
+    geo_formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=UUID(scene["project_id"]),
+        name=name,
+        color="#888888",
+        display_order=1,
+    )
+    db_session.add(geo_formation)
+    await db_session.flush()
+    geo_contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=UUID(scene["geo_model_id"]),
+        formation_id=geo_formation.id,
+        cpt_id=scene["cpt_id"],
+        depth_top_m=depth_m,
+        source="manual_pick",
+    )
+    db_session.add(geo_contact)
+    await db_session.commit()
+    return geo_contact.id
+
+
+@pytest.mark.asyncio
+async def test_rm7_a_merge_landing_on_a_geological_contact_couples_them(
+    contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RM7 — the 2026-08-12 ruling: a landing ON a geo contact is a merge + couple.
+
+    The audit-F03 wall 422'd this exact gesture. The owner hit it on
+    GEO-10/170-S6 — the swallowed interval stayed inside one formation, the geo
+    contact neither moved nor was crossed — and reversed the wall: *"yes allow
+    it and couple them, this is unnecessary friction."* So the drag-merge that
+    lands exactly on a geological contact absorbs the band, and the surviving
+    litho contact is COUPLED (``parent_geo_contact_id``) to the contact it now
+    coincides with, so the next drag carries it like any restated boundary.
+    """
+    gid = await _subdivide(async_client, contact_scene)
+    upper, lower = await _contact_pair(db_session, gid, contact_scene["cpt_id"])
+    upper_id, lower_id = upper.id, lower.id
+    # A geological contact interior to the KLEI unit, exactly at the packing
+    # boundary the downward drag-merge lands on. NO link anywhere.
+    landing_contact_id = await _geo_contact_at(db_session, contact_scene, "RM7-Formatie", 9.0)
+
+    resp = await async_client.post(
+        _move_url(contact_scene, gid),
+        json={
+            "upper_band_id": str(upper_id),
+            "lower_band_id": str(lower_id),
+            "new_depth_m": 9.0,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted_layer_ids"] == [str(lower_id)]
+    assert resp.json()["geo_contact_id"] == str(landing_contact_id), (
+        "the response must name the geological contact the landing coupled to"
+    )
+
+    db_session.expire_all()
+    litho = await _litho_rows(db_session, contact_scene["litho_model_id"], contact_scene["cpt_id"])
+    assert litho[0].depth_base_m == pytest.approx(9.0)
+    assert litho[1].depth_top_m == pytest.approx(9.0)
+    assert litho[1].parent_geo_contact_id == landing_contact_id, (
+        "landing on the geological contact must couple the litho contact to it"
+    )
+    landed = await db_session.get(FormationContactOrm, landing_contact_id)
+    assert landed is not None and landed.depth_top_m == pytest.approx(9.0), (
+        "the geological contact itself stays where it was — the litho contact came to IT"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rm8_a_merge_carrying_a_geo_contact_onto_another_is_refused(
+    contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RM8 — the one landing that stays refused: two geo contacts may not coincide.
+
+    When the dragged litho contact CARRIES its own geological contact (RM2's
+    arm), a merge landing on a second geological contact would move the carried
+    one onto it — two geological contacts at one depth, a corrupt geological
+    column. The planner cannot see coupling (it is pure over bands), so the
+    WRITER refuses, before anything is written. Without this guard the write
+    went through today: the F03 wall only fired when the BANDS were built with
+    the geo stamps, so a contact added after the build sailed past it.
+    """
+    gid = await _subdivide(async_client, contact_scene)
+    upper, lower = await _contact_pair(db_session, gid, contact_scene["cpt_id"])
+    upper_id, lower_id = upper.id, lower.id
+    band_count_before = len(await _bands(db_session, gid, contact_scene["cpt_id"]))
+
+    # The dragged contact carries geological contact A at 6.0 m...
+    carried_contact_id = await _geo_contact_at(db_session, contact_scene, "RM8-Formatie-A", 6.0)
+    litho = await _litho_rows(db_session, contact_scene["litho_model_id"], contact_scene["cpt_id"])
+    litho[1].parent_geo_contact_id = carried_contact_id
+    await db_session.commit()
+    # ...and geological contact B sits at the 9.0 m landing.
+    landing_contact_id = await _geo_contact_at(db_session, contact_scene, "RM8-Formatie-B", 9.0)
+
+    resp = await async_client.post(
+        _move_url(contact_scene, gid),
+        json={
+            "upper_band_id": str(upper_id),
+            "lower_band_id": str(lower_id),
+            "new_depth_m": 9.0,
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert "geological axis" in resp.json()["detail"]["message"]
+
+    db_session.expire_all()
+    carried = await db_session.get(FormationContactOrm, carried_contact_id)
+    assert carried is not None and carried.depth_top_m == pytest.approx(6.0), (
+        "the refusal must write NOTHING — contact A stays at 6.0 m"
+    )
+    still_there = await db_session.get(FormationContactOrm, landing_contact_id)
+    assert still_there is not None and still_there.depth_top_m == pytest.approx(9.0)
+    litho = await _litho_rows(db_session, contact_scene["litho_model_id"], contact_scene["cpt_id"])
+    assert litho[0].depth_base_m == pytest.approx(6.0)
+    assert litho[1].depth_top_m == pytest.approx(6.0)
+    assert len(await _bands(db_session, gid, contact_scene["cpt_id"])) == band_count_before
