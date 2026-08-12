@@ -35,8 +35,7 @@ const PAYLOAD: RecomputeBodiesRequest = {
   sections: [
     { start_x: 0, start_y: 0, end_x: 1, end_y: 0, columns: [], regions: [] },
   ],
-  body_groups: [[]],
-  body_members: {},
+  layer_groups: [[]],
 }
 
 const OK_RESULT = {
@@ -44,7 +43,6 @@ const OK_RESULT = {
   facts_dropped_stale: 0,
   bodies_merged: 0,
   bodies_split: 0,
-  unresolved_body_ids: [],
   renamed: [],
 }
 
