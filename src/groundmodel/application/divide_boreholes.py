@@ -106,7 +106,8 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
-    load_approved_litho_edges,
+    load_approved_litho_edge_sets,
+    load_existing_geotech_base_pairs_by_section,
     load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
@@ -1294,11 +1295,17 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
             self._session, geotech_model_id
         )
+        seen_base_by_section = await load_existing_geotech_base_pairs_by_section(
+            self._session, geotech_model_id
+        )
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
         edge_totals = EdgeDerivationCounts()
         for section in sections:
-            approved = await load_approved_litho_edges(self._session, litho_model_id, section.id)
+            edge_sets = await load_approved_litho_edge_sets(
+                self._session, litho_model_id, section.id
+            )
+            approved = edge_sets.pairs
             if not approved:
                 continue
             # Bridging is a no-op for a fully divided model (every column now
@@ -1321,6 +1328,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     # 2026-08-06 refinement: restating pairs accepted,
                     # interior + bridged pairs pending.
                     direct_litho_pairs=approved,
+                    # Owner ruling 2026-08-13: a litho bottom tie restates
+                    # as a base↔base edge between the deepest bands.
+                    litho_bottom_tie_pairs=edge_sets.bottom_tie_pairs,
+                    seen_base_pairs=seen_base_by_section.setdefault(section.id, set()),
                 )
             )
         self.info(
