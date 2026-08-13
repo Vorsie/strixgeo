@@ -11,9 +11,12 @@ Design
 ------
 The derivation is a pure-ish DB writer: given a litho edge (a correlated
 litho-unit pair traced across two tests), it collects the geotech sub-band
-stack inside that litho unit on each test, aligns the two NAD-class sequences
-with ``aligned_same_class_pairs`` (LCS), and emits one geotech edge per aligned
-pair.  The caller controls the dedup scope by passing a ``seen_layer_pairs``
+stack inside that litho unit on each test, aligns the two stacks (a direct
+litho pair via ``aligned_pairs_with_forced_top`` — the topmost pair is forced
+regardless of class, owner ruling 2026-08-13; a bridged pair via the plain
+class-matched ``aligned_same_class_pairs`` LCS), and emits one geotech edge
+per aligned pair, plus a base↔base restatement of any litho bottom tie.  The
+caller controls the dedup scope by passing a ``seen_layer_pairs``
 set — and that set MUST be per-section, because geotech edges are
 section-scoped (the same layer pair can legitimately exist on two sections).
 SAB uses a fresh set per section (CPT↔CPT edges); DivideBoreholes preloads each
@@ -177,40 +180,6 @@ async def load_litho_layer_depths(
     return result
 
 
-async def load_approved_litho_edges(
-    session: AsyncSession, litho_model_id: UUID, section_id: UUID
-) -> set[tuple[UUID, UUID]]:
-    """Load a section's approved litho edges as canonical ``(min, max)`` pairs.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active DB session.
-    litho_model_id : UUID
-        The litho model.
-    section_id : UUID
-        The section (edges are section-scoped).
-
-    Returns
-    -------
-    set[tuple[UUID, UUID]]
-        Canonical layer-id pairs of approved litho edges on the section.
-    """
-    rows = (
-        await session.execute(
-            select(
-                LithoContactCorrelationEdgeOrm.layer_a_id,
-                LithoContactCorrelationEdgeOrm.layer_b_id,
-            ).where(
-                LithoContactCorrelationEdgeOrm.model_id == litho_model_id,
-                LithoContactCorrelationEdgeOrm.section_id == section_id,
-                LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-            )
-        )
-    ).all()
-    return {(min(a, b), max(a, b)) for a, b in rows}
-
-
 @dataclass(frozen=True)
 class ApprovedLithoEdgeSets:
     """A section's approved litho edges, split by what they can restate.
@@ -219,8 +188,7 @@ class ApprovedLithoEdgeSets:
     ----------
     pairs : set[tuple[UUID, UUID]]
         Canonical ``(min, max)`` layer pairs of EVERY approved litho edge on
-        the section, any sides — the alignment driver (unchanged from
-        :func:`load_approved_litho_edges`).
+        the section, any sides — the alignment driver.
     bottom_tie_pairs : set[tuple[UUID, UUID]]
         The subset whose edge is a base↔base bottom tie.  Its restatement is
         the two DEEPEST bands with base sides — the only path by which a
@@ -237,9 +205,9 @@ async def load_approved_litho_edge_sets(
 ) -> ApprovedLithoEdgeSets:
     """Load a section's approved litho edges WITH their bottom-tie subset.
 
-    Successor of :func:`load_approved_litho_edges`, which discarded the sides
-    and thereby made a litho bottom tie indistinguishable from a top tie —
-    the derivation then restated every litho tie as ``top/top`` only.
+    The retired pair-only loader discarded the sides, which made a litho
+    bottom tie indistinguishable from a top tie — the derivation then
+    restated every litho tie as ``top/top`` only.
 
     Parameters
     ----------
