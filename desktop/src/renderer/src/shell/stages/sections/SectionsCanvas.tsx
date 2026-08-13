@@ -73,6 +73,10 @@ import { useEdgeDragRetarget } from './useEdgeDragRetarget'
 import { useLithoGeoSnapDialog } from './useLithoGeoSnapDialog'
 import { useManualLithoUnit } from './useManualLithoUnit'
 import { SectionScopeContext } from '../../../components/sections/SectionScopeContext'
+import type {
+  GeotechAxisModel,
+  GeotechFormationMeta,
+} from '../../../components/sections/geotechAxisModel'
 
 /**
  * Center canvas for the Sections stage.
@@ -534,18 +538,22 @@ export default function SectionsCanvas(): JSX.Element {
     LithoContactCorrelationEdge[]
   >([])
 
-  // NOTE ON PLACEMENT: this memo reads `geotechPackingEdges`, so it must stay
-  // BELOW that state declaration — above it the const is in its temporal dead
-  // zone and the component throws on first render (TS2448 caught it here).
-  // Geotech fraction-space refinement bundle (owner-locked 2026-07-06). On the
-  // geotech axis PartitionFillOverlay refines the litho partition by NAD packing
-  // class using these three maps: the geotech sub-band rows, the geotech
-  // formation â†’ (NAD class, soil code) metadata, and the litho formation â†’ soil
-  // code map (the hard soil-code guard so a sand region never carries a foreign
-  // class). `undefined` off the geotech axis â†’ normal litho render.
-  const geotechRefinement = useMemo(() => {
+  // The active geotech model, as the geotech axis reads it (owner ruling
+  // 2026-08-13). PartitionFillOverlay partitions `geotechLayers` DIRECTLY - the
+  // same computation the 3-D build arm runs - so this bundle no longer carries a
+  // pre-filtered packing-edge list: the overlay's partition is framed by the
+  // `geotechCorrelationEdges` prop below, which is this same
+  // `geotechPackingEdges` state, filtered to approved inside the overlay exactly
+  // as `fetchApprovedEdgesBySection` filters for the build - so a pending auto
+  // proposal never silently reshapes the render before the engineer accepts it.
+  //
+  // What stays here is what the axis cannot read off the partition: the geotech
+  // formation -> (NAD class, soil code) metadata, and the litho formation ->
+  // soil code / colour maps that let an interval the packing model does not
+  // cover keep its lithology. `undefined` off the geotech axis.
+  const geotechAxisModel = useMemo((): GeotechAxisModel | undefined => {
     if (!isGeotech) return undefined
-    const nadMeta = new Map<string, { nadClass: number | null; soilCode: string | null }>()
+    const nadMeta = new Map<string, GeotechFormationMeta>()
     for (const f of geotechFormations) {
       nadMeta.set(f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null })
     }
@@ -555,28 +563,13 @@ export default function SectionsCanvas(): JSX.Element {
       lithoSoilByFormationId.set(f.id, f.litho_main_soil_code ?? null)
       lithoFormationColorById.set(f.id, f.color)
     }
-    // The approved packing ties drive the gap fill (owner ruling 2026-08-04:
-    // "correlate by hand between CPTs, so we can reuse the litho's 2/1/0
-    // ruling"). This is the SAME list the correlate overlay draws and the same
-    // rows the 3-D build fetches — filtered to approved here exactly as
-    // `fetchApprovedEdgesBySection` does, so a pending auto proposal does not
-    // silently reshape the render before the engineer accepts it.
-    const packingEdges = geotechPackingEdges
-      .filter(e => e.user_approved)
-      .map(e => ({
-        a: e.layer_a_id,
-        b: e.layer_b_id,
-        aSide: e.layer_a_side,
-        bSide: e.layer_b_side,
-      }))
     return {
       geotechLayers,
       nadMeta,
       lithoSoilByFormationId,
       lithoFormationColorById,
-      packingEdges,
     }
-  }, [isGeotech, geotechFormations, lithoFormations, geotechLayers, geotechPackingEdges])
+  }, [isGeotech, geotechFormations, lithoFormations, geotechLayers])
 
   // A restated-contact drag waiting for the engineer to accept its consequences.
   //
@@ -2196,12 +2189,13 @@ export default function SectionsCanvas(): JSX.Element {
               : isGeotech
                 ? [] // geotech axis: bodies resolved via correlations; no lens entities yet
                 : undefined,
-            // Frames the partition columns. sectionLayers == lithoLayers on BOTH
-            // the litho and geotech axes - the geotech partition is the litho
-            // partition REFINED by NAD packing class (geotechRefinement,
-            // owner-locked 2026-07-06), not a direct geotech-model fill.
+            // The LITHO model's layers on both axes. On the geotech axis they no
+            // longer frame the partition (SectionPanel swaps in the geotech
+            // model's own rows for that, owner ruling 2026-08-13) - they are the
+            // source of the litho envelopes drawn OVER the packing fills, and of
+            // the restated-contact / snap gestures that compare the two models.
             lithoLayers: isLitho || isGeotech ? sectionLayers : undefined,
-            refinement: geotechRefinement,
+            geotechModel: geotechAxisModel,
             // Ghost bands over undivided boreholes — geotech axis only, and
             // dropped per column the moment that column's committed bands land.
             geotechBoreholePreview: isGeotech ? boreholePreview.columns : undefined,
