@@ -303,6 +303,88 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     }
 
     writeFileSync(REPORT, rep.join(NL))
+
+    // ---- polygon dump for the visual companion -----------------------------
+    // Three variants at gaps 0/1:
+    //   render  — the shipped render arm (litho partition + fraction refinement)
+    //   direct  — the BUILD arm's engine run: computeSectionFill(GEOTECH cols,
+    //             GEOTECH edges) — the owner's "same engine, more classes"
+    //   fixed   — direct + the 3 restatement edges the derivation fails to
+    //             create today (cross-class topmost + base-base), to show what
+    //             the fill looks like once the derivation defect is fixed.
+    interface DumpPoly {
+      cls: string
+      kind: string
+      pts: [number, number][]
+    }
+    const dumpRegions = (regs: readonly (typeof regions)[number][]): DumpPoly[][] =>
+      [0, 1].map((gap) =>
+        regs
+          .filter((r) => r.gapIndex === gap)
+          .map((r) => ({
+            cls: clsOf(r.formationId),
+            kind: r.kind,
+            pts: r.polygon.map((p) => [p.fraction, p.elevation] as [number, number]),
+          })),
+      )
+
+    const geoPaired = sec.geotech.columns
+      .map((c, i) => ({ c, a: sec.geotech.alongM[i] }))
+      .filter(({ c }) => c.surfaceElevM != null && c.units.length > 0)
+      .sort((p, q) => p.a - q.a)
+    const geoColumns: PartitionColumn[] = geoPaired.map(({ c }) => ({
+      investigationId: c.investigationId,
+      surfaceElevM: c.surfaceElevM as number,
+      units: [...c.units].sort((a, b) => a.topDepthM - b.topDepthM),
+    }))
+    const geoAlongM = geoPaired.map(({ a }) => a)
+    const geoOverrides = deriveSectionApexOverrides(
+      geoColumns,
+      packingEdges,
+      geoAlongM,
+      new Map<string, BodyBoundaryResponse>(),
+      true,
+    )
+    const direct = computeSectionFillActive(geoColumns, packingEdges, geoOverrides, geoAlongM)
+
+    // The 3 restatements the derivation cannot produce today (by layer suffix).
+    const bySuffix = new Map<string, string>()
+    for (const l of sec.refinement.geotechLayers) bySuffix.set(l.id.slice(-6), l.id)
+    const fixEdges: CorrelationEdge[] = [
+      // clay topmost<->topmost, cross-class n23<->n22 (restates the litho clay tie)
+      { a: bySuffix.get('72d57f')!, b: bySuffix.get('38255f')!, aSide: 'top', bSide: 'top' },
+      // clay base<->base (restates the litho bottom tie, deepest bands)
+      { a: bySuffix.get('72d57f')!, b: bySuffix.get('600806')!, aSide: 'base', bSide: 'base' },
+      // silt topmost<->topmost, cross-class n14<->n13 (restates the big-silt tie)
+      { a: bySuffix.get('359097')!, b: bySuffix.get('0a5f02')!, aSide: 'top', bSide: 'top' },
+    ]
+    const fixedAll = [...packingEdges, ...fixEdges]
+    const fixedOverrides = deriveSectionApexOverrides(
+      geoColumns,
+      fixedAll,
+      geoAlongM,
+      new Map<string, BodyBoundaryResponse>(),
+      true,
+    )
+    const fixed = computeSectionFillActive(geoColumns, fixedAll, fixedOverrides, geoAlongM)
+
+    const refinedDump: DumpPoly[][] = [0, 1].map((gap) =>
+      refined
+        .filter((p) => p.gapIndex === gap)
+        .map((p) => ({
+          cls: clsOf(p.formationId),
+          kind: p.tag,
+          pts: p.points.map((q) => [q.fraction, q.elevation] as [number, number]),
+        })),
+    )
+    writeFileSync(
+      resolve(REPO_ROOT, 'scripts/throwaway_gap_diag_polys.json'),
+      JSON.stringify(
+        { render: refinedDump, direct: dumpRegions(direct), fixed: dumpRegions(fixed) },
+        null,
+        1,
+      ),
+    )
     expect(true).toBe(true)
   })
 })
