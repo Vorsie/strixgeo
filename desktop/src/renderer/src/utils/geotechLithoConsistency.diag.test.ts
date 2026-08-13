@@ -221,6 +221,9 @@ describe('geotech fill — litho-consistency gate', () => {
         ...lithoPolys.flatMap((p) => p.pts.map((q) => q.x)),
         ...geoPolys.flatMap((p) => p.pts.map((q) => q.x)),
       ]
+      // Elevation window spans the LITHO geometry only, deliberately: the
+      // gate judges litho-covered cells, so geotech material outside the
+      // litho fill's elevation range is out of scope, not a miss.
       const es = lithoPolys.flatMap((p) => p.pts.map((q) => q.e))
       if (xs.length === 0 || es.length === 0) continue
       const xMin = Math.min(...xs)
