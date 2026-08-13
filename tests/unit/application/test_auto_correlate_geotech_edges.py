@@ -110,7 +110,13 @@ class _FakeSession:
             return _Rows([SimpleNamespace(id=SECTION, name="CS1", display_order=0)])
         if "litho_contact_correlation_edge" in sql:
             if "user_approved" in sql:
-                return _Rows(list(self._approved_litho_edges))
+                # load_approved_litho_edge_sets selects the sides too; the
+                # canned pairs are plain top↔top litho ties.
+                return _Rows([(a, b, "top", "top") for a, b in self._approved_litho_edges])
+            if "layer_a_side" in sql:
+                # load_existing_geotech_base_pairs_by_section — no canned
+                # base↔base geotech rows in these scenes.
+                return _Rows([])
             return _Rows(list(self._existing_geotech_edges))
         if "geological_formation" in sql:
             return _Rows(list(self._geotech_bands))
