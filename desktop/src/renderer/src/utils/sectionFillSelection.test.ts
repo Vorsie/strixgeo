@@ -1,7 +1,14 @@
 /**
- * Behaviour tests for the section fill-selection rule, in the owner's words
- * (dogfeed 2026-08-06): on the geotech axis the litho fill must not leak
+ * Behaviour tests for the section fill-selection rule, in the owner's words.
+ *
+ * Dogfeed 2026-08-06: on the geotech axis the litho fill must not leak
  * through — it is a toggle, and only ONE fill renders at a time.
+ *
+ * Owner ruling 2026-08-13: the fill the geotech axis paints by default is the
+ * DIRECT geotech partition, not the litho partition subdivided after the fact.
+ * The toggle's meaning is unchanged — "Show litho fill" swaps the litho
+ * partition in INSTEAD — but the flag it raises now names that swap
+ * (``showLithoFillInstead``) rather than the retired refinement bundle.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -19,14 +26,12 @@ describe('selectSectionFill', () => {
       lithoFillOnGeotech: false,
       geotechUnitCount: 0,
     })
-    expect(out).toEqual({ showBands: false, withholdRefinement: false })
+    expect(out).toEqual({ showBands: false, showLithoFillInstead: false })
   })
 
-  it('a geotech model with no units yet is STILL a clean slate — an empty refinement must not count', () => {
-    // Dogfeed 2026-08-06 evening: the canvas builds the refinement bundle
-    // whenever the axis is geotech, even with ZERO geotech units — and the
-    // refine engine with no bands falls back to painting the litho regions.
-    // The rule must key on actual units, not on the bundle existing.
+  it('a geotech model with no units yet is STILL a clean slate — an empty model must not count', () => {
+    // The rule keys on actual packing bands, never on the geotech bundle
+    // existing: the canvas assembles it whenever the axis is geotech.
     const out = selectSectionFill({
       axisMode: 'geotechnical',
       bandFillVisible: false,
@@ -34,10 +39,10 @@ describe('selectSectionFill', () => {
       lithoFillOnGeotech: false,
       geotechUnitCount: 0,
     })
-    expect(out).toEqual({ showBands: false, withholdRefinement: false })
+    expect(out).toEqual({ showBands: false, showLithoFillInstead: false })
   })
 
-  it('showing the litho fill on the geotech axis hides the NAD fill — one fill at a time', () => {
+  it('showing the litho fill on the geotech axis hides the packing fill — one fill at a time', () => {
     const out = selectSectionFill({
       axisMode: 'geotechnical',
       bandFillVisible: false,
@@ -45,12 +50,12 @@ describe('selectSectionFill', () => {
       lithoFillOnGeotech: true,
       geotechUnitCount: 4,
     })
-    // withholdRefinement swaps the NAD subdivision out of the overlay, so
-    // the litho fill is the ONLY fill; showBands must be on for it to paint.
-    expect(out).toEqual({ showBands: true, withholdRefinement: true })
+    // showLithoFillInstead swaps the partition's own source back to the litho
+    // model, so the litho fill is the ONLY fill; showBands must be on to paint.
+    expect(out).toEqual({ showBands: true, showLithoFillInstead: true })
   })
 
-  it('with the litho-fill toggle off, the NAD fill obeys its own Hide-fill toggle', () => {
+  it('with the litho-fill toggle off, the packing fill obeys its own Hide-fill toggle', () => {
     const shown = selectSectionFill({
       axisMode: 'geotechnical',
       bandFillVisible: false,
@@ -58,7 +63,7 @@ describe('selectSectionFill', () => {
       lithoFillOnGeotech: false,
       geotechUnitCount: 4,
     })
-    expect(shown).toEqual({ showBands: true, withholdRefinement: false })
+    expect(shown).toEqual({ showBands: true, showLithoFillInstead: false })
     const hidden = selectSectionFill({
       axisMode: 'geotechnical',
       bandFillVisible: false,
@@ -66,7 +71,7 @@ describe('selectSectionFill', () => {
       lithoFillOnGeotech: false,
       geotechUnitCount: 4,
     })
-    expect(hidden).toEqual({ showBands: false, withholdRefinement: false })
+    expect(hidden).toEqual({ showBands: false, showLithoFillInstead: false })
   })
 
   it('the litho-fill-on-geotech toggle also works on a clean slate (litho fill by request)', () => {
@@ -79,7 +84,7 @@ describe('selectSectionFill', () => {
       lithoFillOnGeotech: true,
       geotechUnitCount: 0,
     })
-    expect(out).toEqual({ showBands: true, withholdRefinement: true })
+    expect(out).toEqual({ showBands: true, showLithoFillInstead: true })
   })
 
   it('the litho and geological axes are untouched by the geotech-only toggle', () => {
@@ -92,7 +97,7 @@ describe('selectSectionFill', () => {
           lithoFillOnGeotech: true,
           geotechUnitCount: 0,
         })
-        expect(out).toEqual({ showBands: bandFillVisible, withholdRefinement: false })
+        expect(out).toEqual({ showBands: bandFillVisible, showLithoFillInstead: false })
       }
     }
   })
