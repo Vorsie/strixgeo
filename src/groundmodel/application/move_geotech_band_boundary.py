@@ -38,6 +38,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     formation_for_class,
     geo_parent_for_interval,
     load_geotech_column_context,
+    pre_edit_class_snapshot,
     require_cpt_anchor,
     revalidate_layer_edges,
 )
@@ -170,6 +171,7 @@ class MoveGeotechBandBoundary(GeotechBoreholeMaterialiser):
                 upper_row.id: upper_outcome.nad_class,
                 lower_row.id: lower_outcome.nad_class,
             },
+            old_class_by_layer_id=pre_edit_class_snapshot(context),
         )
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
