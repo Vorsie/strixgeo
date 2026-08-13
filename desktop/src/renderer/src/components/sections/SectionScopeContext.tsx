@@ -32,7 +32,7 @@ import type {
   LithoLayerResponse,
   VirtueleBoringInvestigationPrediction,
 } from '../../api/client'
-import type { GeotechRefinement } from './PartitionFillOverlay'
+import type { GeotechAxisModel } from './geotechAxisModel'
 
 /** Read-only per-section data slices provided by SectionsCanvas. */
 export interface SectionScope {
@@ -171,11 +171,13 @@ export interface SectionScope {
    */
   lithoLayers?: readonly LithoLayerResponse[]
   /**
-   * Geotech fraction-space refinement bundle (owner-locked 2026-07-06). When
-   * set (the geotech axis), forwarded to PartitionFillOverlay which refines the
-   * litho partition by NAD packing class. See ``GeotechRefinement``.
+   * The active geotech model, assembled by SectionsCanvas. Set on the geotech
+   * axis only; SectionPanel splits it across the partition fill (which
+   * partitions ``geotechLayers`` directly since 2026-08-13), the band-edit
+   * overlay, the borehole-preview ghosts and the snap gesture.
+   * See ``GeotechAxisModel``.
    */
-  refinement?: GeotechRefinement
+  geotechModel?: GeotechAxisModel
   /**
    * Ghost packing bands for boreholes that have not been divided yet (geotech
    * axis only). The server's dry run of ``Divide boreholes``, run through the
