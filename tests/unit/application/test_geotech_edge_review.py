@@ -83,6 +83,7 @@ def test_ea1_accepted_mismatch_is_flagged_not_deleted() -> None:
         edges=[edge],
         new_class_by_layer_id={edited: 8},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 6},
     )
     assert actions.to_flag == (edge.edge_id,)
     assert actions.to_delete == ()
@@ -96,6 +97,7 @@ def test_ea2_pending_mismatch_still_drops() -> None:
         edges=[edge],
         new_class_by_layer_id={edited: 8},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 6},
     )
     assert actions.to_delete == (edge.edge_id,)
     assert actions.to_flag == ()
@@ -108,6 +110,7 @@ def test_ea3_matching_tie_is_untouched() -> None:
         edges=[_edge(edited, partner)],
         new_class_by_layer_id={edited: 6},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 6},
     )
     assert actions == EdgeActions((), (), ())
 
@@ -120,6 +123,7 @@ def test_ea4_restored_match_self_heals_the_class_changed_flag() -> None:
         edges=[edge],
         new_class_by_layer_id={edited: 6},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 8},
     )
     assert actions.to_clear == (edge.edge_id,)
 
@@ -132,6 +136,7 @@ def test_ea5_ambiguous_band_never_auto_clears() -> None:
         edges=[edge],
         new_class_by_layer_id={edited: 6},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 8},
     )
     assert actions.to_clear == ()
 
@@ -144,6 +149,7 @@ def test_ea6_skeleton_class_flags_an_accepted_tie() -> None:
         edges=[edge],
         new_class_by_layer_id={edited: None},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 6},
     )
     assert actions.to_flag == (edge.edge_id,)
 
@@ -155,6 +161,7 @@ def test_ea7_a_move_edits_both_endpoints_and_both_new_classes_count() -> None:
         edges=[_edge(upper, lower)],
         new_class_by_layer_id={upper: 7, lower: 7},
         class_by_layer_id={},
+        old_class_by_layer_id={upper: 7, lower: 7},
     )
     assert actions == EdgeActions((), (), ())
 
@@ -167,6 +174,7 @@ def test_ea8_already_flagged_mismatch_is_idempotent() -> None:
         edges=[edge],
         new_class_by_layer_id={edited: 8},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 8},
     )
     assert actions == EdgeActions((), (), ())
 
@@ -190,6 +198,7 @@ def test_tr1_accepted_tie_transfers_to_the_survivor_and_is_flagged() -> None:
         edges=[edge],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties={},
@@ -211,6 +220,7 @@ def test_tr2_class_mismatch_after_transfer_is_flagged_class_changed() -> None:
         edges=[edge],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=8,
         class_by_partner={partner: 6},
         existing_ties={},
@@ -229,6 +239,7 @@ def test_tr3_duplicates_self_loops_and_pending_do_not_transfer() -> None:
         edges=[duplicate, self_loop, pending],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties=_existing(survivor, partner, approved=True),
@@ -249,6 +260,7 @@ def test_tr4_a_base_tie_is_not_a_duplicate_of_a_top_tie_between_the_same_bands()
         edges=[base_tie],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties=_existing(survivor, partner, approved=True),
@@ -269,6 +281,7 @@ def test_tr5_an_accepted_tie_displaces_a_pending_duplicate_rather_than_dying_for
         edges=[accepted],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties=existing,
@@ -289,6 +302,7 @@ def test_ea9_an_ambiguous_band_flag_is_never_overwritten_into_a_self_healing_one
         edges=[edge],
         new_class_by_layer_id={edited: 7},
         class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 6},
     )
     assert actions.to_flag == ()
     assert actions.to_delete == ()
@@ -307,6 +321,7 @@ def test_tr6_a_tie_on_another_section_is_not_a_duplicate() -> None:
         edges=[on_section_2],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties=_existing(survivor, partner, approved=True, section=SECTION_1),
@@ -324,6 +339,7 @@ def test_tr7_the_duplicate_test_still_bites_within_one_section() -> None:
         edges=[same_section],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties=_existing(survivor, partner, approved=True, section=SECTION_1),
@@ -354,6 +370,7 @@ def test_tr8_the_sides_travel_with_their_own_endpoints() -> None:
         edges=[edge],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties={},
@@ -379,6 +396,7 @@ def test_tr9_sides_stay_put_when_the_slots_do() -> None:
         edges=[edge],
         from_layer_id=absorbed,
         to_layer_id=survivor,
+        absorbed_class=6,
         survivor_class=6,
         class_by_partner={partner: 6},
         existing_ties={},
@@ -386,3 +404,60 @@ def test_tr9_sides_stay_put_when_the_slots_do() -> None:
     move = plan.moves[0]
     assert move.new_layer_a_id == survivor
     assert move.swap_sides is False
+
+
+# ---------------------------------------------------------------------------
+# Transition rule (owner ruling 2026-08-13: cross-class restatements are
+# legitimate accepted ties) — flag only when the edit BROKE a match
+# ---------------------------------------------------------------------------
+
+
+def test_ea10_a_born_cross_class_tie_is_not_flagged_by_an_unrelated_edit() -> None:
+    """EA10 — a restatement born cross-class (23-22, the litho tie carried
+    down) was never a class match, so an edit that re-derives its endpoint to
+    the SAME class did not break anything. Flagging it would bury every
+    cross-class restatement in violet badges the first time any band is
+    touched."""
+    edited, partner = uuid4(), uuid4()
+    edge = _edge(edited, partner, approved=True)
+    actions = edge_review_actions(
+        edges=[edge],
+        new_class_by_layer_id={edited: 23},
+        class_by_layer_id={partner: 22},
+        old_class_by_layer_id={edited: 23},  # mismatched before, unchanged now
+    )
+    assert actions == EdgeActions((), (), ())
+
+
+def test_ea11_a_mismatch_that_stays_a_mismatch_is_not_re_flagged() -> None:
+    """EA11 — the edit changed the class (8 to 9) but the tie was ALREADY
+    cross-class against its partner (6): no match was broken, no new flag."""
+    edited, partner = uuid4(), uuid4()
+    edge = _edge(edited, partner, approved=True)
+    actions = edge_review_actions(
+        edges=[edge],
+        new_class_by_layer_id={edited: 9},
+        class_by_layer_id={partner: 6},
+        old_class_by_layer_id={edited: 8},
+    )
+    assert actions.to_flag == ()
+    assert actions.to_delete == ()
+
+
+def test_tr10_a_born_cross_class_tie_transfers_as_band_absorbed() -> None:
+    """TR10 — the absorbed band carried a cross-class restatement (8 vs 6).
+    The transfer did not break a match — there was none — so the honest label
+    is ``band_absorbed``, not ``class_changed`` (which self-heals on a class
+    match this tie can never have)."""
+    absorbed, survivor, partner = uuid4(), uuid4(), uuid4()
+    edge = _edge(absorbed, partner, approved=True)
+    plan = plan_edge_transfer(
+        edges=[edge],
+        from_layer_id=absorbed,
+        to_layer_id=survivor,
+        absorbed_class=8,  # was already mismatched against the partner's 6
+        survivor_class=8,
+        class_by_partner={partner: 6},
+        existing_ties={},
+    )
+    assert plan.moves[0].review_reason == REVIEW_BAND_ABSORBED
