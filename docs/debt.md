@@ -8423,3 +8423,24 @@ the limit is documented rather than discovered.
 know what will change — most likely as soon as accepted packing ties start being redrawn
 after a Subdivide. Design the diff render first (one owner question: outline-only over the
 committed bands, or side-by-side), then wire it; no backend work is needed.
+
+## 270. Delete the retired fraction-space refinement modules (S)
+
+**What.** The geotech axis renders the direct partition since 2026-08-13
+(geotech-stage.md §2); `desktop/.../utils/refineLithoPartition.ts`,
+`refineLithoPartition.overlap.ts`, `carveOverlayLenses.ts`,
+`geotechPackingTies.ts` and their unit/frozen-CS1 test files are app-dead
+(no production imports — verified), as are the superseded render/build
+agreement diags (`geotechEngineAgreement.diag.test.ts` + its frozen baseline,
+`geotechVoidMechanism`, `geotechInteriorVoid`, `geotechDefectTaxonomy`,
+`geotechFallbackCause`, `geotechQ2Visual`, `geotechAgreementRefute`,
+`geotechEndStrip`, `geotechDiscrAblation`, `geotechRenderArmRefute`). The
+`geotechFillGap` diag keeps only its direct/litho variants.
+
+**Why deferred.** The owner has not dogfed the direct partition yet; the old
+modules on disk are the one-commit fallback if the swap misbehaves on the
+real model.
+
+**When to revisit.** The dogfeed after 2026-08-13 confirms the geotech axis —
+then one deletion campaign, plus pruning the `2026-07-06-geotech-fraction-refinement-handoff.md`
+pointer.
