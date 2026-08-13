@@ -139,6 +139,26 @@ class GeotechColumnContext:
         return tuple(depth for depth, _fid in self.geo_contacts)
 
 
+def pre_edit_class_snapshot(context: GeotechColumnContext) -> dict[UUID, int | None]:
+    """The column's PRE-edit ``layer_id → nad_class`` map, for the transition rule.
+
+    Taken from ``context.bands`` — loaded before any write — so every band-edit
+    verb hands ``revalidate_layer_edges`` the same baseline without four copies
+    of the comprehension.
+
+    Parameters
+    ----------
+    context : GeotechColumnContext
+        The edited column, as loaded before the edit.
+
+    Returns
+    -------
+    dict[UUID, int | None]
+        Pre-edit NAD class per band row id.
+    """
+    return {UUID(b.band_id): b.nad_class for b in context.bands}
+
+
 @dataclass(frozen=True)
 class GeotechBandEditResult:
     """Outcome of a committed hand split or merge.
@@ -320,6 +340,7 @@ def edge_review_actions(
     edges: Sequence[EdgeRef],
     new_class_by_layer_id: dict[UUID, int | None],
     class_by_layer_id: dict[UUID, int | None],
+    old_class_by_layer_id: dict[UUID, int | None],
 ) -> EdgeActions:
     """Judge each edge against the re-derived classes — flag-not-drop.
 
@@ -329,6 +350,12 @@ def edge_review_actions(
     the engineer's own judgement. A band with no class never matches (the
     skeleton rule). An endpoint's effective class is its NEW class when it
     was just edited (a move edits two rows at once), else its current one.
+
+    The 2026-08-13 refinement (cross-class restatements exist now): an
+    accepted tie is flagged only when the edit BROKE a match — a tie whose
+    endpoints were already mismatched before the edit was never a class
+    claim, and flagging it would bury every cross-class restatement in
+    violet badges the first time any band is touched.
 
     Pure — no session — so the rule is testable on its own.
 
@@ -340,12 +367,16 @@ def edge_review_actions(
         The re-derived class of each edited layer.
     class_by_layer_id : dict[UUID, int | None]
         Current NAD class of the (unedited) partner layers.
+    old_class_by_layer_id : dict[UUID, int | None]
+        PRE-edit class of the edited layers (the whole column snapshot is
+        fine) — the transition baseline. A layer absent here falls back to
+        ``class_by_layer_id`` (an unedited partner's class did not change).
 
     Returns
     -------
     EdgeActions
-        Deletions (pending), flags (accepted mismatches), clears (self-heal),
-        each in input order.
+        Deletions (pending), flags (accepted matched→mismatched
+        transitions), clears (self-heal), each in input order.
     """
     to_delete: list[UUID] = []
     to_flag: list[UUID] = []
@@ -356,19 +387,29 @@ def edge_review_actions(
             return new_class_by_layer_id[layer_id]
         return class_by_layer_id.get(layer_id)
 
+    def previous(layer_id: UUID) -> int | None:
+        if layer_id in old_class_by_layer_id:
+            return old_class_by_layer_id[layer_id]
+        return class_by_layer_id.get(layer_id)
+
     for edge in edges:
         class_a = effective(edge.layer_a_id)
         class_b = effective(edge.layer_b_id)
         matched = class_a is not None and class_b is not None and class_a == class_b
+        prev_a = previous(edge.layer_a_id)
+        prev_b = previous(edge.layer_b_id)
+        was_matched = prev_a is not None and prev_b is not None and prev_a == prev_b
         if not matched:
             if not edge.user_approved:
                 to_delete.append(edge.edge_id)
-            elif edge.review_reason is None:
+            elif edge.review_reason is None and was_matched:
                 to_flag.append(edge.edge_id)
             # Already flagged: leave the existing token alone. Re-stamping an
             # ``ambiguous_band`` tie as ``class_changed`` would hand it to the
             # self-heal below, and the next restored match would clear a review
             # the engineer never gave — the badge must survive until they act.
+            # Never matched: nothing broke — a cross-class restatement stays
+            # unbadged (transition rule, 2026-08-13).
         elif edge.review_reason == REVIEW_CLASS_CHANGED:
             to_clear.append(edge.edge_id)
     return EdgeActions(tuple(to_delete), tuple(to_flag), tuple(to_clear))
@@ -498,6 +539,7 @@ def plan_edge_transfer(
     edges: Sequence[EdgeRef],
     from_layer_id: UUID,
     to_layer_id: UUID,
+    absorbed_class: int | None,
     survivor_class: int | None,
     class_by_partner: dict[UUID, int | None],
     existing_ties: dict[tuple[UUID, UUID, str, UUID, str], ExistingTie],
@@ -519,6 +561,11 @@ def plan_edge_transfer(
         The band being absorbed.
     to_layer_id : UUID
         The surviving band.
+    absorbed_class : int | None
+        The absorbed band's PRE-edit class — the transition baseline: a tie
+        that was already cross-class (a restatement born that way, owner
+        ruling 2026-08-13) never had a match to break, so its transfer is
+        ``band_absorbed``, not ``class_changed``.
     survivor_class : int | None
         The survivor's re-derived class (decides which flag a move carries).
     class_by_partner : dict[UUID, int | None]
@@ -566,6 +613,15 @@ def plan_edge_transfer(
         mismatched = (
             survivor_class is None or partner_class is None or survivor_class != partner_class
         )
+        # Transition rule (owner ruling 2026-08-13): ``class_changed`` only
+        # when the transfer BROKE a match. A tie that was already cross-class
+        # on the absorbed band (a restatement carries the litho approval, not
+        # a class claim) transfers as the plain ``band_absorbed``.
+        was_matched = (
+            absorbed_class is not None
+            and partner_class is not None
+            and absorbed_class == partner_class
+        )
         # The re-point changes which physical id sits in layer_a_id; the side
         # columns must travel with their ids exactly as canonical_contact_order
         # does. Sides swap when the absorbed endpoint's slot changes ends.
@@ -577,7 +633,9 @@ def plan_edge_transfer(
                 new_layer_a_id=new_a,
                 new_layer_b_id=new_b,
                 swap_sides=was_a != now_a,
-                review_reason=REVIEW_CLASS_CHANGED if mismatched else REVIEW_BAND_ABSORBED,
+                review_reason=(
+                    REVIEW_CLASS_CHANGED if (mismatched and was_matched) else REVIEW_BAND_ABSORBED
+                ),
             )
         )
     return EdgeTransferPlan(tuple(moves), tuple(drops), tuple(displaced))
@@ -1009,6 +1067,7 @@ async def revalidate_layer_edges(
     *,
     model_id: UUID,
     new_class_by_layer_id: dict[UUID, int | None],
+    old_class_by_layer_id: dict[UUID, int | None],
 ) -> EdgeRevalidation:
     """The one revalidation driver every band-edit commit calls.
 
@@ -1028,6 +1087,10 @@ async def revalidate_layer_edges(
     new_class_by_layer_id : dict[UUID, int | None]
         The re-derived class of every row this commit wrote (a move writes
         two).
+    old_class_by_layer_id : dict[UUID, int | None]
+        PRE-edit class of the edited rows (a whole-column snapshot from
+        ``GeotechColumnContext.bands`` is fine) — the transition baseline
+        that keeps born-cross-class restatements unbadged (2026-08-13).
 
     Returns
     -------
@@ -1049,6 +1112,7 @@ async def revalidate_layer_edges(
         edges=edges,
         new_class_by_layer_id=new_class_by_layer_id,
         class_by_layer_id=class_by_layer,
+        old_class_by_layer_id=old_class_by_layer_id,
     )
     await delete_edges(session, actions.to_delete)
     await flag_edges(session, actions.to_flag, REVIEW_CLASS_CHANGED)
@@ -1068,6 +1132,7 @@ async def transfer_accepted_edges(
     model_id: UUID,
     from_layer_id: UUID,
     to_layer_id: UUID,
+    absorbed_class: int | None,
     survivor_class: int | None,
 ) -> EdgeTransferPlan:
     """Re-anchor the absorbed band's ACCEPTED ties onto the survivor row.
@@ -1089,6 +1154,9 @@ async def transfer_accepted_edges(
         The band about to be absorbed.
     to_layer_id : UUID
         The surviving band.
+    absorbed_class : int | None
+        The absorbed band's PRE-edit class (the transition baseline — see
+        :func:`plan_edge_transfer`).
     survivor_class : int | None
         The survivor's re-derived class (decides which review flag a
         transferred tie carries).
@@ -1160,6 +1228,7 @@ async def transfer_accepted_edges(
         edges=edges,
         from_layer_id=from_layer_id,
         to_layer_id=to_layer_id,
+        absorbed_class=absorbed_class,
         survivor_class=survivor_class,
         class_by_partner=class_by_partner,
         existing_ties=existing_ties,
