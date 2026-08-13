@@ -51,7 +51,8 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
-    load_approved_litho_edges,
+    load_approved_litho_edge_sets,
+    load_existing_geotech_base_pairs_by_section,
     load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
@@ -209,6 +210,9 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
             self._session, model_id
         )
+        seen_base_by_section = await load_existing_geotech_base_pairs_by_section(
+            self._session, model_id
+        )
         self.debug(
             f"AutoCorrelateGeotechEdges: preloaded existing edges on "
             f"{len(seen_pairs_by_section)} section(s) — these are left untouched"
@@ -217,7 +221,10 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         totals = EdgeDerivationCounts()
         sections_processed = 0
         for index, section in enumerate(sections):
-            approved = await load_approved_litho_edges(self._session, litho_model_id, section.id)
+            edge_sets = await load_approved_litho_edge_sets(
+                self._session, litho_model_id, section.id
+            )
+            approved = edge_sets.pairs
             if not approved:
                 self.debug(
                     f"[{index + 1}/{len(sections)}] AutoCorrelateGeotechEdges: "
@@ -258,6 +265,11 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     # accepted; interior packing pairs + bridged jump pairs
                     # arrive pending. The derivation decides per pair.
                     direct_litho_pairs=approved,
+                    # Owner ruling 2026-08-13 ("start from the exact litho
+                    # geometries"): a litho bottom tie restates as a
+                    # base↔base edge between the deepest bands.
+                    litho_bottom_tie_pairs=edge_sets.bottom_tie_pairs,
+                    seen_base_pairs=seen_base_by_section.setdefault(section.id, set()),
                     source=AUTO_SOURCE,
                 )
             )
