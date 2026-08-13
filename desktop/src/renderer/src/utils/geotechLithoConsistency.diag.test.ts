@@ -44,7 +44,12 @@ import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitio
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
-const INPUT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_axis_inputs.json')
+// GEOTECH_AXIS_INPUT overrides the dump path for what-if runs (e.g. the
+// restatement-rerun predictor feeds an augmented copy); the default is the
+// live dump. Enforcement still keys on the model ids inside the file.
+const INPUT = process.env.GEOTECH_AXIS_INPUT
+  ? resolve(REPO_ROOT, process.env.GEOTECH_AXIS_INPUT)
+  : resolve(REPO_ROOT, 'scripts/throwaway_geotech_axis_inputs.json')
 const BASELINE = resolve(HERE, '__fixtures__/geotech_litho_consistency_baseline.json')
 const REPORT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_litho_consistency.txt')
 
