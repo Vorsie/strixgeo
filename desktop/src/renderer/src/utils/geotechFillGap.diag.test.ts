@@ -380,7 +380,13 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     writeFileSync(
       resolve(REPO_ROOT, 'scripts/throwaway_gap_diag_polys.json'),
       JSON.stringify(
-        { render: refinedDump, direct: dumpRegions(direct), fixed: dumpRegions(fixed) },
+        {
+          render: refinedDump,
+          direct: dumpRegions(direct),
+          fixed: dumpRegions(fixed),
+          litho: dumpRegions(regions),
+          alongM,
+        },
         null,
         1,
       ),
