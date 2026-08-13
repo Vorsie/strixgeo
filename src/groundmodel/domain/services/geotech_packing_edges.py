@@ -95,3 +95,45 @@ def aligned_same_class_pairs(
             j += 1
 
     return pairs
+
+
+def aligned_pairs_with_forced_top(
+    left: list[tuple[str, int | None]],
+    right: list[tuple[str, int | None]],
+) -> list[tuple[str, str]]:
+    """Force the topmost pair regardless of class, then LCS the suffixes.
+
+    The topmost sub-band of each stack owns the very contact surface the litho
+    tie joins, so for a DIRECT litho pair the restatement pair exists even
+    when the two top classes differ (owner ruling 2026-08-13: "you have to
+    start from the exact litho geometries" — the class-equality requirement of
+    :func:`aligned_same_class_pairs` silently dropped the restatement whenever
+    the stacks led with different classes, and instead tied the litho contact
+    to a class-matched band one or more steps DEEPER, letting the fill redraw
+    the litho boundary).  The class-matched LCS then aligns only the bands
+    BELOW the forced pair, which also removes the geometrically absurd
+    deep↔shallow leftovers the whole-stack LCS produced in that situation.
+
+    A ``None``-class (skeleton) top on either side blocks the forced pair —
+    the pinned "skeleton-None top blocks restatement" rule — and the whole
+    alignment falls back to the plain LCS, which never pairs ``None``.
+
+    Parameters
+    ----------
+    left, right : list[tuple[str, int | None]]
+        Each test's sub-band stack as ``(layer_id, nad_class)`` ordered
+        top->base for ONE litho unit on that test.  Empty lists are allowed.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        The forced topmost pair followed by the suffix LCS pairs, in
+        top->base order — or the plain LCS alignment when either top is a
+        skeleton band.  Empty when either side is empty.
+    """
+    if not left or not right:
+        return []
+    (l_id, l_class), (r_id, r_class) = left[0], right[0]
+    if l_class is None or r_class is None:
+        return aligned_same_class_pairs(left, right)
+    return [(l_id, r_id), *aligned_same_class_pairs(left[1:], right[1:])]
