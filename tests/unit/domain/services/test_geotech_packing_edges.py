@@ -190,3 +190,77 @@ def test_body_isolation_is_callers_responsibility():
     assert pairs == [("LX0", "LY0"), ("LX1", "LY1")], (
         "Function pairs by LCS only; body isolation is the caller's responsibility"
     )
+
+
+# ---------------------------------------------------------------------------
+# Forced-topmost alignment (owner ruling 2026-08-13: "start from the exact
+# litho geometries") — the restatement pair exists regardless of class
+# ---------------------------------------------------------------------------
+
+
+def test_forced_top_pairs_cross_class_tops():
+    """[23] vs [22, 23]: the tops pair DESPITE the class difference.
+
+    The topmost sub-bands own the same contact surfaces the litho tie joins
+    (the owner's clay case: S10's FF clay top vs S6's MF crust top). The old
+    whole-stack LCS could only produce the class-matched 23-23 pair - tying
+    the litho contact to a band one step DEEPER, which let the sand reach
+    below the litho clay top in the fill.
+    """
+    from groundmodel.domain.services.geotech_packing_edges import aligned_pairs_with_forced_top
+
+    left = [("L23", 23)]
+    right = [("R22", 22), ("R23", 23)]
+    pairs = aligned_pairs_with_forced_top(left, right)
+    assert pairs[0] == ("L23", "R22"), "tops pair cross-class - the restatement"
+    assert ("L23", "R23") not in pairs, (
+        "the left top must not ALSO pair with the deeper class-match - "
+        "one band, one partner"
+    )
+
+
+def test_forced_top_suppresses_the_absurd_deep_shallow_pair():
+    """[14] vs [13, 14]: the old LCS tied the left top to the DEEP right 14.
+
+    Real-data case (the owner's DB holds this as a pending proposal): S10's
+    top silt sliver at 12 m elevation proposed against S6's n14 at 6 m. With
+    the forced top, the tops pair (14-13, the restatement) and the suffix LCS
+    below them has nothing left on the left - no absurd pair.
+    """
+    from groundmodel.domain.services.geotech_packing_edges import aligned_pairs_with_forced_top
+
+    left = [("L14", 14)]
+    right = [("R13", 13), ("R14", 14)]
+    pairs = aligned_pairs_with_forced_top(left, right)
+    assert pairs == [("L14", "R13")]
+
+
+def test_forced_top_equal_class_tops_match_plain_lcs():
+    """Equal-class tops: forced-top output equals the plain LCS alignment."""
+    from groundmodel.domain.services.geotech_packing_edges import (
+        aligned_pairs_with_forced_top,
+        aligned_same_class_pairs,
+    )
+
+    left = [("LA0", 6), ("LA1", 6), ("LA2", 7), ("LA3", 8)]
+    right = [("RB0", 6), ("RB1", 8), ("RB2", 5)]
+    assert aligned_pairs_with_forced_top(left, right) == aligned_same_class_pairs(left, right)
+
+
+def test_forced_top_skeleton_top_falls_back_to_plain_lcs():
+    """A None-class (skeleton) top blocks the forced pair (pinned rule:
+    'skeleton-None top blocks restatement') - the whole alignment falls back
+    to the plain LCS, which never pairs None."""
+    from groundmodel.domain.services.geotech_packing_edges import aligned_pairs_with_forced_top
+
+    left = [("SKEL", None), ("L5", 5)]
+    right = [("R5", 5)]
+    assert aligned_pairs_with_forced_top(left, right) == [("L5", "R5")]
+
+
+def test_forced_top_empty_sides_yield_nothing():
+    """An empty stack on either side aligns nothing."""
+    from groundmodel.domain.services.geotech_packing_edges import aligned_pairs_with_forced_top
+
+    assert aligned_pairs_with_forced_top([], [("R5", 5)]) == []
+    assert aligned_pairs_with_forced_top([("L5", 5)], []) == []
