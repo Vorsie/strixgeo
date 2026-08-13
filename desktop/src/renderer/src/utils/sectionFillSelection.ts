@@ -8,6 +8,11 @@
  * clean slate that did not look clean ("thought u cleared the model, why is
  * there fill?").
  *
+ * Owner ruling 2026-08-13: the geotech axis's default fill is now the DIRECT
+ * geotech partition (the geotech model's own columns + ties through the same
+ * engine), so the "Show litho fill" toggle swaps the partition's SOURCE MODEL
+ * rather than withholding a refinement pass.
+ *
  * Pure module so the exclusivity is unit-testable without mounting the
  * ``SectionPanel`` god component.
  */
@@ -25,11 +30,10 @@ export interface SectionFillInputs {
   /** The geotech "Show litho fill" toggle (``lithoFillOnGeotechStore``). */
   lithoFillOnGeotech: boolean
   /**
-   * How many geotech units (packing bands) the refinement bundle actually
-   * carries. NOT a boolean on the bundle existing: the canvas builds the
-   * bundle whenever the axis is geotech — even with zero units — and the
-   * refine engine with no bands falls back to painting the LITHO regions
-   * (dogfeed 2026-08-06). Zero units = clean slate = no fill.
+   * How many geotech units (packing bands) the geotech model actually carries
+   * on this section. NOT a boolean on the geotech bundle existing: the canvas
+   * assembles it whenever the axis is geotech, even with zero bands. Zero
+   * units = clean slate = no fill (dogfeed 2026-08-06).
    */
   geotechUnitCount: number
 }
@@ -39,44 +43,45 @@ export interface SectionFillSelection {
   /** ``PartitionFillOverlay``'s ``showBands`` — whether any fill paints. */
   showBands: boolean
   /**
-   * When true the caller passes ``refinement={undefined}`` to the overlay even
-   * though a refinement exists, so the litho fill renders INSTEAD of the NAD
-   * fill — never both (the one-fill-at-a-time rule).
+   * True on the geotech axis when "Show litho fill" is on: the overlay's
+   * partition is framed by the LITHO model instead of the geotech one, so the
+   * litho fill is the only fill — never both (the one-fill-at-a-time rule).
+   * Threaded into ``partitionEdgeSource`` / ``partitionLayerSource``.
    */
-  withholdRefinement: boolean
+  showLithoFillInstead: boolean
 }
 
 /**
  * Select the fill for the current axis + toggle state.
  *
  * Rules, in the order they bind:
- *  - non-geotech axes: unchanged — ``bandFillVisible`` gates the litho fill,
- *    the refinement never exists there;
+ *  - non-geotech axes: unchanged — ``bandFillVisible`` gates the litho fill;
  *  - geotech + "Show litho fill" ON: the litho fill and ONLY the litho fill
- *    (the refinement is withheld so the NAD fill cannot stack under/over it);
- *  - geotech + toggle OFF + packing units present: the NAD fill, gated by its
- *    own "Hide fill" toggle;
+ *    (the partition itself swaps model, so the packing fill cannot stack
+ *    under/over it);
+ *  - geotech + toggle OFF + packing units present: the DIRECT geotech
+ *    partition, gated by its own "Hide fill" toggle;
  *  - geotech + toggle OFF + no packing units (no model, OR a model that has
  *    not been subdivided yet): NO fill — a clean slate looks clean.
  *
  * Parameters
  * ----------
  * inputs : SectionFillInputs
- *     Axis + the three fill toggles + refinement presence.
+ *     Axis + the three fill toggles + the geotech band count.
  *
  * Returns
  * -------
  * SectionFillSelection
- *     ``showBands`` for the overlay and whether to withhold the refinement.
+ *     ``showBands`` for the overlay and which model frames its partition.
  */
 export function selectSectionFill(inputs: SectionFillInputs): SectionFillSelection {
   const { axisMode, bandFillVisible, geotechFillVisible, lithoFillOnGeotech, geotechUnitCount } =
     inputs
   if (axisMode !== 'geotechnical') {
-    return { showBands: bandFillVisible, withholdRefinement: false }
+    return { showBands: bandFillVisible, showLithoFillInstead: false }
   }
   if (lithoFillOnGeotech) {
-    return { showBands: true, withholdRefinement: true }
+    return { showBands: true, showLithoFillInstead: true }
   }
-  return { showBands: geotechUnitCount > 0 && geotechFillVisible, withholdRefinement: false }
+  return { showBands: geotechUnitCount > 0 && geotechFillVisible, showLithoFillInstead: false }
 }
