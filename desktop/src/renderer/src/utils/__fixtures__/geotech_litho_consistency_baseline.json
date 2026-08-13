@@ -1,0 +1,20 @@
+{
+  "lithoModelId": "019e934c-70fd-7d11-a44a-b2073f4063a2",
+  "geotechModelId": "019fe4ac-98e8-7d01-bc5c-21b62b4de2d2",
+  "sections": {
+    "Cross-section 1": 78.61,
+    "Cross-section 2": 80.54,
+    "Cross-section 3": 81.11,
+    "Tie-section 10": 77.9,
+    "Tie-section 11": 51.54,
+    "Tie-section 12": 93.26,
+    "Tie-section 13": 75.73,
+    "Tie-section 14": 74.77,
+    "Tie-section 4": 75.3,
+    "Tie-section 5": 96.35,
+    "Tie-section 6": 93.85,
+    "Tie-section 7": 86.46,
+    "Tie-section 8": 80.4,
+    "Tie-section 9": 94.64
+  }
+}
