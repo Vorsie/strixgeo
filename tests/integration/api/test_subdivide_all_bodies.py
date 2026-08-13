@@ -820,15 +820,21 @@ async def test_sab_all(
         "CPT-A ↔ CPT-B same-position edges must exist after a consistent split"
     )
 
-    cross_position_edges = [
+    # RE-PINNED (owner ruling 2026-08-13, "start from the exact litho
+    # geometries"): a direct litho tie's topmost pair restates REGARDLESS of
+    # class and is born accepted, so cross-class edges are legal — but ONLY as
+    # accepted restatements. A PENDING machine proposal must still join
+    # same-class bands: nothing licenses a cross-class guess.
+    cross_class_pending = [
         edge
         for edge in geotech_edges
-        if layer_formation.get(edge.layer_a_id) != layer_formation.get(edge.layer_b_id)
+        if not edge.user_approved
+        and layer_formation.get(edge.layer_a_id) != layer_formation.get(edge.layer_b_id)
     ]
-    assert len(cross_position_edges) == 0, (
-        f"SAB-7 (TRAP 1): {len(cross_position_edges)} cross-position edge(s) found — "
-        f"each edge must connect same-NAD-class layers only. "
-        f"Offending edges: {[str(e.id) for e in cross_position_edges]}"
+    assert len(cross_class_pending) == 0, (
+        f"SAB-7 (TRAP 1): {len(cross_class_pending)} cross-class PENDING edge(s) — "
+        f"only an accepted restatement of a direct litho tie may join different "
+        f"NAD classes. Offending edges: {[str(e.id) for e in cross_class_pending]}"
     )
 
     # SAB-7 over-merge guard: the consistent-split body (Body-A, CPT-A
@@ -4148,30 +4154,27 @@ async def test_sab_lcs_connectivity(
         f"([loose,dense] vs [dense])."
     )
 
-    # LCS-1b: every CPT-G <-> CPT-H edge connects same-class bands.
-    cross_class_edges = [
-        e
-        for e in cross_edges
-        if layer_formation.get(e.layer_a_id) != layer_formation.get(e.layer_b_id)
-    ]
-    assert len(cross_class_edges) == 0, (
-        f"LCS-1b: {len(cross_class_edges)} cross-class edge(s) between "
-        f"CPT-G and CPT-H -- every auto-edge must connect same-NAD-class "
-        f"bands only."
+    # LCS-1b (RE-PINNED, owner ruling 2026-08-13): the stacks are
+    # [loose,dense] vs [dense], and the litho tie joins the two units' TOP
+    # surfaces — so its restatement is loose-top ↔ dense-top, CROSS-CLASS,
+    # born accepted (the forced-topmost pair). The old class-matched LCS tied
+    # the litho contact to the deep dense↔dense pair instead — a band one step
+    # inside the unit, which let the fill redraw the litho boundary — and that
+    # geometrically contradictory pair is no longer proposed at all.
+    assert len(cross_edges) == 1, (
+        f"LCS-1b: expected exactly the forced-topmost restatement between "
+        f"CPT-G and CPT-H, got {len(cross_edges)} edge(s)"
     )
-
-    # LCS-1c (re-pinned, owner refinement 2026-08-06): the stacks are
-    # [loose,dense] vs [dense], so the aligned dense↔dense pair does NOT join
-    # the litho-tied top surfaces — no restatement is possible and the tie
-    # arrives PENDING. The accept call below is the promotion step that turns
-    # it into body-joining work.
-    assert all(not e.user_approved for e in cross_edges), (
-        "LCS-1c: a packing pair that does not restate the litho tie is a new "
-        "machine claim and must arrive pending"
+    restatement = cross_edges[0]
+    assert restatement.user_approved is True, (
+        "LCS-1b: the topmost pair restates the approved litho tie and is "
+        "born accepted"
     )
-    await AcceptContactCorrelations(db_session).execute(
-        project_id=project.id,
-        model_id=geotech_model_id,
+    assert layer_formation.get(restatement.layer_a_id) != layer_formation.get(
+        restatement.layer_b_id
+    ), (
+        "LCS-1b: the restatement joins the two TOPMOST bands (loose vs dense) "
+        "— a cross-class pair by construction in this scene"
     )
     geotech_layers = (
         (
@@ -4187,7 +4190,10 @@ async def test_sab_lcs_connectivity(
         .all()
     )
 
-    # LCS-1c: CPT-G and CPT-H share at least one geotech body_id.
+    # LCS-1c: CPT-G and CPT-H share at least one geotech body_id. The
+    # accepted restatement joins same-SOIL bands (loose sand ↔ dense sand),
+    # and the resolver unions accepted edges by soil — no separate accept
+    # step is needed any more (the tie is born accepted).
     g_body_ids = {
         layer.body_id for layer in geotech_layers if layer.cpt_id == cpt_g_uuid and layer.body_id
     }
