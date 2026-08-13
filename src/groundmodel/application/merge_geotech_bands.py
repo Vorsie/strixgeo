@@ -51,6 +51,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     formation_for_class,
     geo_parent_for_interval,
     load_geotech_column_context,
+    pre_edit_class_snapshot,
     require_cpt_anchor,
     revalidate_layer_edges,
     transfer_accepted_edges,
@@ -184,6 +185,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         transfer_drops: list[UUID] = []
         accepted_drops: list[UUID] = []
         absorbed_ids: list[UUID] = []
+        pre_classes = pre_edit_class_snapshot(context)
         for absorbed in absorbed_rows:
             absorbed_ids.append(absorbed.id)
             transfer = await transfer_accepted_edges(
@@ -192,6 +194,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
                 model_id=geotech_model_id,
                 from_layer_id=absorbed.id,
                 to_layer_id=survivor.id,
+                absorbed_class=pre_classes.get(absorbed.id),
                 survivor_class=merged.nad_class,
             )
             transfer_moves.extend(m.edge_id for m in transfer.moves)
@@ -210,6 +213,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             self,
             model_id=geotech_model_id,
             new_class_by_layer_id={survivor.id: merged.nad_class},
+            old_class_by_layer_id=pre_classes,
         )
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
