@@ -106,12 +106,14 @@ import CorrelationEdgesOverlay, {
 } from './sections/CorrelationEdgesOverlay'
 import {
   overlayEdgeSource,
+  partitionColorSource,
   partitionEdgeSource,
+  partitionLayerSource,
   shouldMountCorrelationOverlay,
 } from './sections/correlationOverlayAxis'
 import GeotechBandEditOverlay from './sections/GeotechBandEditOverlay'
 import GeotechBoreholePreviewGhosts from './sections/GeotechBoreholePreviewGhosts'
-import PartitionFillOverlay, { type GeotechRefinement } from './sections/PartitionFillOverlay'
+import PartitionFillOverlay, { type GeotechLithoFrame } from './sections/PartitionFillOverlay'
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
@@ -779,7 +781,7 @@ export default function SectionPanel({
     crossingPinchOuts,
     lenses,
     lithoLayers,
-    refinement,
+    geotechModel,
     geotechBoreholePreview,
     geotechLayersLoaded = true,
     lensBoundaries,
@@ -869,26 +871,46 @@ export default function SectionPanel({
   const geotechFillVisible = useGeotechFillVisible()
   // "Show litho fill" on the geotech axis (owner 2026-08-06): ONE fill at a
   // time. The selection rule (sectionFillSelection.ts) decides which fill
-  // paints: litho-by-request (refinement withheld), NAD via its own toggle,
-  // or NOTHING on a clean slate — the litho fill no longer leaks through
-  // when no packing model exists.
+  // paints: litho-by-request (the partition's source model swaps back), the
+  // packing fill via its own toggle, or NOTHING on a clean slate — the litho
+  // fill no longer leaks through when no packing model exists.
   const lithoFillOnGeotech = useLithoFillOnGeotech()
   const fillSelection = selectSectionFill({
     axisMode,
     bandFillVisible: bandFillToggle,
     geotechFillVisible,
     lithoFillOnGeotech,
-    geotechUnitCount: refinement?.geotechLayers.length ?? 0,
+    geotechUnitCount: geotechModel?.geotechLayers.length ?? 0,
   })
   const showBands = fillSelection.showBands
+  // The LITHO frame the geotech axis draws OVER its own partition (owner ruling
+  // 2026-08-13): dark envelope outlines, plus lithology-coloured fills wherever
+  // the packing model has no bands. Undefined off the geotech axis, and while
+  // "Show litho fill" is on — then the litho partition IS the fill, so framing
+  // it with a second copy of itself would only double the outlines.
+  const geotechLithoFrame = useMemo((): GeotechLithoFrame | undefined => {
+    if (axisMode !== 'geotechnical' || geotechModel === undefined) return undefined
+    if (fillSelection.showLithoFillInstead) return undefined
+    const geotechSoilByFormationId = new Map<string, string | null>()
+    for (const [formationId, meta] of geotechModel.nadMeta) {
+      geotechSoilByFormationId.set(formationId, meta.soilCode)
+    }
+    return {
+      lithoLayers: lithoLayers ?? [],
+      lithoEdges: contactEdges,
+      lithoFormationColorById: geotechModel.lithoFormationColorById,
+      lithoSoilByFormationId: geotechModel.lithoSoilByFormationId,
+      geotechSoilByFormationId,
+    }
+  }, [axisMode, geotechModel, fillSelection.showLithoFillInstead, lithoLayers, contactEdges])
   // The lens suggestion compares NAD classes only; flattened here so the overlay's
   // column memo sees a stable map identity instead of rebuilding per render.
   const geotechNadClassByFormationId = useMemo(() => {
-    if (refinement === undefined) return undefined
+    if (geotechModel === undefined) return undefined
     const out = new Map<string, number | null>()
-    for (const [formationId, meta] of refinement.nadMeta) out.set(formationId, meta.nadClass)
+    for (const [formationId, meta] of geotechModel.nadMeta) out.set(formationId, meta.nadClass)
     return out
-  }, [refinement])
+  }, [geotechModel])
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
@@ -2165,8 +2187,8 @@ export default function SectionPanel({
     // columns (their bands were extrapolated from neighbouring CPTs, not
     // measured here) and each column's own top and base (where the cone
     // started and stopped, not a place the ground was observed to change).
-    if (axisMode === 'geotechnical' && refinement !== undefined) {
-      for (const [cptId, packing] of packingSnapCandidates(refinement.geotechLayers)) {
+    if (axisMode === 'geotechnical' && geotechModel !== undefined) {
+      for (const [cptId, packing] of packingSnapCandidates(geotechModel.geotechLayers)) {
         const list = acc.get(cptId) ?? []
         list.push(...packing)
         acc.set(cptId, list)
@@ -2174,7 +2196,7 @@ export default function SectionPanel({
     }
     for (const [k, v] of acc) out.set(k, v)
     return out
-  }, [snapToStratigraphy, boreholeDetails, contacts, axisMode, refinement])
+  }, [snapToStratigraphy, boreholeDetails, contacts, axisMode, geotechModel])
 
   // Which of the drawn geotech boundaries are LOCKED litho contacts, so the LINE can
   // say which kind it is (heavy solid vs thin dashed) rather than a mark beside the
@@ -2183,10 +2205,10 @@ export default function SectionPanel({
   // the same boundary.
   const restatingBoundaryIds = useMemo(
     () =>
-      axisMode === 'geotechnical' && refinement !== undefined
-        ? restatingContactIds(refinement.geotechLayers, lithoLayers ?? [])
+      axisMode === 'geotechnical' && geotechModel !== undefined
+        ? restatingContactIds(geotechModel.geotechLayers, lithoLayers ?? [])
         : undefined,
-    [axisMode, refinement, lithoLayers],
+    [axisMode, geotechModel, lithoLayers],
   )
 
   // Stop a live contact drag at the next boundary it crosses (design §4c — one drag
@@ -2198,8 +2220,8 @@ export default function SectionPanel({
   // boundary restating a litho contact may not (it would delete the unit between the
   // two contacts). ``clampContactDrag`` holds both.
   const clampGeotechDragToBoundary = useMemo(() => {
-    if (axisMode !== 'geotechnical' || refinement === undefined) return undefined
-    const candidatesByColumn = packingSnapCandidates(refinement.geotechLayers)
+    if (axisMode !== 'geotechnical' || geotechModel === undefined) return undefined
+    const candidatesByColumn = packingSnapCandidates(geotechModel.geotechLayers)
     const restating = restatingBoundaryIds ?? new Set<string>()
     return (
       contactId: string,
@@ -2207,7 +2229,7 @@ export default function SectionPanel({
     ): { depthM: number; atLimit: boolean; release: ContactDragRelease } => {
       // Keyed by the GEOTECH band, not the litho row: on this axis the drawn contact
       // IS a band's top, and the litho row it restates is resolved later, by depth.
-      const dragged = refinement.geotechLayers.find(l => l.id === contactId)
+      const dragged = geotechModel.geotechLayers.find(l => l.id === contactId)
       const anchorId = dragged?.cpt_id ?? dragged?.borehole_id ?? null
       const startDepthM = dragged?.depth_top_m
       if (anchorId === null || startDepthM === undefined) {
@@ -2224,7 +2246,7 @@ export default function SectionPanel({
         CONTACT_DRAG_MIN_THICKNESS_M,
       )
     }
-  }, [axisMode, refinement, lithoLayers, restatingBoundaryIds])
+  }, [axisMode, geotechModel, lithoLayers, restatingBoundaryIds])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
@@ -3204,23 +3226,44 @@ export default function SectionPanel({
                 defines the 3D model). Renders the tiled partition + labels +
                 open-end stubs when Fill bands is on.
                 On the litho axis: bands coloured by lithology colour.
-                On the geotech axis: the LITHO partition REFINED by NAD packing
-                  class (``refinement`` bundle) — each litho region subdivided by
-                  the geotech sub-bands, coloured by NAD class (nadClassColor);
-                  a formation with nad_class === null renders in neutral grey.
+                On the geotech axis: the GEOTECH model's OWN partition (owner
+                  ruling 2026-08-13) — the same engine over the geotech columns
+                  and packing ties the 3-D build arm consumes, coloured by NAD
+                  class (nadClassColor); a formation with nad_class === null
+                  renders in neutral grey. The litho envelopes draw on top and
+                  unpacked litho regions keep their lithology colour, via
+                  ``lithoFrame``.
                 Geotech axis is view-only (no drag handles wired). */}
             {(axisMode === 'lithostratigraphic' || axisMode === 'geotechnical') && lenses !== undefined && (
               <PartitionFillOverlay
-                lithoLayers={lithoLayers ?? []}
-                // The partition is framed by ``contactEdges`` — the LITHO model's
-                // edges on BOTH axes now (the geotech partition is the litho
-                // partition refined; ``lithoLayers`` is the litho layers on both
-                // axes). ``refinement`` (geotech axis only) subdivides each region
-                // by NAD packing class inside the overlay.
-                contactEdges={partitionEdgeSource(axisMode, contactEdges)}
-                refinement={fillSelection.withholdRefinement ? undefined : refinement}
+                // Layers and edges move TOGETHER (the edges reference layer
+                // ids): the litho model on the litho axis, the geotech model on
+                // the geotech axis — unless "Show litho fill" swaps it back.
+                lithoLayers={partitionLayerSource(
+                  axisMode,
+                  lithoLayers,
+                  geotechModel?.geotechLayers,
+                  fillSelection.showLithoFillInstead,
+                )}
+                contactEdges={partitionEdgeSource(
+                  axisMode,
+                  contactEdges,
+                  geotechCorrelationEdges,
+                  fillSelection.showLithoFillInstead,
+                )}
+                lithoFrame={geotechLithoFrame}
                 placedColumns={visibleColumns}
-                formationColorById={formationColorById}
+                // The palette travels with the partition's model: NAD colours
+                // for the packing bands, lithology colours when "Show litho
+                // fill" swaps the litho model back in (``formationColorById``
+                // is keyed by GEOTECH formation id on this axis, so the litho
+                // regions would otherwise all paint the neutral fallback grey).
+                formationColorById={partitionColorSource(
+                  axisMode,
+                  formationColorById,
+                  geotechModel?.lithoFormationColorById,
+                  fillSelection.showLithoFillInstead,
+                )}
                 formationLabelById={formationLabelById}
                 showBands={showBands}
                 levelToScreen={levelToScreen}
@@ -3270,9 +3313,9 @@ export default function SectionPanel({
                 suspended while correlate mode owns the canvas, exactly as the fill's own
                 handles are. Renders nothing at all when the two handlers are absent, so
                 the axis stays view-only wherever they are not wired. */}
-            {axisMode === 'geotechnical' && refinement !== undefined && (
+            {axisMode === 'geotechnical' && geotechModel !== undefined && (
               <GeotechBandEditOverlay
-                geotechLayers={refinement.geotechLayers}
+                geotechLayers={geotechModel.geotechLayers}
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
                 levelToScreen={levelToScreen}
@@ -3309,7 +3352,7 @@ export default function SectionPanel({
             {axisMode === 'geotechnical' && geotechBoreholePreview !== undefined && (
               <GeotechBoreholePreviewGhosts
                 previewColumns={geotechBoreholePreview}
-                geotechLayers={refinement?.geotechLayers ?? []}
+                geotechLayers={geotechModel?.geotechLayers ?? []}
                 geotechLayersLoaded={geotechLayersLoaded}
                 placedColumns={visibleColumns}
                 levelToScreen={levelToScreen}
