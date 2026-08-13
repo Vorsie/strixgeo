@@ -141,7 +141,8 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
-    load_approved_litho_edges,
+    load_approved_litho_edge_sets,
+    load_existing_geotech_base_pairs_by_section,
     load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
@@ -784,11 +785,15 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
                 self._session, geotech_model.id
             )
+            seen_base_by_section = await load_existing_geotech_base_pairs_by_section(
+                self._session, geotech_model.id
+            )
 
             for section in sections:
-                litho_approved_edges = await load_approved_litho_edges(
+                edge_sets = await load_approved_litho_edge_sets(
                     self._session, litho_model_id, section.id
                 )
+                litho_approved_edges = edge_sets.pairs
                 if not litho_approved_edges:
                     continue
                 sections_with_edges += 1
@@ -816,6 +821,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                         # 2026-08-06 refinement: restating pairs accepted,
                         # interior + bridged pairs pending.
                         direct_litho_pairs=litho_approved_edges,
+                        # Owner ruling 2026-08-13: a litho bottom tie restates
+                        # as a base↔base edge between the deepest bands.
+                        litho_bottom_tie_pairs=edge_sets.bottom_tie_pairs,
+                        seen_base_pairs=seen_base_by_section.setdefault(section.id, set()),
                     )
                 )
             self.info(
