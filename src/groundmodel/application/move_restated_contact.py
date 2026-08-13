@@ -43,6 +43,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
     load_geotech_column_context,
+    pre_edit_class_snapshot,
     require_cpt_anchor,
     revalidate_layer_edges,
     transfer_accepted_edges,
@@ -311,12 +312,14 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             # flagged for review, never dropped by the FK cascade (flag-not-drop, owner
             # 2026-08-07). The same helper the band merge uses, so the two verbs cannot
             # disagree about what happens to the engineer's own correlations.
+            pre_classes = pre_edit_class_snapshot(upper_ctx) | pre_edit_class_snapshot(lower_ctx)
             transfer = await transfer_accepted_edges(
                 self._session,
                 self,
                 model_id=geotech_model_id,
                 from_layer_id=absorbed_row.id,
                 to_layer_id=survivor_row.id,
+                absorbed_class=pre_classes.get(absorbed_row.id),
                 survivor_class=merged_outcome.nad_class,
             )
             # The plan is the record of what happened to the engineer's OWN ties —
@@ -394,6 +397,9 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
                     upper_row.id: upper_outcome.nad_class,  # type: ignore[union-attr]
                     lower_row.id: lower_outcome.nad_class,  # type: ignore[union-attr]
                 }
+            ),
+            old_class_by_layer_id=(
+                pre_edit_class_snapshot(upper_ctx) | pre_edit_class_snapshot(lower_ctx)
             ),
         )
 
