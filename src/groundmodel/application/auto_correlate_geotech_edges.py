@@ -30,12 +30,13 @@ conservative direction, and the same key the two build passes already dedup on.
 
 The rule
 --------
-Unchanged and reused verbatim: for each approved litho edge, the geotech
-sub-band stacks inside that litho unit on both columns are aligned by the
-longest common subsequence of their NAD packing classes
-(``groundmodel.domain.services.geotech_packing_edges.aligned_same_class_pairs``),
-via the shared ``geotech_edge_derivation`` helper that the two build passes
-already call.  Bands with no NAD class (skeleton, no qc) never auto-tie.
+Reused verbatim via the shared ``geotech_edge_derivation`` helper the two
+build passes also call: a DIRECT litho pair aligns with
+``aligned_pairs_with_forced_top`` — the topmost pair restates the litho tie
+regardless of class (owner ruling 2026-08-13) and the class-matched LCS
+aligns the bands below it; a bridged jump pair keeps the plain class-matched
+LCS.  A litho base↔base bottom tie restates as a base↔base edge between the
+deepest bands.  Bands with no NAD class (skeleton, no qc) never auto-tie.
 """
 
 from __future__ import annotations
