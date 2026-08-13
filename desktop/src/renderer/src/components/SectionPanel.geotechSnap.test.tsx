@@ -7,11 +7,11 @@
 // boundaries — the evidence pulls the interpretation onto itself.
 //
 // Pinned claims:
-//   GS1  On the geotech axis with a refinement bundle, the CPT's INTERNAL packing
+//   GS1  On the geotech axis with a geotech model, the CPT's INTERNAL packing
 //        boundaries appear in the snap set handed to ContactsLayer.
 //   GS2  The committed contacts on that column stay in the same snap set — the
 //        packing boundaries JOIN the existing sources, they do not replace them.
-//   GS3  The litho axis is untouched: the same refinement bundle contributes no
+//   GS3  The litho axis is untouched: the same geotech model contributes no
 //        packing boundary there (the axis has no CPT-derived packing to snap to).
 //
 // SectionPanel is a god-component (debt #201); ContactsLayer is mocked so the
@@ -29,7 +29,7 @@ import type {
 } from '../api/client'
 import SectionPanel from './SectionPanel'
 import type { SnapCandidate } from './sections/ContactsLayer'
-import type { GeotechRefinement } from './sections/PartitionFillOverlay'
+import type { GeotechAxisModel } from './sections/geotechAxisModel'
 import { SectionScopeContext } from './sections/SectionScopeContext'
 
 // ---------------------------------------------------------------------------
@@ -188,12 +188,11 @@ const COMMITTED_CONTACT = {
  * The column top (0 m) and base (8 m) are not boundaries: they are where the
  * cone started and stopped, not places the ground was observed to change.
  */
-const REFINEMENT: GeotechRefinement = {
+const GEOTECH_MODEL: GeotechAxisModel = {
   geotechLayers: [band('g-1', 0, 2), band('g-2', 2, 5), band('g-3', 5, 8)],
   nadMeta: new Map(),
   lithoSoilByFormationId: new Map(),
   lithoFormationColorById: new Map(),
-  packingEdges: [],
 }
 
 /**
@@ -207,7 +206,7 @@ async function snapDepthsForAxis(
 ): Promise<number[]> {
   const restore = withFixedSize(800, 400)
   render(
-    <SectionScopeContext.Provider value={{ refinement: REFINEMENT }}>
+    <SectionScopeContext.Provider value={{ geotechModel: GEOTECH_MODEL }}>
       <SectionPanel
         section={SECTION}
         zEpsg={5710}
@@ -256,7 +255,7 @@ describe('SectionPanel — packing boundaries as contact-drag snap targets', () 
   it('GS3 — the litho axis contributes no packing boundary', async () => {
     const depths = await snapDepthsForAxis('lithostratigraphic')
 
-    // Same refinement bundle in scope; the litho axis must be unchanged.
+    // Same geotech model in scope; the litho axis must be unchanged.
     expect(depths).toEqual([7.25])
   })
 
