@@ -606,10 +606,10 @@ async def derive_geotech_edges_from_litho(
         pairs_skipped_null = 0
 
         for la, rb in aligned:
-            # Defensive null-skip (aligned_same_class_pairs already excludes
-            # None, but guard so a future helper change can't emit a skeleton
-            # auto-edge).
-            if nad_by_layer.get(la) is None:
+            # Defensive null-skip (both aligners already exclude None, but
+            # guard BOTH sides so a future helper change can't emit a
+            # skeleton auto-edge).
+            if nad_by_layer.get(la) is None or nad_by_layer.get(rb) is None:
                 pairs_skipped_null += 1
                 continue
 
