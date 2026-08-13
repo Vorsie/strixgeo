@@ -82,19 +82,11 @@ import {
   routeAddStripByEdgeProximity,
   type AddStripCandidate,
 } from './partitionAddStripRouter'
+import { assemblePlacedPartitionColumns } from './assemblePlacedPartitionColumns'
 import {
-  assembleSectionPartitionInput,
-  type FenceLayerInput,
-  type FenceProjectedColumn,
-} from '../../utils/sectionFenceData'
-import { carveOverlayLenses } from '../../utils/carveOverlayLenses'
-import {
-  clipPolygonToElevBand,
-  refineLithoPartition,
-  refineSubstrateQuads,
-  type GeotechColumn,
-  type NadFormationMeta,
-} from '../../utils/refineLithoPartition'
+  selectLithoFallbackRegions,
+  type FallbackPackingBand,
+} from '../../utils/geotechFillFallback'
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
 import ReviewFlagLayer, { type ReviewFlagMarker } from './ReviewFlagLayer'
@@ -132,47 +124,43 @@ import {
 import { dragCrossedThreshold } from './dragThreshold'
 
 /**
- * Geotech fraction-space refinement inputs (owner-locked 2026-07-06). When
- * present (the geotech axis), the overlay renders the LITHO partition REFINED
- * by NAD packing class instead of the raw region fills: the litho partition is
- * built from ``lithoLayers`` + ``contactEdges`` (flipped back to the LITHO
- * model in SectionsCanvas), then ``refineLithoPartition`` subdivides each
- * region by the geotech sub-bands here. Colours come from the parent
- * ``formationColorById`` (geotech formations → NAD colour). Geotech is
- * view-only, so the interactive lens/boundary handles + per-body labels are
- * suppressed in refined mode (labels live on the column strips, matching the
- * owner-accepted rev-8 render).
+ * The LITHO frame drawn over the geotech axis's own partition.
+ *
+ * OWNER RULING 2026-08-13. The geotech axis no longer refines the litho
+ * partition by NAD class — it runs the SAME partition engine over the GEOTECH
+ * model's columns and its own approved packing ties ("we don't need to invent
+ * the fill bands engine, it is built for the litho stage — we only have more
+ * classes"), which is byte-for-byte the computation the 3-D build arm already
+ * performs. ``lithoLayers`` + ``contactEdges`` therefore carry the GEOTECH
+ * model's rows on that axis.
+ *
+ * Litho geometry stays visually authoritative, and that is what this bundle is
+ * for: the litho partition is built a second time from the rows here and drawn
+ * as (a) dark region-envelope OUTLINES over the packing fills, and (b)
+ * litho-colour FALLBACK fills beneath them, wherever the geotech model has no
+ * bands for a litho region.
+ *
+ * Present ⇒ the geotech axis, which is VIEW-ONLY: no lens / boundary / body
+ * gestures and no per-body labels (those live on the column strips).
  */
-export interface GeotechRefinement {
-  /** Geotech-model ``litho_layer`` rows (the NAD sub-bands), any order. */
-  geotechLayers: readonly LithoLayerResponse[]
-  /** Geotech formation id → NAD class + soil code. */
-  nadMeta: ReadonlyMap<string, NadFormationMeta>
-  /** Litho formation id → soil code (the hard soil-code guard). */
-  lithoSoilByFormationId: ReadonlyMap<string, string | null>
+export interface GeotechLithoFrame {
+  /** LITHO-model ``litho_layer`` rows — the outline + fallback partition. */
+  lithoLayers: readonly LithoLayerResponse[]
   /**
-   * Litho formation id → lithology colour. Used to colour the ``fallback``
-   * refined polygons (a litho region with NO geotech sub-band data on either
-   * side — those carry the LITHO formation id) and the no-donor substrate
-   * quads, so an unpacked interval renders in its lithology colour rather than
-   * the neutral fallback grey (``formationColorById`` on the geotech axis only
-   * knows GEOTECH formation ids).
+   * The LITHO model's contact-correlation edges for this section. Only the
+   * approved ones frame the outline partition, exactly as on the litho axis, so
+   * the envelopes drawn here are the envelopes the litho axis draws.
+   */
+  lithoEdges?: readonly LithoContactCorrelationEdge[]
+  /**
+   * Litho formation id → lithology colour, for the fallback fills. The parent's
+   * ``formationColorById`` only knows GEOTECH formation ids on this axis.
    */
   lithoFormationColorById: ReadonlyMap<string, string>
-  /**
-   * The section's APPROVED geotech packing-correlation edges, keyed by geotech
-   * ``litho_layer`` id.
-   *
-   * OWNER RULING 2026-08-04: the gap fill consumes these with the litho stage's
-   * 2/1/0 semantics — two correlated bounding contacts BAND across the gap, an
-   * untied pair pinches out. It is deliberately the SAME edge set the 3-D build
-   * arm is fed (approved only — ``fetchApprovedEdgesBySection`` filters the same
-   * way), so one hand correlation moves the render and the build together.
-   *
-   * ``undefined`` (an un-threaded caller) keeps the legacy class+position
-   * pairing; an empty array means "no ties on this section" and pinches.
-   */
-  packingEdges?: readonly CorrelationEdge[]
+  /** Litho formation id → main soil code (the fallback's soil guard). */
+  lithoSoilByFormationId: ReadonlyMap<string, string | null>
+  /** Geotech formation id → main soil code (what a packing band covers). */
+  geotechSoilByFormationId: ReadonlyMap<string, string | null>
 }
 
 /**
@@ -181,13 +169,23 @@ export interface GeotechRefinement {
  * section litho fill + its pinch / lens shaping.
  */
 export interface Props {
-  /** Accepted litho layers carrying ``body_id`` + the unit's depth interval. */
+  /**
+   * Accepted layers carrying ``body_id`` + the unit's depth interval — the rows
+   * the partition columns are assembled from.
+   *
+   * MODEL-RELATIVE since 2026-08-13: the LITHO model's layers on the litho
+   * axis, the GEOTECH model's packing bands on the geotech axis (see
+   * ``partitionLayerSource``). The prop name is historical.
+   */
   lithoLayers: readonly LithoLayerResponse[]
   /**
    * Contact correlation edges (each links two ``litho_layer`` ids). The fill
    * BANDS two units iff an APPROVED edge connects them — the trustworthy
    * correlation signal, vs the resolver's over-lumped ``body_id``. Geometry only
    * fills the uncorrelated remainder. Absent → no explicit bands (all geometry).
+   *
+   * Moves WITH ``lithoLayers``: the edges reference layer ids, so both name the
+   * same model on every axis (``partitionEdgeSource``).
    */
   contactEdges?: readonly LithoContactCorrelationEdge[]
   /** Placed columns (carry ``proj.along`` + surface elevation + screen x/width). */
@@ -269,12 +267,13 @@ export interface Props {
    */
   selectedBodyId?: string | null
   /**
-   * Geotech fraction-space refinement (owner-locked 2026-07-06). When present,
-   * the overlay renders the litho partition REFINED by NAD packing class
-   * instead of the raw region fills. Absent → normal litho/geotech-direct
-   * render. See {@link GeotechRefinement}.
+   * The LITHO frame over the geotech axis's own partition (owner ruling
+   * 2026-08-13). Present ⇒ the geotech axis: litho envelopes draw as dark
+   * outlines on top, unpacked litho regions paint in lithology colour beneath,
+   * and every gesture surface is suppressed (view-only). Absent → the plain
+   * single-model render. See {@link GeotechLithoFrame}.
    */
-  refinement?: GeotechRefinement
+  lithoFrame?: GeotechLithoFrame
   /**
    * Current section axis. The REVIEW-FLAG markers (uncorrelated same-litho neighbours the
    * safe-default repair re-emitted) render on the LITHO axis only — hidden on geology / geotech.
@@ -399,13 +398,19 @@ export default function PartitionFillOverlay({
   onBodyContextMenu,
   correlateMode = false,
   selectedBodyId,
-  refinement,
+  lithoFrame,
   axisMode,
   dismissedReviewFlags,
   onDismissReviewFlag,
   onCorrelateReviewFlag,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
+  // The geotech axis is VIEW-ONLY: no body / lens / boundary gesture is wired
+  // there (geotech editing lives in GeotechBandEditOverlay), so every
+  // interactive surface below is suppressed. Keyed on the AXIS, not on
+  // ``lithoFrame`` — the "Show litho fill" toggle withholds the frame while the
+  // axis is still geotech, and a view-only axis must stay view-only either way.
+  const viewOnly = axisMode === 'geotechnical'
   // Active partition engine (v1 stable / v2 experimental), device-local dev
   // pref. Read as a hook so a flip in Settings re-renders the overlay live; it
   // feeds the sectionFillData memo's dep array so the partition recomputes.
@@ -808,53 +813,13 @@ export default function PartitionFillOverlay({
   // ``assembleSectionPartitionInput`` (audit FE-UTILS-08) — the same pure util
   // ``buildProjectFence`` and ``buildVoxelRequest`` consume, so the on-screen
   // partition and the 3D fence/voxel builds assemble identical columns. Only
-  // the screen x-edge derivation from ``placedColumns`` stays overlay-local.
-  const { orderedInvs, colByInv, screenByInv } = useMemo(() => {
-    const fenceLayers: FenceLayerInput[] = []
-    for (const layer of lithoLayers) {
-      const inv = layer.cpt_id ?? layer.borehole_id
-      if (!inv) continue
-      fenceLayers.push({
-        investigationId: inv,
-        layerId: layer.id, // what correlation edges reference (the band signal)
-        formationId: layer.formation_id,
-        bodyId: layer.body_id ?? null,
-        topDepthM: layer.depth_top_m,
-        baseDepthM: layer.depth_base_m,
-        accepted: layer.status === 'accepted',
-      })
-    }
-    const placedById = new Map<string, PlacedColumn>()
-    const projected: FenceProjectedColumn[] = (placedColumns as readonly PlacedColumn[]).map(
-      (col) => {
-        placedById.set(col.proj.item.id, col)
-        return {
-          investigationId: col.proj.item.id,
-          alongM: col.proj.along,
-          surfaceElevM: col.proj.item.elevation_m ?? null,
-        }
-      },
-    )
-    const { columns, orderedColumns } = assembleSectionPartitionInput(projected, fenceLayers)
-
-    const cols = new Map<string, PartitionColumn>()
-    const screen = new Map<string, ColumnScreen>()
-    const ordered: string[] = []
-    for (let i = 0; i < columns.length; i += 1) {
-      const id = orderedColumns[i].investigationId
-      const placed = placedById.get(id)
-      if (!placed) continue // unreachable: every assembled column came from placedColumns
-      const halfW = placed.width / 2
-      cols.set(id, columns[i])
-      screen.set(id, {
-        rightX: placed.nudgedX + halfW,
-        leftX: placed.nudgedX - halfW,
-        along: orderedColumns[i].alongM,
-      })
-      ordered.push(id)
-    }
-    return { orderedInvs: ordered, colByInv: cols, screenByInv: screen }
-  }, [lithoLayers, placedColumns])
+  // the screen x-edge derivation from ``placedColumns`` stays overlay-local, and
+  // that pairing now lives in ``assemblePlacedPartitionColumns`` because the
+  // geotech axis runs it twice (packing model here, litho frame below).
+  const { orderedInvs, colByInv, screenByInv } = useMemo(
+    () => assemblePlacedPartitionColumns(lithoLayers, placedColumns),
+    [lithoLayers, placedColumns],
+  )
 
   const clampY = (y: number): number => Math.max(plotTop, Math.min(plotBottom, y))
 
@@ -951,8 +916,8 @@ export default function PartitionFillOverlay({
     orderedColumns: PartitionColumn[]
     gapXs: Array<{ leftX: number; rightX: number }>
     // True along-section metres 1:1 with orderedColumns — the SAME array the
-    // engine ran on, re-exposed so the refinement's donor-distance rule (6b)
-    // measures in the partition's own spacing.
+    // engine ran on, re-exposed so downstream passes measure in the
+    // partition's own spacing.
     alongM: number[]
     // Keyed lens apex overrides so the screen memo can skip the legacy path.
     apexOverrides: Map<string, LensApexOverride>
@@ -1147,11 +1112,10 @@ export default function PartitionFillOverlay({
     // WHOLE-SECTION resolve: reduce each column ONCE against BOTH its neighbours
     // (not per gap, which drifts and breaks a body's continuity through a shared
     // column — the dogfeed peat-discontinuity bug). Regions carry ``gapIndex``.
-    // The partition itself is built from the LITHO model's columns + edges on
-    // BOTH axes now (the geotech partition is the litho partition refined). On
-    // the geotech axis the NAD subdivision is a SEPARATE pass over these regions
-    // (see the ``refinement`` prop + ``refinedScreen`` memo below); the raw
-    // ``sectionRegions`` here stay the litho partition.
+    // The partition is built from ONE model per axis (owner ruling 2026-08-13):
+    // the litho model's columns + edges on the litho axis, the geotech model's
+    // on the geotech axis. The litho envelopes the geotech axis also draws are a
+    // SECOND, independent partition (see the ``lithoFrame`` prop + its memo).
     // The engine call's arguments are EXACTLY (orderedColumns, edges, apexOverrides,
     // alongM), so a key over those four is a complete description of its output. This
     // memo's deps include the viewport transforms — they are needed to build
@@ -1894,8 +1858,11 @@ export default function PartitionFillOverlay({
   // strip merges seamlessly into same-litho gap regions) and keeps the stroke
   // ONLY where the neighbour differs in lithology or the edge borders unfilled
   // space. Index-aligned: undercol strokes first, then region strokes.
+  //
+  // Runs on the geotech axis too since 2026-08-13: the packing fill is emitted
+  // through this same path, so it inherits the hairline closure for free.
   const seamStrokes = useMemo((): { undercol: string[]; regions: string[] } => {
-    if (refinement || screenRegions.length + underColumnFills.length === 0)
+    if (screenRegions.length + underColumnFills.length === 0)
       return { undercol: [], regions: [] }
     const elements: SeamStrokeElement[] = [
       ...underColumnFills.map((f) => ({ points: f.pts, formationId: f.formationId })),
@@ -1906,7 +1873,7 @@ export default function PartitionFillOverlay({
       undercol: ds.slice(0, underColumnFills.length),
       regions: ds.slice(underColumnFills.length),
     }
-  }, [refinement, underColumnFills, screenRegions])
+  }, [underColumnFills, screenRegions])
 
   // ---- DISSOLVED FILL GROUPS (S61 — owner clause 5, app-render half). --------
   //
@@ -1924,7 +1891,7 @@ export default function PartitionFillOverlay({
   // body paints at its natural opacity while same-litho siblings demote to 0.25,
   // so they land in different buckets → different elements (each still uniform).
   const fillGroups = useMemo(() => {
-    if (refinement || screenRegions.length + underColumnFills.length === 0) return []
+    if (screenRegions.length + underColumnFills.length === 0) return []
     // The selected body's lithology — under-column fills carry formationId (not
     // bodyId), so S1 fades them by matching lithology (mirrors the render below).
     const selFormId = selectedBodyId
@@ -1955,196 +1922,137 @@ export default function PartitionFillOverlay({
       })
     }
     return buildFillGroups(elements)
-  }, [refinement, underColumnFills, screenRegions, selectedBodyId, formationColorById])
+  }, [underColumnFills, screenRegions, selectedBodyId, formationColorById])
 
-  // ---- GEOTECH REFINEMENT (fraction-space NAD subdivision, view-only). -------
+  // ---- LITHO FRAME over the geotech partition (owner ruling 2026-08-13). ----
   //
-  // When `refinement` is set (the geotech axis), the litho partition
-  // (sectionFillData.sectionRegions, built from the LITHO model) is refined by
-  // NAD packing class: each region is subdivided by the geotech sub-bands, the
-  // under-TD substrate is class-extrapolated, and the litho envelopes are drawn
-  // as dark outlines on top. Geotech is view-only, so this replaces the
-  // interactive litho fill + handles. Combined domain+screen memo (no per-frame
-  // drag to protect from recompute here — unlike the litho axis's #209 split).
-  const refinedScreen = useMemo(() => {
+  // The geotech axis paints its OWN partition through everything above (the
+  // props carry the geotech model's rows there). What it still owes the
+  // engineer is the LITHO geometry, which stays visually authoritative:
+  //
+  //   * OUTLINES — the litho partition's non-lens region envelopes, drawn dark
+  //     over the packing fills so a packing boundary is never mistaken for a
+  //     lithology boundary.
+  //   * FALLBACK FILLS — litho regions the geotech model has no bands for,
+  //     painted in LITHOLOGY colour BENEATH the packing fills, so an
+  //     un-subdivided interval reads as un-subdivided ground and not as a hole.
+  //
+  // The litho partition is assembled independently: a column may carry litho
+  // layers and no packing bands (an undivided borehole), so its column order,
+  // gap indices and screen gap extents are NOT the geotech ones and must be
+  // derived from the litho rows. The engine call is cached on the same content
+  // key ``sectionFillData`` uses, so a pan/zoom (which churns ``placedColumns``
+  // identity through ``nudgedX``) reprojects without re-partitioning.
+  const lithoFrameEngineRef = useRef<{ key: string; value: SectionRegion[] } | null>(null)
+  const lithoFrameScreen = useMemo(() => {
     const empty = {
-      fillPolys: [] as { key: string; d: string; color: string }[],
-      substratePolys: [] as { key: string; d: string; color: string }[],
+      fallbackPolys: [] as { key: string; d: string; color: string }[],
       outlines: [] as { key: string; d: string }[],
     }
-    if (!refinement || !showBands) return empty
-    const { sectionRegions, orderedColumns, gapXs, alongM } = sectionFillData
-    if (orderedColumns.length < 2) return empty
-    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
-    const columnOrder = orderedColumns.map((c) => c.investigationId)
+    if (!lithoFrame || !showBands) return empty
 
-    // Geotech columns keyed by investigation, sharing each litho column's
-    // surface elevation (same investigation → same ground surface).
-    const geoByInv = new Map<string, GeotechColumn['units'][number][]>()
-    for (const l of refinement.geotechLayers) {
-      const inv = (l.borehole_id ?? l.cpt_id) as string | null
-      if (!inv) continue
-      const arr = geoByInv.get(inv) ?? []
-      arr.push({
-        layerId: l.id,
-        topDepthM: l.depth_top_m,
-        baseDepthM: l.depth_base_m,
-        formationId: l.formation_id,
-        bodyId: l.body_id ?? null,
-      })
-      geoByInv.set(inv, arr)
-    }
-    const geoColByInv = new Map<string, GeotechColumn>()
-    for (const c of orderedColumns) {
-      geoColByInv.set(c.investigationId, {
-        investigationId: c.investigationId,
-        surfaceElevM: c.surfaceElevM,
-        units: geoByInv.get(c.investigationId) ?? [],
-      })
-    }
-
-    const rawRefined = refineLithoPartition(
-      sectionRegions,
-      columnOrder,
-      geoColByInv,
-      refinement.nadMeta,
-      refinement.lithoSoilByFormationId,
-      // The hand correlations drive the gap fill (owner ruling 2026-08-04) —
-      // the same approved edge set the 3-D build consumes.
-      { alongM, packingEdges: refinement.packingEdges },
+    // --- the LITHO partition, on its own columns. ---------------------------
+    const litho = assemblePlacedPartitionColumns(lithoFrame.lithoLayers, placedColumns)
+    const valid = litho.orderedInvs.filter(
+      (id) => litho.colByInv.get(id) && litho.screenByInv.get(id),
     )
-    // Review F1 (2026-08-04): the unmatched-span / enclosed-minority lenses are
-    // drawn OVER the fill they pinch out of, and both paint at FILL_OPACITY, so
-    // where they stack the engineer reads a blend of two packing classes rather
-    // than either one. Carve the lens footprints out of the fills so every point
-    // on this axis carries exactly one packing identity. A render-layer
-    // transform on purpose — the refinement's own output stays byte-identical
-    // and keeps its owner-locked pins.
-    const refined = carveOverlayLenses(rawRefined)
+    const lithoColumns = valid.map((id) => litho.colByInv.get(id) as PartitionColumn)
+    if (lithoColumns.length < 2) return empty
+    const lithoGapXs = Array.from({ length: lithoColumns.length - 1 }, (_, i) => ({
+      leftX: (litho.screenByInv.get(valid[i]) as ColumnScreen).rightX,
+      rightX: (litho.screenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
+    }))
+    const lithoAlongM = valid.map((id) => (litho.screenByInv.get(id) as ColumnScreen).along)
+    // Approved edges only — identical filter to the primary partition above, so
+    // the envelopes drawn here are the ones the litho axis itself draws.
+    const lithoEdges: CorrelationEdge[] = (lithoFrame.lithoEdges ?? [])
+      .filter((e) => e.user_approved)
+      .map((e) => ({
+        a: e.layer_a_id,
+        b: e.layer_b_id,
+        aSide: e.layer_a_side,
+        bSide: e.layer_b_side,
+      }))
+    // No apex overrides: the stored body boundaries are keyed by LITHO body id
+    // and the frame is view-only, so a hand-drawn shape would bend an outline
+    // the engineer cannot grab. Matches the build arm, which derives its
+    // overrides from the boundaries of the model it is building.
+    const engineKey = topologyKey(lithoColumns, lithoEdges, lithoAlongM, partitionEngineV2)
+    const cached = lithoFrameEngineRef.current
+    const lithoRegions =
+      cached && cached.key === engineKey
+        ? cached.value
+        : computeSectionFillActive(lithoColumns, lithoEdges, undefined, lithoAlongM)
+    lithoFrameEngineRef.current = { key: engineKey, value: lithoRegions }
 
-    // Refined region fills + litho outlines (per gap, degenerate gaps skipped).
-    const fillPolys: { key: string; d: string; color: string }[] = []
+    // --- which litho regions the packing partition leaves bare. -------------
+    // Read off the ASSEMBLED geotech columns (``colByInv``), not the raw layer
+    // rows: those are what the primary partition actually paints from, so a
+    // dropped column (no accepted bands, or no collar elevation) correctly
+    // counts as unpacked here too.
+    const packingBandsByInv = new Map<string, FallbackPackingBand[]>()
+    for (const [inv, col] of colByInv) {
+      packingBandsByInv.set(
+        inv,
+        col.units.map((u) => ({
+          topElevM: col.surfaceElevM - u.topDepthM,
+          baseElevM: col.surfaceElevM - u.baseDepthM,
+          soilCode: lithoFrame.geotechSoilByFormationId.get(u.formationId) ?? null,
+        })),
+      )
+    }
+    const fallbackRegions = selectLithoFallbackRegions(
+      lithoRegions,
+      valid,
+      packingBandsByInv,
+      lithoFrame.lithoSoilByFormationId,
+    )
+
+    // --- project both passes. ----------------------------------------------
+    const pathFor = (
+      gapIndex: number,
+      polygon: readonly { fraction: number; elevation: number }[],
+    ): string | null => {
+      const g = lithoGapXs[gapIndex]
+      if (!g || g.rightX - g.leftX < 1) return null // degenerate-gap guard (mirror-spill)
+      return (
+        polygon
+          .map((q, j) => {
+            const x = g.leftX + q.fraction * (g.rightX - g.leftX)
+            const y = clampY(levelToScreen(q.elevation))
+            return `${j === 0 ? 'M' : 'L'} ${x.toFixed(2)},${y.toFixed(2)}`
+          })
+          .join(' ') + ' Z'
+      )
+    }
+    const fallbackPolys: { key: string; d: string; color: string }[] = []
+    let bi = 0
+    for (const r of fallbackRegions) {
+      const d = pathFor(r.gapIndex, r.polygon)
+      if (!d) continue
+      fallbackPolys.push({
+        key: `lf-${bi++}`,
+        d,
+        color: lithoFrame.lithoFormationColorById.get(r.formationId) ?? FALLBACK_COLOR,
+      })
+    }
     const outlines: { key: string; d: string }[] = []
-    let fi = 0
-    for (const p of refined) {
-      const g = gapXs[p.gapIndex]
-      if (!g || g.rightX - g.leftX < 1) continue // degenerate-gap guard (mirror-spill)
-      const d =
-        p.points
-          .map((q, j) => {
-            const x = g.leftX + q.fraction * (g.rightX - g.leftX)
-            const y = clampY(levelToScreen(q.elevation))
-            return `${j === 0 ? 'M' : 'L'} ${x.toFixed(2)},${y.toFixed(2)}`
-          })
-          .join(' ') + ' Z'
-      // A `fallback` polygon carries the LITHO formation id (no packing data
-      // anywhere at these elevations) → colour it by lithology, not NAD.
-      const color =
-        p.tag === 'fallback'
-          ? (refinement.lithoFormationColorById.get(p.formationId) ?? FALLBACK_COLOR)
-          : (formationColorById.get(p.formationId) ?? FALLBACK_COLOR)
-      fillPolys.push({ key: `gr-${fi++}`, d, color })
-    }
-    // Litho region envelopes on top (dark) — "litho boundaries persist".
     let oi = 0
-    for (const r of sectionRegions) {
+    for (const r of lithoRegions) {
       if (r.kind === 'lens') continue
-      const g = gapXs[r.gapIndex]
-      if (!g || g.rightX - g.leftX < 1) continue
-      const d =
-        r.polygon
-          .map((q, j) => {
-            const x = g.leftX + q.fraction * (g.rightX - g.leftX)
-            const y = clampY(levelToScreen(q.elevation))
-            return `${j === 0 ? 'M' : 'L'} ${x.toFixed(2)},${y.toFixed(2)}`
-          })
-          .join(' ') + ' Z'
-      outlines.push({ key: `go-${oi++}`, d })
+      const d = pathFor(r.gapIndex, r.polygon)
+      if (!d) continue
+      outlines.push({ key: `lo-${oi++}`, d })
     }
-
-    // Refined under-TD substrate: class-extrapolated donor slices, strips
-    // clipped to the midpoints toward neighbours (rule 6 — coincident-cluster
-    // strips otherwise overlap visibly). Engine-gated like the litho path
-    // (S60 Stage A) — the geotech axis inherits the corrected sub-TD stack.
-    const fills = partitionEngineV2
-      ? computeUnderColumnSubstrateForRender(orderedColumns, sectionRegions)
-      : computeUnderColumnSubstrate(orderedColumns, sectionRegions)
-    const subSlices = refineSubstrateQuads(
-      fills,
-      columnOrder,
-      geoColByInv,
-      refinement.nadMeta,
-      refinement.lithoSoilByFormationId,
-    )
-    const sliceByKey = new Map<string, (typeof subSlices)[number]>()
-    for (const s of subSlices) sliceByKey.set(`${s.columnIndex}-${s.quadIndex}`, s)
-    const centreX = (i: number): number | null => {
-      const sc = screenByInv.get(valid[i])
-      return sc ? (sc.leftX + sc.rightX) / 2 : null
-    }
-    const substratePolys: { key: string; d: string; color: string }[] = []
-    let si = 0
-    for (const f of fills) {
-      const sc = screenByInv.get(valid[f.columnIndex])
-      if (!sc) continue
-      const rawX0 = sc.leftX
-      const rawX1 = sc.rightX
-      if (rawX1 - rawX0 <= 0.5) continue
-      const c = centreX(f.columnIndex)
-      const cl = centreX(f.columnIndex - 1)
-      const cr = centreX(f.columnIndex + 1)
-      const x0 = Math.max(rawX0, cl != null && c != null ? (cl + c) / 2 : -Infinity)
-      const x1 = Math.min(rawX1, cr != null && c != null ? (c + cr) / 2 : Infinity)
-      if (x1 - x0 < 0.5) continue
-      for (let qi = 0; qi < f.quads.length; qi++) {
-        const q = f.quads[qi]
-        const fx = (xa: number): number => (xa - rawX0) / (rawX1 - rawX0)
-        const topAt = (xa: number): number =>
-          q.topLeftElev + (q.topRightElev - q.topLeftElev) * fx(xa)
-        const baseAt = (xa: number): number =>
-          q.baseLeftElev + (q.baseRightElev - q.baseLeftElev) * fx(xa)
-        // Quad in (x, elevation) space at the clipped strip range.
-        const quadPts = [
-          { x: x0, e: topAt(x0) },
-          { x: x1, e: topAt(x1) },
-          { x: x1, e: baseAt(x1) },
-          { x: x0, e: baseAt(x0) },
-        ]
-        const toPath = (pts: { x: number; e: number }[], color: string): void => {
-          if (pts.length < 3) return
-          const d =
-            pts
-              .map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${clampY(levelToScreen(p.e)).toFixed(2)}`)
-              .join(' ') + ' Z'
-          substratePolys.push({ key: `gs-${si++}`, d, color })
-        }
-        const rq = sliceByKey.get(`${f.columnIndex}-${qi}`)
-        if (!rq || rq.slices == null) {
-          // No classified donor anywhere → the quad's LITHO formation colour.
-          toPath(quadPts, refinement.lithoFormationColorById.get(q.formationId) ?? FALLBACK_COLOR)
-          continue
-        }
-        for (const sl of rq.slices) {
-          toPath(
-            clipPolygonToElevBand(quadPts, sl.topElev, sl.baseElev),
-            formationColorById.get(sl.formationId) ?? FALLBACK_COLOR,
-          )
-        }
-      }
-    }
-
-    return { fillPolys, substratePolys, outlines }
+    return { fallbackPolys, outlines }
   }, [
-    refinement,
+    lithoFrame,
     showBands,
-    sectionFillData,
-    orderedInvs,
+    placedColumns,
     colByInv,
-    screenByInv,
     levelToScreen,
     plotTop,
     plotBottom,
-    formationColorById,
     partitionEngineV2,
   ])
 
@@ -2974,50 +2882,30 @@ export default function PartitionFillOverlay({
         plotLeft={plotLeft ?? 0}
         plotTop={plotTop}
       />
-      {/* GEOTECH REFINEMENT (view-only): the litho partition refined by NAD
-          packing class. Substrate BENEATH the region fills; litho envelopes as
-          dark outlines on top. Replaces the interactive litho fill + handles. */}
-      {refinement && (
-        <g data-testid="partition-refined">
-          {refinedScreen.substratePolys.map((p) => (
+      {/* LITHO FALLBACK FILLS (geotech axis, owner ruling 2026-08-13): the
+          litho regions the packing model has no bands for, painted in their
+          LITHOLOGY colour. Emitted FIRST so the packing fills below composite
+          over them — a region that IS packed is never in this list, so the two
+          layers do not actually overlap; the order simply keeps unpacked ground
+          visually subordinate. Same opacity + self-colour seam stroke as every
+          other fill so it reads as part of the same surface. */}
+      {lithoFrame && lithoFrameScreen.fallbackPolys.length > 0 && (
+        <g data-testid="partition-litho-fallback-layer">
+          {lithoFrameScreen.fallbackPolys.map((p) => (
             <path
               key={p.key}
-              data-testid="partition-refined-substrate"
+              data-testid="partition-litho-fallback"
               d={p.d}
               fill={p.color}
               fillOpacity={FILL_OPACITY}
               // Self-colour seam stroke at the fill opacity (2026-07-13) — closes
-              // the antialiasing hairline between adjacent NAD sub-band fills. Matches
-              // fillOpacity so it never reads as a darker outline. See region-fill note.
+              // the antialiasing hairline between adjacent fills. Matches
+              // fillOpacity so it never reads as a darker outline.
               stroke={p.color}
               strokeOpacity={FILL_OPACITY}
               strokeWidth={0.75}
               strokeLinejoin="round"
-            />
-          ))}
-          {refinedScreen.fillPolys.map((p) => (
-            <path
-              key={p.key}
-              data-testid="partition-refined-fill"
-              d={p.d}
-              fill={p.color}
-              fillOpacity={FILL_OPACITY}
-              // Self-colour seam stroke at the fill opacity — see the substrate note.
-              stroke={p.color}
-              strokeOpacity={FILL_OPACITY}
-              strokeWidth={0.75}
-              strokeLinejoin="round"
-            />
-          ))}
-          {refinedScreen.outlines.map((p) => (
-            <path
-              key={p.key}
-              data-testid="partition-refined-outline"
-              d={p.d}
-              fill="none"
-              stroke="#0d1117"
-              strokeOpacity={0.85}
-              strokeWidth={0.8}
+              style={{ pointerEvents: 'none' }}
             />
           ))}
         </g>
@@ -3031,24 +2919,22 @@ export default function PartitionFillOverlay({
           stack to ~0.855 where they overlap). Painted FIRST (beneath the
           interactive hit paths + seam strokes below); ``pointer-events: none`` —
           the fill is display-only, hit-testing lives on the per-region paths. */}
-      {!refinement &&
-        fillGroups.map((g) => (
-          <path
-            key={`pf-group-${g.key}`}
-            data-testid={`partition-fill-group-${g.key}`}
-            d={g.d}
-            fill={g.color}
-            fillOpacity={g.opacity}
-            style={{ pointerEvents: 'none' }}
-          />
-        ))}
+      {fillGroups.map((g) => (
+        <path
+          key={`pf-group-${g.key}`}
+          data-testid={`partition-fill-group-${g.key}`}
+          d={g.d}
+          fill={g.color}
+          fillOpacity={g.opacity}
+          style={{ pointerEvents: 'none' }}
+        />
+      ))}
 
       {/* Under-column substrate seam strokes: the FILL is now dissolved into the
           groups above; only the seam-aware hairline-closing stroke stays
           per-quad (kept ONLY on edges NOT shared with a same-litho fill, S60
           Stage B — a same-litho seam carries no line). */}
-      {!refinement &&
-        underColumnFills.map((f, fi) => {
+      {underColumnFills.map((f, fi) => {
           // Fade the stroke with the same S1 rule the fill group uses (match by
           // lithology, since under-column fills carry formationId not bodyId).
           const selFormId = selectedBodyId
@@ -3075,11 +2961,15 @@ export default function PartitionFillOverlay({
           )
         })}
 
-      {!refinement && screenRegions.map((sr, i) => {
+      {/* Per-region hit path + seam stroke. Rendered on EVERY axis: on the
+          geotech axis ``bodies`` is empty, so ``interactive`` is false and only
+          the stroke paints — the fill's hairline closure the packing bands
+          need, with none of the body gestures the axis does not have. */}
+      {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
-        const interactive = Boolean(onBodyContextMenu && body)
+        const interactive = Boolean(onBodyContextMenu && body) && !viewOnly
         // S1: soft-coupling fade — demote non-matching bodies to 0.25 opacity
         // when a body is selected; the selected body renders at natural opacity
         // ("demote, never remove" precedent — the fill stays visible, just dimmed).
@@ -3145,7 +3035,32 @@ export default function PartitionFillOverlay({
         )
       })}
 
-      {!refinement && labels.map((l) => (
+      {/* LITHO ENVELOPE OUTLINES (geotech axis, owner ruling 2026-08-13):
+          "litho boundaries persist". Drawn AFTER every fill + seam stroke so
+          the dark line sits on top of the packing bands, and before the
+          labels/handles so it never covers a control. Lens envelopes are
+          skipped — a lens outline reads as a lithology boundary it is not. */}
+      {lithoFrame && lithoFrameScreen.outlines.length > 0 && (
+        <g data-testid="partition-litho-outline-layer">
+          {lithoFrameScreen.outlines.map((p) => (
+            <path
+              key={p.key}
+              data-testid="partition-litho-outline"
+              d={p.d}
+              fill="none"
+              stroke="#0d1117"
+              strokeOpacity={0.85}
+              strokeWidth={0.8}
+              style={{ pointerEvents: 'none' }}
+            />
+          ))}
+        </g>
+      )}
+
+      {/* Per-body labels stay LITHO-side: on the geotech axis the class labels
+          live on the column strips (the owner-accepted render), so a second set
+          over the fill would double them. */}
+      {!viewOnly && labels.map((l) => (
         <text
           key={`pf-label-${l.key}`}
           data-testid={`partition-label-${l.key}`}
@@ -3178,7 +3093,7 @@ export default function PartitionFillOverlay({
 
           Each handle's testid encodes [upperBodyId]-[lowerBodyId]-[i] so tests
           can assert N handles independently. */}
-      {!refinement && sharedBoundaries.map((sb) => {
+      {!viewOnly && sharedBoundaries.map((sb) => {
         // The add-strip (grab box) rides the base-contact POLYLINE — following the
         // fill's visible lower boundary, bends included — so the 14px hit tolerance is
         // centred on the marker, not on a straight chord that drifts above a bend
@@ -3309,7 +3224,7 @@ export default function PartitionFillOverlay({
 
           Handle testid: partition-lens-handle-<bodyId>-<edge>-<i>
           Add-strip testid: partition-lens-addstrip-<bodyId>-<edge> */}
-      {!refinement && screenLenses.map((sl) => {
+      {!viewOnly && screenLenses.map((sl) => {
         // Current polygon points from screenRegions (after post-lens rebuild).
         const sr = screenRegions[sl.regionIdx]
         if (!sr) return null
