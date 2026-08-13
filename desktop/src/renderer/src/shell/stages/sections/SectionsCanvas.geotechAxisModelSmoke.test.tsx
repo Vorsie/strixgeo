@@ -1,24 +1,24 @@
-// TDZ / render smoke net for SectionsCanvas on the GEOTECH refinement path.
+// TDZ / render smoke net for SectionsCanvas on the GEOTECH axis.
 //
-// WHY this exists: SectionsCanvas is a ~2800-line god component. The 2026-07-07
-// fraction-space refinement merge added a `geotechRefinement` useMemo to its
-// body (SectionsCanvas.tsx) that runs on every render of the geotech axis and
-// is threaded into SectionPanel → PartitionFillOverlay. A Temporal-Dead-Zone
-// bug (a `const` read above its declaration) or a bad field access in that
-// block throws a ReferenceError at RUNTIME on first render — tsc, the
-// hook-order lint, and the isolated PartitionFillOverlay RF1-RF4 tests all pass
-// while the real geotech section is a blank/crashed canvas. This is exactly the
-// class of bug the project's TDZ rule (CLAUDE.md) says to guard with a
-// top-level smoke render once a component crosses the size threshold.
+// WHY this exists: SectionsCanvas is a ~2700-line god component. Its body carries
+// a `geotechAxisModel` useMemo that runs on every render of the geotech axis and
+// is threaded into SectionPanel -> PartitionFillOverlay through
+// SectionScopeContext. A Temporal-Dead-Zone bug (a `const` read above its
+// declaration) or a bad field access in that block throws a ReferenceError at
+// RUNTIME on first render - tsc, the hook-order lint, and the isolated
+// PartitionFillOverlay tests all pass while the real geotech section is a
+// blank/crashed canvas. This is exactly the class of bug the project's TDZ rule
+// (CLAUDE.md) says to guard with a top-level smoke render once a component
+// crosses the size threshold.
 //
 // What the isolated tests already cover, and the gap this closes:
-//   - PartitionFillOverlay.refinement.test.tsx (RF1-RF4) renders the REAL
-//     overlay with a refinement bundle — but NOT through SectionsCanvas.
+//   - PartitionFillOverlay.geotechDirect.test.tsx (GD1-GD7) renders the REAL
+//     overlay on the geotech axis - but NOT through SectionsCanvas.
 //   - SectionsCanvas.geotechGuard.test.tsx renders the REAL SectionsCanvas on
-//     the geotech axis — but with EMPTY geotech/litho data, so the bundle's
+//     the geotech axis - but with EMPTY geotech/litho data, so the bundle's
 //     field-access loops never run.
 //   - THIS test renders the REAL SectionsCanvas on the geotech axis with
-//     POPULATED data, so the `geotechRefinement` useMemo actually executes its
+//     POPULATED data, so the `geotechAxisModel` useMemo actually executes its
 //     loops, and asserts the well-formed bundle reaches SectionPanel.
 //
 // Claims pinned here:
@@ -26,16 +26,20 @@
 //             geotech + litho formations and geotech sub-band layers WITHOUT
 //             throwing and WITHOUT a React render error on console.error (a TDZ
 //             would surface as one or the other).
-//   SC-TDZ-2  The refinement bundle SectionsCanvas builds and passes to
-//             SectionPanel is well-formed: geotechLayers passed through, nadMeta
-//             keyed by geotech formation id (NAD class + soil code), and both
-//             litho maps keyed by litho formation id (soil code + colour). Ties
-//             the assertions to the input so the smoke is non-vacuous.
+//   SC-TDZ-2  The bundle SectionsCanvas builds and passes to SectionPanel is
+//             well-formed: geotechLayers passed through, nadMeta keyed by
+//             geotech formation id (NAD class + soil code), and both litho maps
+//             keyed by litho formation id (soil code + colour). Ties the
+//             assertions to the input so the smoke is non-vacuous.
+//   SC-TDZ-3  The bundle carries NO pre-filtered packing-edge list (owner ruling
+//             2026-08-13): the geotech partition is framed by the
+//             `geotechCorrelationEdges` prop, and a second copy assembled here
+//             could drift from it silently.
 //
 // NOTE (test-fixture debt): the ~300-line ShellContextValue builder below is the
 // 4th near-verbatim copy (geotechGuard / p2 / snapError each carry one). It is
 // duplicated rather than shared because extracting a `makeSectionsCtx` factory
-// would touch three passing test files — out of scope for this smoke add. Worth
+// would touch three passing test files - out of scope for this smoke add. Worth
 // extracting to a `__testutils__` module when the next SectionsCanvas test lands.
 
 import { cleanup, render } from '@testing-library/react'
@@ -48,7 +52,7 @@ import type {
   GeologicalModelResponse,
   LithoLayerResponse,
 } from '../../../api/client'
-import type { GeotechRefinement } from '../../../components/sections/PartitionFillOverlay'
+import type { GeotechAxisModel } from '../../../components/sections/geotechAxisModel'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import SectionsCanvas from './SectionsCanvas'
 
@@ -61,13 +65,13 @@ import SectionsCanvas from './SectionsCanvas'
 
 import { useSectionScope } from '../../../components/sections/SectionScopeContext'
 
-let capturedRefinement: GeotechRefinement | undefined = undefined
+let capturedGeotechModel: GeotechAxisModel | undefined = undefined
 
 // The refinement bundle rides SectionScopeContext since the #201 round-2
 // rerouting — the mock reads it from the scope, not from a prop.
 vi.mock('../../../components/SectionPanel', () => ({
   default: () => {
-    capturedRefinement = useSectionScope().refinement
+    capturedGeotechModel = useSectionScope().geotechModel
     return null
   },
 }))
@@ -543,7 +547,7 @@ function makeGeotechCtx(): ShellContextValue {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  capturedRefinement = undefined
+  capturedGeotechModel = undefined
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -553,7 +557,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('SectionsCanvas — geotech refinement render smoke (TDZ net)', () => {
+describe('SectionsCanvas — geotech axis model smoke (TDZ net)', () => {
   it('SC-TDZ-1 — mounts on the geotech axis with populated data, no throw / no render error', () => {
     // A TDZ in the geotechRefinement block (or anywhere on the geotech render
     // path) throws synchronously during render → render() rejects, OR React's
@@ -584,8 +588,8 @@ describe('SectionsCanvas — geotech refinement render smoke (TDZ net)', () => {
     )
 
     // The geotech axis always builds the bundle (undefined only off-axis).
-    expect(capturedRefinement).toBeDefined()
-    const bundle = capturedRefinement!
+    expect(capturedGeotechModel).toBeDefined()
+    const bundle = capturedGeotechModel!
 
     // geotechLayers threaded through verbatim.
     expect(bundle.geotechLayers.map((l) => l.id)).toEqual(['gl-1', 'gl-2'])
@@ -599,5 +603,25 @@ describe('SectionsCanvas — geotech refinement render smoke (TDZ net)', () => {
     expect(bundle.lithoSoilByFormationId.get(LITHO_CLAY_ID)).toBe('KL')
     expect(bundle.lithoFormationColorById.get(LITHO_SAND_ID)).toBe(SAND_COLOR)
     expect(bundle.lithoFormationColorById.get(LITHO_CLAY_ID)).toBe(CLAY_COLOR)
+  })
+
+  it('SC-TDZ-3 — the bundle carries no packing-edge list of its own', () => {
+    // Owner ruling 2026-08-13: the geotech partition is framed by the
+    // `geotechCorrelationEdges` prop — the SAME rows the correlate overlay
+    // draws and the 3-D build fetches. A second, pre-filtered copy assembled
+    // here is exactly the kind of duplicate that drifts from its original
+    // without anything going red, so its ABSENCE is pinned.
+    render(
+      <ShellContext.Provider value={makeGeotechCtx()}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+    expect(capturedGeotechModel).toBeDefined()
+    expect(Object.keys(capturedGeotechModel!).sort()).toEqual([
+      'geotechLayers',
+      'lithoFormationColorById',
+      'lithoSoilByFormationId',
+      'nadMeta',
+    ])
   })
 })
