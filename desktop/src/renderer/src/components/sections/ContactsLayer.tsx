@@ -365,6 +365,18 @@ interface Props {
    *  element (contact lines, traces, labels) so the user reads
    *  "colour fill = lithology, line = boundary". */
   perColumnBandsFromContacts?: boolean
+  /**
+   * Which model's display rule the per-column bands take their colour and
+   * name from.
+   *
+   * Normally the section's own ``axisMode``. The geotech axis's "Show litho
+   * fill" swap is the exception: there the partition paints LITHOLOGY colours
+   * in the gaps, so the columns beside them must paint lithology colours too —
+   * otherwise the fill visibly changes identity at every column edge, which is
+   * the opposite of the one-continuous-geology the fill exists to show.
+   * Defaults to ``axisMode``.
+   */
+  columnBandDisplayAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
   /** Show the ``formationFillBands`` — the coloured fill between formation
    *  surfaces (the geological-model fill mechanism, reused on the litho axis).
    *  Defaults to ``true``.  ``SectionPanel`` passes the litho-fill view toggle
@@ -662,6 +674,7 @@ export default function ContactsLayer({
   clampDragToBoundary,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
+  columnBandDisplayAxis,
   showFormationFill = true,
   pendingGhostRangesByAnchorId,
   contactDragClampMinThicknessM,
@@ -1235,14 +1248,19 @@ export default function ContactsLayer({
     // overlay, which colours by ``nadClassColor``) — the stored ``color`` is the
     // base lithology colour (every sand the same yellow), so reading it directly
     // made the column disagree with the NAD-coloured fill beside it.
+    // Which model's display rule applies — the section's axis unless the
+    // caller swapped the painted fill out from under it (geotech axis showing
+    // the litho fill). Keeping these in step is what makes the fill read as
+    // ONE geology across a column edge instead of two.
+    const displayAxis = columnBandDisplayAxis ?? axisMode
     const colorById = new Map(
-      formations.map(f => [f.id, geotechDisplayFormation(f, axisMode).color]),
+      formations.map(f => [f.id, geotechDisplayFormation(f, displayAxis).color]),
     )
     // Geotech: the band's menu label ("Remove this … unit") is the NAD packing
     // name once classified, matching the visible band label; null nad_class
     // falls back to the lithology name.
     const nameById = new Map(
-      formations.map(f => [f.id, geotechDisplayFormation(f, axisMode).name]),
+      formations.map(f => [f.id, geotechDisplayFormation(f, displayAxis).name]),
     )
     const out: LithoBand[] = []
     for (const col of placedColumns) {
@@ -1349,7 +1367,7 @@ export default function ContactsLayer({
       }
     }
     return out
-  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen, pendingGhostRangesByAnchorId, axisMode])
+  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen, pendingGhostRangesByAnchorId, axisMode, columnBandDisplayAxis])
 
   // Shared by the visible per-column band rect AND its #158 donated hit
   // strips: a strip IS the band, just reachable, so the two surfaces must

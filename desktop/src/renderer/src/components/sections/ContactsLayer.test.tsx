@@ -145,6 +145,7 @@ function renderLayer(
     onLinkLithoToGeo?: (id: string) => Promise<void>
     renderFormationSurfaces?: boolean
     axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
+    columnBandDisplayAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     correlateMode?: boolean
   } = {},
 ) {
@@ -178,6 +179,7 @@ function renderLayer(
         onRequestAddLithoSuggestion={extras.onRequestAddLithoSuggestion}
         renderFormationSurfaces={extras.renderFormationSurfaces}
         axisMode={extras.axisMode}
+        columnBandDisplayAxis={extras.columnBandDisplayAxis}
         correlateMode={extras.correlateMode}
       />
     </svg>,
@@ -212,6 +214,33 @@ describe('ContactsLayer', () => {
     expect(band).not.toBeNull()
     expect(band?.getAttribute('fill')).toBe(nadClassColor(6))
     expect(band?.getAttribute('fill')).not.toBe('#fbbf24')
+  })
+
+  it('the column stack follows the fill that is actually painted, not the axis', () => {
+    // Owner: the section has to read as one continuous geology. On the geotech
+    // axis with "Show litho fill" swapped in, the gaps paint lithology colours —
+    // so the columns beside them must paint lithology colours too, or the fill
+    // changes identity at every column edge.
+    const geotechFormation = makeFormation({ id: 'f-nad6', color: '#fbbf24', nad_class: 6 })
+    const contacts = [
+      makeContact({ id: 'c-1', formation_id: 'f-nad6', borehole_id: 'bh-1', depth_top_m: 2 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [geotechFormation],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      {
+        perColumnBandsFromContacts: true,
+        axisMode: 'geotechnical',
+        columnBandDisplayAxis: 'lithostratigraphic',
+      },
+    )
+    const band = container.querySelector(
+      '[data-testid^="per-column-litho-band-"]',
+    ) as SVGRectElement | null
+    expect(band?.getAttribute('fill')).toBe('#fbbf24')
+    expect(band?.getAttribute('fill')).not.toBe(nadClassColor(6))
   })
 
   it('geotech band label uses the NAD packing name once a class is assigned', () => {
