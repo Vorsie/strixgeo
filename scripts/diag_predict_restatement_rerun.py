@@ -64,14 +64,13 @@ async def _load_existing_pairs(geotech_model_id: str) -> dict[str, set[tuple[str
             )
         ).all()
     pairs: dict[str, set[tuple[str, str]]] = {}
-    base_pairs: dict[str, set[tuple[str, str]]] = {}
+    sided: dict[str, set[tuple[str, str, str, str]]] = {}
     for section_id, a, b, sa, sb in rows:
-        key = (min(str(a), str(b)), max(str(a), str(b)))
-        pairs.setdefault(str(section_id), set()).add(key)
-        if sa == "base" and sb == "base":
-            base_pairs.setdefault(str(section_id), set()).add(key)
-    # Return both maps in one structure: base pairs keyed with a marker.
-    return {"pairs": pairs, "base": base_pairs}  # type: ignore[return-value]
+        a, b = str(a), str(b)
+        pairs.setdefault(str(section_id), set()).add((min(a, b), max(a, b)))
+        skey = (a, b, sa, sb) if a < b else (b, a, sb, sa)
+        sided.setdefault(str(section_id), set()).add(skey)
+    return {"pairs": pairs, "sided": sided}  # type: ignore[return-value]
 
 
 def main() -> None:
@@ -79,7 +78,7 @@ def main() -> None:
     dump = json.loads(DUMP.read_text(encoding="utf8"))
     existing = asyncio.run(_load_existing_pairs(dump["meta"]["geotechModelId"]))
     existing_pairs: dict[str, set[tuple[str, str]]] = existing["pairs"]  # type: ignore[assignment]
-    existing_base: dict[str, set[tuple[str, str]]] = existing["base"]  # type: ignore[assignment]
+    existing_sided: dict[str, set[tuple[str, str, str, str]]] = existing["sided"]  # type: ignore[assignment]
 
     nad_class = {k: v["nadClass"] for k, v in dump["refinementBundle"]["nadMeta"].items()}
 
@@ -112,7 +111,7 @@ def main() -> None:
             ]
 
         seen = set(existing_pairs.get(sec["sectionId"], set()))
-        seen_base = set(existing_base.get(sec["sectionId"], set()))
+        seen_sided = set(existing_sided.get(sec["sectionId"], set()))
         added: list[dict] = []
         for e in sec["edges"]:  # approved litho edges, sides preserved
             wa = litho_window.get(e["a"])
@@ -123,38 +122,43 @@ def main() -> None:
             right = stack_in(*wb)
             if not left or not right:
                 continue
-            is_bottom_tie = e.get("aSide") == "base" and e.get("bSide") == "base"
-            # Forced-topmost restatement (accepted) — the first aligned pair
-            # when both tops carry a class.
-            aligned = aligned_pairs_with_forced_top(left, right)
-            if aligned and left[0][1] is not None and right[0][1] is not None:
-                la, rb = aligned[0]
-                if (la, rb) == (left[0][0], right[0][0]) or (rb, la) == (
-                    left[0][0],
-                    right[0][0],
-                ):
-                    key = (min(la, rb), max(la, rb))
-                    if key not in seen and la != rb:
-                        seen.add(key)
-                        added.append({"a": key[0], "b": key[1], "aSide": "top", "bSide": "top"})
-            # Base↔base restatement of a litho bottom tie (accepted).
-            if is_bottom_tie:
-                (ld, lcls), (rd, rcls) = left[-1], right[-1]
-                if lcls is not None and rcls is not None and ld != rd:
-                    key = (min(ld, rd), max(ld, rd))
-                    if key not in seen_base:
-                        seen_base.add(key)
-                        added.append({"a": key[0], "b": key[1], "aSide": "base", "bSide": "base"})
+            sa, sb = e.get("aSide", "top"), e.get("bSide", "top")
+            if (sa, sb) == ("top", "top"):
+                # Forced-topmost restatement (accepted) — the first aligned
+                # pair when both tops carry a class.
+                aligned = aligned_pairs_with_forced_top(left, right)
+                if aligned and left[0][1] is not None and right[0][1] is not None:
+                    la, rb = aligned[0]
+                    if (la, rb) == (left[0][0], right[0][0]) or (rb, la) == (
+                        left[0][0],
+                        right[0][0],
+                    ):
+                        key = (min(la, rb), max(la, rb))
+                        if key not in seen and la != rb:
+                            seen.add(key)
+                            added.append({"a": key[0], "b": key[1], "aSide": "top", "bSide": "top"})
+            else:
+                # Sided restatement (accepted): side → the band owning that
+                # contact surface (top → topmost, base → deepest).
+                lid, lcls = left[0] if sa == "top" else left[-1]
+                rid, rcls = right[0] if sb == "top" else right[-1]
+                if lcls is not None and rcls is not None and lid != rid:
+                    skey = (lid, rid, sa, sb) if lid < rid else (rid, lid, sb, sa)
+                    if skey not in seen_sided:
+                        seen_sided.add(skey)
+                        added.append(
+                            {"a": skey[0], "b": skey[1], "aSide": skey[2], "bSide": skey[3]}
+                        )
 
-        tops = sum(1 for a in added if a["aSide"] == "top")
-        bases = len(added) - tops
+        tops = sum(1 for a in added if (a["aSide"], a["bSide"]) == ("top", "top"))
+        sided_n = len(added) - tops
         total_top += tops
-        total_base += bases
+        total_base += sided_n
         sec["geotech"]["edges"].extend(added)
-        print(f"  {sec['name']:<18} +{tops} topmost restatement(s), +{bases} base tie(s)")
+        print(f"  {sec['name']:<18} +{tops} topmost restatement(s), +{sided_n} sided tie(s)")
 
     OUT.write_text(json.dumps(dump), encoding="utf8")
-    print(f"\n  total predicted accepted additions: {total_top} top + {total_base} base")
+    print(f"\n  total predicted accepted additions: {total_top} top + {total_base} sided")
     print(f"  wrote {OUT}")
 
 
