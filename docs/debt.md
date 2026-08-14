@@ -8426,50 +8426,37 @@ committed bands, or side-by-side), then wire it; no backend work is needed.
 
 ## 270. Delete the retired fraction-space refinement modules (S)
 
-**What.** The geotech axis renders the direct partition since 2026-08-13
-(geotech-stage.md §2); `desktop/.../utils/refineLithoPartition.ts`,
-`refineLithoPartition.overlap.ts`, `carveOverlayLenses.ts`,
-`geotechPackingTies.ts` and their unit/frozen-CS1 test files are app-dead
-(no production imports — verified), as are the superseded render/build
-agreement diags (`geotechEngineAgreement.diag.test.ts` + its frozen baseline,
-`geotechVoidMechanism`, `geotechInteriorVoid`, `geotechDefectTaxonomy`,
-`geotechFallbackCause`, `geotechQ2Visual`, `geotechAgreementRefute`,
-`geotechEndStrip`, `geotechDiscrAblation`, `geotechRenderArmRefute`). The
-`geotechFillGap` diag keeps only its direct/litho variants.
-
-**Why deferred.** The owner has not dogfed the direct partition yet; the old
-modules on disk are the one-commit fallback if the swap misbehaves on the
-real model.
-
-**When to revisit.** The dogfeed after 2026-08-13 confirms the geotech axis —
-then one deletion campaign, plus pruning the `2026-07-06-geotech-fraction-refinement-handoff.md`
-pointer.
+**RESOLVED 2026-08-14** (owner un-gated the deletion pre-dogfeed: "fix that
+before i dogfeed"). The deletion campaign removed the four refinement modules
+(`refineLithoPartition.ts`, `.overlap.ts`, `carveOverlayLenses.ts`,
+`geotechPackingTies.ts`) + their 8 test files, and the superseded agreement
+machinery (`geotechEngineAgreement.diag` + frozen baseline,
+`geotechAgreementFreeze.{diag.ts,test.ts}`, `geotechVoidMechanism`,
+`geotechInteriorVoid`, `geotechDefectTaxonomy`, `geotechFallbackCause`,
+`geotechQ2Visual`, `geotechAgreementRefute`, `geotechEndStrip`,
+`geotechDiscrAblation`, `geotechRenderArmRefute`) — 25 files. The
+`geotechFillGap` diag keeps only its direct/fixed/litho variants;
+`geotechVoxelPayload.diag` + `geotechFillFallback.ts` docstrings updated
+(the fallback's 2 cm slop constant now cites the deleted refinement via git
+history). The handoff doc was already gone. Git history is the fallback if
+the dogfeed misbehaves. tsc clean; full desktop suite green minus the 2
+pre-existing partitionFillV2 reds.
 
 ## 271. The v2 arrangement loses long shallow-angle proper crossings (M)
 
-**What.** `partitionFillV2/intersect.ts` registers a proper crossing's cut
-only when the SNAPPED intersection point is exactly collinear
-(`cross === 0`) with the segment's integer supporting line
-(`pointOnSegment` → `onCollinearSegment`). `Math.round` moves the point up
-to √2/2 grid units off each line, and a long shallow-angle crossing
-practically never rounds back on — the cut silently vanishes and faces
-straddle an input curve. Exact repro (found via CS1 gap 9, 2026-08-14):
-segments (0, 6.48)→(50.0018, 3.93) and (0, 5.49)→(45.0016, 5.985) cross at
-≈(15.97, 5.67); `buildArrangement` returns them unsplit (4 half-edges, 4
-vertices; a correct split is 8 and 5). The near-collinear T-junction
-recovery already in the file handles the same drift for ENDPOINTS, but only
-behind the unrelated two-sided-terminations cut-over flag.
-
-**Why deferred.** The one-line fix (tolerate ≤1 grid unit when registering a
-crossing cut, mirroring `nearInteriorT`) was implemented and REVERTED
-2026-08-14 (~05:00): it changes real-data engine output — the cs1void gate
-found a new 8 cm sliver void at GAP-21 (a previously-hidden straddle traded
-for a visible micro-void) — so it needs the micro-face absorption question
-answered and the frozen v2 gates re-frozen deliberately, with the owner
-awake. The litho-frame clip (`clipPartitionToLithoFrame`) pre-splits its own
-inputs in float and is NOT affected.
-
-**When to revisit.** Together with the owner's next engine session — before
-any new consumer feeds the arrangement long shallow curves, and before the
-two-sided-terminations cut-over lands (its near-T path shares the same
-tolerance question).
+**RESOLVED 2026-08-14** (owner: "fix that before i dogfeed"). The tolerant
+crossing-cut registration landed KIND-SCOPED: `intersect.ts` accepts a proper
+crossing's snapped point as a cut when it lies within 1 grid unit of the
+segment with its projection in range (`pointOnOrNearSegment`) — but ONLY when
+neither party is a synthesized `closing` curve (flank/apex/substrate-bridge).
+The unscoped version — the one reverted at ~05:00 — was retried first and
+regressed 8 PartitionFillOverlay tests: a termination flank whose cut the
+exact test used to eat (then stripped as a spur) suddenly engaged and split a
+MATCHED tied boundary in two. Closing-curve engagement stays exact-only until
+the two-sided-terminations cut-over, which owns that tolerance question.
+Under the scoped fix the GAP-21 micro-void from the morning attempt does NOT
+appear (it was a closing-curve artifact — no gate exclusion, and the
+micro-face absorption question dissolved), the cs1 gates pass 8/8 unmodified,
+holes/overlaps 0/0 on all 14 sections, and the consistency baseline moved by
+exactly +0.01 pp on one section (Tie-section 14, re-frozen). Pinned by the
+exact repro + the closing-scope negative in `arrangement.test.ts`.
