@@ -15,7 +15,8 @@ stack inside that litho unit on each test, aligns the two stacks (a direct
 litho pair via ``aligned_pairs_with_forced_top`` — the topmost pair is forced
 regardless of class, owner ruling 2026-08-13; a bridged pair via the plain
 class-matched ``aligned_same_class_pairs`` LCS), and emits one geotech edge
-per aligned pair, plus a base↔base restatement of any litho bottom tie.  The
+per aligned pair, plus side-preserved restatements of every non-top↔top
+litho tie (bottom ties and mixed onlap declarations alike).  The
 caller controls the dedup scope by passing a ``seen_layer_pairs``
 set — and that set MUST be per-section, because geotech edges are
 section-scoped (the same layer pair can legitimately exist on two sections).
@@ -182,22 +183,26 @@ async def load_litho_layer_depths(
 
 @dataclass(frozen=True)
 class ApprovedLithoEdgeSets:
-    """A section's approved litho edges, split by what they can restate.
+    """A section's approved litho edges, pairs plus their sided identities.
 
     Attributes
     ----------
     pairs : set[tuple[UUID, UUID]]
         Canonical ``(min, max)`` layer pairs of EVERY approved litho edge on
         the section, any sides — the alignment driver.
-    bottom_tie_pairs : set[tuple[UUID, UUID]]
-        The subset whose edge is a base↔base bottom tie.  Its restatement is
-        the two DEEPEST bands with base sides — the only path by which a
-        column's deepest band can reach a tied base (owner ruling 2026-08-13,
-        "start from the exact litho geometries").
+    sided_edges : set[tuple[UUID, UUID, str, str]]
+        Every approved litho edge as ``(min_id, max_id, side_of_min,
+        side_of_max)`` — the full tie vocabulary: top↔top band ties,
+        base↔base bottom ties AND the mixed top↔base onlap declarations.
+        Each restates onto the geotech bands owning the same contact
+        surfaces, sides preserved (owner ruling 2026-08-14: "litho
+        consistency should be 100%" — the side-blind loader silently
+        restated a mixed tie as top↔top, an approval the engineer never
+        gave).
     """
 
     pairs: set[tuple[UUID, UUID]]
-    bottom_tie_pairs: set[tuple[UUID, UUID]]
+    sided_edges: set[tuple[UUID, UUID, str, str]]
 
 
 async def load_approved_litho_edge_sets(
@@ -239,24 +244,23 @@ async def load_approved_litho_edge_sets(
     ).all()
     return ApprovedLithoEdgeSets(
         pairs={(min(a, b), max(a, b)) for a, b, _sa, _sb in rows},
-        bottom_tie_pairs={
-            (min(a, b), max(a, b))
-            for a, b, side_a, side_b in rows
-            if side_a == "base" and side_b == "base"
+        sided_edges={
+            (a, b, sa, sb) if a < b else (b, a, sb, sa) for a, b, sa, sb in rows
         },
     )
 
 
-async def load_existing_geotech_base_pairs_by_section(
+async def load_existing_geotech_sided_edges_by_section(
     session: AsyncSession, geotech_model_id: UUID
-) -> dict[UUID, set[tuple[UUID, UUID]]]:
-    """Load persisted base↔base geotech edge pairs, keyed by section.
+) -> dict[UUID, set[tuple[UUID, UUID, str, str]]]:
+    """Load persisted geotech edges WITH their sides, keyed by section.
 
-    The base↔base restatement dedups on its OWN pair set rather than the
-    pair-only ``seen_layer_pairs`` (whose pair key deliberately lets a bottom
-    tie suppress a top↔top PROPOSAL): a single-band litho unit must be able to
-    carry BOTH its top and its base restatement on the same layer pair — the
-    DB unique constraint includes the sides, so both rows are legal.
+    Sided restatements dedup on the ``(pair, sides)`` identity rather than the
+    pair-only ``seen_layer_pairs`` (whose pair key deliberately lets an
+    existing tie suppress a top↔top PROPOSAL): a single-band litho unit must
+    be able to carry its top, base AND mixed restatements on the same layer
+    pair — the DB unique constraint includes the sides, so the rows are all
+    legal.
 
     Parameters
     ----------
@@ -267,8 +271,8 @@ async def load_existing_geotech_base_pairs_by_section(
 
     Returns
     -------
-    dict[UUID, set[tuple[UUID, UUID]]]
-        ``section_id → {canonical base↔base pair, ...}``.
+    dict[UUID, set[tuple[UUID, UUID, str, str]]]
+        ``section_id → {(min_id, max_id, side_of_min, side_of_max), ...}``.
     """
     rows = (
         await session.execute(
@@ -276,16 +280,15 @@ async def load_existing_geotech_base_pairs_by_section(
                 LithoContactCorrelationEdgeOrm.section_id,
                 LithoContactCorrelationEdgeOrm.layer_a_id,
                 LithoContactCorrelationEdgeOrm.layer_b_id,
-            ).where(
-                LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                LithoContactCorrelationEdgeOrm.layer_a_side == "base",
-                LithoContactCorrelationEdgeOrm.layer_b_side == "base",
-            )
+                LithoContactCorrelationEdgeOrm.layer_a_side,
+                LithoContactCorrelationEdgeOrm.layer_b_side,
+            ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
         )
     ).all()
-    by_section: dict[UUID, set[tuple[UUID, UUID]]] = {}
-    for section_id, a, b in rows:
-        by_section.setdefault(section_id, set()).add((min(a, b), max(a, b)))
+    by_section: dict[UUID, set[tuple[UUID, UUID, str, str]]] = {}
+    for section_id, a, b, sa, sb in rows:
+        key = (a, b, sa, sb) if a < b else (b, a, sb, sa)
+        by_section.setdefault(section_id, set()).add(key)
     return by_section
 
 
@@ -392,8 +395,8 @@ async def derive_geotech_edges_from_litho(
     geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
     seen_layer_pairs: set[tuple[UUID, UUID]],
     direct_litho_pairs: set[tuple[UUID, UUID]] | None = None,
-    litho_bottom_tie_pairs: set[tuple[UUID, UUID]] | None = None,
-    seen_base_pairs: set[tuple[UUID, UUID]] | None = None,
+    litho_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
+    seen_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
     source: str = AUTO_SOURCE,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by packing alignment within each correlated litho unit.
@@ -452,19 +455,25 @@ async def derive_geotech_edges_from_litho(
         every bridged jump pair — is a NEW claim and arrives as a pending
         proposal for the accept/reject flow (and the divide gate) to judge.
         ``None`` means every pair in ``litho_approved_edges`` is direct.
-    litho_bottom_tie_pairs : set[tuple[UUID, UUID]] | None
-        The direct litho pairs that carry an approved base↔base BOTTOM tie
-        (see :func:`load_approved_litho_edge_sets`).  Each restates as a
-        base↔base geotech edge between the two DEEPEST bands, born accepted —
-        without it a column's deepest band can never reach a tied base and
-        the sub-TD substrate never follows the bottom tie.  ``None`` disables
-        base restatement (legacy callers).
-    seen_base_pairs : set[tuple[UUID, UUID]] | None
-        Dedup set for base↔base restatements, MUTATED in place — separate
-        from ``seen_layer_pairs`` on purpose: the pair-only key deliberately
-        lets a bottom tie suppress a top↔top PROPOSAL, but a single-band unit
-        must be able to carry BOTH its top and base restatement on one layer
-        pair.  ``None`` starts an empty per-call set.
+    litho_sided_edges : set[tuple[UUID, UUID, str, str]] | None
+        Every DIRECT litho edge as ``(min_id, max_id, side_of_min,
+        side_of_max)`` (see :func:`load_approved_litho_edge_sets`).  Each
+        non-top↔top edge restates side-preserved onto the bands owning the
+        same contact surfaces: a base side maps to the unit's DEEPEST band,
+        a top side to its TOPMOST — so bottom ties reach the sub-TD
+        substrate and the mixed onlap declarations carry down instead of
+        being silently rewritten as top↔top (owner ruling 2026-08-14,
+        "litho consistency should be 100%").  It also gates the forced
+        topmost alignment: a pair with NO top↔top litho tie gets the plain
+        LCS, because nothing licenses a forced top pair there.  ``None``
+        keeps the 2026-08-13 behaviour (every direct pair treated as
+        top↔top-tied; no sided restatements) for legacy callers.
+    seen_sided_edges : set[tuple[UUID, UUID, str, str]] | None
+        Dedup set for sided restatements, MUTATED in place — separate from
+        ``seen_layer_pairs`` on purpose: the pair-only key deliberately lets
+        an existing tie suppress a top↔top PROPOSAL, but a single-band unit
+        must be able to carry its top, base and mixed restatements on one
+        layer pair.  ``None`` starts an empty per-call set.
     source : str
         Provenance token stamped on each emitted edge, one of ``'manual'`` /
         ``'auto'`` (DB CHECK). Defaults to ``AUTO_SOURCE`` — ``'manual'`` is
@@ -499,39 +508,57 @@ async def derive_geotech_edges_from_litho(
 
     counts = EdgeDerivationCounts()
     direct = direct_litho_pairs if direct_litho_pairs is not None else litho_approved_edges
-    base_seen = seen_base_pairs if seen_base_pairs is not None else set()
+    sided_seen = seen_sided_edges if seen_sided_edges is not None else set()
+    # Sided litho edges grouped by canonical pair, for the per-pair loop.
+    sided_by_pair: dict[tuple[UUID, UUID], list[tuple[str, str]]] = {}
+    if litho_sided_edges is not None:
+        for a, b, sa, sb in litho_sided_edges:
+            sided_by_pair.setdefault((a, b), []).append((sa, sb))
 
-    def _emit_base_restatement(
+    def _emit_sided_restatement(
         left_stack: list[tuple[str, int | None]],
         right_stack: list[tuple[str, int | None]],
+        side_a: str,
+        side_b: str,
     ) -> None:
-        """Restate a litho bottom tie as a deepest↔deepest base↔base edge."""
-        (la_deep, la_cls), (rb_deep, rb_cls) = left_stack[-1], right_stack[-1]
+        """Restate one sided litho tie onto the bands owning its contacts.
+
+        A ``top`` side maps to the unit's TOPMOST band, a ``base`` side to
+        its DEEPEST — the band that owns the very contact surface the litho
+        tie joins. Sides travel with their endpoints through
+        canonicalisation.
+        """
+        la_id, la_cls = left_stack[0] if side_a == "top" else left_stack[-1]
+        rb_id, rb_cls = right_stack[0] if side_b == "top" else right_stack[-1]
         if la_cls is None or rb_cls is None:
-            # Skeleton bands never auto-tie (spec §8) — the base restatement
+            # Skeleton bands never auto-tie (spec §8) — a sided restatement
             # is blocked exactly like the topmost one.
             return
-        deep_a, deep_b = UUID(la_deep), UUID(rb_deep)
-        if deep_a == deep_b:
+        band_a, band_b = UUID(la_id), UUID(rb_id)
+        if band_a == band_b:
             return  # intra-investigation edge — forbidden
-        canonical = (min(deep_a, deep_b), max(deep_a, deep_b))
-        if canonical in base_seen:
+        key = (
+            (band_a, band_b, side_a, side_b)
+            if band_a < band_b
+            else (band_b, band_a, side_b, side_a)
+        )
+        if key in sided_seen:
             counts.skipped_existing_pair += 1
             return
-        base_seen.add(canonical)
+        sided_seen.add(key)
         session.add(
             LithoContactCorrelationEdgeOrm(
                 id=uuid7(),
                 model_id=geotech_model_id,
                 section_id=section_id,
-                layer_a_id=canonical[0],
-                layer_b_id=canonical[1],
-                layer_a_side="base",
-                layer_b_side="base",
+                layer_a_id=key[0],
+                layer_b_id=key[1],
+                layer_a_side=key[2],
+                layer_b_side=key[3],
                 source=source,
-                # A base↔base restatement carries the litho approval down
-                # exactly like the topmost one — the engineer tied these very
-                # base contacts at the litho level.
+                # A sided restatement carries the litho approval down exactly
+                # like the topmost one — the engineer tied these very contact
+                # surfaces at the litho level.
                 user_approved=True,
             )
         )
@@ -553,24 +580,28 @@ async def derive_geotech_edges_from_litho(
 
         # The restating pair joins the very contact surfaces the litho tie
         # joins, so it is only computable when the pair is a direct litho tie
-        # — and for a direct tie the topmost pair is FORCED regardless of
-        # class (owner ruling 2026-08-13); a bridged jump pair was inferred,
-        # not drawn, so nothing licenses a cross-class connection there.
+        # — and for a direct tie WITH a top↔top litho edge the topmost pair
+        # is FORCED regardless of class (owner ruling 2026-08-13). A pair
+        # whose only litho tie is mixed or base↔base gets the plain LCS
+        # (nothing licenses a forced top pair), and a bridged jump pair was
+        # inferred, not drawn, so nothing licenses a cross-class connection
+        # there either.
         pair_is_direct = (litho_a_id, litho_b_id) in direct
+        pair_sides = sided_by_pair.get((litho_a_id, litho_b_id))
+        has_top_top = ("top", "top") in pair_sides if pair_sides is not None else True
         aligned = (
             aligned_pairs_with_forced_top(left_stack, right_stack)
-            if pair_is_direct
+            if pair_is_direct and has_top_top
             else aligned_same_class_pairs(left_stack, right_stack)
         )
 
-        if (
-            pair_is_direct
-            and litho_bottom_tie_pairs is not None
-            and (litho_a_id, litho_b_id) in litho_bottom_tie_pairs
-            and left_stack
-            and right_stack
-        ):
-            _emit_base_restatement(left_stack, right_stack)
+        # Side-aware restatements (owner ruling 2026-08-14): every non-top↔top
+        # direct litho tie — bottom ties AND the mixed onlap declarations —
+        # restates onto the bands owning its contact surfaces, sides kept.
+        if pair_is_direct and pair_sides and left_stack and right_stack:
+            for side_a, side_b in pair_sides:
+                if (side_a, side_b) != ("top", "top"):
+                    _emit_sided_restatement(left_stack, right_stack, side_a, side_b)
 
         left_classes = [c for _, c in left_stack]
         right_classes = [c for _, c in right_stack]
@@ -630,6 +661,7 @@ async def derive_geotech_edges_from_litho(
 
             restates_litho_tie = (
                 pair_is_direct
+                and has_top_top
                 and bool(left_stack)
                 and bool(right_stack)
                 and la == left_stack[0][0]
