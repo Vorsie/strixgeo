@@ -39,6 +39,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
+import { clipPartitionToLithoFrame } from './clipPartitionToLithoFrame'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -129,6 +130,22 @@ interface AlongPoly {
   pts: { x: number; e: number }[]
 }
 
+/**
+ * Re-key a geotech region onto the LITHO gap axis by matching the gap's along
+ * positions (identical column sets share indices; a subset — undivided
+ * boreholes — shifts them). Regions over gaps with no exact litho match are
+ * dropped from the clip measurement.
+ */
+function remapGaps(
+  r: SectionRegion,
+  fromAlongM: readonly number[],
+  toAlongM: readonly number[],
+): SectionRegion {
+  const x0 = fromAlongM[r.gapIndex]
+  const idx = toAlongM.findIndex((x) => Math.abs(x - x0) < 1e-6)
+  return idx >= 0 ? { ...r, gapIndex: idx } : { ...r, gapIndex: -999 }
+}
+
 function toAlongPolys(
   regions: readonly SectionRegion[],
   alongM: readonly number[],
@@ -213,8 +230,29 @@ describe('geotech fill — litho-consistency gate', () => {
             )
           : []
 
+      // The gate measures the litho-frame-clipped fill BY DEFAULT — the
+      // construction the render draws since the 2026-08-14 ruling ("keep
+      // exactly the litho model and only subdivide bodies"). Clipped faces
+      // live on the LITHO gap axis (the frame), and fallback faces carry
+      // litho formations, so they compare through the litho soil map.
+      // CONSISTENCY_RAW=1 measures the unclipped direct partition instead
+      // (what-if analysis of the tie set alone).
+      const clipped =
+        process.env.CONSISTENCY_RAW !== '1'
+          ? clipPartitionToLithoFrame(
+              geoRegions.map((r) => remapGaps(r, G.alongM, L.alongM)),
+              lithoRegions,
+              new Map(Object.entries(raw.refinementBundle.nadMeta).map(([k, v]) => [k, v.soilCode])),
+              lithoSoil,
+            )
+          : null
       const lithoPolys = toAlongPolys(lithoRegions, L.alongM, soilOfLitho)
-      const geoPolys = toAlongPolys(geoRegions, G.alongM, soilOfGeo)
+      const geoPolys = clipped
+        ? [
+            ...toAlongPolys(clipped.regions, L.alongM, soilOfGeo),
+            ...toAlongPolys(clipped.lithoFallback, L.alongM, soilOfLitho),
+          ]
+        : toAlongPolys(geoRegions, G.alongM, soilOfGeo)
 
       // Raster the section plane. Painter order: later polygons overwrite.
       const xs = [
