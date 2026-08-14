@@ -1080,6 +1080,13 @@ export interface DivideBoreholeResponse {
    * the field still parses.
    */
   lost_tie_labels?: string[]
+  /**
+   * Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain now
+   * carries the same connection (owner ruling 2026-08-14: the chain REPLACES
+   * the jump tie — hand-drawn or machine, accepted or pending). Optional so a
+   * response from a backend that predates the field still parses.
+   */
+  superseded_jump_tie_count?: number
 }
 
 /**
