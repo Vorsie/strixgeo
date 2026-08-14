@@ -55,8 +55,12 @@ export function buildArrangement(curves: readonly InputCurve[]): Arrangement {
     }
   }
 
-  // 2. Intersect + split so segments only touch at endpoints.
-  const split = splitSegments(rawSegments)
+  // 2. Intersect + split so segments only touch at endpoints. Synthesized
+  //    ``closing`` curves keep EXACT-only cut registration (debt #271 scope):
+  //    their historical spur-stripping is load-bearing for the shipped output,
+  //    and their engagement belongs to the two-sided-terminations cut-over.
+  const exactOnly = new Set(curves.filter((c) => c.kind === 'closing').map((c) => c.id))
+  const split = splitSegments(rawSegments, exactOnly)
 
   // 3. Build the DCEL (dedup vertices, wire twin/next).
   const dcel = buildDcel(split)
