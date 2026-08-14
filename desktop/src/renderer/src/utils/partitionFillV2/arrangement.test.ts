@@ -351,3 +351,51 @@ describe('buildArrangement — bounded-face topology', () => {
     }
   })
 })
+
+describe('buildArrangement — long shallow-angle proper crossings (debt #271)', () => {
+  it('a long shallow-angle crossing still splits both segments', () => {
+    // The rule: a PROPER crossing must cut both segments, however shallow the
+    // angle. Exact real-data repro (CS1 gap 9, 2026-08-14): the snapped
+    // intersection point rounds up to √2/2 grid units off each integer
+    // supporting line, the exact ``cross === 0`` on-segment test misses it,
+    // and the cut silently vanishes — faces then straddle an input curve.
+    const curves: InputCurve[] = [
+      curve('diag', [
+        { x: 0, y: 6.48 },
+        { x: 50.0018, y: 3.93 },
+      ]),
+      curve('geo', [
+        { x: 0, y: 5.49 },
+        { x: 45.0016, y: 5.985 },
+      ]),
+    ]
+    const arr = buildArrangement(curves)
+    // Crossing at ≈(15.97, 5.67): each segment splits into 2 → 4 undirected
+    // sub-segments = 8 half-edges over 5 vertices (4 tips + the crossing).
+    expect(arr.faces).toHaveLength(0)
+    expect(arr.halfEdges).toHaveLength(8)
+    expect(arr.vertices).toHaveLength(5)
+  })
+
+  it('a closing curve keeps exact-only cuts — its shallow crossing does not engage', () => {
+    // The scope of the #271 repair: synthesized ``closing`` (flank/apex/bridge)
+    // curves historically dead-ended when their crossing cut rounded off-line
+    // and were stripped as spurs — the shipped output depends on that, and
+    // their deliberate engagement belongs to the two-sided-terminations
+    // cut-over. The same shallow crossing as above, with one party a closing
+    // curve, must stay UNCUT: 2 undirected segments = 4 half-edges, 4 vertices.
+    const curves: InputCurve[] = [
+      curve('diag', [
+        { x: 0, y: 6.48 },
+        { x: 50.0018, y: 3.93 },
+      ]),
+      { id: 'flank', kind: 'closing', points: [
+        { x: 0, y: 5.49 },
+        { x: 45.0016, y: 5.985 },
+      ] },
+    ]
+    const arr = buildArrangement(curves)
+    expect(arr.halfEdges).toHaveLength(4)
+    expect(arr.vertices).toHaveLength(4)
+  })
+})
