@@ -61,6 +61,9 @@ from groundmodel.domain.services.auto_correlate_contact_edges_constants import A
 from groundmodel.domain.services.geotech_edge_bridging import (
     bridge_litho_edges_over_bandless_columns,
 )
+from groundmodel.domain.services.geotech_jump_tie_supersession import (
+    GeotechEdgeForSupersession,
+)
 from groundmodel.domain.services.geotech_packing_edges import (
     aligned_pairs_with_forced_top,
     aligned_same_class_pairs,
@@ -245,9 +248,7 @@ async def load_approved_litho_edge_sets(
     ).all()
     return ApprovedLithoEdgeSets(
         pairs={(min(a, b), max(a, b)) for a, b, _sa, _sb in rows},
-        sided_edges={
-            (a, b, sa, sb) if a < b else (b, a, sb, sa) for a, b, sa, sb in rows
-        },
+        sided_edges={(a, b, sa, sb) if a < b else (b, a, sb, sa) for a, b, sa, sb in rows},
     )
 
 
@@ -333,6 +334,78 @@ async def load_existing_geotech_edge_pairs_by_section(
     for section_id, a, b in rows:
         by_section.setdefault(section_id, set()).add((min(a, b), max(a, b)))
     return by_section
+
+
+async def load_geotech_edges_for_supersession(
+    session: AsyncSession, geotech_model_id: UUID, section_id: UUID
+) -> list[GeotechEdgeForSupersession]:
+    """Load one section's geotech edges as the jump-tie supersession needs them.
+
+    The supersession judgment (owner ruling 2026-08-14: a bridged CPT↔CPT jump
+    tie is REPLACED by the mediated chain once "Divide boreholes" materialises
+    it) needs each edge's endpoint bands AND the investigation each band sits
+    on — investigations are what a direct litho tie is declared between.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active DB session.
+    geotech_model_id : UUID
+        The geotech model.
+    section_id : UUID
+        The section whose edges to load — edges are section-scoped, and a
+        chain on another section proves nothing about this one's jump tie.
+
+    Returns
+    -------
+    list[GeotechEdgeForSupersession]
+        Every edge on the section, with stringified investigation ids.  An
+        edge whose endpoint row has vanished mid-flight is skipped — it cannot
+        be judged and the FK cascade is already deleting it.
+    """
+    edge_rows = (
+        await session.execute(
+            select(
+                LithoContactCorrelationEdgeOrm.id,
+                LithoContactCorrelationEdgeOrm.layer_a_id,
+                LithoContactCorrelationEdgeOrm.layer_b_id,
+                LithoContactCorrelationEdgeOrm.user_approved,
+            ).where(
+                LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                LithoContactCorrelationEdgeOrm.section_id == section_id,
+            )
+        )
+    ).all()
+    layer_ids = {r.layer_a_id for r in edge_rows} | {r.layer_b_id for r in edge_rows}
+    if not layer_ids:
+        return []
+    inv_rows = (
+        await session.execute(
+            select(LithoLayerOrm.id, LithoLayerOrm.cpt_id, LithoLayerOrm.borehole_id).where(
+                LithoLayerOrm.id.in_(layer_ids)
+            )
+        )
+    ).all()
+    inv_by_layer = {
+        r.id: str(r.borehole_id if r.borehole_id is not None else r.cpt_id) for r in inv_rows
+    }
+    edges: list[GeotechEdgeForSupersession] = []
+    for r in edge_rows:
+        inv_a = inv_by_layer.get(r.layer_a_id)
+        inv_b = inv_by_layer.get(r.layer_b_id)
+        if inv_a is None or inv_b is None:
+            continue
+        edges.append(
+            GeotechEdgeForSupersession(
+                edge_id=r.id,
+                layer_a_id=r.layer_a_id,
+                layer_b_id=r.layer_b_id,
+                investigation_a=inv_a,
+                investigation_b=inv_b,
+                user_approved=r.user_approved,
+            )
+        )
+    return edges
 
 
 def bridge_edges_over_bandless_columns(
