@@ -236,7 +236,10 @@ describe('geotech fill — litho-consistency gate', () => {
 
       let agree = 0
       let mismatch = 0
-      const clusters = new Map<string, { m2: number; eLo: number; eHi: number }>()
+      const clusters = new Map<
+        string,
+        { m2: number; eLo: number; eHi: number; xLo: number; xHi: number }
+      >()
       for (let xi = 0; xi < NX; xi++) {
         const x = xMin + ((xi + 0.5) * (xMax - xMin)) / NX
         // Per-column soil at each elevation cell, painter order per arm.
@@ -261,10 +264,18 @@ describe('geotech fill — litho-consistency gate', () => {
             mismatch++
             const key = `${lc[r]} -> ${gc[r] === '' ? '(void)' : gc[r]}`
             const e = eMin + ((r + 0.5) * (eMax - eMin)) / NE
-            const cur = clusters.get(key) ?? { m2: 0, eLo: Infinity, eHi: -Infinity }
+            const cur = clusters.get(key) ?? {
+              m2: 0,
+              eLo: Infinity,
+              eHi: -Infinity,
+              xLo: Infinity,
+              xHi: -Infinity,
+            }
             cur.m2 += cellM2
             cur.eLo = Math.min(cur.eLo, e)
             cur.eHi = Math.max(cur.eHi, e)
+            cur.xLo = Math.min(cur.xLo, x)
+            cur.xHi = Math.max(cur.xHi, x)
             clusters.set(key, cur)
           }
         }
@@ -280,7 +291,8 @@ describe('geotech fill — litho-consistency gate', () => {
       for (const [key, v] of top) {
         if (v.m2 < 1) continue
         rep.push(
-          `    ${key.padEnd(20)} ${v.m2.toFixed(1)} m2  elev [${v.eLo.toFixed(1)}..${v.eHi.toFixed(1)}]`,
+          `    ${key.padEnd(20)} ${v.m2.toFixed(1)} m2  elev [${v.eLo.toFixed(1)}..${v.eHi.toFixed(1)}]` +
+            ` along [${v.xLo.toFixed(0)}..${v.xHi.toFixed(0)}]`,
         )
       }
     }
