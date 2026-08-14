@@ -41,11 +41,13 @@ from sqlalchemy import text  # noqa: E402
 
 from groundmodel.domain.services.geotech_packing_edges import (  # noqa: E402
     aligned_pairs_with_forced_top,
+    overlap_gated_interior_pairs,
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory  # noqa: E402
 
 DUMP = _REPO_ROOT / "scripts" / "throwaway_geotech_axis_inputs.json"
 OUT = _REPO_ROOT / "scripts" / "throwaway_geotech_axis_inputs_predicted.json"
+OUT_ACCEPT_ALL = _REPO_ROOT / "scripts" / "throwaway_geotech_axis_inputs_predicted_accept_all.json"
 
 # Mirror of geotech_edge_derivation._DEPTH_TOL_M.
 _DEPTH_TOL_M = 0.001
@@ -57,7 +59,8 @@ async def _load_existing_pairs(geotech_model_id: str) -> dict[str, set[tuple[str
         rows = (
             await session.execute(
                 text(
-                    "SELECT section_id, layer_a_id, layer_b_id, layer_a_side, layer_b_side "
+                    "SELECT section_id, layer_a_id, layer_b_id, layer_a_side, "
+                    "layer_b_side, user_approved "
                     "FROM litho_contact_correlation_edge WHERE model_id = :m"
                 ),
                 {"m": geotech_model_id},
@@ -65,12 +68,19 @@ async def _load_existing_pairs(geotech_model_id: str) -> dict[str, set[tuple[str
         ).all()
     pairs: dict[str, set[tuple[str, str]]] = {}
     sided: dict[str, set[tuple[str, str, str, str]]] = {}
-    for section_id, a, b, sa, sb in rows:
+    pending: dict[str, list[dict]] = {}
+    for section_id, a, b, sa, sb, approved in rows:
         a, b = str(a), str(b)
         pairs.setdefault(str(section_id), set()).add((min(a, b), max(a, b)))
         skey = (a, b, sa, sb) if a < b else (b, a, sb, sa)
         sided.setdefault(str(section_id), set()).add(skey)
-    return {"pairs": pairs, "sided": sided}  # type: ignore[return-value]
+        if not approved:
+            # A step-3 accept-all PROMOTES these — scenario 2 must include
+            # them (the CS1 gap-3 silt-body ghost already sits here pending).
+            pending.setdefault(str(section_id), []).append(
+                {"a": a, "b": b, "aSide": sa, "bSide": sb}
+            )
+    return {"pairs": pairs, "sided": sided, "pending": pending}  # type: ignore[return-value]
 
 
 def main() -> None:
@@ -79,6 +89,7 @@ def main() -> None:
     existing = asyncio.run(_load_existing_pairs(dump["meta"]["geotechModelId"]))
     existing_pairs: dict[str, set[tuple[str, str]]] = existing["pairs"]  # type: ignore[assignment]
     existing_sided: dict[str, set[tuple[str, str, str, str]]] = existing["sided"]  # type: ignore[assignment]
+    existing_pending: dict[str, list[dict]] = existing["pending"]  # type: ignore[assignment]
 
     nad_class = {k: v["nadClass"] for k, v in dump["refinementBundle"]["nadMeta"].items()}
 
@@ -110,9 +121,28 @@ def main() -> None:
                 and b["depth_base_m"] <= base + _DEPTH_TOL_M
             ]
 
+        def stack_frac(
+            inv: str, top: float, base: float
+        ) -> list[tuple[str, int | None, float, float]]:
+            height = base - top
+            if height <= _DEPTH_TOL_M:
+                return []
+            return [
+                (
+                    b["id"],
+                    nad_class.get(b["formation_id"]),
+                    max(0.0, (b["depth_top_m"] - top) / height),
+                    min(1.0, (b["depth_base_m"] - top) / height),
+                )
+                for b in bands_by_inv.get(inv, [])
+                if b["depth_top_m"] >= top - _DEPTH_TOL_M
+                and b["depth_base_m"] <= base + _DEPTH_TOL_M
+            ]
+
         seen = set(existing_pairs.get(sec["sectionId"], set()))
         seen_sided = set(existing_sided.get(sec["sectionId"], set()))
         added: list[dict] = []
+        interior_added: list[dict] = []
         for e in sec["edges"]:  # approved litho edges, sides preserved
             wa = litho_window.get(e["a"])
             wb = litho_window.get(e["b"])
@@ -149,17 +179,38 @@ def main() -> None:
                         added.append(
                             {"a": skey[0], "b": skey[1], "aSide": skey[2], "bSide": skey[3]}
                         )
+            # The interior body ghosts a step-2 press also emits (pending) and
+            # a step-3 accept-all would promote — AFTER the restatement, same
+            # order as the real derivation, so a ghost never steals its pair.
+            for la, rb in overlap_gated_interior_pairs(stack_frac(*wa), stack_frac(*wb)):
+                key = (min(la, rb), max(la, rb))
+                if key not in seen and la != rb:
+                    seen.add(key)
+                    interior_added.append(
+                        {"a": key[0], "b": key[1], "aSide": "top", "bSide": "top"}
+                    )
 
         tops = sum(1 for a in added if (a["aSide"], a["bSide"]) == ("top", "top"))
         sided_n = len(added) - tops
         total_top += tops
         total_base += sided_n
         sec["geotech"]["edges"].extend(added)
-        print(f"  {sec['name']:<18} +{tops} topmost restatement(s), +{sided_n} sided tie(s)")
+        sec["_interior"] = interior_added
+        print(
+            f"  {sec['name']:<18} +{tops} topmost restatement(s), "
+            f"+{sided_n} sided tie(s), +{len(interior_added)} interior ghost(s)"
+        )
 
     OUT.write_text(json.dumps(dump), encoding="utf8")
+    # Scenario 2: the engineer presses accept-all (step 3) — the NEW interior
+    # ghosts AND the already-persisted pending proposals join the fill's
+    # edge set.
+    for sec in dump["sections"]:
+        sec["geotech"]["edges"].extend(sec.pop("_interior", []))
+        sec["geotech"]["edges"].extend(existing_pending.get(sec["sectionId"], []))
+    OUT_ACCEPT_ALL.write_text(json.dumps(dump), encoding="utf8")
     print(f"\n  total predicted accepted additions: {total_top} top + {total_base} sided")
-    print(f"  wrote {OUT}")
+    print(f"  wrote {OUT} and {OUT_ACCEPT_ALL}")
 
 
 if __name__ == "__main__":
