@@ -300,6 +300,15 @@ edit BREAKS a match — a tie that never matched stays unbadged, and an
 absorb transfers it as ``band_absorbed`` (`edge_review_actions` /
 `plan_edge_transfer`, EA10/EA11/TR10).
 
+Second refinement 2026-08-14 ("auto correlate is fine, its just a tool to
+make the users life easier"): inside a litho-banded pair the big same-class
+INTERIOR bodies — which the monotone forced-top alignment consumed or
+skipped — are proposed as PENDING ghosts by `overlap_gated_interior_pairs`
+(same class + fraction-extent overlap ≥ `INTERIOR_MIN_OVERLAP_SHARE` of the
+larger extent, monotone so ghost ribbons never cross, litho-window-scoped by
+construction). The engineer judges them exactly like every other ghost;
+ruling A keeps them pending.
+
 Everything else is a NEW machine claim and arrives PENDING for the
 accept/reject flow, the pending chip, and the divide gate:
 
@@ -764,10 +773,12 @@ geotech fill may only SUBDIVIDE the litho fill, never redraw it. The gate:
   nothing enforced.
 * **Numbers.** Frozen 2026-08-13 (pre-restatement dev model): 51.5–96.3 %
   per section, dominated by the sub-TD clay void (missing base↔base
-  restatements). Predicted after one pipeline step-2 re-run
-  (`scripts/diag_predict_restatement_rerun.py`, read-only — mirrors the
-  derivation's accepted emissions and feeds the gate a what-if input via
-  `GEOTECH_AXIS_INPUT`): **87.0–98.8 %**; Cross-section 1 78.6 → 95.3 %.
+  restatements). Predicted (`scripts/diag_predict_restatement_rerun.py`,
+  read-only, what-if inputs via `GEOTECH_AXIS_INPUT`): after one pipeline
+  step-2 re-run **87.0–98.8 %** (CS1 78.6 → 95.8); after a step-3
+  accept-all CS1 reaches 96.9 % — while CS3 DROPS to 94.9 %, because some
+  old pending ghosts are geologically wrong, which is why the review flow
+  (accept the good, delete the bad) beats a blind accept-all.
 * **The target is 100 %** (owner ruling 2026-08-14: "litho consistency
   should be 100%"). The measured residual decomposes into three named
   classes (per-gap drill-downs: `geotechSectionDump.diag.test.ts`,
