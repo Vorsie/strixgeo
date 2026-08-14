@@ -54,6 +54,7 @@ import { isLithoUnit, isGeotechUnit } from '../utils/formationKind'
 import { pairBandsWithLithoParents } from '../utils/geotechBandParents'
 // Aliased: the memo below carries the same name as the rule it calls.
 import { columnsNeedingRederive as columnsNeedingRederiveFromFit } from '../utils/geotechParentFit'
+import { divideBoreholesToastMessage } from '../utils/divideBoreholesToast'
 import { lostTieMessage } from '../utils/lostTieMessage'
 import { log } from '../utils/log'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
@@ -2560,6 +2561,7 @@ export function useGeologicalModel({
           ` single=${result.single_band_borehole_count}` +
           ` layers=${result.layer_count}` +
           ` ties_reanchored=${result.reanchored_tie_count ?? 0}` +
+          ` ties_superseded=${result.superseded_jump_tie_count ?? 0}` +
           ` ties_lost=${result.lost_tie_count ?? 0}` +
           ` ties_need_review=${JSON.stringify(result.review_tie_reasons ?? {})}` +
           ` ${JSON.stringify(result.lost_tie_reasons ?? {})}`,
@@ -2581,15 +2583,11 @@ export function useGeologicalModel({
       // Where neither is unambiguous the tie is still carried, but flagged —
       // an accepted edge never disappears without the engineer deleting it.
       // Report all three outcomes; the section a flag sits on may not be open.
-      const reanchored = result.reanchored_tie_count ?? 0
       const lostTies = result.lost_tie_count ?? 0
-      const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
-      toast(
-        'success',
-        `${subset === undefined ? 'Boreholes' : 'Borehole'} divided — ` +
-          `${result.divided_borehole_count} split, ` +
-          `${result.single_band_borehole_count} single-band${tieNote}.`,
-      )
+      // The sentence names the reanchored ties AND the jump ties the mediated
+      // chain replaced (owner ruling 2026-08-14) — built in a pure helper so
+      // the wording is pinned by its own test.
+      toast('success', divideBoreholesToastMessage(result, subset === undefined))
       const needsReview = Object.values(result.review_tie_reasons ?? {}).reduce((a, b) => a + b, 0)
       if (needsReview > 0) {
         toast(
