@@ -227,8 +227,8 @@ async def test_a_litho_bottom_tie_restates_as_a_base_base_geotech_edge() -> None
             "inv-B": [(0.0, 6.0, top_b, uuid4(), 22), (6.0, 10.0, deep_b, uuid4(), 23)],
         },
         seen_layer_pairs=set(),
-        litho_bottom_tie_pairs={pair},
-        seen_base_pairs=seen_base,
+        litho_sided_edges={(pair[0], pair[1], "top", "top"), (pair[0], pair[1], "base", "base")},
+        seen_sided_edges=seen_base,
     )
     # 22↔22 restatement + 23↔23 interior proposal + 23↔23 base↔base restatement.
     assert counts.edges_emitted == 3
@@ -242,7 +242,7 @@ async def test_a_litho_bottom_tie_restates_as_a_base_base_geotech_edge() -> None
     base_edge = base_edges[0]
     assert {base_edge.layer_a_id, base_edge.layer_b_id} == {deep_a, deep_b}
     assert base_edge.user_approved is True
-    assert seen_base == {(min(deep_a, deep_b), max(deep_a, deep_b))}
+    assert seen_base == {(min(deep_a, deep_b), max(deep_a, deep_b), "base", "base")}
 
 
 @pytest.mark.asyncio
@@ -268,8 +268,8 @@ async def test_a_single_band_unit_carries_both_its_top_and_base_restatement() ->
             "inv-B": [(0.0, 10.0, gb, uuid4(), 23)],
         },
         seen_layer_pairs=set(),
-        litho_bottom_tie_pairs={pair},
-        seen_base_pairs=set(),
+        litho_sided_edges={(pair[0], pair[1], "top", "top"), (pair[0], pair[1], "base", "base")},
+        seen_sided_edges=set(),
     )
     assert counts.edges_emitted == 2
     assert counts.edges_accepted == 2
@@ -298,8 +298,8 @@ async def test_an_existing_base_pair_suppresses_the_base_restatement() -> None:
             "inv-B": [(0.0, 10.0, gb, uuid4(), 23)],
         },
         seen_layer_pairs={(min(ga, gb), max(ga, gb))},  # top row exists too
-        litho_bottom_tie_pairs={pair},
-        seen_base_pairs={(min(ga, gb), max(ga, gb))},
+        litho_sided_edges={(pair[0], pair[1], "top", "top"), (pair[0], pair[1], "base", "base")},
+        seen_sided_edges={(min(ga, gb), max(ga, gb), "base", "base")},
     )
     assert counts.edges_emitted == 0
     session.add.assert_not_called()
@@ -325,8 +325,8 @@ async def test_a_skeleton_deepest_band_blocks_the_base_restatement() -> None:
             "inv-B": [(0.0, 10.0, skel_b, uuid4(), None)],
         },
         seen_layer_pairs=set(),
-        litho_bottom_tie_pairs={pair},
-        seen_base_pairs=set(),
+        litho_sided_edges={(pair[0], pair[1], "top", "top"), (pair[0], pair[1], "base", "base")},
+        seen_sided_edges=set(),
     )
     base_edges = [c.args[0] for c in session.add.call_args_list if c.args[0].layer_a_side == "base"]
     assert base_edges == []
@@ -642,3 +642,131 @@ async def test_same_pair_on_two_sections_needs_per_section_seen_sets() -> None:
     assert emitted_2b == 1, "per-section set must emit the same pair on section 2"
     add_1.assert_called_once()
     add_2.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Side-aware restatement (owner ruling 2026-08-14: "litho consistency should
+# be 100%" — the onlap ties carry down too, sides preserved)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_mixed_litho_tie_restates_with_its_sides_preserved() -> None:
+    """A litho top↔base tie (the onlap declaration) joins unit A's TOP contact
+    to unit B's BASE contact. Its restatement is A's topmost band ↔ B's
+    deepest band with sides top/base — restating it top↔top (what the
+    side-blind loader did) asserted a connection the engineer never drew.
+    """
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    top_a, deep_a = uuid4(), uuid4()
+    top_b, deep_b = uuid4(), uuid4()
+    pair = (la, lb)
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={pair},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 4.0, top_a, uuid4(), 13), (4.0, 10.0, deep_a, uuid4(), 14)],
+            "inv-B": [(0.0, 6.0, top_b, uuid4(), 13), (6.0, 10.0, deep_b, uuid4(), 14)],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "base")},
+        seen_sided_edges=set(),
+    )
+    sided = [
+        c.args[0]
+        for c in session.add.call_args_list
+        if (c.args[0].layer_a_side, c.args[0].layer_b_side) != ("top", "top")
+    ]
+    assert len(sided) == 1
+    edge = sided[0]
+    endpoint_sides = {
+        edge.layer_a_id: edge.layer_a_side,
+        edge.layer_b_id: edge.layer_b_side,
+    }
+    assert endpoint_sides == {top_a: "top", deep_b: "base"}, (
+        "the tie joins A's topmost band (its top contact) to B's deepest "
+        "band (its base contact), sides travelling with their endpoints"
+    )
+    assert edge.user_approved is True
+    assert counts.edges_accepted >= 1
+
+
+@pytest.mark.asyncio
+async def test_a_mixed_only_pair_gets_no_forced_top_restatement() -> None:
+    """A pair whose ONLY litho tie is mixed (top↔base) must NOT receive a
+    forced topmost↔topmost accepted edge — no litho tie joins the tops, so
+    forcing one would invent an approval. Interior class matches still
+    arrive as pending proposals.
+    """
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    top_a, top_b = uuid4(), uuid4()
+    pair = (la, lb)
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={pair},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, top_a, uuid4(), 13)],
+            "inv-B": [(0.0, 10.0, top_b, uuid4(), 14)],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "base")},
+        seen_sided_edges=set(),
+    )
+    top_top = [
+        c.args[0]
+        for c in session.add.call_args_list
+        if (c.args[0].layer_a_side, c.args[0].layer_b_side) == ("top", "top")
+    ]
+    assert top_top == [], (
+        "no litho tie joins the tops (13 vs 14, mixed tie only) — a forced "
+        "top↔top pair would be an invented approval"
+    )
+    # The mixed restatement itself: A's topmost = its only band = also its
+    # deepest; B's deepest likewise. One sided accepted edge.
+    sided = [c.args[0] for c in session.add.call_args_list]
+    assert len(sided) == 1
+    assert (sided[0].layer_a_side, sided[0].layer_b_side) != ("top", "top")
+    assert sided[0].user_approved is True
+
+
+@pytest.mark.asyncio
+async def test_sided_canonicalisation_swaps_the_sides_with_the_ids() -> None:
+    """When the two mapped geotech bands land in swapped canonical order, the
+    sides must travel with their endpoints — else the row claims a different
+    pair of surfaces correlate."""
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    # Force the geotech ids so B's deepest band sorts BEFORE A's topmost.
+    top_a = UUID("ffffffff-0000-0000-0000-000000000001")
+    deep_b = UUID("00000000-0000-0000-0000-000000000001")
+    pair = (la, lb)
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={pair},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, top_a, uuid4(), 13)],
+            "inv-B": [(0.0, 10.0, deep_b, uuid4(), 14)],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "base")},
+        seen_sided_edges=set(),
+    )
+    edge = session.add.call_args.args[0]
+    assert edge.layer_a_id == deep_b
+    assert edge.layer_a_side == "base", "B's endpoint keeps its base side in slot a"
+    assert edge.layer_b_id == top_a
+    assert edge.layer_b_side == "top"
