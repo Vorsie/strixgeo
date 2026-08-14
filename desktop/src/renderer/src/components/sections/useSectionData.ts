@@ -359,13 +359,13 @@ export function useSectionData(
       setBoreholeDetails(new Map())
       return
     }
-    // Debt #39: one batch call replaces N parallel GETs. Section
-    // glyphs don't render lab data, so include=[] skips every lab-
-    // family selectinload — the backend's `include` parameter widens
-    // the saving beyond just the round-trip count. Project scope is
-    // enforced server-side via app_project_id (VULN-6).
+    // Debt #39: one batch call replaces N parallel GETs. The section
+    // asks for exactly ONE lab family — grain_size, which the sample
+    // markers' hover preview plots — so the other five selectinloads
+    // are still skipped. Project scope is enforced server-side via
+    // app_project_id (VULN-6).
     api.borehole
-      .detailBatch(inBufferBhIds, section.app_project_id, [])
+      .detailBatch(inBufferBhIds, section.app_project_id, ['grain_size'])
       .then(boreholes => {
         if (cancelled) return
         const m = new Map<string, BoreholeDetailResponse>()
