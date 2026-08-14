@@ -38,6 +38,10 @@ import {
   toggleBoreholePreviewOn,
   useBoreholePreviewOn,
 } from '../../../utils/boreholePreviewOnStore'
+import { useSampleMarkersOn } from '../../../utils/sampleMarkersOnStore'
+import { usePsdPreviewOn } from '../../../utils/psdPreviewOnStore'
+import { sampleDisplayMenuItems } from './sampleDisplayMenuItems'
+import { usePsdPreviewHotkey } from './usePsdPreviewHotkey'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
@@ -72,6 +76,10 @@ export default function SectionsToolbar(): JSX.Element {
   const geotechFillVisible = useGeotechFillVisible()
   const lithoFillOnGeotech = useLithoFillOnGeotech()
   const boreholePreviewOn = useBoreholePreviewOn()
+  // Lab-sample view toggles — the markers and their grain-size hover card draw
+  // on BOTH the litho and geotech axes, so both menus below offer the pair.
+  const sampleMarkersOn = useSampleMarkersOn()
+  const psdPreviewOn = usePsdPreviewOn()
   const boreholesStale = useBoreholesStale()
   // The representative-qc statistic (rulings 7+8). The server answer is held
   // locally per model until the next refreshModels naturally refreshes the
@@ -165,6 +173,14 @@ export default function SectionsToolbar(): JSX.Element {
     },
     toasts: { toast },
   } = useShell()
+  // Bare P mirrors the "PSD preview on hover" menu item. The menu's own label
+  // flips too, but nobody sees that with the menu closed — so the accelerator
+  // says out loud which way it went. Placed AFTER the useShell destructure
+  // because it reads ``toast``; hoisting it up with the other store hooks
+  // would be a temporal-dead-zone crash that no type check catches.
+  usePsdPreviewHotkey(nowOn =>
+    toast('success', nowOn ? 'Grain-size preview on' : 'Grain-size preview off'),
+  )
   const geotechStatistic =
     (statisticState?.modelId === activeGeotechModel?.id ? statisticState?.statistic : undefined) ??
     activeGeotechModel?.representative_statistic ??
@@ -1311,6 +1327,14 @@ export default function SectionsToolbar(): JSX.Element {
                   ? 'Create a lithostratigraphic model first'
                   : 'Clear every hand-drawn body boundary point on this model. Bodies return to their computed shape. Cannot be undone.',
               },
+              // The lab-sample markers draw on this axis too, so their
+              // switches belong in the litho view menu as well.
+              ...sampleDisplayMenuItems({
+                sampleMarkersOn,
+                psdPreviewOn,
+                testidPrefix: 'litho',
+                iconSize: 12,
+              }),
             ]}
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
@@ -1639,6 +1663,12 @@ export default function SectionsToolbar(): JSX.Element {
                   'Show or hide the correlation ribbons drawn across the section (2-D visualisation only).',
                 testid: 'geotech-toggle-correlations',
               },
+              ...sampleDisplayMenuItems({
+                sampleMarkersOn,
+                psdPreviewOn,
+                testidPrefix: 'geotech',
+                iconSize: 13,
+              }),
             ]}
           />
           {/* Separator after geotech-specific actions */}
