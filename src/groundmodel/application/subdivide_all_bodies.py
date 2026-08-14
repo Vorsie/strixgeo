@@ -142,7 +142,7 @@ from groundmodel.application.geotech_edge_derivation import (
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edge_sets,
-    load_existing_geotech_base_pairs_by_section,
+    load_existing_geotech_sided_edges_by_section,
     load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
@@ -785,7 +785,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
                 self._session, geotech_model.id
             )
-            seen_base_by_section = await load_existing_geotech_base_pairs_by_section(
+            seen_sided_by_section = await load_existing_geotech_sided_edges_by_section(
                 self._session, geotech_model.id
             )
 
@@ -821,10 +821,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                         # 2026-08-06 refinement: restating pairs accepted,
                         # interior + bridged pairs pending.
                         direct_litho_pairs=litho_approved_edges,
-                        # Owner ruling 2026-08-13: a litho bottom tie restates
-                        # as a base↔base edge between the deepest bands.
-                        litho_bottom_tie_pairs=edge_sets.bottom_tie_pairs,
-                        seen_base_pairs=seen_base_by_section.setdefault(section.id, set()),
+                        # Owner rulings 2026-08-13/14: every non-top↔top litho
+                        # tie (bottom ties AND mixed onlap declarations)
+                        # restates side-preserved.
+                        litho_sided_edges=edge_sets.sided_edges,
+                        seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
                     )
                 )
             self.info(
