@@ -46,6 +46,9 @@ class DivideBoreholeResponse(BaseModel):
     lost_tie_labels : list[str]
         One line per lost tie naming both investigations and each endpoint's
         depth range, so the engineer can find them in the section.
+    superseded_jump_tie_count : int
+        Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain
+        now carries the same connection (owner ruling 2026-08-14).
     """
 
     geotech_model_id: UUID = Field(
@@ -105,5 +108,13 @@ class DivideBoreholeResponse(BaseModel):
             "depth range, e.g. 'GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m'. "
             "A count alone tells the engineer accepted work vanished and nothing "
             "about where to redraw it; the ids were only ever in a server log."
+        ),
+    )
+    superseded_jump_tie_count: int = Field(
+        0,
+        description=(
+            "Bridged CPT-to-CPT jump ties deleted because the borehole-mediated "
+            "chain now carries the same connection (owner ruling 2026-08-14: the "
+            "chain replaces the jump tie, hand-drawn or machine)."
         ),
     )
