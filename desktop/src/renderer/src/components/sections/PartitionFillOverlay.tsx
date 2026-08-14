@@ -123,6 +123,10 @@ import {
   twoBandExtentScreenY,
 } from './correlateOnDrag'
 import { dragCrossedThreshold } from './dragThreshold'
+import {
+  SECTION_FILL_OPACITY,
+  SECTION_LENS_FILL_OPACITY,
+} from '../../utils/sectionFillOpacity'
 
 /**
  * The LITHO frame drawn over the geotech axis's own partition.
@@ -292,10 +296,11 @@ export interface Props {
   onCorrelateReviewFlag?: (flagLayerId: string, facingLayerId: string) => void
 }
 
-const FILL_OPACITY = 0.62
-// A lens (one-test body enclosed in a matrix) is drawn a touch more solid so it
-// reads as a unit CUT OUT of the continuous matrix it sits on, not a faint wash.
-const LENS_OPACITY = 0.85
+// Shared with the per-column band stack, so the fill in the gaps and the fill
+// over a column card are the SAME number by construction (owner: "same
+// transparency everywhere"). See utils/sectionFillOpacity.ts.
+const FILL_OPACITY = SECTION_FILL_OPACITY
+const LENS_OPACITY = SECTION_LENS_FILL_OPACITY
 const FALLBACK_COLOR = '#888888'
 const EDGE_STUB_PX = 64
 const OPEN_END_M = 5
