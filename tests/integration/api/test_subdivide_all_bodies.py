@@ -4154,27 +4154,31 @@ async def test_sab_lcs_connectivity(
         f"([loose,dense] vs [dense])."
     )
 
-    # LCS-1b (RE-PINNED, owner ruling 2026-08-13): the stacks are
-    # [loose,dense] vs [dense], and the litho tie joins the two units' TOP
-    # surfaces — so its restatement is loose-top ↔ dense-top, CROSS-CLASS,
-    # born accepted (the forced-topmost pair). The old class-matched LCS tied
-    # the litho contact to the deep dense↔dense pair instead — a band one step
-    # inside the unit, which let the fill redraw the litho boundary — and that
-    # geometrically contradictory pair is no longer proposed at all.
-    assert len(cross_edges) == 1, (
-        f"LCS-1b: expected exactly the forced-topmost restatement between "
-        f"CPT-G and CPT-H, got {len(cross_edges)} edge(s)"
+    # LCS-1b (RE-PINNED, owner rulings 2026-08-13/14): the stacks are
+    # [loose,dense] vs [dense]. The litho tie joins the two units' TOP
+    # surfaces — its restatement is loose-top ↔ dense-top, CROSS-CLASS, born
+    # accepted (the forced-topmost pair). The dense↔dense BODY pair is a
+    # machine claim about the interior — the overlap-gated pass proposes it
+    # PENDING ("auto correlate is fine, its just a tool"), never accepted.
+    assert len(cross_edges) == 2, (
+        f"LCS-1b: expected the restatement + the interior body proposal "
+        f"between CPT-G and CPT-H, got {len(cross_edges)} edge(s)"
     )
-    restatement = cross_edges[0]
-    assert restatement.user_approved is True, (
-        "LCS-1b: the topmost pair restates the approved litho tie and is "
-        "born accepted"
-    )
-    assert layer_formation.get(restatement.layer_a_id) != layer_formation.get(
-        restatement.layer_b_id
+    accepted = [e for e in cross_edges if e.user_approved]
+    pending = [e for e in cross_edges if not e.user_approved]
+    assert len(accepted) == 1 and len(pending) == 1
+    assert layer_formation.get(accepted[0].layer_a_id) != layer_formation.get(
+        accepted[0].layer_b_id
     ), (
-        "LCS-1b: the restatement joins the two TOPMOST bands (loose vs dense) "
-        "— a cross-class pair by construction in this scene"
+        "LCS-1b: the restatement joins the two TOPMOST bands (loose vs "
+        "dense) — a cross-class pair by construction in this scene"
+    )
+    assert layer_formation.get(pending[0].layer_a_id) == layer_formation.get(
+        pending[0].layer_b_id
+    ), "LCS-1b: the interior proposal joins the same-class dense bodies"
+    await AcceptContactCorrelations(db_session).execute(
+        project_id=project.id,
+        model_id=geotech_model_id,
     )
     geotech_layers = (
         (
@@ -4190,10 +4194,9 @@ async def test_sab_lcs_connectivity(
         .all()
     )
 
-    # LCS-1c: CPT-G and CPT-H share at least one geotech body_id. The
-    # accepted restatement joins same-SOIL bands (loose sand ↔ dense sand),
-    # and the resolver unions accepted edges by soil — no separate accept
-    # step is needed any more (the tie is born accepted).
+    # LCS-1c: CPT-G and CPT-H share at least one geotech body_id once the
+    # engineer accepts the interior proposal (the accept-all above) — the
+    # dense bodies join through their own tie, the original review flow.
     g_body_ids = {
         layer.body_id for layer in geotech_layers if layer.cpt_id == cpt_g_uuid and layer.body_id
     }
