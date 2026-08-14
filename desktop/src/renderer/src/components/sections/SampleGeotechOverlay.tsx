@@ -1,16 +1,26 @@
 /**
- * SVG overlay that renders a clickable dot per lab sample on the geotech axis.
+ * SVG overlay that renders one lab-sample marker per sample on a borehole
+ * column.
  *
- * Each borehole column is checked for samples in ``boreholeDetails``.  For
- * every sample that has a ``geotech_body_id`` a small circle is rendered at
- * the sample mid-depth position.  Clicking a dot selects (or deselects) the
- * body via the ``geotechBodySelectionStore``.
+ * Each marker is a vertical capsule spanning the sample's ``depth_top_m`` to
+ * ``depth_base_m`` at the exact depths — a lab result speaks for an interval,
+ * not for a point, and the mid-depth dot this replaced hid that. A spot sample
+ * (top == base) is floored to a minimum drawn height so it stays findable.
+ *
+ * EVERY sample draws, whether or not the geotech subdivision has assigned it a
+ * packing body: a body-less sample gets a neutral marker whose click is a
+ * no-op. That keeps the lab evidence visible on a section the engineer has not
+ * subdivided yet.
+ *
+ * The overlay mounts on BOTH the lithostratigraphic and the geotechnical axis.
+ * The body-selection gesture stays geotech-only, via ``bodyClickEnabled`` —
+ * on the litho axis the markers are read-only evidence.
  *
  * The horizontal position uses ``warpedXToScreen`` — NEVER raw ``xToScreen``
- * — so the dot stays aligned with the column glyph at any spacing setting.
+ * — so the marker stays aligned with the column glyph at any spacing setting.
  */
 
-import type { BoreholeDetailResponse } from '../../api/client'
+import type { BoreholeDetailResponse, SampleResponse } from '../../api/client'
 import type { BoreholePlacedColumn } from './utils'
 import {
   toggleGeotechBodySelection,
@@ -18,25 +28,55 @@ import {
 } from '../../utils/geotechBodySelectionStore'
 // useSelectedGeotechBodyId gives the raw id; the store record also carries
 // assignmentSource, read by GeotechnicalInspector.
-import { sampleGeotechScreenPos } from '../../utils/sampleGeotechScreenPos'
+import { sampleExtentScreenSpan } from '../../utils/sampleExtentSpan'
 
-// Dot appearance constants.
-const DOT_RADIUS = 4
-/** Fill colour for unselected sample dots (teal — lab data theme). */
-const DOT_COLOR_DEFAULT = '#0d9488' // teal-600
-/** Fill colour for a dot whose body is currently selected. */
-const DOT_COLOR_SELECTED = '#f59e0b' // amber-500
-/** Stroke colour for unselected dots. */
-const DOT_STROKE = '#fff'
+// Marker appearance constants.
+/** Drawn width of an unselected marker capsule (px). */
+const MARKER_WIDTH = 7
+/** Drawn width when the marker's packing body is selected (size cue). */
+const MARKER_WIDTH_SELECTED = 11
+/** Fill for a sample carrying a packing body (teal — lab data theme). */
+const MARKER_COLOR_BODY = '#0d9488' // teal-600
+/** Fill for a marker whose body is currently selected. */
+const MARKER_COLOR_SELECTED = '#f59e0b' // amber-500
 /**
- * Minimum hit-target radius (px) for the invisible pointer-events circle.
- * WCAG 2.5.8 requires a ≥24 px touch target; 12 px radius gives 24 px diameter.
+ * Fill for a sample the geotech subdivision has not reached.
+ *
+ * SVG cannot use Tailwind ``dark:`` variants, so the neutral hue comes from a
+ * CSS-var token (index.css :root/.dark) that carries an AA-passing value
+ * against BOTH plot-area backgrounds.
  */
-const HIT_RADIUS = 12
+const MARKER_COLOR_NEUTRAL = 'var(--section-sample-neutral)'
+/** Stroke colour outlining every marker. */
+const MARKER_STROKE = '#fff'
+/**
+ * Minimum drawn height (px) for a marker.
+ *
+ * A spot sample has zero extent, and a thin sample collapses below a pixel
+ * when zoomed out; both would disappear entirely without this floor.
+ */
+const MIN_MARKER_HEIGHT = 8
+/**
+ * Hit-target size (px) for the invisible pointer-events rect.
+ * WCAG 2.5.8 requires a ≥24 px target in both directions.
+ */
+const HIT_SIZE = 24
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
+
+/** What the overlay reports to its parent when the cursor enters a marker. */
+export interface HoveredSample {
+  /** The sample under the cursor. */
+  sample: SampleResponse
+  /** Display name of the borehole the sample came from. */
+  boreholeName: string
+  /** Marker's horizontal centre, in section-SVG pixels. */
+  x: number
+  /** Marker's vertical centre, in section-SVG pixels. */
+  y: number
+}
 
 export interface SampleGeotechOverlayProps {
   /**
@@ -52,15 +92,28 @@ export interface SampleGeotechOverlayProps {
   boreholeDetails: Map<string, BoreholeDetailResponse> | null
   /**
    * Spacing-aware X transform.  MUST be ``warpedXToScreen`` (not raw
-   * ``xToScreen``) — the same transform used by every other geotech overlay.
+   * ``xToScreen``) — the same transform used by every other section overlay.
    */
   warpedXToScreen: (along: number) => number
   /** Elevation-to-pixel vertical transform. */
   levelToScreen: (level: number) => number
-  /** SVG top boundary (MARGIN.top) — clips dots outside the plot area. */
+  /** SVG top boundary (MARGIN.top) — markers are trimmed to it. */
   plotTop: number
   /** SVG bottom boundary (MARGIN.top + plotHeight). */
   plotBottom: number
+  /**
+   * Whether clicking a marker toggles its packing-body selection.
+   *
+   * True on the geotechnical axis only. Required rather than defaulted so a
+   * new mount cannot silently inherit the geotech gesture on an axis that has
+   * no packing bodies to select.
+   */
+  bodyClickEnabled: boolean
+  /**
+   * Fired when the cursor enters a marker (with the sample) and when it leaves
+   * (with ``null``). Drives the grain-size hover preview; omit to disable it.
+   */
+  onSampleHover?: (hover: HoveredSample | null) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -68,31 +121,14 @@ export interface SampleGeotechOverlayProps {
 // ---------------------------------------------------------------------------
 
 /**
- * SVG ``<g>`` group that renders sample dots on the geotech axis.
+ * SVG ``<g>`` group rendering the lab-sample extent markers.
  *
  * Reads the active body selection from ``geotechBodySelectionStore`` to
- * highlight matched dots in amber.  Each dot fires
- * ``toggleGeotechBodySelection`` on click.
+ * highlight matched markers in amber.  A marker whose sample carries a
+ * ``geotech_body_id`` fires ``toggleGeotechBodySelection`` on click, but only
+ * while ``bodyClickEnabled`` is set.
  *
- * Parameters
- * ----------
- * boreholePlacedColumns
- *     Borehole columns on the section (CPT columns ignored).
- * boreholeDetails
- *     Map of borehole id → full detail (including samples).
- * warpedXToScreen
- *     Spacing-aware column X transform.
- * levelToScreen
- *     Elevation-to-pixel Y transform.
- * plotTop
- *     Upper clip boundary (SVG px).
- * plotBottom
- *     Lower clip boundary (SVG px).
- *
- * Returns
- * -------
- * JSX.Element
- *     An SVG ``<g>`` group of sample dots (may be empty).
+ * @returns An SVG ``<g>`` group of sample markers (may be empty).
  */
 export default function SampleGeotechOverlay({
   boreholePlacedColumns,
@@ -101,6 +137,8 @@ export default function SampleGeotechOverlay({
   levelToScreen,
   plotTop,
   plotBottom,
+  bodyClickEnabled,
+  onSampleHover,
 }: SampleGeotechOverlayProps): JSX.Element {
   const selectedBodyId = useSelectedGeotechBodyId()
 
@@ -118,82 +156,119 @@ export default function SampleGeotechOverlay({
           along: col.proj.along,
           elevationM: col.proj.item.elevation_m,
         }
+        const boreholeName = col.proj.item.name
 
-        return detail.samples
-          .filter(s => s.geotech_body_id !== null)
-          .map(sample => {
-            const pos = sampleGeotechScreenPos(sample, column, warpedXToScreen, levelToScreen)
-            if (!pos) return null
-            // Clip dots outside the visible plot area.
-            if (pos.y < plotTop || pos.y > plotBottom) return null
+        return detail.samples.map(sample => {
+          const span = sampleExtentScreenSpan(
+            sample,
+            column,
+            warpedXToScreen,
+            levelToScreen,
+            MIN_MARKER_HEIGHT,
+          )
+          if (!span) return null
+          // Drop only a marker lying wholly outside the plot area; one that
+          // straddles an edge is trimmed so its visible part still shows.
+          if (span.yBase < plotTop || span.yTop > plotBottom) return null
 
-            const isSelected = sample.geotech_body_id === selectedBodyId
-            const fill = isSelected ? DOT_COLOR_SELECTED : DOT_COLOR_DEFAULT
-            // B1: two orthogonal selection cues (size + stroke colour) alongside hue,
-            // so selection is never conveyed by colour alone (WCAG 1.4.1).
-            const dotRadius = isSelected ? DOT_RADIUS + 2 : DOT_RADIUS
-            const strokeColor = isSelected ? DOT_COLOR_SELECTED : DOT_STROKE
-            const strokeWidth = isSelected ? 2 : 1
-            const label = sample.sample_number !== null
-              ? String(sample.sample_number)
-              : sample.id.slice(0, 8)
+          const drawnTop = Math.max(span.yTop, plotTop)
+          const drawnBottom = Math.min(span.yBase, plotBottom)
+          const drawnHeight = drawnBottom - drawnTop
 
-            return (
-              <g key={`sample-group-${sample.id}`}>
-                {/* B3/B4: invisible hit circle — large enough for WCAG 2.5.8 (≥24 px
-                    touch target) with full keyboard access.  Rendered BEFORE the
-                    visible dot so it sits below in z-order; the visible dot's
-                    pointer-events:none lets clicks fall through to this circle. */}
-                <circle
-                  data-testid={`sample-hit-${sample.id}`}
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={HIT_RADIUS}
-                  fill="transparent"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`Sample ${label} — click to highlight body`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => {
-                    // geotech_body_id is guaranteed non-null here (filtered above).
-                    toggleGeotechBodySelection(
-                      sample.geotech_body_id!,
-                      sample.geotech_assignment_source,
-                    )
-                  }}
-                  onKeyDown={(e: React.KeyboardEvent) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      toggleGeotechBodySelection(
-                        sample.geotech_body_id!,
-                        sample.geotech_assignment_source,
-                      )
-                    }
-                  }}
-                >
-                  {/* C1: title advertises the click action so assistive tech + tooltips
-                      expose the gesture surface. */}
-                  <title>
-                    {`Sample ${label}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m\nClick to highlight packing body`}
-                  </title>
-                </circle>
+          const hasBody = sample.geotech_body_id !== null
+          const isSelected = hasBody && sample.geotech_body_id === selectedBodyId
+          const clickable = hasBody && bodyClickEnabled
 
-                {/* Visual dot — B1: r + strokeWidth encode selection alongside fill hue.
-                    pointer-events:none ensures the hit circle above receives all clicks. */}
-                <circle
-                  data-testid={`sample-dot-${sample.id}`}
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={dotRadius}
-                  fill={fill}
-                  stroke={strokeColor}
-                  strokeWidth={strokeWidth}
-                  style={{ pointerEvents: 'none' }}
-                  aria-hidden="true"
-                />
-              </g>
+          const fill = isSelected
+            ? MARKER_COLOR_SELECTED
+            : hasBody
+              ? MARKER_COLOR_BODY
+              : MARKER_COLOR_NEUTRAL
+          // Width is the second, non-hue selection cue (WCAG 1.4.1).
+          const width = isSelected ? MARKER_WIDTH_SELECTED : MARKER_WIDTH
+
+          const label = sample.sample_number !== null
+            ? String(sample.sample_number)
+            : sample.id.slice(0, 8)
+
+          const activate = (): void => {
+            if (!clickable) return
+            // geotech_body_id is non-null whenever `clickable` is true.
+            toggleGeotechBodySelection(
+              sample.geotech_body_id!,
+              sample.geotech_assignment_source,
             )
-          })
+          }
+
+          // The hit rect is centred on the marker and never smaller than the
+          // WCAG floor in either direction.
+          const hitHeight = Math.max(HIT_SIZE, drawnHeight)
+          const hitTop = drawnTop + drawnHeight / 2 - hitHeight / 2
+
+          return (
+            <g key={`sample-group-${sample.id}`}>
+              {/* Invisible hit rect — rendered BEFORE the visible capsule so it
+                  sits below in z-order; the capsule's pointer-events:none lets
+                  clicks fall through to this rect. */}
+              <rect
+                data-testid={`sample-hit-${sample.id}`}
+                x={span.x - HIT_SIZE / 2}
+                y={hitTop}
+                width={HIT_SIZE}
+                height={hitHeight}
+                fill="transparent"
+                tabIndex={0}
+                role={clickable ? 'button' : 'img'}
+                aria-label={
+                  clickable
+                    ? `Sample ${label} — click to highlight body`
+                    : `Sample ${label}`
+                }
+                style={{ cursor: clickable ? 'pointer' : 'default' }}
+                onClick={activate}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    activate()
+                  }
+                }}
+                onMouseEnter={() =>
+                  onSampleHover?.({
+                    sample,
+                    boreholeName,
+                    x: span.x,
+                    y: (drawnTop + drawnBottom) / 2,
+                  })
+                }
+                onMouseLeave={() => onSampleHover?.(null)}
+              >
+                {/* Native tooltip so the depth range is readable without the
+                    richer hover popover (which the user can switch off). */}
+                <title>
+                  {`Sample ${label}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m${
+                    clickable ? '\nClick to highlight packing body' : ''
+                  }`}
+                </title>
+              </rect>
+
+              {/* Visible capsule — pointer-events:none so the hit rect above
+                  receives every click. */}
+              <rect
+                data-testid={`sample-marker-${sample.id}`}
+                x={span.x - width / 2}
+                y={drawnTop}
+                width={width}
+                height={drawnHeight}
+                rx={width / 2}
+                fill={fill}
+                stroke={MARKER_STROKE}
+                strokeWidth={1}
+                style={{ pointerEvents: 'none' }}
+                aria-hidden="true"
+              />
+            </g>
+          )
+        })
       })}
     </g>
   )

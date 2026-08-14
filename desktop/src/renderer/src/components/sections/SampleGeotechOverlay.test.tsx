@@ -1,13 +1,26 @@
-// Render smoke tests for SampleGeotechOverlay.
+// Behaviour tests for the lab-sample markers on the cross-section.
 //
-// SGO1 — renders nothing when boreholeDetails is null (loading state)
-// SGO2 — renders one dot per sample that has a geotech_body_id
-// SGO3 — skips samples whose geotech_body_id is null
-// SGO4 — skips columns not present in boreholeDetails
-// SGO5 — selected body id highlights the matching dot (amber fill, larger r, amber stroke)
-// SGO6 — dots outside [plotTop, plotBottom] are clipped (not rendered)
-// SGO7 — clicking the hit circle calls toggleGeotechBodySelection with the body id
-// SGO8 — pressing Enter on the hit circle calls toggleGeotechBodySelection (keyboard access)
+// Owner's words: "Replace the mid-depth dots with extent markers: a vertical
+// capsule/bar spanning depth_top_m→depth_base_m at the exact depths ... render
+// ALL samples, not only those with a geotech body — a body-less sample gets a
+// neutral variant of the marker and its click is a no-op ... the overlay
+// renders on the LITHO axis too (body-click stays geotech-only)."
+//
+//   SGO1   nothing drawn while the borehole details are still loading
+//   SGO2   a sample draws a bar spanning its OWN top and base depths, not a
+//          dot at its middle
+//   SGO3   a spot sample (top == base) still draws, at the minimum height
+//   SGO4   a sample with no packing body still draws, in the neutral colour
+//   SGO5   clicking a sample with no packing body does nothing
+//   SGO6   a column with no detail loaded draws nothing
+//   SGO7   the selected body's marker goes amber and wider
+//   SGO8   a marker entirely outside the plot area is not drawn; one that runs
+//          off the edge is trimmed at the edge rather than dropped
+//   SGO9   clicking a sample's marker toggles its packing body
+//   SGO10  Enter on a sample's marker toggles its packing body
+//   SGO11  on the litho axis, where body-click is off, clicking does nothing
+//   SGO12  the hit target is at least 24 px in both directions (WCAG 2.5.8)
+//   SGO13  hovering a marker reports the sample; leaving reports nothing
 
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,6 +51,8 @@ const mockToggle = toggleGeotechBodySelection as ReturnType<typeof vi.fn>
 // ---------------------------------------------------------------------------
 
 const identity = (x: number): number => x
+/** Real-shaped vertical transform: deeper elevation → larger y, 10 px per m. */
+const levelDown = (level: number): number => (100 - level) * 10
 
 function makeBoreholePlacedColumn(
   id: string,
@@ -77,11 +92,12 @@ function makeBoreholePlacedColumn(
 function makeSample(
   id: string,
   geotechBodyId: string | null = 'body-1',
+  depths: { top: number; base: number } = { top: 1, base: 3 },
 ): SampleResponse {
   return {
     id,
-    depth_top_m: 1,
-    depth_base_m: 3,
+    depth_top_m: depths.top,
+    depth_base_m: depths.base,
     description: '',
     sample_number: null,
     sample_type: null,
@@ -127,13 +143,20 @@ function makeBoreholeDetail(
   } as unknown as BoreholeDetailResponse
 }
 
-// Wide open plot bounds for most tests — only SGO6 uses narrow bounds.
+// Wide open plot bounds for most tests — only SGO8 narrows them.
 const PLOT_TOP = 0
 const PLOT_BOTTOM = 9999
 
 function renderOverlay(
   columns: BoreholePlacedColumn[],
   details: Map<string, BoreholeDetailResponse> | null,
+  overrides: {
+    bodyClickEnabled?: boolean
+    levelToScreen?: (level: number) => number
+    plotTop?: number
+    plotBottom?: number
+    onSampleHover?: (hover: unknown) => void
+  } = {},
 ) {
   return render(
     <svg>
@@ -141,12 +164,19 @@ function renderOverlay(
         boreholePlacedColumns={columns}
         boreholeDetails={details}
         warpedXToScreen={identity}
-        levelToScreen={identity}
-        plotTop={PLOT_TOP}
-        plotBottom={PLOT_BOTTOM}
+        levelToScreen={overrides.levelToScreen ?? levelDown}
+        plotTop={overrides.plotTop ?? PLOT_TOP}
+        plotBottom={overrides.plotBottom ?? PLOT_BOTTOM}
+        bodyClickEnabled={overrides.bodyClickEnabled ?? true}
+        onSampleHover={overrides.onSampleHover as never}
       />
     </svg>,
   )
+}
+
+/** Read a numeric SVG attribute. */
+function num(el: Element, name: string): number {
+  return Number(el.getAttribute(name))
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +185,6 @@ function renderOverlay(
 
 beforeEach(() => {
   mockToggle.mockReset()
-  // Reset selection store to null before each test (null = deselect).
   selectGeotechBody(null)
 })
 
@@ -164,116 +193,197 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('SampleGeotechOverlay', () => {
-  it('SGO1 — renders a loading group and no dots when boreholeDetails is null', () => {
+describe('SampleGeotechOverlay — extent markers', () => {
+  it('SGO1 — draws nothing while the borehole details are still loading', () => {
     renderOverlay([makeBoreholePlacedColumn('bh-1', 50)], null)
     expect(screen.getByTestId('sample-geotech-overlay-loading')).toBeDefined()
-    expect(screen.queryByTestId(/^sample-dot-/)).toBeNull()
+    expect(screen.queryByTestId(/^sample-marker-/)).toBeNull()
   })
 
-  it('SGO2 — renders one dot per sample that has a geotech_body_id', () => {
+  it('SGO2 — the bar spans the sample top and base depths, not its middle', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
-    const sample1 = makeSample('s-1', 'body-1')
-    const sample2 = makeSample('s-2', 'body-2')
-    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample1, sample2])]])
+    // Surface 5 m; sample 1–3 m below it → elevations 4 and 2 → y 960 and 980.
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
 
     renderOverlay([col], details)
 
-    expect(screen.getByTestId('sample-dot-s-1')).toBeDefined()
-    expect(screen.getByTestId('sample-dot-s-2')).toBeDefined()
+    const marker = screen.getByTestId('sample-marker-s-1')
+    expect(num(marker, 'y')).toBeCloseTo(960, 6)
+    expect(num(marker, 'height')).toBeCloseTo(20, 6)
+    // The mid-depth dot this replaces would have sat at y 970 with no height.
+    expect(num(marker, 'height')).toBeGreaterThan(0)
   })
 
-  it('SGO3 — skips samples whose geotech_body_id is null', () => {
+  it('SGO3 — a spot sample still draws, at the minimum height', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
-    const withBody = makeSample('s-1', 'body-1')
-    const withoutBody = makeSample('s-no-body', null)
-    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [withBody, withoutBody])]])
+    const spot = makeSample('s-spot', 'body-1', { top: 2, base: 2 })
+    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [spot])]])
 
     renderOverlay([col], details)
 
-    expect(screen.getByTestId('sample-dot-s-1')).toBeDefined()
-    expect(screen.queryByTestId('sample-dot-s-no-body')).toBeNull()
+    const marker = screen.getByTestId('sample-marker-s-spot')
+    expect(num(marker, 'height')).toBeCloseTo(8, 6)
+    // Still centred on the depth it was taken at (elevation 3 → y 970).
+    expect(num(marker, 'y') + num(marker, 'height') / 2).toBeCloseTo(970, 6)
   })
 
-  it('SGO4 — skips columns with no entry in boreholeDetails', () => {
-    const col = makeBoreholePlacedColumn('bh-absent', 50)
-    const details = new Map<string, BoreholeDetailResponse>()
+  it('SGO4 — a sample with no packing body still draws, in the neutral colour', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    const withBody = makeSample('s-body', 'body-1')
+    const withoutBody = makeSample('s-none', null)
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [withBody, withoutBody])],
+    ])
 
     renderOverlay([col], details)
 
-    expect(screen.queryByTestId(/^sample-dot-/)).toBeNull()
+    // Both are on screen — the body-less one is no longer skipped.
+    expect(screen.getByTestId('sample-marker-s-body')).toBeDefined()
+    const neutral = screen.getByTestId('sample-marker-s-none')
+    expect(neutral.getAttribute('fill')).toBe('var(--section-sample-neutral)')
+    // The one that carries a packing body keeps the lab-data teal.
+    expect(screen.getByTestId('sample-marker-s-body').getAttribute('fill')).toBe(
+      '#0d9488',
+    )
   })
 
-  it('SGO5 — selected body id gives the matching dot amber fill, larger r, and amber stroke (B1)', () => {
+  it('SGO5 — clicking a sample with no packing body does nothing', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
-    const sample = makeSample('s-1', 'body-selected')
-    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-none', null)])],
+    ])
 
-    // Select the body before render.
+    renderOverlay([col], details)
+
+    fireEvent.click(screen.getByTestId('sample-hit-s-none'))
+    fireEvent.keyDown(screen.getByTestId('sample-hit-s-none'), { key: 'Enter' })
+
+    expect(mockToggle).not.toHaveBeenCalled()
+  })
+
+  it('SGO6 — a column with no detail loaded draws nothing', () => {
+    renderOverlay(
+      [makeBoreholePlacedColumn('bh-absent', 50)],
+      new Map<string, BoreholeDetailResponse>(),
+    )
+    expect(screen.queryByTestId(/^sample-marker-/)).toBeNull()
+  })
+
+  it('SGO7 — the selected body’s marker goes amber and wider', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-selected')])],
+    ])
+
     selectGeotechBody({ bodyId: 'body-selected', assignmentSource: null })
     renderOverlay([col], details)
 
-    const dot = screen.getByTestId('sample-dot-s-1')
-    // B1: amber fill (hue), larger r (size), amber stroke (third cue) — three
-    // orthogonal selection cues, not just colour.
-    expect(dot.getAttribute('fill')).toBe('#f59e0b')    // amber-500
-    expect(dot.getAttribute('r')).toBe('6')              // DOT_RADIUS(4) + 2
-    expect(dot.getAttribute('stroke')).toBe('#f59e0b')  // amber stroke
-    expect(dot.getAttribute('stroke-width')).toBe('2')
+    const marker = screen.getByTestId('sample-marker-s-1')
+    // Two orthogonal cues, so selection never rides on hue alone (WCAG 1.4.1).
+    expect(marker.getAttribute('fill')).toBe('#f59e0b')
+    expect(num(marker, 'width')).toBeGreaterThan(7)
   })
 
-  it('SGO6 — dots outside [plotTop, plotBottom] are not rendered', () => {
-    const col = makeBoreholePlacedColumn('bh-1', 50, 5)
-    // depth_top = 1, depth_base = 3 → mid = 2 → elevation = 5 - 2 = 3
-    // levelToScreen(3) = 3 → BELOW plotTop(10) → clipped
-    const sample = makeSample('s-clip', 'body-1')
-    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
-
-    // plotTop = 10, plotBottom = 500; sample's Y = 3 < plotTop → clipped
-    render(
-      <svg>
-        <SampleGeotechOverlay
-          boreholePlacedColumns={[col]}
-          boreholeDetails={details}
-          warpedXToScreen={identity}
-          levelToScreen={identity}
-          plotTop={10}
-          plotBottom={500}
-        />
-      </svg>,
-    )
-
-    expect(screen.queryByTestId('sample-dot-s-clip')).toBeNull()
-  })
-
-  it('SGO7 — clicking the hit circle fires toggleGeotechBodySelection with the body id', () => {
+  it('SGO8 — a marker off the plot is dropped; one crossing the edge is trimmed', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
-    const sample = makeSample('s-1', 'body-click')
-    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
+    // 1–3 m below a 5 m surface → y 960..980.
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+
+    // Plot ends at 900 — the whole marker sits below it.
+    const { unmount } = renderOverlay([col], details, {
+      plotTop: 0,
+      plotBottom: 900,
+    })
+    expect(screen.queryByTestId('sample-marker-s-1')).toBeNull()
+    unmount()
+
+    // Plot ends at 970 — the marker's lower half is off the edge.
+    renderOverlay([col], details, { plotTop: 0, plotBottom: 970 })
+    const marker = screen.getByTestId('sample-marker-s-1')
+    expect(num(marker, 'y')).toBeCloseTo(960, 6)
+    expect(num(marker, 'y') + num(marker, 'height')).toBeCloseTo(970, 6)
+  })
+
+  it('SGO9 — clicking a marker toggles its packing body', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-click')])],
+    ])
 
     renderOverlay([col], details)
-
-    // B3: the visible dot has pointer-events:none; the hit circle (sample-hit-*)
-    // is the interactive element and receives the click.
-    const hit = screen.getByTestId('sample-hit-s-1')
-    fireEvent.click(hit)
+    fireEvent.click(screen.getByTestId('sample-hit-s-1'))
 
     expect(mockToggle).toHaveBeenCalledWith('body-click', 'cpt_interpolated')
     expect(mockToggle).toHaveBeenCalledTimes(1)
   })
 
-  it('SGO8 — pressing Enter on the hit circle fires toggleGeotechBodySelection (B4 keyboard access)', () => {
+  it('SGO10 — Enter on a marker toggles its packing body', () => {
     const col = makeBoreholePlacedColumn('bh-1', 50)
-    const sample = makeSample('s-1', 'body-kb')
-    const details = new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]])
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-kb')])],
+    ])
+
+    renderOverlay([col], details)
+    fireEvent.keyDown(screen.getByTestId('sample-hit-s-1'), { key: 'Enter' })
+
+    expect(mockToggle).toHaveBeenCalledWith('body-kb', 'cpt_interpolated')
+    expect(mockToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('SGO11 — on the litho axis the marker draws but clicking does nothing', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+
+    renderOverlay([col], details, { bodyClickEnabled: false })
+
+    // The sample is still visible — only the body selection is geotech-only.
+    expect(screen.getByTestId('sample-marker-s-1')).toBeDefined()
+    fireEvent.click(screen.getByTestId('sample-hit-s-1'))
+    fireEvent.keyDown(screen.getByTestId('sample-hit-s-1'), { key: 'Enter' })
+    expect(mockToggle).not.toHaveBeenCalled()
+  })
+
+  it('SGO12 — the hit target is at least 24 px in both directions', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    // A spot sample is the smallest marker there is — its hit target still has
+    // to clear the WCAG 2.5.8 floor.
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1', { top: 2, base: 2 })])],
+    ])
 
     renderOverlay([col], details)
 
     const hit = screen.getByTestId('sample-hit-s-1')
-    // role="button" + tabIndex=0 makes this accessible; Enter activates it.
-    fireEvent.keyDown(hit, { key: 'Enter' })
+    expect(num(hit, 'width')).toBeGreaterThanOrEqual(24)
+    expect(num(hit, 'height')).toBeGreaterThanOrEqual(24)
+  })
 
-    expect(mockToggle).toHaveBeenCalledWith('body-kb', 'cpt_interpolated')
-    expect(mockToggle).toHaveBeenCalledTimes(1)
+  it('SGO13 — hovering a marker reports the sample; leaving reports nothing', () => {
+    const col = makeBoreholePlacedColumn('bh-1', 50)
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+    const onSampleHover = vi.fn()
+
+    renderOverlay([col], details, { onSampleHover })
+
+    const hit = screen.getByTestId('sample-hit-s-1')
+    fireEvent.mouseEnter(hit)
+    expect(onSampleHover).toHaveBeenCalledTimes(1)
+    const reported = onSampleHover.mock.calls[0][0] as {
+      sample: SampleResponse
+      boreholeName: string
+    }
+    expect(reported.sample.id).toBe('s-1')
+    expect(reported.boreholeName).toBe('bh-1')
+
+    fireEvent.mouseLeave(hit)
+    expect(onSampleHover).toHaveBeenLastCalledWith(null)
   })
 })
