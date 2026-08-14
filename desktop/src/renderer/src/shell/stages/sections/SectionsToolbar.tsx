@@ -41,7 +41,7 @@ import {
 import { useSampleMarkersOn } from '../../../utils/sampleMarkersOnStore'
 import { usePsdPreviewOn } from '../../../utils/psdPreviewOnStore'
 import { sampleDisplayMenuItems } from './sampleDisplayMenuItems'
-import { usePsdPreviewHotkey } from './usePsdPreviewHotkey'
+import { useSampleMarkersHotkey } from './useSampleMarkersHotkey'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
@@ -173,13 +173,15 @@ export default function SectionsToolbar(): JSX.Element {
     },
     toasts: { toast },
   } = useShell()
-  // Bare P mirrors the "PSD preview on hover" menu item. The menu's own label
-  // flips too, but nobody sees that with the menu closed — so the accelerator
-  // says out loud which way it went. Placed AFTER the useShell destructure
-  // because it reads ``toast``; hoisting it up with the other store hooks
-  // would be a temporal-dead-zone crash that no type check catches.
-  usePsdPreviewHotkey(nowOn =>
-    toast('success', nowOn ? 'Grain-size preview on' : 'Grain-size preview off'),
+  // Bare P mirrors the "Show samples" menu item (owner 2026-08-14: the hotkey
+  // hides the MARKERS when they are in the way; the PSD preview stays a menu
+  // toggle). The menu's own label flips too, but nobody sees that with the
+  // menu closed — so the accelerator says out loud which way it went. Placed
+  // AFTER the useShell destructure because it reads ``toast``; hoisting it up
+  // with the other store hooks would be a temporal-dead-zone crash that no
+  // type check catches.
+  useSampleMarkersHotkey(nowOn =>
+    toast('success', nowOn ? 'Sample markers on' : 'Sample markers off'),
   )
   const geotechStatistic =
     (statisticState?.modelId === activeGeotechModel?.id ? statisticState?.statistic : undefined) ??

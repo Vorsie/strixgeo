@@ -1,10 +1,12 @@
 /**
- * Bare-``P`` accelerator for the grain-size hover preview.
+ * Bare-``P`` accelerator for the lab-sample markers.
  *
- * The preview is the kind of thing an engineer flips several times a minute —
- * useful while reading a borehole, noise while dragging a boundary — so it
- * earns a one-key toggle alongside its Display-menu item. ``P`` was verified
- * free: no bare alphabetic key is bound anywhere else in the renderer.
+ * The owner's ask (dogfeed 2026-08-14): the hotkey turns the MARKERS off when
+ * they are in the way — useful while reading a borehole, noise while dragging
+ * a boundary — so the markers earn the one-key toggle alongside their
+ * Display-menu item. The grain-size hover preview keeps its menu toggle only.
+ * ``P`` was verified free: no bare alphabetic key is bound anywhere else in
+ * the renderer.
  *
  * Two guards, both load-bearing:
  *
@@ -19,7 +21,7 @@
 import { useEffect, useRef } from 'react'
 
 import { isTypingTarget } from '../../../utils/keyboard'
-import { getPsdPreviewOn, togglePsdPreviewOn } from '../../../utils/psdPreviewOnStore'
+import { getSampleMarkersOn, toggleSampleMarkersOn } from '../../../utils/sampleMarkersOnStore'
 
 /**
  * Bind the bare-``P`` toggle for as long as the caller is mounted.
@@ -28,7 +30,7 @@ import { getPsdPreviewOn, togglePsdPreviewOn } from '../../../utils/psdPreviewOn
  *   caller can surface it (a toast, typically). Re-reads on every render, so a
  *   caller may pass an inline closure without re-binding the listener.
  */
-export function usePsdPreviewHotkey(onFlip: (nowOn: boolean) => void): void {
+export function useSampleMarkersHotkey(onFlip: (nowOn: boolean) => void): void {
   // Held in a ref so a fresh inline callback per render does not tear down and
   // rebind the document listener on every render.
   const onFlipRef = useRef(onFlip)
@@ -41,8 +43,8 @@ export function usePsdPreviewHotkey(onFlip: (nowOn: boolean) => void): void {
       // bare key only.
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (isTypingTarget(e.target)) return
-      togglePsdPreviewOn()
-      onFlipRef.current(getPsdPreviewOn())
+      toggleSampleMarkersOn()
+      onFlipRef.current(getSampleMarkersOn())
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)

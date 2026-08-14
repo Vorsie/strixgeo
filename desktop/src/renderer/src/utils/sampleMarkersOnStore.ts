@@ -27,6 +27,11 @@ export function getSampleMarkersOn(): boolean {
   return store.get()
 }
 
+/** Set the toggle to an explicit state (the hotkey's test-reset path). */
+export function setSampleMarkersOn(value: boolean): void {
+  store.set(value)
+}
+
 /** Reactive hook — re-renders the caller when the toggle flips. */
 export function useSampleMarkersOn(): boolean {
   return store.use()
