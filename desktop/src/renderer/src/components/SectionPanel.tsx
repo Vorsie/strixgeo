@@ -126,7 +126,16 @@ import { useFormationFillVisible } from '../utils/formationFillStore'
 import { useGeotechFillVisible } from '../utils/geotechFillStore'
 import { useLithoFillOnGeotech } from '../utils/lithoFillOnGeotechStore'
 import { selectSectionFill } from '../utils/sectionFillSelection'
+import {
+  boreholeLogFillOpacity,
+  columnCardVeilOpacity,
+  columnStackFillOpacity,
+} from '../utils/sectionFillOpacity'
+import { useSampleMarkersOn } from '../utils/sampleMarkersOnStore'
+import { usePsdPreviewOn } from '../utils/psdPreviewOnStore'
 import SampleGeotechOverlay from './sections/SampleGeotechOverlay'
+import type { HoveredSample } from './sections/SampleGeotechOverlay'
+import SamplePsdPopover from './sections/SamplePsdPopover'
 import {
   useSelectedGeotechBodyId,
   selectGeotechBody,
@@ -919,6 +928,13 @@ export default function SectionPanel({
   // The litho axis no longer paints ContactsLayer's formationFillBands; the
   // geological axis keeps its own formationFillBands fill independently.
   const showModelFill = useFormationFillVisible()
+  // Lab-sample extent markers + their grain-size hover card. Both draw on the
+  // litho AND geotech axes, so both toggles live in whichever Display menu the
+  // active axis shows. ``hoveredSample`` is renderer-only chrome — the card is
+  // a read-out, it never writes.
+  const showSampleMarkers = useSampleMarkersOn()
+  const psdPreviewOn = usePsdPreviewOn()
+  const [hoveredSample, setHoveredSample] = useState<HoveredSample | null>(null)
 
   // Default viewport — full section length, default vertical
   // window. Recomputed when the section changes so switching
@@ -2788,6 +2804,12 @@ export default function SectionPanel({
                     levelToScreen={levelToScreen}
                     showLabels={showLabelsByCptId.get(item.id) ?? true}
                     qcFullScaleMpa={qcFullScaleMpa}
+                    // On the interpretation axes the column's own band stack
+                    // paints over this card, so the white track steps back to a
+                    // veil — otherwise the same band reads brighter here than in
+                    // the gap beside it and the fill looks like it stops at the
+                    // column edge.
+                    cardVeilOpacity={columnCardVeilOpacity(axisMode)}
                   />
                 )
               })}
@@ -2822,6 +2844,11 @@ export default function SectionPanel({
                     onDoubleClickOpen={
                       onSelectBorehole ? () => onSelectBorehole(item.id) : undefined
                     }
+                    // Same reason as the CPT card's veil: an opaque DOV log
+                    // under a translucent interpretation band composites
+                    // brighter than the gap. The log in full detail is the
+                    // borelog panel's job; here it is reference.
+                    logFillOpacity={boreholeLogFillOpacity(axisMode)}
                   />
                 )
               })}
@@ -2969,7 +2996,18 @@ export default function SectionPanel({
               // original 0.18 (light backdrop where bands would
               // otherwise compete with contact lines + labels).
               // Geotech mirrors litho (same contact/band rendering).
-              bandFillOpacity={axisMode === 'lithostratigraphic' || axisMode === 'geotechnical' ? 0.55 : 0.18}
+              // Owner dogfeed 2026-08-14 ("same transparency everywhere plz"):
+              // on the interpretation axes this is the SAME number the
+              // partition fill uses in the gaps, so a band crossing a column
+              // edge does not change tone. The geological axis keeps its
+              // lighter backdrop. See utils/sectionFillOpacity.ts.
+              bandFillOpacity={columnStackFillOpacity(axisMode)}
+              // …and the colour follows the fill that is actually painted, so
+              // the geotech axis's "Show litho fill" swap carries the columns
+              // with it instead of leaving them NAD-coloured.
+              columnBandDisplayAxis={
+                fillSelection.showLithoFillInstead ? 'lithostratigraphic' : axisMode
+              }
               // Cross-column TIN-derived formationFillBands need a
               // built litho surface to produce geometry; on a typical
               // litho-axis CPT column with no surface the band cell is
@@ -3362,13 +3400,15 @@ export default function SectionPanel({
               />
             )}
 
-            {/* Lab sample dots — geotech axis only.  One dot per sample that
-                carries a geotech_body_id, positioned at the borehole column
-                + sample mid-depth.  Clicking a dot selects the body for
-                cross-referencing with the inspector.  Rendered above the
-                partition fill so dots are always clickable.  Uses
-                warpedXToScreen so dots follow column spacing nudging. */}
-            {axisMode === 'geotechnical' && (
+            {/* Lab sample markers — litho AND geotech axes.  One capsule per
+                sample spanning its own top/base depths on the borehole column;
+                a sample the subdivision has not reached draws neutral.  The
+                body-selection click stays geotech-only (``bodyClickEnabled``),
+                so on litho the markers are read-only lab evidence.  Rendered
+                above the partition fill so the markers are always clickable.
+                Uses warpedXToScreen so they follow column spacing nudging. */}
+            {(axisMode === 'geotechnical' || axisMode === 'lithostratigraphic')
+              && showSampleMarkers && (
               <SampleGeotechOverlay
                 boreholePlacedColumns={visibleColumns.filter(
                   (c): c is typeof visibleColumns[number] & { kind: 'borehole' } =>
@@ -3379,6 +3419,13 @@ export default function SectionPanel({
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
+                bodyClickEnabled={axisMode === 'geotechnical'}
+                // Always wired, with only the CARD gated on the toggle below.
+                // Withholding the handler while the preview is off would also
+                // withhold mouse-LEAVE, so the last hovered sample would still
+                // be in state and the card would pop back on the next P press
+                // with the cursor nowhere near it.
+                onSampleHover={setHoveredSample}
               />
             )}
 
@@ -3411,12 +3458,16 @@ export default function SectionPanel({
             {/* P4 (dogfeed 2026-05-30) — second pass of CptDataColumn in
                 ``overlayMode`` so the qc/Rf reference gridlines + value
                 labels (2 / 10 MPa, 2 / 4 %) render ON TOP of the litho
-                band fills. The first pass at line 2034 paints them
-                behind the bands (correct for the track background and
-                curves); the overlay layer here picks them out
-                separately and renders them last with stronger stroke
-                + pointerEvents:none so the underlying drag surfaces
-                stay clickable. */}
+                band fills. The first pass paints them behind the bands
+                (correct for the track background); the overlay layer here
+                picks them out separately and renders them last with stronger
+                stroke + pointerEvents:none so the underlying drag surfaces
+                stay clickable.
+                Extended 2026-08-14: the qc + Rf CURVES ride along. Once the
+                card's white backing dropped to a veil so the column would read
+                at the same transparency as the gaps, a trace left in the first
+                pass alone showed through the band only faintly — and the qc
+                curve is what the engineer reads the column for. */}
             {cptPlots !== null &&
               visibleColumns.map(col => {
                 if (col.kind !== 'cpt') return null
@@ -3655,6 +3706,19 @@ export default function SectionPanel({
               }
             />
           </div>
+        )}
+        {/* Grain-size hover card.  Container-local coordinates match the SVG's
+            because the viewBox is 1:1 with the pixel size.  pointer-events-none
+            inside, so it never intercepts a canvas gesture. */}
+        {psdPreviewOn && hoveredSample && size && (
+          <SamplePsdPopover
+            sample={hoveredSample.sample}
+            boreholeName={hoveredSample.boreholeName}
+            anchorX={hoveredSample.x}
+            anchorY={hoveredSample.y}
+            containerWidth={size.width}
+            containerHeight={size.height}
+          />
         )}
         <CanvasHints
           axisMode={axisMode}
