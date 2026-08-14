@@ -237,3 +237,39 @@ describe('CptDataColumn — graceful degrade', () => {
     expect(container.querySelector('svg')).not.toBeNull()
   })
 })
+
+// Owner: "same transparency everywhere plz" — where the interpretation stack
+// paints over the card, the card's own white backing has to get out of the way,
+// or the same band reads brighter over a column than in the gap beside it.
+describe('CptDataColumn — the track background yields to the fill', () => {
+  it('CDC-VEIL1: the caller sets how much white backing the track keeps', () => {
+    const { container } = renderColumn({ cardVeilOpacity: 0.18 })
+    const track = container.querySelector('rect[fill="#ffffff"]')
+    expect(track?.getAttribute('fill-opacity')).toBe('0.18')
+  })
+
+  it('CDC-VEIL2: unasked, the track keeps the readable backing it always had', () => {
+    const { container } = renderColumn()
+    const track = container.querySelector('rect[fill="#ffffff"]')
+    expect(track?.getAttribute('fill-opacity')).toBe('0.7')
+  })
+
+  it('CDC-OVER1: the overlay pass carries the qc and Rf traces over the fill', () => {
+    // The fill paints across the whole card now, so a trace drawn only in the
+    // first pass would sit underneath it. The overlay pass — which already
+    // re-emits the reference gridlines for exactly this reason — carries the
+    // two labelled traces up with them.
+    const { container } = renderColumn({ overlayMode: true })
+    const strokes = Array.from(container.querySelectorAll('path')).map(p =>
+      p.getAttribute('stroke'),
+    )
+    expect(strokes).toContain('#111827') // qc
+    expect(strokes).toContain('#b45309') // Rf
+  })
+
+  it('CDC-OVER2: the overlay pass still paints no card of its own', () => {
+    // It sits ON TOP of the fill; a background rect there would blank it out.
+    const { container } = renderColumn({ overlayMode: true })
+    expect(container.querySelector('rect[fill="#ffffff"]')).toBeNull()
+  })
+})

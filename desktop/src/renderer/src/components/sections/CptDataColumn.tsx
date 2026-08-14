@@ -55,6 +55,9 @@ const U2_COLOR = '#7c3aed'
 
 const GRID_COLOR = '#d1d5db'
 const TRACK_BG = '#ffffff'
+// Historical white-track opacity, kept as the default so any caller that does
+// not care (the geological axis, the test harness) renders exactly as before.
+const DEFAULT_CARD_VEIL_OPACITY = 0.7
 const TRACK_BORDER = '#e5e7eb'
 const LABEL_FILL = '#6b7280'
 
@@ -108,6 +111,17 @@ interface Props {
    * every CptDataColumn so all columns read on the SAME axis.
    */
   qcFullScaleMpa?: number
+  /**
+   * Opacity of the white track background behind the curves.
+   *
+   * On the interpretation axes the column's own band stack paints OVER this
+   * card, and an opaque white backing under a translucent band composites to a
+   * visibly lighter tone than the same band over the plot background — the
+   * fill then looks like it stops at the column edge. The caller drops this to
+   * a very light veil there (see ``columnCardVeilOpacity``). Defaults to the
+   * historical 0.7, so the geological axis keeps its readable white track.
+   */
+  cardVeilOpacity?: number
 }
 
 export default function CptDataColumn({
@@ -123,6 +137,7 @@ export default function CptDataColumn({
   showLabels,
   overlayMode = false,
   qcFullScaleMpa = QC_FULL_SCALE_MPA,
+  cardVeilOpacity = DEFAULT_CARD_VEIL_OPACITY,
 }: Props): JSX.Element | null {
   // Memoise sample-index → screen-Y once per render. Must be
   // declared BEFORE any early return so the hook order stays stable
@@ -275,6 +290,31 @@ export default function CptDataColumn({
             </text>
           </>
         )}
+        {/* The two labelled traces ride up with their gridlines. The band stack
+            now paints across the whole card at the fill's own opacity, so a
+            trace left in the first pass alone would read through it only
+            faintly — and the qc curve is the thing the engineer is reading the
+            column FOR. fs / u2 / q_total stay in the first pass: they carry no
+            reference lines here and re-emitting five curves would turn the
+            overlay into a second full render. */}
+        {showQc && (
+          <path
+            d={curvePath(plot.qc_mpa, screenYByIdx, axisX, halfWidth, qcFullScaleMpa, 1, plotTop, plotBottom)}
+            stroke={QC_COLOR}
+            strokeWidth={1.1}
+            strokeOpacity={0.95}
+            fill="none"
+          />
+        )}
+        {showRf && (
+          <path
+            d={curvePath(plot.rf_pct!, screenYByIdx, axisX, halfWidth, RF_FULL_SCALE_PCT, -1, plotTop, plotBottom)}
+            stroke={RF_COLOR}
+            strokeWidth={1}
+            strokeOpacity={0.9}
+            fill="none"
+          />
+        )}
       </g>
     )
   }
@@ -289,7 +329,7 @@ export default function CptDataColumn({
             width={2 * halfWidth}
             height={bgBottomY - bgTopY}
             fill={TRACK_BG}
-            fillOpacity={0.7}
+            fillOpacity={cardVeilOpacity}
           />
           <line
             x1={leftX}
