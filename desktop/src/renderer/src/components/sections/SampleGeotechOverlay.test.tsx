@@ -224,7 +224,7 @@ describe('SampleGeotechOverlay — extent markers', () => {
     renderOverlay([col], details)
 
     const marker = screen.getByTestId('sample-marker-s-spot')
-    expect(num(marker, 'height')).toBeCloseTo(8, 6)
+    expect(num(marker, 'height')).toBeCloseTo(6, 6)
     // Still centred on the depth it was taken at (elevation 3 → y 970).
     expect(num(marker, 'y') + num(marker, 'height') / 2).toBeCloseTo(970, 6)
   })
@@ -385,5 +385,23 @@ describe('SampleGeotechOverlay — extent markers', () => {
 
     fireEvent.mouseLeave(hit)
     expect(onSampleHover).toHaveBeenLastCalledWith(null)
+  })
+  it('SGO14 — a short sample reads as a RECTANGLE, not a dot (owner 2026-08-14)', () => {
+    // Nearly every real sample is 0.35-0.5 m; at section zoom that height sits
+    // at the minimum-height floor. "those dots are still there not nice
+    // rectangular marks" — full corner rounding turned every floor-height
+    // marker into a circle, so the rounding must stay far below half the
+    // height however short the marker gets.
+    const sample = makeSample('s-short', 'body-1', { top: 2, base: 2.4 })
+    renderOverlay(
+      [makeBoreholePlacedColumn('bh-1', 50)],
+      new Map([['bh-1', makeBoreholeDetail('bh-1', [sample])]]),
+    )
+    const marker = screen.getByTestId('sample-marker-s-short')
+    const rx = num(marker, 'rx')
+    const height = num(marker, 'height')
+    expect(rx, 'corner radius must not swallow the shape').toBeLessThanOrEqual(2)
+    expect(rx, 'rounding stays below half the height').toBeLessThan(height / 2)
+    expect(num(marker, 'width'), 'wider than tall-rounded: it reads as a bar').toBeGreaterThan(2 * rx)
   })
 })

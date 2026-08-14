@@ -31,10 +31,20 @@ import {
 import { sampleExtentScreenSpan } from '../../utils/sampleExtentSpan'
 
 // Marker appearance constants.
-/** Drawn width of an unselected marker capsule (px). */
-const MARKER_WIDTH = 7
+/** Drawn width of an unselected marker bar (px). */
+const MARKER_WIDTH = 8
 /** Drawn width when the marker's packing body is selected (size cue). */
-const MARKER_WIDTH_SELECTED = 11
+const MARKER_WIDTH_SELECTED = 12
+/**
+ * Corner radius of the marker bar (px).
+ *
+ * Deliberately a small CONSTANT, never ``width / 2``: nearly every real sample
+ * is 0.35–0.5 m, which at section zoom sits at the minimum-height floor, and a
+ * fully-rounded bar at that height IS a circle — the owner's "those dots are
+ * still there not nice rectangular marks" (dogfeed 2026-08-14). The marker
+ * must read as a rectangle spanning the depth interval at every zoom.
+ */
+const MARKER_CORNER_RADIUS = 1.5
 /** Fill for a sample carrying a packing body (teal — lab data theme). */
 const MARKER_COLOR_BODY = '#0d9488' // teal-600
 /** Fill for a marker whose body is currently selected. */
@@ -55,7 +65,7 @@ const MARKER_STROKE = '#fff'
  * A spot sample has zero extent, and a thin sample collapses below a pixel
  * when zoomed out; both would disappear entirely without this floor.
  */
-const MIN_MARKER_HEIGHT = 8
+const MIN_MARKER_HEIGHT = 6
 /**
  * Hit-target size (px) for the invisible pointer-events rect.
  * WCAG 2.5.8 requires a ≥24 px target in both directions.
@@ -259,7 +269,7 @@ export default function SampleGeotechOverlay({
                 y={drawnTop}
                 width={width}
                 height={drawnHeight}
-                rx={width / 2}
+                rx={MARKER_CORNER_RADIUS}
                 fill={fill}
                 stroke={MARKER_STROKE}
                 strokeWidth={1}
