@@ -45,18 +45,17 @@ const MARKER_WIDTH_SELECTED = 12
  * must read as a rectangle spanning the depth interval at every zoom.
  */
 const MARKER_CORNER_RADIUS = 1.5
-/** Fill for a sample carrying a packing body (teal — lab data theme). */
-const MARKER_COLOR_BODY = '#0d9488' // teal-600
+/**
+ * Fill for every sample marker (teal — lab data theme).
+ *
+ * ONE style regardless of packing body (owner 2026-08-14 night: "you dont
+ * need to make a diff between packing density or not" — samples only exist on
+ * boreholes and only gain a body through the CPT pipeline, so body-less is
+ * the normal resting state, not a variant).
+ */
+const MARKER_COLOR = '#0d9488' // teal-600
 /** Fill for a marker whose body is currently selected. */
 const MARKER_COLOR_SELECTED = '#f59e0b' // amber-500
-/**
- * Fill for a sample the geotech subdivision has not reached.
- *
- * SVG cannot use Tailwind ``dark:`` variants, so the neutral hue comes from a
- * CSS-var token (index.css :root/.dark) that carries an AA-passing value
- * against BOTH plot-area backgrounds.
- */
-const MARKER_COLOR_NEUTRAL = 'var(--section-sample-neutral)'
 /** Stroke colour outlining every marker. */
 const MARKER_STROKE = '#fff'
 /**
@@ -189,11 +188,7 @@ export default function SampleGeotechOverlay({
           const isSelected = hasBody && sample.geotech_body_id === selectedBodyId
           const clickable = hasBody && bodyClickEnabled
 
-          const fill = isSelected
-            ? MARKER_COLOR_SELECTED
-            : hasBody
-              ? MARKER_COLOR_BODY
-              : MARKER_COLOR_NEUTRAL
+          const fill = isSelected ? MARKER_COLOR_SELECTED : MARKER_COLOR
           // Width is the second, non-hue selection cue (WCAG 1.4.1).
           const width = isSelected ? MARKER_WIDTH_SELECTED : MARKER_WIDTH
 

@@ -94,7 +94,6 @@
    * rather than a reuse of --section-column-line, so re-tuning the sample
    * markers can never move the tie-back strokes. Same SVG-attr reason as the
    * column tokens: no Tailwind dark: variants available. */
-  --section-sample-neutral:  #64748b;  /* slate-500 — ~5.0:1 on the light plot bg */
 
   /* Band-edit gesture chrome (#227) — the live drag / split preview line, its
    * depth readout, the amber clamp+absorb state and the lens-suggestion badge.
@@ -183,7 +182,6 @@
   --section-column-text:     #e2e8f0;  /* slate-200  — ~11.9:1; was #1f2937 (~1:1, invisible) */
   --section-column-missing:  #94a3b8;  /* slate-400  — ~5.7:1 muted; was #9ca3af              */
   --section-column-line:     #94a3b8;  /* slate-400  — tie-back + sub-label; was #6b7280       */
-  --section-sample-neutral:  #94a3b8;  /* slate-400  — ~5.7:1 on the dark plot bg #1e293b      */
 
   /* Band-edit gesture chrome — dark hero values, against --section-plot-bg
    * (#1e293b). The line and its readout must READ, not merely exist: the

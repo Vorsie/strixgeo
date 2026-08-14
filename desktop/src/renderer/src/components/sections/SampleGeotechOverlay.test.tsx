@@ -229,7 +229,11 @@ describe('SampleGeotechOverlay — extent markers', () => {
     expect(num(marker, 'y') + num(marker, 'height') / 2).toBeCloseTo(970, 6)
   })
 
-  it('SGO4 — a sample with no packing body still draws, in the neutral colour', () => {
+  it('SGO4 — every marker draws the same style, packing body or not', () => {
+    // Owner (dogfeed 2026-08-14 night): "you dont need to make a diff between
+    // packing density or not, they are only on boreholes and will only get a
+    // packing density through cpts" — a body-less sample is the NORMAL state
+    // before the pipeline runs, not a variant worth its own colour.
     const col = makeBoreholePlacedColumn('bh-1', 50)
     const withBody = makeSample('s-body', 'body-1')
     const withoutBody = makeSample('s-none', null)
@@ -239,14 +243,10 @@ describe('SampleGeotechOverlay — extent markers', () => {
 
     renderOverlay([col], details)
 
-    // Both are on screen — the body-less one is no longer skipped.
     expect(screen.getByTestId('sample-marker-s-body')).toBeDefined()
-    const neutral = screen.getByTestId('sample-marker-s-none')
-    expect(neutral.getAttribute('fill')).toBe('var(--section-sample-neutral)')
-    // The one that carries a packing body keeps the lab-data teal.
-    expect(screen.getByTestId('sample-marker-s-body').getAttribute('fill')).toBe(
-      '#0d9488',
-    )
+    // Same lab-data teal for both — no neutral variant.
+    expect(screen.getByTestId('sample-marker-s-none').getAttribute('fill')).toBe('#0d9488')
+    expect(screen.getByTestId('sample-marker-s-body').getAttribute('fill')).toBe('#0d9488')
   })
 
   it('SGO5 — clicking a sample with no packing body does nothing', () => {
