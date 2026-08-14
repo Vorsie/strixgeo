@@ -768,11 +768,25 @@ geotech fill may only SUBDIVIDE the litho fill, never redraw it. The gate:
   (`scripts/diag_predict_restatement_rerun.py`, read-only — mirrors the
   derivation's accepted emissions and feeds the gate a what-if input via
   `GEOTECH_AXIS_INPUT`): **87.0–98.8 %**; Cross-section 1 78.6 → 95.3 %.
-* **The residual is correlation, not code:** untied same-soil slivers pinch
-  (0 ties = LENS — the owner's own rule, ties define it), and Tie-section 11
-  stays lowest because its litho ties are sparse. The gate's per-section
-  mismatch clusters name soil pair + elevation window so a low number is
-  actionable.
+* **The target is 100 %** (owner ruling 2026-08-14: "litho consistency
+  should be 100%"). The measured residual decomposes into three named
+  classes (per-gap drill-downs: `geotechSectionDump.diag.test.ts`,
+  SECTION_DUMP=1, + the gap-compare renderer in the session scratchpad):
+  1. **Interior bodies awaiting the engineer's NAD correlations** — inside a
+     litho-banded pair, the restatement carries the unit's OUTER contacts;
+     the big same-class interior bodies (CS1 gap 3, B4|S13: the n13 silt
+     masses, 287 m²) band only once the engineer ties them — ruling A keeps
+     machine interiors pending, so the machine cannot accept these for him.
+     The gate climbs as he correlates: exactly the litho workflow.
+  2. **Engine-geometry residuals** — a subdivided unit's per-band 0-tie
+     lenses union into a different envelope than the litho unit's single
+     lens (Tie-11 gap 0: the VEEN lens, 133 m²), and a fully-untied
+     interval's vacancy can flood from a FOREIGN soil (the n5 sand into the
+     silt zone at CS1 gap 3) or stay void. These cannot be correlated away
+     and need their own engine decisions.
+  3. **Raster/measurement artefacts** — sub-0.3 pp, cell quantisation.
+  The mismatch clusters name soil pair + elevation + along window so every
+  point of residual is attributable to one of the three.
 
 ## 8. Where a borehole's packing comes from — the flanking CPTs (2026-08-04)
 
