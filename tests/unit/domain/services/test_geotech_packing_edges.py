@@ -264,3 +264,57 @@ def test_forced_top_empty_sides_yield_nothing():
 
     assert aligned_pairs_with_forced_top([], [("R5", 5)]) == []
     assert aligned_pairs_with_forced_top([("L5", 5)], []) == []
+
+
+# ---------------------------------------------------------------------------
+# Interior body proposals (owner ruling 2026-08-14: "auto correlate is fine,
+# its just a tool to make the users life easier") — overlap-gated pairs the
+# monotone forced-top alignment cannot reach
+# ---------------------------------------------------------------------------
+
+
+def test_interior_pairs_propose_the_big_body_the_forced_top_consumed():
+    """CS1 gap 3, B4|S13: the restatement ties S13's n13 top to B4's thin n14
+    crust, and the suffix LCS then cannot pair the two big n13 BODIES - the
+    287 m2 hole. The interior pass proposes them: same class, large
+    fraction-overlap within their litho windows."""
+    from groundmodel.domain.services.geotech_packing_edges import overlap_gated_interior_pairs
+
+    left = [("crust14", 14, 0.0, 0.107), ("body13", 13, 0.107, 0.9), ("deep13", 13, 0.9, 1.0)]
+    right = [("big13", 13, 0.0, 0.78), ("n16", 16, 0.78, 1.0)]
+    pairs = overlap_gated_interior_pairs(left, right)
+    assert ("body13", "big13") in pairs
+
+
+def test_interior_pairs_do_not_revive_the_absurd_sliver_deep_pair():
+    """The S10 case: a sliver that IS its whole unit (fractions 0..1) against
+    a deep thin band at the base of a big unit (0.92..1). Their overlap is
+    tiny relative to the sliver's extent - proposing it would revive the
+    12 m to 6 m elevation ghost the forced top killed."""
+    from groundmodel.domain.services.geotech_packing_edges import overlap_gated_interior_pairs
+
+    left = [("sliver14", 14, 0.0, 1.0)]
+    right = [("big13", 13, 0.0, 0.92), ("deep14", 14, 0.92, 1.0)]
+    assert overlap_gated_interior_pairs(left, right) == []
+
+
+def test_interior_pairs_never_pair_none_classes():
+    """Skeleton bands never auto-tie (spec 8)."""
+    from groundmodel.domain.services.geotech_packing_edges import overlap_gated_interior_pairs
+
+    left = [("skel", None, 0.0, 1.0)]
+    right = [("other", None, 0.0, 1.0)]
+    assert overlap_gated_interior_pairs(left, right) == []
+
+
+def test_interior_pairs_stay_monotone_when_candidates_cross():
+    """Two same-class candidates that would cross keep only a monotone set -
+    ghost ribbons must not X over each other."""
+    from groundmodel.domain.services.geotech_packing_edges import overlap_gated_interior_pairs
+
+    left = [("a1", 7, 0.0, 0.5), ("a2", 8, 0.5, 1.0)]
+    right = [("b1", 8, 0.0, 0.5), ("b2", 7, 0.5, 1.0)]
+    # a1(7) overlaps b1 zone, a2(8) overlaps b2 zone - the class-matched
+    # candidates (a1,b2) and (a2,b1) cross AND have weak overlap; nothing
+    # monotone with real overlap exists.
+    assert overlap_gated_interior_pairs(left, right) == []
