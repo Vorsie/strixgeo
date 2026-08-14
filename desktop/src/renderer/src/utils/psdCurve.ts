@@ -51,14 +51,29 @@ export interface PsdViewBox {
 }
 
 /**
- * Padding factor applied when every point of every curve shares one diameter.
- *
- * A single-sieve test has no span, so a naive log domain would be degenerate
- * (min === max → divide by zero). Padding one decade either side puts the
- * lone point exactly mid-box, which reads as "we know this one size" rather
- * than as a curve pinned to an arbitrary wall.
+ * THE fixed x-axis window every PSD card shares (owner, dogfeed 2026-08-14
+ * night: "i want a fixed axis scale for the psd previews, so it is always easy
+ * to see sand/silt/clay fraction"). 0.001–63 mm covers hydrometer clay up to
+ * coarse gravel; a diameter outside it clamps to the wall rather than drawing
+ * outside the box.
  */
-const SINGLE_POINT_DECADE_PAD = 10
+export const PSD_FIXED_DOMAIN: PsdLogDomain = { minMm: 0.001, maxMm: 63 }
+
+/**
+ * The soil-fraction zones of the fixed axis (ISO 14688 boundaries: clay/silt
+ * at 2 um, silt/sand at 63 um, sand/gravel at 2 mm). Drawn as fixed gridlines
+ * + zone labels so the fraction can be read at a glance on every card.
+ */
+export const PSD_FRACTION_ZONES: readonly {
+  label: string
+  fromMm: number
+  toMm: number
+}[] = [
+  { label: 'clay', fromMm: 0.001, toMm: 0.002 },
+  { label: 'silt', fromMm: 0.002, toMm: 0.063 },
+  { label: 'sand', fromMm: 0.063, toMm: 2 },
+  { label: 'gravel', fromMm: 2, toMm: 63 },
+]
 
 /**
  * Convert one lab grain-size test into plottable points.
@@ -90,36 +105,6 @@ export function psdCurvePoints(test: PsdSample): PsdPoint[] {
   // order the lab wrote its sieve stack in.
   points.sort((a, b) => a.diameterMm - b.diameterMm)
   return points
-}
-
-/**
- * Compute the shared log x-axis domain spanning every curve on a sample.
- *
- * @param curves - One point array per grain-size test on the sample.
- * @returns The inclusive diameter span, or ``null`` when no curve has points.
- */
-export function psdLogDomain(
-  curves: readonly (readonly PsdPoint[])[],
-): PsdLogDomain | null {
-  let minMm = Number.POSITIVE_INFINITY
-  let maxMm = Number.NEGATIVE_INFINITY
-
-  for (const curve of curves) {
-    for (const point of curve) {
-      if (point.diameterMm < minMm) minMm = point.diameterMm
-      if (point.diameterMm > maxMm) maxMm = point.diameterMm
-    }
-  }
-
-  if (!Number.isFinite(minMm) || !Number.isFinite(maxMm)) return null
-
-  if (minMm === maxMm) {
-    return {
-      minMm: minMm / SINGLE_POINT_DECADE_PAD,
-      maxMm: maxMm * SINGLE_POINT_DECADE_PAD,
-    }
-  }
-  return { minMm, maxMm }
 }
 
 /**
@@ -155,7 +140,10 @@ export function psdPolyline(
       // INVERTED x axis (owner 2026-08-14: "the psd x-axis should be
       // inverted") — the sieve-curve convention the engineer reads: coarse
       // grains at the LEFT wall, fines at the RIGHT.
-      const tx = logSpan > 0 ? (logMax - Math.log10(point.diameterMm)) / safeSpan : 0
+      const rawTx = logSpan > 0 ? (logMax - Math.log10(point.diameterMm)) / safeSpan : 0
+      // The FIXED domain means real data can fall outside it (a 100 mm cobble
+      // sieve); clamp to the wall instead of drawing outside the box.
+      const tx = Math.max(0, Math.min(1, rawTx))
       const pctFiner = Math.max(0, Math.min(100, point.pctFiner))
       const x = tx * box.width
       // y is inverted: 100 % finer is the TOP of the box (y = 0).

@@ -122,17 +122,46 @@ describe('SamplePsdPopover', () => {
     // The card was pushed off the anchor to stay inside, not left hanging.
     expect(top).toBeLessThan(495)
   })
-  it('SPP6 — the x axis is inverted: the coarse end labels the LEFT wall', () => {
-    // "the psd x-axis should be inverted" (owner 2026-08-14). The curve, the
-    // decade ticks and the edge labels must all agree, so this pins the edge
-    // labels: largest diameter left, smallest right.
-    // The default fixture spans 0.063 - 2 mm: coarse (2 mm) must label the
-    // left edge, fine (0.063 mm) the right edge.
+  it('SPP6 — the x axis is FIXED and inverted: 63 mm labels the left wall, 0.001 mm the right', () => {
+    // Owner (dogfeed 2026-08-14 night): "i want a fixed axis scale for the psd
+    // previews, so it is always easy to see sand/silt/clay fraction". The axis
+    // no longer follows the sample's own span — every card shows the same
+    // 63 → 0.001 mm window, coarse left.
     const sample = makeSample({ grain_sizes: [makeGrainSize('g-1')] })
     renderPopover(sample)
     const labels = screen.getByTestId('psd-axis-labels')
     const spans = Array.from(labels.querySelectorAll('span')).map(s => s.textContent ?? '')
-    expect(spans[0]).toContain('2')
-    expect(spans[spans.length - 1]).toContain('0.063')
+    expect(spans[0]).toContain('63')
+    expect(spans[spans.length - 1]).toContain('0.001')
+  })
+
+  it('SPP7 — the sand/silt/clay fraction boundaries sit at the same x on every card', () => {
+    // The point of the fixed axis: the engineer reads the fraction at a glance
+    // because the 2 mm / 63 um / 2 um boundary lines never move. Two samples
+    // with very different spans must render the boundary lines at identical
+    // positions, with the zone labels present.
+    const fine = makeSample({
+      grain_sizes: [{ ...makeGrainSize('g-f'), diameters_mm: [0.002, 0.02], pct_larger: [90, 10] }],
+    })
+    const { unmount } = renderPopover(fine)
+    const linesA = Array.from(
+      document.querySelectorAll('[data-testid="psd-fraction-boundary"]'),
+    ).map(l => l.getAttribute('x1'))
+    expect(linesA).toHaveLength(3)
+    const zoneLabels = Array.from(
+      document.querySelectorAll('[data-testid="psd-zone-label"]'),
+    ).map(t => t.textContent)
+    expect(zoneLabels).toContain('sand')
+    expect(zoneLabels).toContain('silt')
+    unmount()
+
+    const coarse = makeSample({
+      grain_sizes: [{ ...makeGrainSize('g-c'), diameters_mm: [1, 20], pct_larger: [80, 5] }],
+    })
+    renderPopover(coarse)
+    const linesB = Array.from(
+      document.querySelectorAll('[data-testid="psd-fraction-boundary"]'),
+    ).map(l => l.getAttribute('x1'))
+    expect(linesB).toEqual(linesA)
   })
 })

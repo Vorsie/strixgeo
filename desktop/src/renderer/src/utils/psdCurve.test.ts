@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { psdCurvePoints, psdLogDomain, psdPolyline } from './psdCurve'
+import { PSD_FIXED_DOMAIN, PSD_FRACTION_ZONES, psdCurvePoints, psdPolyline } from './psdCurve'
 
 /** Parse an SVG polyline "x,y x,y" string back into numbers. */
 function parsePolyline(d: string): Array<{ x: number; y: number }> {
@@ -71,32 +71,26 @@ describe('psdCurvePoints — % finer by weight, ordered fine-to-coarse', () => {
 
   it('PSD4: nothing usable in, nothing out', () => {
     expect(psdCurvePoints({ diameters_mm: [], pct_larger: [] })).toEqual([])
-    expect(psdLogDomain([[]])).toBeNull()
-    expect(psdLogDomain([])).toBeNull()
+    expect(psdPolyline([], PSD_FIXED_DOMAIN, { width: 100, height: 50 })).toBe('')
   })
 })
 
-describe('psdLogDomain / psdPolyline — log x axis, 0-100 % y axis', () => {
+describe('psdPolyline — log x axis, 0-100 % y axis', () => {
   const box = { width: 100, height: 50 }
 
-  it('PSD5: equal decades take equal width — COARSE left, fine right (inverted axis)', () => {
-    // "the psd x-axis should be inverted" (owner 2026-08-14) — the sieve-curve
-    // convention he reads: gravel on the left, clay on the right.
-    // Three decades: 0.01, 0.1, 1 mm. On a log axis they are evenly spaced.
+  it('PSD5: the axis is the FIXED 63->0.001 mm window — log-spaced, coarse left', () => {
+    // Owner: "a fixed axis scale ... so it is always easy to see
+    // sand/silt/clay fraction". 63 mm sits on the left wall, 0.001 mm on the
+    // right, and a decade is always the same width: log10(63/0.001) = 4.7993
+    // decades over the box.
     const points = psdCurvePoints({
-      diameters_mm: [0.01, 0.1, 1],
-      pct_larger: [100, 50, 0],
+      diameters_mm: [0.001, 63],
+      pct_larger: [100, 0],
     })
-    const domain = psdLogDomain([points])
-    expect(domain).not.toBeNull()
-    const drawn = parsePolyline(psdPolyline(points, domain!, box))
-
-    // Points stay ordered fine→coarse; on screen the finest sits at the RIGHT
-    // wall and the coarsest at the LEFT wall.
+    const drawn = parsePolyline(psdPolyline(points, PSD_FIXED_DOMAIN, box))
+    // points are ordered fine->coarse; inverted axis puts fine at the right.
     expect(drawn[0].x).toBeCloseTo(100, 6)
-    expect(drawn[2].x).toBeCloseTo(0, 6)
-    // The middle decade lands exactly halfway — that is what "log scale" means.
-    expect(drawn[1].x).toBeCloseTo(50, 6)
+    expect(drawn[1].x).toBeCloseTo(0, 6)
   })
 
   it('PSD6: 100 % finer sits at the top of the box, 0 % at the bottom', () => {
@@ -104,38 +98,41 @@ describe('psdLogDomain / psdPolyline — log x axis, 0-100 % y axis', () => {
       diameters_mm: [0.01, 1],
       pct_larger: [100, 0],
     })
-    const domain = psdLogDomain([points])!
-    const drawn = parsePolyline(psdPolyline(points, domain, box))
+    const drawn = parsePolyline(psdPolyline(points, PSD_FIXED_DOMAIN, box))
 
     // 0 % finer → bottom edge (y = height); 100 % finer → top edge (y = 0).
     expect(drawn[0].y).toBeCloseTo(50, 6)
     expect(drawn[1].y).toBeCloseTo(0, 6)
   })
 
-  it('PSD7: a single-sieve test still draws — the point lands mid-box', () => {
+  it('PSD7: a single-sieve test draws at its TRUE position on the fixed axis', () => {
     const points = psdCurvePoints({ diameters_mm: [0.2], pct_larger: [40] })
-    const domain = psdLogDomain([points])!
-    expect(domain.minMm).toBeLessThan(0.2)
-    expect(domain.maxMm).toBeGreaterThan(0.2)
-
-    const drawn = parsePolyline(psdPolyline(points, domain, box))
+    const drawn = parsePolyline(psdPolyline(points, PSD_FIXED_DOMAIN, box))
     expect(drawn).toHaveLength(1)
-    expect(drawn[0].x).toBeCloseTo(50, 6)
-    // 60 % finer → 60 % of the way UP a 50 px box → 20 px down from the top.
+    // x for 0.2 mm on the inverted 63->0.001 window:
+    const expectedT = (Math.log10(63) - Math.log10(0.2)) / (Math.log10(63) - Math.log10(0.001))
+    expect(drawn[0].x).toBeCloseTo(expectedT * 100, 6)
+    // 60 % finer -> 60 % of the way UP a 50 px box -> 20 px down from the top.
     expect(drawn[0].y).toBeCloseTo(20, 6)
   })
 
-  it('PSD8: two tests on one sample share a single x axis spanning both', () => {
-    const fine = psdCurvePoints({ diameters_mm: [0.001, 0.01], pct_larger: [100, 0] })
-    const coarse = psdCurvePoints({ diameters_mm: [1, 10], pct_larger: [100, 0] })
-    const domain = psdLogDomain([fine, coarse])!
+  it('PSD8: the same diameter lands at the same x whatever the sample carries', () => {
+    // The whole point of the fixed axis: two samples with wildly different
+    // spans are directly comparable — no per-sample rescaling.
+    const fine = psdCurvePoints({ diameters_mm: [0.01, 0.5], pct_larger: [100, 0] })
+    const coarse = psdCurvePoints({ diameters_mm: [0.5, 10], pct_larger: [80, 5] })
+    const fineDrawn = parsePolyline(psdPolyline(fine, PSD_FIXED_DOMAIN, box))
+    const coarseDrawn = parsePolyline(psdPolyline(coarse, PSD_FIXED_DOMAIN, box))
+    // 0.5 mm appears in both; its x must be identical.
+    expect(fineDrawn[1].x).toBeCloseTo(coarseDrawn[0].x, 9)
+  })
 
-    expect(domain.minMm).toBeCloseTo(0.001, 9)
-    expect(domain.maxMm).toBeCloseTo(10, 9)
-
-    // Inverted axis: the finest grain sits at the RIGHT wall, the coarsest
-    // at the LEFT.
-    expect(parsePolyline(psdPolyline(fine, domain, box))[0].x).toBeCloseTo(100, 6)
-    expect(parsePolyline(psdPolyline(coarse, domain, box))[1].x).toBeCloseTo(0, 6)
+  it('PSD9: the fraction boundaries sit inside the fixed window, in order', () => {
+    expect(PSD_FRACTION_ZONES.map(z => z.label)).toEqual(['clay', 'silt', 'sand', 'gravel'])
+    for (const zone of PSD_FRACTION_ZONES) {
+      expect(zone.fromMm).toBeGreaterThanOrEqual(PSD_FIXED_DOMAIN.minMm)
+      expect(zone.toMm).toBeLessThanOrEqual(PSD_FIXED_DOMAIN.maxMm)
+      expect(zone.toMm).toBeGreaterThan(zone.fromMm)
+    }
   })
 })
