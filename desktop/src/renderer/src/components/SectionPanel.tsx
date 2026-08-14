@@ -890,6 +890,7 @@ export default function SectionPanel({
     geotechFillVisible,
     lithoFillOnGeotech,
     geotechUnitCount: geotechModel?.geotechLayers.length ?? 0,
+    geotechAcceptedTieCount: (geotechCorrelationEdges ?? []).filter(e => e.user_approved).length,
   })
   const showBands = fillSelection.showBands
   // The LITHO frame the geotech axis draws OVER its own partition (owner ruling

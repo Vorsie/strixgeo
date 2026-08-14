@@ -25,6 +25,7 @@ describe('selectSectionFill', () => {
       geotechFillVisible: true,
       lithoFillOnGeotech: false,
       geotechUnitCount: 0,
+      geotechAcceptedTieCount: 0,
     })
     expect(out).toEqual({ showBands: false, showLithoFillInstead: false })
   })
@@ -38,6 +39,7 @@ describe('selectSectionFill', () => {
       geotechFillVisible: true,
       lithoFillOnGeotech: false,
       geotechUnitCount: 0,
+      geotechAcceptedTieCount: 0,
     })
     expect(out).toEqual({ showBands: false, showLithoFillInstead: false })
   })
@@ -49,6 +51,7 @@ describe('selectSectionFill', () => {
       geotechFillVisible: true,
       lithoFillOnGeotech: true,
       geotechUnitCount: 4,
+      geotechAcceptedTieCount: 2,
     })
     // showLithoFillInstead swaps the partition's own source back to the litho
     // model, so the litho fill is the ONLY fill; showBands must be on to paint.
@@ -62,6 +65,7 @@ describe('selectSectionFill', () => {
       geotechFillVisible: true,
       lithoFillOnGeotech: false,
       geotechUnitCount: 4,
+      geotechAcceptedTieCount: 2,
     })
     expect(shown).toEqual({ showBands: true, showLithoFillInstead: false })
     const hidden = selectSectionFill({
@@ -70,6 +74,7 @@ describe('selectSectionFill', () => {
       geotechFillVisible: false,
       lithoFillOnGeotech: false,
       geotechUnitCount: 4,
+      geotechAcceptedTieCount: 2,
     })
     expect(hidden).toEqual({ showBands: false, showLithoFillInstead: false })
   })
@@ -83,8 +88,26 @@ describe('selectSectionFill', () => {
       geotechFillVisible: true,
       lithoFillOnGeotech: true,
       geotechUnitCount: 0,
+      geotechAcceptedTieCount: 0,
     })
     expect(out).toEqual({ showBands: true, showLithoFillInstead: true })
+  })
+
+  it('bands without a single accepted tie show NO fill — pinch clutter helps nobody', () => {
+    // Owner (dogfeed 2026-08-14 night): "when pressing 1 subdivide cpt's the
+    // fill get's turned on, this is useless clutter before the ties are
+    // there, switch that". With zero accepted ties every band pinches
+    // mid-gap; the fill earns its place only once step 2's restatements (or
+    // hand ties) exist.
+    const out = selectSectionFill({
+      axisMode: 'geotechnical',
+      bandFillVisible: false,
+      geotechFillVisible: true,
+      lithoFillOnGeotech: false,
+      geotechUnitCount: 40,
+      geotechAcceptedTieCount: 0,
+    })
+    expect(out).toEqual({ showBands: false, showLithoFillInstead: false })
   })
 
   it('the litho and geological axes are untouched by the geotech-only toggle', () => {
@@ -96,6 +119,7 @@ describe('selectSectionFill', () => {
           geotechFillVisible: false,
           lithoFillOnGeotech: true,
           geotechUnitCount: 0,
+          geotechAcceptedTieCount: 0,
         })
         expect(out).toEqual({ showBands: bandFillVisible, showLithoFillInstead: false })
       }

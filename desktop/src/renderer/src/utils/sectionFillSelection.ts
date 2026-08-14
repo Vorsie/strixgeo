@@ -36,6 +36,13 @@ export interface SectionFillInputs {
    * units = clean slate = no fill (dogfeed 2026-08-06).
    */
   geotechUnitCount: number
+  /**
+   * How many ACCEPTED packing ties the section carries. With zero, every band
+   * pinches mid-gap and the fill is "useless clutter before the ties are
+   * there" (owner, dogfeed 2026-08-14 night) — pipeline step 1 alone must not
+   * turn it on; step 2's born-accepted restatements (or a hand tie) do.
+   */
+  geotechAcceptedTieCount: number
 }
 
 /** What the overlay should paint. */
@@ -59,8 +66,9 @@ export interface SectionFillSelection {
  *  - geotech + "Show litho fill" ON: the litho fill and ONLY the litho fill
  *    (the partition itself swaps model, so the packing fill cannot stack
  *    under/over it);
- *  - geotech + toggle OFF + packing units present: the DIRECT geotech
- *    partition, gated by its own "Hide fill" toggle;
+ *  - geotech + toggle OFF + packing units AND at least one accepted tie: the
+ *    DIRECT geotech partition, gated by its own "Hide fill" toggle (with no
+ *    ties everything pinches — clutter, not information);
  *  - geotech + toggle OFF + no packing units (no model, OR a model that has
  *    not been subdivided yet): NO fill — a clean slate looks clean.
  *
@@ -75,13 +83,22 @@ export interface SectionFillSelection {
  *     ``showBands`` for the overlay and which model frames its partition.
  */
 export function selectSectionFill(inputs: SectionFillInputs): SectionFillSelection {
-  const { axisMode, bandFillVisible, geotechFillVisible, lithoFillOnGeotech, geotechUnitCount } =
-    inputs
+  const {
+    axisMode,
+    bandFillVisible,
+    geotechFillVisible,
+    lithoFillOnGeotech,
+    geotechUnitCount,
+    geotechAcceptedTieCount,
+  } = inputs
   if (axisMode !== 'geotechnical') {
     return { showBands: bandFillVisible, showLithoFillInstead: false }
   }
   if (lithoFillOnGeotech) {
     return { showBands: true, showLithoFillInstead: true }
   }
-  return { showBands: geotechUnitCount > 0 && geotechFillVisible, showLithoFillInstead: false }
+  return {
+    showBands: geotechUnitCount > 0 && geotechAcceptedTieCount > 0 && geotechFillVisible,
+    showLithoFillInstead: false,
+  }
 }
