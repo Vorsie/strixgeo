@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
+import { clipPartitionToLithoFrame } from './clipPartitionToLithoFrame'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -118,6 +119,14 @@ describe('SECTION dump diag', () => {
       deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, empty, true),
       G.alongM,
     )
+    const clipped = clipPartitionToLithoFrame(
+      geo,
+      litho,
+      new Map(
+        Object.entries(raw.refinementBundle.nadMeta).map(([k, v]) => [k, v.soilCode]),
+      ),
+      new Map(Object.entries(raw.refinementBundle.lithoSoilByFormationId)),
+    )
     writeFileSync(
       OUT,
       JSON.stringify({
@@ -130,6 +139,9 @@ describe('SECTION dump diag', () => {
         lithoSoil: raw.refinementBundle.lithoSoilByFormationId,
         litho: dumpRegions(litho),
         geo: dumpRegions(geo),
+        clipped: dumpRegions(clipped.regions),
+        clippedFallback: dumpRegions(clipped.lithoFallback),
+        clippedDropped: dumpRegions(clipped.dropped),
       }),
     )
     expect(true).toBe(true)
