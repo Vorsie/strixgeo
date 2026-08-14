@@ -79,15 +79,23 @@ the fill with litho's own 2/1/0 semantics (2 tied contacts = BAND, 1 = ONLAP,
   class never restated, and the fill redrew the litho boundary (the owner's
   clay case: the sand reached below the litho clay top because the machine
   had tied the contact to a band one step deeper).
+* **By construction — the litho frame clip** (owner ruling 2026-08-14,
+  "keep exactly the litho model and only subdivide bodies"):
+  `utils/clipPartitionToLithoFrame.ts` overlays the two partitions in the v2
+  arrangement (pre-splitting crossings/T-junctions in float — debt #271) and
+  every face keeps its packing class only where its soil matches the litho
+  region it sits in; foreign classes re-label to a same-soil class of the
+  region; regions with no class of their soil fall back to litho colour;
+  nothing exceeds the frame. The clip runs whenever the geotech and litho
+  column sets match positionally; an undivided borehole (columns differ)
+  keeps the raw partition + the whole-region fallback heuristic
+  (`utils/geotechFillFallback.ts`) until step 4 divides it — the same answer
+  the build has always had.
 * **On screen.** The litho partition keeps rendering as the dark region
-  outlines on top (`partition-litho-outline`), and a litho region whose
-  elevation window has no same-soil packing on either flanking column paints
-  in litho colour beneath the packing fills
-  (`utils/geotechFillFallback.ts`, `partition-litho-fallback`). An undivided
-  borehole drops out of the partition until pipeline step 4 divides it — the
-  same answer the build has always had.
-* **Measured.** The litho-consistency gate (§7) rasterises both partitions
-  and ratchets the agreement per section.
+  outlines on top (`partition-litho-outline`); clip-fallback faces render
+  litho-coloured beneath the packing fills (`partition-litho-fallback`).
+* **Measured.** The litho-consistency gate (§7) rasterises the litho fill
+  against the CLIPPED fill and ratchets the agreement per section.
 
 **Render path.** The direct partition flows through the ordinary litho render
 machinery in `PartitionFillOverlay` — the S61 dissolved fill layer, seam
@@ -771,14 +779,17 @@ geotech fill may only SUBDIVIDE the litho fill, never redraw it. The gate:
   ids + per-section agreement; a drop > 0.1 pp FAILS, an improvement is
   re-frozen (`CONSISTENCY_FREEZE=1`). Different model ids → NOT COMPARABLE,
   nothing enforced.
-* **Numbers.** Frozen 2026-08-13 (pre-restatement dev model): 51.5–96.3 %
-  per section, dominated by the sub-TD clay void (missing base↔base
-  restatements). Predicted (`scripts/diag_predict_restatement_rerun.py`,
-  read-only, what-if inputs via `GEOTECH_AXIS_INPUT`): after one pipeline
-  step-2 re-run **87.0–98.8 %** (CS1 78.6 → 95.8); after a step-3
-  accept-all CS1 reaches 96.9 % — while CS3 DROPS to 94.9 %, because some
-  old pending ghosts are geologically wrong, which is why the review flow
-  (accept the good, delete the bad) beats a blind accept-all.
+* **Numbers.** The gate measures the CLIPPED fill by default (the render's
+  truth; `CONSISTENCY_RAW=1` measures the unclipped tie-driven partition
+  for what-if analysis). Frozen 2026-08-14 on the LIVE dev model, clipped:
+  **97.7–98.9 %** per section — before any restatement re-run, because the
+  frame guarantees the soil geometry and ties only refine class placement
+  within it. The residual 1–2 % is the gate's own raster quantisation
+  (verified: a 10× finer per-gap raster shows < 2 m² per gap on CS1).
+  Unclipped what-ifs (`scripts/diag_predict_restatement_rerun.py`):
+  step-2 re-run 87.0–98.8 % (CS1 95.8); step-3 accept-all CS1 96.9 % while
+  CS3 DROPS to 94.9 % — some old pending ghosts are geologically wrong,
+  which is why the review flow beats a blind accept-all.
 * **The target is 100 %** (owner ruling 2026-08-14: "litho consistency
   should be 100%"). The measured residual decomposes into three named
   classes (per-gap drill-downs: `geotechSectionDump.diag.test.ts`,
