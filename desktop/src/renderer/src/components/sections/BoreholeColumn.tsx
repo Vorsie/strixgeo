@@ -106,6 +106,18 @@ interface Props {
    * within ``SNAP_TOLERANCE_PX`` of the click Y. Off = free
    * placement. */
   snapToStratigraphy?: boolean
+  /**
+   * Opacity of the DOV log's own layer strips.
+   *
+   * On the interpretation axes the column's band stack paints OVER this card,
+   * and a fully opaque soil pattern underneath composites that band to a
+   * brighter tone than the same band gets over the plot background — the fill
+   * then reads as stopping at the borehole. The caller steps the log back to a
+   * veil there (see ``boreholeLogFillOpacity``); the driller's log in full
+   * detail is the borelog panel's job. Defaults to 1, so the geological axis
+   * and every existing caller render exactly as before.
+   */
+  logFillOpacity?: number
   /** When true, hovering the click-capture overlay shows a small
    * depth + mTAW readout that follows the cursor Y (ghost line +
    * floating card). Used by section focus mode so the user can read
@@ -134,6 +146,7 @@ export default function BoreholeColumn({
   snapToStratigraphy = false,
   showHoverReadout = false,
   onDoubleClickOpen,
+  logFillOpacity = 1,
 }: Props): JSX.Element | null {
   const [cursorY, setCursorY] = useState<number | null>(null)
 
@@ -381,8 +394,10 @@ export default function BoreholeColumn({
                     width={stripWidth}
                     height={height}
                     fill={fill}
+                    fillOpacity={logFillOpacity}
                     stroke="#9ca3af"
                     strokeWidth={0.3}
+                    strokeOpacity={logFillOpacity}
                   />
                   {cardLabel && height >= 14 && (
                     <text

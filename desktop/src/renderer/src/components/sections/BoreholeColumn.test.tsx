@@ -84,6 +84,7 @@ function renderColumn(
   extras: {
     showHoverReadout?: boolean
     snapToStratigraphy?: boolean
+    logFillOpacity?: number
     onCommitDepth?: (anchor: {
       kind: 'borehole'
       boreholeId: string
@@ -106,6 +107,7 @@ function renderColumn(
         levelToScreen={flipped}
         showHoverReadout={extras.showHoverReadout}
         snapToStratigraphy={extras.snapToStratigraphy}
+        logFillOpacity={extras.logFillOpacity}
         onCommitDepth={extras.onCommitDepth}
       />
     </svg>,
@@ -466,5 +468,40 @@ describe('BoreholeColumn — N-strip rendering', () => {
     // Band centred on screenX=100, strip width=40, so band spans
     // [60, 140]. formal_strat is slot index 1 → x = 60 + 1*40 = 100.
     expect(layerRects[0].getAttribute('x')).toBe('100')
+  })
+})
+
+// Owner: "same transparency everywhere plz". On the interpretation axes the
+// column's own band stack paints OVER this card; an opaque DOV log underneath
+// makes that band read brighter here than in the gap beside it, so the fill
+// looks like it stops at the borehole. The driller's log is reference there —
+// the full-detail read is the borelog panel — so it steps back to a veil.
+describe('BoreholeColumn — the log yields to the interpretation fill', () => {
+  it('BHC-VEIL1: the caller sets how solid the log strips paint', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 3 })]),
+    ])
+    const { container } = renderColumn(detail, { geotech: true }, { logFillOpacity: 0.18 })
+    const layerRects = Array.from(container.querySelectorAll('rect')).filter(
+      r => Number(r.getAttribute('height')) > 0,
+    )
+    expect(layerRects.length).toBeGreaterThan(0)
+    for (const rect of layerRects) {
+      expect(rect.getAttribute('fill-opacity')).toBe('0.18')
+    }
+  })
+
+  it('BHC-VEIL2: unasked, the log paints solid as it always did', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 3 })]),
+    ])
+    const { container } = renderColumn(detail, { geotech: true })
+    const layerRects = Array.from(container.querySelectorAll('rect')).filter(
+      r => Number(r.getAttribute('height')) > 0,
+    )
+    expect(layerRects.length).toBeGreaterThan(0)
+    for (const rect of layerRects) {
+      expect(rect.getAttribute('fill-opacity')).toBe('1')
+    }
   })
 })
