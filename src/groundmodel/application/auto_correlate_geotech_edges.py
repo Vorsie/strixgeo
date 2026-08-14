@@ -35,8 +35,9 @@ build passes also call: a DIRECT litho pair aligns with
 ``aligned_pairs_with_forced_top`` — the topmost pair restates the litho tie
 regardless of class (owner ruling 2026-08-13) and the class-matched LCS
 aligns the bands below it; a bridged jump pair keeps the plain class-matched
-LCS.  A litho base↔base bottom tie restates as a base↔base edge between the
-deepest bands.  Bands with no NAD class (skeleton, no qc) never auto-tie.
+LCS.  Every non-top↔top litho tie (bottom ties and the mixed onlap
+declarations) restates side-preserved onto the bands owning its contact
+surfaces.  Bands with no NAD class (skeleton, no qc) never auto-tie.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ from groundmodel.application.geotech_edge_derivation import (
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edge_sets,
-    load_existing_geotech_base_pairs_by_section,
+    load_existing_geotech_sided_edges_by_section,
     load_existing_geotech_edge_pairs_by_section,
     load_litho_layer_depths,
     load_project_sections,
@@ -211,7 +212,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         seen_pairs_by_section = await load_existing_geotech_edge_pairs_by_section(
             self._session, model_id
         )
-        seen_base_by_section = await load_existing_geotech_base_pairs_by_section(
+        seen_sided_by_section = await load_existing_geotech_sided_edges_by_section(
             self._session, model_id
         )
         self.debug(
@@ -269,8 +270,8 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     # Owner ruling 2026-08-13 ("start from the exact litho
                     # geometries"): a litho bottom tie restates as a
                     # base↔base edge between the deepest bands.
-                    litho_bottom_tie_pairs=edge_sets.bottom_tie_pairs,
-                    seen_base_pairs=seen_base_by_section.setdefault(section.id, set()),
+                    litho_sided_edges=edge_sets.sided_edges,
+                    seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
                     source=AUTO_SOURCE,
                 )
             )
