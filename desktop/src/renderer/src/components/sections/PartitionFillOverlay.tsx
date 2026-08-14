@@ -66,6 +66,7 @@ import {
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
 import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOverrideWiring'
 import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
+import { buildColumnStripFills } from './columnStripFills'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActive,
@@ -826,6 +827,29 @@ export default function PartitionFillOverlay({
     () => assemblePlacedPartitionColumns(lithoLayers, placedColumns),
     [lithoLayers, placedColumns],
   )
+
+  // The fill paints THROUGH the column cards (owner 2026-08-14: "same
+  // transparency everywhere"): each column's own stack becomes card-wide
+  // quads dissolved into the SAME fill layer as the gap regions, so the fill
+  // cannot change tone at a card edge. On the geotech axis a column the
+  // subdivision has not reached falls back to its litho stack (coloured with
+  // the litho map below), mirroring the gap fill's litho-fallback rule.
+  const columnStrips = useMemo(() => {
+    if (!showBands) return []
+    const fallbackAssembly = lithoFrame
+      ? assemblePlacedPartitionColumns(lithoFrame.lithoLayers, placedColumns)
+      : null
+    return buildColumnStripFills(
+      { orderedInvs, colByInv, screenByInv },
+      fallbackAssembly,
+      levelToScreen,
+      plotTop,
+      plotBottom,
+    )
+    // reason: orderedInvs/colByInv/screenByInv are products of the memo above
+    // and change identity together with lithoLayers/placedColumns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBands, lithoFrame, placedColumns, orderedInvs, colByInv, screenByInv, levelToScreen, plotTop, plotBottom])
 
   const clampY = (y: number): number => Math.max(plotTop, Math.min(plotBottom, y))
 
@@ -1985,13 +2009,30 @@ export default function PartitionFillOverlay({
   // body paints at its natural opacity while same-litho siblings demote to 0.25,
   // so they land in different buckets → different elements (each still uniform).
   const fillGroups = useMemo(() => {
-    if (screenRegions.length + underColumnFills.length === 0) return []
+    if (screenRegions.length + underColumnFills.length + columnStrips.length === 0) return []
     // The selected body's lithology — under-column fills carry formationId (not
     // bodyId), so S1 fades them by matching lithology (mirrors the render below).
     const selFormId = selectedBodyId
       ? (screenRegions.find((sr) => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
       : null
     const elements: FillGroupElement[] = []
+    // Card-covering strips first — same opacity, same dissolve identity, so a
+    // band continues across its column at exactly the gap fill's tone.
+    for (const s of columnStrips) {
+      const color =
+        s.source === 'primary'
+          ? (formationColorById.get(s.formationId) ?? FALLBACK_COLOR)
+          : (lithoFrame?.lithoFormationColorById.get(s.formationId) ?? FALLBACK_COLOR)
+      const opacity =
+        selectedBodyId && selFormId !== null && s.formationId !== selFormId ? 0.25 : FILL_OPACITY
+      elements.push({
+        points: s.pts,
+        formationId: s.formationId,
+        color,
+        opacityBucket: String(opacity),
+        opacity,
+      })
+    }
     for (const f of underColumnFills) {
       const opacity =
         selectedBodyId && selFormId !== null && f.formationId !== selFormId ? 0.25 : FILL_OPACITY
@@ -2016,7 +2057,7 @@ export default function PartitionFillOverlay({
       })
     }
     return buildFillGroups(elements)
-  }, [underColumnFills, screenRegions, selectedBodyId, formationColorById])
+  }, [underColumnFills, screenRegions, columnStrips, selectedBodyId, formationColorById, lithoFrame])
 
   // ---- LITHO FRAME over the geotech partition (owner ruling 2026-08-13). ----
   //

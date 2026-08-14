@@ -2613,4 +2613,20 @@ describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2
     expect(onSaveBoundary.mock.calls[0][0]).toBe('silt')
     r1.unmount()
   })
+  it('CSF-OVL — the dissolved fill reaches the column cards’ outer edges', () => {
+    // Owner dogfeed 2026-08-14: "Litho fill still only present between
+    // columns" — the fill must paint THROUGH the cards, not stop at their
+    // edges. In the base scene the L card spans x -20..20 and the R card
+    // x 80..120; the gap regions alone would only ever cover 20..80.
+    const { container } = renderOverlay({ contactEdges: baseMatchedEdges })
+    const ds = Array.from(
+      container.querySelectorAll('[data-testid^="partition-fill-group-"]'),
+    ).map(el => el.getAttribute('d') ?? '')
+    expect(ds.length).toBeGreaterThan(0)
+    const xs = ds.flatMap(d =>
+      Array.from(d.matchAll(/(-?[\d.]+)[ ,](-?[\d.]+)/g)).map(m => Number(m[1])),
+    )
+    expect(Math.min(...xs), 'fill reaches the left card’s outer edge').toBeLessThanOrEqual(-20)
+    expect(Math.max(...xs), 'fill reaches the right card’s outer edge').toBeGreaterThanOrEqual(120)
+  })
 })

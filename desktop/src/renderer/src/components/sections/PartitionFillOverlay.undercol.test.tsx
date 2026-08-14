@@ -180,9 +180,13 @@ function mStripPaths(container: HTMLElement): { fill: string; top: number }[] {
       const maxX = Math.max(...xs)
       // The M-glyph strip spans exactly the column footprint [80,120]; gap
       // regions span the inter-column gaps (e.g. 20..80 or 120..180), so this
-      // x-extent uniquely selects the under-glyph substrate subpath.
-      if (Math.abs(minX - 80) < 0.5 && Math.abs(maxX - 120) < 0.5) {
-        out.push({ fill, top: Math.min(...ring.map((p) => p.y)) })
+      // x-extent selects under-glyph subpaths. Since 2026-08-14 the column's
+      // own STACK also paints card-wide quads ("the fill paints through the
+      // cards") — those live ABOVE the TD (y 140), so this helper keeps only
+      // rings wholly below it: the sub-TD substrate this suite is about.
+      const minY = Math.min(...ring.map((p) => p.y))
+      if (Math.abs(minX - 80) < 0.5 && Math.abs(maxX - 120) < 0.5 && minY >= 139.5) {
+        out.push({ fill, top: minY })
       }
     }
   }

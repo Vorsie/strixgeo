@@ -9,8 +9,9 @@
 // the card behind it reduced to at most a very light veil — an opaque card
 // under a translucent band is what made the columns read lighter than the gaps.
 //
-//   FO1  on the litho axis a column's own stack paints at exactly the
-//        transparency the fill in the gap beside it uses
+//   FO1  on the litho axis ContactsLayer's own stack coat is OFF — the
+//        partition's dissolved column strips paint the stack, and a second
+//        coat would composite the card darker than the gap
 //   FO2  same on the geotech axis
 //   FO3  the geological axis is untouched — it keeps its light backdrop bands
 //   FO4  where the stack paints, the CPT card behind it is at most a very light
@@ -33,12 +34,16 @@ import {
 const VERY_LIGHT_VEIL = 0.2
 
 describe('section fill opacity — the columns read like the gaps', () => {
-  it('FO1: on the litho axis the column stack matches the gap fill exactly', () => {
-    expect(columnStackFillOpacity('lithostratigraphic')).toBe(SECTION_FILL_OPACITY)
+  it('FO1: on the litho axis ContactsLayer paints NO second stack coat', () => {
+    // The partition's own column strips (columnStripFills.ts) carry the stack,
+    // dissolved into the gap fill; any ContactsLayer coat on top would stack
+    // 0.62 over 0.62 and the card would read DARKER than the gap — the same
+    // "not the same transparency" defect from the other direction.
+    expect(columnStackFillOpacity('lithostratigraphic')).toBe(0)
   })
 
-  it('FO2: on the geotech axis the column stack matches the gap fill exactly', () => {
-    expect(columnStackFillOpacity('geotechnical')).toBe(SECTION_FILL_OPACITY)
+  it('FO2: on the geotech axis ContactsLayer paints NO second stack coat', () => {
+    expect(columnStackFillOpacity('geotechnical')).toBe(0)
   })
 
   it('FO3: the geological axis keeps its light backdrop bands', () => {

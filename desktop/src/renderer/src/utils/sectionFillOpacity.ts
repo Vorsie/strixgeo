@@ -75,13 +75,15 @@ function stackPaintsOverColumns(axisMode: SectionAxisMode): boolean {
  * Opacity for a column's own band stack.
  *
  * @param axisMode - The section's model axis.
- * @returns The gap fill's opacity where the stack paints; the geological
- *   axis's lighter backdrop value otherwise.
+ * @returns ``0`` on the interpretation axes — the partition's OWN column-strip
+ *   quads (``columnStripFills.ts``) paint the stack there, dissolved into the
+ *   gap fill so the tone cannot step at a card edge; a second coat from
+ *   ContactsLayer would composite the card DARKER than the gap, the exact
+ *   defect the owner reported ("same transparency everywhere plz",
+ *   2026-08-14). The geological axis keeps its own lighter backdrop.
  */
 export function columnStackFillOpacity(axisMode: SectionAxisMode): number {
-  return stackPaintsOverColumns(axisMode)
-    ? SECTION_FILL_OPACITY
-    : GEOLOGICAL_BACKDROP_OPACITY
+  return stackPaintsOverColumns(axisMode) ? 0 : GEOLOGICAL_BACKDROP_OPACITY
 }
 
 /**
