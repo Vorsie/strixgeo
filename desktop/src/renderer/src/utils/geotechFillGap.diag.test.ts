@@ -1,7 +1,11 @@
 /**
- * THROWAWAY DIAG — why do S10↔S6 packing bands pinch on the geotech axis
- * (dogfeed 2026-08-13: SAND-VD/SAND-MD not connecting, SAND-MD not filling the
- * correlation band, upper silts not merging into S6's big silt)?
+ * THROWAWAY DIAG — inspect the geotech-axis fill at the S10/S6/B6 gaps
+ * (born on the 2026-08-13 dogfeed: SAND-VD/SAND-MD not connecting, SAND-MD
+ * not filling the correlation band, upper silts not merging).
+ *
+ * The fraction-space refinement arm is deleted (#270) — the geotech axis
+ * renders the DIRECT partition, so the variants here are direct / fixed /
+ * litho only.
  *
  * Dormant unless GAP_DIAG=1. Input: scripts/throwaway_geotech_axis_inputs.json
  * (uv run python scripts/dump_geotech_axis_inputs.py first). Writes
@@ -13,14 +17,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
-import { makePackingTieCounter, type PackingSpanTieKeys } from './geotechPackingTies'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn } from './partitionFill'
-import {
-  refineLithoPartition,
-  type GeotechColumn,
-  type NadFormationMeta,
-} from './refineLithoPartition'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -76,6 +74,19 @@ interface RawFile {
   sections: RawSection[]
 }
 
+interface GeoStackUnit {
+  layerId: string
+  topDepthM: number
+  baseDepthM: number
+  formationId: string
+  bodyId: string | null
+}
+interface GeoStack {
+  investigationId: string
+  surfaceElevM: number
+  units: GeoStackUnit[]
+}
+
 const toEdges = (raw: readonly RawEdge[]): CorrelationEdge[] =>
   raw.map((e) => ({
     a: e.a,
@@ -90,7 +101,7 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     return
   }
 
-  it('reports spans, ties and emitted polygons at gaps 0 and 1', () => {
+  it('reports stacks, edges and emitted polygons at gaps 0 and 1', () => {
     process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const rep: string[] = []
@@ -100,12 +111,7 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     const sec = raw.sections.find((s) => s.name === SECTION)
     if (!sec) throw new Error(`section ${SECTION} not in dump`)
 
-    const nadMeta = new Map<string, NadFormationMeta>(
-      Object.entries(raw.refinementBundle.nadMeta).map(([k, v]) => [
-        k,
-        { nadClass: v.nadClass, soilCode: v.soilCode },
-      ]),
-    )
+    const nadMeta = new Map(Object.entries(raw.refinementBundle.nadMeta))
     const lithoSoil = new Map<string, string | null>(
       Object.entries(raw.refinementBundle.lithoSoilByFormationId),
     )
@@ -137,8 +143,8 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     )
     const regions = computeSectionFillActive(columns, lithoEdges, overrides, alongM)
 
-    // ---- geotech columns ---------------------------------------------------
-    const geoByInv = new Map<string, GeotechColumn['units'][number][]>()
+    // ---- geotech stacks ----------------------------------------------------
+    const geoByInv = new Map<string, GeoStackUnit[]>()
     for (const l of sec.refinement.geotechLayers) {
       const arr = geoByInv.get(l.investigationId) ?? []
       arr.push({
@@ -150,8 +156,7 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
       })
       geoByInv.set(l.investigationId, arr)
     }
-    const columnOrder = columns.map((c) => c.investigationId)
-    const geoColByInv = new Map<string, GeotechColumn>()
+    const geoColByInv = new Map<string, GeoStack>()
     for (const c of columns) {
       geoColByInv.set(c.investigationId, {
         investigationId: c.investigationId,
@@ -164,6 +169,7 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     const packingEdges = toEdges(sec.geotech.edges)
 
     // ---- column stacks -----------------------------------------------------
+    const columnOrder = columns.map((c) => c.investigationId)
     const ids = COLS.map((n) => idByName.get(n) ?? '?')
     rep.push(`column order: ${columnOrder.map((c) => nameById.get(c) ?? c.slice(-6)).join(' | ')}`)
     for (const [ci, name] of COLS.entries()) {
@@ -206,65 +212,7 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
       }
     }
 
-    // ---- tie-counter over whole-column class runs --------------------------
-    const tied = makePackingTieCounter(packingEdges)
-    interface Run extends PackingSpanTieKeys {
-      cls: string
-      soil: string | null
-      topElev: number
-      baseElev: number
-    }
-    const runsOf = (invId: string): Run[] => {
-      const g = geoColByInv.get(invId)
-      if (!g) return []
-      const stack = [...g.units].sort((a, b) => a.topDepthM - b.topDepthM)
-      const runs: Run[] = []
-      for (let i = 0; i < stack.length; i++) {
-        const u = stack[i]
-        const cls = clsOf(u.formationId)
-        const soil = nadMeta.get(u.formationId)?.soilCode ?? null
-        const last = runs[runs.length - 1]
-        if (last && last.cls === cls) {
-          last.baseElev = g.surfaceElevM - u.baseDepthM
-          last.baseLayerId = u.layerId
-          last.belowLayerId = stack[i + 1]?.layerId ?? null
-        } else {
-          runs.push({
-            cls,
-            soil,
-            topElev: g.surfaceElevM - u.topDepthM,
-            baseElev: g.surfaceElevM - u.baseDepthM,
-            topLayerId: u.layerId,
-            baseLayerId: u.layerId,
-            belowLayerId: stack[i + 1]?.layerId ?? null,
-          })
-        }
-      }
-      return runs
-    }
-    for (const [li, ri] of [
-      [ids[0], ids[1]],
-      [ids[1], ids[2]],
-    ]) {
-      rep.push(`${NL}=== tie counts ${nameById.get(li)} <-> ${nameById.get(ri)} (same-class run pairs) ===`)
-      for (const a of runsOf(li))
-        for (const b of runsOf(ri)) {
-          if (a.cls !== b.cls) continue
-          const n = tied(a, b)
-          rep.push(
-            `  ${a.cls.padEnd(12)} L ${a.topElev.toFixed(2)}..${a.baseElev.toFixed(2)} ` +
-              `(top=${a.topLayerId.slice(-6)} below=${a.belowLayerId?.slice(-6) ?? 'null'}) | ` +
-              `R ${b.topElev.toFixed(2)}..${b.baseElev.toFixed(2)} ` +
-              `(top=${b.topLayerId.slice(-6)} below=${b.belowLayerId?.slice(-6) ?? 'null'}) -> ties=${n}`,
-          )
-        }
-    }
-
-    // ---- litho regions + refined polygons at gaps 0/1 ----------------------
-    const refined = refineLithoPartition(regions, columnOrder, geoColByInv, nadMeta, lithoSoil, {
-      alongM,
-      packingEdges,
-    })
+    // ---- litho regions at gaps 0/1 -----------------------------------------
     for (const gap of [0, 1]) {
       rep.push(`${NL}=== gap ${gap} litho regions ===`)
       for (const r of regions) {
@@ -275,43 +223,17 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
             `elev=[${Math.min(...es).toFixed(2)}..${Math.max(...es).toFixed(2)}]`,
         )
       }
-      rep.push(`${NL}=== gap ${gap} refined polygons ===`)
-      const agg = new Map<string, { n: number; area: number; emin: number; emax: number }>()
-      for (const p of refined) {
-        if (p.gapIndex !== gap) continue
-        const key = `${clsOf(p.formationId)} tag=${p.tag} rk=${p.regionKind}`
-        let area = 0
-        for (let q = 0; q < p.points.length; q++) {
-          const b = p.points[(q + 1) % p.points.length]
-          area += p.points[q].fraction * b.elevation - b.fraction * p.points[q].elevation
-        }
-        area = Math.abs(area) / 2
-        const es = p.points.map((x) => x.elevation)
-        const cur = agg.get(key) ?? { n: 0, area: 0, emin: Infinity, emax: -Infinity }
-        cur.n++
-        cur.area += area
-        cur.emin = Math.min(cur.emin, ...es)
-        cur.emax = Math.max(cur.emax, ...es)
-        agg.set(key, cur)
-      }
-      const rows = [...agg.entries()].sort((a, b) => b[1].area - a[1].area)
-      for (const [key, v] of rows)
-        rep.push(
-          `  ${key.padEnd(40)} n=${String(v.n).padStart(3)} area=${v.area.toFixed(3)} ` +
-            `elev=[${v.emin.toFixed(2)}..${v.emax.toFixed(2)}]`,
-        )
     }
 
     writeFileSync(REPORT, rep.join(NL))
 
     // ---- polygon dump for the visual companion -----------------------------
-    // Three variants at gaps 0/1:
-    //   render  — the shipped render arm (litho partition + fraction refinement)
-    //   direct  — the BUILD arm's engine run: computeSectionFill(GEOTECH cols,
-    //             GEOTECH edges) — the owner's "same engine, more classes"
-    //   fixed   — direct + the 3 restatement edges the derivation fails to
-    //             create today (cross-class topmost + base-base), to show what
-    //             the fill looks like once the derivation defect is fixed.
+    // Variants at gaps 0/1:
+    //   direct  — the shipped path: computeSectionFill(GEOTECH cols, GEOTECH
+    //             edges) — the owner's "same engine, more classes"
+    //   fixed   — direct + the 3 restatement edges the derivation could not
+    //             create before 2026-08-13 (kept as a what-if reference)
+    //   litho   — the litho partition the frame clip holds the fill to
     interface DumpPoly {
       cls: string
       kind: string
@@ -347,7 +269,8 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     )
     const direct = computeSectionFillActive(geoColumns, packingEdges, geoOverrides, geoAlongM)
 
-    // The 3 restatements the derivation cannot produce today (by layer suffix).
+    // The 3 restatements the derivation could not produce before 2026-08-13
+    // (by layer suffix), kept so the dump still renders the what-if variant.
     const bySuffix = new Map<string, string>()
     for (const l of sec.refinement.geotechLayers) bySuffix.set(l.id.slice(-6), l.id)
     const fixEdges: CorrelationEdge[] = [
@@ -368,20 +291,10 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
     )
     const fixed = computeSectionFillActive(geoColumns, fixedAll, fixedOverrides, geoAlongM)
 
-    const refinedDump: DumpPoly[][] = [0, 1].map((gap) =>
-      refined
-        .filter((p) => p.gapIndex === gap)
-        .map((p) => ({
-          cls: clsOf(p.formationId),
-          kind: p.tag,
-          pts: p.points.map((q) => [q.fraction, q.elevation] as [number, number]),
-        })),
-    )
     writeFileSync(
       resolve(REPO_ROOT, 'scripts/throwaway_gap_diag_polys.json'),
       JSON.stringify(
         {
-          render: refinedDump,
           direct: dumpRegions(direct),
           fixed: dumpRegions(fixed),
           litho: dumpRegions(regions),
