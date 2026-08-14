@@ -137,3 +137,81 @@ def aligned_pairs_with_forced_top(
     if l_class is None or r_class is None:
         return aligned_same_class_pairs(left, right)
     return [(l_id, r_id), *aligned_same_class_pairs(left[1:], right[1:])]
+
+
+# Minimum share of the LARGER band's fraction extent that the overlap must
+# cover before an interior pair is proposed. Gates out the sliver-to-deep-band
+# ghosts (a whole-unit sliver against a thin band at the base of a big unit
+# overlaps almost nothing of the big unit) while keeping genuine body pairs,
+# whose overlap dominates both extents. Tunable; 0.25 chosen so a body must
+# overlap at least a quarter of its partner's extent.
+INTERIOR_MIN_OVERLAP_SHARE = 0.25
+
+
+def overlap_gated_interior_pairs(
+    left: list[tuple[str, int | None, float, float]],
+    right: list[tuple[str, int | None, float, float]],
+) -> list[tuple[str, str]]:
+    """Propose interior same-class pairs by fraction overlap, monotone.
+
+    Owner ruling 2026-08-14 ("auto correlate is fine, its just a tool to make
+    the users life easier"): inside a litho-banded pair, the restatement
+    carries only the units' OUTER contacts, so the big same-class interior
+    bodies the monotone forced-top alignment consumed or skipped never got a
+    proposal — the engineer had to find and hand-tie them (CS1 gap 3: the
+    287 m² silt hole). This pass proposes them as PENDING ghosts: same NAD
+    class, and their litho-window fraction extents overlap by at least
+    ``INTERIOR_MIN_OVERLAP_SHARE`` of the LARGER extent — position-blind
+    class matching is the bug the refinement's weighted LCS already named,
+    and the share gate keeps the sliver↔deep-band ghosts dead.
+
+    Pairs are kept monotone (no crossing ghost ribbons) by an
+    overlap-weighted LCS.
+
+    Parameters
+    ----------
+    left, right : list[tuple[str, int | None, float, float]]
+        Each test's sub-band stack as ``(layer_id, nad_class, fraction_top,
+        fraction_base)`` ordered top→base, fractions within the litho unit's
+        own window (0 = unit top, 1 = unit base). ``None`` classes never
+        match (skeleton rule).
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Monotone ``(left_layer_id, right_layer_id)`` proposal pairs, top→base.
+    """
+
+    def weight(a: tuple[str, int | None, float, float], b: tuple[str, int | None, float, float]) -> float:
+        _, a_cls, a_top, a_base = a
+        _, b_cls, b_top, b_base = b
+        if a_cls is None or b_cls is None or a_cls != b_cls:
+            return 0.0
+        overlap = min(a_base, b_base) - max(a_top, b_top)
+        larger = max(a_base - a_top, b_base - b_top)
+        if larger <= 0.0 or overlap / larger < INTERIOR_MIN_OVERLAP_SHARE:
+            return 0.0
+        return overlap
+
+    n, m = len(left), len(right)
+    if not n or not m:
+        return []
+    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            w = weight(left[i], right[j])
+            take = (w + dp[i + 1][j + 1]) if w > 0.0 else float("-inf")
+            dp[i][j] = max(dp[i + 1][j], dp[i][j + 1], take)
+    pairs: list[tuple[str, str]] = []
+    i = j = 0
+    while i < n and j < m:
+        w = weight(left[i], right[j])
+        if w > 0.0 and abs(dp[i][j] - (w + dp[i + 1][j + 1])) < 1e-12:
+            pairs.append((left[i][0], right[j][0]))
+            i += 1
+            j += 1
+        elif dp[i + 1][j] >= dp[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+    return pairs
