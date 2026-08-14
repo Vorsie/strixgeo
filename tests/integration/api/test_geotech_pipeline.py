@@ -45,8 +45,8 @@ from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -679,9 +679,7 @@ async def test_gp9_a_subset_preview_shows_exactly_what_the_subset_commit_writes(
     # classes; DB5 pins four-field parity only for the whole-model call).
     class_by_formation = {
         f.id: f.nad_class
-        for f in (
-            (await db_session.execute(select(GeologicalFormationOrm))).scalars().all()
-        )
+        for f in ((await db_session.execute(select(GeologicalFormationOrm))).scalars().all())
     }
     committed = sorted(
         (
@@ -693,6 +691,161 @@ async def test_gp9_a_subset_preview_shows_exactly_what_the_subset_commit_writes(
         for r in committed_rows
     )
     expected = sorted((t, b, n, c) for t, b, n, c in previewed[str(pipeline_scene["bh_id"])])
-    assert committed == expected, (
-        f"GP9: subset ghosts {expected} != subset commit {committed}"
+    assert committed == expected, f"GP9: subset ghosts {expected} != subset commit {committed}"
+
+
+# ---------------------------------------------------------------------------
+# GP10/GP11 — the 2026-08-14 ruling: the mediated chain REPLACES the jump ties
+# ---------------------------------------------------------------------------
+
+
+async def _cpt_to_cpt_edges(db_session: AsyncSession, scene: dict, geotech_model_id: str) -> dict:
+    """Read every CPT-A↔CPT-B geotech edge, keyed by its canonical layer pair.
+
+    Returns
+    -------
+    dict
+        ``(min_layer_id, max_layer_id) -> LithoContactCorrelationEdgeOrm`` for
+        edges whose BOTH endpoints sit on the scene's two CPTs.
+    """
+    db_session.expire_all()
+    edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
+    layer_rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cpt_by_layer = {r.id: r.cpt_id for r in layer_rows if r.cpt_id is not None}
+    cpt_ids = {scene["cpt_a_id"], scene["cpt_b_id"]}
+    return {
+        (min(e.layer_a_id, e.layer_b_id), max(e.layer_a_id, e.layer_b_id)): e
+        for e in edges
+        if cpt_by_layer.get(e.layer_a_id) in cpt_ids and cpt_by_layer.get(e.layer_b_id) in cpt_ids
+    }
+
+
+@pytest.mark.asyncio
+async def test_gp10_dividing_the_borehole_replaces_the_jump_ties(
+    pipeline_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GP10: "those cpt to cpt ties should be replaced by cpt to borehole to
+    borehole to cpt ties once i click subdivide boreholes" (owner, 2026-08-14).
+
+    After the divide materialises the accepted chain (the forced-top
+    restatements of the direct litho ties A↔BH and BH↔B), the accepted
+    CPT↔CPT jump tie between the same top bands must be GONE — "just delete
+    all, it'll be a real bother to delete all by hand once the proper chain
+    is there".  A jump tie whose chain hops are still pending proposals keeps
+    carrying the connection and survives.
+    """
+    geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
+    await _auto_correlate(async_client, pipeline_scene, geotech_model_id)
+    await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
+
+    before = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
+    assert before, "scene invariant: accepted CPT↔CPT jump ties exist before the divide"
+    assert all(e.user_approved for e in before.values())
+
+    resp = await async_client.post(
+        f"/projects/{pipeline_scene['project_id']}/geology/models/"
+        f"{pipeline_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+
+    after = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
+    deleted_pairs = set(before) - set(after)
+    assert deleted_pairs, (
+        "GP10: the divide materialised the accepted chain, so at least the "
+        "top jump tie must be replaced by it — none was deleted"
+    )
+    assert payload["superseded_jump_tie_count"] == len(deleted_pairs), (
+        f"GP10: the response must own the deletion — reported "
+        f"{payload['superseded_jump_tie_count']}, actually deleted {len(deleted_pairs)}"
+    )
+
+    # The proper chain is really there: accepted edges now join each CPT to
+    # the borehole (the replacement the ruling names, not merely a deletion).
+    db_session.expire_all()
+    all_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    layer_rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    inv_by_layer = {r.id: (r.cpt_id if r.cpt_id is not None else r.borehole_id) for r in layer_rows}
+    accepted_inv_pairs = {
+        frozenset((inv_by_layer.get(e.layer_a_id), inv_by_layer.get(e.layer_b_id)))
+        for e in all_edges
+    }
+    assert frozenset((pipeline_scene["cpt_a_id"], pipeline_scene["bh_id"])) in accepted_inv_pairs
+    assert frozenset((pipeline_scene["bh_id"], pipeline_scene["cpt_b_id"])) in accepted_inv_pairs
+
+    # And every surviving jump tie is one whose chain is NOT accepted yet —
+    # the deep (dicht) pair's chain hops arrive as pending interior proposals,
+    # so that jump tie is still the only accepted carrier and stays.
+    for pair_key, survivor in after.items():
+        assert survivor.user_approved, (
+            f"GP10: a surviving jump tie should be the still-only-carrier kind, "
+            f"got an unapproved leftover {pair_key}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_gp11_an_undivided_borehole_keeps_the_jump_ties(
+    pipeline_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GP11: no chain, no supersession — a divide that leaves the borehole
+    bandless (unknown-id subset) must not touch the jump ties: they are still
+    the only carrier of the CPT↔CPT connection."""
+    geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
+    await _auto_correlate(async_client, pipeline_scene, geotech_model_id)
+    await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
+
+    before = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
+    assert before
+
+    resp = await async_client.post(
+        f"/projects/{pipeline_scene['project_id']}/geology/models/"
+        f"{pipeline_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={"borehole_ids": [str(uuid7())]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["superseded_jump_tie_count"] == 0
+
+    after = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
+    assert set(after) == set(before), "GP11: an undivided borehole must keep every jump tie"
