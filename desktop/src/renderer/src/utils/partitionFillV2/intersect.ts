@@ -170,7 +170,10 @@ export function segmentIntersections(s1: GridSegment, s2: GridSegment): GridPoin
  *     Grid-snapped sub-segments touching only at endpoints, in a deterministic
  *     order (sorted by endpoints then curveId).
  */
-export function splitSegments(segments: readonly GridSegment[]): GridSegment[] {
+export function splitSegments(
+  segments: readonly GridSegment[],
+  exactOnlyCurveIds?: ReadonlySet<string>,
+): GridSegment[] {
   const n = segments.length
   // For each segment, the set of grid points at which it must be cut. Seeded
   // with its own endpoints so the split walk always has anchors.
@@ -193,10 +196,27 @@ export function splitSegments(segments: readonly GridSegment[]): GridSegment[] {
     const pts = segmentIntersections(segments[i], segments[j])
     // Intersection points are already snapped to whole grid units by
     // segmentIntersections (proper crossings are Math.round-ed; collinear cases
-    // return grid endpoints). Register each cut on whichever segment(s) it lies on.
+    // return grid endpoints). Register each cut on whichever segment(s) it lies
+    // on — within tolerance, not exactly: a proper crossing's rounded point
+    // lands up to √2/2 grid units off each integer supporting line, and on a
+    // long shallow-angle crossing it practically never rounds back on, so the
+    // exact ``cross === 0`` test silently dropped the cut and faces straddled
+    // an input curve (debt #271; repro in arrangement.test.ts).
+    //
+    // The tolerant arm is KIND-SCOPED: it applies only when NEITHER party is
+    // an ``exactOnlyCurveIds`` member (the synthesized ``closing`` curves).
+    // Those flank/apex/bridge curves historically dead-ended when their cut
+    // rounded off-line and were stripped as spurs — the shipped v1-parity
+    // output depends on that — and their deliberate engagement belongs to the
+    // two-sided-terminations cut-over, not this crossing repair. Without the
+    // scope, a matched (tied) boundary got cut by a termination flank and the
+    // band split in two (PartitionFillOverlay FD2/HP/GH scenes, 2026-08-14).
+    const tolerant =
+      exactOnlyCurveIds === undefined ||
+      (!exactOnlyCurveIds.has(segments[i].curveId) && !exactOnlyCurveIds.has(segments[j].curveId))
     for (const p of pts) {
-      if (pointOnSegment(p, segments[i])) cutSets[i].set(gridKey(p), p)
-      if (pointOnSegment(p, segments[j])) cutSets[j].set(gridKey(p), p)
+      if (pointOnOrNearSegment(p, segments[i], tolerant)) cutSets[i].set(gridKey(p), p)
+      if (pointOnOrNearSegment(p, segments[j], tolerant)) cutSets[j].set(gridKey(p), p)
     }
     if (!nearT) return
     // NEAR-T recovery: if an ENDPOINT of one segment lands within perpendicular tolerance of the
@@ -267,9 +287,31 @@ export function splitSegments(segments: readonly GridSegment[]): GridSegment[] {
   return result
 }
 
-/** Whether grid point ``p`` lies on segment ``s`` (endpoints inclusive). */
-function pointOnSegment(p: GridPoint, s: GridSegment): boolean {
-  return onCollinearSegment(p, s.a, s.b)
+/**
+ * Whether grid point ``p`` lies on segment ``s`` exactly — or, when
+ * ``tolerant``, within ``T_JUNCTION_PERP_TOL`` grid units of it with its
+ * projection inside the closed [a, b] range.
+ *
+ * The tolerant arm exists for PROPER-CROSSING cut registration: the crossing
+ * point is computed in float and rounded, so it sits up to √2/2 grid units off
+ * each segment's integer supporting line — exact collinearity would drop the
+ * cut (debt #271). The tolerance is well below the 1 mm feature scale, and the
+ * only points ever tested came from an actual intersection of this very pair,
+ * so it cannot invent a cut where no crossing exists. A hit at an endpoint
+ * cell is idempotent — endpoints are seeded as cuts. The caller scopes
+ * ``tolerant`` by curve kind — see ``processPair``.
+ */
+function pointOnOrNearSegment(p: GridPoint, s: GridSegment, tolerant: boolean): boolean {
+  if (onCollinearSegment(p, s.a, s.b)) return true
+  if (!tolerant) return false
+  const abx = s.b.ix - s.a.ix
+  const aby = s.b.iy - s.a.iy
+  const lenSq = abx * abx + aby * aby
+  if (lenSq === 0) return false
+  const c = cross(s.a, s.b, p)
+  if (c * c > T_JUNCTION_PERP_TOL * T_JUNCTION_PERP_TOL * lenSq) return false
+  const dot = (p.ix - s.a.ix) * abx + (p.iy - s.a.iy) * aby
+  return dot >= 0 && dot <= lenSq
 }
 
 /**
