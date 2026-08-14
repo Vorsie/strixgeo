@@ -108,6 +108,9 @@ const GROUPS: readonly CheatGroup[] = [
         action: 'Marquee select — additive, preserves the existing selection',
       },
       { trigger: 'Click empty background', action: 'Clear the contact selection' },
+      // Owner 2026-08-14: a one-key clear-the-view for the lab-sample markers
+      // (litho + geotech axes); the grain-size hover preview stays menu-only.
+      { trigger: 'P', action: 'Show / hide the lab-sample markers' },
     ],
   },
   {
