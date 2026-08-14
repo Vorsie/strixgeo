@@ -64,6 +64,7 @@ from groundmodel.domain.services.geotech_edge_bridging import (
 from groundmodel.domain.services.geotech_packing_edges import (
     aligned_pairs_with_forced_top,
     aligned_same_class_pairs,
+    overlap_gated_interior_pairs,
 )
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -506,6 +507,29 @@ async def derive_geotech_edges_from_litho(
                 out.append((str(layer_id), nad))
         return out
 
+    def _stack_with_fractions(
+        inv_str: str, lit_top: float, lit_base: float
+    ) -> list[tuple[str, int | None, float, float]]:
+        """Like ``_stack`` but with each band's fraction extent in the litho
+        window (0 = unit top, 1 = unit base) — the interior proposal pass
+        gates on fraction overlap."""
+        height = lit_base - lit_top
+        if height <= _DEPTH_TOL_M:
+            return []
+        out: list[tuple[str, int | None, float, float]] = []
+        for row in sorted_geotech.get(inv_str, []):
+            top, base, layer_id, nad = row[0], row[1], row[2], row[4]
+            if top >= lit_top - _DEPTH_TOL_M and base <= lit_base + _DEPTH_TOL_M:
+                out.append(
+                    (
+                        str(layer_id),
+                        nad,
+                        max(0.0, (top - lit_top) / height),
+                        min(1.0, (base - lit_top) / height),
+                    )
+                )
+        return out
+
     counts = EdgeDerivationCounts()
     direct = direct_litho_pairs if direct_litho_pairs is not None else litho_approved_edges
     sided_seen = seen_sided_edges if seen_sided_edges is not None else set()
@@ -691,6 +715,53 @@ async def derive_geotech_edges_from_litho(
                 f"derive_geotech_edges_from_litho: {pairs_skipped_null} null-class "
                 f"band(s) skipped on litho_edge {litho_a_id}↔{litho_b_id} (spec §8)"
             )
+
+        # Interior body proposals (owner ruling 2026-08-14: "auto correlate is
+        # fine, its just a tool to make the users life easier"). The monotone
+        # forced-top alignment consumes a unit's top band into the
+        # restatement, so a big same-class interior body across the pair could
+        # never be proposed and the engineer had to hunt it by hand (CS1
+        # gap 3: 287 m² of silt). Propose the overlap-gated pairs the aligned
+        # emission did not cover — PENDING, inside this litho window only.
+        if pair_is_direct:
+            aligned_set = set(aligned)
+            interior = overlap_gated_interior_pairs(
+                _stack_with_fractions(inv_a_str, top_a, base_a),
+                _stack_with_fractions(inv_b_str, top_b, base_b),
+            )
+            for la, rb in interior:
+                if (la, rb) in aligned_set:
+                    continue
+                geotech_a_id = UUID(la)
+                geotech_b_id = UUID(rb)
+                if geotech_a_id == geotech_b_id:
+                    continue
+                canonical_a, canonical_b = (
+                    (geotech_a_id, geotech_b_id)
+                    if geotech_a_id < geotech_b_id
+                    else (geotech_b_id, geotech_a_id)
+                )
+                if (canonical_a, canonical_b) in seen_layer_pairs:
+                    counts.skipped_existing_pair += 1
+                    continue
+                seen_layer_pairs.add((canonical_a, canonical_b))
+                session.add(
+                    LithoContactCorrelationEdgeOrm(
+                        id=uuid7(),
+                        model_id=geotech_model_id,
+                        section_id=section_id,
+                        layer_a_id=canonical_a,
+                        layer_b_id=canonical_b,
+                        layer_a_side="top",
+                        layer_b_side="top",
+                        source=source,
+                        # An interior body pair is a machine claim — pending,
+                        # per ruling A.
+                        user_approved=False,
+                    )
+                )
+                counts.edges_emitted += 1
+                counts.edges_proposed += 1
 
     await session.flush()
     return counts
