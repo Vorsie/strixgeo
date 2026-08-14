@@ -906,6 +906,25 @@ every column is divided, and still earns its place in `DivideBoreholes`: a
 6 sections; the bridge adds **90 jump pairs, 76 of which straddle at least one
 borehole column**.
 
+**Supersession (owner ruling 2026-08-14, dogfeed):** *"those cpt to cpt ties
+should be replaced by cpt to borehole to borehole to cpt ties once i click
+subdivide boreholes"* — and on sparing hand-drawn ones: *"just delete all,
+it'll be a real bother to delete all by hand once the proper chain is there."*
+`DivideBoreholes` phase 8.5, after deriving the borehole-mediated edges,
+deletes every **bridged jump tie** (an edge whose two investigations carry NO
+direct litho tie on the section) whose two endpoint bands are connected by a
+path of **accepted, direct-litho-backed** edges — the mediated chain. Kept
+alongside, the jump tie would still weld one body straight across a borehole
+whose bands disagree, and the fill would still draw its deep-to-deep bridge
+line over the real bands. Guards: a pending chain hop does not supersede
+(deleting an accepted jump tie against an unaccepted chain would lose approved
+information); a jump tie is never a carrier for another; an edge whose
+investigations ARE directly litho-tied (a restatement — e.g. of a hand-drawn
+litho jump tie) is never superseded. Deletion only fires when an accepted path
+exists, so body connectivity is unchanged by construction. Response carries
+`superseded_jump_tie_count`. `domain/services/geotech_jump_tie_supersession.py`
+(JT1–JT8 unit, GP10/GP11 DB pins, negative-controlled).
+
 ### The gate
 
 `divide-boreholes` answers `422 geotech_ties_pending` while any tie is still
