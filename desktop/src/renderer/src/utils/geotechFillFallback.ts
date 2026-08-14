@@ -39,12 +39,12 @@ export interface FallbackCandidateRegion {
 /**
  * Vertical tolerance, metres.
  *
- * Mirrors ``makeClassSlicesElev`` in ``refineLithoPartition.ts``, whose
- * any-overlap filter is ``u.tE > base + 0.02 && u.bE < top - 0.02``: a band
- * grazing a region by less than 2 cm is NOT that region's packing. Keeping the
- * same number means the fallback and the retired refinement agree on where
- * packing data exists, so switching engines cannot silently repaint a region
- * that was already classified.
+ * Inherited from the retired fraction-space refinement's
+ * ``makeClassSlicesElev`` (deleted 2026-08-14, debt #270; git history has it),
+ * whose any-overlap filter was ``u.tE > base + 0.02 && u.bE < top - 0.02``: a
+ * band grazing a region by less than 2 cm is NOT that region's packing. The
+ * number is kept so the engine swap did not silently repaint any region that
+ * was already classified.
  */
 const OVERLAP_SLOP_M = 0.02
 
