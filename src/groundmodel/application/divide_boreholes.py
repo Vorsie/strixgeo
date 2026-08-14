@@ -107,8 +107,9 @@ from groundmodel.application.geotech_edge_derivation import (
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edge_sets,
-    load_existing_geotech_sided_edges_by_section,
     load_existing_geotech_edge_pairs_by_section,
+    load_existing_geotech_sided_edges_by_section,
+    load_geotech_edges_for_supersession,
     load_litho_layer_depths,
     load_project_sections,
 )
@@ -144,6 +145,9 @@ from groundmodel.domain.services.borehole_flank_donors import (
 from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
     fill_borehole_litho_body_extent,
+)
+from groundmodel.domain.services.geotech_jump_tie_supersession import (
+    superseded_jump_tie_ids,
 )
 from groundmodel.domain.services.geotech_tie_donors import (
     AcceptedTie,
@@ -426,6 +430,10 @@ class DivideBoreholeResult:
         endpoint (``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``).  The
         count alone tells the engineer that accepted work vanished and nothing
         about WHERE to redraw it (audit 2026-08-02).
+    superseded_jump_tie_count : int
+        Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain
+        now carries the same connection (owner ruling 2026-08-14: the chain
+        REPLACES the jump tie — hand-drawn or machine, accepted or pending).
     """
 
     geotech_model_id: UUID
@@ -438,6 +446,7 @@ class DivideBoreholeResult:
     lost_tie_count: int = 0
     lost_tie_reasons: dict[str, int] = field(default_factory=dict)
     lost_tie_labels: list[str] = field(default_factory=list)
+    superseded_jump_tie_count: int = 0
 
 
 class DivideBoreholes(GeotechBoreholeMaterialiser):
@@ -1301,6 +1310,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
         edge_totals = EdgeDerivationCounts()
+        superseded_edge_ids: list[UUID] = []
+        superseded_labels: list[str] = []
         for section in sections:
             edge_sets = await load_approved_litho_edge_sets(
                 self._session, litho_model_id, section.id
@@ -1335,6 +1346,46 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
                 )
             )
+            # Owner ruling 2026-08-14: "those cpt to cpt ties should be
+            # replaced by cpt to borehole to borehole to cpt ties once i click
+            # subdivide boreholes" / "just delete all".  A bridged jump tie
+            # kept alongside the chain would still weld one body straight
+            # across a borehole whose bands disagree, and the fill would still
+            # draw its straight bridge line over the real bands.  Deletion
+            # only fires when an ACCEPTED direct-litho-backed path connects
+            # the same two bands, so connectivity is unchanged by construction
+            # and the resolver pass below needs no extra trigger.
+            direct_inv_pairs: set[tuple[str, str]] = set()
+            for la, lb in approved:
+                inv_a = litho_layer_depths.get(la)
+                inv_b = litho_layer_depths.get(lb)
+                if inv_a is None or inv_b is None:
+                    continue
+                lo, hi = sorted((inv_a[0], inv_b[0]))
+                direct_inv_pairs.add((lo, hi))
+            section_edges = await load_geotech_edges_for_supersession(
+                self._session, geotech_model_id, section.id
+            )
+            edge_by_id = {e.edge_id: e for e in section_edges}
+            for edge_id in superseded_jump_tie_ids(section_edges, direct_inv_pairs):
+                superseded_edge_ids.append(edge_id)
+                doomed = edge_by_id[edge_id]
+                superseded_labels.append(
+                    f"{doomed.investigation_a} <-> {doomed.investigation_b} "
+                    f"(edge {edge_id}, section {section.id})"
+                )
+        if superseded_edge_ids:
+            await self._session.execute(
+                delete(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.id.in_(superseded_edge_ids)
+                )
+            )
+            self.info(
+                f"DivideBoreholes: {len(superseded_edge_ids)} jump tie(s) superseded by "
+                f"the borehole-mediated chain and deleted"
+            )
+            for label in superseded_labels:
+                self.debug(f"DivideBoreholes: superseded jump tie {label}")
         self.info(
             f"DivideBoreholes: Phase 8.5 — {edge_totals.edges_emitted} borehole-mediated "
             f"geotech edge(s) added (skipped_empty_stack={edge_totals.skipped_empty_stack}, "
@@ -1456,6 +1507,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             lost_tie_count=len(reanchor_plan.lost),
             lost_tie_reasons=reanchor_plan.loss_reason_counts(),
             lost_tie_labels=reanchor_plan.lost_tie_labels,
+            superseded_jump_tie_count=len(superseded_edge_ids),
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model_id} "
