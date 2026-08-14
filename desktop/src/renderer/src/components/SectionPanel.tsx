@@ -2804,12 +2804,13 @@ export default function SectionPanel({
                     levelToScreen={levelToScreen}
                     showLabels={showLabelsByCptId.get(item.id) ?? true}
                     qcFullScaleMpa={qcFullScaleMpa}
-                    // On the interpretation axes the column's own band stack
-                    // paints over this card, so the white track steps back to a
-                    // veil — otherwise the same band reads brighter here than in
-                    // the gap beside it and the fill looks like it stops at the
-                    // column edge.
-                    cardVeilOpacity={columnCardVeilOpacity(axisMode)}
+                    // While a fill paints through the cards, the white track
+                    // steps back to a veil — otherwise the same band reads
+                    // brighter here than in the gap and the fill looks like it
+                    // stops at the column edge. With the fill hidden the card
+                    // keeps its original look (owner 2026-08-14: "the opacity
+                    // of the columns is changed").
+                    cardVeilOpacity={columnCardVeilOpacity(axisMode, fillSelection.showBands)}
                   />
                 )
               })}
@@ -2848,7 +2849,7 @@ export default function SectionPanel({
                     // under a translucent interpretation band composites
                     // brighter than the gap. The log in full detail is the
                     // borelog panel's job; here it is reference.
-                    logFillOpacity={boreholeLogFillOpacity(axisMode)}
+                    logFillOpacity={boreholeLogFillOpacity(axisMode, fillSelection.showBands)}
                   />
                 )
               })}
@@ -3001,7 +3002,7 @@ export default function SectionPanel({
               // partition fill uses in the gaps, so a band crossing a column
               // edge does not change tone. The geological axis keeps its
               // lighter backdrop. See utils/sectionFillOpacity.ts.
-              bandFillOpacity={columnStackFillOpacity(axisMode)}
+              bandFillOpacity={columnStackFillOpacity(axisMode, fillSelection.showBands)}
               // …and the colour follows the fill that is actually painted, so
               // the geotech axis's "Show litho fill" swap carries the columns
               // with it instead of leaving them NAD-coloured.

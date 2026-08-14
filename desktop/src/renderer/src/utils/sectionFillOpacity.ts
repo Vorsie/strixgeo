@@ -66,35 +66,51 @@ const STACK_CARD_VEIL_OPACITY = 0.18
 /** Opacity of the CPT track's white background on the geological axis. */
 const CPT_TRACK_VEIL_OPACITY = 0.7
 
-/** True on the axes whose columns are painted by their own band stack. */
-function stackPaintsOverColumns(axisMode: SectionAxisMode): boolean {
-  return axisMode === 'lithostratigraphic' || axisMode === 'geotechnical'
+/**
+ * Original stack-band opacity on the interpretation axes, restored whenever no
+ * fill paints over the columns (the pre-2026-08-14 look).
+ */
+const INTERPRETATION_STACK_OPACITY = 0.55
+
+/**
+ * True when this column's card is being painted over by the partition's own
+ * column strips — i.e. the axis is an interpretation axis AND a fill is
+ * actually shown. The veil serves the fill; when the owner hides the fill (or
+ * a clean slate has none), the cards must look exactly as they always did —
+ * "the opacity of the columns is changed" was a dollar-grade defect
+ * (owner, 2026-08-14 late).
+ */
+function stackPaintsOverColumns(axisMode: SectionAxisMode, fillShown: boolean): boolean {
+  return fillShown && (axisMode === 'lithostratigraphic' || axisMode === 'geotechnical')
 }
 
 /**
- * Opacity for a column's own band stack.
+ * Opacity for a column's own band stack (ContactsLayer's per-column bands).
  *
  * @param axisMode - The section's model axis.
- * @returns ``0`` on the interpretation axes — the partition's OWN column-strip
- *   quads (``columnStripFills.ts``) paint the stack there, dissolved into the
- *   gap fill so the tone cannot step at a card edge; a second coat from
- *   ContactsLayer would composite the card DARKER than the gap, the exact
- *   defect the owner reported ("same transparency everywhere plz",
- *   2026-08-14). The geological axis keeps its own lighter backdrop.
+ * @param fillShown - Whether a partition fill is currently painted.
+ * @returns ``0`` while the fill paints on an interpretation axis — the
+ *   partition's OWN column-strip quads (``columnStripFills.ts``) carry the
+ *   stack there, dissolved into the gap fill so the tone cannot step at a card
+ *   edge, and a second coat would composite the card DARKER than the gap.
+ *   With the fill hidden, the original band look; the geological axis keeps
+ *   its lighter backdrop either way.
  */
-export function columnStackFillOpacity(axisMode: SectionAxisMode): number {
-  return stackPaintsOverColumns(axisMode) ? 0 : GEOLOGICAL_BACKDROP_OPACITY
+export function columnStackFillOpacity(axisMode: SectionAxisMode, fillShown: boolean): number {
+  if (axisMode === 'geological') return GEOLOGICAL_BACKDROP_OPACITY
+  return stackPaintsOverColumns(axisMode, fillShown) ? 0 : INTERPRETATION_STACK_OPACITY
 }
 
 /**
  * Opacity for the white background behind a CPT column's data tracks.
  *
  * @param axisMode - The section's model axis.
- * @returns A very light veil where the stack paints over the card; the full
- *   readable track background otherwise.
+ * @param fillShown - Whether a partition fill is currently painted.
+ * @returns A very light veil ONLY while the fill paints over the card; the
+ *   full readable track background the moment it does not.
  */
-export function columnCardVeilOpacity(axisMode: SectionAxisMode): number {
-  return stackPaintsOverColumns(axisMode)
+export function columnCardVeilOpacity(axisMode: SectionAxisMode, fillShown: boolean): number {
+  return stackPaintsOverColumns(axisMode, fillShown)
     ? STACK_CARD_VEIL_OPACITY
     : CPT_TRACK_VEIL_OPACITY
 }
@@ -102,14 +118,16 @@ export function columnCardVeilOpacity(axisMode: SectionAxisMode): number {
 /**
  * Opacity for a borehole column's own DOV log strips.
  *
- * The driller's log is reference on the interpretation axes — the full-detail
- * read lives in the borelog panel — so it dims to the same veil the CPT card
- * uses. Anything else and a borehole card reads brighter than a CPT card
- * carrying the very same interpretation band.
+ * While a fill paints, the driller's log is reference (the full-detail read
+ * lives in the borelog panel) and dims to the same veil the CPT card uses —
+ * anything else and a borehole card reads brighter than a CPT card carrying
+ * the very same interpretation band. With no fill painted it stays fully
+ * opaque, exactly as before.
  *
  * @param axisMode - The section's model axis.
- * @returns The shared veil where the stack paints; fully opaque otherwise.
+ * @param fillShown - Whether a partition fill is currently painted.
+ * @returns The shared veil while the fill paints; fully opaque otherwise.
  */
-export function boreholeLogFillOpacity(axisMode: SectionAxisMode): number {
-  return stackPaintsOverColumns(axisMode) ? STACK_CARD_VEIL_OPACITY : 1
+export function boreholeLogFillOpacity(axisMode: SectionAxisMode, fillShown: boolean): number {
+  return stackPaintsOverColumns(axisMode, fillShown) ? STACK_CARD_VEIL_OPACITY : 1
 }
