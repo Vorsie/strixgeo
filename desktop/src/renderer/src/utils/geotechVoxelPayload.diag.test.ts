@@ -3,8 +3,8 @@
  *
  * The geotech 3-D build has never been run on the owner's model (zero persisted
  * geotech build generations), so nobody has seen what the second geometry path
- * actually produces. The section canvas renders ``refineLithoPartition`` over the
- * LITHO partition; "Build model" on the geotech stage instead runs the partition
+ * actually produces. The section canvas renders the direct geotech partition
+ * (litho-frame-clipped); "Build model" on the geotech stage runs the partition
  * engine a second time over the GEOTECH columns and GEOTECH edges
  * (``makeVoxelRequestBuilder`` -> ``buildVoxelRequest``). This emitter produces
  * exactly what that second path would POST, so the Python side can build it once
