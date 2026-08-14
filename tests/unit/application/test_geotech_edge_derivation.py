@@ -137,10 +137,11 @@ async def test_a_direct_pair_with_cross_class_tops_still_restates() -> None:
 
     The real case: S10's clay is one FF band (23); S6's clay leads with an MF
     crust (22) over FF (23). The old class-matched LCS could only produce
-    23↔23 — tying the litho contact to a band one step DEEPER, which let the
+    23↔23 — tying the litho CONTACT to a band one step deeper, which let the
     sand reach below the litho clay top in the fill. The restatement is the
-    TOPS, cross-class, born accepted; and the deeper class-match must NOT be
-    emitted beside it.
+    TOPS, cross-class, born accepted. The 23↔23 FF-body pair still appears —
+    as the interior PENDING proposal it really is (owner 2026-08-14: the
+    ghost the engineer judges), not as the contact restatement.
     """
     session = _mock_session()
     la, lb = uuid4(), uuid4()
@@ -159,15 +160,22 @@ async def test_a_direct_pair_with_cross_class_tops_still_restates() -> None:
         },
         seen_layer_pairs=set(),
     )
-    assert counts.edges_emitted == 1
     assert counts.edges_accepted == 1
-    assert counts.edges_proposed == 0
-    edge = session.add.call_args.args[0]
-    assert {edge.layer_a_id, edge.layer_b_id} == {ff_a, mf_b}, (
+    assert counts.edges_proposed == 1
+    by_pair = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)): c.args[0]
+        for c in session.add.call_args_list
+    }
+    restatement = by_pair[frozenset((ff_a, mf_b))]
+    assert restatement.user_approved is True, (
         "the restatement joins the two TOPMOST bands — the contact surfaces "
-        "the engineer tied — not the deeper class-match"
+        "the engineer tied"
     )
-    assert edge.user_approved is True
+    interior = by_pair[frozenset((ff_a, ff_b))]
+    assert interior.user_approved is False, (
+        "the FF-body pair is an interior machine claim — a pending ghost, "
+        "never the restatement"
+    )
 
 
 @pytest.mark.asyncio
@@ -770,3 +778,53 @@ async def test_sided_canonicalisation_swaps_the_sides_with_the_ids() -> None:
     assert edge.layer_a_side == "base", "B's endpoint keeps its base side in slot a"
     assert edge.layer_b_id == top_a
     assert edge.layer_b_side == "top"
+
+
+@pytest.mark.asyncio
+async def test_the_interior_body_pair_is_proposed_pending_beside_the_restatement() -> None:
+    """CS1 gap 3 in miniature (owner ruling 2026-08-14, "auto correlate is
+    fine, its just a tool"): B4's silt = thin n14 crust over a big n13 body;
+    S13's silt = big n13 over n16. The restatement ties the crust to S13's
+    top (accepted); the big n13 BODIES must arrive as a PENDING proposal -
+    the 287 m2 hole was exactly this pair never being proposed."""
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    crust14, body13_l, deep13_l = uuid4(), uuid4(), uuid4()
+    body13_r, n16_r = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(la, lb)},
+        litho_layer_depths={la: ("inv-A", 0.0, 5.6), lb: ("inv-B", 1.4, 8.2)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [
+                (0.0, 0.6, crust14, uuid4(), 14),
+                (0.6, 5.1, body13_l, uuid4(), 13),
+                (5.1, 5.6, deep13_l, uuid4(), 13),
+            ],
+            "inv-B": [
+                (1.4, 6.7, body13_r, uuid4(), 13),
+                (6.7, 8.2, n16_r, uuid4(), 16),
+            ],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "top")},
+        seen_sided_edges=set(),
+    )
+    by_pair = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)): c.args[0]
+        for c in session.add.call_args_list
+    }
+    restatement = by_pair.get(frozenset((crust14, body13_r)))
+    assert restatement is not None and restatement.user_approved is True
+    interior = by_pair.get(frozenset((body13_l, body13_r)))
+    assert interior is not None, (
+        "the big same-class bodies must be PROPOSED - the engineer should "
+        "judge a ghost, not hunt the pair by hand"
+    )
+    assert interior.user_approved is False, (
+        "an interior body pair is a machine claim - pending, per ruling A"
+    )
+    assert counts.edges_proposed >= 1
