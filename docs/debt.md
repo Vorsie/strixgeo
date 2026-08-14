@@ -8444,3 +8444,32 @@ real model.
 **When to revisit.** The dogfeed after 2026-08-13 confirms the geotech axis —
 then one deletion campaign, plus pruning the `2026-07-06-geotech-fraction-refinement-handoff.md`
 pointer.
+
+## 271. The v2 arrangement loses long shallow-angle proper crossings (M)
+
+**What.** `partitionFillV2/intersect.ts` registers a proper crossing's cut
+only when the SNAPPED intersection point is exactly collinear
+(`cross === 0`) with the segment's integer supporting line
+(`pointOnSegment` → `onCollinearSegment`). `Math.round` moves the point up
+to √2/2 grid units off each line, and a long shallow-angle crossing
+practically never rounds back on — the cut silently vanishes and faces
+straddle an input curve. Exact repro (found via CS1 gap 9, 2026-08-14):
+segments (0, 6.48)→(50.0018, 3.93) and (0, 5.49)→(45.0016, 5.985) cross at
+≈(15.97, 5.67); `buildArrangement` returns them unsplit (4 half-edges, 4
+vertices; a correct split is 8 and 5). The near-collinear T-junction
+recovery already in the file handles the same drift for ENDPOINTS, but only
+behind the unrelated two-sided-terminations cut-over flag.
+
+**Why deferred.** The one-line fix (tolerate ≤1 grid unit when registering a
+crossing cut, mirroring `nearInteriorT`) was implemented and REVERTED
+2026-08-14 (~05:00): it changes real-data engine output — the cs1void gate
+found a new 8 cm sliver void at GAP-21 (a previously-hidden straddle traded
+for a visible micro-void) — so it needs the micro-face absorption question
+answered and the frozen v2 gates re-frozen deliberately, with the owner
+awake. The litho-frame clip (`clipPartitionToLithoFrame`) pre-splits its own
+inputs in float and is NOT affected.
+
+**When to revisit.** Together with the owner's next engine session — before
+any new consumer feeds the arrangement long shallow curves, and before the
+two-sided-terminations cut-over lands (its near-T path shares the same
+tolerance question).
