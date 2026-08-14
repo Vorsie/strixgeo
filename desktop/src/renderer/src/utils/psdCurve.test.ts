@@ -11,7 +11,7 @@
 //   PSD3  a diameter the log scale cannot place (zero or negative) is dropped,
 //         and a ragged pair of arrays only yields the points that pair up.
 //   PSD4  no usable points at all → no curve.
-//   PSD5  the x axis is a log scale: equal decades take equal width, and the
+//   PSD5  the x axis is a log scale, INVERTED (owner 2026-08-14): coarse
 //         smallest diameter sits at the left edge, the largest at the right.
 //   PSD6  the y axis runs 0-100 % with 100 % finer at the top of the box and
 //         0 % at the bottom.
@@ -79,7 +79,9 @@ describe('psdCurvePoints — % finer by weight, ordered fine-to-coarse', () => {
 describe('psdLogDomain / psdPolyline — log x axis, 0-100 % y axis', () => {
   const box = { width: 100, height: 50 }
 
-  it('PSD5: equal decades take equal width, smallest left, largest right', () => {
+  it('PSD5: equal decades take equal width — COARSE left, fine right (inverted axis)', () => {
+    // "the psd x-axis should be inverted" (owner 2026-08-14) — the sieve-curve
+    // convention he reads: gravel on the left, clay on the right.
     // Three decades: 0.01, 0.1, 1 mm. On a log axis they are evenly spaced.
     const points = psdCurvePoints({
       diameters_mm: [0.01, 0.1, 1],
@@ -89,8 +91,10 @@ describe('psdLogDomain / psdPolyline — log x axis, 0-100 % y axis', () => {
     expect(domain).not.toBeNull()
     const drawn = parsePolyline(psdPolyline(points, domain!, box))
 
-    expect(drawn[0].x).toBeCloseTo(0, 6)
-    expect(drawn[2].x).toBeCloseTo(100, 6)
+    // Points stay ordered fine→coarse; on screen the finest sits at the RIGHT
+    // wall and the coarsest at the LEFT wall.
+    expect(drawn[0].x).toBeCloseTo(100, 6)
+    expect(drawn[2].x).toBeCloseTo(0, 6)
     // The middle decade lands exactly halfway — that is what "log scale" means.
     expect(drawn[1].x).toBeCloseTo(50, 6)
   })
@@ -129,8 +133,9 @@ describe('psdLogDomain / psdPolyline — log x axis, 0-100 % y axis', () => {
     expect(domain.minMm).toBeCloseTo(0.001, 9)
     expect(domain.maxMm).toBeCloseTo(10, 9)
 
-    // The finest curve starts at the left wall; the coarsest ends at the right.
-    expect(parsePolyline(psdPolyline(fine, domain, box))[0].x).toBeCloseTo(0, 6)
-    expect(parsePolyline(psdPolyline(coarse, domain, box))[1].x).toBeCloseTo(100, 6)
+    // Inverted axis: the finest grain sits at the RIGHT wall, the coarsest
+    // at the LEFT.
+    expect(parsePolyline(psdPolyline(fine, domain, box))[0].x).toBeCloseTo(100, 6)
+    expect(parsePolyline(psdPolyline(coarse, domain, box))[1].x).toBeCloseTo(0, 6)
   })
 })

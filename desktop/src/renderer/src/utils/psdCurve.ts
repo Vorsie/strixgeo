@@ -152,7 +152,10 @@ export function psdPolyline(
 
   return points
     .map(point => {
-      const tx = logSpan > 0 ? (Math.log10(point.diameterMm) - logMin) / safeSpan : 0
+      // INVERTED x axis (owner 2026-08-14: "the psd x-axis should be
+      // inverted") — the sieve-curve convention the engineer reads: coarse
+      // grains at the LEFT wall, fines at the RIGHT.
+      const tx = logSpan > 0 ? (logMax - Math.log10(point.diameterMm)) / safeSpan : 0
       const pctFiner = Math.max(0, Math.min(100, point.pctFiner))
       const x = tx * box.width
       // y is inverted: 100 % finer is the TOP of the box (y = 0).

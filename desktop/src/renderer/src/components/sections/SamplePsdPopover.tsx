@@ -165,8 +165,10 @@ export default function SamplePsdPopover({
             {/* One decade gridline per power of ten inside the domain, so the
                 log spacing is visible rather than implied. */}
             {decadeTicks(domain!.minMm, domain!.maxMm).map(mm => {
+              // Inverted axis (owner 2026-08-14) — same orientation as
+              // psdPolyline: coarse left, fine right.
               const t =
-                (Math.log10(mm) - Math.log10(domain!.minMm))
+                (Math.log10(domain!.maxMm) - Math.log10(mm))
                 / (Math.log10(domain!.maxMm) - Math.log10(domain!.minMm))
               return (
                 <line
@@ -197,10 +199,14 @@ export default function SamplePsdPopover({
               ),
             )}
           </svg>
-          <div className="flex justify-between text-[9px] leading-none text-gray-500 dark:text-gray-400">
-            <span>{formatDiameter(domain!.minMm)} mm</span>
-            <span>% finer by weight</span>
+          <div
+            data-testid="psd-axis-labels"
+            className="flex justify-between text-[9px] leading-none text-gray-500 dark:text-gray-400"
+          >
+            {/* Inverted axis: the COARSE end labels the left wall. */}
             <span>{formatDiameter(domain!.maxMm)} mm</span>
+            <span>% finer by weight</span>
+            <span>{formatDiameter(domain!.minMm)} mm</span>
           </div>
         </>
       ) : (

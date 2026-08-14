@@ -122,4 +122,17 @@ describe('SamplePsdPopover', () => {
     // The card was pushed off the anchor to stay inside, not left hanging.
     expect(top).toBeLessThan(495)
   })
+  it('SPP6 — the x axis is inverted: the coarse end labels the LEFT wall', () => {
+    // "the psd x-axis should be inverted" (owner 2026-08-14). The curve, the
+    // decade ticks and the edge labels must all agree, so this pins the edge
+    // labels: largest diameter left, smallest right.
+    // The default fixture spans 0.063 - 2 mm: coarse (2 mm) must label the
+    // left edge, fine (0.063 mm) the right edge.
+    const sample = makeSample({ grain_sizes: [makeGrainSize('g-1')] })
+    renderPopover(sample)
+    const labels = screen.getByTestId('psd-axis-labels')
+    const spans = Array.from(labels.querySelectorAll('span')).map(s => s.textContent ?? '')
+    expect(spans[0]).toContain('2')
+    expect(spans[spans.length - 1]).toContain('0.063')
+  })
 })
