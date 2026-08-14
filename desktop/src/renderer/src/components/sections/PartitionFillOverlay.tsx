@@ -87,6 +87,7 @@ import {
   selectLithoFallbackRegions,
   type FallbackPackingBand,
 } from '../../utils/geotechFillFallback'
+import { clipPartitionToLithoFrame } from '../../utils/clipPartitionToLithoFrame'
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
 import ReviewFlagLayer, { type ReviewFlagMarker } from './ReviewFlagLayer'
@@ -911,6 +912,55 @@ export default function PartitionFillOverlay({
     key: string
     value: ReturnType<typeof computeSectionFillActiveWithDiagnostics>
   } | null>(null)
+  // The LITHO frame partition, computed ABOVE the fill memo so the clip can
+  // consume it (owner ruling 2026-08-14: "keep exactly the litho model and
+  // only subdivide bodies"). A column may carry litho layers and no packing
+  // bands (an undivided borehole), so its column order, gap indices and
+  // screen gap extents are derived from the litho rows. Ref-cached on the
+  // same content key ``sectionFillData`` uses, so a pan/zoom reprojects
+  // without re-partitioning.
+  const lithoFrameEngineRef = useRef<{ key: string; value: SectionRegion[] } | null>(null)
+  const lithoFramePartition = useMemo(() => {
+    const empty = {
+      lithoRegions: [] as SectionRegion[],
+      lithoValid: [] as string[],
+      lithoAlongM: [] as number[],
+      lithoScreenByInv: new Map<string, ColumnScreen>(),
+    }
+    if (!lithoFrame || !showBands) return empty
+    const litho = assemblePlacedPartitionColumns(lithoFrame.lithoLayers, placedColumns)
+    const lithoValid = litho.orderedInvs.filter(
+      (id) => litho.colByInv.get(id) && litho.screenByInv.get(id),
+    )
+    const lithoColumns = lithoValid.map((id) => litho.colByInv.get(id) as PartitionColumn)
+    if (lithoColumns.length < 2) return empty
+    const lithoAlongM = lithoValid.map(
+      (id) => (litho.screenByInv.get(id) as ColumnScreen).along,
+    )
+    // Approved edges only — identical filter to the primary partition, so the
+    // envelopes drawn from this frame are the ones the litho axis draws.
+    const lithoEdges: CorrelationEdge[] = (lithoFrame.lithoEdges ?? [])
+      .filter((e) => e.user_approved)
+      .map((e) => ({
+        a: e.layer_a_id,
+        b: e.layer_b_id,
+        aSide: e.layer_a_side,
+        bSide: e.layer_b_side,
+      }))
+    // No apex overrides: the stored body boundaries are keyed by LITHO body id
+    // and the frame is view-only, so a hand-drawn shape would bend an outline
+    // the engineer cannot grab. Matches the build arm, which derives its
+    // overrides from the boundaries of the model it is building.
+    const engineKey = topologyKey(lithoColumns, lithoEdges, lithoAlongM, partitionEngineV2)
+    const cached = lithoFrameEngineRef.current
+    const lithoRegions =
+      cached && cached.key === engineKey
+        ? cached.value
+        : computeSectionFillActive(lithoColumns, lithoEdges, undefined, lithoAlongM)
+    lithoFrameEngineRef.current = { key: engineKey, value: lithoRegions }
+    return { lithoRegions, lithoValid, lithoAlongM, lithoScreenByInv: litho.screenByInv }
+  }, [lithoFrame, showBands, placedColumns, partitionEngineV2])
+
   const sectionFillData = useMemo((): {
     sectionRegions: SectionRegion[]
     orderedColumns: PartitionColumn[]
@@ -952,6 +1002,12 @@ export default function PartitionFillOverlay({
     // EXACT rejection kind on snapback (S97 — the owner's dogfeed distinguishes an unsafe reach from
     // an over-reach collapse). ``null`` when bands are hidden / the section is degenerate.
     overrideStatus: OverrideStatus | null
+    // Litho-frame clip fallback faces (owner ruling 2026-08-14) — the litho
+    // regions whose soil has no packing class anywhere in them, rendered
+    // litho-coloured. ``null`` = the clip did not run (no frame, or the
+    // geotech and litho column sets differ — an undivided borehole mid-
+    // pipeline) and the whole-region fallback heuristic applies instead.
+    lithoFallbackRegions: SectionRegion[] | null
   } => {
     if (!showBands)
       return {
@@ -968,6 +1024,7 @@ export default function PartitionFillOverlay({
         reviewFlags: [],
         rejectedDragTarget: null,
         overrideStatus: null,
+        lithoFallbackRegions: null,
       }
 
     // Valid columns in along-section order (have both unit data + screen edges).
@@ -988,6 +1045,7 @@ export default function PartitionFillOverlay({
         reviewFlags: [],
         rejectedDragTarget: null,
         overrideStatus: null,
+        lithoFallbackRegions: null,
       }
 
     // Pre-compute gap x-extents from screenByInv so both memos share the same
@@ -1155,11 +1213,39 @@ export default function PartitionFillOverlay({
         : computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
     engineResultRef.current = { key: engineKey, value: engineResult }
     const {
-      regions: sectionRegions,
+      regions: engineRegions,
       conflicts,
       reviewFlags,
       overrideStatus,
     } = engineResult
+
+    // THE LITHO FRAME CLIP (owner ruling 2026-08-14, "keep exactly the litho
+    // model and only subdivide bodies"): on the geotech axis, the direct
+    // partition is clipped to the litho partition — every face keeps its
+    // packing class only where that class's soil matches the litho region it
+    // sits in; foreign classes re-label to a same-soil class of the region;
+    // bare regions fall back to litho colour. Only possible when the two
+    // partitions share the column set (positionally): with an undivided
+    // borehole the gap axes differ and the raw partition + the whole-region
+    // fallback heuristic apply — the same answer the build has.
+    const { lithoRegions, lithoAlongM } = lithoFramePartition
+    const columnsMatch =
+      lithoFrame != null &&
+      lithoRegions.length > 0 &&
+      lithoAlongM.length === alongM.length &&
+      lithoAlongM.every((x, i) => Math.abs(x - alongM[i]) < 1e-6)
+    let sectionRegions = engineRegions
+    let lithoFallbackRegions: SectionRegion[] | null = null
+    if (columnsMatch && lithoFrame != null) {
+      const clip = clipPartitionToLithoFrame(
+        engineRegions,
+        lithoRegions,
+        lithoFrame.geotechSoilByFormationId,
+        lithoFrame.lithoSoilByFormationId,
+      )
+      sectionRegions = clip.regions
+      lithoFallbackRegions = clip.lithoFallback
+    }
 
     // Mirror of the line ``buildVoxelRequest`` logs per payload section, so the
     // RENDERED partition and the BUILT one can be compared field for field in one
@@ -1273,8 +1359,11 @@ export default function PartitionFillOverlay({
       reviewFlags,
       rejectedDragTarget,
       overrideStatus,
+      lithoFallbackRegions,
     }
   }, [
+    lithoFramePartition,
+    lithoFrame,
     orderedInvs,
     colByInv,
     screenByInv,
@@ -1943,7 +2032,6 @@ export default function PartitionFillOverlay({
   // derived from the litho rows. The engine call is cached on the same content
   // key ``sectionFillData`` uses, so a pan/zoom (which churns ``placedColumns``
   // identity through ``nudgedX``) reprojects without re-partitioning.
-  const lithoFrameEngineRef = useRef<{ key: string; value: SectionRegion[] } | null>(null)
   const lithoFrameScreen = useMemo(() => {
     const empty = {
       fallbackPolys: [] as { key: string; d: string; color: string }[],
@@ -1951,39 +2039,13 @@ export default function PartitionFillOverlay({
     }
     if (!lithoFrame || !showBands) return empty
 
-    // --- the LITHO partition, on its own columns. ---------------------------
-    const litho = assemblePlacedPartitionColumns(lithoFrame.lithoLayers, placedColumns)
-    const valid = litho.orderedInvs.filter(
-      (id) => litho.colByInv.get(id) && litho.screenByInv.get(id),
-    )
-    const lithoColumns = valid.map((id) => litho.colByInv.get(id) as PartitionColumn)
-    if (lithoColumns.length < 2) return empty
-    const lithoGapXs = Array.from({ length: lithoColumns.length - 1 }, (_, i) => ({
-      leftX: (litho.screenByInv.get(valid[i]) as ColumnScreen).rightX,
-      rightX: (litho.screenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
+    // --- the LITHO partition, hoisted above the fill memo for the clip. -----
+    const { lithoRegions, lithoValid: valid, lithoScreenByInv } = lithoFramePartition
+    if (lithoRegions.length === 0 || valid.length < 2) return empty
+    const lithoGapXs = Array.from({ length: valid.length - 1 }, (_, i) => ({
+      leftX: (lithoScreenByInv.get(valid[i]) as ColumnScreen).rightX,
+      rightX: (lithoScreenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
     }))
-    const lithoAlongM = valid.map((id) => (litho.screenByInv.get(id) as ColumnScreen).along)
-    // Approved edges only — identical filter to the primary partition above, so
-    // the envelopes drawn here are the ones the litho axis itself draws.
-    const lithoEdges: CorrelationEdge[] = (lithoFrame.lithoEdges ?? [])
-      .filter((e) => e.user_approved)
-      .map((e) => ({
-        a: e.layer_a_id,
-        b: e.layer_b_id,
-        aSide: e.layer_a_side,
-        bSide: e.layer_b_side,
-      }))
-    // No apex overrides: the stored body boundaries are keyed by LITHO body id
-    // and the frame is view-only, so a hand-drawn shape would bend an outline
-    // the engineer cannot grab. Matches the build arm, which derives its
-    // overrides from the boundaries of the model it is building.
-    const engineKey = topologyKey(lithoColumns, lithoEdges, lithoAlongM, partitionEngineV2)
-    const cached = lithoFrameEngineRef.current
-    const lithoRegions =
-      cached && cached.key === engineKey
-        ? cached.value
-        : computeSectionFillActive(lithoColumns, lithoEdges, undefined, lithoAlongM)
-    lithoFrameEngineRef.current = { key: engineKey, value: lithoRegions }
 
     // --- which litho regions the packing partition leaves bare. -------------
     // Read off the ASSEMBLED geotech columns (``colByInv``), not the raw layer
@@ -2001,12 +2063,17 @@ export default function PartitionFillOverlay({
         })),
       )
     }
-    const fallbackRegions = selectLithoFallbackRegions(
-      lithoRegions,
-      valid,
-      packingBandsByInv,
-      lithoFrame.lithoSoilByFormationId,
-    )
+    // The clip's per-face fallback is exact (owner ruling 2026-08-14) and
+    // supersedes the whole-region heuristic whenever the clip ran; the
+    // heuristic stays for the columns-differ case (undivided borehole).
+    const fallbackRegions =
+      sectionFillData.lithoFallbackRegions ??
+      selectLithoFallbackRegions(
+        lithoRegions,
+        valid,
+        packingBandsByInv,
+        lithoFrame.lithoSoilByFormationId,
+      )
 
     // --- project both passes. ----------------------------------------------
     const pathFor = (
@@ -2048,12 +2115,12 @@ export default function PartitionFillOverlay({
   }, [
     lithoFrame,
     showBands,
-    placedColumns,
+    lithoFramePartition,
+    sectionFillData.lithoFallbackRegions,
     colByInv,
     levelToScreen,
     plotTop,
     plotBottom,
-    partitionEngineV2,
   ])
 
   // One label per BODY, zoom-adaptive sizing and fit-based visibility.
