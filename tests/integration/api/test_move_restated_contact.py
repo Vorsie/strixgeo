@@ -32,6 +32,7 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from tests.integration.api.geotech_scene_helpers import accept_cpt_litho
@@ -431,6 +432,107 @@ async def test_st_sub4_the_build_rederives_under_the_models_chosen_statistic(
         "harmonic run: the weak spikes drag the representative below 4 MPa — "
         "los (5). Class 6 here means the build ignored the model's statistic."
     )
+
+
+@pytest.mark.asyncio
+async def test_st_sub5_the_first_subdivide_is_created_with_the_requested_statistic(
+    contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """ST-SUB5 — the statistic can be chosen BEFORE the first subdivide.
+
+    Owner (dogfeed 2026-08-15): *"i can't choose harmonic qc before first
+    subdivide, that's friction we don't need?"*.  The choice lives on the
+    geotech model, and until the first subdivide there is no geotech model —
+    so the engineer had to build the whole thing under the default and then
+    re-run it.  The subdivide request therefore carries the choice, and the
+    model is CREATED with it.
+
+    Proven by the class, not just the column: the spiky ZAND top is matig (6)
+    under median and los (5) under harmonic, so a 5 here means the requested
+    statistic actually reached the classifier on the very first build.
+    """
+    resp = await async_client.post(
+        f"/projects/{contact_scene['project_id']}/geology/models/"
+        f"{contact_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={
+            "litho_model_id": contact_scene["litho_model_id"],
+            "representative_statistic": "harmonic",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    gid = str(resp.json()["geotech_model_id"])
+
+    model = await db_session.get(GeologicalModelOrm, UUID(gid))
+    assert model is not None
+    assert model.representative_statistic == "harmonic", (
+        "the model was created under the choice made before it existed"
+    )
+    assert model.classified_with_statistic == "harmonic", (
+        "and the build stamped what it actually classified with, so the "
+        "toolbar's 're-run under X' tag has nothing to report"
+    )
+
+    bands = await _bands(db_session, gid, contact_scene["cpt_id"])
+    formation = await db_session.get(GeologicalFormationOrm, bands[0].formation_id)
+    assert formation is not None
+    assert formation.nad_class == 5, (
+        "harmonic on the first build: the weak spikes drag the representative "
+        "below 4 MPa — los (5). Class 6 means the request was ignored and the "
+        "model was built under the median default."
+    )
+
+
+@pytest.mark.asyncio
+async def test_st_sub6_an_existing_model_keeps_its_own_statistic(
+    contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """ST-SUB6 — once the model exists, the statistic route still owns the change.
+
+    The pre-model choice is a way to CREATE the model under a statistic, not a
+    second way to change one.  A re-run that carried the field would let a
+    stale renderer silently re-classify 500 bands under a statistic the
+    engineer last picked in another session.
+    """
+    gid = await _subdivide(async_client, contact_scene)
+    model = await db_session.get(GeologicalModelOrm, UUID(gid))
+    assert model is not None
+    assert model.representative_statistic == "median"
+
+    resp = await async_client.post(
+        f"/projects/{contact_scene['project_id']}/geology/models/"
+        f"{contact_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={
+            "litho_model_id": contact_scene["litho_model_id"],
+            "representative_statistic": "harmonic",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    db_session.expire_all()
+    model = await db_session.get(GeologicalModelOrm, UUID(gid))
+    assert model is not None
+    assert model.representative_statistic == "median", (
+        "an existing model's choice is changed through POST .../geotech/statistic"
+    )
+
+
+@pytest.mark.asyncio
+async def test_st_sub7_an_unknown_statistic_is_refused(
+    contact_scene: dict, async_client: AsyncClient
+) -> None:
+    """ST-SUB7 — a token the classifier does not know is a 422, never a silent default.
+
+    Building 500 bands under a statistic nobody asked for, because a typo fell
+    back to median, is exactly the silent degradation this project refuses.
+    """
+    resp = await async_client.post(
+        f"/projects/{contact_scene['project_id']}/geology/models/"
+        f"{contact_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={
+            "litho_model_id": contact_scene["litho_model_id"],
+            "representative_statistic": "mode",
+        },
+    )
+    assert resp.status_code == 422, resp.text
 
 
 @pytest.mark.asyncio
