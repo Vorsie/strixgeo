@@ -353,3 +353,45 @@ def place_bands_in_litho_layer(
             )
         )
     return placed
+
+
+def locate_column_in_partition(
+    columns: Sequence[tuple[str, float]], along_m: float
+) -> tuple[int, float] | None:
+    """Find the gap a column stands in, and where across it.
+
+    Parameters
+    ----------
+    columns : Sequence[tuple[str, float]]
+        The partition's own columns as ``(investigation_id, along_m)``, in the
+        order the partition indexes them — ``gap_index`` counts these, so they
+        must be the payload's list and not a re-derived one.
+    along_m : float
+        The standing column's distance along the section line.
+
+    Returns
+    -------
+    tuple[int, float] | None
+        ``(gap_index, fraction)`` — the gap's LEFT column index and the
+        position across it, ``0`` at that column and ``1`` at the next.
+        ``None`` when the column falls outside every gap (off the end of the
+        partition) or the bracketing gap has no width.
+
+    Notes
+    -----
+    A column standing exactly ON a partition column belongs to the gap that
+    STARTS there, which keeps the fraction in ``[0, 1)`` and never reports a
+    zero-width gap.
+    """
+    ordered = sorted(range(len(columns)), key=lambda i: columns[i][1])
+    for position, index in enumerate(ordered[:-1]):
+        next_index = ordered[position + 1]
+        left = columns[index][1]
+        right = columns[next_index][1]
+        if not (left <= along_m <= right):
+            continue
+        width = right - left
+        if width <= 0.0:
+            continue
+        return index, (along_m - left) / width
+    return None
