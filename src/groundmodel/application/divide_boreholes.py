@@ -1746,7 +1746,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # connected borehole chains. This is what fixes an orphan borehole band
         # (body_id NULL because no same-class CPT sat in its group) — once it is
         # edge-connected to a CPT band, the resolver puts them in one body.
-        if edge_totals.edges_emitted:
+        #
+        # The 8.5a hops count here too. They connect the same bands the
+        # alignment pass used to, so once they claim a pair the pass reports
+        # zero emitted — and gating the resolver on that count alone silently
+        # skipped the re-resolve, leaving a borehole band tied but body-less and
+        # its samples unanchored (integration SA-5, caught 2026-08-15).
+        if edge_totals.edges_emitted or hops_written:
             await ResolveLithoInstances(self._session).execute(
                 model_id=geotech_model_id, commit=False
             )
