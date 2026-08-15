@@ -53,9 +53,10 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
+    load_accepted_geotech_sided_edges_by_section,
     load_approved_litho_edge_sets,
-    load_existing_geotech_sided_edges_by_section,
     load_existing_geotech_edge_pairs_by_section,
+    load_existing_geotech_sided_edges_by_section,
     load_litho_layer_depths,
     load_project_sections,
 )
@@ -215,6 +216,13 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         seen_sided_by_section = await load_existing_geotech_sided_edges_by_section(
             self._session, model_id
         )
+        # Seeds the crossing guard. This verb is the one the owner pressed when
+        # the section answered "1 crossing correlation tie — resolve to restore
+        # bands": the tie it crossed was already approved in the model, so the
+        # guard has to see the model's approvals, not only this run's.
+        accepted_sided_by_section = await load_accepted_geotech_sided_edges_by_section(
+            self._session, model_id
+        )
         self.debug(
             f"AutoCorrelateGeotechEdges: preloaded existing edges on "
             f"{len(seen_pairs_by_section)} section(s) — these are left untouched"
@@ -272,6 +280,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     # base↔base edge between the deepest bands.
                     litho_sided_edges=edge_sets.sided_edges,
                     seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
+                    existing_accepted_sided_edges=accepted_sided_by_section.get(section.id, set()),
                     source=AUTO_SOURCE,
                 )
             )

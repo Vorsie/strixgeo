@@ -106,6 +106,7 @@ from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
+    load_accepted_geotech_sided_edges_by_section,
     load_approved_litho_edge_sets,
     load_existing_geotech_edge_pairs_by_section,
     load_existing_geotech_sided_edges_by_section,
@@ -1427,6 +1428,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         seen_sided_by_section = await load_existing_geotech_sided_edges_by_section(
             self._session, geotech_model_id
         )
+        # Seeds the crossing guard: a proposal that would cross an approval
+        # already in the model is refused rather than shipped as a conflict
+        # that stops the whole gap from banding (owner §8 Q4).
+        accepted_sided_by_section = await load_accepted_geotech_sided_edges_by_section(
+            self._session, geotech_model_id
+        )
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
         if section_id is not None:
@@ -1470,6 +1477,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     # side-preserved onto the bands owning its contacts.
                     litho_sided_edges=edge_sets.sided_edges,
                     seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
+                    existing_accepted_sided_edges=accepted_sided_by_section.get(section.id, set()),
                 )
             )
             # Owner ruling 2026-08-14: "those cpt to cpt ties should be

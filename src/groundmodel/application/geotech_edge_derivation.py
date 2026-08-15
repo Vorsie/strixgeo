@@ -61,6 +61,11 @@ from groundmodel.domain.services.auto_correlate_contact_edges_constants import A
 from groundmodel.domain.services.geotech_edge_bridging import (
     bridge_litho_edges_over_bandless_columns,
 )
+from groundmodel.domain.services.geotech_edge_crossing_guard import (
+    GapTie,
+    crossing_partners,
+    gap_key,
+)
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     GeotechEdgeForSupersession,
 )
@@ -100,6 +105,12 @@ class EdgeDerivationCounts:
     # same pass. The standalone auto-correlate verb toasts this so the engineer
     # can tell "nothing new to propose" from "nothing matched".
     skipped_existing_pair: int = 0
+    # Candidates refused because they would CROSS a tie already standing in the
+    # same gap (owner §8 Q4: a crossing is a hard conflict — neither side bands
+    # and the section warns until it is resolved). Counted separately from
+    # ``skipped_existing_pair`` because it means something quite different: not
+    # "already there" but "would have broken the fill on that gap".
+    skipped_crossing_tie: int = 0
 
     def add(self, other: EdgeDerivationCounts) -> None:
         """Accumulate another pass's counters into this one."""
@@ -110,6 +121,7 @@ class EdgeDerivationCounts:
         self.skipped_no_lcs += other.skipped_no_lcs
         self.skipped_empty_stack += other.skipped_empty_stack
         self.skipped_existing_pair += other.skipped_existing_pair
+        self.skipped_crossing_tie += other.skipped_crossing_tie
 
 
 async def load_project_sections(session: AsyncSession, project_id: UUID) -> list[CrossSectionOrm]:
@@ -276,17 +288,49 @@ async def load_existing_geotech_sided_edges_by_section(
     dict[UUID, set[tuple[UUID, UUID, str, str]]]
         ``section_id → {(min_id, max_id, side_of_min, side_of_max), ...}``.
     """
-    rows = (
-        await session.execute(
-            select(
-                LithoContactCorrelationEdgeOrm.section_id,
-                LithoContactCorrelationEdgeOrm.layer_a_id,
-                LithoContactCorrelationEdgeOrm.layer_b_id,
-                LithoContactCorrelationEdgeOrm.layer_a_side,
-                LithoContactCorrelationEdgeOrm.layer_b_side,
-            ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
-        )
-    ).all()
+    return await _sided_edges_by_section(session, geotech_model_id, approved_only=False)
+
+
+async def load_accepted_geotech_sided_edges_by_section(
+    session: AsyncSession, geotech_model_id: UUID
+) -> dict[UUID, set[tuple[UUID, UUID, str, str]]]:
+    """Load the APPROVED geotech edges with their sides, keyed by section.
+
+    Seeds the derivation's crossing guard.  Approvals only, because a crossing
+    is judged against what actually paints: the renderer feeds the fill
+    ``user_approved`` edges alone, so a pending proposal beside another pending
+    proposal costs nothing until one of them is accepted.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active DB session.
+    geotech_model_id : UUID
+        The geotech model.
+
+    Returns
+    -------
+    dict[UUID, set[tuple[UUID, UUID, str, str]]]
+        ``section_id → {(min_id, max_id, side_of_min, side_of_max), ...}`` for
+        the approved edges only.
+    """
+    return await _sided_edges_by_section(session, geotech_model_id, approved_only=True)
+
+
+async def _sided_edges_by_section(
+    session: AsyncSession, geotech_model_id: UUID, *, approved_only: bool
+) -> dict[UUID, set[tuple[UUID, UUID, str, str]]]:
+    """Shared body of the two sided-edge loaders — one query, one canonicalisation."""
+    stmt = select(
+        LithoContactCorrelationEdgeOrm.section_id,
+        LithoContactCorrelationEdgeOrm.layer_a_id,
+        LithoContactCorrelationEdgeOrm.layer_b_id,
+        LithoContactCorrelationEdgeOrm.layer_a_side,
+        LithoContactCorrelationEdgeOrm.layer_b_side,
+    ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
+    if approved_only:
+        stmt = stmt.where(LithoContactCorrelationEdgeOrm.user_approved.is_(True))
+    rows = (await session.execute(stmt)).all()
     by_section: dict[UUID, set[tuple[UUID, UUID, str, str]]] = {}
     for section_id, a, b, sa, sb in rows:
         key = (a, b, sa, sb) if a < b else (b, a, sb, sa)
@@ -471,6 +515,7 @@ async def derive_geotech_edges_from_litho(
     direct_litho_pairs: set[tuple[UUID, UUID]] | None = None,
     litho_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
     seen_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
+    existing_accepted_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
     source: str = AUTO_SOURCE,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by packing alignment within each correlated litho unit.
@@ -548,6 +593,13 @@ async def derive_geotech_edges_from_litho(
         an existing tie suppress a top↔top PROPOSAL, but a single-band unit
         must be able to carry its top, base and mixed restatements on one
         layer pair.  ``None`` starts an empty per-call set.
+    existing_accepted_sided_edges : set[tuple[UUID, UUID, str, str]] | None
+        Already-APPROVED geotech edges on this section, ``(min_id, max_id,
+        side_of_min, side_of_max)``, used to seed the crossing guard.  The
+        owner's banner appeared the instant he pressed step 2, which means the
+        tie the new proposal crossed was already in the model — a hand-drawn
+        tie, an earlier accept-all, or a Divide-boreholes restatement.  ``None``
+        checks only what this pass emits itself.
     source : str
         Provenance token stamped on each emitted edge, one of ``'manual'`` /
         ``'auto'`` (DB CHECK). Defaults to ``AUTO_SOURCE`` — ``'manual'`` is
@@ -603,7 +655,91 @@ async def derive_geotech_edges_from_litho(
                 )
         return out
 
+    # --- crossing guard (owner §8 Q4: a crossing tie is a HARD CONFLICT) -----
+    # Every band's home column + its two surfaces, so an (id, side) endpoint
+    # resolves to the depth the guard compares. Depth below collar, not
+    # elevation: both differences the crossing test takes are WITHIN one column,
+    # so the sign flip cancels and the two spaces agree (see the guard module).
+    band_home: dict[str, tuple[str, float, float]] = {
+        str(row[2]): (inv_str, float(row[0]), float(row[1]))
+        for inv_str, intervals in sorted_geotech.items()
+        for row in intervals
+    }
+    # gap (sorted investigation pair) → the ties already standing there, in
+    # registration order: persisted approvals first, then this pass's own.
+    ties_by_gap: dict[tuple[str, str], list[GapTie]] = {}
+
+    def _as_gap_tie(
+        layer_a: str, side_a: str, layer_b: str, side_b: str, accepted: bool
+    ) -> tuple[tuple[str, str], GapTie] | None:
+        """Reduce an endpoint pair to its gap + the two depths it joins there.
+
+        Returns ``None`` when either band's home column is unknown (a stale or
+        foreign endpoint) or when both endpoints sit on the same investigation
+        — neither spans a gap, so neither can cross anything.
+        """
+        home_a = band_home.get(layer_a)
+        home_b = band_home.get(layer_b)
+        if home_a is None or home_b is None:
+            return None
+        inv_a, top_a_m, base_a_m = home_a
+        inv_b, top_b_m, base_b_m = home_b
+        if inv_a == inv_b:
+            return None
+        depth_a = top_a_m if side_a == "top" else base_a_m
+        depth_b = top_b_m if side_b == "top" else base_b_m
+        key = gap_key(inv_a, inv_b)
+        if key[0] == inv_a:
+            return key, GapTie(depth_a, depth_b, accepted, layer_a, layer_b)
+        return key, GapTie(depth_b, depth_a, accepted, layer_b, layer_a)
+
     counts = EdgeDerivationCounts()
+
+    def _may_land(layer_a: str, side_a: str, layer_b: str, side_b: str, accepted: bool) -> bool:
+        """Register a candidate tie, or refuse it because it would cross.
+
+        An ACCEPTED candidate is judged only against accepted neighbours: a
+        pending proposal may never veto an approval, or the derivation would
+        quietly drop a restatement the engineer drew at the litho stage.  A
+        PENDING candidate is judged against everything already standing in its
+        gap.  A tie whose endpoints do not resolve to two different columns
+        spans no gap and cannot cross anything, so it lands unjudged.
+
+        Returns ``True`` when the caller may emit (the tie is now registered)
+        and ``False`` when it must skip — already counted and logged here.
+        """
+        resolved = _as_gap_tie(layer_a, side_a, layer_b, side_b, accepted)
+        if resolved is None:
+            return True
+        key, candidate = resolved
+        standing = ties_by_gap.setdefault(key, [])
+        judged = [t for t in standing if t.accepted] if accepted else standing
+        blocking = crossing_partners(judged, candidate)
+        if blocking:
+            counts.skipped_crossing_tie += 1
+            other = blocking[0]
+            # INFO, not DEBUG: the machine is declining to emit something the
+            # engineer asked for, and the reason is geometric — unreadable from
+            # the result alone. Both endpoints of both ties are named, because
+            # "1 refused" tells nobody which correlation to look at.
+            log.info(
+                f"derive_geotech_edges_from_litho: refused a crossing tie in gap "
+                f"{key[0]}↔{key[1]} — candidate {layer_a}({side_a}) at "
+                f"{candidate.depth_first_m:.3f} m ↔ {layer_b}({side_b}) at "
+                f"{candidate.depth_second_m:.3f} m inverts against the standing "
+                f"{'accepted' if other.accepted else 'pending'} tie "
+                f"{other.layer_first_id} at {other.depth_first_m:.3f} m ↔ "
+                f"{other.layer_second_id} at {other.depth_second_m:.3f} m"
+            )
+            return False
+        standing.append(candidate)
+        return True
+
+    for a_id, b_id, seed_side_a, seed_side_b in existing_accepted_sided_edges or set():
+        seeded = _as_gap_tie(str(a_id), seed_side_a, str(b_id), seed_side_b, True)
+        if seeded is not None:
+            ties_by_gap.setdefault(seeded[0], []).append(seeded[1])
+
     direct = direct_litho_pairs if direct_litho_pairs is not None else litho_approved_edges
     sided_seen = seen_sided_edges if seen_sided_edges is not None else set()
     # Sided litho edges grouped by canonical pair, for the per-pair loop.
@@ -641,6 +777,8 @@ async def derive_geotech_edges_from_litho(
         )
         if key in sided_seen:
             counts.skipped_existing_pair += 1
+            return
+        if not _may_land(str(key[0]), key[2], str(key[1]), key[3], True):
             return
         sided_seen.add(key)
         session.add(
@@ -754,7 +892,6 @@ async def derive_geotech_edges_from_litho(
             if (canonical_a, canonical_b) in seen_layer_pairs:
                 counts.skipped_existing_pair += 1
                 continue
-            seen_layer_pairs.add((canonical_a, canonical_b))
 
             restates_litho_tie = (
                 pair_is_direct
@@ -764,6 +901,13 @@ async def derive_geotech_edges_from_litho(
                 and la == left_stack[0][0]
                 and rb == right_stack[0][0]
             )
+            # A refused candidate is NOT added to ``seen_layer_pairs``: it was
+            # never emitted, so a later pass with different neighbours (a
+            # re-derive after the engineer resolves the conflict) must be free
+            # to reconsider it.
+            if not _may_land(str(canonical_a), "top", str(canonical_b), "top", restates_litho_tie):
+                continue
+            seen_layer_pairs.add((canonical_a, canonical_b))
             session.add(
                 LithoContactCorrelationEdgeOrm(
                     id=uuid7(),
@@ -816,6 +960,8 @@ async def derive_geotech_edges_from_litho(
                 )
                 if (canonical_a, canonical_b) in seen_layer_pairs:
                     counts.skipped_existing_pair += 1
+                    continue
+                if not _may_land(str(canonical_a), "top", str(canonical_b), "top", False):
                     continue
                 seen_layer_pairs.add((canonical_a, canonical_b))
                 session.add(
