@@ -1,0 +1,351 @@
+"""Integration tests for the packing-tie crossing guard (owner dogfeed 2026-08-15).
+
+The owner pressed pipeline step 2 and his section answered *"1 crossing
+correlation tie — resolve to restore bands"*, with the bands gone on that gap.
+A crossing is a HARD CONFLICT by his own §8 Q4 ruling — the renderer suspends
+BOTH ties and neither side bands — so a machine proposal that crosses is pure
+friction AND it silently kills the fill where it lands.
+
+Scene
+-----
+CPT-A (x=149 000) — CPT-B (x=149 600) on one section, ZAND 0–9 m on both, a
+DIRECT litho correlation A↔B, and three packing zones per column at different
+depths (A breaks at 3 m and 6 m, B at 2 m and 5 m).  A hand-drawn ACCEPTED tie
+then runs from A's shallowest band down to B's deepest — the shape that makes
+the middle same-class pair invert against it.
+
+Cases
+-----
+XG-DB1  With that approval standing, auto-correlate emits NO tie that crosses
+        it: the middle pair is refused rather than proposed.
+XG-DB2  Negative control on the same scene with no hand-drawn tie: the very
+        same middle pair IS proposed, so the guard is not a blanket
+        "propose less".
+
+Run via the integration wrapper:
+    .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_geotech_crossing_guard.py
+"""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
+
+from groundmodel.domain.services.geotech_edge_crossing_guard import GapTie, ties_cross
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
+from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration.api.geotech_scene_helpers import accept_cpt_litho, correlate
+
+# The two columns break their packing at DIFFERENT depths, which is what lets a
+# tie drawn between mismatched bands slope steeply enough to be crossed.
+_A_BREAKS_M = (3.0, 6.0)
+_B_BREAKS_M = (2.0, 5.0)
+_COLUMN_DEPTH_M = 9.0
+
+
+def _three_zone_qc(breaks_m: tuple[float, float]) -> tuple[list[float], list[float]]:
+    """Return ``(depths_m, qc_mpa)`` for three packing zones on a 2 cm interval."""
+    depths = [round(i * 0.02, 3) for i in range(int(_COLUMN_DEPTH_M / 0.02))]
+    qc = [
+        5.0 if d < breaks_m[0] else (12.0 if d < breaks_m[1] else 25.0)  # los / matig / dicht
+        for d in depths
+    ]
+    return depths, qc
+
+
+@pytest_asyncio.fixture
+async def crossing_scene(
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> dict:
+    """Two directly-correlated CPTs whose packing breaks sit at different depths.
+
+    Returns
+    -------
+    dict
+        Keys: ``project_id``, ``litho_model_id``, ``section_id``, ``cpt_a_id``,
+        ``cpt_b_id``.
+    """
+    proj = ProjectOrm(id=uuid7(), name="Geotech crossing guard test", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    pid = str(proj.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "XG-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "XG-Litho",
+            "kind": "lithostratigraphic",
+            "parent_model_id": geo_resp.json()["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "XG-Section",
+            "start_x": 148_700.0,
+            "start_y": 200_000.0,
+            "end_x": 149_900.0,
+            "end_y": 200_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    def _cpt(name: str, x: float, breaks_m: tuple[float, float]) -> CptOrm:
+        depths, qc = _three_zone_qc(breaks_m)
+        cpt = CptOrm(
+            id=uuid7(),
+            name=name,
+            cpt_type="CPTU",
+            project_id="XG",
+            test_id=f"XG/{name}",
+            app_project_id=proj.id,
+            location_x=x,
+            location_y=200_000.0,
+            elevation_m=5.0,
+            z_epsg=5710,
+            epsg=31370,
+            max_depth_m=_COLUMN_DEPTH_M,
+        )
+        cpt.series = CptSeriesOrm(
+            depths_m=depths,
+            qc_mpa=qc,
+            fs_mpa=[0.05] * len(depths),
+            u2_mpa=None,
+            rf_pct=None,
+            q_total_mpa=None,
+        )
+        return cpt
+
+    cpt_a = _cpt("CPT-A", 149_000.0, _A_BREAKS_M)
+    cpt_b = _cpt("CPT-B", 149_600.0, _B_BREAKS_M)
+    db_session.add_all([cpt_a, cpt_b])
+    await db_session.commit()
+
+    contact_a = await accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_a.id), top=0.0, base=_COLUMN_DEPTH_M
+    )
+    contact_b = await accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_b.id), top=0.0, base=_COLUMN_DEPTH_M
+    )
+    await correlate(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=contact_a,
+        contact_b=contact_b,
+        section_id=section_id,
+    )
+
+    return {
+        "project_id": pid,
+        "litho_model_id": litho_model_id,
+        "section_id": section_id,
+        "cpt_a_id": cpt_a.id,
+        "cpt_b_id": cpt_b.id,
+    }
+
+
+async def _subdivide_cpts(client: AsyncClient, scene: dict) -> str:
+    """Run pipeline step 1 and return the geotech model id."""
+    resp = await client.post(
+        f"/projects/{scene['project_id']}/geology/models/"
+        f"{scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={"litho_model_id": scene["litho_model_id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    return str(resp.json()["geotech_model_id"])
+
+
+async def _auto_correlate(client: AsyncClient, scene: dict, geotech_model_id: str) -> None:
+    """Run pipeline step 2."""
+    resp = await client.post(
+        f"/projects/{scene['project_id']}/geology/models/{geotech_model_id}/geotech/auto-correlate",
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def _bands(db_session: AsyncSession, geotech_model_id: str, cpt_id) -> list[LithoLayerOrm]:
+    """One column's geotech packing bands, top→base."""
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(geotech_model_id),
+                    LithoLayerOrm.cpt_id == cpt_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def _edge_pairs(db_session: AsyncSession, geotech_model_id: str) -> set[frozenset[UUID]]:
+    """Every geotech edge on the model, as unordered endpoint pairs."""
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {frozenset((e.layer_a_id, e.layer_b_id)) for e in rows}
+
+
+async def _plant_hand_drawn_tie(
+    db_session: AsyncSession, scene: dict, geotech_model_id: str
+) -> None:
+    """Approve a tie from A's shallowest band down to B's deepest.
+
+    That is the shape the owner's section carried: it falls steeply to the
+    right, so every same-class pair below the top rises across it.
+    """
+    a_bands = await _bands(db_session, geotech_model_id, scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, scene["cpt_b_id"])
+    assert len(a_bands) >= 3 and len(b_bands) >= 3, (
+        "the scene must subdivide into at least three packing bands per column, "
+        f"got {len(a_bands)} and {len(b_bands)}"
+    )
+    shallow_a, deep_b = a_bands[0], b_bands[-1]
+    lo, hi = (shallow_a.id, deep_b.id) if shallow_a.id < deep_b.id else (deep_b.id, shallow_a.id)
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=UUID(geotech_model_id),
+            section_id=UUID(str(scene["section_id"])),
+            layer_a_id=lo,
+            layer_b_id=hi,
+            layer_a_side="top",
+            layer_b_side="top",
+            user_approved=True,
+            source="manual",
+        )
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_xgdb1_auto_correlate_emits_no_tie_that_crosses_a_standing_approval(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """XG-DB1: the middle pair would cross the hand-drawn tie, so it is refused.
+
+    Asserted twice over: the specific pair is absent, AND no two ties in the
+    gap invert between the columns — the invariant the renderer's warning
+    banner enforces from the other side.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    await _plant_hand_drawn_tie(db_session, crossing_scene, geotech_model_id)
+
+    await _auto_correlate(async_client, crossing_scene, geotech_model_id)
+    db_session.expire_all()
+
+    a_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_b_id"])
+    pairs = await _edge_pairs(db_session, geotech_model_id)
+
+    assert frozenset((a_bands[1].id, b_bands[1].id)) not in pairs, (
+        "the middle pair rises to the right while the engineer's own tie falls "
+        "to the right — proposing it would suspend BOTH and blank the gap"
+    )
+
+    # The invariant itself, on the rows that actually landed: read every edge as
+    # the two depths it joins and check no two of them invert.
+    depth_of = {
+        band.id: (column, float(band.depth_top_m))
+        for column, bands in (("A", a_bands), ("B", b_bands))
+        for band in bands
+    }
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    standing: list[GapTie] = []
+    for edge in rows:
+        home_a = depth_of.get(edge.layer_a_id)
+        home_b = depth_of.get(edge.layer_b_id)
+        if home_a is None or home_b is None or home_a[0] == home_b[0]:
+            continue
+        on_a, on_b = (home_a, home_b) if home_a[0] == "A" else (home_b, home_a)
+        standing.append(
+            GapTie(
+                depth_first_m=on_a[1],
+                depth_second_m=on_b[1],
+                accepted=bool(edge.user_approved),
+                layer_first_id=str(edge.layer_a_id),
+                layer_second_id=str(edge.layer_b_id),
+            )
+        )
+    for i, first in enumerate(standing):
+        for second in standing[i + 1 :]:
+            assert not ties_cross(first, second), (
+                f"two ties in the gap invert between the columns: "
+                f"{first.depth_first_m}→{first.depth_second_m} against "
+                f"{second.depth_first_m}→{second.depth_second_m}"
+            )
+
+
+@pytest.mark.asyncio
+async def test_xgdb2_without_the_standing_approval_the_same_pair_is_proposed(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """XG-DB2: negative control — the guard refuses a crossing, not a pair.
+
+    Identical scene, no hand-drawn tie. The middle pair must arrive exactly as
+    it always did, or the guard has quietly become "propose less".
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+
+    await _auto_correlate(async_client, crossing_scene, geotech_model_id)
+    db_session.expire_all()
+
+    a_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_b_id"])
+    pairs = await _edge_pairs(db_session, geotech_model_id)
+
+    assert frozenset((a_bands[1].id, b_bands[1].id)) in pairs, (
+        "nothing crosses here — the middle same-class pair is exactly what the "
+        "engineer presses auto-correlate for"
+    )

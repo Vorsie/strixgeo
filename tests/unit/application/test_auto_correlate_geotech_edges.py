@@ -109,15 +109,23 @@ class _FakeSession:
         if "cross_section" in sql:
             return _Rows([SimpleNamespace(id=SECTION, name="CS1", display_order=0)])
         if "litho_contact_correlation_edge" in sql:
-            if "user_approved" in sql:
-                # load_approved_litho_edge_sets selects the sides too; the
-                # canned pairs are plain top↔top litho ties.
-                return _Rows([(a, b, "top", "top") for a, b in self._approved_litho_edges])
-            if "layer_a_side" in sql:
-                # load_existing_geotech_base_pairs_by_section — no canned
-                # base↔base geotech rows in these scenes.
-                return _Rows([])
-            return _Rows(list(self._existing_geotech_edges))
+            # Dispatch on the SELECT LIST, not the WHERE clause: three loaders
+            # read this table and two of them filter on ``user_approved``, so a
+            # where-clause test hands the approved-litho fixture (4 columns) to
+            # a by-section loader that unpacks 5 and blows up.
+            # SQLAlchemy compiles with a newline before FROM, so split on the
+            # bare keyword rather than a space-padded one.
+            select_list = sql.split("FROM")[0]
+            if "section_id" in select_list:
+                if "layer_a_side" in select_list:
+                    # The sided by-section loaders (all edges, and the
+                    # approved-only seed for the crossing guard) — no canned
+                    # sided geotech rows in these scenes.
+                    return _Rows([])
+                return _Rows(list(self._existing_geotech_edges))
+            # load_approved_litho_edge_sets selects the sides too; the
+            # canned pairs are plain top↔top litho ties.
+            return _Rows([(a, b, "top", "top") for a, b in self._approved_litho_edges])
         if "geological_formation" in sql:
             return _Rows(list(self._geotech_bands))
         return _Rows(list(self._litho_layers))

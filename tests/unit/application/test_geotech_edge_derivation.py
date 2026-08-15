@@ -168,13 +168,11 @@ async def test_a_direct_pair_with_cross_class_tops_still_restates() -> None:
     }
     restatement = by_pair[frozenset((ff_a, mf_b))]
     assert restatement.user_approved is True, (
-        "the restatement joins the two TOPMOST bands — the contact surfaces "
-        "the engineer tied"
+        "the restatement joins the two TOPMOST bands — the contact surfaces the engineer tied"
     )
     interior = by_pair[frozenset((ff_a, ff_b))]
     assert interior.user_approved is False, (
-        "the FF-body pair is an interior machine claim — a pending ghost, "
-        "never the restatement"
+        "the FF-body pair is an interior machine claim — a pending ghost, never the restatement"
     )
 
 
@@ -828,3 +826,151 @@ async def test_the_interior_body_pair_is_proposed_pending_beside_the_restatement
         "an interior body pair is a machine claim - pending, per ruling A"
     )
     assert counts.edges_proposed >= 1
+
+
+# ---------------------------------------------------------------------------
+# Crossing guard (owner dogfeed 2026-08-15: pressing step 2 put "1 crossing
+# correlation tie - resolve to restore bands" on the section and the bands
+# refused to draw on that gap). A crossing is a HARD CONFLICT by the owner's
+# own S8 Q4 ruling - neither side bands - so the derivation must not propose
+# one. The rule, in the section's terms: two ties in one gap cross when their
+# endpoint order is inverted between the two columns.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_xd1_a_proposal_that_would_cross_an_accepted_restatement_is_refused() -> None:
+    """The owner's scene: a unit carrying BOTH a top-to-top litho tie and a
+    mixed onlap declaration. The mixed restatement runs from the DEEPEST band's
+    base on the left to the TOPMOST band's top on the right, so it passes under
+    every deeper pair the aligner then proposes - and the deeper proposal
+    crosses it. The approval stands; the proposal must never be born.
+    """
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    shallow_a, deep_a = uuid4(), uuid4()
+    shallow_b, deep_b = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(la, lb)},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [
+                (0.0, 4.0, shallow_a, uuid4(), 13),
+                (4.0, 10.0, deep_a, uuid4(), 14),
+            ],
+            "inv-B": [
+                (0.0, 3.0, shallow_b, uuid4(), 13),
+                (3.0, 10.0, deep_b, uuid4(), 14),
+            ],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "top"), (la, lb, "base", "top")},
+        seen_sided_edges=set(),
+    )
+    emitted = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)) for c in session.add.call_args_list
+    }
+    # The mixed restatement (deepest left band's base to topmost right band's
+    # top) and the topmost pair both stand - they share the right endpoint, so
+    # they fan rather than cross.
+    assert frozenset((deep_a, shallow_b)) in emitted
+    assert frozenset((shallow_a, shallow_b)) in emitted
+    # The deep-to-deep pair inverts its order against the restatement and must
+    # be refused rather than shipped as a conflict the engineer has to clear.
+    assert frozenset((deep_a, deep_b)) not in emitted
+    assert counts.skipped_crossing_tie == 1
+
+
+@pytest.mark.asyncio
+async def test_xd2_without_the_mixed_declaration_the_same_deep_pair_is_proposed() -> None:
+    """Negative control for XD1: the ONLY thing that made the deep pair cross
+    was the mixed restatement running under it. Drop the mixed declaration and
+    the very same scene must propose the deep pair as it always did - the guard
+    may not become a blanket "propose less".
+    """
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    shallow_a, deep_a = uuid4(), uuid4()
+    shallow_b, deep_b = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(la, lb)},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [
+                (0.0, 4.0, shallow_a, uuid4(), 13),
+                (4.0, 10.0, deep_a, uuid4(), 14),
+            ],
+            "inv-B": [
+                (0.0, 3.0, shallow_b, uuid4(), 13),
+                (3.0, 10.0, deep_b, uuid4(), 14),
+            ],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "top")},
+        seen_sided_edges=set(),
+    )
+    emitted = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)) for c in session.add.call_args_list
+    }
+    assert frozenset((shallow_a, shallow_b)) in emitted
+    assert frozenset((deep_a, deep_b)) in emitted
+    assert counts.skipped_crossing_tie == 0
+
+
+@pytest.mark.asyncio
+async def test_xd3_an_edge_already_accepted_in_the_database_blocks_the_crossing_proposal() -> None:
+    """The owner's banner appeared the INSTANT he pressed step 2, which means
+    the tie it crossed was already in the model - a hand-drawn tie, an earlier
+    accept-all, or a Divide-boreholes restatement. An approval the run did not
+    emit itself still outranks a fresh proposal.
+    """
+    session = _mock_session()
+    la, lb = sorted((uuid4(), uuid4()))
+    a_top, a_mid, a_deep = uuid4(), uuid4(), uuid4()
+    b_top, b_mid, b_deep = uuid4(), uuid4(), uuid4()
+    # The engineer's own tie: the left column's TOP band down to the right
+    # column's DEEP band. Anything running the other way inverts against it.
+    hand_drawn = (a_top, b_deep, "top", "top") if a_top < b_deep else (b_deep, a_top, "top", "top")
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(la, lb)},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [
+                (0.0, 3.0, a_top, uuid4(), 13),
+                (3.0, 6.0, a_mid, uuid4(), 14),
+                (6.0, 10.0, a_deep, uuid4(), 15),
+            ],
+            "inv-B": [
+                (0.0, 2.0, b_top, uuid4(), 13),
+                (2.0, 5.0, b_mid, uuid4(), 14),
+                (5.0, 10.0, b_deep, uuid4(), 15),
+            ],
+        },
+        seen_layer_pairs=set(),
+        litho_sided_edges={(la, lb, "top", "top")},
+        seen_sided_edges=set(),
+        existing_accepted_sided_edges={hand_drawn},
+    )
+    emitted = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)) for c in session.add.call_args_list
+    }
+    assert frozenset((a_mid, b_mid)) not in emitted, (
+        "the middle pair rises to the right while the engineer's own tie falls "
+        "to the right - the two invert between the columns"
+    )
+    # The pairs that keep their order beside the hand-drawn tie still arrive.
+    assert frozenset((a_top, b_top)) in emitted
+    assert frozenset((a_deep, b_deep)) in emitted
+    assert counts.skipped_crossing_tie == 1
