@@ -144,7 +144,7 @@ from groundmodel.domain.services.borehole_flank_donors import (
     FlankSelection,
     SectionPlacement,
     confidence_from_donor_distance,
-    flank_packing_surfaces,
+    flank_packing_surfaces_with_donors,
     select_flank_donors,
 )
 from groundmodel.domain.services.borehole_packing_fill import (
@@ -261,8 +261,18 @@ class PlannedBand:
     donors : tuple[BandDonor, ...]
         The CPT(s) the packing was read from — empty for the conservative
         fills.
-    section_name : str | None
+    donor_layer_ids : tuple[str, ...]
+        The ``litho_layer`` id of the donor BAND this band continues, on each
+        flank — the correspondence the fraction rescale established (band *i*
+        left ↔ band *i* here ↔ band *i* right).  Empty for a conservative fill,
+        which continues nothing.  This is what lets the commit write the
+        borehole hop outright instead of guessing the pairing back from depths
+        (owner 2026-08-15).
+    section_id : str | None
         Section the donors were read along; ``None`` outside the flank modes.
+        The hop this band licenses is section-scoped, like every other edge.
+    section_name : str | None
+        That section's display name.
     """
 
     depth_top_m: float
@@ -277,6 +287,8 @@ class PlannedBand:
     # site keeps working and the wire schema stays additive.
     mode: str = ""
     donors: tuple[BandDonor, ...] = ()
+    donor_layer_ids: tuple[str, ...] = ()
+    section_id: str | None = None
     section_name: str | None = None
 
 
@@ -909,6 +921,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 (
                     fill_band_list,
                     fill_band_body_ids,
+                    fill_band_donor_ids,
                     selection,
                 ) = self._plan_borehole_bands_litho_confined(
                     inv_id=inv_id,
@@ -979,13 +992,21 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                                     selection.mode if fb.source == "cpt_interpolated" else fb.source
                                 ),
                                 donors=(band_donors if fb.source == "cpt_interpolated" else ()),
+                                donor_layer_ids=donor_layer_ids,
+                                section_id=(
+                                    selection.section_id
+                                    if fb.source == "cpt_interpolated"
+                                    else None
+                                ),
                                 section_name=(
                                     selection.section_name
                                     if fb.source == "cpt_interpolated"
                                     else None
                                 ),
                             )
-                            for fb, body_id in zip(fill_band_list, fill_band_body_ids)
+                            for fb, body_id, donor_layer_ids in zip(
+                                fill_band_list, fill_band_body_ids, fill_band_donor_ids
+                            )
                         ),
                     )
                 )
@@ -1362,6 +1383,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # body groups so Phase 9 (sample assignment) has the complete picture for
         # each borehole even when it spans multiple litho bodies.
         borehole_fill_bands: dict[str, list[Band]] = defaultdict(list)
+        # (section, donor band, borehole band) — the hops the fraction rescale
+        # already established when it laid each borehole band between a known
+        # pair of flank bands. Phase 8.5 writes them; nothing downstream has to
+        # rediscover the pairing.
+        donor_hops: list[tuple[UUID, UUID, UUID]] = []
 
         for segment in plan.segments:
             await self._persist_planned_segment(
@@ -1373,6 +1399,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 created_formation_ids=created_formation_ids,
                 geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                 borehole_fill_bands=borehole_fill_bands,
+                donor_hops=donor_hops,
             )
 
         total_layers = plan.layer_count
@@ -1443,6 +1470,58 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             # on a section the engineer has not reached yet.
             sections = [section for section in sections if section.id == section_id]
         edge_totals = EdgeDerivationCounts()
+        # ------------------------------------------------------------------
+        # Phase 8.5a — write the hops the fill already knows about.
+        #
+        # Owner, 2026-08-15: *"take the litho and check if new subdivisions are
+        # there, then take top as 0 an bottom as 1 and rescale them on a
+        # borehole"*.  That rescale is what laid these bands, and it laid each
+        # one between a NAMED pair of flank bands.  Writing the hop straight
+        # off that correspondence is the difference between a chain that closes
+        # and one that does not: the alignment pass below sees each gap on its
+        # own, so the gap left of a borehole and the gap right of it used to
+        # pick different borehole bands for the same unit, and the CPT↔CPT tie
+        # spanning them was never replaced by anything (76 of 86 on his model
+        # had no borehole hop at all).
+        #
+        # These land ACCEPTED for the same reason the derived hops do: they
+        # re-express a correlation the engineer already made, through a column
+        # the press has just divided.
+        # ------------------------------------------------------------------
+        hops_written = 0
+        for hop_section_id, donor_band_id, borehole_band_id in donor_hops:
+            if section_id is not None and hop_section_id != section_id:
+                continue
+            canonical = (
+                (donor_band_id, borehole_band_id)
+                if donor_band_id < borehole_band_id
+                else (borehole_band_id, donor_band_id)
+            )
+            seen = seen_pairs_by_section.setdefault(hop_section_id, set())
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            self._session.add(
+                LithoContactCorrelationEdgeOrm(
+                    id=uuid7(),
+                    model_id=geotech_model_id,
+                    section_id=hop_section_id,
+                    layer_a_id=canonical[0],
+                    layer_b_id=canonical[1],
+                    layer_a_side="top",
+                    layer_b_side="top",
+                    source="auto",
+                    user_approved=True,
+                )
+            )
+            hops_written += 1
+        if hops_written:
+            await self._session.flush()
+            self.info(
+                f"DivideBoreholes: Phase 8.5a — {hops_written} borehole hop(s) written "
+                "from the donor correspondence the fraction rescale established"
+            )
+
         superseded_edge_ids: list[UUID] = []
         superseded_labels: list[str] = []
         for section in sections:
@@ -1694,7 +1773,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         cpt_names: dict[UUID, str],
         section_placements: list[SectionPlacement],
         accepted_ties: Sequence[AcceptedTie] = (),
-    ) -> tuple[list[FillBand], list[UUID | None], FlankSelection]:
+    ) -> tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
         Gathers the eligible donor CPTs for this body group — those whose
@@ -1749,8 +1828,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         Returns
         -------
-        tuple[list[FillBand], list[UUID | None], FlankSelection]
-            ``(fill_bands, fill_band_body_ids, selection)`` — the bands to
+        tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]
+            ``(fill_bands, fill_band_body_ids, fill_band_donor_ids, selection)`` — the bands to
             write, the parallel per-band geotech body_id list (``None`` for
             conservative fallback bands with no same-class CPT evidence), and
             the donor selection those bands came from.
@@ -1813,9 +1892,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             sections=section_placements,
             ties=accepted_ties,
         ) or select_flank_donors(borehole_id=inv_id, donors=donors, sections=section_placements)
-        cpt_packing_surfaces = flank_packing_surfaces(
+        donor_surfaces = flank_packing_surfaces_with_donors(
             selection, extent_top_m=geo_top_m, extent_base_m=geo_base_m
         )
+        cpt_packing_surfaces = [(s.top, s.base, s.nad_class) for s in donor_surfaces]
         self.info(
             f"DivideBoreholes: borehole={inv_id} "
             f"extent=[{geo_top_m:.2f},{geo_base_m:.2f}] mode={selection.mode} "
@@ -1899,6 +1979,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for fb in fill_bands
         ]
 
+        # -------------------------------------------------------------------
+        # Step 7b: name the donor band each fill band continues.
+        #
+        # The fraction rescale laid every surface between a known pair of flank
+        # bands, and the fill only ever CLIPS those surfaces — so a
+        # ``cpt_interpolated`` band lies inside exactly one of them and its
+        # midpoint identifies which.  Attributing here rather than threading a
+        # new field through the fill keeps the fill's contract (and its whole
+        # test suite) untouched, and the containment is exact by construction.
+        # A conservative fallback band continues nothing and stays empty.
+        # -------------------------------------------------------------------
+        fill_band_donor_ids: list[tuple[str, ...]] = []
+        for fb in fill_bands:
+            midpoint = 0.5 * (fb.top + fb.base)
+            donors_here: tuple[str, ...] = ()
+            if fb.source == "cpt_interpolated":
+                for surface in donor_surfaces:
+                    if surface.top <= midpoint <= surface.base:
+                        donors_here = surface.donor_layer_ids
+                        break
+            fill_band_donor_ids.append(donors_here)
+
         # A single band is no longer proof that no CPT spoke: a donor that reads
         # one packing class across the whole unit legitimately yields one band.
         self.debug(
@@ -1907,7 +2009,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"mode={selection.mode} donor_boundaries={len(cpt_packing_surfaces)}"
         )
 
-        return fill_bands, fill_band_body_ids, selection
+        return fill_bands, fill_band_body_ids, fill_band_donor_ids, selection
 
     def _build_donor_stacks(
         self,
@@ -2051,6 +2153,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
         ],
         borehole_fill_bands: dict[str, list[Band]],
+        donor_hops: list[tuple[UUID, UUID, UUID]],
     ) -> None:
         """Write one planned segment's bands as ``litho_layer`` rows.
 
@@ -2084,6 +2187,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             borehole-mediated edge derivation can see them.
         borehole_fill_bands : dict[str, list[Band]]
             Per-borehole accumulator for the Phase-9 sample assignment (mutated).
+        donor_hops : list[tuple[UUID, UUID, UUID]]
+            Accumulator (mutated) of ``(section_id, donor_band_id,
+            borehole_band_id)`` — the borehole hops the fraction rescale
+            licensed, ready for Phase 8.5 to write as accepted edges.
         """
         for band in segment.bands:
             # All planned nad_class values are concrete (no None) — the fill
@@ -2112,6 +2219,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 body_id=band.body_id,
             )
             self._session.add(layer)
+            # The band's donor correspondence becomes a hop the moment the row
+            # has an id: donor band ↔ this band, on the section the donors were
+            # read along. Collected here rather than re-derived later because
+            # re-deriving it per gap is exactly what used to produce two
+            # incompatible answers either side of the same borehole.
+            if band.section_id is not None:
+                section_uuid = UUID(band.section_id)
+                for donor_layer_id in band.donor_layer_ids:
+                    donor_hops.append((section_uuid, UUID(donor_layer_id), layer.id))
             geotech_layer_by_inv_depth[segment.investigation_id].append(
                 (
                     band.depth_top_m,
