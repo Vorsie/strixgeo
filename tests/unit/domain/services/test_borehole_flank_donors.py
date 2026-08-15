@@ -31,11 +31,12 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.domain.services.borehole_flank_donors import (
-    confidence_from_donor_distance,
     DonorBand,
     DonorStack,
     SectionPlacement,
+    confidence_from_donor_distance,
     flank_packing_surfaces,
+    flank_packing_surfaces_with_donors,
     select_flank_donors,
 )
 
@@ -357,3 +358,104 @@ class TestConfidenceFromDonorDistance:
         # The conservative fallbacks (body_min / absolute_min) have no donor at
         # all; ``None`` must never read better than the farthest real one.
         assert confidence_from_donor_distance(None) == "low"
+
+
+def _stack_with_ids(
+    investigation_id: str,
+    *,
+    top: float,
+    base: float,
+    bands: list[tuple[float, float, int, str]],
+) -> DonorStack:
+    """Like ``_stack`` but each band carries the ``litho_layer`` id it came from."""
+    return DonorStack(
+        investigation_id=investigation_id,
+        name=investigation_id,
+        extent_top_m=top,
+        extent_base_m=base,
+        bands=tuple(DonorBand(t, b, c, lid) for t, b, c, lid in bands),
+        map_distance_m=100.0,
+    )
+
+
+def test_fd1_a_blended_surface_names_the_donor_band_on_each_flank() -> None:
+    """Owner, 2026-08-15: *"take the litho and check if new subdivisions are
+    there, then take top as 0 an bottom as 1 and rescale them on a borehole"*.
+
+    The rescale ALREADY pairs band i on the left with band i on the right — the
+    zip in ``flank_packing_surfaces`` is exactly that correspondence. What was
+    missing is that the surface it produces did not say which two donor bands
+    it stands between, so "Divide boreholes" had to guess the pairing back with
+    a per-gap alignment, and the left gap and the right gap guessed differently.
+    Carrying the ids makes the borehole chain complete by construction.
+    """
+    left = _stack_with_ids(
+        "L",
+        top=0.0,
+        base=10.0,
+        bands=[(0.0, 4.0, _LOOSE, "L-loose"), (4.0, 10.0, _DENSE, "L-dense")],
+    )
+    right = _stack_with_ids(
+        "R",
+        top=0.0,
+        base=10.0,
+        bands=[(0.0, 6.0, _LOOSE, "R-loose"), (6.0, 10.0, _DENSE, "R-dense")],
+    )
+    section = SectionPlacement(
+        section_id="s1", section_name="A-A'", along_m={_BH: 200.0, "L": 100.0, "R": 300.0}
+    )
+    selection = select_flank_donors(borehole_id=_BH, donors=[left, right], sections=[section])
+
+    surfaces = flank_packing_surfaces_with_donors(selection, extent_top_m=0.0, extent_base_m=10.0)
+
+    assert [s.donor_layer_ids for s in surfaces] == [
+        ("L-loose", "R-loose"),
+        ("L-dense", "R-dense"),
+    ], "each blended band stands between the two flank bands it was blended from"
+    assert surfaces[0].base == pytest.approx(5.0)
+
+
+def test_fd2_a_single_donor_surface_names_its_one_band() -> None:
+    """One flank donates alone, so the correspondence is one-sided — the hop it
+    licenses is borehole↔that CPT and nothing else."""
+    left = _stack_with_ids(
+        "L",
+        top=0.0,
+        base=10.0,
+        bands=[(0.0, 4.0, _LOOSE, "L-loose"), (4.0, 10.0, _DENSE, "L-dense")],
+    )
+    section = SectionPlacement(
+        section_id="s1", section_name="A-A'", along_m={_BH: 200.0, "L": 100.0}
+    )
+    selection = select_flank_donors(borehole_id=_BH, donors=[left], sections=[section])
+
+    surfaces = flank_packing_surfaces_with_donors(selection, extent_top_m=0.0, extent_base_m=10.0)
+
+    assert [s.donor_layer_ids for s in surfaces] == [("L-loose",), ("L-dense",)]
+
+
+def test_fd3_the_tuple_form_is_a_projection_of_the_donor_form() -> None:
+    """The old three-tuple caller must see byte-identical output — every other
+    test in this file is the regression net for the geometry, and it stays
+    valid only while the two functions cannot drift."""
+    left = _stack_with_ids(
+        "L",
+        top=0.0,
+        base=10.0,
+        bands=[(0.0, 4.0, _LOOSE, "L-loose"), (4.0, 10.0, _DENSE, "L-dense")],
+    )
+    right = _stack_with_ids(
+        "R",
+        top=0.0,
+        base=10.0,
+        bands=[(0.0, 6.0, _LOOSE, "R-loose"), (6.0, 10.0, _DENSE, "R-dense")],
+    )
+    section = SectionPlacement(
+        section_id="s1", section_name="A-A'", along_m={_BH: 200.0, "L": 100.0, "R": 300.0}
+    )
+    selection = select_flank_donors(borehole_id=_BH, donors=[left, right], sections=[section])
+
+    tuples = flank_packing_surfaces(selection, extent_top_m=1.0, extent_base_m=9.0)
+    rich = flank_packing_surfaces_with_donors(selection, extent_top_m=1.0, extent_base_m=9.0)
+
+    assert tuples == [(s.top, s.base, s.nad_class) for s in rich]
