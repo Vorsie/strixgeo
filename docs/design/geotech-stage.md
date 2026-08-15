@@ -577,10 +577,12 @@ grips altogether.
 
 ## 5. Carrying accepted ties across a re-subdivide (2026-08-02, develop UNPUSHED)
 
-"Subdivide all bodies" throws every geotech band away and rebuilds it with a
-fresh `uuid7`, and both endpoint FKs on `litho_contact_correlation_edge` are
-`ON DELETE CASCADE`. So Postgres deletes every correlation edge as a side effect
-of the layer wipe — silently, without passing through application code. Sparing
+"Subdivide all bodies" throws the geotech bands IN SCOPE away and rebuilds them
+with a fresh `uuid7` (every band of the model on a model-wide press, that
+section's members on a scoped one — see §9a), and both endpoint FKs on
+`litho_contact_correlation_edge` are `ON DELETE CASCADE`. So Postgres deletes
+every correlation edge touching a rebuilt band as a side effect of the layer
+wipe — silently, without passing through application code. Sparing
 accepted edges in the reset's own `WHERE` clause makes no difference at all: the
 cascade takes them anyway. Accepted ties survive only because
 `GeotechTieReanchor` captures them before the wipe and re-creates them after the
@@ -987,13 +989,17 @@ order, replacing the single "Subdivide all bodies" press:
 
 | button | testid | verb | gating |
 |---|---|---|---|
-| **1 · Subdivide CPTs on this section** | `geotech-subdivide-cpts` | `subdivide-cpts` | needs a litho model **and an open section**; a RE-run still opens `ReSubdivideConfirmDialog` |
-| **1 · Subdivide CPTs on all sections** | `geotech-subdivide-cpts-all` | `subdivide-cpts` (no `section_id`) | needs a litho model |
-| **2 · Auto-correlate on this section** | `geotech-auto-correlate` | `auto-correlate` | needs the geotech model + an open section |
-| **2 · Auto-correlate on all sections** | `geotech-auto-correlate-all` | `auto-correlate` (no `section_id`) | needs the geotech model |
-| **3 · Accept ties on this section** | `geotech-accept-correlations` | `contact-correlations/accept` | needs the geotech model + an open section |
-| **3 · Accept ties on all sections** | `geotech-accept-correlations-all` | `contact-correlations/accept` (no `section_id`) | needs the geotech model |
+| **1 · Subdivide CPTs** | `geotech-subdivide-cpts` | `subdivide-cpts` (open section's id) | needs a litho model **and an open section**; a RE-run still opens `ReSubdivideConfirmDialog` |
+| **2 · Auto-correlate** | `geotech-auto-correlate` | `auto-correlate` (open section's id) | needs the geotech model + an open section |
+| **3 · Accept ties** | `geotech-accept-correlations` | `contact-correlations/accept` (open section's id) | needs the geotech model + an open section |
 | **4 · Divide boreholes (whole model)** | `geotech-divide-boreholes` | `divide-boreholes` | **disabled while `pending > 0` anywhere in the model** |
+
+The labels carry no "on this section" qualifier: an "on all sections" twin
+stood beside each of the first three for one morning and the owner deleted it
+(2026-08-15, *"I didn't ask for the on all sections option, it's ugly and
+confusing delete it and keep only on this section"*), and a verb with one
+meaning does not need a qualifier. The API keeps its optional `section_id`
+(absent ⇒ model-wide) for compatibility and for tests.
 
 `GET .../geotech/tie-status` feeds `useGeotechTieStatus`, re-read after EVERY
 verb (steps 1–4 and each single-tie accept). Its `pending_by_section` breakdown
@@ -1016,26 +1022,52 @@ in the model"*.
 
 Each of the first three steps takes an OPTIONAL `section_id` in its request
 body — present scopes the run to that section, absent is the historic
-model-wide behaviour every existing caller relies on. The toolbar's primary
-item sends the open section's id and a second item beside it sends none. This
-REVERSES the 2026-08-05 review MAJOR-2 decision (model-wide feeder verbs so the
-model-wide step-4 gate could be satisfied); the objection is answered instead by
-the "on all sections" items plus a gate that now names the sections still
-pending.
+model-wide behaviour every existing caller relies on. The toolbar always sends
+the open section's id. This REVERSES the 2026-08-05 review MAJOR-2 decision
+(model-wide feeder verbs so the model-wide step-4 gate could be satisfied); the
+objection is answered instead by a gate that now names the sections still
+pending, which the engineer clears one section at a time.
 
 **Step 4 stays model-wide** — `divide-boreholes` TIN-divides every borehole
 column and so rewrites every section. Its gate therefore still demands the whole
 model be clear, which is fair only because the tag says how many sections are
 holding it shut.
 
-⚠ **A scoped step 1 still WIPES the whole geotech model.** `SubdivideAllBodies`
-has always been wipe-and-rebuild (`_delete_all_geotech_data` is model-wide, and
-the tie re-anchor + body resolver run model-wide with it), which is why a re-run
-is gated behind `ReSubdivideConfirmDialog`. `section_id` narrows WHICH columns
-are rebuilt, not what is wiped: on a multi-section model, columns on the other
-sections lose their bands until step 1 is run again without a scope. **Owner
-confirmation pending** — the alternative (a section-scoped delete) is a
-substantial change to the most destructive path in the stage.
+**A scoped step 1 only WIPES what it rebuilds** (2026-08-15, the same morning
+the all-sections escape was deleted — with no escape left, a wholesale wipe
+would have meant two sections could never be subdivided at once).
+`_delete_all_geotech_data` takes a `restrict_to` set of investigation ids: with
+a `section_id` the layers, the unaccepted edges hanging off them and the
+matching `formation_contact` mirrors are deleted only for that section's
+MEMBERS (the `project_investigations_onto_section` rule the model already
+uses), and every other column's bands, ties and bodies are untouched. Three
+consequences worth naming:
+
+* **The tie re-anchor is scoped with it.** `GeotechTieReanchor.capture` takes
+  `restrict_to_investigation_ids` and keeps a tie when EITHER endpoint is on a
+  rebuilt column — one endpoint is enough, because the cascade takes the edge
+  either way. A tie entirely outside the scope keeps its row and both its
+  endpoints and is deliberately not captured. So the matcher can find the
+  untouched half, `GeotechTieReanchor.surviving_bands` reads the model back
+  between the delete and the write and those bands join the freshly-written
+  ones in `rebuilt_bands`.
+* **Bodies are NOT deleted in the scoped mode.** A body spans every column its
+  ties reach, so there is no per-section subset of them, and dropping the lot
+  would strip names, colours and hand-drawn boundaries off sections the run
+  never touched. `ResolveLithoInstances` runs model-wide immediately afterwards
+  and reconciles them instead (reuse, lineage adoption, unnamed-orphan delete);
+  `litho_layer.body_id` is `ON DELETE SET NULL`, so nothing is lost either way.
+  Formation find-or-create is likewise model-wide — those rows are shared by
+  every column of the same class.
+* **An investigation on TWO sections is rebuilt from either.** Its bands come
+  from its own qc and its body membership, not from the section it is viewed
+  on, so both routes produce the same rows; the neighbour section's ties onto
+  it are carried by the re-anchor.
+
+The skip report (`skipped_off_section_count` / `_labels`) is measured against
+membership of ANY section, in both modes: a column on the neighbouring section
+is *in* the model and keeps its bands, so a scoped run naming it as "left out"
+would send the engineer hunting a problem that is not there.
 
 **The membership invariant** (`application/section_membership.py`) applies in
 BOTH modes and to `DivideBoreholes` as well: an investigation that projects onto
