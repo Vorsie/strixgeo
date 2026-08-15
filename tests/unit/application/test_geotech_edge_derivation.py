@@ -974,3 +974,81 @@ async def test_xd3_an_edge_already_accepted_in_the_database_blocks_the_crossing_
     assert frozenset((a_top, b_top)) in emitted
     assert frozenset((a_deep, b_deep)) in emitted
     assert counts.skipped_crossing_tie == 1
+
+
+@pytest.mark.asyncio
+async def test_ba1_divide_boreholes_hops_are_born_accepted() -> None:
+    """Owner ruling 2026-08-15, after dogfeeding the two-press loop:
+    *"subdivision hops should be born accepted"*.
+
+    The hops "4 · Divide boreholes" writes are not the machine guessing at a
+    correlation the engineer has not made — they re-express, through the
+    borehole it just divided, the correlations he already drew. Asking him to
+    accept them turns one press into press-accept-press, and a second press
+    only manufactures more of them ("click a second time on 4 generated even
+    more new ties to accept").
+
+    Same scene as ``test_packing_density_ties_inside_the_body_are_born_pending``
+    — which stays as the negative control for step 2, where a proposal IS a
+    machine claim and must stay a ghost.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    loose_a, dense_a, loose_b, dense_b = uuid4(), uuid4(), uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 4.0, loose_a, uuid4(), 5), (4.0, 10.0, dense_a, uuid4(), 9)],
+            "inv-B": [(0.0, 6.0, loose_b, uuid4(), 5), (6.0, 10.0, dense_b, uuid4(), 9)],
+        },
+        seen_layer_pairs=set(),
+        born_accepted=True,
+    )
+    assert counts.edges_emitted == 2
+    assert counts.edges_accepted == 2
+    assert counts.edges_proposed == 0
+    approvals = {
+        frozenset((c.args[0].layer_a_id, c.args[0].layer_b_id)): c.args[0].user_approved
+        for c in session.add.call_args_list
+    }
+    assert approvals[frozenset((loose_a, loose_b))] is True
+    assert approvals[frozenset((dense_a, dense_b))] is True, (
+        "the interior packing hop through a divided borehole carries the "
+        "engineer's own correlation — it is not his to re-approve"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ba2_a_bridged_jump_pair_is_born_accepted_too() -> None:
+    """A pair bridged over a column the press deliberately left undivided is
+    still part of the same re-expression, so the ruling reaches it as well.
+
+    ``test_bridged_jump_pairs_are_born_pending_even_at_the_top`` keeps pinning
+    the step-2 default.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    band_a, band_b = uuid4(), uuid4()
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 5.0), lb: ("inv-B", 0.0, 5.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 5.0, band_a, uuid4(), 7)],
+            "inv-B": [(0.0, 5.0, band_b, uuid4(), 7)],
+        },
+        seen_layer_pairs=set(),
+        # Not a direct litho pair — the bridged case.
+        direct_litho_pairs=set(),
+        born_accepted=True,
+    )
+    edge = session.add.call_args_list[0].args[0]
+    assert edge.user_approved is True
