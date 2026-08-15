@@ -364,6 +364,57 @@ pending = 0 with ≥1 accepted tie. The 2026-08-05 interim form of ruling A
 (every litho-backed tie born accepted, step 3 usually a no-op) is
 superseded by this refinement.
 
+### 4a-i. A derived tie may never CROSS another (owner dogfeed 2026-08-15)
+
+The owner pressed step 2 and the section answered *"1 crossing correlation
+tie — resolve to restore bands"*, with the bands gone on that gap. A crossing
+is a HARD CONFLICT by his own partition-v2 §8 Q4 ruling: the renderer
+(`partitionFillV2/crossingConflicts.ts`) suspends BOTH ties and neither side
+bands. So a machine proposal that crosses is not just friction — it silently
+kills the fill where it lands, and the fix belongs where the bad proposal is
+born, not in the detector.
+
+**Definition** (identical on both sides, deliberately): two ties in one gap
+cross when their endpoint order is INVERTED between the two columns. Ties
+sharing an endpoint fan out rather than cross. Sides matter — a `top`
+endpoint is the band's top surface, a `base` endpoint its base.
+
+**The rule.** `derive_geotech_edges_from_litho` keeps a per-gap registry
+(`domain/services/geotech_edge_crossing_guard.py`) seeded with the section's
+already-APPROVED edges and extended by everything the pass emits. Every
+candidate — sided restatement, aligned pair, interior body proposal — is
+checked before its `session.add`:
+
+* a PENDING candidate is judged against everything standing in the gap;
+* an ACCEPTED candidate is judged only against ACCEPTED neighbours, so a
+  proposal can never veto a restatement the engineer drew at the litho stage;
+* a refusal is counted (`EdgeDerivationCounts.skipped_crossing_tie`) and
+  logged at INFO naming both endpoints of both ties, and the pair is NOT added
+  to `seen_layer_pairs` — a later pass, after the engineer resolves the
+  conflict, is free to reconsider it.
+
+**Where the crossings came from.** The per-pair aligners are monotone by
+construction, so every crossing arrives from a path that bypasses them. The
+deterministic one is a direct litho pair carrying BOTH a `top↔top` tie and a
+MIXED onlap declaration: the mixed restatement runs from the deepest left
+band's base to the topmost right band's top, passing under every deeper pair
+the aligner then proposes. The forced top pair is exempt (it shares the right
+endpoint). The same shape arrives from an approval already in the model, which
+is why the guard is seeded from the database — that is the case the owner hit,
+and it is why the banner appeared the instant he pressed step 2.
+
+**Known residual.** The guard's gap is the derivation's own column PAIR. A
+bridged jump tie spanning several columns is checked in the gap between its
+two terminals, not in each intervening sub-gap — the derivation has no section
+geometry (column x, collar levels) to interpolate the bridge, which the
+renderer does have. A bridge crossing a direct tie in a column it passes OVER
+is therefore still reachable; it needs the section geometry threaded into the
+derivation to close.
+
+Depth vs elevation: the guard works in depth below collar, the renderer in
+elevation. They cannot disagree — both differences the test takes are within a
+single column, so the sign flip cancels in the product.
+
 ## 4b. The packing-tie litho-body guard is a SURFACE rule (owner, 2026-08-04)
 
 A contact touches the band above it and the band below it — up to TWO litho

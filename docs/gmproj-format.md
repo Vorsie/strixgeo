@@ -120,6 +120,27 @@ require keeping the old reader alive and writing an explicit
 ``upgrade_vN_to_vN+1`` function — see "Backwards Compatibility" at the
 top of CLAUDE.md.
 
+**Adding a collection to the file is additive and does NOT bump the version.**
+The convention, which every array after the v3 floor follows
+(``litho_contact_correlation_edges``, ``bodies``, ``formation_absences``,
+``body_boundary_shapes`` / ``body_boundary_nodes``, ``body_geometry_facts``):
+declare it on ``ProjectFileV3``, copy it in ``buildProjectFile``, tolerate its
+absence in ``isProjectFileV3``, backfill it to ``[]`` in ``parseProjectFile``,
+and add it to ``restorePayloadFrom`` in ``desktop/.../hooks/useProject.ts`` —
+that last one being the enumeration the restore actually sends. A file written
+by an older build then opens unchanged, with the collection simply empty.
+
+⚠ **The backend registry does not cover the desktop writer.**
+``assert_bundle_keys_registered`` guards the backend copy paths only;
+``buildProjectFile`` is a hand-written whitelist that silently drops any key it
+does not name. ``body_geometry_facts`` — the persisted geometric body identity
+— shipped on the backend 2026-08-12 and was missing from the file writer and
+from ``restorePayloadFrom`` until 2026-08-15, so every File → Save wrote a
+bundle without it and every reopen dropped every geometric body union without
+a word. ``litho_solids`` is absent from both by DESIGN (a rebuildable ~10 MB
+mesh cache; see ``api/clients/project.ts`` ``includeSolids``) — the distinction
+that matters is evidence vs cache: evidence goes in the file, caches do not.
+
 ## The bundle collection registry — one list, every copy path
 
 Four write paths used to enumerate the project's child tables by hand:
