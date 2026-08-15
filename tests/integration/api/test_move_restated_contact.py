@@ -71,6 +71,27 @@ async def contact_scene(
     assert litho_resp.status_code == 201, litho_resp.text
     litho_model_id = litho_resp.json()["id"]
 
+    # A cross-section the CPT projects onto. Added 2026-08-15 with the
+    # membership invariant (owner: "i don't want any cpt's that aren't on any
+    # sections to be subdivided and included in the model") — a column on no
+    # section is now correctly left out of the geotech model, and this scene is
+    # about the contact-move gesture, which the engineer can only reach FROM a
+    # section view in the first place. The scene is more faithful for it.
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "RM-Section",
+            "start_x": 148_700.0,
+            "start_y": 201_000.0,
+            "end_x": 149_900.0,
+            "end_y": 201_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = str(sec_resp.json()["id"])
+
     # 601 samples at 2 cm: ZAND 0–6 (loose-with-spikes over very dense, transition
     # at 3.0) then KLEI 6–12 (matig vast over vrij vast, transition at 9.0).
     depths: list[float] = []
@@ -125,6 +146,7 @@ async def contact_scene(
         "project_id": pid,
         "geo_model_id": geo_model_id,
         "litho_model_id": litho_model_id,
+        "section_id": section_id,
         "cpt_id": cpt.id,
     }
 
