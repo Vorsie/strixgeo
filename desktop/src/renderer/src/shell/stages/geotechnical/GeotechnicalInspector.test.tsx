@@ -560,6 +560,35 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
     expect(screen.getByTestId('partial-cpt-badge-f-mix').textContent).toBe('CPT est. (partial)')
   })
 
+  // Owner, 2026-08-15: "I don't really like the word fallback, this just means
+  // the model isn't ready." The provenance tooltips are the only place on the
+  // roster that said it out loud; they must state what is actually true about
+  // where the class came from instead.
+  it('WF1: neither provenance tooltip says "fallback" — they say where the class came from', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [
+          makeFormation('f-fb', { nad_class: 21, display_order: 0 }),
+          makeFormation('f-mix', { nad_class: 6, display_order: 1 }),
+        ],
+        geotechContacts: [],
+        geotechLayers: [
+          makeLayer('f-fb', 'low'),
+          makeLayer('f-mix', 'high'),
+          makeLayer('f-mix', 'low'),
+        ],
+      }),
+    )
+
+    for (const testId of ['no-cpt-badge-f-fb', 'partial-cpt-badge-f-mix']) {
+      const tip = screen.getByTestId(testId).getAttribute('title') ?? ''
+      expect(tip.toLowerCase()).not.toContain('fallback')
+      // Still has to say WHY there is no cone behind the class, or the badge
+      // becomes a shrug.
+      expect(tip.toLowerCase()).toContain('weakest class')
+    }
+  })
+
   it('applies nadClassColor to the swatch, NOT f.color', () => {
     // nad_class 6 → '#d4b84a' from nadClassColor; f.color = '#aabbcc' (should NOT appear).
     const formation = makeFormation('f-1', { nad_class: 6, color: '#aabbcc', display_order: 0 })

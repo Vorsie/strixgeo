@@ -254,7 +254,7 @@ function GeotechnicalUnitRow({
       {f.nad_class !== null && classProvenance === 'partial' && (
         <span
           className="text-[10px] rounded px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 flex-shrink-0"
-          title="Most bands derived from CPT qc series, but at least one is a conservative fallback (no cone in that body). Check the low-confidence bands before use."
+          title="Most bands derived from CPT qc series. At least one had no cone in its body, so it took the weakest class seen there instead. Check the low-confidence bands before use."
           data-testid={`partial-cpt-badge-${f.id}`}
         >
           CPT est. (partial)
@@ -263,7 +263,7 @@ function GeotechnicalUnitRow({
       {f.nad_class !== null && classProvenance === 'none' && (
         <span
           className="text-[10px] rounded px-1 py-0 bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300 flex-shrink-0"
-          title="No CPT data behind this class — conservative fallback (weakest class in the body, or the lithology floor). Verify before use."
+          title="No CPT data behind this class. It took the weakest class seen in the body, or the lithology floor. Verify before use."
           data-testid={`no-cpt-badge-${f.id}`}
         >
           No CPT
