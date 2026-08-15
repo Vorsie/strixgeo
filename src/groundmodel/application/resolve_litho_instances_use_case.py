@@ -32,6 +32,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.domain.services.resolve_litho_instances import (
     LayerEdge,
     LayerNode,
@@ -139,6 +140,12 @@ async def _run_resolver(
     when an instance ordinal changed. No inner commit — the caller owns the
     transaction boundary.
 
+    Takes the model's body-partition advisory lock first and holds it until the
+    caller's COMMIT/ROLLBACK, so the read and the rewrite are one serialised
+    unit — see ``body_partition_lock``. A caller that resolves SEVERAL models in
+    one transaction therefore holds several locks and must take them in a
+    canonical order (litho before its geotech child).
+
     Parameters
     ----------
     session : AsyncSession
@@ -156,6 +163,13 @@ async def _run_resolver(
     repo = GeologyRepository(session)
     logger = _RunResolverLogger()
     logger.debug(f"_run_resolver: model {model_id}")
+
+    # Everything below is a read-then-rewrite of ONE model's body partition.
+    # Two requests doing it at once produced unique-violation, FK-violation and
+    # deadlock 500s (see ``body_partition_lock``); the lock makes the read and
+    # the rewrite one serialised unit. Taken BEFORE the first read, and
+    # re-entrant for a caller that already holds it.
+    await lock_body_partition(session, model_id=model_id, operation="resolve-litho-instances")
 
     model = await session.get(GeologicalModelOrm, model_id)
     if model is None:

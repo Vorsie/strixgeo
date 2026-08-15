@@ -12,8 +12,10 @@ The flow, one transaction:
 
 1. Refuse an empty payload — the replace is wholesale, and an empty payload is
    a frontend that fired before its data loaded, not a statement.
-2. Take a per-model advisory lock: two concurrent recomputes would interleave
-   their full-replaces and the stale one could land last.
+2. Take the per-model body-partition advisory lock: two concurrent writers
+   would interleave their full-replaces and the stale one could land last.
+   The lock is shared with every other body-partition writer, not private to
+   recompute — see ``body_partition_lock``.
 3. All evidence in LAYER-id space: the frontend's per-section connectivity
    groups plus ``plan_layer_groups`` over the payload sections (the stage-2
    geometric tests — shared columns and fence crossings — keyed on region
@@ -35,10 +37,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.body_fact_translation import plan_geometry_facts
 from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (
@@ -142,12 +145,15 @@ class RecomputeBodies(GroundModelLogger):
                 "every geometrically-merged body in the model."
             )
 
-        # Concurrent recomputes on one model would interleave their
-        # full-replaces; the advisory lock queues them and releases at COMMIT.
-        await self._session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-            {"k": f"recompute-bodies:{model_id}"},
-        )
+        # Concurrent writes to one model's body partition would interleave
+        # their full-replaces; the advisory lock queues them and releases at
+        # COMMIT. The key is the model-wide one every body-partition writer
+        # takes, NOT a recompute-private one: a recompute-only key left this
+        # wholesale replace racing a concurrent correlate, which is how a
+        # correlate click 500'd mid-recompute (owner dogfeed 2026-08-15).
+        # Taken here rather than at the resolver call so the fact replace is
+        # inside the same serialised unit as the resolve that reads it.
+        await lock_body_partition(self._session, model_id=model_id, operation="bodies/recompute")
 
         planned = plan_geometry_facts(
             section_layer_groups=section_layer_groups,

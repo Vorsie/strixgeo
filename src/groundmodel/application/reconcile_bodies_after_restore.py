@@ -16,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.shared.constants.model_kind import NON_STRATIGRAPHIC_KINDS
+from groundmodel.shared.constants.model_kind import (
+    MODEL_KIND_LITHOSTRATIGRAPHIC,
+    NON_STRATIGRAPHIC_KINDS,
+)
 
 
 async def reconcile_bodies_after_restore(session: AsyncSession, project_id: UUID) -> None:
@@ -36,17 +39,20 @@ async def reconcile_bodies_after_restore(session: AsyncSession, project_id: UUID
     project_id : UUID
         The project whose models to reconcile.
     """
-    model_ids = list(
-        (
-            await session.execute(
-                select(GeologicalModelOrm.id).where(
-                    GeologicalModelOrm.app_project_id == project_id,
-                    GeologicalModelOrm.kind.in_(NON_STRATIGRAPHIC_KINDS),
-                )
+    rows = (
+        await session.execute(
+            select(GeologicalModelOrm.id, GeologicalModelOrm.kind).where(
+                GeologicalModelOrm.app_project_id == project_id,
+                GeologicalModelOrm.kind.in_(NON_STRATIGRAPHIC_KINDS),
             )
         )
-        .scalars()
-        .all()
-    )
-    for model_id in model_ids:
-        await ResolveLithoInstances(session).execute(model_id=model_id, commit=False)
+    ).all()
+    # Every resolve takes that model's body-partition advisory lock and holds it
+    # to the restore's commit, so this loop is a MULTI-lock transaction. Walk it
+    # litho-before-geotech, which is the order SubdivideAllBodies also takes
+    # (parent model first, then the geotech child it derives) — two multi-lock
+    # transactions acquiring in opposite orders would deadlock. Id breaks ties so
+    # the order does not depend on however Postgres returned the rows.
+    ordered = sorted(rows, key=lambda r: (r.kind != MODEL_KIND_LITHOSTRATIGRAPHIC, str(r.id)))
+    for row in ordered:
+        await ResolveLithoInstances(session).execute(model_id=row.id, commit=False)
