@@ -144,7 +144,10 @@ describe('ReSubdivideConfirmDialog', () => {
     )
     const warning = document.body.querySelector('[data-testid="re-subdivide-hand-edits"]')
     expect(warning?.textContent).toContain('1 hand-edited band ')
-    expect(warning?.textContent).not.toContain('bands')
+    // The COUNTED noun is what has to read singular. The old assertion banned
+    // the substring "bands" from the whole paragraph, which also caught the
+    // sentence's own "this section's packing bands".
+    expect(warning?.textContent).not.toContain('1 hand-edited bands')
   })
 
   it('AC10 — hand edits at risk warn, they do not block: confirm still fires', () => {
@@ -170,49 +173,19 @@ describe('ReSubdivideConfirmDialog', () => {
 // rebuilds this section's columns and leaves the others with nothing, which the
 // engineer cannot possibly infer from a menu item that says "on this section".
 //
-// AC11  a scoped re-run says the other sections lose their bands
-// AC12  the all-sections re-run says nothing about other sections
+// It said so until the rebuild stopped doing that. A scoped subdivide now
+// deletes only the columns it rebuilds, so the sentence describing the other
+// sections' loss became a warning about something that cannot happen — and
+// there is no "on all sections" item left for it to send anyone to.
+//
+// AC11  a scoped re-run says NOTHING about other sections losing their bands
 
-describe('ReSubdivideConfirmDialog — scope disclosure', () => {
-  it('AC11 — a scoped re-run discloses what the other sections lose', () => {
-    render(
-      <ReSubdivideConfirmDialog
-        open
-        onCancel={vi.fn()}
-        onConfirm={vi.fn()}
-        scopedToSection
-        otherSectionCount={3}
-      />,
-    )
-    const note = document.body.querySelector('[data-testid="re-subdivide-scope"]')
-    expect(note).not.toBeNull()
-    expect(note?.textContent ?? '').toContain('3')
-    expect(note?.textContent ?? '').toMatch(/other section/i)
-  })
-
-  it('AC11b — with no other section there is nothing to disclose', () => {
-    render(
-      <ReSubdivideConfirmDialog
-        open
-        onCancel={vi.fn()}
-        onConfirm={vi.fn()}
-        scopedToSection
-        otherSectionCount={0}
-      />,
-    )
+describe('ReSubdivideConfirmDialog — the other sections are no longer at risk', () => {
+  it('AC11 — the dialog never claims other sections lose their packing bands', () => {
+    render(<ReSubdivideConfirmDialog open onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const dialog = document.body.querySelector('[data-testid="re-subdivide-confirm-dialog"]')
     expect(document.body.querySelector('[data-testid="re-subdivide-scope"]')).toBeNull()
-  })
-
-  it('AC12 — the all-sections re-run says nothing about other sections', () => {
-    render(
-      <ReSubdivideConfirmDialog
-        open
-        onCancel={vi.fn()}
-        onConfirm={vi.fn()}
-        scopedToSection={false}
-        otherSectionCount={3}
-      />,
-    )
-    expect(document.body.querySelector('[data-testid="re-subdivide-scope"]')).toBeNull()
+    expect(dialog?.textContent ?? '').not.toMatch(/other section/i)
+    expect(dialog?.textContent ?? '').not.toMatch(/on all sections/i)
   })
 })

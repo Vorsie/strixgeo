@@ -1,10 +1,12 @@
 // Confirmation dialog shown before re-running "Subdivide all bodies" when a
 // geotechnical model already exists (connecting-geotech-units spec §7).
 //
-// Re-subdividing wipes and regenerates ALL geotech packing connections: the
-// auto-derived ones are recreated, but any manual packing connections the user
-// made are lost. That is irreversible, so per CLAUDE.md / docs/ux.md
-// "Reversible vs irreversible" the gesture must confirm first:
+// Re-subdividing wipes and regenerates the open section's packing connections:
+// the auto-derived ones are recreated, but any manual packing connections the
+// user made there are lost. (Since 2026-08-15 the verb clears only the columns
+// it rebuilds, so the other sections keep theirs.) That is irreversible, so per
+// CLAUDE.md / docs/ux.md "Reversible vs irreversible" the gesture must confirm
+// first:
 //   1. Cancel (default focus — an accidental Enter must not wipe connections)
 //   2. Re-subdivide — the destructive confirm
 //
@@ -38,19 +40,6 @@ interface Props {
    * sentence at all.
    */
   handEditCount?: number
-  /**
-   * True when the pending run is scoped to ONE section (owner ruling
-   * 2026-08-15). The verb is still wipe-and-rebuild over the whole geotech
-   * model, so a scoped re-run rebuilds this section's columns and leaves the
-   * others with none — a consequence the menu item's "on this section" wording
-   * actively hides.
-   */
-  scopedToSection?: boolean
-  /**
-   * How many OTHER sections the project carries. Zero means the scoped run and
-   * the model-wide run are the same thing, so there is nothing to disclose.
-   */
-  otherSectionCount?: number
 }
 
 /**
@@ -69,12 +58,8 @@ export default function ReSubdivideConfirmDialog({
   onConfirm,
   busy = false,
   handEditCount = 0,
-  scopedToSection = false,
-  otherSectionCount = 0,
 }: Props): JSX.Element {
   const oneHandEdit = handEditCount === 1
-  const disclosesScope = scopedToSection && otherSectionCount > 0
-  const oneOtherSection = otherSectionCount === 1
   return (
     <ConfirmDialog
       open={open}
@@ -88,37 +73,33 @@ export default function ReSubdivideConfirmDialog({
       body={
         <>
           <p>
-            Re-subdividing regenerates all geotech packing connections &mdash; any manual
-            connections you made will be cleared.
+            Re-subdividing regenerates this section&rsquo;s geotech packing connections
+            &mdash; any manual connections you made will be cleared.
           </p>
           {/* The second loss, and the heavier one — a connection can be re-derived by
               Auto-correlate, a hand-placed boundary cannot be re-derived at all. Rendered
-              only when there is something to lose (owner ruling B). */}
+              only when there is something to lose (owner ruling B).
+
+              The count is the MODEL's, because that is what the caller has in memory,
+              while the rebuild reaches only this section's columns. So the sentence
+              says "any of them that sit on it" rather than promising all N are doomed
+              — over-warning by a number the engineer can disprove on screen is how a
+              warning stops being read. */}
           {handEditCount > 0 && (
             <p className="mt-2" data-testid="re-subdivide-hand-edits">
-              It also rebuilds every packing band from the CPT data: the{' '}
+              It also rebuilds this section&rsquo;s packing bands from the CPT data, so any
+              of the{' '}
               <span className="font-semibold">
                 {handEditCount} hand-edited band{oneHandEdit ? '' : 's'}
               </span>{' '}
-              you split or merged {oneHandEdit ? 'goes' : 'go'} back to the
-              segmenter&rsquo;s boundaries. That cannot be recovered.
+              in this model that sit on it go back to the segmenter&rsquo;s boundaries.
+              That cannot be recovered.
             </p>
           )}
-          {/* The scoped press LOOKS narrow and is not: the rebuild still wipes the whole
-              geotech model first, so the sections it does not rebuild come back empty.
-              The engineer cannot infer that from a menu item reading "on this section",
-              which is exactly why it has to be said here (owner ruling 2026-08-15). */}
-          {disclosesScope && (
-            <p className="mt-2" data-testid="re-subdivide-scope">
-              You chose <span className="font-semibold">this section only</span>. The
-              rebuild still clears the whole geotech model first, so the{' '}
-              <span className="font-semibold">
-                {otherSectionCount} other section{oneOtherSection ? '' : 's'}
-              </span>{' '}
-              {oneOtherSection ? 'loses' : 'lose'} their packing bands until you run
-              &ldquo;on all sections&rdquo;.
-            </p>
-          )}
+          {/* There was a third paragraph here, warning that the other sections lost
+              their packing bands until the engineer re-ran "on all sections". Both
+              halves of that stopped being true on 2026-08-15: the rebuild now deletes
+              only the columns it rebuilds, and the all-sections item is gone. */}
           {/* The dialog used to be a dead end: wiping the model was the only way to get
               the automatic ties back. "Correlate packing → Auto-correlate" now proposes
               them without touching anything, so the alternative belongs at the exact
