@@ -91,7 +91,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
@@ -151,6 +151,12 @@ from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
     fill_borehole_litho_body_extent,
 )
+from groundmodel.domain.services.geotech_column_sampler import (
+    LithoFrame,
+    locate_column_in_partition,
+    place_bands_in_litho_layer,
+    sample_regions_at_fraction,
+)
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     superseded_jump_tie_ids,
 )
@@ -164,6 +170,7 @@ from groundmodel.domain.services.litho_geo_bounding import (
     mark_and_truncate_shallow_tests,
 )
 from groundmodel.domain.services.nad_classifier import loosest_class_for
+from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -290,6 +297,36 @@ class PlannedBand:
     donor_layer_ids: tuple[str, ...] = ()
     section_id: str | None = None
     section_name: str | None = None
+
+
+@dataclass(frozen=True)
+class GeometrySampling:
+    """What a borehole's vertical line read out of the section partition.
+
+    Parameters
+    ----------
+    bands : list[FillBand]
+        The bands, already rescaled into the borehole's own litho extent.
+    correspondences : list[tuple[str, ...]]
+        Per band, the ``litho_layer`` ids of the region it was cut from — the
+        tie endpoints the column earns by standing there. Same order and length
+        as ``bands``.
+    section_id, section_name : str
+        The section whose partition was read.
+    left_investigation_id, right_investigation_id : str
+        The two columns bracketing the borehole in that partition.
+    gap_width_m : float
+        Along-distance between them; the tightest bracket wins when several
+        sections draw this borehole.
+    """
+
+    bands: list[FillBand]
+    correspondences: list[tuple[str, ...]]
+    section_id: str
+    section_name: str
+    left_investigation_id: str
+    right_investigation_id: str
+    gap_width_m: float
 
 
 @dataclass(frozen=True)
@@ -1818,6 +1855,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         cpt_names: dict[UUID, str],
         section_placements: list[SectionPlacement],
         accepted_ties: Sequence[AcceptedTie] = (),
+        section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
+        geotech_formation_info: Mapping[str, tuple[int | None, UUID, UUID | None]] | None = None,
     ) -> tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
@@ -1870,6 +1909,17 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             outranks the flanking guess (owner ruling 2026-08-04).  Defaults to
             empty, which is exactly "no tie spans anything" — the flanking rule
             then answers as it always did.
+        section_partitions : Mapping[UUID, SectionPartitionInput] | None
+            The 2-D partitions, per section id.  When one covers this borehole
+            it OUTRANKS the donor rule entirely (owner ruling 2026-08-15): the
+            geometry between the two CPTs already says what is in the gap, so
+            reading the column's line through it beats interpolating a stack
+            onto it.  ``None`` / absent keeps the donor path, which is what the
+            preview and every caller that has no partition still use.
+        geotech_formation_info : Mapping[str, tuple[int | None, UUID, UUID | None]] | None
+            ``geotech formation id -> (nad_class, source litho formation,
+            source geo formation)``, needed to turn a sampled region into a
+            band.  ``None`` disables the geometry path.
 
         Returns
         -------
@@ -2025,6 +2075,52 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         ]
 
         # -------------------------------------------------------------------
+        # Step 5b: the section geometry outranks the donor stack.
+        #
+        # Owner ruling 2026-08-15. Where a partition covers this borehole, what
+        # the gap contains has ALREADY been decided from his own ties — bands
+        # that span it, lenses that end inside it, onlaps that lap a tie line.
+        # Reading the column's vertical line through that geometry is both more
+        # faithful (a lens that pinched out before the borehole is absent, not
+        # averaged in) and self-consistent (the region names the layers it
+        # belongs to, so the ties close into a chain instead of being guessed
+        # twice, once per gap, with two different answers).
+        #
+        # The donor rule remains the answer wherever no partition reaches: the
+        # preview, a borehole off every section, a bracketing column with no
+        # layer in this body group.
+        # -------------------------------------------------------------------
+        sampled: GeometrySampling | None = None
+        if section_partitions and geotech_formation_info:
+            sampled = self._plan_bands_from_section_geometry(
+                inv_id=inv_id,
+                geo_top_m=geo_top_m,
+                geo_base_m=geo_base_m,
+                cpt_segs=cpt_segs,
+                section_placements=section_placements,
+                section_partitions=section_partitions,
+                geotech_formation_info=geotech_formation_info,
+            )
+        if sampled is not None:
+            self.info(
+                f"DivideBoreholes: borehole={inv_id} "
+                f"extent=[{geo_top_m:.2f},{geo_base_m:.2f}] mode=section_geometry "
+                f"section={sampled.section_name} "
+                f"between={sampled.left_investigation_id}|{sampled.right_investigation_id} "
+                f"({sampled.gap_width_m:.0f}m) bands={len(sampled.bands)}"
+            )
+            fill_band_body_ids = [
+                assign_borehole_band_body(
+                    band_nad_class=fb.nad_class,
+                    borehole_x=bh_x,
+                    borehole_y=bh_y,
+                    cpt_bands_in_group=cpt_band_refs,
+                )
+                for fb in sampled.bands
+            ]
+            return sampled.bands, fill_band_body_ids, sampled.correspondences, selection
+
+        # -------------------------------------------------------------------
         # Step 7b: name the donor band each fill band continues.
         #
         # The fraction rescale laid every surface between a known pair of flank
@@ -2055,6 +2151,148 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
 
         return fill_bands, fill_band_body_ids, fill_band_donor_ids, selection
+
+    def _plan_bands_from_section_geometry(
+        self,
+        *,
+        inv_id: str,
+        geo_top_m: float,
+        geo_base_m: float,
+        cpt_segs: list[BodyLayerPick],
+        section_placements: list[SectionPlacement],
+        section_partitions: Mapping[UUID, SectionPartitionInput],
+        geotech_formation_info: Mapping[str, tuple[int | None, UUID, UUID | None]],
+    ) -> GeometrySampling | None:
+        """Read this borehole's bands off the section geometry it stands in.
+
+        Owner ruling 2026-08-15: *"the borehole thing is really a geometry
+        problem ... you just need to check if a borehole column intersects a
+        lens or onlap"*, with *"litho is authoritative still"* and *"only invent
+        inside existing litho at boreholes"*.
+
+        The partition between the two CPTs bracketing this borehole has already
+        decided, from the engineer's own ties, what lies in the gap.  This casts
+        the borehole's vertical line through it, rescales what the line cuts into
+        the borehole's OWN litho extent, and reports the layers each cut
+        corresponds to — which are the tie endpoints the column earns by
+        standing there.  Nothing is interpolated: a lens that pinched out before
+        the borehole is simply absent.
+
+        Parameters
+        ----------
+        inv_id : str
+            The borehole's id, stringified.
+        geo_top_m, geo_base_m : float
+            The borehole's OWN litho-body extent for this group (m below its
+            collar).  Never moved — the geometry only subdivides it.
+        cpt_segs : list[BodyLayerPick]
+            The CPT picks in this body group; the bracketing pair's own litho
+            extents are what the ``0 → 1`` frame is built from.
+        section_placements : list[SectionPlacement]
+            Along-positions per section, used to choose the section whose
+            columns bracket this borehole most tightly.
+        section_partitions : Mapping[UUID, SectionPartitionInput]
+            The 2-D partitions the caller supplied, per section id.
+        geotech_formation_info : Mapping[str, tuple[int | None, UUID, UUID | None]]
+            ``geotech formation id -> (nad_class, source litho formation,
+            source geo formation)`` — the region names a formation, and the
+            plan needs its class and find-or-create key.
+
+        Returns
+        -------
+        GeometrySampling | None
+            The bands and their per-band correspondence, or ``None`` when the
+            geometry cannot answer here (no partition for the section, the
+            borehole outside every gap, a bracketing column absent from this
+            body group, or a degenerate frame).  ``None`` means the caller
+            falls back to the donor rule rather than inventing anything.
+        """
+        picks_by_inv = {seg.investigation_id: seg for seg in cpt_segs}
+        best: GeometrySampling | None = None
+        best_width = float("inf")
+        for placement in section_placements:
+            partition = section_partitions.get(UUID(placement.section_id))
+            if partition is None:
+                continue
+            along = placement.along_m.get(inv_id)
+            if along is None:
+                continue
+            columns = [(c.investigation_id, c.along_m) for c in partition.columns]
+            located = locate_column_in_partition(columns, along)
+            if located is None:
+                continue
+            gap_index, fraction = located
+            ordered = sorted(range(len(columns)), key=lambda i: columns[i][1])
+            position = ordered.index(gap_index)
+            left_inv = columns[gap_index][0]
+            right_inv = columns[ordered[position + 1]][0]
+            left_pick, right_pick = picks_by_inv.get(left_inv), picks_by_inv.get(right_inv)
+            if left_pick is None or right_pick is None:
+                # A bracketing column carries no layer of this body group, so
+                # the unit it would frame does not exist there. Nothing to
+                # rescale against; the donor rule still has an answer.
+                continue
+            width = abs(columns[ordered[position + 1]][1] - columns[gap_index][1])
+            if width >= best_width:
+                continue
+            frame = LithoFrame(
+                left_top_elev_m=left_pick.surface_elev_m - left_pick.top_depth_m,
+                left_base_elev_m=left_pick.surface_elev_m - left_pick.base_depth_m,
+                right_top_elev_m=right_pick.surface_elev_m - right_pick.top_depth_m,
+                right_base_elev_m=right_pick.surface_elev_m - right_pick.base_depth_m,
+            )
+            unit_top, unit_base = frame.bounds_at(fraction)
+            cuts = [
+                band
+                for band in sample_regions_at_fraction(
+                    partition.regions, gap_index=gap_index, fraction=fraction
+                )
+                # The partition is built inside the litho frame, so a region
+                # belongs to exactly one unit; overlap with THIS unit's window
+                # is what selects the ones that subdivide it.
+                if band.base_elev_m < unit_top and band.top_elev_m > unit_base
+            ]
+            placed = place_bands_in_litho_layer(
+                cuts,
+                fraction=fraction,
+                frame=frame,
+                layer_top_m=geo_top_m,
+                layer_base_m=geo_base_m,
+            )
+            if not placed:
+                continue
+            bands: list[FillBand] = []
+            correspondences: list[tuple[str, ...]] = []
+            usable = True
+            for band in placed:
+                info = geotech_formation_info.get(band.formation_id)
+                if info is None or info[0] is None:
+                    # A region naming a formation this model does not know is
+                    # not something to guess a class for.
+                    usable = False
+                    break
+                bands.append(
+                    FillBand(
+                        top=band.depth_top_m,
+                        base=band.depth_base_m,
+                        nad_class=int(info[0]),
+                        source="cpt_interpolated",
+                    )
+                )
+                correspondences.append(band.layer_ids)
+            if not usable:
+                continue
+            best_width = width
+            best = GeometrySampling(
+                bands=bands,
+                correspondences=correspondences,
+                section_id=placement.section_id,
+                section_name=placement.section_name,
+                left_investigation_id=left_inv,
+                right_investigation_id=right_inv,
+                gap_width_m=width,
+            )
+        return best
 
     def _build_donor_stacks(
         self,
