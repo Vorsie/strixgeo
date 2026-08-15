@@ -1387,7 +1387,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # already established when it laid each borehole band between a known
         # pair of flank bands. Phase 8.5 writes them; nothing downstream has to
         # rediscover the pairing.
-        donor_hops: list[tuple[UUID, UUID, UUID]] = []
+        donor_hops: list[tuple[UUID, UUID, UUID, str]] = []
 
         for segment in plan.segments:
             await self._persist_planned_segment(
@@ -1487,34 +1487,79 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # These land ACCEPTED for the same reason the derived hops do: they
         # re-express a correlation the engineer already made, through a column
         # the press has just divided.
+        #
+        # The hops are laid CONSECUTIVELY along the section, never as a star
+        # back to the donor.  Every band that cites donor band D corresponds to
+        # D and therefore to every other citer, but writing D↔each of them
+        # produces ties that themselves fly over the boreholes in between — one
+        # of which was the survivor the owner arrowed on 2026-08-15 (S6↔B4 with
+        # B6 sitting between them, both citing S6).  Ordering the citers by
+        # along-position and linking neighbour to neighbour writes the chain he
+        # asked for — CPT→BH→BH→CPT — and nothing that jumps.
         # ------------------------------------------------------------------
         hops_written = 0
-        for hop_section_id, donor_band_id, borehole_band_id in donor_hops:
-            if section_id is not None and hop_section_id != section_id:
-                continue
-            canonical = (
-                (donor_band_id, borehole_band_id)
-                if donor_band_id < borehole_band_id
-                else (borehole_band_id, donor_band_id)
-            )
-            seen = seen_pairs_by_section.setdefault(hop_section_id, set())
-            if canonical in seen:
-                continue
-            seen.add(canonical)
-            self._session.add(
-                LithoContactCorrelationEdgeOrm(
-                    id=uuid7(),
-                    model_id=geotech_model_id,
-                    section_id=hop_section_id,
-                    layer_a_id=canonical[0],
-                    layer_b_id=canonical[1],
-                    layer_a_side="top",
-                    layer_b_side="top",
-                    source="auto",
-                    user_approved=True,
-                )
-            )
-            hops_written += 1
+        if donor_hops:
+            donor_invs = {
+                row.id: str(row.cpt_id if row.cpt_id is not None else row.borehole_id)
+                for row in (
+                    await self._session.execute(
+                        select(
+                            LithoLayerOrm.id, LithoLayerOrm.cpt_id, LithoLayerOrm.borehole_id
+                        ).where(LithoLayerOrm.id.in_({d for _s, d, _b, _i in donor_hops}))
+                    )
+                ).all()
+            }
+            along_by_section: dict[UUID, dict[str, float]] = {}
+            # donor band -> the bands that continue it, per section.
+            citers: dict[tuple[UUID, UUID], list[tuple[UUID, str]]] = defaultdict(list)
+            for hop_section_id, donor_band_id, borehole_band_id, borehole_inv in donor_hops:
+                if section_id is not None and hop_section_id != section_id:
+                    continue
+                citers[(hop_section_id, donor_band_id)].append((borehole_band_id, borehole_inv))
+            for (hop_section_id, donor_band_id), members in citers.items():
+                if hop_section_id not in along_by_section:
+                    along_by_section[hop_section_id] = {
+                        str(inv): value
+                        for inv, value in (
+                            await project_investigations_onto_section(
+                                self._session,
+                                project_id=project_id,
+                                section_id=hop_section_id,
+                                missing_ok=True,
+                            )
+                        ).items()
+                    }
+                along = along_by_section[hop_section_id]
+                donor_inv = donor_invs.get(donor_band_id)
+                if donor_inv is None or donor_inv not in along:
+                    continue
+                # The donor and every band continuing it, left to right. A
+                # member the section does not draw has no position and cannot
+                # be placed in the chain.
+                chain = [(donor_band_id, along[donor_inv])] + [
+                    (band_id, along[inv]) for band_id, inv in members if inv in along
+                ]
+                chain.sort(key=lambda item: item[1])
+                seen = seen_pairs_by_section.setdefault(hop_section_id, set())
+                for (left_id, _left_pos), (right_id, _right_pos) in zip(chain, chain[1:]):
+                    canonical = (left_id, right_id) if left_id < right_id else (right_id, left_id)
+                    if canonical in seen:
+                        continue
+                    seen.add(canonical)
+                    self._session.add(
+                        LithoContactCorrelationEdgeOrm(
+                            id=uuid7(),
+                            model_id=geotech_model_id,
+                            section_id=hop_section_id,
+                            layer_a_id=canonical[0],
+                            layer_b_id=canonical[1],
+                            layer_a_side="top",
+                            layer_b_side="top",
+                            source="auto",
+                            user_approved=True,
+                        )
+                    )
+                    hops_written += 1
         if hops_written:
             await self._session.flush()
             self.info(
@@ -2153,7 +2198,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
         ],
         borehole_fill_bands: dict[str, list[Band]],
-        donor_hops: list[tuple[UUID, UUID, UUID]],
+        donor_hops: list[tuple[UUID, UUID, UUID, str]],
     ) -> None:
         """Write one planned segment's bands as ``litho_layer`` rows.
 
@@ -2187,9 +2232,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             borehole-mediated edge derivation can see them.
         borehole_fill_bands : dict[str, list[Band]]
             Per-borehole accumulator for the Phase-9 sample assignment (mutated).
-        donor_hops : list[tuple[UUID, UUID, UUID]]
+        donor_hops : list[tuple[UUID, UUID, UUID, str]]
             Accumulator (mutated) of ``(section_id, donor_band_id,
-            borehole_band_id)`` — the borehole hops the fraction rescale
+            borehole_band_id, borehole_investigation_id)`` — the borehole hops the fraction rescale
             licensed, ready for Phase 8.5 to write as accepted edges.
         """
         for band in segment.bands:
@@ -2227,7 +2272,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             if band.section_id is not None:
                 section_uuid = UUID(band.section_id)
                 for donor_layer_id in band.donor_layer_ids:
-                    donor_hops.append((section_uuid, UUID(donor_layer_id), layer.id))
+                    donor_hops.append(
+                        (
+                            section_uuid,
+                            UUID(donor_layer_id),
+                            layer.id,
+                            segment.investigation_id,
+                        )
+                    )
             geotech_layer_by_inv_depth[segment.investigation_id].append(
                 (
                     band.depth_top_m,
