@@ -16,6 +16,12 @@ until the engineer has said yes to it:
 4. ``POST /models/{model_id}/geotech/divide-boreholes`` — refuses while ties
    are pending (``geotech_ties_pending``, 422, carrying the count).
 
+Every one of the four takes an optional ``section_id`` and acts on that
+section alone (owner rulings 2026-08-15, of which step 4's was the last: *"i'm
+reading divide boreholes (whole model), no that should also be section
+scoped"*).  Omit it for the historic model-wide behaviour, which is what step
+4's gate then measures too.
+
 The remaining endpoints:
 
 * ``POST /models/{model_id}/geotech/subdivide-all-bodies`` — the COMBINED verb,
@@ -186,6 +192,7 @@ async def subdivide_all_bodies(
         model_id=model_id,
         derive_edges=True,
         section_id=request.section_id,
+        representative_statistic=request.representative_statistic,
     )
 
 
@@ -222,14 +229,23 @@ def _require_matching_model_id(body_model_id: UUID, url_model_id: UUID) -> None:
         )
 
 
-async def _refuse_while_ties_are_pending(session: AsyncSession, *, litho_model_id: UUID) -> None:
-    """Refuse the divide when the geotech model still carries tie PROPOSALS.
+async def _refuse_while_ties_are_pending(
+    session: AsyncSession, *, litho_model_id: UUID, section_id: UUID | None = None
+) -> None:
+    """Refuse the divide when the ties IN SCOPE are still proposals.
 
     Step 4 of the pipeline is gated on step 3 being finished (owner ruling
     2026-08-04).  A pending tie is a correlation the machine guessed and the
     engineer has not looked at; dividing boreholes off half-reviewed evidence
     produces packing he never sanctioned, on columns that carry no qc of their
     own to argue back with.
+
+    The gate follows the divide's scope (owner ruling 2026-08-15): a call aimed
+    at one section counts THAT section's proposals, because those are the only
+    ones whose evidence this press would throw away.  Counting the model's
+    would mean one unreviewed tie anywhere locked step 4 everywhere — the very
+    thing the scoping exists to end.  A whole-model call still needs the whole
+    model clear, since it rewrites every section.
 
     Silent on a model with no geotech child yet: the divide itself answers that
     with its own typed 404, and pre-empting it here would replace a precise
@@ -241,13 +257,15 @@ async def _refuse_while_ties_are_pending(session: AsyncSession, *, litho_model_i
         Active DB session.
     litho_model_id : UUID
         The lithostratigraphic model whose geotech child is checked.
+    section_id : UUID | None
+        The section being divided; ``None`` gates on the whole model.
 
     Raises
     ------
     HTTPException(422)
-        ``code = "geotech_ties_pending"``, carrying ``pending_tie_count`` and
-        ``accepted_tie_count`` so the caller can say how much is outstanding
-        without a second round trip.
+        ``code = "geotech_ties_pending"``, carrying ``pending_tie_count`` (in
+        scope) and ``accepted_tie_count`` so the caller can say how much is
+        outstanding without a second round trip.
     """
     geotech_model = (
         (
@@ -264,24 +282,31 @@ async def _refuse_while_ties_are_pending(session: AsyncSession, *, litho_model_i
     if geotech_model is None:
         return
     tie_status = await load_geotech_tie_status(session, geotech_model.id)
-    if tie_status.pending_tie_count == 0:
+    pending = (
+        tie_status.pending_tie_count
+        if section_id is None
+        else tie_status.pending_by_section.get(section_id, 0)
+    )
+    if pending == 0:
         return
+    where = "in the model" if section_id is None else "on this cross-section"
     logger.warning(
         f"divide_boreholes refused: geotech_model={geotech_model.id} has "
-        f"{tie_status.pending_tie_count} pending packing tie(s) "
-        f"({tie_status.accepted_tie_count} accepted) — accept or delete them first"
+        f"{pending} pending packing tie(s) {where} "
+        f"(model total {tie_status.pending_tie_count}, "
+        f"{tie_status.accepted_tie_count} accepted) — accept or delete them first"
     )
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail={
             "code": "geotech_ties_pending",
             "message": (
-                f"{tie_status.pending_tie_count} packing tie(s) are still proposed "
+                f"{pending} packing tie(s) {where} are still proposed "
                 f"and not accepted. Accept (or delete) them before dividing the "
                 f"boreholes — an accepted tie that spans a borehole decides which "
                 f"CPTs its packing is read from."
             ),
-            "pending_tie_count": tie_status.pending_tie_count,
+            "pending_tie_count": pending,
             "accepted_tie_count": tie_status.accepted_tie_count,
             "geotech_model_id": str(geotech_model.id),
         },
@@ -295,6 +320,7 @@ async def _run_subdivide(
     model_id: UUID,
     derive_edges: bool,
     section_id: UUID | None = None,
+    representative_statistic: str | None = None,
 ) -> SubdivideAllBodiesResponse:
     """Run ``SubdivideAllBodies`` and map its result onto the wire schema.
 
@@ -315,6 +341,9 @@ async def _run_subdivide(
     section_id : UUID | None
         Restrict the rebuild to one section's investigations; ``None`` takes
         every investigation that appears on any section.
+    representative_statistic : str | None
+        Create the geotech model under this representative-qc choice.  Only
+        honoured when this call creates the model; ignored on a re-run.
 
     Returns
     -------
@@ -324,7 +353,8 @@ async def _run_subdivide(
     Raises
     ------
     HTTPException(422)
-        When materialisation raises a domain ``ValueError``.
+        When materialisation raises a domain ``ValueError`` — which includes
+        an unknown ``representative_statistic`` token.
     """
     try:
         result = await SubdivideAllBodies(session).execute(
@@ -332,6 +362,7 @@ async def _run_subdivide(
             litho_model_id=model_id,
             derive_edges=derive_edges,
             section_id=section_id,
+            representative_statistic=representative_statistic,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -449,6 +480,7 @@ async def subdivide_cpts(
         model_id=model_id,
         derive_edges=False,
         section_id=request.section_id,
+        representative_statistic=request.representative_statistic,
     )
 
 
@@ -534,7 +566,7 @@ async def divide_boreholes(
     """Materialise geotech packing bands on the borehole columns.
 
     Step 4 of the four-step pipeline, and the only step that is GATED: while
-    packing ties are still pending, this refuses with
+    packing ties in scope are still pending, this refuses with
     ``geotech_ties_pending`` (422) and the count of what is outstanding.  The
     gate is not bureaucracy — an accepted tie whose span crosses a borehole's
     column names the two CPTs that borehole's packing is read from (owner
@@ -542,12 +574,21 @@ async def divide_boreholes(
     evidence the engineer is one click from supplying.  Pass
     ``ignore_pending_ties`` to divide anyway.
 
+    **Section-scoped like the rest of the pipeline** (owner ruling 2026-08-15:
+    *"i'm reading divide boreholes (whole model), no that should also be
+    section scoped"*).  With ``section_id`` the call divides that section's
+    member boreholes, derives that section's borehole-mediated edges, and gates
+    on that section's pending ties — so one section can be finished end to end
+    while another still carries proposals.  Without it, the historic
+    whole-model run, gated on the whole model.
+
     Reads the CPT geotech layers already in the geotech model, borrows each
     borehole's packing from the tied pair (or, where no tie spans, from the
     CPTs flanking it on a section), and writes the resulting bands.  Prior
     borehole geotech layers are deleted before new ones are written (idempotent
-    re-run); with ``borehole_ids`` both halves are scoped to that subset, so a
-    borehole left out keeps the bands and the accepted ties it already had.
+    re-run); with ``borehole_ids`` — or the ``section_id`` that resolves into
+    it — both halves are scoped to that subset, so a borehole left out keeps
+    the bands and the accepted ties it already had.
 
     Parameters
     ----------
@@ -556,8 +597,9 @@ async def divide_boreholes(
     model_id : UUID
         The **lithostratigraphic** model whose geotech child model to update.
     body : DivideBoreholesRequest | None
-        Optional ``borehole_ids`` subset and ``ignore_pending_ties`` escape.
-        Omitted entirely means "every borehole, gate enforced".
+        Optional ``section_id`` scope, ``borehole_ids`` subset and
+        ``ignore_pending_ties`` escape.  Omitted entirely means "every
+        borehole, gate enforced".
     session : AsyncSession
         Injected database session.
 
@@ -585,18 +627,23 @@ async def divide_boreholes(
     borehole_ids = (
         set(body.borehole_ids) if body is not None and body.borehole_ids is not None else None
     )
+    section_id = body.section_id if body is not None else None
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/divide-boreholes "
+        f"scope={section_id or 'all sections'} "
         f"boreholes={'ALL' if borehole_ids is None else len(borehole_ids)} "
         f"ignore_pending_ties={bool(body is not None and body.ignore_pending_ties)}"
     )
     if body is None or not body.ignore_pending_ties:
-        await _refuse_while_ties_are_pending(session, litho_model_id=model_id)
+        await _refuse_while_ties_are_pending(
+            session, litho_model_id=model_id, section_id=section_id
+        )
     try:
         result = await DivideBoreholes(session).execute(
             project_id=project_id,
             litho_model_id=model_id,
             borehole_ids=borehole_ids,
+            section_id=section_id,
         )
     except HTTPException:
         raise
@@ -671,8 +718,11 @@ async def preview_divide_boreholes(
     body : DivideBoreholesRequest | None
         Same optional body as the commit endpoint. ``borehole_ids`` scopes the
         preview to those columns so subset ghosts are exactly the subset
-        commit's rows (review finding 2, 2026-08-05); ``ignore_pending_ties``
-        is irrelevant here — the preview writes nothing and is never gated.
+        commit's rows (review finding 2, 2026-08-05), and ``section_id`` does
+        the same per section (owner ruling 2026-08-15) — both resolve through
+        the commit's own scoping, so the two cannot drift.
+        ``ignore_pending_ties`` is irrelevant here — the preview writes nothing
+        and is never gated.
     session : AsyncSession
         Injected database session.
 
@@ -699,12 +749,17 @@ async def preview_divide_boreholes(
     preview_borehole_ids = (
         set(body.borehole_ids) if body is not None and body.borehole_ids is not None else None
     )
+    # Scoped exactly like the commit — preview ≡ commit is a standing gate
+    # (DB5), and a preview that drew ghosts on a section the press never
+    # reaches would be the worst failure this feature has available.
+    preview_section_id = body.section_id if body is not None else None
     use_case = DivideBoreholes(session)
     try:
         plan = await use_case.plan(
             project_id=project_id,
             litho_model_id=model_id,
             borehole_ids=preview_borehole_ids,
+            section_id=preview_section_id,
         )
         tie_plan = await use_case.preview_tie_carry(plan)
     except HTTPException:

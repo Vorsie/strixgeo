@@ -478,12 +478,77 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__, session)
 
+    async def _scoped_borehole_ids(
+        self,
+        *,
+        project_id: UUID,
+        section_id: UUID | None,
+        borehole_ids: set[UUID] | None,
+    ) -> set[UUID] | None:
+        """Fold a ``section_id`` scope into the ``borehole_ids`` subset.
+
+        Owner ruling 2026-08-15, reading the pipeline menu after steps 1-3 were
+        scoped: *"i'm reading divide boreholes (whole model), no that should
+        also be section scoped"*.  Rather than a second scoping mechanism, a
+        section resolves to ITS member boreholes and drives the subset path
+        that already exists — which scopes the delete, seeds the layer index
+        with the columns it leaves alone, and restricts the tie capture.
+
+        A borehole that projects onto TWO sections is divided by either
+        section's press, and that is correct: its bands come from its own
+        donors and its body membership, not from the section it is being viewed
+        on, so both presses produce the same rows for it.
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project — membership is resolved within it.
+        section_id : UUID | None
+            The section being divided; ``None`` leaves *borehole_ids* alone.
+        borehole_ids : set[UUID] | None
+            A caller-named subset, or ``None`` for "every borehole".
+
+        Returns
+        -------
+        set[UUID] | None
+            The effective subset.  ``None`` only when no scope was asked for at
+            all.  An EMPTY set is a real answer — a section with no borehole on
+            it divides nothing, which is not the same as dividing everything.
+        """
+        if section_id is None:
+            return borehole_ids
+        members = await load_section_member_investigation_ids(
+            self._session, project_id=project_id, section_id=section_id
+        )
+        # The membership set mixes CPTs and boreholes; only the boreholes are
+        # this verb's business.
+        section_boreholes: set[UUID] = (
+            set(
+                (
+                    await self._session.execute(
+                        select(BoreholeOrm.id).where(BoreholeOrm.id.in_(members))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if members
+            else set()
+        )
+        scoped = section_boreholes if borehole_ids is None else borehole_ids & section_boreholes
+        self.info(
+            f"DivideBoreholes: section {section_id} scopes the run to "
+            f"{len(scoped)} borehole(s) of {len(section_boreholes)} on it"
+        )
+        return scoped
+
     async def plan(
         self,
         *,
         project_id: UUID,
         litho_model_id: UUID,
         borehole_ids: set[UUID] | None = None,
+        section_id: UUID | None = None,
     ) -> DivideBoreholePlan:
         """Compute every band this verb would write, WITHOUT writing anything.
 
@@ -515,6 +580,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             default) plans every borehole in the model — exactly today's
             semantics.  A subset is what lets the engineer accept the ghost
             bands on one borehole at a time instead of all-or-nothing.
+        section_id : UUID | None
+            Restrict the plan to ONE section's member boreholes (owner ruling
+            2026-08-15).  Resolved into *borehole_ids* — see
+            :meth:`_scoped_borehole_ids` — so the preview and the commit are
+            scoped by the identical mechanism and cannot drift.
 
         Returns
         -------
@@ -527,6 +597,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         HTTPException
             404 when the litho model or geotech model does not exist.
         """
+        borehole_ids = await self._scoped_borehole_ids(
+            project_id=project_id, section_id=section_id, borehole_ids=borehole_ids
+        )
         self.info(
             f"DivideBoreholes.plan: project={project_id} litho_model={litho_model_id} "
             f"boreholes={'ALL' if borehole_ids is None else sorted(str(b) for b in borehole_ids)}"
@@ -1107,6 +1180,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         project_id: UUID,
         litho_model_id: UUID,
         borehole_ids: set[UUID] | None = None,
+        section_id: UUID | None = None,
     ) -> DivideBoreholeResult:
         """Materialise litho-confined borehole bands for *litho_model_id*.
 
@@ -1126,6 +1200,19 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             every borehole — exactly today's semantics.  With a subset, the
             delete is scoped to the same set, so a borehole left out keeps the
             bands (and the ties anchored on them) it already had.
+        section_id : UUID | None
+            Divide only the boreholes on ONE section, and derive that section's
+            borehole-mediated edges only (owner ruling 2026-08-15: *"i'm
+            reading divide boreholes (whole model), no that should also be
+            section scoped"*).  Resolved into *borehole_ids* by
+            :meth:`_scoped_borehole_ids`, which is what makes the delete, the
+            untouched-column seeding and the tie capture follow the scope
+            without a second mechanism.  ``None`` keeps the whole-model run.
+
+            A borehole on TWO sections is divided by either section's press:
+            its bands come from its own donors and its body membership, not
+            from the section it is drawn on, so each press produces the same
+            rows for it.
 
         Returns
         -------
@@ -1138,8 +1225,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             404 when the litho model or geotech model does not exist.
         """
         t0 = time.monotonic()
+        # Resolved ONCE, here, and handed to ``plan`` already narrowed — the
+        # phases below read ``borehole_ids`` directly, so the commit and its
+        # own plan must be looking at the same set.
+        borehole_ids = await self._scoped_borehole_ids(
+            project_id=project_id, section_id=section_id, borehole_ids=borehole_ids
+        )
         self.info(
             f"DivideBoreholes: start project={project_id} litho_model={litho_model_id} "
+            f"scope={section_id or 'all sections'} "
             f"boreholes={'ALL' if borehole_ids is None else len(borehole_ids)}"
         )
 
@@ -1335,6 +1429,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
+        if section_id is not None:
+            # A scoped press authors edges on its own section only. Deriving
+            # for the neighbour would stamp proposals onto a section this call
+            # left undivided — ties pointing at bands that were never written,
+            # on a section the engineer has not reached yet.
+            sections = [section for section in sections if section.id == section_id]
         edge_totals = EdgeDerivationCounts()
         superseded_edge_ids: list[UUID] = []
         superseded_labels: list[str] = []

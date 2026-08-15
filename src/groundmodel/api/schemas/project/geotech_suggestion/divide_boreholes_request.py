@@ -29,6 +29,18 @@ class DivideBoreholesRequest(BaseModel):
         throws away evidence the engineer is one click from supplying.  The
         escape exists for callers that deliberately want the pre-pipeline
         behaviour, and it has to say so.
+    section_id : UUID | None
+        Divide only the boreholes that project onto ONE section, and gate on
+        THAT section's pending ties (owner ruling 2026-08-15, reading the menu
+        after steps 1-3 were scoped: *"i'm reading divide boreholes (whole
+        model), no that should also be section scoped"*).  ``None`` (the
+        default) is the historic whole-model run, gated on the whole model.
+
+        Resolved through the same membership rule the rest of the pipeline
+        uses and then fed into ``borehole_ids``, so the scoped delete, the
+        untouched-column seeding and the tie capture all behave exactly as
+        they do for a hand-picked subset.  Combining the two fields intersects
+        them: "these boreholes, of the ones on this section".
     """
 
     borehole_ids: list[UUID] | None = Field(
@@ -43,5 +55,13 @@ class DivideBoreholesRequest(BaseModel):
         description=(
             "Divide even while packing-tie proposals are still pending. Default "
             "false: the gate exists because accepted ties steer the donors."
+        ),
+    )
+    section_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Divide only this section's boreholes and gate on this section's "
+            "pending ties; omit or null for the whole model (the historic "
+            "behaviour)."
         ),
     )

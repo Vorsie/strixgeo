@@ -28,7 +28,23 @@ class SubdivideAllBodiesRequest(BaseModel):
         that projects onto ANY section of the project — the historic breadth
         MINUS the ones that appear on no section at all, which the same ruling
         excludes from the model in both modes.
+    representative_statistic : str | None
+        Which representative qc the NAD classifier reads, chosen BEFORE the
+        geotech model exists (owner ruling 2026-08-15: *"i can't choose
+        harmonic qc before first subdivide, that's friction we don't need?"*).
+        Honoured ONLY when this call CREATES the geotech model; on a re-run the
+        model's own choice stands and ``POST .../geotech/statistic`` remains
+        the one way to change it.  ``None`` (the default) is the historic
+        behaviour — the model is created under ``median``.
     """
 
     litho_model_id: UUID
     section_id: UUID | None = Field(default=None)
+    representative_statistic: str | None = Field(
+        default=None,
+        description=(
+            "Create the geotech model under this representative qc statistic "
+            "('median' | 'arithmetic' | 'harmonic' | 'geometric'). Ignored "
+            "when the model already exists; omit for the median default."
+        ),
+    )

@@ -180,6 +180,7 @@ from groundmodel.domain.services.litho_geo_bounding import (
     divide_picks_by_geology,
     mark_and_truncate_shallow_tests,
 )
+from groundmodel.domain.services.representative_statistic import REPRESENTATIVE_STATISTICS
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -424,6 +425,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         litho_model_id: UUID,
         derive_edges: bool = True,
         section_id: UUID | None = None,
+        representative_statistic: str | None = None,
     ) -> SubdivideAllBodiesResult:
         """Subdivide the model's on-section bodies and materialise geotech bodies.
 
@@ -484,6 +486,15 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             proposals he can review before accepting them.  Accepted ties are
             re-anchored either way: carrying the engineer's own work across a
             rebuild is not edge *derivation*.
+        representative_statistic : str | None
+            Create the geotech model under this representative-qc choice
+            (owner ruling 2026-08-15: *"i can't choose harmonic qc before
+            first subdivide, that's friction we don't need?"*).  The choice
+            lives on the geotech model, which does not exist until this call
+            makes it — so without this the engineer had to build everything
+            under the default and re-run.  Applied ONLY when this call creates
+            the model: on a re-run the model's own choice stands, and
+            ``SetGeotechStatistic`` remains the single writer of a change.
 
         Returns
         -------
@@ -493,13 +504,27 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         Raises
         ------
         ValueError
-            When the litho model is missing / out of project.
+            When the litho model is missing / out of project, or
+            *representative_statistic* is not a known token.
         """
         t0 = time.monotonic()
         self.info(
             f"SubdivideAllBodies: litho_model={litho_model_id} "
-            f"scope={section_id or 'all sections'} derive_edges={derive_edges}"
+            f"scope={section_id or 'all sections'} derive_edges={derive_edges} "
+            f"requested_statistic={representative_statistic or 'model default'}"
         )
+        # Validated BEFORE anything is loaded: a token the classifier does not
+        # know must never fall back to median silently — a whole model built
+        # under a statistic nobody asked for is the kind of thing that is only
+        # noticed in an export.
+        if (
+            representative_statistic is not None
+            and representative_statistic not in REPRESENTATIVE_STATISTICS
+        ):
+            raise ValueError(
+                f"Unknown representative statistic {representative_statistic!r} — "
+                f"expected one of {REPRESENTATIVE_STATISTICS}"
+            )
 
         litho_model = await load_scoped_or_raise(
             self._session,
@@ -510,7 +535,26 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         )
 
         # Phase 1 — ensure the geotech model + resolve litho body_id stamps.
-        geotech_model, _ = await self._ensure_geotech_model(litho_model)
+        geotech_model, geotech_model_created = await self._ensure_geotech_model(litho_model)
+        # The pre-model choice, applied at the ONE moment it can be: creation.
+        # A re-run deliberately ignores it — the model's own choice is what
+        # every band on screen was classified with, and letting a request body
+        # overwrite it would re-classify the whole model from a stale renderer.
+        if representative_statistic is not None:
+            if geotech_model_created:
+                geotech_model.representative_statistic = representative_statistic
+                self.info(
+                    f"SubdivideAllBodies: geotech model created under "
+                    f"representative_statistic={representative_statistic}"
+                )
+            else:
+                self.info(
+                    f"SubdivideAllBodies: requested statistic "
+                    f"{representative_statistic!r} IGNORED — geotech model "
+                    f"{geotech_model.id} already exists and keeps "
+                    f"{geotech_model.representative_statistic!r} "
+                    f"(change it via POST .../geotech/statistic)"
+                )
         await ResolveLithoInstances(self._session).execute(model_id=litho_model_id, commit=False)
         self.info(f"SubdivideAllBodies: geotech_model={geotech_model.id} (litho bodies resolved)")
 
