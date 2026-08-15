@@ -8,12 +8,18 @@
 //   PK2  typing a p into a text field is text, not a shortcut
 //   PK3  Ctrl+P still belongs to the browser's print, not to us
 //   PK4  leaving the section view takes the shortcut with it
+//   PK5  hammering P leaves ONE toast that updates, not a column of them
+//        (owner 2026-08-15: "if it is a recurring toast for example by pressing
+//        same hotkey multiple times, you can just immediately replace it and
+//        don't need to flood the screen")
 
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useSampleMarkersHotkey } from './useSampleMarkersHotkey'
 import { getSampleMarkersOn, setSampleMarkersOn } from '../../../utils/sampleMarkersOnStore'
+import { useToasts } from '../../../hooks/useToasts'
+import { SAMPLE_MARKERS_TOAST_KEY, sampleMarkersToastMessage } from './displayToggleToast'
 
 afterEach(() => {
   // The store is module-global; leave it at its shipped default.
@@ -76,5 +82,27 @@ describe('useSampleMarkersHotkey', () => {
     pressKey('p')
     expect(getSampleMarkersOn()).toBe(true)
     expect(onFlip).not.toHaveBeenCalled()
+  })
+
+  it('PK5: hammering P leaves one toast that updates, not a screen of them', () => {
+    // Announced the way the toolbar announces it, through the real toast
+    // stack: four presses must leave one line saying where the toggle ended.
+    const { result } = renderHook(() => {
+      const toasts = useToasts()
+      useSampleMarkersHotkey(nowOn =>
+        toasts.toast('success', sampleMarkersToastMessage(nowOn), SAMPLE_MARKERS_TOAST_KEY),
+      )
+      return toasts
+    })
+
+    act(() => {
+      pressKey('p')
+      pressKey('p')
+      pressKey('p')
+      pressKey('p')
+    })
+
+    expect(result.current.toasts).toHaveLength(1)
+    expect(result.current.toasts[0].message).toBe('Sample markers on')
   })
 })

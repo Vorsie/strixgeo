@@ -10,14 +10,20 @@
 //   LK4  typing an l into a text field is text, not a shortcut
 //   LK5  Ctrl / Cmd / Alt + L belong to the browser, not to us
 //   LK6  leaving the section view takes the shortcut with it
+//   LK8  hammering L leaves ONE toast that updates, not a column of them
+//        (owner 2026-08-15: "when i repeatedly press l the toast just kind of
+//        stack on the right ... you can just immediately replace it and don't
+//        need to flood the screen")
 
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useLithoFillHotkey } from './useLithoFillHotkey'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import { getBandFillVisible, setBandFill } from '../../../utils/bandFillStore'
 import { getLithoFillOnGeotech, toggleLithoFillOnGeotech } from '../../../utils/lithoFillOnGeotechStore'
+import { useToasts } from '../../../hooks/useToasts'
+import { LITHO_FILL_TOAST_KEY, lithoFillToastMessage } from './displayToggleToast'
 
 afterEach(() => {
   // Both stores are module-global; leave them at their shipped defaults.
@@ -128,5 +134,28 @@ describe('useLithoFillHotkey', () => {
     expect(getBandFillVisible()).toBe(true)
     // The geotech toggle stayed where the first press left it.
     expect(getLithoFillOnGeotech()).toBe(true)
+  })
+
+  it('LK8: hammering L leaves one toast that updates, not a screen of them', () => {
+    // Announced the way the toolbar announces it, through the real toast
+    // stack: five presses must leave one line saying where the fill ended.
+    const { result } = renderHook(() => {
+      const toasts = useToasts()
+      useLithoFillHotkey('geotechnical', nowOn =>
+        toasts.toast('success', lithoFillToastMessage('geotechnical', nowOn), LITHO_FILL_TOAST_KEY),
+      )
+      return toasts
+    })
+
+    act(() => {
+      pressKey('l')
+      pressKey('l')
+      pressKey('l')
+      pressKey('l')
+      pressKey('l')
+    })
+
+    expect(result.current.toasts).toHaveLength(1)
+    expect(result.current.toasts[0].message).toBe('Litho fill on')
   })
 })
