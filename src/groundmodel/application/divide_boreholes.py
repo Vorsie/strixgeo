@@ -599,6 +599,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         litho_model_id: UUID,
         borehole_ids: set[UUID] | None = None,
         section_id: UUID | None = None,
+        section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
     ) -> DivideBoreholePlan:
         """Compute every band this verb would write, WITHOUT writing anything.
 
@@ -691,6 +692,36 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 },
             )
         self.info(f"DivideBoreholes: geotech_model={geotech_model.id}")
+
+        # The sampled region names a geotech formation; turning it into a band
+        # needs that formation's class and its find-or-create key. Loaded once
+        # here rather than per borehole — the geometry path reads it for every
+        # cut it makes.
+        geotech_formation_info: dict[str, tuple[int | None, UUID, UUID | None]] = {}
+        if section_partitions:
+            for formation_row in (
+                await self._session.execute(
+                    select(
+                        GeologicalFormationOrm.id,
+                        GeologicalFormationOrm.nad_class,
+                        GeologicalFormationOrm.source_litho_formation_id,
+                        GeologicalFormationOrm.source_geo_formation_id,
+                    ).where(
+                        GeologicalFormationOrm.app_project_id == project_id,
+                        GeologicalFormationOrm.source_litho_formation_id.is_not(None),
+                    )
+                )
+            ).all():
+                geotech_formation_info[str(formation_row.id)] = (
+                    formation_row.nad_class,
+                    formation_row.source_litho_formation_id,
+                    formation_row.source_geo_formation_id,
+                )
+            self.info(
+                f"DivideBoreholes: section geometry supplied for "
+                f"{len(section_partitions)} section(s); "
+                f"{len(geotech_formation_info)} geotech formation(s) indexed"
+            )
 
         # Phase 3 — load litho body picks, keep only the ones on a section, and
         # geo-bound them.
@@ -974,6 +1005,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     cpt_names=cpt_names,
                     section_placements=section_placements,
                     accepted_ties=accepted_ties,
+                    section_partitions=section_partitions,
+                    geotech_formation_info=geotech_formation_info,
                 )
                 n_bands = len(fill_band_list)
                 total_layers += n_bands
@@ -1240,6 +1273,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         litho_model_id: UUID,
         borehole_ids: set[UUID] | None = None,
         section_id: UUID | None = None,
+        section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
     ) -> DivideBoreholeResult:
         """Materialise litho-confined borehole bands for *litho_model_id*.
 
@@ -1297,7 +1331,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
 
         plan = await self.plan(
-            project_id=project_id, litho_model_id=litho_model_id, borehole_ids=borehole_ids
+            project_id=project_id,
+            litho_model_id=litho_model_id,
+            borehole_ids=borehole_ids,
+            section_partitions=section_partitions,
         )
         geotech_model_id = plan.geotech_model_id
         if plan.pick_count == 0:
