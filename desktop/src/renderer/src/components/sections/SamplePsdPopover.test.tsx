@@ -164,4 +164,86 @@ describe('SamplePsdPopover', () => {
     ).map(l => l.getAttribute('x1'))
     expect(linesB).toEqual(linesA)
   })
+
+  // Owner ask (dogfeed 2026-08-15): "maybe put organic matter content some
+  // where in the psd popup on hover too".
+  //
+  // Organic MATTER and organic CARBON are different quantities — matter is
+  // roughly carbon times a conversion factor — so a carbon value must never be
+  // presented under the matter label. The card shows matter when the sample has
+  // it, says "carbon" when that is all there is, and simply omits the line when
+  // the sample was never tested (no dash, no empty row).
+  it('SPP8: organic matter content shows as its own line', () => {
+    renderPopover(
+      makeSample({
+        organic_content_tests: [
+          { id: 'o-1', carbon_pct: 2.4, matter_pct: 4.2, method: null, test_date: null },
+        ],
+      }),
+    )
+    const line = screen.getByTestId('sample-organic-content')
+    expect(line.textContent).toContain('organic matter')
+    expect(line.textContent).toContain('4.2')
+    expect(line.textContent).not.toContain('carbon')
+  })
+
+  it('SPP9: with only carbon measured the line says carbon, never matter', () => {
+    renderPopover(
+      makeSample({
+        organic_content_tests: [
+          { id: 'o-1', carbon_pct: 2.4, matter_pct: null, method: null, test_date: null },
+        ],
+      }),
+    )
+    const line = screen.getByTestId('sample-organic-content')
+    expect(line.textContent).toContain('organic carbon')
+    expect(line.textContent).toContain('2.4')
+  })
+
+  it('SPP10: matter wins across tests — a later matter result beats an earlier carbon-only one', () => {
+    renderPopover(
+      makeSample({
+        organic_content_tests: [
+          { id: 'o-1', carbon_pct: 2.4, matter_pct: null, method: null, test_date: null },
+          { id: 'o-2', carbon_pct: null, matter_pct: 4.2, method: null, test_date: null },
+        ],
+      }),
+    )
+    const line = screen.getByTestId('sample-organic-content')
+    expect(line.textContent).toContain('organic matter')
+    expect(line.textContent).toContain('4.2')
+  })
+
+  it('SPP11: no organic test → no line at all', () => {
+    renderPopover(makeSample({ organic_content_tests: [] }))
+    expect(screen.queryByTestId('sample-organic-content')).toBeNull()
+    // A test row carrying neither quantity is nothing to show either.
+    renderPopover(
+      makeSample({
+        organic_content_tests: [
+          { id: 'o-1', carbon_pct: null, matter_pct: null, method: null, test_date: null },
+        ],
+      }),
+    )
+    expect(screen.queryByTestId('sample-organic-content')).toBeNull()
+  })
+
+  it('SPP12: the extra line is paid for in the placement, so the card still fits', () => {
+    // The card measures itself for ``clampPopoverPosition``; a line added to
+    // the render but not to the measurement would hang off the panel's bottom.
+    renderPopover(
+      makeSample({
+        grain_sizes: [makeGrainSize('g-1')],
+        organic_content_tests: [
+          { id: 'o-1', carbon_pct: null, matter_pct: 4.2, method: null, test_date: null },
+        ],
+      }),
+      { x: 795, y: 495 },
+    )
+    const card = screen.getByTestId('sample-psd-popover') as HTMLElement
+    const top = parseFloat(card.style.top)
+    expect(top).toBeGreaterThanOrEqual(0)
+    // Header + chart + axis strip + the organic line, all above the panel floor.
+    expect(top + 8 * 2 + 30 + 80 + 13 + 12).toBeLessThanOrEqual(500)
+  })
 })

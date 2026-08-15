@@ -26,6 +26,7 @@
 
 import type { SampleResponse } from '../../api/client'
 import { clampPopoverPosition } from '../../utils/hoverPopoverPlacement'
+import { selectOrganicContent } from '../../utils/organicContentSummary'
 import { PSD_FIXED_DOMAIN, PSD_FRACTION_ZONES, psdCurvePoints, psdPolyline } from '../../utils/psdCurve'
 
 // --- Card + chart metrics --------------------------------------------------
@@ -42,6 +43,14 @@ const CARD_WIDTH = CHART_WIDTH + CARD_PADDING * 2
 const HEADER_HEIGHT = 30
 /** Height of the axis-label strip under the chart (px). */
 const AXIS_LABEL_HEIGHT = 13
+/**
+ * Height of the organic-content line under the header (px).
+ *
+ * Added to the measured card height whenever the line renders — the same number
+ * feeds ``clampPopoverPosition``, so a card that grew a line still clamps inside
+ * the panel instead of hanging off its bottom edge.
+ */
+const ORGANIC_LINE_HEIGHT = 12
 /** Card height when a chart is drawn. */
 const CARD_HEIGHT_WITH_CHART =
   CARD_PADDING * 2 + HEADER_HEIGHT + CHART_HEIGHT + AXIS_LABEL_HEIGHT
@@ -106,12 +115,18 @@ export default function SamplePsdPopover({
   }))
   const domain = PSD_FIXED_DOMAIN
   const hasChart = curves.some(c => c.points.length > 0)
+  // Organic content rides along on the same hover (owner, dogfeed 2026-08-15).
+  // The helper says WHICH quantity it found; the label below prints that, since
+  // organic matter and organic carbon are not the same number.
+  const organic = selectOrganicContent(sample.organic_content_tests)
 
   const { left, top } = clampPopoverPosition({
     anchorX,
     anchorY,
     popoverWidth: CARD_WIDTH,
-    popoverHeight: hasChart ? CARD_HEIGHT_WITH_CHART : CARD_HEIGHT_COMPACT,
+    popoverHeight:
+      (hasChart ? CARD_HEIGHT_WITH_CHART : CARD_HEIGHT_COMPACT)
+      + (organic !== null ? ORGANIC_LINE_HEIGHT : 0),
     containerWidth,
     containerHeight,
   })
@@ -138,6 +153,17 @@ export default function SamplePsdPopover({
       <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400 truncate">
         {boreholeName} · {sample.depth_top_m.toFixed(2)}–{sample.depth_base_m.toFixed(2)} m
       </div>
+      {/* One compact line under the header, and only when the sample was
+          actually tested — an absent test renders nothing at all, never a dash
+          or an empty row that would read as "measured, and it was zero". */}
+      {organic !== null && (
+        <div
+          data-testid="sample-organic-content"
+          className="text-[10px] leading-tight text-gray-500 dark:text-gray-400 truncate"
+        >
+          organic {organic.quantity} {organic.pct.toFixed(1)} %
+        </div>
+      )}
 
       {hasChart ? (
         <>

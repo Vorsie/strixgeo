@@ -359,13 +359,15 @@ export function useSectionData(
       setBoreholeDetails(new Map())
       return
     }
-    // Debt #39: one batch call replaces N parallel GETs. The section
-    // asks for exactly ONE lab family — grain_size, which the sample
-    // markers' hover preview plots — so the other five selectinloads
-    // are still skipped. Project scope is enforced server-side via
-    // app_project_id (VULN-6).
+    // Debt #39: one batch call replaces N parallel GETs. The section asks for
+    // exactly the TWO lab families the sample markers' hover preview shows —
+    // grain_size for the curve, and organic for the content line the owner
+    // asked for on 2026-08-15 — so the other four selectinloads are still
+    // skipped. Project scope is enforced server-side via app_project_id
+    // (VULN-6). The tokens are the backend's aliases (see
+    // ``LAB_TEST_INCLUDE_ALIASES``), not the relationship names.
     api.borehole
-      .detailBatch(inBufferBhIds, section.app_project_id, ['grain_size'])
+      .detailBatch(inBufferBhIds, section.app_project_id, ['grain_size', 'organic'])
       .then(boreholes => {
         if (cancelled) return
         const m = new Map<string, BoreholeDetailResponse>()
