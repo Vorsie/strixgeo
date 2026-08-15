@@ -27,6 +27,7 @@ from groundmodel.api.routers import (
     virtuele_boring,
 )
 from groundmodel.api.serve import install_accept_failure_diagnostics
+from groundmodel.api.unhandled_error_handler import make_unhandled_error_handler
 from groundmodel.api.validation_error_handler import validation_error_handler
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
@@ -300,6 +301,21 @@ app.add_middleware(
 # contains NaN/inf — see ``validation_error_handler`` for why that turned a
 # correctly-rejected body into a 500.
 app.add_exception_handler(RequestValidationError, validation_error_handler)
+
+# Starlette's ServerErrorMiddleware sits OUTSIDE CORSMiddleware, so an escaped
+# exception answers 500 with no CORS headers and the renderer console reports
+# it as a CORS failure rather than as the server error it is (owner dogfeed
+# 2026-08-15). Registering our own ``Exception`` handler lets that 500 carry
+# the same pinned origins the middleware would have allowed. The exception is
+# still logged with its traceback and the status is still 500 — only the
+# reporting changes.
+app.add_exception_handler(
+    Exception,
+    make_unhandled_error_handler(
+        allowed_origins=_ALLOWED_ORIGINS,
+        allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
+    ),
+)
 
 app.include_router(cpt.router)
 app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])

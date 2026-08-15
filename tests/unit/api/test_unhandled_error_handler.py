@@ -1,0 +1,91 @@
+"""UE — a 500 stays readable in the renderer, without loosening the CORS pin.
+
+Starlette's ``ServerErrorMiddleware`` sits outside ``CORSMiddleware``, so an
+exception that escapes a route used to answer 500 with no
+``Access-Control-Allow-Origin`` header. The browser then refuses to surface it:
+the owner's 2026-08-15 dogfeed reported a body-partition race on
+``POST .../contact-correlations`` as *"No 'Access-Control-Allow-Origin' header
+is present"* — a CORS message for something that was not a CORS problem.
+
+UE-1/UE-2 pin that an allowed origin now gets the header back on a 500.
+UE-3/UE-4 pin the other half, which is security-relevant: the error path must
+NOT reflect an origin the real CORS policy rejects (debt #35's whole point is
+that another browser tab must not read this loopback API).
+"""
+
+from __future__ import annotations
+
+import pytest
+from starlette.requests import Request
+
+from groundmodel.api.unhandled_error_handler import make_unhandled_error_handler
+
+_ALLOWED_ORIGINS = ["null"]
+_ALLOWED_ORIGIN_REGEX = r"^http://localhost(?::\d+)?$"
+
+
+def _request(origin: str | None) -> Request:
+    """Build a minimal ASGI request carrying (or omitting) an ``Origin`` header."""
+    headers: list[tuple[bytes, bytes]] = []
+    if origin is not None:
+        headers.append((b"origin", origin.encode()))
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/projects/x/geology/models/y/contact-correlations",
+            "headers": headers,
+            "query_string": b"",
+        }
+    )
+
+
+async def _answer(origin: str | None) -> tuple[int, str | None]:
+    """Run the handler over a raised exception and return (status, allow-origin)."""
+    handler = make_unhandled_error_handler(
+        allowed_origins=_ALLOWED_ORIGINS,
+        allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
+    )
+    try:
+        raise RuntimeError("deadlock detected")
+    except RuntimeError as exc:
+        response = await handler(_request(origin), exc)
+    return response.status_code, response.headers.get("access-control-allow-origin")
+
+
+@pytest.mark.asyncio
+async def test_ue1_the_packaged_file_origin_can_read_the_500() -> None:
+    """UE-1 — a ``file://`` renderer (Origin: null) gets the error, not a CORS wall."""
+    status, allow_origin = await _answer("null")
+    assert status == 500, f"UE-1 FAIL: the error must stay a 500, got {status}"
+    assert allow_origin == "null", (
+        "UE-1 FAIL: the packaged renderer could not read its own 500 — "
+        f"Access-Control-Allow-Origin was {allow_origin!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ue2_the_dev_renderer_origin_can_read_the_500() -> None:
+    """UE-2 — the vite dev origin on any port gets the error too."""
+    status, allow_origin = await _answer("http://localhost:5174")
+    assert status == 500
+    assert allow_origin == "http://localhost:5174", (
+        f"UE-2 FAIL: dev renderer got Access-Control-Allow-Origin {allow_origin!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ue3_a_foreign_origin_is_never_reflected_on_the_error_path() -> None:
+    """UE-3 — the 500 must not become a hole in the origin pin (debt #35)."""
+    _, allow_origin = await _answer("https://evil.example")
+    assert allow_origin is None, (
+        "UE-3 FAIL: the error path reflected a foreign origin "
+        f"({allow_origin!r}) — another browser tab could read our errors"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ue4_a_lookalike_origin_is_not_matched_by_prefix() -> None:
+    """UE-4 — ``localhost.evil.example`` is not ``localhost``."""
+    _, allow_origin = await _answer("http://localhost.evil.example")
+    assert allow_origin is None, f"UE-4 FAIL: a lookalike origin was reflected ({allow_origin!r})"
