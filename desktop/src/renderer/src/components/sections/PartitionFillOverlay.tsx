@@ -89,6 +89,17 @@ import {
   type FallbackPackingBand,
 } from '../../utils/geotechFillFallback'
 import { clipPartitionToLithoFrame } from '../../utils/clipPartitionToLithoFrame'
+import {
+  UNBANDED_HATCH_INK,
+  UNBANDED_HATCH_LABEL,
+  UNBANDED_HATCH_PATTERN_ID,
+  UNBANDED_HATCH_ROTATION_DEG,
+  UNBANDED_HATCH_SPACING_PX,
+  UNBANDED_HATCH_STROKE_OPACITY,
+  UNBANDED_HATCH_STROKE_WIDTH,
+  selectUnbandedHatchFills,
+  type HatchCandidateFill,
+} from '../../utils/unbandedGeotechHatch'
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
 import ReviewFlagLayer, { type ReviewFlagMarker } from './ReviewFlagLayer'
@@ -2171,6 +2182,39 @@ export default function PartitionFillOverlay({
     plotBottom,
   ])
 
+  // ---- "CORRELATE ME" — the geotech axis's UN-BANDED ground. ---------------
+  //
+  // OWNER RULING 2026-08-14, verbatim: "sure read as correlate me on the extra
+  // ruling is fine". A litho area the packing model has no bands for used to
+  // paint as flat lithology colour, so the same clay met itself in two tones at
+  // a card edge — a classified KLEI NAD 23 band beside plain KLEI — and the
+  // tone difference read as a lithology difference. It now carries a texture
+  // that reads as unfinished work instead of impersonating a class. Both truths
+  // survive: the classified band keeps its class, the bare ground keeps its
+  // lithology hue underneath.
+  //
+  // The rule is handed EVERY fill about to be painted, packing fills included,
+  // so the discrimination lives in one place: a regression that textures
+  // classified ground is a change to ``selectUnbandedHatchFills``, not a silent
+  // render drift. It self-clears with no invalidation of its own — the
+  // candidates come from ``lithoFrameScreen.fallbackPolys``, which shrink as the
+  // packing partition (recomputed from the accepted ties) grows over them.
+  const unbandedHatchFills = useMemo(() => {
+    const candidates: HatchCandidateFill[] = [
+      ...fillGroups.map((g) => ({ key: `pf-group-${g.key}`, d: g.d, kind: 'packed' as const })),
+      ...lithoFrameScreen.fallbackPolys.map((p) => ({
+        key: p.key,
+        d: p.d,
+        kind: 'unbanded' as const,
+      })),
+    ]
+    return selectUnbandedHatchFills({
+      axisMode,
+      geotechPartitionFramed: lithoFrame != null,
+      candidates,
+    })
+  }, [axisMode, lithoFrame, fillGroups, lithoFrameScreen])
+
   // One label per BODY, zoom-adaptive sizing and fit-based visibility.
   //
   // Rules (owner dogfeed, 2026-06-24):
@@ -3044,6 +3088,52 @@ export default function PartitionFillOverlay({
           style={{ pointerEvents: 'none' }}
         />
       ))}
+
+      {/* "CORRELATE ME" TEXTURE (geotech axis, owner ruling 2026-08-14): the
+          areas the packing model has no bands for, hatched OVER their lithology
+          colour so they read as unfinished ground rather than as a second shade
+          of the same soil. Drawn after the fills so the hue stays recognisable
+          beneath it, and before the litho outlines so the envelopes still win.
+          Back-slash, wide and light — every other hatch on this canvas (litho
+          pending ghosts, borehole packing previews, the DOV clay pattern) is a
+          black forward-slash at 3-6 px, and "not committed yet" must not be
+          confusable with "not correlated yet". Inert: the geotech axis is
+          view-only and the correlate gesture targets live beneath these areas,
+          so the layer never takes a pointer event. */}
+      {unbandedHatchFills.length > 0 && (
+        <g data-testid="partition-unbanded-hatch-layer" aria-label={UNBANDED_HATCH_LABEL}>
+          <defs>
+            <pattern
+              id={UNBANDED_HATCH_PATTERN_ID}
+              patternUnits="userSpaceOnUse"
+              width={UNBANDED_HATCH_SPACING_PX}
+              height={UNBANDED_HATCH_SPACING_PX}
+              patternTransform={`rotate(${UNBANDED_HATCH_ROTATION_DEG})`}
+            >
+              <line
+                x1={0}
+                y1={0}
+                x2={0}
+                y2={UNBANDED_HATCH_SPACING_PX}
+                stroke={UNBANDED_HATCH_INK}
+                strokeOpacity={UNBANDED_HATCH_STROKE_OPACITY}
+                strokeWidth={UNBANDED_HATCH_STROKE_WIDTH}
+              />
+            </pattern>
+          </defs>
+          {unbandedHatchFills.map((f) => (
+            <path
+              key={`uh-${f.key}`}
+              data-testid="partition-unbanded-hatch"
+              d={f.d}
+              fill={`url(#${UNBANDED_HATCH_PATTERN_ID})`}
+              style={{ pointerEvents: 'none' }}
+            >
+              <title>{UNBANDED_HATCH_LABEL}</title>
+            </path>
+          ))}
+        </g>
+      )}
 
       {/* Under-column substrate seam strokes: the FILL is now dissolved into the
           groups above; only the seam-aware hairline-closing stroke stays
