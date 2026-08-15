@@ -158,8 +158,14 @@ describe('useGeotechFillHotkey', () => {
   })
 
   it('GK9: F and L are two toggles with two toast lines, never one', () => {
-    // Both bound at once, exactly as the toolbar binds them: a press of one
-    // must leave the other fill — and the other toast — untouched.
+    // Both bound at once, exactly as the toolbar binds them: each press writes
+    // its OWN toast line under its own replace key, never folding into one.
+    //
+    // The two fills themselves are now exclusive — owner, dogfeed 2026-08-15:
+    // "packing and litho fill can't be on at the same time, we should put a
+    // safeguard when one is true the other turns false" — so the second press
+    // below takes the first fill down. The toast lines still stand apart; that
+    // is what this case is about.
     const { result } = renderHook(() => {
       const toasts = useToasts()
       useGeotechFillHotkey('geotechnical', nowOn =>
@@ -185,7 +191,7 @@ describe('useGeotechFillHotkey', () => {
       pressKey('l')
     })
     expect(getLithoFillOnGeotech()).toBe(true)
-    expect(getGeotechFillVisible()).toBe(true)
+    expect(getGeotechFillVisible()).toBe(false)
 
     // Two announcements standing side by side, not one replacing the other.
     expect(result.current.toasts.map(t => t.message).sort()).toEqual([

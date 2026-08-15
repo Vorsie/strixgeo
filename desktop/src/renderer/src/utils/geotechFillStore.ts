@@ -30,12 +30,29 @@
  */
 
 import { createBooleanStore } from './createBooleanStore'
+// Mutual exclusion (owner ask, dogfeed 2026-08-15): "packing and litho fill
+// can't be on at the same time, we should put a safeguard when one is true the
+// other turns false". ``selectSectionFill`` already picked ONE fill to paint,
+// so the render was never wrong — the two toggles both reading "on" was. The
+// safeguard lives here so the Display menu item and the bare-``F`` accelerator
+// inherit it from one place. Same shape (and same intentionally-circular import
+// pair) as ``bandFillStore`` ↔ ``formationFillStore``: function refs only, used
+// at click time, safe under ESM/Vite.
+import { setLithoFillOnGeotech } from './lithoFillOnGeotechStore'
 
 const store = createBooleanStore(false)
 
-/** Flip the geotech fill visibility and notify subscribers. */
+/** Flip the geotech fill visibility and notify subscribers.
+ *  ON-transition auto-hides the litho fill (mutual exclusion); the
+ *  OFF-transition never resurrects it — no fill is a legitimate state. */
 export function toggleGeotechFill(): void {
   store.toggle()
+  if (store.get()) setLithoFillOnGeotech(false)
+}
+
+/** Set the geotech fill visibility directly (no exclusion side effect). */
+export function setGeotechFill(value: boolean): void {
+  store.set(value)
 }
 
 /** Current geotech fill visibility (non-reactive read). */
