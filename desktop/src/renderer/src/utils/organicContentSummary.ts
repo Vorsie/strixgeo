@@ -16,10 +16,32 @@
  * the alternative is either a label that lies or an arbitrary first-row rule
  * that would report carbon while the matter it asked for is right there.
  *
+ * TWO sources, in order (owner, dogfeed 2026-08-15: *"impossible, i'm 100% sure
+ * some have gehalte aan organisch materiaal, it's even under organic matter
+ * content in the data stage"*). He was right and the card was reading the wrong
+ * table: on his project the TYPED organic family is empty and the measurement
+ * arrives in the scalar catch-all instead. So the typed family is consulted
+ * first — a project whose parser DOES route it keeps reading exactly as before
+ * — and the catch-all is the fallback.
+ *
  * Pure: no React, no DOM — see ``organicContentSummary.test.ts``.
  */
 
-import type { OrganicContentResponse } from '../api/clients/borehole'
+import type {
+  OrganicContentResponse,
+  ScalarLabTestResponse,
+} from '../api/clients/borehole'
+
+/**
+ * Substring that identifies the DOV organic-matter parameter, lower-cased.
+ *
+ * The catch-all stores the upstream token verbatim, and DOV repeats the name
+ * inside its own parentheses — ``"Gehalte Organische stoffen (Gehalte
+ * Organische stoffen)"`` — so an equality test would never fire. It is
+ * deliberately narrow enough to exclude the neighbouring "Gehalte Kalkachtige
+ * stoffen" (lime) row, which sits in the same group and also reports a percent.
+ */
+const SCALAR_ORGANIC_MATTER_TOKEN = 'organische stof'
 
 /** The organic quantity actually measured — never interchangeable. */
 export type OrganicQuantity = 'matter' | 'carbon'
@@ -37,23 +59,42 @@ export interface OrganicContentSummary {
  * Parameters
  * ----------
  * tests : readonly OrganicContentResponse[]
- *     The sample's organic-content tests, in the order the API returned them.
+ *     The sample's TYPED organic-content tests, in the order the API returned
+ *     them.
+ * scalarTests : readonly ScalarLabTestResponse[]
+ *     The sample's scalar catch-all rows. Consulted only when the typed family
+ *     is silent; defaults to empty so a caller that has no catch-all rows to
+ *     offer keeps the original one-argument shape.
  *
  * Returns
  * -------
  * OrganicContentSummary | null
- *     The first organic-matter reading in the list; failing that the first
- *     organic-carbon reading; ``null`` when the sample carries neither, so the
- *     caller renders nothing at all rather than a dash or an empty row.
+ *     The first organic-matter reading in the typed list; failing that the
+ *     first typed organic-carbon reading; failing that the first numeric
+ *     organic-MATTER row in the scalar catch-all; ``null`` when the sample
+ *     carries none of those, so the caller renders nothing at all rather than a
+ *     dash or an empty row.
  */
 export function selectOrganicContent(
   tests: readonly OrganicContentResponse[],
+  scalarTests: readonly ScalarLabTestResponse[] = [],
 ): OrganicContentSummary | null {
   for (const t of tests) {
     if (t.matter_pct !== null) return { quantity: 'matter', pct: t.matter_pct }
   }
   for (const t of tests) {
     if (t.carbon_pct !== null) return { quantity: 'carbon', pct: t.carbon_pct }
+  }
+  for (const s of scalarTests) {
+    // The catch-all row is organic MATTER by its own DOV name, so it is
+    // reported as matter. A row with no number was never measured — treat it
+    // exactly like an absent test rather than printing a "0 %".
+    if (
+      s.value_numeric !== null
+      && s.parameter.toLowerCase().includes(SCALAR_ORGANIC_MATTER_TOKEN)
+    ) {
+      return { quantity: 'matter', pct: s.value_numeric }
+    }
   }
   return null
 }
