@@ -1478,6 +1478,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     litho_sided_edges=edge_sets.sided_edges,
                     seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
                     existing_accepted_sided_edges=accepted_sided_by_section.get(section.id, set()),
+                    # Owner ruling 2026-08-15: "subdivision hops should be born
+                    # accepted". These hops re-express, through the borehole
+                    # this press just divided, correlations he already drew —
+                    # so making him accept them turned one press into
+                    # press-accept-press, and the second press only wrote more
+                    # of them. Step 2 keeps the ghost/review flow.
+                    born_accepted=True,
                 )
             )
             # Owner ruling 2026-08-14: "those cpt to cpt ties should be
