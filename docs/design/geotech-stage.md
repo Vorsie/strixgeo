@@ -136,8 +136,8 @@ All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
   removed this failure class for direct pairs entirely);
 * (B) the render's band connectivity is the direct partition consuming the
   accepted edges (§2) — no separate connect module;
-* (C) `ReSubdivideConfirmDialog` prompts before a re-subdivide clears
-  connections;
+* (C) `ReSubdivideConfirmDialog` prompts before a re-subdivide clears the open
+  section's connections — and only when that section has bands to lose (§4);
 * (D) manual "Correlate packing" gesture reusing the litho correlate machine
   pointed at the geotech model (`useGeotechPackingCorrelation.ts`,
   `requestGeotechLayersRefetch` nonce, toolbar verb). The client-side
@@ -208,7 +208,7 @@ The ones that constrain the code:
   the bands' build-time stamps** (dogfeed 2026-08-12, GEO-23/125-S6): the
   engineer moved a geological contact on its own axis and the stamp-reading
   wall kept refusing his merges forever, with a message that steered him
-  toward a re-subdivide — which deletes every hand edit on every column. Now
+  toward a re-subdivide — which deletes every hand edit it rebuilds. Now
   `load_geotech_column_context` carries the live contacts, the planners refuse
   only a contact strictly inside the span (GW1–GW4, GL1/GL2), and every
   band-edit writer takes the written interval's geological parent from the
@@ -236,6 +236,19 @@ The ones that constrain the code:
   compare-on-load pattern) and surfaces as a "re-run under <statistic>" tag on
   pipeline step 1 (`SectionsToolbar` "qc statistic" dropdown). The 3-D Build
   button does NOT amber on a statistic change — the bands are unchanged.
+  **Choosable before the model exists** (owner 2026-08-15: *"i can't choose
+  harmonic qc before first subdivide, that's friction we don't need?"*). The
+  column belongs to a row step 1 has not created yet, so the pick is held in
+  the renderer (`pendingStatistic`) and travels on the subdivide request as an
+  optional `representative_statistic`, which the backend applies ONLY when that
+  call CREATES the geotech model — a re-run keeps the model's own choice and
+  `POST …/geotech/statistic` stays the one writer of a change. An unknown token
+  is a 422, never a silent fall back to median. The renderer drops the pending
+  pick the moment a model exists, so the label always reads what got built
+  rather than what was asked for. (ST-SUB5/6/7 in
+  `tests/integration/api/test_move_restated_contact.py`, whose scene classifies
+  matig under median and los under harmonic — so the pin is on the CLASS, not
+  just on the column; ST-PRE1–6 in `SectionsToolbar.geotechStatistic.test.tsx`.)
 * **Flag-not-drop (owner 2026-08-07).** An ACCEPTED tie whose class match a
   hand edit breaks is FLAGGED (`review_reason='class_changed'`, the violet
   badge + Confirm-tie flow), never deleted; restoring the match self-heals the
@@ -280,10 +293,26 @@ formation find-or-create, the accepted-tie transfer + flag/self-heal, the
 borehole refusal, locality, preview≡commit, the N-run merge, and the statistic
 threading end to end.
 
-⚠ **"Subdivide all bodies" deletes and rebuilds the entire geotech model**, so
-it destroys every hand split and merge. `ReSubdivideConfirmDialog` warns first
-and names the count of hand-edited bands (`source='manual'`); accepted ties are
-carried across per §5. What is NOT carried is the hand band geometry itself.
+⚠ **A subdivide deletes and rebuilds every band it reaches**, so it destroys
+the hand splits and merges on those columns. `ReSubdivideConfirmDialog` warns
+first and names the count of hand-edited bands (`source='manual'`); accepted
+ties are carried across per §5. What is NOT carried is the hand band geometry
+itself.
+
+**The warning is scoped to the press** (owner 2026-08-15: *"We do however get
+an overwrite popup on cs2 while there is no subdivision there yet. Now it seems
+like it is warning that i'll overwrite CS 1"*). The trigger is no longer "a
+geotech model exists" — it is "this press has bands to destroy":
+`geotechBandsInScope` narrows `geotechLayers` to the bands anchored on the open
+section's members (`inCorridorInvestigationIds`, the renderer's half of the
+membership rule), and the dialog opens only when that is non-empty. It then
+names the section and states ITS hand-edit count flatly, with no hedging and no
+sentence another section's work could be read into. An empty scope — a fresh
+section, or the first-ever run — goes straight through. (SB1–SB5 in
+`geotechHandEdits.test.ts`, HS1–HS4 in
+`SectionsToolbar.handEditWarning.test.tsx`, AC12–AC14 in
+`ReSubdivideConfirmDialog.test.tsx`. HS4 pins the case that DOES deserve the
+warning: a column shared with another section is at risk from either press.)
 
 ## 4a. Only RESTATED ties are born accepted (owner ruling A 2026-08-05, refined 2026-08-06)
 
@@ -541,9 +570,9 @@ had been cached.
 The interim render is honest rather than hidden: between the drag and the
 re-subdivide the bands genuinely do overhang their parent, and that is what the
 section draws. The Subdivide verb carries a tag naming how many columns need
-re-deriving. **Nothing rebuilds automatically** — `subdivide-cpts` is model-wide
-and begins by deleting every geotech row, so an automatic rebuild would destroy
-every hand edit on every column as a side effect of fixing one contact.
+re-deriving. **Nothing rebuilds automatically** — `subdivide-cpts` begins by
+deleting every geotech row it is about to rebuild, so an automatic rebuild would
+destroy every hand edit on those columns as a side effect of fixing one contact.
 
 **Telling the two kinds apart** (owner picked option 3 of three mockups): the
 litho contact is a heavy near-black solid line, a packing boundary a thin dashed
@@ -621,8 +650,9 @@ already means "auto-proposed, pending acceptance", and never colour alone. The
 badge is right-clickable and its menu carries **Confirm tie** above **Delete**.
 Confirming clears the flag (`ConfirmCorrelationEdgeReview`, per-edge and
 model-wide endpoints); deleting is the other answer. A `warning` toast after
-Subdivide reports the count, because the badges only reach someone looking at the
-section they sit on and a re-subdivide is model-wide.
+Subdivide reports the count, because the badges only reach someone looking at
+the section they sit on, and a re-subdivide can flag a tie whose other endpoint
+is on a section he does not have open.
 
 **"Divide boreholes" carries ties the same way.** Phase 7 of `DivideBoreholes`
 deletes every borehole `litho_layer` in the geotech model, so the same cascade
@@ -872,7 +902,7 @@ replaced by four verbs mirroring the litho stage's suggest → accept rhythm.
 | 1 | subdivide CPTs into packing | `POST .../geotech/subdivide-cpts` (litho model) | packing bands on the CPTs, **no** edge derivation; optional `section_id` |
 | 2 | auto-correlate packing | `POST .../geotech/auto-correlate` (geotech model) | PROPOSES ties (`user_approved=false`), jumping across borehole columns; optional `section_id` |
 | 3 | accept | `POST .../contact-correlations/accept` (scope) · `.../{edge_id}/accept` (one) | promotes proposals; optional `section_id`; `GET .../geotech/tie-status` reports what is left, per section |
-| 4 | divide boreholes | `POST .../geotech/divide-boreholes` (litho model) | model-wide by nature; gated on step 3; optional `borehole_ids` subset |
+| 4 | divide boreholes | `POST .../geotech/divide-boreholes` (litho model) | gated on step 3 **in scope**; optional `section_id` and `borehole_ids` subset |
 
 The accept verbs are the litho axis's own — `AcceptContactCorrelations` has
 never been litho-specific, and the router applies no kind guard — so step 3 is
@@ -992,7 +1022,7 @@ order, replacing the single "Subdivide all bodies" press:
 | **1 · Subdivide CPTs** | `geotech-subdivide-cpts` | `subdivide-cpts` (open section's id) | needs a litho model **and an open section**; a RE-run still opens `ReSubdivideConfirmDialog` |
 | **2 · Auto-correlate** | `geotech-auto-correlate` | `auto-correlate` (open section's id) | needs the geotech model + an open section |
 | **3 · Accept ties** | `geotech-accept-correlations` | `contact-correlations/accept` (open section's id) | needs the geotech model + an open section |
-| **4 · Divide boreholes (whole model)** | `geotech-divide-boreholes` | `divide-boreholes` | **disabled while `pending > 0` anywhere in the model** |
+| **4 · Divide boreholes** | `geotech-divide-boreholes` | `divide-boreholes` (open section's id) | needs the geotech model + an open section; **disabled while `pending > 0` on THAT section** |
 
 The labels carry no "on this section" qualifier: an "on all sections" twin
 stood beside each of the first three for one morning and the owner deleted it
@@ -1006,32 +1036,49 @@ verb (steps 1–4 and each single-tie accept). Its `pending_by_section` breakdow
 feeds the pure `utils/geotechPendingScope.ts`, which owns every sentence the
 toolbar says about outstanding ties: the amber chip
 (`geotech-pending-tie-chip`) reports THIS section's count with the model total
-in its tooltip, and step 4's visible tag reads `accept 12 on 2 sections`. Because
-Chromium fires no mouse events on a `disabled` element, step 4's explanation
-lives on a `role="presentation"` span wrapper — the same device the axis toggle
-uses. When the breakdown is missing (older backend, request not landed) the
-helpers degrade to the bare model total rather than claiming "0 sections
-pending" beside a disabled button.
+in its tooltip, and step 4's visible tag reads `accept 5 on this section`.
+Because Chromium fires no mouse events on a `disabled` element, step 4's
+explanation lives on a `role="presentation"` span wrapper — the same device the
+axis toggle uses. When the breakdown is missing (older backend, request not
+landed) the helpers degrade to the bare model total rather than claiming "0
+sections pending" beside a disabled button, and the gate over-gates on that
+total rather than sending a press the server will 422.
 
-### 9a. Steps 1–3 follow the open section (owner ruling 2026-08-15)
+### 9a. All four steps follow the open section (owner rulings 2026-08-15)
 
-**Owner ruling.** *"I also see that this is model wide and not per section, i
+**Owner rulings.** *"I also see that this is model wide and not per section, i
 don't like that"* and *"i want subdivide cpt's also to be section scoped, i
 don't want any cpt's that aren't on any sections to be subdivided and included
-in the model"*.
+in the model"* — then, reading the menu once the first three were scoped:
+*"i'm reading divide boreholes (whole model), no that should also be section
+scoped"*.
 
-Each of the first three steps takes an OPTIONAL `section_id` in its request
-body — present scopes the run to that section, absent is the historic
-model-wide behaviour every existing caller relies on. The toolbar always sends
-the open section's id. This REVERSES the 2026-08-05 review MAJOR-2 decision
-(model-wide feeder verbs so the model-wide step-4 gate could be satisfied); the
-objection is answered instead by a gate that now names the sections still
-pending, which the engineer clears one section at a time.
+Every step takes an OPTIONAL `section_id` in its request body — present scopes
+the run to that section, absent is the historic model-wide behaviour every
+existing caller relies on. The toolbar always sends the open section's id, and
+all four items are disabled with no section open. This REVERSES the 2026-08-05
+review MAJOR-2 decision (model-wide feeder verbs so the model-wide step-4 gate
+could be satisfied): the gate went with the scope instead.
 
-**Step 4 stays model-wide** — `divide-boreholes` TIN-divides every borehole
-column and so rewrites every section. Its gate therefore still demands the whole
-model be clear, which is fair only because the tag says how many sections are
-holding it shut.
+**Step 4 is scoped through the subset path it already had.** A `section_id`
+resolves to that section's MEMBER boreholes (`_scoped_borehole_ids`, the same
+`project_investigations_onto_section` membership rule) and drives the existing
+`borehole_ids` subset — which already scopes the delete, seeds the layer index
+with the columns it leaves alone, and restricts the tie capture. Phase 8.5's
+edge derivation is filtered to the scoped section as well, so a press cannot
+author proposals on a section whose borehole it left undivided. The preview
+endpoint takes the same field and resolves it through the same planner, so
+preview ≡ commit (DB5) holds per section.
+
+**The pending-tie gate follows the scope.** With a `section_id` the 422 counts
+that section's proposals; without one it counts the model's. That is the point
+of the change: CS1 can be finished end to end while CS2 still carries ties the
+engineer has not reviewed. A borehole on TWO sections is divided by either
+press — its bands come from its own donors and its body membership, not from
+the section it is viewed on, so both presses produce the same rows.
+Pinned by `tests/integration/api/test_geotech_divide_boreholes_scope.py`
+(DS1–DS6; DS3 asserts on row IDS, so a whole-model delete that rebuilt the
+neighbour identically still fails).
 
 **A scoped step 1 only WIPES what it rebuilds** (2026-08-15, the same morning
 the all-sections escape was deleted — with no escape left, a wholesale wipe
@@ -1077,8 +1124,10 @@ the section view, the DXF/PDF render and the edge derivation use, and one that
 already honours a section's `excluded_cpt_ids` / `excluded_borehole_ids`, so a
 column excluded everywhere it projects counts as off-section. The skipped set is
 logged at INFO **by name** and reported as `skipped_off_section_count` /
-`skipped_off_section_labels`, which the step-1 toast repeats: a model that came
-out smaller on purpose must say so, or the omission surfaces in an export.
+`skipped_off_section_labels`. The step-1 toast used to repeat it and no longer
+does — owner, the same day: *"wtf are of section skips, this is useless info
+for the user?"*. A column he never put on a cross-section is not work he lost,
+so the audit trail stays in the log and on the wire and stops being UI.
 Verified 2026-08-15 that the `DivideBoreholes` half was NOT redundant — before
 the guard, an off-section borehole sharing a body with an on-section CPT was
 filled from that CPT's transition surfaces.
