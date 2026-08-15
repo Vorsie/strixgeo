@@ -65,7 +65,7 @@ import {
 } from '../../utils/partitionFill'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
 import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOverrideWiring'
-import { computeSeamStrokePaths, type SeamStrokeElement } from './sectionSeamStrokes'
+import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -1979,19 +1979,21 @@ export default function PartitionFillOverlay({
   //
   // Runs on the geotech axis too since 2026-08-13: the packing fill is emitted
   // through this same path, so it inherits the hairline closure for free.
-  const seamStrokes = useMemo((): { undercol: string[]; regions: string[] } => {
-    if (screenRegions.length + underColumnFills.length === 0)
-      return { undercol: [], regions: [] }
-    const elements: SeamStrokeElement[] = [
-      ...underColumnFills.map((f) => ({ points: f.pts, formationId: f.formationId })),
-      ...screenRegions.map((sr) => ({ points: sr.points, formationId: sr.region.formationId })),
-    ]
-    const ds = computeSeamStrokePaths(elements)
-    return {
-      undercol: ds.slice(0, underColumnFills.length),
-      regions: ds.slice(underColumnFills.length),
-    }
-  }, [underColumnFills, screenRegions])
+  //
+  // The CARD strips are in the classifier's element list since 2026-08-15: the
+  // fill paints through the cards, so a gap region's card edge is no longer
+  // "unfilled space" and stroking it left a darker rim (0.62 over 0.62) down
+  // the gap side of every card boundary — the tone step the owner still saw
+  // after the veil went to 0. They classify only; they carry no stroke.
+  const seamStrokes = useMemo(
+    (): { undercol: string[]; regions: string[] } =>
+      computeSectionSeamStrokes(
+        underColumnFills.map((f) => ({ points: f.pts, formationId: f.formationId })),
+        screenRegions.map((sr) => ({ points: sr.points, formationId: sr.region.formationId })),
+        columnStrips.map((s) => ({ points: s.pts, formationId: s.formationId })),
+      ),
+    [underColumnFills, screenRegions, columnStrips],
+  )
 
   // ---- DISSOLVED FILL GROUPS (S61 — owner clause 5, app-render half). --------
   //
