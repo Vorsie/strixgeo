@@ -19,6 +19,17 @@
  * so a dropped percentage means restatements are missing or an engine input
  * diverged, and the top clusters name where.
  *
+ * WHAT THE GEOTECH ARM IS (owner dogfeed 2026-08-15). It is assembled on the
+ * LITHO FRAME's column axis, an un-banded column (an undivided borehole)
+ * contributing an EMPTY stack: the frame splits into runs of consecutive
+ * banded columns, each run is partitioned on its own, and its regions come
+ * back on the frame's gap axis — so the clip ALWAYS applies and no packing
+ * geometry ever crosses a column the model never classified. This is the
+ * render's own construction, which is the point: before, the gate clipped
+ * unconditionally while the render clipped only when the column sets happened
+ * to match, so on a mid-pipeline model the gate reported a fill nobody saw.
+ * ``CONSISTENCY_LEGACY=1`` reproduces the old render for a before/after read.
+ *
  * INPUT      scripts/throwaway_geotech_axis_inputs.json — an UNTRACKED
  *            read-only dump of the OWNER'S dev DB. Regenerate with:
  *                uv run python scripts/dump_geotech_axis_inputs.py
@@ -40,6 +51,12 @@ import { describe, expect, it } from 'vitest'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { clipPartitionToLithoFrame } from './clipPartitionToLithoFrame'
+import {
+  frameAlignedColumns,
+  frameGapRuns,
+  shiftRegionGaps,
+} from './frameAlignedPartition'
+import { selectLithoFallbackRegions, type FallbackPackingBand } from './geotechFillFallback'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -220,8 +237,23 @@ describe('geotech fill — litho-consistency gate', () => {
         L.alongM,
       )
       const geoEdges = toEdges(sec.geotech.edges)
-      const geoRegions =
-        G.columns.length >= 2
+      const nadSoilCodes = new Map(
+        Object.entries(raw.refinementBundle.nadMeta).map(([k, v]) => [k, v.soilCode]),
+      )
+      // CONSISTENCY_LEGACY=1 reproduces the PRE-2026-08-15 render: the geotech
+      // partition on its OWN (banded) column set, and the litho-frame clip
+      // applied only when the two column sets happen to match positionally —
+      // which an undivided borehole breaks, so the raw partition and the
+      // whole-region fallback heuristic rendered instead. Kept as the
+      // before-arm of the owner's dogfeed measurement.
+      const legacy = process.env.CONSISTENCY_LEGACY === '1'
+      // DEFAULT: what the render draws. The geotech partition is assembled on
+      // the LITHO FRAME's column axis — an un-banded column contributes an
+      // empty stack, so it splits the frame into runs the engine can partition
+      // and no packing geometry ever crosses a column the model never
+      // classified. Gap indices are the frame's, so the clip always applies.
+      const geoRegions = legacy
+        ? G.columns.length >= 2
           ? computeSectionFillActive(
               G.columns,
               geoEdges,
@@ -229,6 +261,26 @@ describe('geotech fill — litho-consistency gate', () => {
               G.alongM,
             )
           : []
+        : frameGapRuns(
+            frameAlignedColumns(L.columns, new Map(G.columns.map((c) => [c.investigationId, c]))),
+            L.alongM,
+          ).flatMap((run) =>
+            shiftRegionGaps(
+              computeSectionFillActive(
+                run.columns,
+                geoEdges,
+                deriveSectionApexOverrides(
+                  run.columns,
+                  geoEdges,
+                  run.alongM,
+                  emptyBoundaries,
+                  true,
+                ),
+                run.alongM,
+              ),
+              run.offset,
+            ),
+          )
 
       // The gate measures the litho-frame-clipped fill BY DEFAULT — the
       // construction the render draws since the 2026-08-14 ruling ("keep
@@ -237,22 +289,51 @@ describe('geotech fill — litho-consistency gate', () => {
       // litho formations, so they compare through the litho soil map.
       // CONSISTENCY_RAW=1 measures the unclipped direct partition instead
       // (what-if analysis of the tie set alone).
-      const clipped =
-        process.env.CONSISTENCY_RAW !== '1'
-          ? clipPartitionToLithoFrame(
-              geoRegions.map((r) => remapGaps(r, G.alongM, L.alongM)),
-              lithoRegions,
-              new Map(Object.entries(raw.refinementBundle.nadMeta).map(([k, v]) => [k, v.soilCode])),
-              lithoSoil,
-            )
-          : null
+      const columnsMatch =
+        G.alongM.length === L.alongM.length &&
+        G.alongM.every((x, i) => Math.abs(x - L.alongM[i]) < 1e-6)
+      const clipRuns = process.env.CONSISTENCY_RAW !== '1' && (!legacy || columnsMatch)
+      const clipped = clipRuns
+        ? clipPartitionToLithoFrame(
+            legacy ? geoRegions.map((r) => remapGaps(r, G.alongM, L.alongM)) : geoRegions,
+            lithoRegions,
+            nadSoilCodes,
+            lithoSoil,
+          )
+        : null
+      // The bare ground the "correlate me" texture is drawn over. The clip
+      // names it per face; without the clip the render fell back to the
+      // whole-region heuristic, which is what the legacy arm reproduces.
+      const packingBandsByInv = new Map<string, FallbackPackingBand[]>()
+      for (const c of G.columns) {
+        packingBandsByInv.set(
+          c.investigationId,
+          c.units.map((u) => ({
+            topElevM: c.surfaceElevM - u.topDepthM,
+            baseElevM: c.surfaceElevM - u.baseDepthM,
+            soilCode: nadSoilCodes.get(u.formationId) ?? null,
+          })),
+        )
+      }
+      const unbandedFaces =
+        clipped?.lithoFallback ??
+        selectLithoFallbackRegions(
+          lithoRegions,
+          L.columns.map((c) => c.investigationId),
+          packingBandsByInv,
+          lithoSoil,
+        )
       const lithoPolys = toAlongPolys(lithoRegions, L.alongM, soilOfLitho)
       const geoPolys = clipped
         ? [
             ...toAlongPolys(clipped.regions, L.alongM, soilOfGeo),
             ...toAlongPolys(clipped.lithoFallback, L.alongM, soilOfLitho),
           ]
-        : toAlongPolys(geoRegions, G.alongM, soilOfGeo)
+        : // Render order: the bare ground paints BENEATH the packing fills.
+          [
+            ...toAlongPolys(unbandedFaces, L.alongM, soilOfLitho),
+            ...toAlongPolys(geoRegions, G.alongM, soilOfGeo),
+          ]
 
       // Raster the section plane. Painter order: later polygons overwrite.
       const xs = [
@@ -323,7 +404,9 @@ describe('geotech fill — litho-consistency gate', () => {
       agreeBySection[sec.name] = pct
       rep.push(
         `${sec.name.padEnd(18)} agree ${pct.toFixed(1)}%  litho-covered ` +
-          `${(covered * cellM2).toFixed(0)} m2  mismatch ${(mismatch * cellM2).toFixed(1)} m2`,
+          `${(covered * cellM2).toFixed(0)} m2  mismatch ${(mismatch * cellM2).toFixed(1)} m2` +
+          `  packed ${clipped ? clipped.regions.length : geoRegions.length} faces` +
+          `  un-banded ${unbandedFaces.length} faces (the "correlate me" texture)`,
       )
       const top = [...clusters.entries()].sort((a, b) => b[1].m2 - a[1].m2).slice(0, 4)
       for (const [key, v] of top) {

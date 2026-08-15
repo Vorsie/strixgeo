@@ -12,6 +12,15 @@
  * project dump and samples the coat stack a few px either side of every column
  * card edge. Dormant unless TONE_DIAG=1.
  *
+ * ⚠ STALE ARM (2026-08-15). The geotech partition below is still built on the
+ * GEOTECH column set with the clip gated on the two column sets matching —
+ * the construction the render used BEFORE the frame-aligned assembly
+ * (``utils/frameAlignedPartition``). That is harmless for the question this
+ * harness asks (how many translucent coats stack at a card edge, which the
+ * partition's column axis does not change) but it is NOT the render's
+ * coverage: use ``geotechLithoConsistency.diag.test.ts`` for anything about
+ * WHERE the fill reaches.
+ *
  * Env: GEOTECH_AXIS_INPUT (input override). Reads
  * scripts/throwaway_geotech_axis_inputs.json.
  */
