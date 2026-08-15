@@ -36,6 +36,8 @@ Run via the integration wrapper:
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -195,6 +197,12 @@ async def pipeline_scene(
         "bh_id": bh.id,
         "cpt_a_id": cpt_a.id,
         "cpt_b_id": cpt_b.id,
+        # The three accepted contacts, so a test can add the DIRECT A↔B litho
+        # correlation the scene deliberately withholds (GP12/GP13 need it —
+        # correlating CPT→CPT across the borehole is the owner's own habit).
+        "contact_a": contact_a,
+        "contact_b": contact_b,
+        "contact_bh": contact_bh,
     }
 
 
@@ -849,3 +857,297 @@ async def test_gp11_an_undivided_borehole_keeps_the_jump_ties(
 
     after = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
     assert set(after) == set(before), "GP11: an undivided borehole must keep every jump tie"
+
+
+# ---------------------------------------------------------------------------
+# GP12/GP13 — the 2026-08-15 correction: supersession keys on GEOMETRY
+# ---------------------------------------------------------------------------
+
+
+async def _accepted_investigation_pairs(
+    db_session: AsyncSession, geotech_model_id: str
+) -> set[frozenset]:
+    """Every ACCEPTED geotech edge, as the unordered pair of columns it joins."""
+    db_session.expire_all()
+    edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    inv_by_layer = {r.id: (r.cpt_id if r.cpt_id is not None else r.borehole_id) for r in layers}
+    return {
+        frozenset((inv_by_layer.get(e.layer_a_id), inv_by_layer.get(e.layer_b_id))) for e in edges
+    }
+
+
+async def _approved_litho_investigation_pairs(
+    db_session: AsyncSession, litho_model_id: str
+) -> set[frozenset]:
+    """Every APPROVED litho correlation, as the unordered pair of columns it joins."""
+    db_session.expire_all()
+    edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == litho_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == litho_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    inv_by_layer = {r.id: (r.cpt_id if r.cpt_id is not None else r.borehole_id) for r in layers}
+    return {
+        frozenset((inv_by_layer.get(e.layer_a_id), inv_by_layer.get(e.layer_b_id))) for e in edges
+    }
+
+
+@pytest.mark.asyncio
+async def test_gp12_a_restatement_of_a_direct_litho_tie_is_replaced_too(
+    pipeline_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GP12: the owner's own case — he correlates CPT→CPT ACROSS the borehole.
+
+    *"clicked divide boreholes, the ties that jump over boreholes still stay
+    and the chain isn't made from cpt to borehole to borehole to cpt"*
+    (2026-08-15).  The tie he means restates a DIRECT A↔B litho correlation,
+    which the first implementation read as a restatement and spared.  It must
+    go like any other spanning tie: "just delete all, it'll be a real bother to
+    delete all by hand once the proper chain is there".
+
+    Doubles as the no-deadlock pin: the A↔B tie is ACCEPTED and standing while
+    the divide derives the A→BH and BH→B hops, and both hops must still land.
+    (They can: the crossing guard buckets candidates by the sorted investigation
+    PAIR, so a tie in the A↔B gap is never judged against one in the A↔BH gap.)
+    """
+    # The scene withholds the direct A↔B litho tie on purpose; add it, so the
+    # geotech derivation produces the very restatement the old rule protected.
+    await correlate(
+        async_client,
+        pipeline_scene["project_id"],
+        pipeline_scene["litho_model_id"],
+        contact_a=pipeline_scene["contact_a"],
+        contact_b=pipeline_scene["contact_b"],
+        section_id=pipeline_scene["section_id"],
+    )
+
+    geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
+    await _auto_correlate(async_client, pipeline_scene, geotech_model_id)
+    await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
+
+    before = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
+    assert before, "scene invariant: A↔B ties exist before the divide"
+    # THE discriminator against GP10: this scene's A↔B geotech ties restate an
+    # approved LITHO correlation between the very same two CPTs — the shape the
+    # provenance carve-out spared, and 93 of the owner's 103 ties.
+    litho_pairs = await _approved_litho_investigation_pairs(
+        db_session, pipeline_scene["litho_model_id"]
+    )
+    assert frozenset((pipeline_scene["cpt_a_id"], pipeline_scene["cpt_b_id"])) in litho_pairs, (
+        "scene invariant: the direct A↔B litho correlation is what makes this a restatement"
+    )
+
+    resp = await async_client.post(
+        f"/projects/{pipeline_scene['project_id']}/geology/models/"
+        f"{pipeline_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+
+    after = await _cpt_to_cpt_edges(db_session, pipeline_scene, geotech_model_id)
+    assert set(before) - set(after), (
+        "GP12: the A↔B tie restates a direct litho correlation, and the borehole "
+        "chain now carries it — provenance must not spare it"
+    )
+
+    # The replacement is really there: A→BH and BH→B, both accepted.
+    accepted_pairs = await _accepted_investigation_pairs(db_session, geotech_model_id)
+    assert frozenset((pipeline_scene["cpt_a_id"], pipeline_scene["bh_id"])) in accepted_pairs
+    assert frozenset((pipeline_scene["bh_id"], pipeline_scene["cpt_b_id"])) in accepted_pairs
+    assert resp.json()["superseded_jump_tie_count"] == len(set(before) - set(after))
+
+
+async def _demote_borehole_hops(db_session: AsyncSession, geotech_model_id: str) -> int:
+    """Set every borehole-involving geotech edge back to PENDING.
+
+    Reproduces the state the engineer is in when he has not pressed step 3 on
+    the proposals the divide just derived.
+    """
+    db_session.expire_all()
+    layers = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    borehole_layer_ids = {r.id for r in layers if r.borehole_id is not None}
+    edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    demoted = 0
+    for edge in edges:
+        if edge.layer_a_id in borehole_layer_ids or edge.layer_b_id in borehole_layer_ids:
+            edge.user_approved = False
+            demoted += 1
+    await db_session.commit()
+    return demoted
+
+
+async def _hand_draw_top_band_tie(
+    db_session: AsyncSession, scene: dict, geotech_model_id: str
+) -> UUID:
+    """Draw an ACCEPTED tie between the two CPTs' shallowest bands, by hand."""
+    db_session.expire_all()
+
+    async def _top(cpt_id) -> LithoLayerOrm:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm)
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        LithoLayerOrm.cpt_id == cpt_id,
+                    )
+                    .order_by(LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows, f"no geotech bands on CPT {cpt_id}"
+        return rows[0]
+
+    a = await _top(scene["cpt_a_id"])
+    b = await _top(scene["cpt_b_id"])
+    lo, hi = (a.id, b.id) if a.id < b.id else (b.id, a.id)
+    edge_id = uuid7()
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=edge_id,
+            model_id=UUID(str(geotech_model_id)),
+            section_id=UUID(str(scene["section_id"])),
+            layer_a_id=lo,
+            layer_b_id=hi,
+            layer_a_side="top",
+            layer_b_side="top",
+            user_approved=True,
+            source="manual",
+        )
+    )
+    await db_session.commit()
+    return edge_id
+
+
+async def _edge_exists(db_session: AsyncSession, edge_id: UUID) -> bool:
+    """Whether a correlation-edge row is still in the table."""
+    db_session.expire_all()
+    return (
+        await db_session.execute(
+            select(LithoContactCorrelationEdgeOrm.id).where(
+                LithoContactCorrelationEdgeOrm.id == edge_id
+            )
+        )
+    ).scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_gp13_a_pending_chain_hop_keeps_the_spanning_tie(
+    pipeline_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GP13: a hop the engineer has not accepted carries nothing.
+
+    Same CPT–BH–CPT world as GP12, but the borehole chain is left unjudged.
+    The spanning A↔B tie is then the only ACCEPTED carrier of that connection,
+    so deleting it would lose approved information — it stays.  Accepting the
+    chain and asking again is the negative control: the very same tie goes.
+
+    ``borehole_ids: []`` divides no borehole (GP8), so the two presses below
+    differ in exactly one thing — whether the chain is accepted.
+    """
+    await correlate(
+        async_client,
+        pipeline_scene["project_id"],
+        pipeline_scene["litho_model_id"],
+        contact_a=pipeline_scene["contact_a"],
+        contact_b=pipeline_scene["contact_b"],
+        section_id=pipeline_scene["section_id"],
+    )
+    geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
+    await _auto_correlate(async_client, pipeline_scene, geotech_model_id)
+    await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
+
+    divide_url = (
+        f"/projects/{pipeline_scene['project_id']}/geology/models/"
+        f"{pipeline_scene['litho_model_id']}/geotech/divide-boreholes"
+    )
+    first = await async_client.post(divide_url, json={})
+    assert first.status_code == 200, first.text
+
+    demoted = await _demote_borehole_hops(db_session, geotech_model_id)
+    assert demoted, "scene invariant: the divide derived borehole hops to demote"
+    hand_tie = await _hand_draw_top_band_tie(db_session, pipeline_scene, geotech_model_id)
+
+    # ``ignore_pending_ties`` only skips the accept-your-ties GATE; it says
+    # nothing to the supersession, which reads approval per hop.
+    pending_run = await async_client.post(
+        divide_url, json={"borehole_ids": [], "ignore_pending_ties": True}
+    )
+    assert pending_run.status_code == 200, pending_run.text
+    assert pending_run.json()["superseded_jump_tie_count"] == 0, (
+        "GP13: every chain hop is a pending proposal — nothing carries the "
+        "connection yet, so nothing may be deleted"
+    )
+    assert await _edge_exists(db_session, hand_tie), (
+        "GP13: the hand-drawn spanning tie is still the only accepted carrier"
+    )
+
+    # Negative control: accept the chain, ask again, and it is replaced.
+    await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
+    accepted_run = await async_client.post(divide_url, json={"borehole_ids": []})
+    assert accepted_run.status_code == 200, accepted_run.text
+    assert accepted_run.json()["superseded_jump_tie_count"] >= 1
+    assert not await _edge_exists(db_session, hand_tie), (
+        "GP13: with the chain accepted the hand-drawn tie is replaced — "
+        '"just delete all, it\'ll be a real bother to delete all by hand"'
+    )
