@@ -8,24 +8,29 @@
 // that the model deliberately came out smaller. A silently smaller model is
 // the kind of thing that gets discovered in an export.
 //
+// The skip half of that did not survive its own dogfeed. Owner, 2026-08-15:
+// "wtf are of section skips, this is useless info for the user?" — a column he
+// never put on a section is not work he lost, so the sentence stops reporting
+// it. The backend keeps logging it at INFO (the audit trail) and the response
+// keeps the field (the API contract); only the toast goes quiet.
+//
 //   SM1  the sentence names the scope that ran
 //   SM2  the all-sections press says so too
-//   SM3  skipped off-section columns are reported, by name
+//   SM3  the off-section skip report is not in the sentence at all
 //   SM4  nothing skipped = no mention of skipping at all
 //   SM5  step 1 still hands over the next press
 
 import { describe, expect, it } from 'vitest'
 
+import type { SubdivideCptsToastInput } from './subdivideCptsToast'
 import { subdivideCptsToast } from './subdivideCptsToast'
 
-const BASE = {
+const BASE: SubdivideCptsToastInput = {
   scopedToSection: true,
   splitBodyCount: 3,
   oneClassBodyCount: 1,
   boreholeOnlyCount: 0,
   reanchoredTieCount: 0,
-  skippedOffSectionCount: 0,
-  skippedOffSectionLabels: [] as readonly string[],
   deriveEdges: false,
 }
 
@@ -38,29 +43,21 @@ describe('subdivideCptsToast', () => {
     expect(subdivideCptsToast({ ...BASE, scopedToSection: false })).toContain('all sections')
   })
 
-  it('SM3: skipped off-section columns are reported, by name', () => {
-    const message = subdivideCptsToast({
+  it('SM3: the off-section skip report is not in the sentence at all', () => {
+    // Owner (dogfeed 2026-08-15): "wtf are of section skips, this is useless
+    // info for the user?" — the columns he never put on a section are not
+    // work he lost, so the toast says nothing about them. The backend log and
+    // the response field stay; only the sentence drops it.
+    //
+    // Handed the skip report the response still carries, the sentence must be
+    // byte-identical to the one with nothing skipped.
+    const withSkips = {
       ...BASE,
-      skippedOffSectionCount: 2,
+      skippedOffSectionCount: 4,
       skippedOffSectionLabels: ['CPT-OFF', 'BH-OFF'],
-    })
-    expect(message).toContain('2')
-    expect(message).toContain('CPT-OFF')
-    expect(message).toContain('BH-OFF')
-    // The REASON, not just the fact — otherwise it reads as a failure.
-    expect(message).toMatch(/no cross-section|not on (a|any) (cross-)?section/i)
-  })
-
-  it('SM3b: a long skip list is truncated rather than dumped', () => {
-    const message = subdivideCptsToast({
-      ...BASE,
-      skippedOffSectionCount: 9,
-      skippedOffSectionLabels: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
-    })
-    expect(message).toContain('9')
-    expect(message).toContain('A')
-    expect(message).not.toContain('I')
-    expect(message).toMatch(/more|…/)
+    } as SubdivideCptsToastInput
+    expect(subdivideCptsToast(withSkips)).toBe(subdivideCptsToast(BASE))
+    expect(subdivideCptsToast(withSkips)).not.toMatch(/cross-section|left out|skip/i)
   })
 
   it('SM4: nothing skipped means no mention of skipping at all', () => {
