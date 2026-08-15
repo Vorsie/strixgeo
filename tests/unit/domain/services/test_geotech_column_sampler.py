@@ -33,6 +33,7 @@ import pytest
 
 from groundmodel.domain.services.geotech_column_sampler import (
     LithoFrame,
+    locate_column_in_partition,
     place_bands_in_litho_layer,
     sample_regions_at_fraction,
 )
@@ -245,3 +246,30 @@ class TestPlacing:
 
         assert placed[0].depth_top_m == pytest.approx(expected_top_u)
         assert placed[0].depth_base_m == pytest.approx(expected_base_u)
+
+
+class TestLocating:
+    """Which gap a column stands in, and where across it."""
+
+    _COLUMNS = [("S6", 0.0), ("S13", 100.0), ("S21", 260.0)]
+
+    def test_lc1_a_column_between_two_others_reports_its_gap_and_fraction(self) -> None:
+        """LC1: the borehole 30 m along a 100 m gap is 30 % across it."""
+        assert locate_column_in_partition(self._COLUMNS, 30.0) == (0, pytest.approx(0.3))
+
+    def test_lc2_the_gap_index_counts_the_partition_s_own_columns(self) -> None:
+        """LC2: ``gap_index`` indexes the payload's column list, so a column in
+        the SECOND gap must report 1 — reading it off a re-derived ordering is
+        exactly how a partition gets sampled in the wrong place."""
+        gap, fraction = locate_column_in_partition(self._COLUMNS, 140.0)
+
+        assert gap == 1
+        assert fraction == pytest.approx(0.25)
+
+    def test_lc3_a_column_off_the_end_of_the_partition_is_nowhere(self) -> None:
+        """LC3: past the last column there is no gap and nothing to read."""
+        assert locate_column_in_partition(self._COLUMNS, 400.0) is None
+
+    def test_lc4_a_zero_width_gap_is_refused(self) -> None:
+        """LC4: two coincident columns have no interior to sample."""
+        assert locate_column_in_partition([("A", 10.0), ("B", 10.0)], 10.0) is None
