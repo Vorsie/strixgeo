@@ -19,14 +19,26 @@
 //        opaque otherwise, and always opaque on the geological axis
 //   FO6  while the fill paints, the two card treatments agree — neither
 //        column kind may read brighter than the other
+//   FO7  THE GATE, after the owner still saw a step at the 0.18 veil ("the
+//        tone changes between those undeep columns?", 2026-08-15): the fill
+//        over a column card and the same fill in the gap beside it composite
+//        to the SAME colour. Asserted as an equality of the two composites,
+//        never as a number — a future veil tweak has to break this test
+//        rather than quietly bring the step back.
+//   FO8  the geological axis is exempt: nothing paints over its columns, so
+//        its card keeps its readable backing and the two tones may differ
 
 import { describe, expect, it } from 'vitest'
 
 import {
+  type Rgb,
   SECTION_FILL_OPACITY,
   boreholeLogFillOpacity,
   columnCardVeilOpacity,
+  columnFillTone,
   columnStackFillOpacity,
+  compositeOver,
+  gapFillTone,
 } from './sectionFillOpacity'
 
 /** The most underlay the eye tolerates before a card reads brighter than a gap. */
@@ -79,5 +91,60 @@ describe('section fill opacity — the columns read like the gaps, but only whil
     for (const axis of ['lithostratigraphic', 'geotechnical'] as const) {
       expect(boreholeLogFillOpacity(axis, true)).toBe(columnCardVeilOpacity(axis, true))
     }
+  })
+
+  /** ``--section-plot-bg`` in the dark theme the owner works in (#1e293b). */
+  const DARK_PLOT_BG: Rgb = [30, 41, 59]
+  /** ``--section-plot-bg`` in the light theme (#fafafa) — the rule is theme-blind. */
+  const LIGHT_PLOT_BG: Rgb = [250, 250, 250]
+  /** The CPT track's white backing, and two DOV soil-pattern tones. */
+  const CARD_COLOURS: Rgb[] = [
+    [255, 255, 255],
+    [214, 190, 122],
+    [90, 110, 80],
+  ]
+  /** Representative partition-region colours (a sand, a clay, a peat). */
+  const FILL_COLOURS: Rgb[] = [
+    [234, 205, 122],
+    [140, 160, 190],
+    [70, 60, 45],
+  ]
+
+  it('FO7: the fill over a column card composites to exactly the gap tone', () => {
+    // "the tone changes between those undeep columns?" — the answer has to be
+    // no, for every card backing, every region colour and either theme. The
+    // assertion is the equality itself, so nobody can restore a veil and still
+    // pass by staying under a "very light" number.
+    for (const axis of ['lithostratigraphic', 'geotechnical'] as const) {
+      for (const background of [DARK_PLOT_BG, LIGHT_PLOT_BG]) {
+        for (const card of CARD_COLOURS) {
+          for (const fill of FILL_COLOURS) {
+            expect(columnFillTone(background, card, fill, axis, true)).toEqual(
+              gapFillTone(background, fill),
+            )
+          }
+        }
+      }
+    }
+  })
+
+  it('FO7b: the composite helper blends the way the browser paints', () => {
+    // A half-strength white over black is mid grey; a fully opaque top wins
+    // outright; a fully transparent one leaves the backdrop untouched.
+    expect(compositeOver([255, 255, 255], [0, 0, 0], 0.5)).toEqual([127.5, 127.5, 127.5])
+    expect(compositeOver([10, 20, 30], [200, 200, 200], 1)).toEqual([10, 20, 30])
+    expect(compositeOver([10, 20, 30], [200, 200, 200], 0)).toEqual([200, 200, 200])
+    // And the gap tone is that same blend at the section's one fill opacity.
+    expect(gapFillTone(DARK_PLOT_BG, [255, 255, 255])).toEqual(
+      compositeOver([255, 255, 255], DARK_PLOT_BG, SECTION_FILL_OPACITY),
+    )
+  })
+
+  it('FO8: the geological axis keeps its card backing, step and all', () => {
+    // Nothing paints over the geology columns, so there is no gap tone to
+    // match and the readable white track stays — the exemption is deliberate.
+    expect(
+      columnFillTone(DARK_PLOT_BG, [255, 255, 255], FILL_COLOURS[0], 'geological', true),
+    ).not.toEqual(gapFillTone(DARK_PLOT_BG, FILL_COLOURS[0]))
   })
 })

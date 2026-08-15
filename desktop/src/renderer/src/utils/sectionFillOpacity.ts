@@ -14,18 +14,26 @@
  *      a visibly lighter tone than the same band over the plot background, so
  *      the fill appeared to stop at the column edge even while it was painting.
  *
- * Arithmetic for the veil choice, against the dark plot background the owner
- * works in (``--section-plot-bg`` #1e293b) and a band at 0.62:
+ * Arithmetic for the veil choice, against any plot background and a band at
+ * ``SECTION_FILL_OPACITY``:
  *
- *   gap    = 0.38·(30,41,59)              + 0.62·colour
- *   card   = 0.38·veil-over-(30,41,59)    + 0.62·colour
+ *   gap  = (1−α)·background                 + α·colour
+ *   card = (1−α)·(veil-over-background)     + α·colour
  *
- * At the old 0.7 veil the card's underlay is ≈(188,192,196), a ~23 % lift over
- * the gap — plainly visible. At 0.18 it is ≈(71,79,94), a ~6 % lift — below
- * the threshold where the eye reads a boundary, while still leaving the CPT
- * traces and the borehole log a trace of backing rather than none at all.
- * Turn ``STACK_CARD_VEIL_OPACITY`` down to 0 for a perfectly equal composite
- * at the cost of that backing.
+ * The two are equal exactly when the underlay IS the background, and the
+ * underlay is the background exactly when the veil is 0 — for any card colour,
+ * any fill colour and either theme. Every non-zero veil leaves a visible step
+ * at the card edge whose size the eye judges, not the arithmetic: the owner
+ * still read one at 0.18 ("the tone changes between those undeep columns?",
+ * dogfeed 2026-08-15). So the veil is 0 while a fill paints, and
+ * ``gapFillTone`` / ``columnFillTone`` below make the claim checkable rather
+ * than estimated — a future veil tweak breaks their equality test instead of
+ * silently reintroducing the step.
+ *
+ * ⚠ The price, stated plainly: at veil 0 a borehole's DOV log pattern and a
+ * CPT's white track backing are INVISIBLE while a fill is on. That is the
+ * trade the equality demands; hiding the fill (``L`` / Display menu) brings
+ * both straight back at full strength.
  *
  * The geological axis is deliberately excluded from all of it: nothing paints
  * over its columns, and its faint backdrop bands sit UNDER contact lines and
@@ -59,9 +67,13 @@ const GEOLOGICAL_BACKDROP_OPACITY = 0.18
 /**
  * Veil left behind a column card on the axes where the stack paints over it.
  *
- * See the module docstring for the contrast arithmetic behind the value.
+ * Zero, and it has to be zero: any card underlay at all composites the fill to
+ * a different tone than the same fill over the plot background, which is the
+ * step the owner keeps seeing at the card edge. See the module docstring for
+ * the arithmetic and for what is lost (the DOV log pattern, the white CPT
+ * track backing) while a fill paints.
  */
-const STACK_CARD_VEIL_OPACITY = 0.18
+const STACK_CARD_VEIL_OPACITY = 0
 
 /** Opacity of the CPT track's white background on the geological axis. */
 const CPT_TRACK_VEIL_OPACITY = 0.7
@@ -130,4 +142,71 @@ export function columnCardVeilOpacity(axisMode: SectionAxisMode, fillShown: bool
  */
 export function boreholeLogFillOpacity(axisMode: SectionAxisMode, fillShown: boolean): number {
   return stackPaintsOverColumns(axisMode, fillShown) ? STACK_CARD_VEIL_OPACITY : 1
+}
+
+/** An sRGB colour as its three 0–255 channels, in the order the browser paints them. */
+export type Rgb = readonly [number, number, number]
+
+/**
+ * Alpha-composite one colour over another, the way the browser does it.
+ *
+ * Source-over on an opaque backdrop, per channel: the backdrop is fully opaque
+ * (the plot rect, or a layer already composited onto it), so the usual alpha
+ * bookkeeping collapses to a straight linear blend.
+ *
+ * @param top - The colour being painted.
+ * @param bottom - The opaque colour it lands on.
+ * @param alpha - Opacity of ``top``, 0–1.
+ * @returns The resulting opaque colour.
+ */
+export function compositeOver(top: Rgb, bottom: Rgb, alpha: number): Rgb {
+  return [
+    bottom[0] + (top[0] - bottom[0]) * alpha,
+    bottom[1] + (top[1] - bottom[1]) * alpha,
+    bottom[2] + (top[2] - bottom[2]) * alpha,
+  ]
+}
+
+/**
+ * The tone a fill region actually reads as in the GAP between two columns.
+ *
+ * One coat: the partition region over the bare plot rect.
+ *
+ * @param plotBackground - The plot rect's colour (``--section-plot-bg``).
+ * @param fillColour - The region's soil / packing colour.
+ * @returns The composited tone the eye sees in the gap.
+ */
+export function gapFillTone(plotBackground: Rgb, fillColour: Rgb): Rgb {
+  return compositeOver(fillColour, plotBackground, SECTION_FILL_OPACITY)
+}
+
+/**
+ * The tone the SAME fill reads as where it crosses an investigation column.
+ *
+ * Two coats: the card's own backing (a CPT's white track, a borehole's DOV log
+ * strip) veiled onto the plot rect first, then the partition's column strip
+ * over that at the fill's own opacity. Equal to :func:`gapFillTone` only while
+ * the veil leaves the background untouched — which is the whole point of the
+ * pairing, and what ``sectionFillOpacity.test.ts`` pins.
+ *
+ * @param plotBackground - The plot rect's colour (``--section-plot-bg``).
+ * @param cardColour - The card backing's colour underneath the fill.
+ * @param fillColour - The region's soil / packing colour.
+ * @param axisMode - The section's model axis.
+ * @param fillShown - Whether a partition fill is currently painted.
+ * @returns The composited tone the eye sees over the column card.
+ */
+export function columnFillTone(
+  plotBackground: Rgb,
+  cardColour: Rgb,
+  fillColour: Rgb,
+  axisMode: SectionAxisMode,
+  fillShown: boolean,
+): Rgb {
+  const underlay = compositeOver(
+    cardColour,
+    plotBackground,
+    columnCardVeilOpacity(axisMode, fillShown),
+  )
+  return compositeOver(fillColour, underlay, SECTION_FILL_OPACITY)
 }
