@@ -1,0 +1,360 @@
+// The geotech axis BEFORE the boreholes are divided — the owner's dogfeed of
+// 2026-08-15, three complaints in one screenshot:
+//
+//   "clearly the litho model isn't the base of the geotech fill because it
+//    mismatches a ton"
+//   "what are those weird polygons between the boreholes?"   (thin radiating
+//    wedges spanning the borehole positions)
+//   "i don't see the hashed fallback nowhere"
+//
+// All three are one cause. An undivided borehole carries litho layers and NO
+// packing bands, so the geotech assembly DROPS that column: the packing engine
+// sees one wide test-to-test gap straight over the borehole and fills it with
+// terminations that answer to no column (the wedges), the two partitions no
+// longer share a gap axis so the litho-frame clip is skipped (the mismatch),
+// and with the clip skipped there are no per-face un-banded areas, so the
+// "correlate me" texture has nothing to draw over (no hatch).
+//
+// Pinned claims — the geotech partition is assembled on the LITHO FRAME's
+// column axis, an un-banded column contributing an empty stack:
+//   UB1  No packing fill is painted across an un-banded column. The wedges
+//        that spanned the borehole are gone by construction, not by clipping.
+//   UB2  The ground flanking the un-banded column reads as "correlate me" —
+//        lithology colour under the texture, in BOTH gaps that touch it.
+//   UB3  A gap between two banded columns keeps its packing fill; the fix is
+//        not "stop filling".
+//   UB4  The litho frame governs: every packing fill sits inside it, so the
+//        clip runs even though the two models' column sets differ.
+
+import { cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { nadClassColor } from '../../utils/nadClasses'
+import PartitionFillOverlay, { type GeotechLithoFrame, type Props } from './PartitionFillOverlay'
+import type { LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
+import type { PlacedColumn } from './utils'
+
+afterEach(() => cleanup())
+
+function layer(
+  id: string,
+  inv: string,
+  formationId: string,
+  top: number,
+  base: number,
+  bodyId: string,
+): LithoLayerResponse {
+  return {
+    id,
+    model_id: 'model-1',
+    formation_id: formationId,
+    borehole_id: inv,
+    cpt_id: null,
+    depth_top_m: top,
+    depth_base_m: base,
+    status: 'accepted',
+    source: 'manual',
+    confidence: 'high',
+    observation_id: null,
+    observation_layer_id: null,
+    parent_geo_contact_id: null,
+    body_id: bodyId,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  } as LithoLayerResponse
+}
+
+function column(inv: string, along: number, elev: number): PlacedColumn {
+  return {
+    kind: 'borehole',
+    nudgedX: along,
+    trueX: along,
+    width: 40,
+    displaced: false,
+    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
+  } as unknown as PlacedColumn
+}
+
+function edge(a: string, b: string, side: 'top' | 'base' = 'top'): LithoContactCorrelationEdge {
+  return {
+    id: `e-${a}-${b}-${side}`,
+    model_id: 'model-1',
+    section_id: 'sec-1',
+    layer_a_id: a,
+    layer_b_id: b,
+    layer_a_side: side,
+    layer_b_side: side,
+    source: 'manual',
+    user_approved: true,
+  } as unknown as LithoContactCorrelationEdge
+}
+
+// ---------------------------------------------------------------------------
+// The scene, in the shape of the owner's CS1: four columns 100 m apart. Every
+// one carries the same litho stack (SAND 0-10 over CLAY 10-15), all correlated
+// left to right. The packing pipeline has run over the TESTS (L, M, R) but not
+// over the BOREHOLE (B) — pipeline step 4 has not been pressed.
+//
+// Column x (nudgedX ± width/2 = ±20):  L 0 | M 100 | B 200 | R 300
+// Gaps:   0 = L..M  x 20..80     (both banded)
+//         1 = M..B  x 120..180   (touches the un-banded borehole)
+//         2 = B..R  x 220..280   (touches the un-banded borehole)
+// ---------------------------------------------------------------------------
+const COLUMNS = ['L', 'M', 'B', 'R'] as const
+const GAP_X: Record<number, [number, number]> = {
+  0: [20, 80],
+  1: [120, 180],
+  2: [220, 280],
+}
+
+const LITHO_LAYERS: LithoLayerResponse[] = COLUMNS.flatMap((inv) => [
+  layer(`l-${inv}-sand`, inv, 'formation-sand', 0, 10, 'body-sand'),
+  layer(`l-${inv}-clay`, inv, 'formation-clay', 10, 15, 'body-clay'),
+])
+const LITHO_EDGES: LithoContactCorrelationEdge[] = COLUMNS.slice(0, -1).flatMap((inv, i) => {
+  const next = COLUMNS[i + 1]
+  return [
+    edge(`l-${inv}-sand`, `l-${next}-sand`),
+    edge(`l-${inv}-clay`, `l-${next}-clay`),
+    edge(`l-${inv}-clay`, `l-${next}-clay`, 'base'),
+  ]
+})
+
+// The packing model: L, M and R subdivided; B has NOTHING.
+const BANDED = ['L', 'M', 'R'] as const
+const GEOTECH_LAYERS: LithoLayerResponse[] = BANDED.flatMap((inv) => [
+  layer(`g-${inv}-0`, inv, 'nad-zand-5', 0, 6, 'gb-0'),
+  layer(`g-${inv}-1`, inv, 'nad-zand-7', 6, 10, 'gb-1'),
+  layer(`g-${inv}-2`, inv, 'nad-klei-23', 10, 15, 'gb-2'),
+])
+// The ties the engineer drew, INCLUDING the jump tie M..R that bridges the
+// undivided borehole — the tie exists, but the ground it crosses is not
+// classified anywhere, and the fill must say so.
+const GEOTECH_EDGES: LithoContactCorrelationEdge[] = [
+  ...(['L', 'M'] as const).flatMap((inv, i) => {
+    const next = (['M', 'R'] as const)[i]
+    return [
+      edge(`g-${inv}-0`, `g-${next}-0`),
+      edge(`g-${inv}-1`, `g-${next}-1`),
+      edge(`g-${inv}-2`, `g-${next}-2`),
+      edge(`g-${inv}-2`, `g-${next}-2`, 'base'),
+    ]
+  }),
+]
+
+const CLAY_COLOR = '#0ea5e9'
+const SAND_COLOR = '#fbbf24'
+const LITHO_COLOURS = new Map<string, string>([
+  ['formation-sand', SAND_COLOR],
+  ['formation-clay', CLAY_COLOR],
+])
+
+const LITHO_FRAME: GeotechLithoFrame = {
+  lithoLayers: LITHO_LAYERS,
+  lithoEdges: LITHO_EDGES,
+  lithoFormationColorById: LITHO_COLOURS,
+  lithoSoilByFormationId: new Map([
+    ['formation-sand', 'ZAND'],
+    ['formation-clay', 'KLEI'],
+  ]),
+  geotechSoilByFormationId: new Map([
+    ['nad-zand-5', 'ZAND'],
+    ['nad-zand-7', 'ZAND'],
+    ['nad-klei-23', 'KLEI'],
+  ]),
+}
+
+const NAD_COLOURS = new Map<string, string>([
+  ['nad-zand-5', nadClassColor(5)],
+  ['nad-zand-7', nadClassColor(7)],
+  ['nad-klei-23', nadClassColor(23)],
+])
+
+const geotechProps: Props = {
+  lithoLayers: GEOTECH_LAYERS,
+  contactEdges: GEOTECH_EDGES,
+  lithoFrame: LITHO_FRAME,
+  axisMode: 'geotechnical',
+  bodies: [],
+  placedColumns: COLUMNS.map((inv, i) => column(inv, i * 100, 10)),
+  formationColorById: NAD_COLOURS,
+  showBands: true,
+  levelToScreen: (l: number) => 200 - l * 10,
+  plotTop: 0,
+  plotBottom: 400,
+  plotLeft: 0,
+  plotRight: 400,
+  alongToScreenX: (a: number) => a,
+  screenXToAlong: (x: number) => x,
+  screenToLevel: (y: number) => (200 - y) / 10,
+}
+
+/**
+ * Split a path's ``d`` into its sub-polygons (fill groups merge many regions
+ * into one element) and return each one's x-extent.
+ */
+function subPathExtents(d: string): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  for (const sub of d.split('M').slice(1)) {
+    const xs = [...`M${sub}`.matchAll(/[ML]\s(-?[\d.]+),/g)].map((m) => Number(m[1]))
+    if (xs.length > 0) out.push([Math.min(...xs), Math.max(...xs)])
+  }
+  return out
+}
+
+/**
+ * True when any sub-polygon of the path COVERS ground inside the gap. Extent
+ * overlap, not vertex containment: a wedge spanning a whole gap has no vertex
+ * inside it, and spanning is exactly what is being judged.
+ */
+function touchesGap(d: string, gap: number): boolean {
+  const [lo, hi] = GAP_X[gap]
+  return subPathExtents(d).some(([a, b]) => b > lo + 0.5 && a < hi - 0.5)
+}
+
+function paths(container: HTMLElement, testid: string): string[] {
+  return Array.from(container.querySelectorAll(`[data-testid="${testid}"]`)).map(
+    (el) => el.getAttribute('d') ?? '',
+  )
+}
+
+function fillPaths(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll('[data-testid^="partition-fill-group-"]')).map(
+    (el) => el.getAttribute('d') ?? '',
+  )
+}
+
+describe('PartitionFillOverlay — geotech axis with an undivided borehole', () => {
+  it('UB1 — no packing fill is painted across the un-banded column', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...geotechProps} />
+      </svg>,
+    )
+    const fills = fillPaths(container)
+    expect(fills.length).toBeGreaterThan(0)
+    // "what are those weird polygons between the boreholes?" — nothing the
+    // packing model produced may sit in a gap flanking a column it never
+    // classified.
+    expect(fills.filter((d) => touchesGap(d, 1))).toEqual([])
+    expect(fills.filter((d) => touchesGap(d, 2))).toEqual([])
+  })
+
+  it('UB2 — the ground flanking the un-banded column reads as "correlate me"', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...geotechProps} />
+      </svg>,
+    )
+    // "i don't see the hashed fallback nowhere" — it is exactly here that it
+    // belongs, on BOTH sides of the borehole.
+    const hatch = paths(container, 'partition-unbanded-hatch')
+    expect(hatch.some((d) => touchesGap(d, 1))).toBe(true)
+    expect(hatch.some((d) => touchesGap(d, 2))).toBe(true)
+    // ... and it is drawn over lithology colour, not over a class.
+    const unbanded = Array.from(
+      container.querySelectorAll('[data-testid="partition-litho-fallback"]'),
+    )
+    const bareFills = new Set(unbanded.map((el) => el.getAttribute('fill') ?? ''))
+    expect([...bareFills].every((c) => c === SAND_COLOR || c === CLAY_COLOR)).toBe(true)
+  })
+
+  it('UB3 — a gap between two banded columns keeps its packing fill', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...geotechProps} />
+      </svg>,
+    )
+    const fills = fillPaths(container)
+    expect(fills.some((d) => touchesGap(d, 0))).toBe(true)
+    // The classified gap carries NAD colour, never lithology colour.
+    const colours = new Set(
+      Array.from(container.querySelectorAll('[data-testid^="partition-fill-group-"]'))
+        .filter((el) => touchesGap(el.getAttribute('d') ?? '', 0))
+        .map((el) => el.getAttribute('fill') ?? ''),
+    )
+    expect(colours.has(SAND_COLOR)).toBe(false)
+    expect(colours.has(CLAY_COLOR)).toBe(false)
+  })
+
+  // -------------------------------------------------------------------------
+  // The SECOND defect in the same screenshot set: "do however see a gap
+  // between two left tests on cs1" — a wedge-shaped void mid-gap, lithology on
+  // both sides. Measured on the owner's model (CS1 gap 0): a void 0 m thick at
+  // fraction 0.05 growing to 0.66 m at fraction 0.48 and gone by 0.53, centred
+  // at +2.4 mTAW. It is not an engine hole: the packing model simply stops at a
+  // different depth on each flanking test, and the whole-region fallback
+  // heuristic then refused to call that ground bare, because "one packed side
+  // is enough to disqualify it" — true when the packing partition reaches
+  // across the gap, false when it terminates inside it. The clip answers per
+  // FACE, so the terminated remainder is bare ground like any other.
+  //
+  // It is the SAME defect, not a second one: the clip is what tiles the frame
+  // face by face, and the undivided borehole switched the clip off for the
+  // WHOLE section — including gaps nowhere near it. Reproduced here in the
+  // small: the section still carries the un-banded borehole B, and in gap 0
+  // (two banded tests) only the LEFT test has a clay band, stopping half-way
+  // down the clay, so the packing partition terminates inside the gap.
+  // -------------------------------------------------------------------------
+  const terminatingProps: Props = {
+    ...geotechProps,
+    lithoLayers: [
+      layer('g-L-0', 'L', 'nad-zand-5', 0, 10, 'gb-0'),
+      layer('g-L-2', 'L', 'nad-klei-23', 10, 12, 'gb-2'),
+      layer('g-M-0', 'M', 'nad-zand-5', 0, 10, 'gb-0'),
+      layer('g-R-0', 'R', 'nad-zand-5', 0, 10, 'gb-0'),
+    ],
+    contactEdges: [edge('g-L-0', 'g-M-0'), edge('g-L-0', 'g-M-0', 'base')],
+  }
+
+  /** Deepest screen y any sub-polygon of these paths reaches inside a gap. */
+  function deepestInGap(ds: readonly string[], gap: number): number {
+    const [lo, hi] = GAP_X[gap]
+    let deepest = -Infinity
+    for (const d of ds) {
+      for (const sub of d.split('M').slice(1)) {
+        const pts = [...`M${sub}`.matchAll(/[ML]\s(-?[\d.]+),(-?[\d.]+)/g)].map((m) => ({
+          x: Number(m[1]),
+          y: Number(m[2]),
+        }))
+        if (pts.length === 0) continue
+        const xs = pts.map((p) => p.x)
+        if (!(Math.max(...xs) > lo + 0.5 && Math.min(...xs) < hi - 0.5)) continue
+        deepest = Math.max(deepest, ...pts.map((p) => p.y))
+      }
+    }
+    return deepest
+  }
+
+  it('UB5 — ground the packing model stops short of inside a gap is still painted', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...terminatingProps} />
+      </svg>,
+    )
+    // The litho clay runs 10-15 m below a 10 mTAW collar, so its base is at
+    // -5 mTAW = screen y 250. Nothing may stop short of it and leave the wedge
+    // the owner's arrow points at.
+    const painted = [...fillPaths(container), ...paths(container, 'partition-litho-fallback')]
+    expect(deepestInGap(painted, 0)).toBeGreaterThanOrEqual(249)
+  })
+
+  it('UB4 — the litho frame governs the whole plane: fills plus bare ground tile it', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...geotechProps} />
+      </svg>,
+    )
+    // "clearly the litho model isn't the base of the geotech fill" — with the
+    // frame as the base, every gap of the LITHO partition is accounted for:
+    // classified where the packing model reaches, bare where it does not.
+    const bare = paths(container, 'partition-litho-fallback')
+    const fills = fillPaths(container)
+    for (const gap of [0, 1, 2]) {
+      const covered =
+        fills.some((d) => touchesGap(d, gap)) || bare.some((d) => touchesGap(d, gap))
+      expect(covered, `gap ${gap} is neither classified nor bare`).toBe(true)
+    }
+  })
+})

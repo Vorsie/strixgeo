@@ -90,6 +90,13 @@ import {
 } from '../../utils/geotechFillFallback'
 import { clipPartitionToLithoFrame } from '../../utils/clipPartitionToLithoFrame'
 import {
+  frameAlignedColumns,
+  frameGapRuns,
+  rebaseApexOverrides,
+  shiftGapIndexed,
+  shiftRegionGaps,
+} from '../../utils/frameAlignedPartition'
+import {
   UNBANDED_HATCH_INK,
   UNBANDED_HATCH_LABEL,
   UNBANDED_HATCH_PATTERN_ID,
@@ -964,6 +971,7 @@ export default function PartitionFillOverlay({
     const empty = {
       lithoRegions: [] as SectionRegion[],
       lithoValid: [] as string[],
+      lithoColumns: [] as PartitionColumn[],
       lithoAlongM: [] as number[],
       lithoScreenByInv: new Map<string, ColumnScreen>(),
     }
@@ -998,12 +1006,23 @@ export default function PartitionFillOverlay({
         ? cached.value
         : computeSectionFillActive(lithoColumns, lithoEdges, undefined, lithoAlongM)
     lithoFrameEngineRef.current = { key: engineKey, value: lithoRegions }
-    return { lithoRegions, lithoValid, lithoAlongM, lithoScreenByInv: litho.screenByInv }
+    return {
+      lithoRegions,
+      lithoValid,
+      lithoColumns,
+      lithoAlongM,
+      lithoScreenByInv: litho.screenByInv,
+    }
   }, [lithoFrame, showBands, placedColumns, partitionEngineV2])
 
   const sectionFillData = useMemo((): {
     sectionRegions: SectionRegion[]
     orderedColumns: PartitionColumn[]
+    // Screen edges 1:1 with ``orderedColumns``. Exposed (rather than re-derived
+    // by each consumer) because the geotech axis builds the partition on the
+    // LITHO FRAME's column set, so a consumer re-deriving from ``orderedInvs``
+    // would index a DIFFERENT list than the one the regions belong to.
+    columnScreens: ColumnScreen[]
     gapXs: Array<{ leftX: number; rightX: number }>
     // True along-section metres 1:1 with orderedColumns — the SAME array the
     // engine ran on, re-exposed so downstream passes measure in the
@@ -1053,6 +1072,7 @@ export default function PartitionFillOverlay({
       return {
         sectionRegions: [],
         orderedColumns: [],
+        columnScreens: [],
         gapXs: [],
         alongM: [],
         apexOverrides: new Map(),
@@ -1067,13 +1087,31 @@ export default function PartitionFillOverlay({
         lithoFallbackRegions: null,
       }
 
-    // Valid columns in along-section order (have both unit data + screen edges).
-    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
-    const orderedColumns = valid.map((id) => colByInv.get(id) as PartitionColumn)
+    // ---- THE COLUMN AXIS (owner dogfeed 2026-08-15). ------------------------
+    //
+    // On the geotech axis the partition is assembled over the LITHO FRAME's
+    // column set, not its own: an undivided borehole carries litho layers and
+    // no packing bands, and the shared assembly drops a bandless column — so
+    // the packing engine used to see one wide test-to-test gap straight over
+    // the borehole ("what are those weird polygons between the boreholes?")
+    // and the two gap axes stopped lining up, which skipped the litho-frame
+    // clip and left the un-banded areas unmarked. Taking the frame's axis
+    // makes the clip apply ALWAYS and confines every packing region to a gap
+    // the packing model actually classified. Off the geotech axis
+    // (``lithoFrame`` absent) this is exactly the previous derivation.
+    const framed = lithoFrame != null && lithoFramePartition.lithoColumns.length >= 2
+    const valid = framed
+      ? lithoFramePartition.lithoValid
+      : orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
+    const screenOf = framed ? lithoFramePartition.lithoScreenByInv : screenByInv
+    const orderedColumns = framed
+      ? frameAlignedColumns(lithoFramePartition.lithoColumns, colByInv)
+      : valid.map((id) => colByInv.get(id) as PartitionColumn)
     if (orderedColumns.length < 2)
       return {
         sectionRegions: [],
         orderedColumns,
+        columnScreens: [],
         gapXs: [],
         alongM: [],
         apexOverrides: new Map(),
@@ -1091,9 +1129,13 @@ export default function PartitionFillOverlay({
     // Pre-compute gap x-extents from screenByInv so both memos share the same
     // values without re-reading the map independently.
     const gapXs = Array.from({ length: orderedColumns.length - 1 }, (_, i) => ({
-      leftX: (screenByInv.get(valid[i]) as ColumnScreen).rightX,
-      rightX: (screenByInv.get(valid[i + 1]) as ColumnScreen).leftX,
+      leftX: (screenOf.get(valid[i]) as ColumnScreen).rightX,
+      rightX: (screenOf.get(valid[i + 1]) as ColumnScreen).leftX,
     }))
+    // Screen edges 1:1 with ``orderedColumns`` — the under-column substrate
+    // indexes its output by column, and deriving that list a second time is how
+    // it would drift from the axis the partition was actually built on.
+    const columnScreens = valid.map((id) => screenOf.get(id) as ColumnScreen)
 
     // Bands come from the APPROVED correlation edges (layer-id pairs) — the
     // trustworthy signal — NOT the over-lumped body_id. Geometry only fills the
@@ -1149,7 +1191,7 @@ export default function PartitionFillOverlay({
     // substrate pass slice each gap's deep band at the real column spacing instead of
     // the uniform fallback. In along-METRES (the slice math is metre-based); the
     // screen projection downstream is unchanged, so no raw-vs-warped mismatch.
-    const alongM = valid.map((id) => (screenByInv.get(id) as ColumnScreen).along)
+    const alongM = valid.map((id) => (screenOf.get(id) as ColumnScreen).along)
 
     // ---- §91 PERSISTED-LENS ROUTING (fixes "safe lens drag reshapes live then snaps
     // back on release"). A two-sided body's persisted node is stored on the same
@@ -1160,10 +1202,26 @@ export default function PartitionFillOverlay({
     // own an apex-shapeable lens tip whose span contains the stored node. Those route
     // through the LENS path so the persisted shape matches the live drag. Skipped when
     // there is no stored boundary (the common no-override render — no extra work). ----
+    // The runs the engine can actually partition: maximal stretches of
+    // CONSECUTIVE banded columns on the frame axis. Off the geotech axis (and
+    // on it once every borehole is divided) this is ONE run covering every
+    // column at offset 0, and every call below is literally today's call.
+    const runs = frameGapRuns(orderedColumns, alongM)
+    const singleFullRun = runs.length === 1 && runs[0].columns.length === orderedColumns.length
+    /** Frame-axis regions from a no-override pass — the ghost/persisted probes' base. */
+    const baseRegionsOnFrameAxis = (): SectionRegion[] =>
+      singleFullRun
+        ? computeSectionFillActive(orderedColumns, edges, undefined, alongM)
+        : runs.flatMap((run) =>
+            shiftRegionGaps(
+              computeSectionFillActive(run.columns, edges, undefined, run.alongM),
+              run.offset,
+            ),
+          )
     const persistedLensBodies =
       boundariesByBodyId && boundariesByBodyId.size > 0
         ? detectPersistedLensBodies(
-            computeSectionFillActive(orderedColumns, edges, undefined, alongM),
+            baseRegionsOnFrameAxis(),
             orderedColumns,
             boundariesByBodyId,
             alongToScreenX,
@@ -1247,10 +1305,38 @@ export default function PartitionFillOverlay({
       .map(([k, v]) => `${k}=${v.fraction.toFixed(9)},${v.elevation.toFixed(6)}`)
       .join(';')}`
     const cachedEngine = engineResultRef.current
+    /**
+     * Partition each run and put its output back on the FRAME's gap axis. A
+     * gap that touches a column the model never classified belongs to no run,
+     * so it receives nothing — which is the truth the clip then renders as
+     * bare ground.
+     */
+    const partitionRuns = (): ReturnType<typeof computeSectionFillActiveWithDiagnostics> => {
+      if (singleFullRun) {
+        return computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
+      }
+      const regions: SectionRegion[] = []
+      const runConflicts: TieConflict[] = []
+      const runReviewFlags: ReviewFlag[] = []
+      let status: OverrideStatus = 'unsupported'
+      for (const run of runs) {
+        const out = computeSectionFillActiveWithDiagnostics(
+          run.columns,
+          edges,
+          rebaseApexOverrides(apexOverrides, run),
+          run.alongM,
+        )
+        regions.push(...shiftRegionGaps(out.regions, run.offset))
+        runConflicts.push(...shiftGapIndexed(out.conflicts, run.offset))
+        runReviewFlags.push(...shiftGapIndexed(out.reviewFlags, run.offset))
+        // A refusal anywhere is a refusal: the drag lives in exactly one run,
+        // so the first non-``unsupported`` status IS that run's verdict.
+        if (status === 'unsupported') status = out.overrideStatus
+      }
+      return { regions, conflicts: runConflicts, reviewFlags: runReviewFlags, overrideStatus: status }
+    }
     const engineResult =
-      cachedEngine && cachedEngine.key === engineKey
-        ? cachedEngine.value
-        : computeSectionFillActiveWithDiagnostics(orderedColumns, edges, apexOverrides, alongM)
+      cachedEngine && cachedEngine.key === engineKey ? cachedEngine.value : partitionRuns()
     engineResultRef.current = { key: engineKey, value: engineResult }
     const {
       regions: engineRegions,
@@ -1264,19 +1350,15 @@ export default function PartitionFillOverlay({
     // partition is clipped to the litho partition — every face keeps its
     // packing class only where that class's soil matches the litho region it
     // sits in; foreign classes re-label to a same-soil class of the region;
-    // bare regions fall back to litho colour. Only possible when the two
-    // partitions share the column set (positionally): with an undivided
-    // borehole the gap axes differ and the raw partition + the whole-region
-    // fallback heuristic apply — the same answer the build has.
-    const { lithoRegions, lithoAlongM } = lithoFramePartition
-    const columnsMatch =
-      lithoFrame != null &&
-      lithoRegions.length > 0 &&
-      lithoAlongM.length === alongM.length &&
-      lithoAlongM.every((x, i) => Math.abs(x - alongM[i]) < 1e-6)
+    // bare regions fall back to litho colour. It runs ALWAYS now (owner
+    // dogfeed 2026-08-15, "clearly the litho model isn't the base of the
+    // geotech fill"): the partition above is built on the frame's own column
+    // axis, so the two gap axes coincide by construction and an undivided
+    // borehole can no longer skip the clip.
+    const { lithoRegions } = lithoFramePartition
     let sectionRegions = engineRegions
     let lithoFallbackRegions: SectionRegion[] | null = null
-    if (columnsMatch && lithoFrame != null) {
+    if (framed && lithoRegions.length > 0) {
       const clip = clipPartitionToLithoFrame(
         engineRegions,
         lithoRegions,
@@ -1388,6 +1470,7 @@ export default function PartitionFillOverlay({
     return {
       sectionRegions,
       orderedColumns,
+      columnScreens,
       gapXs,
       alongM,
       apexOverrides,
@@ -1538,17 +1621,26 @@ export default function PartitionFillOverlay({
   // input on the identity path: a pan or zoom rebuilds each column's ``nudgedX``, the
   // object changes, and a FULL engine pass ran every frame. Keying it on the same
   // content key closes that half of the fault.
-  const ghostTopoKey = topologyKey(
-    partitionTopology.orderedColumns,
-    partitionTopology.edges,
-    partitionTopology.alongM,
-    partitionEngineV2,
-  )
+  //
+  // NOT RUN on the view-only geotech axis (2026-08-15). Every consumer of the
+  // resolved set is a grab surface, and none of those render there — while the
+  // probe's gap indices come from ``partitionTopology``, which is the GEOTECH
+  // model's own column set, whereas the partition drawn on that axis is built
+  // on the LITHO FRAME's. Running it would spend the section's most expensive
+  // pass to produce indices that address a different axis.
+  const ghostTopoKey = viewOnly
+    ? ''
+    : topologyKey(
+        partitionTopology.orderedColumns,
+        partitionTopology.edges,
+        partitionTopology.alongM,
+        partitionEngineV2,
+      )
   const ghostTopoRef = useRef(partitionTopology)
   ghostTopoRef.current = partitionTopology
   const ghostBase = useMemo(
     () =>
-      ghostTopoRef.current.orderedColumns.length >= 2 && partitionEngineV2
+      !viewOnly && ghostTopoRef.current.orderedColumns.length >= 2 && partitionEngineV2
         ? computeSectionFillActive(
             ghostTopoRef.current.orderedColumns,
             ghostTopoRef.current.edges,
@@ -1562,7 +1654,7 @@ export default function PartitionFillOverlay({
     // depending on an identity that churns with the viewport — the same technique
     // ``usePartitionGhostHandles`` already uses for the probe itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ghostTopoKey, partitionEngineV2],
+    [ghostTopoKey, partitionEngineV2, viewOnly],
   )
   const deadHandleBodies = usePartitionGhostHandles(
     ghostBase,
@@ -1570,7 +1662,7 @@ export default function PartitionFillOverlay({
     partitionTopology.edges,
     partitionTopology.alongM,
     computeSectionFillActive,
-    partitionEngineV2,
+    partitionEngineV2 && !viewOnly,
   )
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
@@ -1920,8 +2012,7 @@ export default function PartitionFillOverlay({
     // KLEI/SILT/KLEI/ZAND/KLEI, all flat). The earlier "grey spill" was this clay
     // sitting under a tie drawn CROSSING the silt; the warp-aware tie fix put the
     // edge flat on the silt base, so the under-column clay now sits correctly below it.
-    const { sectionRegions, orderedColumns } = sectionFillData
-    const valid = orderedInvs.filter((id) => colByInv.get(id) && screenByInv.get(id))
+    const { sectionRegions, orderedColumns, columnScreens } = sectionFillData
     // The pure domain pass returns sloped below-TD quads per column; here we
     // only project them to screen. ENGINE-GATED (S60 Stage A): v2 emits a
     // column's own bottom unit as ONE region running continuously through the
@@ -1935,7 +2026,7 @@ export default function PartitionFillOverlay({
       : computeUnderColumnSubstrate(orderedColumns, sectionRegions)
     const out: Fill[] = []
     for (const f of fills) {
-      const sc = screenByInv.get(valid[f.columnIndex])
+      const sc = columnScreens[f.columnIndex]
       if (!sc) continue
       const leftX = sc.leftX
       const rightX = sc.rightX
@@ -1967,9 +2058,6 @@ export default function PartitionFillOverlay({
     return out
   }, [
     sectionFillData,
-    orderedInvs,
-    colByInv,
-    screenByInv,
     levelToScreen,
     plotTop,
     plotBottom,
