@@ -853,3 +853,200 @@ async def test_gc5_an_enclosed_lens_cannot_borrow_its_wrapper_as_licence(
         .first()
     )
     assert edge is None, "GC-5 FAIL: an edge row was committed for the refused lens tie"
+
+
+@pytest_asyncio.fixture
+async def gc_sand_lens_scene(
+    db_session: AsyncSession,
+    gc_project: ProjectOrm,
+    async_client: AsyncClient,
+) -> dict:
+    """Big-sand-body-with-a-lens scene (owner dogfeed 2026-08-15).
+
+    CPT-SL: ZAND 0-3 / KLEI 3-5 / ZAND 5-8 — BOTH sands litho-tied to CPT-SR's
+    ZAND 0-2, so one sand body wraps SL's clay: the clay is an enclosed lens in
+    the sand. CPT-SR: ZAND 0-2 / KLEI 2-4 / SILT 4-8.
+
+    This is the mirror of ``gc_lens_scene``: there the tied band IS the enclosed
+    lens, here the tied band is the big body that DOES the enclosing. The live
+    failure this pins (ZAND NAD 8 on GEO-10/170-S10 ↔ ZAND NAD 8 on
+    GEO-23/125-S6): *"it is one big geometrically connected body only with a
+    clay and silt lens in it"* — both sands sit in litho body
+    ``019ea3e1-9bde-73ae-9263-60ae571bcdfd`` and the tie was refused anyway.
+    """
+    pid = str(gc_project.id)
+
+    geo_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={"name": "GC6-Geo", "kind": "geological"},
+    )
+    assert geo_resp.status_code == 201, geo_resp.text
+    litho_resp = await async_client.post(
+        f"/projects/{pid}/geology/models",
+        json={
+            "name": "GC6-Litho",
+            "kind": "lithostratigraphic",
+            "parent_model_id": geo_resp.json()["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model_id = litho_resp.json()["id"]
+
+    sec_resp = await async_client.post(
+        f"/projects/{pid}/sections",
+        json={
+            "name": "GC6-Section",
+            "start_x": 148_700.0,
+            "start_y": 202_000.0,
+            "end_x": 151_200.0,
+            "end_y": 202_000.0,
+            "epsg": 31370,
+            "projection_buffer_m": 60.0,
+        },
+    )
+    assert sec_resp.status_code == 201, sec_resp.text
+    section_id = sec_resp.json()["id"]
+
+    depths, qc = _uniform_qc_series(n=400, qc_mpa=10.0)
+    cpts = []
+    for name, x in (("CPT-SL", 149_000.0), ("CPT-SR", 149_500.0)):
+        cpt = CptOrm(
+            id=uuid7(),
+            name=name,
+            cpt_type="CPTU",
+            project_id="GC6",
+            test_id=f"GC6/{name}",
+            app_project_id=gc_project.id,
+            location_x=x,
+            location_y=202_000.0,
+            elevation_m=5.0,
+            z_epsg=5710,
+            epsg=31370,
+            max_depth_m=8.0,
+        )
+        cpt.series = CptSeriesOrm(
+            depths_m=depths,
+            qc_mpa=qc,
+            fs_mpa=[0.05] * len(depths),
+            u2_mpa=None,
+            rf_pct=None,
+            q_total_mpa=None,
+        )
+        cpts.append(cpt)
+    cpt_sl, cpt_sr = cpts
+    db_session.add_all(cpts)
+    await db_session.commit()
+
+    sl_zand_top = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_sl.id), top=0.0, base=3.0, soil="ZAND"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_sl.id), top=3.0, base=5.0, soil="KLEI"
+    )
+    sl_zand_low = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_sl.id), top=5.0, base=8.0, soil="ZAND"
+    )
+    sr_zand = await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_sr.id), top=0.0, base=2.0, soil="ZAND"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_sr.id), top=2.0, base=4.0, soil="KLEI"
+    )
+    await _accept_cpt_litho(
+        async_client, pid, litho_model_id, cpt_id=str(cpt_sr.id), top=4.0, base=8.0, soil="SILT"
+    )
+
+    # Both of SL's sands tie to SR's single sand: ONE sand body wraps SL's clay.
+    await _correlate_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=sl_zand_top,
+        contact_b=sr_zand,
+        section_id=section_id,
+    )
+    await _correlate_litho(
+        async_client,
+        pid,
+        litho_model_id,
+        contact_a=sl_zand_low,
+        contact_b=sr_zand,
+        section_id=section_id,
+    )
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=gc_project.id,
+        litho_model_id=UUID(litho_model_id),
+    )
+    assert result.geotech_model_id is not None
+
+    return {
+        "project": gc_project,
+        "litho_model_id": litho_model_id,
+        "geotech_model_id": str(result.geotech_model_id),
+        "section_id": section_id,
+        "cpt_sl_id": str(cpt_sl.id),
+        "cpt_sr_id": str(cpt_sr.id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_gc6_a_band_keeps_the_body_its_own_unit_sits_in(
+    gc_sand_lens_scene: dict,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """GC-6 — a sand↔sand tie under an enclosed lens must be allowed.
+
+    Owner dogfeed (verbatim): *"still can't correlate properly (ZAND (NAD 8) on
+    GEO-10/170-S10 and ZAND (NAD 8) on GEO-23/125-S6 are in different litho
+    bodies) ... even though it is one big geometrically connected body only
+    with a clay and silt lens in it."*
+
+    The tied band's own unit sits in the big sand body. The clay lens directly
+    above it is enclosed BY that same sand body, so the enclosed-lens rule
+    (GC-5) withdrew the sand as licence — cancelling the very body the tied
+    band belongs to in its own right, and refusing a tie inside one body.
+    """
+    pid = gc_sand_lens_scene["project"].id
+    geotech_model_id = gc_sand_lens_scene["geotech_model_id"]
+
+    async def _band_with_top(cpt_id: str, top_min: float, top_max: float) -> LithoLayerOrm:
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == UUID(geotech_model_id),
+                        LithoLayerOrm.cpt_id == UUID(cpt_id),
+                        LithoLayerOrm.status == "accepted",
+                        LithoLayerOrm.depth_top_m >= top_min,
+                        LithoLayerOrm.depth_top_m <= top_max,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows, (
+            f"GC-6 prereq: no geotech band with top in [{top_min}, {top_max}] on CPT {cpt_id}"
+        )
+        return rows[0]
+
+    # SL's LOWER sand band — the lens sits directly above it.
+    band_sl = await _band_with_top(gc_sand_lens_scene["cpt_sl_id"], 4.9, 5.1)
+    # SR's sand band — same sand body, no lens involved.
+    band_sr = await _band_with_top(gc_sand_lens_scene["cpt_sr_id"], -0.1, 0.5)
+
+    resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{geotech_model_id}/contact-correlations",
+        json={
+            "layer_a_id": str(band_sl.id),
+            "layer_b_id": str(band_sr.id),
+            "request_section_id": gc_sand_lens_scene["section_id"],
+        },
+    )
+    assert resp.status_code in (200, 201), (
+        f"GC-6 FAIL: a sand↔sand tie inside ONE sand body was refused because a "
+        f"clay lens enclosed by that same sand sits above the tied band — "
+        f"got {resp.status_code}: {resp.text}"
+    )

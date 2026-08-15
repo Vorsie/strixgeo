@@ -365,6 +365,12 @@ class CorrelateLithoContacts(GroundModelLogger):
         parent litho body is the accepted litho layer that CONTAINS it on the
         same investigation; the set carries every body that resolved.
 
+        A body that WRAPS the band below the contact (an enclosed lens, owner
+        ruling 2026-08-12) is withdrawn from that contact's set — see
+        :meth:`_enclosing_body_of`.  The withdrawal never touches the body the
+        band below sits in ITSELF (owner dogfeed 2026-08-15): that licence is
+        held in the band's own right, not borrowed from a neighbour.
+
         Conservative: a band that cannot be resolved contributes nothing, and
         an empty set makes :func:`shares_litho_body` block the correlation.
 
@@ -446,7 +452,20 @@ class CorrelateLithoContacts(GroundModelLogger):
             # sides of a lens boundary, so a tie licensed by it would bisect
             # the very body that licensed it. The unit's OWN body always
             # stays — same-body ties are the legitimate case.
+            #
+            # ``tied_own`` is the body of the unit containing the band this
+            # contact belongs to (``below`` — the contact IS that band's top,
+            # SAB-8). That body is held in the band's OWN right and is NEVER
+            # withdrawn (owner dogfeed 2026-08-15): when the neighbour above
+            # is a lens enclosed by exactly that body, the neighbour's wrapper
+            # IS ``tied_own``, and subtracting it cancelled a sand↔sand tie
+            # running inside one big sand body — *"it is one big geometrically
+            # connected body only with a clay and silt lens in it"*. The
+            # 2026-08-12 rule keeps biting where it was aimed: there the TIED
+            # band is the enclosed lens, so its wrapper is a borrowed licence
+            # and still goes.
             excluded: set[str] = set()
+            tied_own: set[str] = set()
             for band in (below, above):
                 if band is None:
                     continue
@@ -454,9 +473,21 @@ class CorrelateLithoContacts(GroundModelLogger):
                 if unit is None or unit.body_id is None:
                     continue
                 result[key].add(str(unit.body_id))
+                if band is below:
+                    tied_own.add(str(unit.body_id))
                 wrapper = await self._enclosing_body_of(litho_model_id=litho_model_id, unit=unit)
                 if wrapper is not None:
                     excluded.add(wrapper)
+            if excluded & tied_own:
+                # INFO, not DEBUG: this is the line that decides between a
+                # refusal and an allow on a lens-adjacent contact, so it has to
+                # be readable in a dogfeed log without re-running at DEBUG.
+                self.info(
+                    f"_resolve_litho_bodies_for_geotech: contact {contact_id} — "
+                    f"wrapper bodies {sorted(excluded & tied_own)!r} KEPT: the tied "
+                    "band's own unit sits in them (own-right rule)"
+                )
+            excluded -= tied_own
             if excluded & result[key]:
                 self.debug(
                     f"_resolve_litho_bodies_for_geotech: contact {contact_id} — "
