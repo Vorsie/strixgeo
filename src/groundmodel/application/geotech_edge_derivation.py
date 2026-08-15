@@ -519,6 +519,7 @@ async def derive_geotech_edges_from_litho(
     seen_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
     existing_accepted_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
     source: str = AUTO_SOURCE,
+    born_accepted: bool = False,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by packing alignment within each correlated litho unit.
 
@@ -608,6 +609,17 @@ async def derive_geotech_edges_from_litho(
         what the engineer's own boundary-click gesture writes, and a derived
         tie claiming it is how hand work and machine work became
         indistinguishable in the first place.
+    born_accepted : bool
+        Emit every edge ``user_approved=True``, restatement or not.  Owner
+        ruling 2026-08-15, after dogfeeding the two-press loop: *"subdivision
+        hops should be born accepted"*.  Set by "4 · Divide boreholes" ONLY:
+        the hops it writes re-express, through the borehole it has just
+        divided, correlations the engineer already drew — they are not the
+        machine proposing a correlation he has not made, so asking him to
+        accept them turns one press into press-accept-press (and a second
+        press only manufactures more).  Step 2 (auto-correlate) leaves it
+        ``False``: there a proposal genuinely IS a new machine claim and stays
+        a ghost for the review flow.
 
     Returns
     -------
@@ -903,11 +915,17 @@ async def derive_geotech_edges_from_litho(
                 and la == left_stack[0][0]
                 and rb == right_stack[0][0]
             )
+            # Whether the row lands approved is a separate question from
+            # whether it RESTATES a litho tie: under ``born_accepted`` an
+            # interior hop is approved without ever becoming a restatement.
+            # The crossing guard is told the approval, because that is what
+            # decides whose neighbours may veto it.
+            approved = born_accepted or restates_litho_tie
             # A refused candidate is NOT added to ``seen_layer_pairs``: it was
             # never emitted, so a later pass with different neighbours (a
             # re-derive after the engineer resolves the conflict) must be free
             # to reconsider it.
-            if not _may_land(str(canonical_a), "top", str(canonical_b), "top", restates_litho_tie):
+            if not _may_land(str(canonical_a), "top", str(canonical_b), "top", approved):
                 continue
             seen_layer_pairs.add((canonical_a, canonical_b))
             session.add(
@@ -920,11 +938,11 @@ async def derive_geotech_edges_from_litho(
                     layer_a_side="top",
                     layer_b_side="top",
                     source=source,
-                    user_approved=restates_litho_tie,
+                    user_approved=approved,
                 )
             )
             counts.edges_emitted += 1
-            if restates_litho_tie:
+            if approved:
                 counts.edges_accepted += 1
             else:
                 counts.edges_proposed += 1
@@ -963,7 +981,7 @@ async def derive_geotech_edges_from_litho(
                 if (canonical_a, canonical_b) in seen_layer_pairs:
                     counts.skipped_existing_pair += 1
                     continue
-                if not _may_land(str(canonical_a), "top", str(canonical_b), "top", False):
+                if not _may_land(str(canonical_a), "top", str(canonical_b), "top", born_accepted):
                     continue
                 seen_layer_pairs.add((canonical_a, canonical_b))
                 session.add(
@@ -977,12 +995,17 @@ async def derive_geotech_edges_from_litho(
                         layer_b_side="top",
                         source=source,
                         # An interior body pair is a machine claim — pending,
-                        # per ruling A.
-                        user_approved=False,
+                        # per ruling A. Under ``born_accepted`` (the divide's
+                        # own hops) it is instead a re-expression of the
+                        # engineer's correlation and lands approved.
+                        user_approved=born_accepted,
                     )
                 )
                 counts.edges_emitted += 1
-                counts.edges_proposed += 1
+                if born_accepted:
+                    counts.edges_accepted += 1
+                else:
+                    counts.edges_proposed += 1
 
     await session.flush()
     return counts
