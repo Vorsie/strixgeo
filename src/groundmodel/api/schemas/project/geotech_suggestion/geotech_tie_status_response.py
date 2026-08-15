@@ -31,9 +31,20 @@ class GeotechTieStatusResponse(BaseModel):
         onto a band that is not clearly the one they were drawn on.  They are
         accepted (so they count in ``accepted_tie_count`` too) and do NOT gate
         anything; the count is here so the UI can nudge.
+    pending_by_section : dict[str, int]
+        ``section_id → pending tie count``, sections with none omitted.
+        Additive (2026-08-15) for the section-scoped pipeline: steps 2 and 3
+        act on the open section, step 4 stays model-wide, so the toolbar needs
+        to name the OTHER sections still holding the divide shut — and to
+        report the open section's own count on the pending chip instead of a
+        model total the engineer cannot act on from where he is standing.
     """
 
     geotech_model_id: UUID = Field(..., description="The geotechnical model.")
     pending_tie_count: int = Field(..., description="Proposed packing ties awaiting acceptance.")
     accepted_tie_count: int = Field(..., description="Accepted packing ties.")
     flagged_tie_count: int = Field(..., description="Accepted ties carrying a review flag.")
+    pending_by_section: dict[str, int] = Field(
+        default_factory=dict,
+        description="Pending packing ties per section id; sections with none are omitted.",
+    )

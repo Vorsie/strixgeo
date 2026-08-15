@@ -485,6 +485,15 @@ async def accept_contact_correlations(
         When the model or the referenced section does not belong to
         ``project_id``.
     """
+    # The SCOPE is the load-bearing part of this request now that the geotech
+    # toolbar's step 3 defaults to the open section (owner ruling 2026-08-15):
+    # "accepted 40 correlations" reads very differently depending on whether it
+    # covered one section or fourteen, and the terminal is where the owner
+    # checks that during a dogfeed.
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/contact-correlations/accept "
+        f"scope={'section=' + str(body.section_id) if body.section_id else 'model-wide'}"
+    )
     repo = GeologyRepository(session)
     await get_in_project_or_404(
         repo.get_model(model_id),
@@ -497,6 +506,11 @@ async def accept_contact_correlations(
         )
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    logger.info(
+        f"accept_contact_correlations ok model={model_id} "
+        f"scope={'section=' + str(body.section_id) if body.section_id else 'model-wide'} "
+        f"accepted={result.edges_accepted} ordinals_changed={result.ordinals_changed}"
+    )
     return AcceptContactCorrelationsResponse(
         edges_accepted=result.edges_accepted,
         ordinals_changed=result.ordinals_changed,

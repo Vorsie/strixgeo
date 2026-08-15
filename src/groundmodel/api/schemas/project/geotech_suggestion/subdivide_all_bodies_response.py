@@ -164,3 +164,18 @@ class SubdivideAllBodiesResponse(BaseModel):
             "engineer accepts before they mean anything."
         ),
     )
+    skipped_off_section_count: int = Field(
+        0,
+        description=(
+            "Interpreted investigations left OUT of the geotech model because "
+            "they project onto no cross-section in scope (owner ruling "
+            "2026-08-15). A model that came out smaller must say so."
+        ),
+    )
+    skipped_off_section_labels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of the skipped investigations, so the engineer knows which "
+            "columns to put on a section rather than just that some were lost."
+        ),
+    )

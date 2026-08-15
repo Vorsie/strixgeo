@@ -170,7 +170,7 @@ async def subdivide_all_bodies(
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}"
-        f"/geotech/subdivide-all-bodies (model-wide)"
+        f"/geotech/subdivide-all-bodies scope={request.section_id or 'all sections'}"
     )
     model = await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
@@ -181,7 +181,11 @@ async def subdivide_all_bodies(
     _require_matching_model_id(request.litho_model_id, model_id)
 
     return await _run_subdivide(
-        session, project_id=project_id, model_id=model_id, derive_edges=True
+        session,
+        project_id=project_id,
+        model_id=model_id,
+        derive_edges=True,
+        section_id=request.section_id,
     )
 
 
@@ -290,6 +294,7 @@ async def _run_subdivide(
     project_id: UUID,
     model_id: UUID,
     derive_edges: bool,
+    section_id: UUID | None = None,
 ) -> SubdivideAllBodiesResponse:
     """Run ``SubdivideAllBodies`` and map its result onto the wire schema.
 
@@ -307,6 +312,9 @@ async def _run_subdivide(
         The lithostratigraphic model being subdivided.
     derive_edges : bool
         Whether to also propose packing ties.
+    section_id : UUID | None
+        Restrict the rebuild to one section's investigations; ``None`` takes
+        every investigation that appears on any section.
 
     Returns
     -------
@@ -323,6 +331,7 @@ async def _run_subdivide(
             project_id=project_id,
             litho_model_id=model_id,
             derive_edges=derive_edges,
+            section_id=section_id,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -332,7 +341,9 @@ async def _run_subdivide(
 
     logger.info(
         f"subdivide ok geotech_model={result.geotech_model_id} "
+        f"scope={section_id or 'all sections'} "
         f"derive_edges={derive_edges} "
+        f"skipped_off_section={result.skipped_off_section_count} "
         f"layers={result.layer_count} bodies={result.body_count} "
         f"split={result.split_body_count} one_class={result.one_class_body_count} "
         f"borehole_only={result.borehole_only_count} "
@@ -358,6 +369,8 @@ async def _run_subdivide(
         lost_tie_labels=result.lost_tie_labels,
         edges_derived=result.edges_derived,
         proposed_tie_count=result.proposed_tie_count,
+        skipped_off_section_count=result.skipped_off_section_count,
+        skipped_off_section_labels=result.skipped_off_section_labels,
     )
 
 
@@ -419,7 +432,10 @@ async def subdivide_cpts(
         When the model is not ``kind='lithostratigraphic'``, when the body's
         ``litho_model_id`` disagrees with the URL, or on a domain error.
     """
-    logger.info(f"POST /projects/{project_id}/geology/models/{model_id}/geotech/subdivide-cpts")
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/subdivide-cpts "
+        f"scope={request.section_id or 'all sections'}"
+    )
     model = await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
@@ -428,7 +444,11 @@ async def subdivide_cpts(
     require_model_kind(model, "lithostratigraphic", "geotech/subdivide-cpts")
     _require_matching_model_id(request.litho_model_id, model_id)
     return await _run_subdivide(
-        session, project_id=project_id, model_id=model_id, derive_edges=False
+        session,
+        project_id=project_id,
+        model_id=model_id,
+        derive_edges=False,
+        section_id=request.section_id,
     )
 
 
@@ -465,7 +485,8 @@ async def geotech_tie_status(
     Returns
     -------
     GeotechTieStatusResponse
-        Pending / accepted / flagged counts.
+        Pending / accepted / flagged counts plus the per-section pending
+        breakdown the section-scoped toolbar reads.
 
     Raises
     ------
@@ -483,13 +504,17 @@ async def geotech_tie_status(
     tie_status = await load_geotech_tie_status(session, model_id)
     logger.info(
         f"geotech_tie_status model={model_id} pending={tie_status.pending_tie_count} "
-        f"accepted={tie_status.accepted_tie_count} flagged={tie_status.flagged_tie_count}"
+        f"accepted={tie_status.accepted_tie_count} flagged={tie_status.flagged_tie_count} "
+        f"sections_with_pending={len(tie_status.pending_by_section)}"
     )
     return GeotechTieStatusResponse(
         geotech_model_id=model_id,
         pending_tie_count=tie_status.pending_tie_count,
         accepted_tie_count=tie_status.accepted_tie_count,
         flagged_tie_count=tie_status.flagged_tie_count,
+        pending_by_section={
+            str(section_id): count for section_id, count in tie_status.pending_by_section.items()
+        },
     )
 
 
