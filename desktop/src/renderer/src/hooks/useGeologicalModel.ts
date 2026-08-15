@@ -56,6 +56,7 @@ import { pairBandsWithLithoParents } from '../utils/geotechBandParents'
 import { columnsNeedingRederive as columnsNeedingRederiveFromFit } from '../utils/geotechParentFit'
 import { divideBoreholesToastMessage } from '../utils/divideBoreholesToast'
 import { lostTieMessage } from '../utils/lostTieMessage'
+import { subdivideCptsToast } from '../utils/subdivideCptsToast'
 import { log } from '../utils/log'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
@@ -862,7 +863,15 @@ export interface UseGeologicalModelResult {
    * -------
    * Promise<void>
    */
-  handleSubdivideAllBodies: (options?: { deriveEdges?: boolean }) => Promise<void>
+  handleSubdivideAllBodies: (options?: {
+    deriveEdges?: boolean
+    /**
+     * Restrict the rebuild to one section's columns (owner ruling 2026-08-15);
+     * ``null`` / omitted is the all-sections press. Off-section
+     * investigations are excluded in both modes.
+     */
+    sectionId?: string | null
+  }) => Promise<void>
   /**
    * TIN-divide borehole columns using CPT packing-transition surfaces.
    *
@@ -2372,24 +2381,30 @@ export function useGeologicalModel({
   //   (d) markMutated + addToSessionImports for the new formations → dirty flag
   // The verb must be usable when NO geotech model exists yet (first run).
   const handleSubdivideAllBodies = useCallback(
-    async (options?: { deriveEdges?: boolean }): Promise<void> => {
+    async (options?: { deriveEdges?: boolean; sectionId?: string | null }): Promise<void> => {
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
         toast('error', 'Select a lithostratigraphic model first.')
         return
       }
+      // Owner ruling 2026-08-15 — a section id rebuilds that section's columns
+      // only; null is the deliberate all-sections press.
+      const sectionId = options?.sectionId ?? null
       // Pipeline step 1 (owner ruling 2026-08-04) subdivides the CPTs and
       // proposes NOTHING; the combined verb is the compatibility path and is
       // the only caller that asks for edges. Everything AFTER the request is
       // identical, so the two share this handler rather than drifting.
       const deriveEdges = options?.deriveEdges ?? false
       const verb = deriveEdges ? 'subdivideAllBodies' : 'subdivideCpts'
-      log.info('geology', `${verb} entry lithoModel=${lithoModel.id} (model-wide)`)
+      log.info(
+        'geology',
+        `${verb} entry lithoModel=${lithoModel.id} scope=${sectionId ?? 'all sections'}`,
+      )
       let result: SubdivideAllBodiesResponse
       try {
         result = deriveEdges
-          ? await api.geology.subdivideAllBodies(project.id, lithoModel.id)
-          : await api.geology.subdivideCpts(project.id, lithoModel.id)
+          ? await api.geology.subdivideAllBodies(project.id, lithoModel.id, sectionId)
+          : await api.geology.subdivideCpts(project.id, lithoModel.id, sectionId)
       } catch (err) {
         log.error('geology', `${verb} failed`, err)
         toast('error', `${deriveEdges ? 'Subdivide all bodies' : 'Subdivide CPTs'} failed — see console.`)
@@ -2449,25 +2464,28 @@ export function useGeologicalModel({
       // Subdivide rebuilds the CPT bodies and writes NO borehole bands — the
       // boreholes are now undivided, so amber the "Divide boreholes" button.
       markBoreholesStale()
-      const splitMsg = `${result.split_body_count} bodies split, ${result.one_class_body_count} single-class`
-      const boreholeOnly = result.borehole_only_count ?? 0
-      const boreholeNote = boreholeOnly > 0 ? `, ${boreholeOnly} borehole-only` : ''
       // The rebuild gives every band a new id, so an accepted packing tie has to be
       // re-anchored: onto the band that came back unchanged, or onto the one it moved
       // into. Where neither is unambiguous the tie is still carried, but flagged —
       // an accepted edge never disappears without the engineer deleting it. Report
       // all three outcomes, because a flag nobody is told about is a flag nobody acts
       // on, and the section it sits on may not be the one that is open.
-      const reanchored = result.reanchored_tie_count ?? 0
       const lostTies = result.lost_tie_count ?? 0
-      const tieNote = reanchored > 0 ? `, ${reanchored} accepted ties kept` : ''
-      // Step 1 correlates nothing on purpose, so the toast has to hand the
-      // engineer the next press — otherwise the empty geotech axis reads as a
-      // failure rather than as "your turn".
-      const nextStep = deriveEdges ? '' : ' Next: 2 · Auto-correlate.'
+      // Wording lives in ``subdivideCptsToast`` (mirrors ``lostTieMessage`` /
+      // ``divideBoreholesToast``): it is pinned there, and this hook is long
+      // past the god-component threshold.
       toast(
         'success',
-        `Geotechnical subdivision complete — ${splitMsg}${boreholeNote}${tieNote}.${nextStep}`,
+        subdivideCptsToast({
+          scopedToSection: sectionId !== null,
+          splitBodyCount: result.split_body_count,
+          oneClassBodyCount: result.one_class_body_count,
+          boreholeOnlyCount: result.borehole_only_count ?? 0,
+          reanchoredTieCount: result.reanchored_tie_count ?? 0,
+          skippedOffSectionCount: result.skipped_off_section_count ?? 0,
+          skippedOffSectionLabels: result.skipped_off_section_labels ?? [],
+          deriveEdges,
+        }),
       )
       const needsReview = Object.values(result.review_tie_reasons ?? {}).reduce(
         (a, b) => a + b,

@@ -853,17 +853,22 @@ export const geologyClient = {
    * absent) and materialises real geotech spatial bodies via litho_layer +
    * edge inserts.
    *
-   * The operation is model-wide — layers are written once per investigation;
-   * geotech edges are derived per-section from the litho model's approved edges.
-   * Pass ``lithoModelId`` as the body ``litho_model_id`` for forward-compatibility.
+   * Layers are written once per investigation; geotech edges are derived
+   * per-section from the litho model's approved edges. Pass ``lithoModelId``
+   * as the body ``litho_model_id`` for forward-compatibility.
+   *
+   * ``sectionId`` restricts the rebuild to one section's columns (owner ruling
+   * 2026-08-15); ``null`` takes every investigation that appears on ANY
+   * section. Investigations on NO section are excluded either way.
    */
   subdivideAllBodies: (
     projectId: string,
     lithoModelId: string,
+    sectionId?: string | null,
   ): Promise<SubdivideAllBodiesResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-all-bodies`,
-      { litho_model_id: lithoModelId },
+      { litho_model_id: lithoModelId, section_id: sectionId ?? null },
     ),
 
   /**
@@ -874,14 +879,20 @@ export const geologyClient = {
    * 2026-08-04). Accepted ties are still re-anchored across the rebuild — that
    * is carrying his own work, not deriving new ties. ``edges_derived: false``
    * in the response says auto-correlate is the next press.
+   *
+   * ``sectionId`` scopes the rebuild to one section's columns (owner ruling
+   * 2026-08-15: *"i want subdivide cpt's also to be section scoped"*); ``null``
+   * is the all-sections press. Either way an investigation that projects onto
+   * NO section is skipped, and reported in ``skipped_off_section_*``.
    */
   subdivideCpts: (
     projectId: string,
     lithoModelId: string,
+    sectionId?: string | null,
   ): Promise<SubdivideAllBodiesResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-cpts`,
-      { litho_model_id: lithoModelId },
+      { litho_model_id: lithoModelId, section_id: sectionId ?? null },
     ),
 
   /**

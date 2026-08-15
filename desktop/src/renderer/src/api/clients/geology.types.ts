@@ -1015,6 +1015,14 @@ export interface SubdivideAllBodiesResponse {
   edges_derived?: boolean
   /** Packing ties proposed by this call, all unapproved (0 when step 1). */
   proposed_tie_count?: number
+  /**
+   * Interpreted investigations left OUT of the model because they project onto
+   * no cross-section in scope (owner ruling 2026-08-15). Optional so an older
+   * backend simply reports nothing rather than a misleading zero.
+   */
+  skipped_off_section_count?: number
+  /** Names of those investigations — a count alone cannot be acted on. */
+  skipped_off_section_labels?: string[]
 }
 
 /**
@@ -1033,6 +1041,16 @@ export interface GeotechTieStatusResponse {
   accepted_tie_count: number
   /** Accepted ties flagged for review by a rebuild (the violet ``!`` badges). */
   flagged_tie_count: number
+  /**
+   * ``section_id → pending count``; sections with none are omitted.
+   *
+   * Optional so a backend predating it degrades to the bare model total
+   * instead of to a confident "0 sections pending" (see
+   * ``geotechPendingScope.ts``). Added 2026-08-15 with the section-scoped
+   * steps 2 and 3: step 4 stays model-wide, so the gate has to name the OTHER
+   * sections still holding it shut.
+   */
+  pending_by_section?: Record<string, number>
 }
 
 /**
