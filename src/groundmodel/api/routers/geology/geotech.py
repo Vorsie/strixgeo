@@ -644,6 +644,11 @@ async def divide_boreholes(
             litho_model_id=model_id,
             borehole_ids=borehole_ids,
             section_id=section_id,
+            section_partitions=(
+                {sid: partition.to_domain() for sid, partition in body.section_partitions.items()}
+                if body is not None and body.section_partitions
+                else None
+            ),
         )
     except HTTPException:
         raise
