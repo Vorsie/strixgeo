@@ -5,22 +5,33 @@
  * 2-D map (``PartitionFillOverlay`` with ``showBands``). On a densely-correlated
  * model that fill can be visually busy, so the engineer needs to strip it to
  * inspect the correlation ribbons underneath. This store gates the geotech fill
- * independently of the litho ``bandFillStore`` (which defaults OFF and controls
- * the litho body-loop fill).
+ * independently of the litho ``bandFillStore`` (which also defaults OFF and
+ * controls the litho body-loop fill).
  *
  * Mirrors ``formationFillStore`` / ``correlationOverlayStore``: a single boolean
  * driven from the geotech toolbar and read by ``SectionPanel`` via
  * ``useSyncExternalStore`` — the lightest correct way to share one view toggle
  * between sibling components with no shared props path.
  *
- * Module-global by design (one section view at a time). Defaults to ``true``
- * (fill shown) — the NAD bands ARE the geotech deliverable, so the view loads
- * filled; the toggle is chrome, never persisted (resets to shown on reload).
+ * Module-global by design (one section view at a time). **Defaults to
+ * ``false`` (fill hidden)** — owner ruling 2026-08-15: *"when clicking auto
+ * correlate, the fill should start as standard off too"*. With the old
+ * default-on the fill turned itself on: pipeline step 2's born-accepted
+ * restatements satisfy the accepted-tie gate in ``sectionFillSelection``, so
+ * the packing fill appeared without anyone asking for it, mid-review. The
+ * default is now OFF so the fill is always an explicit press. Chrome, never
+ * persisted (resets to hidden on reload).
+ *
+ * The accepted-tie gate in ``sectionFillSelection.ts`` is NOT redundant with
+ * this: it stops the fill even when the toggle is deliberately on, because
+ * before the ties exist every band pinches mid-gap and the fill is clutter.
+ * Two different questions — "did he ask for it" and "is there anything worth
+ * painting" — and both must answer yes.
  */
 
 import { createBooleanStore } from './createBooleanStore'
 
-const store = createBooleanStore(true)
+const store = createBooleanStore(false)
 
 /** Flip the geotech fill visibility and notify subscribers. */
 export function toggleGeotechFill(): void {
