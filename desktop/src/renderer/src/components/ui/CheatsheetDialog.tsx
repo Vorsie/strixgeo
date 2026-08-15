@@ -115,6 +115,10 @@ const GROUPS: readonly CheatGroup[] = [
       // fill earns its own key. Axis-aware: the geotech axis's "Show litho
       // fill", the litho axis's "Fill bands"; nothing on the geology axis.
       { trigger: 'L', action: 'Show / hide the litho fill (litho + geotech axes)' },
+      // Owner 2026-08-15: "Turn the fill on (l this is for litho fill so this
+      // wouldn't work)" — the packing fill is a second toggle he flips as
+      // often, so it gets a second key. Geotech axis only.
+      { trigger: 'F', action: 'Show / hide the packing (NAD) fill (geotech axis)' },
     ],
   },
   {

@@ -43,9 +43,12 @@ import { usePsdPreviewOn } from '../../../utils/psdPreviewOnStore'
 import { sampleDisplayMenuItems } from './sampleDisplayMenuItems'
 import { useSampleMarkersHotkey } from './useSampleMarkersHotkey'
 import { useLithoFillHotkey } from './useLithoFillHotkey'
+import { useGeotechFillHotkey } from './useGeotechFillHotkey'
 import {
+  GEOTECH_FILL_TOAST_KEY,
   LITHO_FILL_TOAST_KEY,
   SAMPLE_MARKERS_TOAST_KEY,
+  geotechFillToastMessage,
   lithoFillToastMessage,
   sampleMarkersToastMessage,
 } from './displayToggleToast'
@@ -236,6 +239,13 @@ export default function SectionsToolbar(): JSX.Element {
   // the P hotkey above — it reads ``toast``, so it stays below the destructure.
   useLithoFillHotkey(sectionModelAxis, nowOn => {
     toast('success', lithoFillToastMessage(sectionModelAxis, nowOn), LITHO_FILL_TOAST_KEY)
+  })
+  // Bare F is the packing fill's own key (owner 2026-08-15: "Turn the fill on
+  // (l this is for litho fill so this wouldn't work)"). Geotech axis only, and
+  // its OWN replace key so hammering F cannot wipe the line L just wrote. Same
+  // TDZ caveat as the two hotkeys above — it reads ``toast``.
+  useGeotechFillHotkey(sectionModelAxis, nowOn => {
+    toast('success', geotechFillToastMessage(nowOn), GEOTECH_FILL_TOAST_KEY)
   })
   // With no model there is no column to read, so the engineer's own pending
   // choice IS the answer — shown exactly as a committed one, because to him it

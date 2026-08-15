@@ -32,6 +32,15 @@ export const SAMPLE_MARKERS_TOAST_KEY = 'display-toggle:sample-markers'
 export const LITHO_FILL_TOAST_KEY = 'display-toggle:litho-fill'
 
 /**
+ * Replace key for the bare-``F`` packing-fill announcement.
+ *
+ * Distinct from ``LITHO_FILL_TOAST_KEY`` on purpose: on the geotech axis both
+ * fills exist at once, and sharing a key would make ``F`` wipe the line ``L``
+ * just wrote — two toggles reporting as one.
+ */
+export const GEOTECH_FILL_TOAST_KEY = 'display-toggle:geotech-fill'
+
+/**
  * Compose the bare-``P`` announcement.
  *
  * @param nowOn - The state the toggle has just moved TO.
@@ -56,4 +65,18 @@ export function sampleMarkersToastMessage(nowOn: boolean): string {
 export function lithoFillToastMessage(axisMode: SectionModelAxis, nowOn: boolean): string {
   const label = axisMode === 'geotechnical' ? 'Litho fill' : 'Band fill'
   return `${label} ${nowOn ? 'on' : 'off'}`
+}
+
+/**
+ * Compose the bare-``F`` announcement for the geotech axis's own NAD fill.
+ *
+ * Named "Packing fill" rather than the menu's bare "fill": on the geotech axis
+ * the Display menu offers BOTH "Show fill" and "Show litho fill", so an
+ * announcement saying only "Fill on" would not say which of the two moved.
+ *
+ * @param nowOn - The state the toggle has just moved TO.
+ * @returns The sentence for the toast.
+ */
+export function geotechFillToastMessage(nowOn: boolean): string {
+  return `Packing fill ${nowOn ? 'on' : 'off'}`
 }
