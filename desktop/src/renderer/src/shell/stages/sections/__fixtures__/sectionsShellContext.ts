@@ -11,7 +11,7 @@
 
 import { vi } from 'vitest'
 
-import type { GeologicalModelResponse } from '../../../../api/client'
+import type { CptListItem, GeologicalModelResponse } from '../../../../api/client'
 import type { SectionModelAxis } from '../../../../hooks/useSections'
 import type { ShellContextValue } from '../../../ShellContext'
 
@@ -85,6 +85,35 @@ export function makeSection() {
     view_state: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
+/**
+ * A CPT sitting squarely ON {@link makeSection}'s line.
+ *
+ * Needed by any suite that asserts something scoped to the section's MEMBERS —
+ * the re-subdivide confirmation counts the bands the press will rebuild, and a
+ * band whose column the section does not carry is not one of them. The point
+ * lands at the section's midpoint with zero offset, so it is inside the
+ * corridor by a wide margin.
+ *
+ * @param id Investigation id; match it to the band's ``cpt_id``.
+ * @param x Along-line easting; defaults to the section's midpoint.
+ */
+export function onSectionCpt(id: string, x = 50): CptListItem {
+  return {
+    id,
+    name: id,
+    cpt_type: 'CPTU',
+    max_depth_m: 20,
+    n_rows: 200,
+    location_x: x,
+    location_y: 0,
+    epsg: 31370,
+    elevation_m: 0,
+    z_epsg: 5710,
+    elevation_source: 'manual',
+    start_date: null,
   }
 }
 

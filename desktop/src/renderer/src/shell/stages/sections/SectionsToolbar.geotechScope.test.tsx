@@ -36,8 +36,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
+import type { LithoLayerResponse } from '../../../api/clients/geology.types'
 import SectionsToolbar from './SectionsToolbar'
-import { makeShellCtx, makeLithoModel } from './__fixtures__/sectionsShellContext'
+import { makeLithoLayer } from './__fixtures__/lithoLayer'
+import { makeShellCtx, makeLithoModel, onSectionCpt } from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -86,6 +88,7 @@ interface CtxOverrides {
   geoModel?: Partial<ShellContextValue['geoModel']>
   sections?: Partial<ShellContextValue['sections']>
   toast?: ShellContextValue['toasts']['toast']
+  visibleCpts?: ShellContextValue['visibleCpts']
 }
 
 function makeCtx(overrides: CtxOverrides = {}): ShellContextValue {
@@ -99,7 +102,18 @@ function makeCtx(overrides: CtxOverrides = {}): ShellContextValue {
     },
     sections: { ...base.sections, ...(overrides.sections ?? {}) },
     toasts: { ...base.toasts, toast: overrides.toast ?? base.toasts.toast },
+    visibleCpts: overrides.visibleCpts ?? base.visibleCpts,
   }
+}
+
+/** One committed packing band on a CPT — enough to make a press destructive. */
+function bandOn(cptId: string): LithoLayerResponse {
+  return makeLithoLayer({
+    id: `band-${cptId}`,
+    cpt_id: cptId,
+    model_id: 'geotech-model-1',
+    source: 'segmenter',
+  })
 }
 
 function renderToolbar(ctx: ShellContextValue): void {
@@ -153,6 +167,9 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
       deriveEdges: false,
       sectionId: 'sec-1',
+      // The qc statistic the engineer may have picked before the model
+      // existed (owner 2026-08-15); none picked here.
+      representativeStatistic: null,
     })
   })
 
@@ -234,18 +251,35 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
     // A re-run on a project with a SECOND section: the rebuild now deletes
     // only the columns it rebuilds, so a prompt that says the neighbour loses
     // its packing bands is describing something that cannot happen.
+    //
+    // RE-PINNED 2026-08-15: the prompt only appears when the OPEN section has
+    // bands to lose, so the scene has to stage one — otherwise the press goes
+    // straight through and there is no dialog to read (owner: "We do however
+    // get an overwrite popup on cs2 while there is no subdivision there yet").
     const base = makeShellCtx('geotechnical')
     const twoSections = [
       base.sections.sections[0],
       { ...base.sections.sections[0], id: 'sec-2', name: 'Cross-section 2' },
     ]
-    renderToolbar(makeCtx({ sections: { sections: twoSections } }))
+    renderToolbar(
+      makeCtx({
+        sections: { sections: twoSections },
+        geoModel: {
+          activeLithoModel: makeLithoModel(),
+          geotechLayers: [bandOn('cpt-1')],
+        },
+        visibleCpts: [onSectionCpt('cpt-1')],
+      }),
+    )
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
 
     const dialog = await screen.findByTestId('re-subdivide-confirm-dialog')
     expect(dialog.textContent ?? '').not.toMatch(/other section/i)
     expect(dialog.textContent ?? '').not.toMatch(/on all sections/i)
+    // It names the section it IS about, and never the neighbour.
+    expect(dialog.textContent ?? '').toContain('Section A-A')
+    expect(dialog.textContent ?? '').not.toContain('Cross-section 2')
   })
 })
 
@@ -253,16 +287,20 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
 // SC8/SC9 — the model-wide step 4 has to explain itself
 // ---------------------------------------------------------------------------
 
-describe('SectionsToolbar — the model-wide gate explains itself', () => {
-  it('SC8: the step-4 gate counts the SECTIONS still carrying proposals', async () => {
+describe('SectionsToolbar — the step-4 gate explains itself', () => {
+  it('SC8: the step-4 gate counts THIS section, not the model', async () => {
+    // RE-PINNED 2026-08-15: was "accept 12 on 2 sections", from when step 4
+    // rewrote every section. Owner: "i'm reading divide boreholes (whole
+    // model), no that should also be section scoped" — so the count that
+    // holds it shut is the open section's.
     tieStatus(12, 5, { 'sec-1': 5, 'sec-2': 7 })
     renderToolbar(makeCtx())
     await screen.findByTestId('geotech-pending-tie-chip')
     await openPipeline()
     const divide = screen.getByTestId('geotech-divide-boreholes')
     expect(divide).toBeDisabled()
-    expect(divide.textContent ?? '').toContain('accept 12 on 2 sections')
-    expect(divide.getAttribute('title') ?? '').toContain('2 sections')
+    expect(divide.textContent ?? '').toContain('accept 5 on this section')
+    expect(divide.getAttribute('title') ?? '').toMatch(/this section/i)
   })
 
   it('SC9: the chip reports THIS section; the model total rides the tooltip', async () => {
@@ -284,5 +322,79 @@ describe('SectionsToolbar — the model-wide gate explains itself', () => {
     const chip = await screen.findByTestId('geotech-pending-tie-chip')
     expect(chip.textContent ?? '').toContain('0')
     expect(chip.getAttribute('title') ?? '').toContain('7')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SC11-SC15 — step 4 joins the other three (owner, 2026-08-15)
+// ---------------------------------------------------------------------------
+//
+//   > "i'm reading divide boreholes (whole model), no that should also be
+//   > section scoped"
+//
+// He read the menu after steps 1-3 were scoped and refused the odd one out.
+// The consequence he is after: finish CS1 end to end while CS2 still has
+// proposals outstanding.
+//
+//   SC11 step 4 divides the section on screen
+//   SC12 the label drops the "(whole model)" qualifier
+//   SC13 the neighbour's proposals no longer hold this section's divide shut
+//   SC14 this section's own proposals still do
+//   SC15 with no section open the step is dead, like steps 1-3
+//   SC16 the pipeline's own tooltip stops calling step 4 model-wide
+
+describe('SectionsToolbar — step 4 follows the open section', () => {
+  it('SC11: step 4 divides the boreholes of the section on screen', async () => {
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    renderToolbar(makeCtx({ geoModel: { handleDivideBoreholes } }))
+    await openPipeline()
+    fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
+    expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'sec-1' })
+  })
+
+  it('SC12: the label no longer says "(whole model)"', async () => {
+    renderToolbar(makeCtx())
+    await openPipeline()
+    const divide = screen.getByTestId('geotech-divide-boreholes')
+    expect(divide.textContent ?? '').toContain('4 · Divide boreholes')
+    expect(divide.textContent ?? '').not.toMatch(/whole model/i)
+  })
+
+  it('SC13: proposals on ANOTHER section no longer hold this one shut', async () => {
+    // The case the owner is after: CS1 is clear, CS2 is not, and CS1 divides.
+    tieStatus(7, 40, { 'sec-2': 7 })
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    renderToolbar(makeCtx({ geoModel: { handleDivideBoreholes } }))
+    await screen.findByTestId('geotech-pending-tie-chip')
+    await openPipeline()
+    const divide = screen.getByTestId('geotech-divide-boreholes')
+    expect(divide).not.toBeDisabled()
+    fireEvent.click(divide)
+    expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'sec-1' })
+  })
+
+  it('SC14: proposals on THIS section still do', async () => {
+    tieStatus(5, 40, { 'sec-1': 5 })
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    renderToolbar(makeCtx({ geoModel: { handleDivideBoreholes } }))
+    await screen.findByTestId('geotech-pending-tie-chip')
+    await openPipeline()
+    const divide = screen.getByTestId('geotech-divide-boreholes')
+    expect(divide).toBeDisabled()
+    fireEvent.click(divide)
+    expect(handleDivideBoreholes).not.toHaveBeenCalled()
+  })
+
+  it('SC15: with no section open step 4 is dead, exactly like steps 1-3', async () => {
+    renderToolbar(makeCtx({ sections: { selectedSectionId: null } }))
+    await openPipeline()
+    expect(screen.getByTestId('geotech-divide-boreholes')).toBeDisabled()
+  })
+
+  it('SC16: the pipeline tooltip stops calling step 4 model-wide', async () => {
+    renderToolbar(makeCtx())
+    const title = screen.getByTestId('geotech-pipeline').getAttribute('title') ?? ''
+    expect(title).not.toMatch(/model-wide/i)
+    expect(title).not.toMatch(/rewrites every section/i)
   })
 })

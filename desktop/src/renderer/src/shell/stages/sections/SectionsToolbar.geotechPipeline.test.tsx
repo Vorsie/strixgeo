@@ -177,11 +177,13 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     // RE-PINNED 2026-08-15: the press now also carries the open section's id
-    // (the shared fixture selects "sec-1"). The claim under test is unchanged
-    // — deriveEdges stays false, i.e. step 1 still correlates nothing.
+    // (the shared fixture selects "sec-1") and the pre-model qc statistic —
+    // null here, because no statistic was picked. The claim under test is
+    // unchanged: deriveEdges stays false, i.e. step 1 still correlates nothing.
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
       deriveEdges: false,
       sectionId: 'sec-1',
+      representativeStatistic: null,
     })
   })
 })

@@ -50,7 +50,12 @@ import {
   sampleMarkersToastMessage,
 } from './displayToggleToast'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
-import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
+import { countGeotechHandEdits, geotechBandsInScope } from '../../../utils/geotechHandEdits'
+import {
+  DEFAULT_GEOTECH_STATISTIC,
+  GEOTECH_STATISTICS,
+  type GeotechStatistic,
+} from '../../../utils/geotechStatistic'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
 import { sectionsBodyRecomputeCallback } from '../../../hooks/useProjectBodyRecompute'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
@@ -105,6 +110,14 @@ export default function SectionsToolbar(): JSX.Element {
     statistic: string
     classifiedWith: string | null
   } | null>(null)
+  // The choice made BEFORE any geotech model exists (owner 2026-08-15: "i
+  // can't choose harmonic qc before first subdivide, that's friction we don't
+  // need?"). It cannot be written anywhere — the column it lives in belongs to
+  // a row step 1 has not created yet — so it is held here and handed to the
+  // FIRST subdivide, which creates the model under it. Dropped the moment a
+  // model exists (effect below): from then on the MODEL is what the label
+  // must show, so a build that ignored the request cannot be papered over.
+  const [pendingStatistic, setPendingStatistic] = useState<GeotechStatistic | null>(null)
   const {
     project,
     visibleBoreholes,
@@ -210,10 +223,18 @@ export default function SectionsToolbar(): JSX.Element {
   useLithoFillHotkey(sectionModelAxis, nowOn => {
     toast('success', lithoFillToastMessage(sectionModelAxis, nowOn), LITHO_FILL_TOAST_KEY)
   })
-  const geotechStatistic =
-    (statisticState?.modelId === activeGeotechModel?.id ? statisticState?.statistic : undefined) ??
-    activeGeotechModel?.representative_statistic ??
-    'median'
+  // With no model there is no column to read, so the engineer's own pending
+  // choice IS the answer — shown exactly as a committed one, because to him it
+  // is the same decision. With a model, the model wins: the local bridge, then
+  // its own column, then the backend default.
+  const geotechStatistic: string =
+    !activeGeotechModel
+      ? (pendingStatistic ?? DEFAULT_GEOTECH_STATISTIC)
+      : ((statisticState?.modelId === activeGeotechModel.id
+          ? statisticState?.statistic
+          : undefined) ??
+        activeGeotechModel.representative_statistic ??
+        DEFAULT_GEOTECH_STATISTIC)
   const geotechClassifiedWith =
     statisticState !== null && statisticState.modelId === activeGeotechModel?.id
       ? statisticState.classifiedWith
@@ -237,9 +258,27 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }, [activeGeotechModel, statisticState])
 
+  // The pre-model choice retires the instant a model exists. Keeping it would
+  // let the label promise a statistic the build did not use — and from here on
+  // the statistic route, not a renderer-held value, is what changes the model.
+  useEffect(() => {
+    if (activeGeotechModel && pendingStatistic !== null) setPendingStatistic(null)
+  }, [activeGeotechModel, pendingStatistic])
+
   const handleSetGeotechStatistic = useCallback(
-    (statistic: 'median' | 'arithmetic' | 'harmonic' | 'geometric'): void => {
-      if (!project || !activeGeotechModel) return
+    (statistic: GeotechStatistic): void => {
+      if (!project) return
+      if (!activeGeotechModel) {
+        // Nothing to write to yet — park the choice and say what will consume
+        // it. No markMutated: no row changed, so the project is not dirty.
+        setPendingStatistic(statistic)
+        toast(
+          'success',
+          `Representative statistic set to ${statistic} — press "1 · Subdivide CPTs" ` +
+            'to build the packing bands under it.',
+        )
+        return
+      }
       void api.geology
         .setGeotechStatistic(project.id, activeGeotechModel.id, statistic)
         .then(result => {
@@ -315,15 +354,24 @@ export default function SectionsToolbar(): JSX.Element {
     return lithoContacts.some(c => invIds.has(c.cpt_id ?? c.borehole_id ?? ''))
   }, [selectedSection, lithoContacts, visibleCpts, visibleBoreholes])
 
-  // Owner ruling B (2026-08-01) — "Subdivide all bodies" rebuilds every packing
-  // band, so it destroys every band the engineer split or merged by hand. The
-  // confirm dialog has to name how many BEFORE it opens; no round trip is
-  // needed because ``geotechLayers`` is already the active geotech model's
-  // full layer list, model-wide, with each row's ``source``.
-  const geotechHandEditCount = useMemo(
-    () => countGeotechHandEdits(geotechLayers),
-    [geotechLayers],
-  )
+  // What pressing "1 · Subdivide CPTs" will actually destroy.
+  //
+  // Owner ruling B (2026-08-01) gave the dialog a hand-edit count; the owner's
+  // 2026-08-15 dogfeed scoped it — *"We do however get an overwrite popup on
+  // cs2 while there is no subdivision there yet. Now it seems like it is
+  // warning that i'll overwrite CS 1"*. Step 1 rebuilds the OPEN section's
+  // columns, so the bands at risk are the ones anchored on that section's
+  // members — the same membership rule the verb itself applies. No round trip:
+  // ``geotechLayers`` is the model's full layer list with each row's anchor
+  // and ``source``, and the corridor projection is local arithmetic.
+  const subdivideScope = useMemo(() => {
+    const memberIds =
+      selectedSection === null
+        ? null
+        : inCorridorInvestigationIds(selectedSection, visibleCpts, visibleBoreholes)
+    const bands = geotechBandsInScope(geotechLayers, memberIds)
+    return { bandCount: bands.length, handEditCount: countGeotechHandEdits(bands) }
+  }, [selectedSection, visibleCpts, visibleBoreholes, geotechLayers])
 
   // Sections need a projected METRIC horizontal CRS — along-distance is
   // a Euclidean distance in CRS units, so degrees (EPSG:4326) silently
@@ -426,7 +474,14 @@ export default function SectionsToolbar(): JSX.Element {
     // as accepted work he never sanctioned.
     // ``sectionId`` scopes it to the section on screen (owner ruling
     // 2026-08-15); null is the deliberate all-sections press.
-    void handleSubdivideAllBodies({ deriveEdges: false, sectionId }).finally(() => {
+    void handleSubdivideAllBodies({
+      deriveEdges: false,
+      sectionId,
+      // Only ever non-null before the first subdivide — the effect above drops
+      // it once a model exists. The backend honours it on creation and ignores
+      // it on a re-run, so a stale value cannot re-classify a built model.
+      representativeStatistic: pendingStatistic,
+    }).finally(() => {
       setSubdividingBodies(false)
       // A rebuild re-anchors accepted ties and can flag some of them, so the
       // counts step 4 gates on have moved even though nothing was proposed.
@@ -435,16 +490,20 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   /**
-   * Press step 1, confirming first when it would be a RE-run.
+   * Press step 1, confirming first when it would destroy work on THIS section.
    *
-   * A geotech model only exists after a first subdivide, so its presence is
-   * the proxy for "this is a re-run" — and a re-run wipes and regenerates
-   * every packing connection, so it is confirmed. The first-ever run skips the
-   * prompt (§7). The chosen scope is parked until the dialog answers.
+   * The gate used to be "a geotech model exists", which since the verb became
+   * section-scoped fired on a section holding nothing and read as a threat to
+   * the section that did (owner, 2026-08-15: *"We do however get an overwrite
+   * popup on cs2 while there is no subdivision there yet. Now it seems like it
+   * is warning that i'll overwrite CS 1"*). The gate is now the bands the
+   * press will actually rebuild: none, and it goes straight through. That
+   * still covers the first-ever run, which has no bands anywhere. The chosen
+   * scope is parked until the dialog answers.
    */
   function pressSubdivide(sectionId: string | null): void {
     if (subdividingBodies || !activeLithoModel) return
-    if (activeGeotechModel !== null) {
+    if (subdivideScope.bandCount > 0) {
       setPendingSubdivideSectionId(sectionId)
       setReSubdivideConfirmOpen(true)
       return
@@ -892,17 +951,14 @@ export default function SectionsToolbar(): JSX.Element {
     geotechLayers,
   )
 
-  // Step 4's gate. Only a LOADED count may block: an unanswered request must
-  // not disable the button, or a tie-status endpoint that 404s (or a backend
-  // that predates it) would lock the engineer out of dividing entirely. The
-  // server enforces the same rule regardless, so falling open here costs a 422
-  // at worst and never a dead button.
-  const tiesBlockDivide = tieStatus.loaded && tieStatus.pending > 0
-
   // Model total / open section / how many sections are still dirty — the three
   // numbers every pending sentence below is phrased from (owner 2026-08-15:
-  // steps 2 and 3 follow the open section, step 4 still needs the whole model,
-  // so the gate has to name the sections holding it shut).
+  // all four steps follow the open section, and the chip still has to say the
+  // model is not finished when only the neighbour is dirty).
+  //
+  // Declared BEFORE the gate that reads it: this is a const, so a gate above it
+  // is a temporal-dead-zone ReferenceError that no type check and no unit test
+  // catches until the toolbar actually renders.
   const pendingScope = useMemo(
     () =>
       summarisePendingTies({
@@ -912,6 +968,21 @@ export default function SectionsToolbar(): JSX.Element {
       }),
     [tieStatus.pending, tieStatus.pendingBySection, selectedSectionId],
   )
+
+  // Step 4's gate, on the ties of the section it divides (owner ruling
+  // 2026-08-15: "i'm reading divide boreholes (whole model), no that should
+  // also be section scoped"). The neighbour's proposals are the neighbour's
+  // problem — the whole point is finishing one section while another is still
+  // under review.
+  //
+  // Only a LOADED count may block: an unanswered request must not disable the
+  // button, or a tie-status endpoint that 404s (or a backend that predates it)
+  // would lock the engineer out of dividing entirely. Where the backend sent
+  // no per-section breakdown the model total is the honest fallback — better
+  // to over-gate than to send a press the server will 422. The server enforces
+  // the same rule regardless, so falling open costs a 422 at worst.
+  const dividePending = pendingScope.sectionPending ?? pendingScope.modelPending
+  const tiesBlockDivide = tieStatus.loaded && dividePending > 0
 
   // Geotech correlation triad (auto-correlate + accept) — the geotech axis's
   // equivalent of the litho Correlate caret items. Extracted to its own hook
@@ -1508,10 +1579,14 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: 'geotech-statistic-note',
                 onClick: () => {},
               },
-              ...(['median', 'arithmetic', 'harmonic', 'geometric'] as const).map(token => ({
+              // NOT gated on the geotech model existing (owner 2026-08-15:
+              // "i can't choose harmonic qc before first subdivide, that's
+              // friction we don't need?"). Before step 1 there is no row to
+              // write to, so the pick is held in the renderer and handed to
+              // the press that creates the model.
+              ...GEOTECH_STATISTICS.map(token => ({
                 label: token,
                 tag: token === geotechStatistic ? 'current' : undefined,
-                disabled: activeGeotechModel === null,
                 title:
                   token === 'harmonic'
                     ? 'Conservative: weighted toward the low qc values that govern bearing and settlement.'
@@ -1544,10 +1619,11 @@ export default function SectionsToolbar(): JSX.Element {
             }
             title={
               'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, ' +
-              '3 review and accept them, 4 divide the boreholes. Steps 1–3 act on ' +
-              'the section you have open and leave every other section as it is; ' +
-              'step 4 rewrites every section, so it stays model-wide and locked ' +
-              'while any tie is still proposed.'
+              '3 review and accept them, 4 divide the boreholes. All four act on ' +
+              'the section you have open and leave every other section as it is, ' +
+              'so you can finish one cross-section while the next still has ' +
+              'proposals waiting. Step 4 stays locked until this section’s ties ' +
+              'are all accepted or deleted.'
             }
             testid="geotech-pipeline"
             items={[
@@ -1623,15 +1699,20 @@ export default function SectionsToolbar(): JSX.Element {
                 },
               },
               {
-                label: dividingBoreholes ? 'Dividing…' : '4 · Divide boreholes (whole model)',
+                // No "(whole model)" qualifier any more (owner 2026-08-15:
+                // "i'm reading divide boreholes (whole model), no that should
+                // also be section scoped") — it is the odd one out no longer.
+                label: dividingBoreholes ? 'Dividing…' : '4 · Divide boreholes',
                 icon: <Layers size={13} />,
                 disabled:
-                  dividingBoreholes || activeGeotechModel === null || tiesBlockDivide,
+                  dividingBoreholes ||
+                  activeGeotechModel === null ||
+                  selectedSectionId === null ||
+                  tiesBlockDivide,
                 // Visible tag instead of a hover title: a disabled menu item
                 // fires no mouse events, so the gate must SHOW its reason. The
-                // tag counts SECTIONS as well as ties (owner 2026-08-15) —
-                // otherwise a bare number on a section he has just cleared
-                // reads as a bug rather than as "the model is not clear yet".
+                // tag counts THIS section's proposals, because those are the
+                // only ones this press could throw away.
                 tag: tiesBlockDivide
                   ? dividePendingTag(pendingScope)
                   : boreholesStale
@@ -1640,16 +1721,24 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   activeGeotechModel === null
                     ? 'Run “1 · Subdivide CPTs” first to create the geotech model'
-                    : tiesBlockDivide
-                      ? dividePendingTitle(pendingScope)
-                      : boreholesStale
-                        ? 'Bodies or correlations changed — re-divide the boreholes to match'
-                        : 'Step 4 of 4 — TIN-divide every borehole column into packing bands, using the CPT transition surfaces and the ties you accepted. Model-wide by nature: it rewrites every section. Right-click one borehole’s ghost bands to divide just that column.',
+                    : selectedSectionId === null
+                      ? 'Open a cross-section first — this step divides the boreholes on the section you have open'
+                      : tiesBlockDivide
+                        ? dividePendingTitle(pendingScope)
+                        : boreholesStale
+                          ? 'Bodies or correlations changed — re-divide the boreholes to match'
+                          : 'Step 4 of 4 — TIN-divide THIS section’s borehole columns into packing bands, using the CPT transition surfaces and the ties you accepted, and leave every other section as it is. Right-click one borehole’s ghost bands to divide just that column.',
                 testid: 'geotech-divide-boreholes',
                 onClick: () => {
-                  if (dividingBoreholes || activeGeotechModel === null || tiesBlockDivide) return
+                  if (
+                    dividingBoreholes ||
+                    activeGeotechModel === null ||
+                    selectedSectionId === null ||
+                    tiesBlockDivide
+                  )
+                    return
                   setDividingBoreholes(true)
-                  void handleDivideBoreholes().finally(() => {
+                  void handleDivideBoreholes({ sectionId: selectedSectionId }).finally(() => {
                     setDividingBoreholes(false)
                   })
                 },
@@ -2066,16 +2155,18 @@ export default function SectionsToolbar(): JSX.Element {
       />
 
       {/* Re-subdivide confirmation (C1, connecting-geotech-units §7) — shown
-          before a re-run of "Subdivide all bodies" when a geotech model
-          already exists, because the re-run wipes + regenerates all geotech
-          packing connections (manual connections are lost) AND rebuilds every
-          band, destroying the engineer's hand splits/merges (owner ruling B). */}
+          before a press that would rebuild packing bands THIS section already
+          has, because the rebuild clears its manual packing connections and
+          re-derives its hand splits/merges from the CPT data (owner ruling B).
+          Both numbers and the name are the open section's (owner 2026-08-15):
+          a warning phrased over the model fires where nothing is at risk. */}
       <ReSubdivideConfirmDialog
         open={reSubdivideConfirmOpen}
         onCancel={handleReSubdivideCancel}
         onConfirm={handleReSubdivideConfirm}
         busy={subdividingBodies}
-        handEditCount={geotechHandEditCount}
+        handEditCount={subdivideScope.handEditCount}
+        sectionName={selectedSection?.name ?? null}
       />
 
       {/* Reset manual points confirmation — clearing every hand-drawn body

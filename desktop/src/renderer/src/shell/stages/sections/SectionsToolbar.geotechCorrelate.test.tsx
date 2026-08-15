@@ -21,10 +21,12 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import SectionsToolbar from './SectionsToolbar'
+import { makeLithoLayer } from './__fixtures__/lithoLayer'
 import {
   makeShellCtx,
   makeGeotechModel,
   makeLithoModel,
+  onSectionCpt,
 } from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
@@ -85,6 +87,7 @@ interface CtxOverrides {
   geoModel?: Partial<ShellContextValue['geoModel']>
   sections?: Partial<ShellContextValue['sections']>
   toast?: ShellContextValue['toasts']['toast']
+  visibleCpts?: ShellContextValue['visibleCpts']
 }
 
 function makeCtx(axis: SectionModelAxis, overrides: CtxOverrides = {}): ShellContextValue {
@@ -94,6 +97,7 @@ function makeCtx(axis: SectionModelAxis, overrides: CtxOverrides = {}): ShellCon
     geoModel: { ...base.geoModel, ...(overrides.geoModel ?? {}) },
     sections: { ...base.sections, ...(overrides.sections ?? {}) },
     toasts: { ...base.toasts, toast: overrides.toast ?? base.toasts.toast },
+    visibleCpts: overrides.visibleCpts ?? base.visibleCpts,
   }
 }
 
@@ -314,7 +318,22 @@ describe('SectionsToolbar — Correlate packing keeps its own behaviour', () => 
     // reads that warning is the moment he needs to know that.
     // Subdivide needs the litho model it reads bodies from; only then is its button
     // live and the re-run gated behind this dialog.
-    renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
+    //
+    // RE-PINNED 2026-08-15: the dialog only stands in front of a press that has
+    // something to destroy, so the open section has to carry a band — owner,
+    // "We do however get an overwrite popup on cs2 while there is no
+    // subdivision there yet".
+    renderToolbar(
+      makeCtx('geotechnical', {
+        geoModel: {
+          activeLithoModel: makeLithoModel(),
+          geotechLayers: [
+            makeLithoLayer({ id: 'band-1', cpt_id: 'cpt-1', model_id: 'geotech-model-1' }),
+          ],
+        },
+        visibleCpts: [onSectionCpt('cpt-1')],
+      }),
+    )
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     const dialog = screen.getByTestId('re-subdivide-confirm-dialog')
     expect(dialog.textContent ?? '').toMatch(/auto-correlate/i)

@@ -638,9 +638,12 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
       }),
     )
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    // ``representativeStatistic`` rides along from 2026-08-15 — null here,
+    // because no qc statistic was picked before the press.
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
       deriveEdges: false,
       sectionId: 'section-abc',
+      representativeStatistic: null,
     })
   })
 })
@@ -650,11 +653,19 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
 // ---------------------------------------------------------------------------
 //
 // Pinned claims:
-//   BC1  Clicking "Subdivide all bodies" when a geotech model already exists
-//        OPENS the re-subdivide confirm dialog (a re-run wipes manual packing
-//        connections) instead of running the subdivide directly.
+//   BC1  Clicking "1 · Subdivide CPTs" on a section that ALREADY carries
+//        packing bands OPENS the re-subdivide confirm dialog (the re-run
+//        clears its manual packing connections) instead of running directly.
 //   BC2  Clicking it when NO geotech model exists (first-ever subdivide) runs
 //        directly and does NOT open the dialog.
+//
+// RE-PINNED 2026-08-15: the trigger is the bands the press will rebuild, not
+// the existence of a geotech model — owner, "We do however get an overwrite
+// popup on cs2 while there is no subdivision there yet. Now it seems like it is
+// warning that i'll overwrite CS 1". A model that exists but has nothing on
+// THIS section is not something this press can destroy. BC1 therefore stages a
+// band on the open section; the empty-scope half lives in
+// SectionsToolbar.handEditWarning.test.tsx (HS1).
 
 describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
   it('BC1 — opens the confirm dialog (not a direct run) when a geotech model exists', () => {
@@ -665,8 +676,12 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
         activeLithoModel: makeLithoModel(),
         activeGeotechModel: makeGeotechModel(),
         // A section is open — the state the engineer presses step 1 from since
-        // the verb became section-scoped (owner ruling 2026-08-15).
+        // the verb became section-scoped (owner ruling 2026-08-15) — and it
+        // CARRIES a packing band, which is what the press would destroy.
+        sections: [makeSection()],
         selectedSectionId: 'section-1',
+        visibleBoreholes: [makeBorehole('bh-1')],
+        geotechLayers: [makeGeotechBand('bh-1')],
         handleSubdivideAllBodies,
       }),
     )
@@ -692,10 +707,12 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
     )
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
-    // RE-PINNED 2026-08-15: the press now carries the open section's id.
+    // RE-PINNED 2026-08-15: the press carries the open section's id and the
+    // pre-model qc statistic (none picked here).
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
       deriveEdges: false,
       sectionId: 'section-1',
+      representativeStatistic: null,
     })
   })
 })
@@ -771,7 +788,10 @@ describe('SectionsToolbar "Correlate packing" verb (D)', () => {
 //        a geotech model exists.
 //   BE2  The button is disabled when activeGeotechModel is null (SAB must run
 //        first to create the model and CPT geotech layers).
-//   BE3  Clicking the enabled button calls handleDivideBoreholes.
+//   BE3  Clicking the enabled button calls handleDivideBoreholes with the OPEN
+//        section's id (owner ruling 2026-08-15 — "i'm reading divide boreholes
+//        (whole model), no that should also be section scoped", so step 4 is
+//        scoped and gated exactly like steps 1-3, a section open included).
 //   BE4  The button is absent on the geology and litho axes.
 
 describe('SectionsToolbar "Divide boreholes" verb (E)', () => {
@@ -797,18 +817,35 @@ describe('SectionsToolbar "Divide boreholes" verb (E)', () => {
     expect(screen.getByTestId('geotech-divide-boreholes')).toBeDisabled()
   })
 
-  it('BE3 — clicking the enabled button calls handleDivideBoreholes', () => {
+  it('BE3 — clicking the enabled button divides the section on screen', () => {
     const handleDivideBoreholes = vi.fn(() => Promise.resolve())
     renderToolbar(
       makeCtx({
         sectionModelAxis: 'geotechnical',
         activeLithoModel: makeLithoModel(),
         activeGeotechModel: makeGeotechModel(),
+        selectedSectionId: 'section-1',
         handleDivideBoreholes,
       }),
     )
     fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
-    expect(handleDivideBoreholes).toHaveBeenCalled()
+    expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'section-1' })
+  })
+
+  it('BE3b — with no section open the step is dead, like steps 1-3', () => {
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        sectionModelAxis: 'geotechnical',
+        activeLithoModel: makeLithoModel(),
+        activeGeotechModel: makeGeotechModel(),
+        selectedSectionId: null,
+        handleDivideBoreholes,
+      }),
+    )
+    expect(screen.getByTestId('geotech-divide-boreholes')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
+    expect(handleDivideBoreholes).not.toHaveBeenCalled()
   })
 
   it('BE4 — button is absent on the geology axis', () => {

@@ -14,7 +14,7 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import SectionsToolbar from './SectionsToolbar'
-import { makeShellCtx, makeGeotechModel } from './__fixtures__/sectionsShellContext'
+import { makeShellCtx, makeGeotechModel, makeLithoModel } from './__fixtures__/sectionsShellContext'
 
 const setGeotechStatistic = vi.fn().mockResolvedValue({
   representative_statistic: 'harmonic',
@@ -270,5 +270,123 @@ describe('the statistic is chosen BEFORE subdividing, and says it changes nothin
     const note = screen.getByTestId('geotech-statistic-note').textContent ?? ''
     expect(note).toMatch(/next subdivide/i)
     expect(note).toMatch(/nothing re-runs/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Choosing the statistic BEFORE the first subdivide (owner, 2026-08-15)
+// ---------------------------------------------------------------------------
+//
+// "i can't choose harmonic qc before first subdivide, that's friction we don't
+// need?"
+//
+// The choice lives on the geotech model, and the geotech model does not exist
+// until step 1 creates it — so the selector was inert on exactly the press the
+// owner wanted to aim. He had to build everything under the default and re-run
+// it. The choice is now held in the renderer until there is a model to put it
+// on, and the FIRST subdivide creates the model with it.
+//
+//   ST-PRE1  with no model, the four statistics are still choosable
+//   ST-PRE2  the pending choice shows in the label exactly like a committed one
+//   ST-PRE3  the first subdivide carries the choice
+//   ST-PRE4  a subdivide with no choice made carries nothing (median default)
+//   ST-PRE5  with no model there is nothing to write to — no API call fires
+//   ST-PRE6  once the model exists, the label reads the MODEL, not the choice
+
+describe('the qc statistic can be chosen before the first subdivide', () => {
+  function makePreModelCtx(
+    overrides: Partial<ShellContextValue['geoModel']> = {},
+  ): ShellContextValue {
+    return makeCtx('geotechnical', {
+      activeGeotechModel: null,
+      activeLithoModel: makeLithoModel(),
+      ...overrides,
+    })
+  }
+
+  it('ST-PRE1 — with no geotech model the four statistics are still choosable', () => {
+    renderToolbar(makePreModelCtx())
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    for (const token of ['median', 'arithmetic', 'harmonic', 'geometric']) {
+      expect(screen.getByTestId(`geotech-statistic-${token}`)).not.toBeDisabled()
+    }
+  })
+
+  it('ST-PRE2 — the pending choice reads in the label exactly like a committed one', () => {
+    renderToolbar(makePreModelCtx())
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    fireEvent.click(screen.getByTestId('geotech-statistic-harmonic'))
+    expect(screen.getByTestId('geotech-statistic-menu').textContent).toContain('harmonic')
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    expect(screen.getByTestId('geotech-statistic-harmonic').textContent).toMatch(/current/i)
+  })
+
+  it('ST-PRE3 — the first subdivide is the press that carries the choice', () => {
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(makePreModelCtx({ handleSubdivideAllBodies }))
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    fireEvent.click(screen.getByTestId('geotech-statistic-harmonic'))
+    fireEvent.click(screen.getByTestId('geotech-pipeline'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'sec-1',
+      representativeStatistic: 'harmonic',
+    })
+  })
+
+  it('ST-PRE4 — no choice made carries none, so the model is created under the default', () => {
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(makePreModelCtx({ handleSubdivideAllBodies }))
+    fireEvent.click(screen.getByTestId('geotech-pipeline'))
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'sec-1',
+      representativeStatistic: null,
+    })
+  })
+
+  it('ST-PRE5 — with no model there is nothing to write to, so no request fires', () => {
+    renderToolbar(makePreModelCtx())
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    fireEvent.click(screen.getByTestId('geotech-statistic-harmonic'))
+    expect(setGeotechStatistic).not.toHaveBeenCalled()
+  })
+
+  it('ST-PRE6 — once the model exists the label reads the MODEL, not the pending choice', () => {
+    // The pending choice must not be able to disagree with what got built: if
+    // the build ignored it, the engineer has to see the statistic his bands
+    // actually carry, not the one he asked for. Same mounted toolbar
+    // throughout — the model arriving is what has to drop the pending choice.
+    const { rerender } = render(
+      <ShellContext.Provider value={makePreModelCtx()}>
+        <SectionsToolbar />
+      </ShellContext.Provider>,
+    )
+    fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
+    fireEvent.click(screen.getByTestId('geotech-statistic-harmonic'))
+    expect(screen.getByTestId('geotech-statistic-menu').textContent).toContain('harmonic')
+
+    // The subdivide landed and refreshModels brought the row back — under
+    // geometric, because that is what the model actually carries.
+    act(() => {
+      rerender(
+        <ShellContext.Provider
+          value={makeCtx('geotechnical', {
+            activeLithoModel: makeLithoModel(),
+            activeGeotechModel: {
+              ...makeGeotechModel(),
+              representative_statistic: 'geometric',
+              classified_with_statistic: 'geometric',
+            },
+          })}
+        >
+          <SectionsToolbar />
+        </ShellContext.Provider>,
+      )
+    })
+    expect(screen.getByTestId('geotech-statistic-menu').textContent).toContain('geometric')
+    expect(screen.getByTestId('geotech-statistic-menu').textContent).not.toContain('harmonic')
   })
 })

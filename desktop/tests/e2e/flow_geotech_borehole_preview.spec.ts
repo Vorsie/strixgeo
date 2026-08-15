@@ -155,10 +155,12 @@ test.describe('flow_geotech_borehole_preview', () => {
       // Step 3b: clear every pending tie, model-wide, over HTTP.
       //
       // The ghosts this spec is about are drawn from the FINAL tie-informed
-      // plan, and step 4's gate counts the whole model — but under the
-      // 2026-08-06 refinement the combined verb's derived ties can arrive
-      // pending (only litho-tie restatements are born accepted), on sections
-      // this spec never opens.
+      // plan, which is model-wide — and under the 2026-08-06 refinement the
+      // combined verb's derived ties can arrive pending (only litho-tie
+      // restatements are born accepted), on sections this spec never opens.
+      // Step 4's own gate counts only the open section since 2026-08-15, but
+      // the PLAN still reads every accepted tie, so clearing the model is
+      // what makes the ghosts deterministic.
       //
       // Done on the wire rather than through the toolbar because the toolbar
       // no longer offers a model-wide accept: the owner deleted the

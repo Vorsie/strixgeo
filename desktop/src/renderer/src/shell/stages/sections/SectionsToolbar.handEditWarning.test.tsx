@@ -27,7 +27,7 @@ import type { ShellContextValue } from '../../ShellContext'
 import type { LithoLayerResponse, LithoLayerSource } from '../../../api/clients/geology.types'
 import SectionsToolbar from './SectionsToolbar'
 import { makeLithoLayer } from './__fixtures__/lithoLayer'
-import { makeLithoModel, makeShellCtx } from './__fixtures__/sectionsShellContext'
+import { makeLithoModel, makeShellCtx, onSectionCpt } from './__fixtures__/sectionsShellContext'
 
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
@@ -57,11 +57,19 @@ vi.mock('../../../utils/log', () => ({
 
 afterEach(() => cleanup())
 
-/** One geotech layer row — only ``source`` matters to the warning. */
-function layer(id: string, source: LithoLayerSource): LithoLayerResponse {
+/**
+ * One geotech layer row on ``cpt-1`` — only ``source`` matters to the warning,
+ * but the anchor decides whether the press's section reaches it at all.
+ */
+function layer(
+  id: string,
+  source: LithoLayerSource,
+  cptId = 'cpt-1',
+): LithoLayerResponse {
   return makeLithoLayer({
     id,
     source,
+    cpt_id: cptId,
     model_id: 'geotech-model-1',
     formation_id: 'formation-1',
     confidence: 'medium',
@@ -77,6 +85,10 @@ function layer(id: string, source: LithoLayerSource): LithoLayerResponse {
  * The fixture already carries a live geotech model (so the click is a RE-run
  * and hits the confirmation); the litho parent has to be opted into because the
  * subdivide verb is gated on it.
+ *
+ * ``cpt-1`` is placed ON the fixture's section (owner ruling 2026-08-15 — the
+ * dialog is scoped to the bands the press will actually rebuild, so a band on
+ * a column the section does not carry now raises no dialog at all).
  */
 function renderToolbar(
   geotechLayers: LithoLayerResponse[],
@@ -86,6 +98,7 @@ function renderToolbar(
   ctx.geoModel.activeLithoModel = makeLithoModel()
   ctx.geoModel.geotechLayers = geotechLayers
   ctx.geoModel.handleSubdivideAllBodies = handleSubdivideAllBodies
+  ctx.visibleCpts = [onSectionCpt('cpt-1')]
   render(
     <ShellContext.Provider value={ctx}>
       <SectionsToolbar />
@@ -153,6 +166,109 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
       deriveEdges: false,
       sectionId: 'sec-1',
+      representativeStatistic: null,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The warning is scoped to the press (owner, dogfeed 2026-08-15)
+// ---------------------------------------------------------------------------
+//
+// "We do however get an overwrite popup on cs2 while there is no subdivision
+// there yet. Now it seems like it is warning that i'll overwrite CS 1"
+//
+// The dialog protects hand-edited bands from being thrown away by a re-run.
+// Since the verb became section-scoped it fired on the MODEL's state, so a
+// fresh section popped a warning about work living somewhere else — and the
+// only reading available to the engineer was that his other section was about
+// to be overwritten.
+//
+//   HS1  a section holding no bands goes straight through — no dialog at all
+//   HS2  a section holding bands still confirms, and names that section
+//   HS3  the count is the section's, never the model's
+//   HS4  a column on two sections IS at risk from either press
+
+describe('SectionsToolbar — the re-subdivide warning is scoped to the press', () => {
+  it('HS1 — a section whose columns carry no bands subdivides without a prompt', () => {
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    const ctx = makeShellCtx('geotechnical')
+    ctx.geoModel.activeLithoModel = makeLithoModel()
+    // The model HAS hand-edited bands — they just sit on a column this
+    // section does not carry. That is the owner's CS2.
+    ctx.geoModel.geotechLayers = [layer('l1', 'manual', 'cpt-elsewhere')]
+    ctx.geoModel.handleSubdivideAllBodies = handleSubdivideAllBodies
+    ctx.visibleCpts = [onSectionCpt('cpt-on-this-section')]
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsToolbar />
+      </ShellContext.Provider>,
+    )
+    openPipelineMenu()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+
+    expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'sec-1',
+      representativeStatistic: null,
+    })
+  })
+
+  it('HS2 — a section that DOES carry bands still confirms, and names itself', () => {
+    renderToolbar([layer('l1', 'segmenter')])
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    const dialog = screen.getByTestId('re-subdivide-confirm-dialog')
+    expect(dialog.textContent ?? '').toContain('Section A-A')
+  })
+
+  it('HS3 — the hand-edit count is the section’s, not the model’s', () => {
+    const ctx = makeShellCtx('geotechnical')
+    ctx.geoModel.activeLithoModel = makeLithoModel()
+    ctx.geoModel.geotechLayers = [
+      layer('l1', 'manual', 'cpt-1'),
+      layer('l2', 'manual', 'cpt-elsewhere'),
+      layer('l3', 'manual', 'cpt-elsewhere'),
+    ]
+    ctx.visibleCpts = [onSectionCpt('cpt-1')]
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsToolbar />
+      </ShellContext.Provider>,
+    )
+    openPipelineMenu()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    const warning = document.body.querySelector('[data-testid="re-subdivide-hand-edits"]')
+    expect(warning?.textContent ?? '').toContain('1 hand-edited band ')
+    expect(warning?.textContent ?? '').not.toContain('3')
+  })
+
+  it('HS4 — a column shared with another section is at risk from this press too', () => {
+    // Its bands come from its own qc, so either section's press rebuilds
+    // them. This case genuinely deserves the warning.
+    const ctx = makeShellCtx('geotechnical')
+    ctx.geoModel.activeLithoModel = makeLithoModel()
+    ctx.geoModel.geotechLayers = [layer('l1', 'manual', 'cpt-shared')]
+    ctx.visibleCpts = [onSectionCpt('cpt-shared')]
+    ctx.sections = {
+      ...ctx.sections,
+      sections: [
+        ctx.sections.sections[0],
+        { ...ctx.sections.sections[0], id: 'sec-2', name: 'Cross-section 2' },
+      ],
+    }
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsToolbar />
+      </ShellContext.Provider>,
+    )
+    openPipelineMenu()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    const warning = document.body.querySelector('[data-testid="re-subdivide-hand-edits"]')
+    expect(warning?.textContent ?? '').toContain('1 hand-edited band ')
+    // And it still never implies the neighbour's own work is going.
+    const dialog = screen.getByTestId('re-subdivide-confirm-dialog')
+    expect(dialog.textContent ?? '').not.toMatch(/other section/i)
+    expect(dialog.textContent ?? '').not.toContain('Cross-section 2')
   })
 })
