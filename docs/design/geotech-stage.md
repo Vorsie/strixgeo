@@ -1020,9 +1020,9 @@ order, replacing the single "Subdivide all bodies" press:
 | button | testid | verb | gating |
 |---|---|---|---|
 | **1 · Subdivide CPTs** | `geotech-subdivide-cpts` | `subdivide-cpts` (open section's id) | needs a litho model **and an open section**; a RE-run still opens `ReSubdivideConfirmDialog` |
-| **2 · Auto-correlate** | `geotech-auto-correlate` | `auto-correlate` (open section's id) | needs the geotech model + an open section |
-| **3 · Accept ties** | `geotech-accept-correlations` | `contact-correlations/accept` (open section's id) | needs the geotech model + an open section |
-| **4 · Divide boreholes** | `geotech-divide-boreholes` | `divide-boreholes` (open section's id) | needs the geotech model + an open section; **disabled while `pending > 0` on THAT section** |
+| **2 · Auto-correlate** | `geotech-auto-correlate` | `auto-correlate` (open section's id) | needs an open section that **already carries packing bands** |
+| **3 · Accept ties** | `geotech-accept-correlations` | `contact-correlations/accept` (open section's id) | needs an open section that **already carries packing bands** |
+| **4 · Divide boreholes** | `geotech-divide-boreholes` | `divide-boreholes` (open section's id) | needs an open section that **already carries packing bands**; **disabled while `pending > 0` on THAT section** |
 
 The labels carry no "on this section" qualifier: an "on all sections" twin
 stood beside each of the first three for one morning and the owner deleted it
@@ -1059,6 +1059,24 @@ existing caller relies on. The toolbar always sends the open section's id, and
 all four items are disabled with no section open. This REVERSES the 2026-08-05
 review MAJOR-2 decision (model-wide feeder verbs so the model-wide step-4 gate
 could be satisfied): the gate went with the scope instead.
+
+**Their ENABLEMENT follows the same scope** (owner, same dogfeed: *"when i
+switched to cs2 options 2 3 and 4 in the packing pipeline where clickable this
+was not the case on the first subdivide in cs1"*). Steps 2, 3 and 4 asked
+whether a geotech MODEL exists — a question that answers correctly exactly
+once, on the first press of all. From the moment CS1's step 1 created the
+model, every unsubdivided section offered three live presses that could only
+no-op. They are now gated on the OPEN section carrying packing bands, read off
+the same `subdivideScope` memo the re-subdivide confirmation counts (which
+narrows `geoModel.geotechLayers` through `geotechBandsInScope` by the section's
+member investigations), so there is one notion of "does this section have
+bands". Their disabled title names the reason and the remedy — *"No packing
+bands on this section yet — run “1 · Subdivide CPTs” on this section first"* —
+where the predecessor told an engineer whose model already existed to create
+it. Step 1 stays live throughout: it is the remedy. Precedence of reasons: no
+section open wins first, then no bands here, then (step 4) this section's
+pending ties. Pinned by SC17–SC21 in
+`SectionsToolbar.geotechScope.test.tsx`.
 
 **Step 4 is scoped through the subset path it already had.** A `section_id`
 resolves to that section's MEMBER boreholes (`_scoped_borehole_ids`, the same
