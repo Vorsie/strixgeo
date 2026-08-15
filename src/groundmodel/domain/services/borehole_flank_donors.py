@@ -80,7 +80,7 @@ tested without a database.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # Bands thinner than this are dropped rather than written: `litho_layer` stores
 # intervals at mm grain, so a sub-mm band is noise, not geology.
@@ -98,6 +98,33 @@ MODE_NEAREST_FALLBACK = "nearest_fallback"
 # was ~0.06.
 _MIN_BLEND_WEIGHT = 0.005
 MODE_NONE = "none"
+
+
+@dataclass(frozen=True)
+class PackingSurface:
+    """One packing interval laid onto a borehole, and where it came from.
+
+    Parameters
+    ----------
+    top : float
+        Interval top, metres below the borehole's collar.
+    base : float
+        Interval base, metres below the borehole's collar.
+    nad_class : int
+        NAD packing class 1-31.
+    donor_layer_ids : tuple[str, ...]
+        The ``litho_layer`` id of the donor band on each flank this interval
+        was laid from - two for a blended pair (left, right), one for a lone
+        donor, empty when the donors carry no ids.  This is the correspondence
+        the fraction rescale already establishes; naming it here is what lets
+        "Divide boreholes" write the borehole hop instead of guessing the
+        pairing back from depths.
+    """
+
+    top: float
+    base: float
+    nad_class: int
+    donor_layer_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -518,6 +545,10 @@ def flank_packing_surfaces(
 ) -> list[tuple[float, float, int]]:
     """Lay the selected donors' packing onto the borehole's litho extent.
 
+    Thin projection of :func:`flank_packing_surfaces_with_donors` — the two
+    cannot drift, so every geometry test written against this tuple form keeps
+    guarding the richer one.
+
     Every donor boundary is read as a fraction of that donor's own extent and
     re-laid at the same fraction of the borehole's extent, so a boundary 40 %
     down the unit stays 40 % down the unit however much the unit thickens.  Two
@@ -540,16 +571,65 @@ def flank_packing_surfaces(
         depth the donors left unclassified is left for the conservative fill.
         Empty when there is no donor or the extent is degenerate.
     """
+    return [
+        (s.top, s.base, s.nad_class)
+        for s in flank_packing_surfaces_with_donors(
+            selection, extent_top_m=extent_top_m, extent_base_m=extent_base_m
+        )
+    ]
+
+
+def flank_packing_surfaces_with_donors(
+    selection: FlankSelection,
+    *,
+    extent_top_m: float,
+    extent_base_m: float,
+) -> list[PackingSurface]:
+    """Lay the selected donors' packing onto the borehole's litho extent.
+
+    Every donor boundary is read as a fraction of that donor's own extent and
+    re-laid at the same fraction of the borehole's extent, so a boundary 40 %
+    down the unit stays 40 % down the unit however much the unit thickens.  Two
+    flanks are averaged fraction-by-fraction with their selection weights.
+
+    Each surface also NAMES the donor band(s) it stands between.  That pairing
+    is not new information — the two-flank branch already zips band *i* with
+    band *i*, which IS the correspondence — it is simply the part that used to
+    be discarded.  Without it "Divide boreholes" had to reconstruct the pairing
+    downstream with a per-gap depth alignment, and the gap left of a borehole
+    and the gap right of it reconstructed it differently, so the two hops
+    landed on different borehole bands and no chain closed (owner dogfeed
+    2026-08-15: pressing 4 twice replaced nothing).
+
+    Parameters
+    ----------
+    selection : FlankSelection
+        Output of :func:`select_flank_donors`.
+    extent_top_m : float
+        Top of the borehole's litho-body extent (m below collar).
+    extent_base_m : float
+        Base of that extent (m below collar).
+
+    Returns
+    -------
+    list[PackingSurface]
+        Intervals in the borehole's own depth frame, ordered top to bottom,
+        non-overlapping, each naming its donor band(s).  Gaps are preserved:
+        depth the donors left unclassified is left for the conservative fill.
+        Empty when there is no donor or the extent is degenerate.
+    """
     thickness = extent_base_m - extent_top_m
     if not selection.donors or thickness <= 0.0:
         return []
 
+    fractions: list[tuple[float, float, int, tuple[str, ...]]]
     if len(selection.donors) == 1:
         fractions = [
             (
                 _fraction(selection.donors[0].stack, band.top_m),
                 _fraction(selection.donors[0].stack, band.base_m),
                 band.nad_class,
+                (band.layer_id,),
             )
             for band in selection.donors[0].stack.bands
         ]
@@ -564,13 +644,14 @@ def flank_packing_surfaces(
                 left.weight * _fraction(left.stack, left_band.base_m)
                 + right.weight * _fraction(right.stack, right_band.base_m),
                 left_band.nad_class,
+                (left_band.layer_id, right_band.layer_id),
             )
             for left_band, right_band in zip(left.stack.bands, right.stack.bands)
         ]
 
-    surfaces: list[tuple[float, float, int]] = []
+    surfaces: list[PackingSurface] = []
     cursor = extent_top_m
-    for top_fraction, base_fraction, nad_class in fractions:
+    for top_fraction, base_fraction, nad_class, donor_layer_ids in fractions:
         top = max(cursor, extent_top_m + top_fraction * thickness)
         base = min(extent_base_m, extent_top_m + base_fraction * thickness)
         # A sub-mm step back from the previous band is float slack from the
@@ -581,12 +662,22 @@ def flank_packing_surfaces(
             top = cursor
         if base - top < _MIN_BAND_THICKNESS_M:
             continue
-        surfaces.append((top, base, nad_class))
+        surfaces.append(
+            PackingSurface(
+                top=top,
+                base=base,
+                nad_class=nad_class,
+                # An empty id is a donor built without one (every construction
+                # site that predates the tie-informed rule); it simply never
+                # licenses a hop.
+                donor_layer_ids=tuple(lid for lid in donor_layer_ids if lid),
+            )
+        )
         cursor = base
     # Same slack at the bottom edge.
     if surfaces and 0.0 < extent_base_m - cursor < _MIN_BAND_THICKNESS_M:
-        last_top, _last_base, last_class = surfaces[-1]
-        surfaces[-1] = (last_top, extent_base_m, last_class)
+        last = surfaces[-1]
+        surfaces[-1] = replace(last, base=extent_base_m)
     return surfaces
 
 
