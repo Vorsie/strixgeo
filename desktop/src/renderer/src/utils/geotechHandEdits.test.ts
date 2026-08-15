@@ -17,16 +17,16 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LithoLayerResponse, LithoLayerSource } from '../api/clients/geology.types'
-import { countGeotechHandEdits } from './geotechHandEdits'
+import { countGeotechHandEdits, geotechBandsInScope } from './geotechHandEdits'
 
 /** Minimal layer row — only ``source`` is load-bearing for the count. */
-function layer(source: LithoLayerSource): LithoLayerResponse {
+function layer(source: LithoLayerSource, cptId: string | null = 'cpt-1'): LithoLayerResponse {
   return {
     id: `layer-${source}-${Math.random()}`,
     model_id: 'model-geotech-1',
     formation_id: 'formation-1',
     borehole_id: null,
-    cpt_id: 'cpt-1',
+    cpt_id: cptId,
     depth_top_m: 0,
     depth_base_m: 1,
     status: 'accepted',
@@ -64,5 +64,64 @@ describe('countGeotechHandEdits', () => {
 
   it('HE3 — no layers counts zero', () => {
     expect(countGeotechHandEdits([])).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// What the press will actually destroy (owner, dogfeed 2026-08-15)
+// ---------------------------------------------------------------------------
+//
+// "We do however get an overwrite popup on cs2 while there is no subdivision
+// there yet. Now it seems like it is warning that i'll overwrite CS 1"
+//
+// Since step 1 became section-scoped the re-run rebuilds only the columns of
+// the section on screen, so the warning has to be measured on that section's
+// bands. Measured on the model's, it fires on a section that holds nothing and
+// names a number that belongs to a section the press will not touch.
+//
+//   SB1  only the bands on the scoped investigations are in scope
+//   SB2  a scope holding no bands is empty — the caller shows no dialog
+//   SB3  a borehole band is scoped by its own anchor, not only CPTs
+//   SB4  an investigation on BOTH sections is in scope for either press
+//   SB5  a null scope is the model-wide press — every band is in scope
+
+describe('geotechBandsInScope', () => {
+  it('SB1 — only the bands anchored on the scoped investigations count', () => {
+    const bands = [
+      layer('manual', 'cpt-A'),
+      layer('segmenter', 'cpt-A'),
+      layer('manual', 'cpt-B'),
+    ]
+    const scoped = geotechBandsInScope(bands, new Set(['cpt-A']))
+    expect(scoped).toHaveLength(2)
+    expect(countGeotechHandEdits(scoped)).toBe(1)
+  })
+
+  it('SB2 — a section whose columns carry no bands yet is empty', () => {
+    // This is the owner's CS2: the model has bands, his section has none, and
+    // a dialog here would be warning him about CS1's work.
+    const bands = [layer('manual', 'cpt-A'), layer('segmenter', 'cpt-A')]
+    expect(geotechBandsInScope(bands, new Set(['cpt-B']))).toHaveLength(0)
+  })
+
+  it('SB3 — a borehole band is scoped by its own anchor', () => {
+    const boreholeBand = { ...layer('manual', null), borehole_id: 'bh-1' }
+    expect(geotechBandsInScope([boreholeBand], new Set(['bh-1']))).toHaveLength(1)
+    expect(geotechBandsInScope([boreholeBand], new Set(['cpt-A']))).toHaveLength(0)
+  })
+
+  it('SB4 — a column on two sections is in scope for either press', () => {
+    // Its bands come from its own qc, so subdividing from either side rebuilds
+    // them — which is exactly the case that DOES deserve the warning.
+    const shared = layer('manual', 'cpt-SHARED')
+    const onSectionA = new Set(['cpt-SHARED', 'cpt-A'])
+    const onSectionB = new Set(['cpt-SHARED', 'cpt-B'])
+    expect(geotechBandsInScope([shared], onSectionA)).toHaveLength(1)
+    expect(geotechBandsInScope([shared], onSectionB)).toHaveLength(1)
+  })
+
+  it('SB5 — a null scope is the model-wide press: everything is at risk', () => {
+    const bands = [layer('manual', 'cpt-A'), layer('segmenter', 'cpt-B')]
+    expect(geotechBandsInScope(bands, null)).toHaveLength(2)
   })
 })

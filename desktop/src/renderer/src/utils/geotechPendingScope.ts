@@ -4,15 +4,16 @@
  *
  * Owner ruling (dogfeed 2026-08-15): *"I also see that this is model wide and
  * not per section, i don't like that"*.  Steps 2 (auto-correlate) and 3
- * (accept) now act on the section he has open.  Step 4 (divide boreholes) does
- * NOT: it TIN-divides every borehole column of the model and so rewrites every
- * section, which is why its gate still demands the whole model be clear.
+ * (accept) act on the section he has open — and reading the menu afterwards he
+ * closed the set: *"i'm reading divide boreholes (whole model), no that should
+ * also be section scoped"*.  So step 4 follows the open section too, and its
+ * gate counts the ties on the section it divides.
  *
- * That asymmetry is only fair if the toolbar explains it.  A bare "12 pending"
- * beside a disabled button, on a section where the engineer has just accepted
- * everything he can see, reads as a bug.  "accept 12 on 2 sections" reads as a
- * workflow.  These are the sentences that say it, kept as pure functions so
- * the wording is testable without mounting the 2 000-line ``SectionsToolbar``.
+ * The model total does not disappear: a bare "5 pending here" with nothing else
+ * said would hide that the MODEL is not finished.  It moves to the chip's
+ * tooltip, where it is context rather than a blocker.  These are the sentences
+ * that say it, kept as pure functions so the wording is testable without
+ * mounting the 2 000-line ``SectionsToolbar``.
  */
 
 /** Raw counts the summary is built from. */
@@ -118,27 +119,33 @@ export function pendingChipTitle(scope: PendingTieScope, acceptedModelWide: numb
  * A disabled menu item fires no mouse events in Chromium, so the gate's reason
  * has to be SHOWN, not hovered.
  *
+ * Counts the OPEN section (owner ruling 2026-08-15: *"i'm reading divide
+ * boreholes (whole model), no that should also be section scoped"*) — the
+ * press divides this section's boreholes, so this section's proposals are the
+ * only evidence it could throw away. The model total moves to the chip's
+ * tooltip, where it is context rather than a blocker.
+ *
  * @param scope - Summary from {@link summarisePendingTies}.
  * @returns Short tag text.
  */
 export function dividePendingTag(scope: PendingTieScope): string {
-  if (scope.sectionsWithPending === null) return `accept ${scope.modelPending} first`
-  return `accept ${scope.modelPending} on ${sectionsPhrase(scope.sectionsWithPending)}`
+  if (scope.sectionPending === null) return `accept ${scope.modelPending} first`
+  return `accept ${scope.sectionPending} on this section`
 }
 
 /**
- * The gate's full sentence — why a section-scoped workflow has a model-wide step.
+ * The gate's full sentence — what is holding THIS section's divide shut.
  *
  * @param scope - Summary from {@link summarisePendingTies}.
  * @returns The title attribute for the disabled item.
  */
 export function dividePendingTitle(scope: PendingTieScope): string {
-  if (scope.sectionsWithPending === null) {
+  if (scope.sectionPending === null) {
     return `${tiesPhrase(scope.modelPending)} still proposed — accept or delete them first`
   }
   return (
-    `${tiesPhrase(scope.modelPending)} still proposed on ` +
-    `${sectionsPhrase(scope.sectionsWithPending)}. Dividing the boreholes rewrites ` +
-    `every section, so the whole model has to be clear — accept or delete them first.`
+    `${tiesPhrase(scope.sectionPending)} still proposed on this section. Dividing its ` +
+    `boreholes reads the ties you accepted to decide where each borehole's packing ` +
+    `comes from — accept or delete these first. Nothing on another section is touched.`
   )
 }

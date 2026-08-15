@@ -18,8 +18,17 @@
 //     where he put the boundary. Only mentioned when there are some: a warning
 //     that fires at zero trains people to click past the one that matters.
 //
-// The first-ever subdivide does NOT prompt (no geotech model exists yet → no
-// connections to lose); the caller gates this dialog on that condition.
+// The dialog only appears when the press has something to destroy: the caller
+// counts the bands on the section it is about to rebuild, and a section that
+// holds none goes straight through (owner, 2026-08-15: *"We do however get an
+// overwrite popup on cs2 while there is no subdivision there yet. Now it seems
+// like it is warning that i'll overwrite CS 1"*). That subsumes the older gate
+// — a project with no geotech model at all has no bands anywhere.
+//
+// Everything the body says is therefore about ONE named section. It must never
+// be readable as a threat to another section's work: since 2026-08-15 the
+// rebuild deletes only the columns it rebuilds, so another section's bands are
+// not at risk, and saying otherwise would be a false warning.
 // Thin wrapper over the generic ConfirmDialog (#165): no secondary action,
 // just Cancel + the destructive confirm.
 
@@ -36,10 +45,22 @@ interface Props {
   busy?: boolean
   /**
    * How many hand-edited packing bands the re-run will destroy — see
-   * ``countGeotechHandEdits``. Zero (the default) renders no hand-edit
-   * sentence at all.
+   * ``countGeotechHandEdits`` over ``geotechBandsInScope``. Counted on the
+   * bands of *this section* only, because those are the ones the press
+   * rebuilds. Zero (the default) renders no hand-edit sentence at all.
    */
   handEditCount?: number
+  /**
+   * The section being subdivided, by name.
+   *
+   * Named out loud because the count and the loss are both its own (owner,
+   * 2026-08-15: *"it seems like it is warning that i'll overwrite CS 1"*). A
+   * dialog that says "this section" while the engineer is looking at a fresh
+   * one leaves him to guess which section it means — and he guesses the one he
+   * has work on. ``null`` / omitted falls back to "this section" for a caller
+   * that genuinely has no name to give.
+   */
+  sectionName?: string | null
 }
 
 /**
@@ -58,8 +79,12 @@ export default function ReSubdivideConfirmDialog({
   onConfirm,
   busy = false,
   handEditCount = 0,
+  sectionName = null,
 }: Props): JSX.Element {
   const oneHandEdit = handEditCount === 1
+  // "Cross-section 2" where there is a name; the generic phrase only where a
+  // caller has none. Both read as one section — never as the model.
+  const scope = sectionName ?? 'this section'
   return (
     <ConfirmDialog
       open={open}
@@ -73,27 +98,26 @@ export default function ReSubdivideConfirmDialog({
       body={
         <>
           <p>
-            Re-subdividing regenerates this section&rsquo;s geotech packing connections
-            &mdash; any manual connections you made will be cleared.
+            Re-subdividing regenerates the geotech packing connections on{' '}
+            <span className="font-semibold">{scope}</span> &mdash; any manual connections
+            you made there will be cleared.
           </p>
           {/* The second loss, and the heavier one — a connection can be re-derived by
               Auto-correlate, a hand-placed boundary cannot be re-derived at all. Rendered
               only when there is something to lose (owner ruling B).
 
-              The count is the MODEL's, because that is what the caller has in memory,
-              while the rebuild reaches only this section's columns. So the sentence
-              says "any of them that sit on it" rather than promising all N are doomed
-              — over-warning by a number the engineer can disprove on screen is how a
-              warning stops being read. */}
+              The count is THIS SECTION's (owner 2026-08-15), so the sentence states it
+              flatly. It used to hedge — "any of them that sit on it" — because the number
+              was the model's while the press was the section's; with the two aligned, the
+              hedge would be the inaccuracy. */}
           {handEditCount > 0 && (
             <p className="mt-2" data-testid="re-subdivide-hand-edits">
-              It also rebuilds this section&rsquo;s packing bands from the CPT data, so any
-              of the{' '}
+              It also rebuilds the packing bands on{' '}
+              <span className="font-semibold">{scope}</span> from the CPT data, so its{' '}
               <span className="font-semibold">
                 {handEditCount} hand-edited band{oneHandEdit ? '' : 's'}
               </span>{' '}
-              in this model that sit on it go back to the segmenter&rsquo;s boundaries.
-              That cannot be recovered.
+              go back to the segmenter&rsquo;s boundaries. That cannot be recovered.
             </p>
           )}
           {/* There was a third paragraph here, warning that the other sections lost

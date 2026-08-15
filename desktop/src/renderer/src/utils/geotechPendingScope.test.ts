@@ -2,15 +2,17 @@
 // section-scoped.
 //
 // Owner (dogfeed 2026-08-15): "I also see that this is model wide and not per
-// section, i don't like that". Steps 2 and 3 follow the open section — but
-// step 4 still rewrites EVERY section, so it stays model-wide. That asymmetry
-// is only fair if the toolbar explains it, which means naming how many
-// sections are still holding the divide shut instead of showing a bare count.
+// section, i don't like that" — steps 2 and 3 follow the open section. Reading
+// the menu afterwards he closed the set: "i'm reading divide boreholes (whole
+// model), no that should also be section scoped". So step 4 follows it too,
+// and its gate counts the ties on the section it divides. The model total is
+// still worth showing — on the chip's tooltip, as context — but it no longer
+// holds anything shut.
 //
 //   PS1  the open section's own pending count is what the chip reports
 //   PS2  the model total and the other sections live in the chip's tooltip
 //   PS3  a clean open section still reads honestly while the model is dirty
-//   PS4  the step-4 gate names the SECTIONS, not just the ties
+//   PS4  the step-4 gate counts THIS section, and stops naming the model
 //   PS5  with no section open there is nothing section-shaped to say
 //   PS6  a backend with no breakdown falls back to the bare count, never to a lie
 
@@ -62,27 +64,44 @@ describe('summarisePendingTies', () => {
     expect(pendingChipLabel(scope)).toContain('0')
   })
 
-  it('PS4: the step-4 gate names how many sections still carry proposals', () => {
+  it('PS4: the step-4 gate counts THIS section, because that is what it divides', () => {
+    // Owner (dogfeed 2026-08-15): "i'm reading divide boreholes (whole model),
+    // no that should also be section scoped". Once the press divides one
+    // section, a gate quoting the model's total is refusing on evidence this
+    // press would not touch — and CS1 could never be finished while CS2 is
+    // under review.
     const scope = summarisePendingTies({
       modelPending: 12,
       pendingBySection: { 'sec-a': 5, 'sec-b': 7 },
       activeSectionId: 'sec-a',
     })
-    expect(dividePendingTag(scope)).toBe('accept 12 on 2 sections')
+    expect(dividePendingTag(scope)).toBe('accept 5 on this section')
     const title = dividePendingTitle(scope)
-    expect(title).toContain('12')
-    expect(title).toContain('2 sections')
-    // The whole point of the sentence: WHY a model-wide gate is fair.
-    expect(title).toMatch(/every section|whole model/i)
+    expect(title).toContain('5')
+    expect(title).toMatch(/this section/i)
+    // And it must stop claiming the whole model has to be clear.
+    expect(title).not.toMatch(/every section|whole model/i)
+    expect(title).not.toContain('12')
   })
 
-  it('PS4b: one section left reads in the singular', () => {
+  it('PS4b: one tie left reads in the singular', () => {
     const scope = summarisePendingTies({
-      modelPending: 1,
-      pendingBySection: { 'sec-b': 1 },
+      modelPending: 4,
+      pendingBySection: { 'sec-a': 1, 'sec-b': 3 },
       activeSectionId: 'sec-a',
     })
-    expect(dividePendingTag(scope)).toBe('accept 1 on 1 section')
+    expect(dividePendingTag(scope)).toBe('accept 1 on this section')
+    expect(dividePendingTitle(scope)).toContain('1 packing tie ')
+  })
+
+  it('PS4c: a clean open section does not hold step 4 shut at all', () => {
+    // The neighbour's 7 proposals are the neighbour's problem now.
+    const scope = summarisePendingTies({
+      modelPending: 7,
+      pendingBySection: { 'sec-b': 7 },
+      activeSectionId: 'sec-a',
+    })
+    expect(scope.sectionPending).toBe(0)
   })
 
   it('PS5: with no section open the chip falls back to the model total', () => {
