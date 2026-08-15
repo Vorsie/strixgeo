@@ -775,11 +775,19 @@ class GeotechTieReanchor(GroundModelLogger):
         geotech_model_id: UUID,
         *,
         restrict_to_anchor_kind: str | None = None,
+        restrict_to_investigation_ids: set[UUID] | None = None,
     ) -> list[CapturedTie]:
         """Record every ACCEPTED tie of a geotech model with its bands' identities.
 
         Must run before the reset: once the layer wipe fires, the endpoints are
         gone and their investigation / depth / class can no longer be read.
+
+        Both restrictions answer the same question — *is this tie at risk from
+        the rebuild about to run?* — from the two directions a rebuild can be
+        narrowed: by the KIND of column it touches, and by WHICH columns.  A tie
+        neither endpoint of which the rebuild touches keeps its row and its
+        endpoints, so capturing it would both overstate what the verb carried
+        and invite a duplicate on the way back.
 
         Parameters
         ----------
@@ -793,6 +801,12 @@ class GeotechTieReanchor(GroundModelLogger):
             a tie as "carried" that was never at risk.  ``None`` (default)
             captures every accepted tie, which is what a rebuild that wipes
             the whole model needs.
+        restrict_to_investigation_ids : set[UUID] | None
+            When given, keep only ties with at least one endpoint on one of
+            these investigations — the columns a SECTION-SCOPED rebuild is
+            about to delete and re-create.  One endpoint is enough: the other
+            one's band survives untouched, and the tie is destroyed by the
+            cascade all the same.  ``None`` (default) applies no such filter.
 
         Returns
         -------
@@ -801,9 +815,20 @@ class GeotechTieReanchor(GroundModelLogger):
             resolved.  An edge with an unresolvable endpoint is skipped and
             logged at WARNING — it is already broken and nothing can be carried.
         """
+        scope_label = (
+            "all"
+            if restrict_to_investigation_ids is None
+            else str(len(restrict_to_investigation_ids))
+        )
         self.debug(
             f"GeotechTieReanchor.capture: model={geotech_model_id} "
-            f"restrict_to_anchor_kind={restrict_to_anchor_kind}"
+            f"restrict_to_anchor_kind={restrict_to_anchor_kind} "
+            f"restrict_to_investigations={scope_label}"
+        )
+        scoped_keys = (
+            None
+            if restrict_to_investigation_ids is None
+            else {str(inv_id) for inv_id in restrict_to_investigation_ids}
         )
         edges = (
             (
@@ -843,6 +868,17 @@ class GeotechTieReanchor(GroundModelLogger):
                 # touches, so the edge row survives it untouched.
                 out_of_scope += 1
                 continue
+            if (
+                scoped_keys is not None
+                and entry_a is not None
+                and entry_b is not None
+                and entry_a[0].investigation_id not in scoped_keys
+                and entry_b[0].investigation_id not in scoped_keys
+            ):
+                # Neither endpoint's column is being rebuilt, so nothing
+                # deletes this edge and nothing has to carry it.
+                out_of_scope += 1
+                continue
             if entry_a is None or entry_b is None:
                 unresolved += 1
                 self.warning(
@@ -876,6 +912,63 @@ class GeotechTieReanchor(GroundModelLogger):
             f"{out_of_scope} not touched by this rebuild)"
         )
         return captured
+
+    async def surviving_bands(self, geotech_model_id: UUID) -> list[RebuiltBand]:
+        """Describe every band the model still holds, read back from the database.
+
+        A section-scoped rebuild deletes only its own columns, so a carried tie
+        can have one endpoint on a band that was never touched.  That band is
+        not in the rebuild's in-memory layer index — it was not rebuilt — and
+        without it the re-anchor would report a perfectly intact tie as lost.
+        Reading the model back after the scoped delete gives the matcher the
+        whole picture: the survivors here, the fresh rows from the index.
+
+        ⚠ Call this between the delete and the materialisation.  Later, the
+        rebuild's own rows have been flushed and would come back here as well
+        as in the index, and the matcher would see each of them twice —
+        which reads as an ambiguous band and flags a tie that is fine.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotechnical model to read.
+
+        Returns
+        -------
+        list[RebuiltBand]
+            One entry per band currently persisted for the model.
+        """
+        rows = (
+            await self._session.execute(
+                select(
+                    LithoLayerOrm.id,
+                    LithoLayerOrm.cpt_id,
+                    LithoLayerOrm.borehole_id,
+                    LithoLayerOrm.depth_top_m,
+                    LithoLayerOrm.depth_base_m,
+                    GeologicalFormationOrm.nad_class,
+                )
+                .join(
+                    GeologicalFormationOrm,
+                    LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+                )
+                .where(LithoLayerOrm.model_id == geotech_model_id)
+            )
+        ).all()
+        return [
+            RebuiltBand(
+                identity=BandIdentity(
+                    investigation_id=str(
+                        row.borehole_id if row.borehole_id is not None else row.cpt_id
+                    ),
+                    depth_top_mm=depth_to_mm(row.depth_top_m),
+                    depth_base_mm=depth_to_mm(row.depth_base_m),
+                    nad_class=row.nad_class,
+                ),
+                layer_id=row.id,
+            )
+            for row in rows
+        ]
 
     async def reanchor(
         self,

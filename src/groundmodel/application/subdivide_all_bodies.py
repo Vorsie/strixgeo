@@ -28,9 +28,13 @@ each other's geotech layers (and cascade-deleted the other section's edges).
 The new design:
 
 1. Resolves body_id model-wide.
-2. Loads ALL model investigations' picks (no section restriction).
-3. **Idempotent reset: deletes ALL geotech data for the WHOLE geotech model
-   (not a corridor subset)** — edges → layers → FC rows → bodies.
+2. Loads the picks of every investigation IN SCOPE — on any cross-section for
+   the model-wide press, on ONE for the section-scoped press.
+3. **Idempotent reset over exactly what will be rebuilt** — edges → layers →
+   FC rows → bodies.  The model-wide press clears the whole geotech model; a
+   section-scoped press clears only that section's members and leaves every
+   other column's bands, ties and bodies standing, so two sections can be
+   subdivided at the same time (owner ruling 2026-08-15).
 4. Groups geo-bounded segments by ``(body_id, source_geo_formation_id)``
    across the whole model.
 5. Classifies each group (CPT-bearing: B-policy; borehole-only: deferred to
@@ -73,9 +77,10 @@ What it persists (one transaction, single commit at the end)
 
 Idempotency on re-run
 ---------------------
-Before writing new rows the use case deletes the model's geotech data (not just
-a corridor), so a re-run always starts from a clean state.  The geotech model
-row itself is not deleted; only its content is.  See
+Before writing new rows the use case deletes the geotech data it is about to
+re-create, so a re-run always starts from a clean state — the whole model when
+the run is model-wide, that section's members when it is scoped.  The geotech
+model row itself is never deleted; only its content is.  See
 ``_delete_all_geotech_data``.
 
 Accepted ties survive the reset by being RE-ANCHORED (owner ruling 2026-08-01).
@@ -129,10 +134,11 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import ColumnElement, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -432,12 +438,29 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         would put bands in the model that nobody can reach — yet they would
         still enter the resolver, the 3-D build and every export.
 
-        ⚠ **The reset stays model-wide even in the scoped mode.**  This verb has
-        always been "wipe the geotech model and rebuild it"
-        (:meth:`_delete_all_geotech_data`), which is why the toolbar gates a
-        re-run behind a confirmation dialog.  Passing ``section_id`` narrows
-        WHICH columns are rebuilt, not what is wiped: columns on other sections
-        lose their bands until the verb is run again without a scope.
+        **A scoped run only WIPES what it rebuilds** (owner ruling 2026-08-15,
+        the morning after the scoping landed: *"I didn't ask for the on all
+        sections option, it's ugly and confusing delete it and keep only on
+        this section"*).  With the all-sections escape gone, the scoped press is
+        the only press there is, so a reset that still cleared the whole geotech
+        model would mean subdividing CS1 stripped CS2 and no project could ever
+        hold two subdivided sections at once.  With a ``section_id`` the
+        destructive phase is therefore limited to that section's MEMBERS —
+        their geotech layers and the edges hanging off them — and every other
+        investigation's bands, ties and bodies are left exactly as they were.
+        Without one, the historic wholesale rebuild is unchanged.
+
+        An investigation that sits on TWO sections is legitimately rebuilt when
+        EITHER of them is subdivided: its bands come from its own qc and its
+        body membership, not from the section it is being viewed on, so
+        rebuilding it from either side produces the same rows.  What must
+        survive is the neighbour section's ties onto it, which the re-anchor
+        carries (its endpoints are captured whenever ONE of them is in scope).
+
+        Two phases stay model-wide by nature and are deliberately NOT scoped:
+        the body resolver, which is idempotent and must see the whole edge
+        graph to number instances consistently; and the geotech formation
+        find-or-create, whose rows are shared by every column of the same class.
 
         Parameters
         ----------
@@ -447,10 +470,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             The lithostratigraphic model to subdivide.  Must be
             ``kind='lithostratigraphic'``.
         section_id : UUID | None
-            Restrict the rebuild to the investigations on ONE section.
-            ``None`` (the default) takes every investigation on ANY section —
-            the historic breadth minus the off-section ones the membership rule
-            excludes in both modes.
+            Restrict the rebuild — and the delete that precedes it — to the
+            investigations on ONE section.  ``None`` (the default) takes every
+            investigation on ANY section — the historic breadth minus the
+            off-section ones the membership rule excludes in both modes.
         derive_edges : bool
             Whether to run the per-section packing-tie derivation (Phase 9).
             ``True`` — the historic behaviour — keeps the combined verb doing
@@ -491,26 +514,35 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         await ResolveLithoInstances(self._session).execute(model_id=litho_model_id, commit=False)
         self.info(f"SubdivideAllBodies: geotech_model={geotech_model.id} (litho bodies resolved)")
 
-        # Phase 1b — capture the engineer's ACCEPTED packing ties BEFORE anything
-        # is deleted. Their endpoints are geotech litho_layer rows that the reset
-        # removes, and the edge FKs cascade, so once the wipe fires there is
-        # nothing left to read: what the tie connected can only be recorded now.
-        tie_reanchor = GeotechTieReanchor(self._session)
-        captured_ties = await tie_reanchor.capture(geotech_model.id)
-
-        # Phase 2 — load the model's picks, then keep only the ones on a section.
+        # Phase 2 — load the model's picks, then keep only the ones IN SCOPE.
         #
         # The membership rule (owner ruling 2026-08-15) is applied HERE, on the
         # picks, rather than by restricting the query: the difference between
         # the two sets is exactly the report the engineer needs — which of his
         # interpreted columns were left out, and why his model came back
         # smaller than the sidebar's investigation count.
+        #
+        # Two membership sets, deliberately: ``members`` is what this RUN
+        # rebuilds; ``all_members`` is what the MODEL admits at all. The skip
+        # report is measured against the latter, because a column on another
+        # section is not "left out of the model" — this press simply did not
+        # touch it, and its bands are still there.
         all_picks = await self._litho_repo.load_body_picks(litho_model_id)
         members = await load_section_member_investigation_ids(
             self._session, project_id=project_id, section_id=section_id
         )
+        all_members = (
+            members
+            if section_id is None
+            else await load_section_member_investigation_ids(
+                self._session, project_id=project_id, section_id=None
+            )
+        )
+        # What the destructive phase is allowed to touch. ``None`` is the
+        # wholesale rebuild; a set is "these columns and nothing else".
+        scoped_members: set[UUID] | None = None if section_id is None else members
         picks = [pick for pick in all_picks if UUID(pick.investigation_id) in members]
-        off_section_ids = {UUID(pick.investigation_id) for pick in all_picks} - members
+        off_section_ids = {UUID(pick.investigation_id) for pick in all_picks} - all_members
         skipped_labels: list[str] = []
         if off_section_ids:
             names = await load_investigation_names(self._session, off_section_ids)
@@ -521,29 +553,51 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             # project_investigations_onto_section honours excluded_cpt_ids.
             self.info(
                 f"SubdivideAllBodies: {len(off_section_ids)} interpreted column(s) skipped — "
-                f"they project onto no cross-section "
-                f"{'in scope' if section_id is not None else 'in the project'}: "
+                f"they project onto no cross-section in the project: "
                 f"{', '.join(skipped_labels)}"
             )
+
+        # Phase 2b — capture the engineer's ACCEPTED packing ties BEFORE anything
+        # is deleted. Their endpoints are geotech litho_layer rows that the reset
+        # removes, and the edge FKs cascade, so once the wipe fires there is
+        # nothing left to read: what the tie connected can only be recorded now.
+        # It runs after phase 2 rather than before it because the scope it needs
+        # — which columns this run rebuilds — is what phase 2 works out.
+        #
+        # A scoped run deletes only its own columns, so only the ties with an
+        # endpoint on one of THOSE are at risk; a tie entirely on another
+        # section keeps its row and both its endpoints and must not be captured
+        # (re-creating it would double it, and counting it would claim this verb
+        # carried work it never endangered).
+        tie_reanchor = GeotechTieReanchor(self._session)
+        captured_ties = await tie_reanchor.capture(
+            geotech_model.id, restrict_to_investigation_ids=scoped_members
+        )
         self.info(
             f"SubdivideAllBodies: {len(picks)} pick(s) on section "
             f"(of {len(all_picks)} in the litho model)"
         )
         if not picks:
-            # Model-wide idempotent reset MUST run on the empty path too: a
-            # rebuild after the litho picks were cleared (e.g. the litho model
-            # was emptied) has no new geotech content to materialise, but any
+            # The idempotent reset MUST run on the empty path too: a rebuild
+            # after the litho picks were cleared (e.g. the litho model was
+            # emptied) has no new geotech content to materialise, but any
             # geotech layers/bodies/FC mirrors/edges from a PRIOR run are now
             # stale and must be deleted — otherwise they survive the rebuild and
             # the geotech model no longer reflects the (empty) litho input
-            # . Delete, commit the wipe, return zeroed.
-            await self._delete_all_geotech_data(geotech_model.id)
-            # Nothing was classified, so nothing can be stale: clear the stamp
-            # to the never-subdivided state the migration deliberately leaves
-            # NULL. Left behind, it makes a later statistic change advertise
-            # "re-run under <statistic>" over bands that no longer exist — and
-            # pressing the verb re-enters this path, so the tag could not clear.
-            geotech_model.classified_with_statistic = None
+            # . Delete, commit the wipe, return zeroed.  Scoped exactly like the
+            # main path: an empty section clears its own columns, never the
+            # neighbour's.
+            await self._delete_all_geotech_data(geotech_model.id, restrict_to=scoped_members)
+            if section_id is None:
+                # Nothing was classified, so nothing can be stale: clear the
+                # stamp to the never-subdivided state the migration deliberately
+                # leaves NULL. Left behind, it makes a later statistic change
+                # advertise "re-run under <statistic>" over bands that no longer
+                # exist — and pressing the verb re-enters this path, so the tag
+                # could not clear.  A SCOPED empty run leaves the stamp alone:
+                # the other sections' bands are still there and were classified
+                # with it.
+                geotech_model.classified_with_statistic = None
             await self._session.commit()
             self.warning(
                 "SubdivideAllBodies: no picks in the model — geotech model "
@@ -596,10 +650,19 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"(snap_tol={snap_tol} m) [{time.monotonic() - t0:.1f}s]"
         )
 
-        # Phase 4 — model-wide idempotent reset: delete ALL geotech data.
+        # Phase 4 — idempotent reset: delete the geotech data this run rebuilds.
         # Order: edges → layers (trigger deletes their FCs) → stale direct
         # FC rows (from C1) → bodies.
-        await self._delete_all_geotech_data(geotech_model.id)
+        await self._delete_all_geotech_data(geotech_model.id, restrict_to=scoped_members)
+
+        # Phase 4b — what the delete SPARED. A scoped run leaves the other
+        # sections' bands standing, and a carried tie may have one endpoint on
+        # one of them; the matcher has to see those rows or it would report an
+        # intact tie as lost. Read here, between the delete and the write, so
+        # this run's own rows cannot come back twice.
+        surviving_bands = (
+            [] if scoped_members is None else await tie_reanchor.surviving_bands(geotech_model.id)
+        )
 
         # Phase 5 — group geo-bounded segments by (body_id, source_geo_formation_id).
         groups = await self._group_segments(divided, geo_surfaces)
@@ -801,14 +864,21 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"skipped_empty_plan={skipped_empty_plan_count}"
         )
 
-        # Phase 8c — re-anchor the accepted ties captured in Phase 1b onto the
-        # bands just rebuilt. This runs BEFORE the derivation pass so the pass's
-        # per-section dedup set (loaded below) already carries the restored ties
-        # and cannot stack an unapproved proposal beside one of them.
+        # Phase 8c — re-anchor the accepted ties captured in Phase 2b onto the
+        # bands just rebuilt, PLUS the ones a scoped run left standing (phase
+        # 4b): a carried tie can have one endpoint on a column this run never
+        # touched, and without that band in the matcher's hands an intact tie
+        # would be reported lost.
+        # This runs BEFORE the derivation pass so the pass's per-section dedup
+        # set (loaded below) already carries the restored ties and cannot stack
+        # an unapproved proposal beside one of them.
         reanchor_plan = await tie_reanchor.reanchor(
             geotech_model_id=geotech_model.id,
             captured=captured_ties,
-            rebuilt_bands=rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
+            rebuilt_bands=[
+                *rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
+                *surviving_bands,
+            ],
         )
 
         # Phase 9 — load all project sections; derive geotech edges per section.
@@ -962,37 +1032,80 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
     # Phase 4 — model-wide idempotent reset
     # ------------------------------------------------------------------
 
-    async def _delete_all_geotech_data(self, geotech_model_id: UUID) -> None:
+    @staticmethod
+    def _anchor_in(investigation_ids: Collection[UUID]) -> ColumnElement[bool]:
+        """Match ``litho_layer`` rows anchored on any of these investigations.
+
+        ``litho_layer`` carries a DB XOR constraint over ``cpt_id`` /
+        ``borehole_id``, so one predicate per column OR'd together names the
+        investigation regardless of which kind it is.
+
+        Parameters
+        ----------
+        investigation_ids : Collection[UUID]
+            CPT and/or borehole ids, mixed.
+
+        Returns
+        -------
+        ColumnElement[bool]
+            The SQL predicate.
+        """
+        ids = list(investigation_ids)
+        return LithoLayerOrm.cpt_id.in_(ids) | LithoLayerOrm.borehole_id.in_(ids)
+
+    async def _delete_all_geotech_data(
+        self, geotech_model_id: UUID, *, restrict_to: set[UUID] | None = None
+    ) -> None:
         """Delete the model's prior geotech layers, edges, FC rows, and bodies.
 
-        Scoped to the entire geotech model (not a corridor subset), so that
-        re-running the model-wide subdivide always starts from a clean state.
         Order: dirty edges → layers (LL→FC trigger cleans their FC mirrors) →
         direct FC rows written by C1 → bodies.
 
-        Every edge of the model is gone once this returns — the accepted ones
-        too, taken by the endpoint FK cascade.  They come back: the caller
-        captured them before calling this
-        (:meth:`GeotechTieReanchor.capture`) and re-creates each one against the
-        rebuilt band that matches its investigation, depth interval and NAD
-        class (:meth:`GeotechTieReanchor.reanchor`), in this same transaction.
+        Every edge in range is gone once this returns — the accepted ones too,
+        taken by the endpoint FK cascade.  They come back: the caller captured
+        them before calling this (:meth:`GeotechTieReanchor.capture`) and
+        re-creates each one against the rebuilt band that matches its
+        investigation, depth interval and NAD class
+        (:meth:`GeotechTieReanchor.reanchor`), in this same transaction.
 
         Parameters
         ----------
         geotech_model_id : UUID
             The geotechnical model to wipe clean.
+        restrict_to : set[UUID] | None
+            When given, delete only what hangs off THESE investigations — the
+            members of the section being subdivided.  Every other column's
+            bands, ties and bodies are left exactly as they are, which is what
+            lets two sections be subdivided at the same time (owner ruling
+            2026-08-15, after the all-sections escape was deleted).  ``None``
+            (the default) is the historic wholesale reset.
         """
         # 1. Delete the DIRTY correlation edges — everything the program derived
         # and the engineer never accepted.  Accepted ties are spared by this
         # statement (the machine never deletes what the user accepted), but see
         # step 2: the cascade takes them anyway, and the re-anchor pass — not
         # this predicate — is what actually carries them across the rebuild.
-        await self._session.execute(
-            delete(LithoContactCorrelationEdgeOrm).where(
-                LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
-                LithoContactCorrelationEdgeOrm.user_approved.is_(False),
+        #
+        # In the scoped mode the same reasoning narrows the range: a proposal
+        # between two columns this run does not rebuild is not stale, because
+        # the bands it names are not being re-derived.  Selecting by ENDPOINT
+        # rather than by section id is deliberate — an edge on the open section
+        # can name a column the section excludes, and it is the column being
+        # rebuilt, not the section it is drawn on, that makes an edge stale.
+        edge_conditions = [
+            LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+            LithoContactCorrelationEdgeOrm.user_approved.is_(False),
+        ]
+        if restrict_to is not None:
+            in_scope_layer_ids = select(LithoLayerOrm.id).where(
+                LithoLayerOrm.model_id == geotech_model_id,
+                self._anchor_in(restrict_to),
             )
-        )
+            edge_conditions.append(
+                LithoContactCorrelationEdgeOrm.layer_a_id.in_(in_scope_layer_ids)
+                | LithoContactCorrelationEdgeOrm.layer_b_id.in_(in_scope_layer_ids)
+            )
+        await self._session.execute(delete(LithoContactCorrelationEdgeOrm).where(*edge_conditions))
 
         # 2. Delete all litho_layer rows (LL→FC trigger removes their FC mirrors).
         #
@@ -1009,9 +1122,14 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # by identity before this runs, re-created against the matching rebuilt
         # band afterwards (owner ruling 2026-08-01: same investigation, same
         # depth interval, same NAD class).
-        await self._session.execute(
-            delete(LithoLayerOrm).where(LithoLayerOrm.model_id == geotech_model_id)
-        )
+        #
+        # Which is also exactly why the scoped mode limits this statement: a
+        # column outside the scope keeps its rows, so the ties onto it keep
+        # their endpoints and are never handed to the cascade at all.
+        layer_conditions = [LithoLayerOrm.model_id == geotech_model_id]
+        if restrict_to is not None:
+            layer_conditions.append(self._anchor_in(restrict_to))
+        await self._session.execute(delete(LithoLayerOrm).where(*layer_conditions))
 
         # 2b. Delete any remaining FormationContact rows for the geotech model.
         # The retired C1 skeleton flow wrote FC rows DIRECTLY (not via the
@@ -1020,20 +1138,34 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # Without this step a subsequent SAB run fires the LL→FC trigger which
         # tries to INSERT the same FC row again →
         # uq_formation_contact_model_formation_borehole_depth violation.
-        await self._session.execute(
-            delete(FormationContactOrm).where(
-                FormationContactOrm.model_id == geotech_model_id,
+        fc_conditions = [FormationContactOrm.model_id == geotech_model_id]
+        if restrict_to is not None:
+            fc_conditions.append(
+                FormationContactOrm.cpt_id.in_(restrict_to)
+                | FormationContactOrm.borehole_id.in_(restrict_to)
             )
-        )
+        await self._session.execute(delete(FormationContactOrm).where(*fc_conditions))
 
         # 3. Delete all BodyOrm rows for the geotech model.  The resolver
         # recreates them; the bodies from the previous run must be cleared so we
         # don't violate (model, formation, ordinal) uniqueness on re-run.
-        await self._session.execute(delete(BodyOrm).where(BodyOrm.model_id == geotech_model_id))
+        #
+        # A SCOPED run does NOT do this.  Bodies are model-wide by nature — a
+        # body spans every column its ties reach — so there is no subset of
+        # them belonging to one section, and deleting the lot would strip the
+        # names, colours and hand-drawn boundaries off the sections this run
+        # never touched.  The resolver runs model-wide immediately afterwards
+        # and reconciles them instead: it reuses the rows still wanted, adopts
+        # the lineage of the ones it merges, and deletes only the unnamed
+        # orphans.  (``litho_layer.body_id`` is ON DELETE SET NULL, so even the
+        # wholesale delete never took a layer with it.)
+        if restrict_to is None:
+            await self._session.execute(delete(BodyOrm).where(BodyOrm.model_id == geotech_model_id))
 
         await self._session.flush()
         self.debug(
-            f"_delete_all_geotech_data: cleared all geotech data for model {geotech_model_id}"
+            f"_delete_all_geotech_data: cleared geotech data for model {geotech_model_id} "
+            f"(scope={'whole model' if restrict_to is None else f'{len(restrict_to)} column(s)'})"
         )
 
     # ------------------------------------------------------------------
