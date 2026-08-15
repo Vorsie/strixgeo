@@ -111,6 +111,10 @@ const GROUPS: readonly CheatGroup[] = [
       // Owner 2026-08-14: a one-key clear-the-view for the lab-sample markers
       // (litho + geotech axes); the grain-size hover preview stays menu-only.
       { trigger: 'P', action: 'Show / hide the lab-sample markers' },
+      // Owner 2026-08-15: "toggling quite often when doing step 1" — the litho
+      // fill earns its own key. Axis-aware: the geotech axis's "Show litho
+      // fill", the litho axis's "Fill bands"; nothing on the geology axis.
+      { trigger: 'L', action: 'Show / hide the litho fill (litho + geotech axes)' },
     ],
   },
   {
