@@ -2625,6 +2625,17 @@ export function useGeologicalModel({
       )
       // Refresh geotech layers so the section canvas picks up the new borehole bands.
       requestGeotechLayersRefetch()
+      // The bands are only half of what a divide rewrites. It also writes the
+      // borehole-mediated chain edges and DELETES the jump ties that chain
+      // supersedes — under an unchanged geotech model id, which is the very key
+      // the canvas's edge fetch is memoised on, so it never refetches on its
+      // own (same trap ``handleSubdivideCpts`` documents). Without this bump the
+      // section keeps drawing the pre-press edge list: deleted ties still
+      // painted, new hops nowhere — the owner's 2026-08-15 report, on a press
+      // whose own log line read ``ties_superseded=13``.
+      requestCorrelationEdgesRefetch?.()
+      // New borehole bands plus new ties move body identity on the geotech axis.
+      requestBodyRecompute?.('geotech')
       if (result.created_formation_ids.length > 0) {
         addToSessionImports('formation', result.created_formation_ids)
       }
@@ -2659,7 +2670,9 @@ export function useGeologicalModel({
       }
     },
     // reason: activeLithoModelRef and activeGeotechModel are refs / stable
-    // objects; the other deps are all stable callbacks.
+    // objects; the other deps — including requestCorrelationEdgesRefetch,
+    // requestGeotechLayersRefetch and requestBodyRecompute — are all stable
+    // callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [project, activeGeotechModel, addToSessionImports, markMutated, toast],
   )
