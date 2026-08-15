@@ -68,6 +68,20 @@ import {
 } from '../../../utils/geotechPendingScope'
 
 /**
+ * Why steps 2, 3 and 4 are dead on a section that carries no packing yet.
+ *
+ * One sentence for all three, because the fault and the remedy are the same
+ * one. It names the OPEN section deliberately: the predecessor read "Run
+ * “1 · Subdivide CPTs” first to create packing bands", which on a project
+ * whose model already exists tells the engineer to do a thing he has done
+ * (owner, 2026-08-15: *"when i switched to cs2 options 2 3 and 4 in the
+ * packing pipeline where clickable this was not the case on the first
+ * subdivide in cs1"*).
+ */
+const NO_BANDS_HERE_TITLE =
+  'No packing bands on this section yet — run “1 · Subdivide CPTs” on this section first'
+
+/**
  * Section-specific verb buttons for the Sections stage toolbar.
  *
  * Renders in the left zone of ``StageToolbar`` when the Sections stage is
@@ -372,6 +386,25 @@ export default function SectionsToolbar(): JSX.Element {
     const bands = geotechBandsInScope(geotechLayers, memberIds)
     return { bandCount: bands.length, handEditCount: countGeotechHandEdits(bands) }
   }, [selectedSection, visibleCpts, visibleBoreholes, geotechLayers])
+
+  // Do steps 2, 3 and 4 have anything ON SCREEN to work on?
+  //
+  // Owner (dogfeed 2026-08-15): *"when i switched to cs2 options 2 3 and 4 in
+  // the packing pipeline where clickable this was not the case on the first
+  // subdivide in cs1"*. All four steps act on the open section, so their gate
+  // has to be the open section too. The three of them used to ask whether a
+  // geotech MODEL exists — a question that answers correctly exactly once, on
+  // the first press of all, and from then on leaves every unsubdivided section
+  // offering three presses that can only no-op.
+  //
+  // Same reading of "does this section have bands" the re-subdivide
+  // confirmation uses — ``subdivideScope`` above, no second notion. The model
+  // check is belt-and-braces: ``geotechLayers`` is emptied when no geotech
+  // model is active (useGeologicalModel G4), so bands imply a model, but the
+  // verbs below dereference the model id and must never be reachable without
+  // one.
+  const sectionHasPackingBands =
+    activeGeotechModel !== null && selectedSection !== null && subdivideScope.bandCount > 0
 
   // Sections need a projected METRIC horizontal CRS — along-distance is
   // a Euclidean distance in CRS units, so degrees (EPSG:4326) silently
@@ -1660,14 +1693,14 @@ export default function SectionsToolbar(): JSX.Element {
                 label: autoCorrelatingGeotech ? 'Correlating…' : '2 · Auto-correlate',
                 icon: <Zap size={13} />,
                 disabled:
-                  activeGeotechModel === null ||
+                  !sectionHasPackingBands ||
                   autoCorrelatingGeotech ||
                   selectedSectionId === null,
                 title:
-                  activeGeotechModel === null
-                    ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                    : selectedSectionId === null
-                      ? 'Open a cross-section first — this step proposes ties on the section you have open'
+                  selectedSectionId === null
+                    ? 'Open a cross-section first — this step proposes ties on the section you have open'
+                    : !sectionHasPackingBands
+                      ? NO_BANDS_HERE_TITLE
                       : 'Step 2 of 4 — derive the same-class packing ties inside each correlated litho unit ON THIS SECTION, jumping across borehole columns that carry no packing yet. Ties that restate a litho correlation you already approved arrive ACCEPTED; the rest arrive as proposals. Hand-drawn correlations are never touched.',
                 testid: 'geotech-auto-correlate',
                 onClick: () => {
@@ -1678,7 +1711,7 @@ export default function SectionsToolbar(): JSX.Element {
                 label: acceptingGeotechCorrelations ? 'Accepting…' : '3 · Accept ties',
                 icon: <CheckCheck size={13} />,
                 disabled:
-                  activeGeotechModel === null ||
+                  !sectionHasPackingBands ||
                   acceptingGeotechCorrelations ||
                   selectedSectionId === null,
                 tag:
@@ -1688,10 +1721,10 @@ export default function SectionsToolbar(): JSX.Element {
                 // The review WORKFLOW, not just the verb (owner dogfeed
                 // 2026-08-05): reject first, bulk-accept second, hand-tie last.
                 title:
-                  activeGeotechModel === null
-                    ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                    : selectedSectionId === null
-                      ? 'Open a cross-section first — this step accepts the ties on the section you have open'
+                  selectedSectionId === null
+                    ? 'Open a cross-section first — this step accepts the ties on the section you have open'
+                    : !sectionHasPackingBands
+                      ? NO_BANDS_HERE_TITLE
                       : 'Step 3 of 4 — review, then approve, on the section in front of you. First DELETE the faulty proposals (right-click a tie → Delete) and accept the ones you want to check off singly (right-click → Accept tie). Then press this to accept every remaining proposal ON THIS SECTION. Afterwards, hand-connect anything auto-correlate missed with “Correlate packing”.',
                 testid: 'geotech-accept-correlations',
                 onClick: () => {
@@ -1706,7 +1739,7 @@ export default function SectionsToolbar(): JSX.Element {
                 icon: <Layers size={13} />,
                 disabled:
                   dividingBoreholes ||
-                  activeGeotechModel === null ||
+                  !sectionHasPackingBands ||
                   selectedSectionId === null ||
                   tiesBlockDivide,
                 // Visible tag instead of a hover title: a disabled menu item
@@ -1719,10 +1752,10 @@ export default function SectionsToolbar(): JSX.Element {
                     ? 'stale — re-divide'
                     : undefined,
                 title:
-                  activeGeotechModel === null
-                    ? 'Run “1 · Subdivide CPTs” first to create the geotech model'
-                    : selectedSectionId === null
-                      ? 'Open a cross-section first — this step divides the boreholes on the section you have open'
+                  selectedSectionId === null
+                    ? 'Open a cross-section first — this step divides the boreholes on the section you have open'
+                    : !sectionHasPackingBands
+                      ? NO_BANDS_HERE_TITLE
                       : tiesBlockDivide
                         ? dividePendingTitle(pendingScope)
                         : boreholesStale
@@ -1732,7 +1765,7 @@ export default function SectionsToolbar(): JSX.Element {
                 onClick: () => {
                   if (
                     dividingBoreholes ||
-                    activeGeotechModel === null ||
+                    !sectionHasPackingBands ||
                     selectedSectionId === null ||
                     tiesBlockDivide
                   )

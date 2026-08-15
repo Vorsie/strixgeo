@@ -22,7 +22,11 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import SectionsToolbar from './SectionsToolbar'
-import { makeShellCtx, makeLithoModel } from './__fixtures__/sectionsShellContext'
+import {
+  makeShellCtx,
+  makeLithoModel,
+  withSectionPacking,
+} from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -81,6 +85,17 @@ function makeCtx(
     geoModel: { ...base.geoModel, ...(overrides.geoModel ?? {}) },
     sections: { ...base.sections, ...(overrides.sections ?? {}) },
   }
+}
+
+/**
+ * The gate scenes below all start AFTER step 1: the open section carries
+ * packing bands, which since 2026-08-15 is what makes steps 2, 3 and 4 live
+ * at all (owner: *"when i switched to cs2 options 2 3 and 4 in the packing
+ * pipeline where clickable this was not the case on the first subdivide in
+ * cs1"*). Without it the step-4 gate under test could never be reached.
+ */
+function bandedCtx(overrides: CtxOverrides = {}): ShellContextValue {
+  return withSectionPacking(makeCtx('geotechnical', overrides))
 }
 
 function renderToolbar(ctx: ShellContextValue): void {
@@ -195,7 +210,7 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
 describe('SectionsToolbar — step 4 is gated on step 3', () => {
   it('PG1 — pending ties disable "Divide boreholes" and say how many', async () => {
     tiesPending(12, 5)
-    renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
+    renderToolbar(bandedCtx({ geoModel: { activeLithoModel: makeLithoModel() } }))
     await screen.findByTestId('geotech-pending-tie-chip')
     await openPipeline()
     const divide = screen.getByTestId('geotech-divide-boreholes')
@@ -218,9 +233,7 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
     tiesPending(0, 40)
     const handleDivideBoreholes = vi.fn(() => Promise.resolve())
     renderToolbar(
-      makeCtx('geotechnical', {
-        geoModel: { activeLithoModel: makeLithoModel(), handleDivideBoreholes },
-      }),
+      bandedCtx({ geoModel: { activeLithoModel: makeLithoModel(), handleDivideBoreholes } }),
     )
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalled())
     expect(screen.queryByTestId('geotech-pending-tie-chip')).toBeNull()
@@ -236,7 +249,7 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
     // endpoint) permanently disable step 4. The server enforces the gate
     // regardless, so falling OPEN costs a 422 at worst and never a dead button.
     geotechTieStatus.mockRejectedValue(new Error('boom'))
-    renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
+    renderToolbar(bandedCtx({ geoModel: { activeLithoModel: makeLithoModel() } }))
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalled())
     await openPipeline()
     expect(screen.getByTestId('geotech-divide-boreholes')).not.toBeDisabled()
@@ -247,7 +260,7 @@ describe('SectionsToolbar — step 4 is gated on step 3', () => {
     // The gate is only as honest as its number: proposing ties must raise it and
     // accepting them must clear it, without a manual reload.
     tiesPending(0)
-    renderToolbar(makeCtx('geotechnical', { geoModel: { activeLithoModel: makeLithoModel() } }))
+    renderToolbar(bandedCtx({ geoModel: { activeLithoModel: makeLithoModel() } }))
     await waitFor(() => expect(geotechTieStatus).toHaveBeenCalledTimes(1))
 
     tiesPending(3)

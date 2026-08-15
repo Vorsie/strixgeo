@@ -818,13 +818,20 @@ describe('SectionsToolbar "Divide boreholes" verb (E)', () => {
   })
 
   it('BE3 — clicking the enabled button divides the section on screen', () => {
+    // The scene starts one press further on than BE1/BE2: the open section
+    // carries packing, which since 2026-08-15 is what makes step 4 live at all
+    // (owner: "when i switched to cs2 options 2 3 and 4 in the packing pipeline
+    // where clickable this was not the case on the first subdivide in cs1").
     const handleDivideBoreholes = vi.fn(() => Promise.resolve())
     renderToolbar(
       makeCtx({
         sectionModelAxis: 'geotechnical',
         activeLithoModel: makeLithoModel(),
         activeGeotechModel: makeGeotechModel(),
+        sections: [makeSection()],
         selectedSectionId: 'section-1',
+        visibleBoreholes: [makeBorehole('bh-1')],
+        geotechLayers: [makeGeotechBand('bh-1')],
         handleDivideBoreholes,
       }),
     )

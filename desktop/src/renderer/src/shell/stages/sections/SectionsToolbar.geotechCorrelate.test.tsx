@@ -27,6 +27,7 @@ import {
   makeGeotechModel,
   makeLithoModel,
   onSectionCpt,
+  withSectionPacking,
 } from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,19 @@ function makeCtx(axis: SectionModelAxis, overrides: CtxOverrides = {}): ShellCon
   }
 }
 
+/**
+ * The geotech axis one press further on: the open section carries packing.
+ *
+ * Both verbs below are gated on that since 2026-08-15 (owner: *"when i
+ * switched to cs2 options 2 3 and 4 in the packing pipeline where clickable
+ * this was not the case on the first subdivide in cs1"*) — bands are what
+ * there is to correlate and to accept, so a scene that presses either verb
+ * has run step 1 on the section first.
+ */
+function bandedCtx(overrides: CtxOverrides = {}): ShellContextValue {
+  return withSectionPacking(makeCtx('geotechnical', overrides))
+}
+
 function renderToolbar(ctx: ShellContextValue): void {
   render(
     <ShellContext.Provider value={ctx}>
@@ -153,7 +167,7 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     // still pending.
     // What is UNCHANGED and still pinned here: the GEOTECH model id, never the
     // litho parent.
-    renderToolbar(makeCtx('geotechnical'))
+    renderToolbar(bandedCtx())
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
     expect(autoCorrelateGeotech).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
@@ -179,7 +193,7 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     // means exactly one endpoint is reached: the proposal endpoint. Not the auto-edge
     // delete the litho re-correlate flow uses, and above all not the subdivide that
     // wipes every geotech row in the model.
-    renderToolbar(makeCtx('geotechnical'))
+    renderToolbar(bandedCtx())
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalledTimes(1))
     expect(deleteAutoCorrelations).not.toHaveBeenCalled()
@@ -190,7 +204,7 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
   it('GC6 — no confirmation dialog stands between the press and the proposals', async () => {
     // "Subdivide all bodies" opens ReSubdivideConfirmDialog because a re-run destroys
     // manual work. This verb destroys nothing, so it must not inherit that friction.
-    renderToolbar(makeCtx('geotechnical'))
+    renderToolbar(bandedCtx())
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
@@ -209,7 +223,7 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
       skipped_empty_stack: 0,
     })
     const toast = vi.fn()
-    renderToolbar(makeCtx('geotechnical', { toast }))
+    renderToolbar(bandedCtx({ toast }))
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
     const message = String(toast.mock.calls[0][1])
@@ -227,7 +241,7 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
       skipped_empty_stack: 0,
     })
     const toast = vi.fn()
-    renderToolbar(makeCtx('geotechnical', { toast }))
+    renderToolbar(bandedCtx({ toast }))
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
     expect(String(toast.mock.calls[0][1])).toMatch(/accept|review|suggestion|propos/i)
@@ -246,7 +260,7 @@ describe('SectionsToolbar — geotech accept correlations', () => {
 
   it('GA2 — accepting promotes the GEOTECH model’s ties on the open section', async () => {
     // RE-PINNED 2026-08-15 (was "model-wide", 2026-08-05 MAJOR-2) — see GA3b.
-    renderToolbar(makeCtx('geotechnical'))
+    renderToolbar(bandedCtx())
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
     expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
@@ -276,7 +290,7 @@ describe('SectionsToolbar — geotech accept correlations', () => {
   it('GA3c — no press of this verb approves a tie on a section he is not looking at', async () => {
     // The wire carries the OPEN section, never a model-wide null: that is the
     // whole point of the ruling, and the only remaining item must honour it.
-    renderToolbar(makeCtx('geotechnical'))
+    renderToolbar(bandedCtx())
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
     expect(acceptContactCorrelations.mock.calls[0][2]).toBe('sec-1')

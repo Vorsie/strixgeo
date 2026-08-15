@@ -30,16 +30,25 @@
 //   SC8  the step-4 gate counts SECTIONS, not just ties
 //   SC9  the chip reports the open section, the model total rides the tooltip
 //   SC10 the re-subdivide prompt no longer threatens the other sections' bands
+//   SC17 steps 2-4 are dead on a section that carries no packing bands
+//   SC18 their disabled titles name step 1 on THIS section, not the model
+//   SC19 step 1 stays live there — it is the remedy the title names
+//   SC20 once this section has bands, steps 2-4 come alive
+//   SC21 with no section open at all, the older reason still wins
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
-import type { LithoLayerResponse } from '../../../api/clients/geology.types'
 import SectionsToolbar from './SectionsToolbar'
-import { makeLithoLayer } from './__fixtures__/lithoLayer'
-import { makeShellCtx, makeLithoModel, onSectionCpt } from './__fixtures__/sectionsShellContext'
+import {
+  makeShellCtx,
+  makeLithoModel,
+  onSectionCpt,
+  packingBandOn,
+  withSectionPacking,
+} from './__fixtures__/sectionsShellContext'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -106,14 +115,15 @@ function makeCtx(overrides: CtxOverrides = {}): ShellContextValue {
   }
 }
 
-/** One committed packing band on a CPT — enough to make a press destructive. */
-function bandOn(cptId: string): LithoLayerResponse {
-  return makeLithoLayer({
-    id: `band-${cptId}`,
-    cpt_id: cptId,
-    model_id: 'geotech-model-1',
-    source: 'segmenter',
-  })
+/**
+ * The open section already carries packing — the state steps 2, 3 and 4 need.
+ *
+ * Since 2026-08-15 those three are gated on the OPEN section's own bands
+ * (SC17-SC21 below), so a scene that presses them has to have run step 1
+ * first, the way the engineer does.
+ */
+function bandedCtx(overrides: CtxOverrides = {}): ShellContextValue {
+  return withSectionPacking(makeCtx(overrides))
 }
 
 function renderToolbar(ctx: ShellContextValue): void {
@@ -174,7 +184,7 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
   })
 
   it('SC2: step 2 proposes on the section on screen', async () => {
-    renderToolbar(makeCtx())
+    renderToolbar(bandedCtx())
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
@@ -182,7 +192,7 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
   })
 
   it('SC3: step 3 accepts on the section on screen', async () => {
-    renderToolbar(makeCtx())
+    renderToolbar(bandedCtx())
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
@@ -240,7 +250,7 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
 
   it('SC7: the toast names the scope that actually ran', async () => {
     const toast = vi.fn()
-    renderToolbar(makeCtx({ toast }))
+    renderToolbar(bandedCtx({ toast }))
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
@@ -266,7 +276,7 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
         sections: { sections: twoSections },
         geoModel: {
           activeLithoModel: makeLithoModel(),
-          geotechLayers: [bandOn('cpt-1')],
+          geotechLayers: [packingBandOn('cpt-1')],
         },
         visibleCpts: [onSectionCpt('cpt-1')],
       }),
@@ -346,7 +356,7 @@ describe('SectionsToolbar — the step-4 gate explains itself', () => {
 describe('SectionsToolbar — step 4 follows the open section', () => {
   it('SC11: step 4 divides the boreholes of the section on screen', async () => {
     const handleDivideBoreholes = vi.fn(() => Promise.resolve())
-    renderToolbar(makeCtx({ geoModel: { handleDivideBoreholes } }))
+    renderToolbar(bandedCtx({ geoModel: { handleDivideBoreholes } }))
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
     expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'sec-1' })
@@ -364,7 +374,7 @@ describe('SectionsToolbar — step 4 follows the open section', () => {
     // The case the owner is after: CS1 is clear, CS2 is not, and CS1 divides.
     tieStatus(7, 40, { 'sec-2': 7 })
     const handleDivideBoreholes = vi.fn(() => Promise.resolve())
-    renderToolbar(makeCtx({ geoModel: { handleDivideBoreholes } }))
+    renderToolbar(bandedCtx({ geoModel: { handleDivideBoreholes } }))
     await screen.findByTestId('geotech-pending-tie-chip')
     await openPipeline()
     const divide = screen.getByTestId('geotech-divide-boreholes')
@@ -396,5 +406,137 @@ describe('SectionsToolbar — step 4 follows the open section', () => {
     const title = screen.getByTestId('geotech-pipeline').getAttribute('title') ?? ''
     expect(title).not.toMatch(/model-wide/i)
     expect(title).not.toMatch(/rewrites every section/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SC17-SC21 — a model built somewhere else is not packing HERE
+// ---------------------------------------------------------------------------
+//
+// Owner (dogfeed 2026-08-15):
+//
+//   > "when i switched to cs2 options 2 3 and 4 in the packing pipeline where
+//   > clickable this was not the case on the first subdivide in cs1"
+//
+// All four steps act on the section on screen, so their enablement has to
+// follow the same scope. Steps 2, 3 and 4 asked instead whether a geotech
+// model EXISTS — a question that gave the right answer exactly once, on CS1's
+// first press, when nothing existed anywhere. The moment CS1's step 1 created
+// the model, CS2 inherited three live steps with nothing under them to correlate,
+// accept or divide: a press there can only be a no-op or a confusing partial.
+
+const OFF_SECTION_Y = 10_000
+
+/**
+ * CS1 carries a packing band; CS2 is the open section and carries nothing.
+ *
+ * CS2's line runs 10 km north of CS1's, well outside the 50 m corridor, so
+ * ``cpt-1`` — the band's anchor — is a member of CS1 only.
+ */
+function bandsOnTheOtherSectionCtx(
+  geoModel: Partial<ShellContextValue['geoModel']> = {},
+): ShellContextValue {
+  const base = makeShellCtx('geotechnical')
+  const cs1 = base.sections.sections[0]
+  const cs2 = {
+    ...cs1,
+    id: 'sec-2',
+    name: 'Cross-section 2',
+    start_y: OFF_SECTION_Y,
+    end_y: OFF_SECTION_Y,
+  }
+  return makeCtx({
+    sections: { sections: [cs1, cs2], visibleSections: [cs1, cs2], selectedSectionId: 'sec-2' },
+    geoModel: { geotechLayers: [packingBandOn('cpt-1')], ...geoModel },
+    visibleCpts: [onSectionCpt('cpt-1')],
+  })
+}
+
+describe('SectionsToolbar — steps 2-4 follow the open section’s own bands', () => {
+  it('SC17: with the bands on ANOTHER section, steps 2, 3 and 4 are dead here', async () => {
+    // The exact scene he hit: the model exists (CS1 subdivided), the section on
+    // screen has no packing yet, and the three steps were clickable anyway.
+    renderToolbar(bandsOnTheOtherSectionCtx())
+    await openPipeline()
+    expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
+    expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
+    expect(screen.getByTestId('geotech-divide-boreholes')).toBeDisabled()
+  })
+
+  it('SC18: the disabled titles name step 1 on THIS section, not the model', async () => {
+    // "Run 1 first to create packing bands" is a lie on a project whose model
+    // already exists — he ran 1, it created the model, and the sentence still
+    // says to create it. The remedy is step 1 HERE.
+    renderToolbar(bandsOnTheOtherSectionCtx())
+    await openPipeline()
+    for (const step of [
+      'geotech-auto-correlate',
+      'geotech-accept-correlations',
+      'geotech-divide-boreholes',
+    ]) {
+      const title = screen.getByTestId(step).getAttribute('title') ?? ''
+      expect(title).toContain('Subdivide CPTs')
+      expect(title).toContain('on this section first')
+      expect(title).not.toContain('first to create packing bands')
+      expect(title).not.toContain('first to create the geotech model')
+    }
+  })
+
+  it('SC19: step 1 stays live there — it is the way out the titles name', async () => {
+    renderToolbar(bandsOnTheOtherSectionCtx())
+    await openPipeline()
+    expect(screen.getByTestId('geotech-subdivide-cpts')).not.toBeDisabled()
+  })
+
+  it('SC20: once THIS section has bands, steps 2, 3 and 4 come alive', async () => {
+    // The same project one press later: CS2's own CPT now carries packing, so
+    // every step has something on screen to act on.
+    const base = makeShellCtx('geotechnical')
+    const cs1 = base.sections.sections[0]
+    const cs2 = {
+      ...cs1,
+      id: 'sec-2',
+      name: 'Cross-section 2',
+      start_y: OFF_SECTION_Y,
+      end_y: OFF_SECTION_Y,
+    }
+    renderToolbar(
+      makeCtx({
+        sections: { sections: [cs1, cs2], visibleSections: [cs1, cs2], selectedSectionId: 'sec-2' },
+        geoModel: { geotechLayers: [packingBandOn('cpt-1'), packingBandOn('cpt-2')] },
+        visibleCpts: [
+          onSectionCpt('cpt-1'),
+          { ...onSectionCpt('cpt-2'), location_y: OFF_SECTION_Y },
+        ],
+      }),
+    )
+    await openPipeline()
+    expect(screen.getByTestId('geotech-auto-correlate')).not.toBeDisabled()
+    expect(screen.getByTestId('geotech-accept-correlations')).not.toBeDisabled()
+    expect(screen.getByTestId('geotech-divide-boreholes')).not.toBeDisabled()
+  })
+
+  it('SC21: with no section open at all, the older reason still wins', async () => {
+    // Precedence: no section open is the more basic fault and names its own
+    // remedy. "Run step 1 on this section" would be advice about a section he
+    // does not have open.
+    renderToolbar(
+      makeCtx({
+        sections: { selectedSectionId: null },
+        geoModel: { geotechLayers: [packingBandOn('cpt-1')] },
+        visibleCpts: [onSectionCpt('cpt-1')],
+      }),
+    )
+    await openPipeline()
+    for (const step of [
+      'geotech-auto-correlate',
+      'geotech-accept-correlations',
+      'geotech-divide-boreholes',
+    ]) {
+      expect(screen.getByTestId(step)).toBeDisabled()
+      expect(screen.getByTestId(step).getAttribute('title') ?? '').toContain(
+        'Open a cross-section first',
+      )
+    }
   })
 })

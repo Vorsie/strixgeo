@@ -12,8 +12,10 @@
 import { vi } from 'vitest'
 
 import type { CptListItem, GeologicalModelResponse } from '../../../../api/client'
+import type { LithoLayerResponse } from '../../../../api/clients/geology.types'
 import type { SectionModelAxis } from '../../../../hooks/useSections'
 import type { ShellContextValue } from '../../../ShellContext'
+import { makeLithoLayer } from './lithoLayer'
 
 export const noopAsync = (): Promise<void> => Promise.resolve()
 export const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
@@ -114,6 +116,53 @@ export function onSectionCpt(id: string, x = 50): CptListItem {
     z_epsg: 5710,
     elevation_source: 'manual',
     start_date: null,
+  }
+}
+
+/**
+ * One committed packing band on a CPT, as pipeline step 1 leaves it.
+ *
+ * @param cptId Anchor investigation id; match it to a {@link onSectionCpt}.
+ */
+export function packingBandOn(cptId: string): LithoLayerResponse {
+  return makeLithoLayer({
+    id: `band-${cptId}`,
+    cpt_id: cptId,
+    model_id: 'geotech-model-1',
+    source: 'segmenter',
+  })
+}
+
+/**
+ * Give the open section the packing bands steps 2, 3 and 4 need to be live.
+ *
+ * Those three verbs are gated on the OPEN section carrying packing (owner
+ * dogfeed 2026-08-15: *"when i switched to cs2 options 2 3 and 4 in the
+ * packing pipeline where clickable this was not the case on the first
+ * subdivide in cs1"*), so a scene that presses one of them has to have run
+ * step 1 first, the way the engineer does. Adds both halves the gate reads:
+ * the band row, and the on-section CPT that makes it a member of the section.
+ *
+ * Parameters
+ * ----------
+ * ctx : ShellContextValue
+ *     A context from {@link makeShellCtx}, already patched by the suite.
+ * cptId : string
+ *     Which column carries the band. Defaults to ``'cpt-1'``.
+ *
+ * Returns
+ * -------
+ * ShellContextValue
+ *     The same context with one packing band on the selected section.
+ */
+export function withSectionPacking(ctx: ShellContextValue, cptId = 'cpt-1'): ShellContextValue {
+  return {
+    ...ctx,
+    geoModel: {
+      ...ctx.geoModel,
+      geotechLayers: [...ctx.geoModel.geotechLayers, packingBandOn(cptId)],
+    },
+    visibleCpts: [...ctx.visibleCpts, onSectionCpt(cptId)],
   }
 }
 
