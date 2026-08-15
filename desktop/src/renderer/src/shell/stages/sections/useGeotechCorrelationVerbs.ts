@@ -68,8 +68,9 @@ export interface UseGeotechCorrelationVerbsResult {
   /**
    * Promote pending packing ties to approved.
    *
-   * ``sectionId`` scopes the accept to one section; ``null`` is the explicit
-   * all-sections escape.
+   * ``sectionId`` scopes the accept to one section; ``null`` means the whole
+   * model, which the toolbar no longer asks for (the "on all sections" item
+   * was deleted 2026-08-15) but the API still accepts.
    */
   runAcceptCorrelations: (sectionId: string | null) => Promise<void>
 }
@@ -128,8 +129,12 @@ export function useGeotechCorrelationVerbs(
         // is model wide and not per section, i don't like that"). The earlier
         // MAJOR-2 objection — that a section-scoped step 2/3 can never satisfy
         // the model-wide step-4 gate — is answered by the gate now NAMING the
-        // sections still pending, plus the "on all sections" escape sitting
-        // beside this item. Per-tie accept on the canvas is unchanged.
+        // sections still pending, which the engineer clears one at a time.
+        // (An "on all sections" escape stood beside this item for a morning
+        // and he deleted it: "it's ugly and confusing".) The toolbar always
+        // passes the OPEN section now; ``null`` survives for the API contract
+        // and for callers that legitimately mean the whole model.
+        // Per-tie accept on the canvas is unchanged.
         const result = await api.geology.autoCorrelateGeotech(projectId, modelId, sectionId)
         const accepted = result.edges_accepted ?? 0
         const emitted = result.edges_proposed + accepted

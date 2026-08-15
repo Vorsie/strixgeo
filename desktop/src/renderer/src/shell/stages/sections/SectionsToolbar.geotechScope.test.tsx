@@ -9,21 +9,27 @@
 //
 //   > "i want subdivide cpt's also to be section scoped"
 //
-// So the primary press of each of the first three steps acts on the section he
-// has open, and each keeps an explicit "on all sections" escape beside it.
-// Step 4 stays model-wide because dividing the boreholes rewrites every
-// section — but it now has to SAY how many sections are holding it shut,
-// instead of showing a bare count on a section he has already cleared.
+// So each of the first three steps acts on the section he has open.  A second
+// "on all sections" item was built beside each of them, and he rejected it the
+// next morning:
 //
-//   SC1  step 1 primary presses scope to the open section
-//   SC2  step 2 primary presses scope to the open section
-//   SC3  step 3 primary presses scope to the open section
-//   SC4  each step keeps an all-sections escape that sends no section
-//   SC5  the labels name the scope, so neither press has to be guessed
-//   SC6  with no section open the scoped halves are dead and the escapes live
+//   > "I didn't ask for the on all sections option, it's ugly and confusing
+//   > delete it and keep only on this section"
+//
+// Step 4 stays model-wide because dividing the boreholes rewrites every
+// section — but it has to SAY how many sections are holding it shut, instead
+// of showing a bare count on a section he has already cleared.
+//
+//   SC1  step 1 acts on the section on screen
+//   SC2  step 2 acts on the section on screen
+//   SC3  step 3 acts on the section on screen
+//   SC4  the all-sections items are GONE — there is no second way to press
+//   SC5  the labels carry no scope qualifier, because there is one scope
+//   SC6  with no section open the three steps are dead, with no escape beside
 //   SC7  the toasts name the scope that was actually run
 //   SC8  the step-4 gate counts SECTIONS, not just ties
 //   SC9  the chip reports the open section, the model total rides the tooltip
+//   SC10 the re-subdivide prompt no longer threatens the other sections' bands
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -166,67 +172,80 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
     expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
   })
 
-  it('SC4: step 1 keeps an all-sections escape that sends no section', async () => {
-    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
-    renderToolbar(makeCtx({ geoModel: { activeGeotechModel: null, handleSubdivideAllBodies } }))
-    await openPipeline()
-    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts-all'))
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
-      deriveEdges: false,
-      sectionId: null,
-    })
-  })
-
-  it('SC4b: steps 2 and 3 keep an all-sections escape that sends no section', async () => {
+  it('SC4: "on all sections" is gone from all three steps', async () => {
+    // "I didn't ask for the on all sections option, it's ugly and confusing
+    // delete it" — not hidden, not disabled: absent.
     renderToolbar(makeCtx())
     await openPipeline()
-    fireEvent.click(screen.getByTestId('geotech-auto-correlate-all'))
-    await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
-    expect(autoCorrelateGeotech).toHaveBeenCalledWith('proj-1', 'geotech-model-1', null)
-
-    await openPipeline()
-    fireEvent.click(screen.getByTestId('geotech-accept-correlations-all'))
-    await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
-    expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', null)
-  })
-
-  it('SC5: the labels name the scope — he never has to guess which he pressed', async () => {
-    renderToolbar(makeCtx())
-    await openPipeline()
-    for (const [scoped, all] of [
-      ['geotech-subdivide-cpts', 'geotech-subdivide-cpts-all'],
-      ['geotech-auto-correlate', 'geotech-auto-correlate-all'],
-      ['geotech-accept-correlations', 'geotech-accept-correlations-all'],
+    for (const gone of [
+      'geotech-subdivide-cpts-all',
+      'geotech-auto-correlate-all',
+      'geotech-accept-correlations-all',
     ]) {
-      expect(screen.getByTestId(scoped).textContent ?? '').toContain('on this section')
-      expect(screen.getByTestId(all).textContent ?? '').toContain('on all sections')
+      expect(screen.queryByTestId(gone)).toBeNull()
     }
+    expect(screen.queryByText(/on all sections/i)).toBeNull()
   })
 
-  it('SC6: with no section open the scoped halves are dead and the escapes live', async () => {
+  it('SC5: the labels carry no scope qualifier — there is only one scope now', async () => {
+    renderToolbar(makeCtx())
+    await openPipeline()
+    for (const step of [
+      'geotech-subdivide-cpts',
+      'geotech-auto-correlate',
+      'geotech-accept-correlations',
+    ]) {
+      expect(screen.getByTestId(step).textContent ?? '').not.toContain('on this section')
+    }
+    expect(screen.getByTestId('geotech-subdivide-cpts').textContent ?? '').toContain(
+      '1 · Subdivide CPTs',
+    )
+    expect(screen.getByTestId('geotech-auto-correlate').textContent ?? '').toContain(
+      '2 · Auto-correlate',
+    )
+    expect(screen.getByTestId('geotech-accept-correlations').textContent ?? '').toContain(
+      '3 · Accept ties',
+    )
+  })
+
+  it('SC6: with no section open the three steps are dead, and nothing stands in for them', async () => {
     renderToolbar(makeCtx({ sections: { selectedSectionId: null } }))
     await openPipeline()
     expect(screen.getByTestId('geotech-subdivide-cpts')).toBeDisabled()
     expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
     expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
-    expect(screen.getByTestId('geotech-subdivide-cpts-all')).not.toBeDisabled()
-    expect(screen.getByTestId('geotech-auto-correlate-all')).not.toBeDisabled()
-    expect(screen.getByTestId('geotech-accept-correlations-all')).not.toBeDisabled()
+    // The disabled item has to teach the way out, and the way out is a
+    // section — not a second menu item that no longer exists.
+    expect(screen.getByTestId('geotech-subdivide-cpts').getAttribute('title') ?? '').not.toContain(
+      'on all sections',
+    )
   })
 
-  it('SC7: the toasts name the scope that actually ran', async () => {
+  it('SC7: the toast names the scope that actually ran', async () => {
     const toast = vi.fn()
     renderToolbar(makeCtx({ toast }))
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(toast).toHaveBeenCalled())
     expect(String(toast.mock.calls[0][1])).toContain('this section')
+  })
 
-    toast.mockClear()
+  it('SC10: the re-subdivide prompt no longer threatens the other sections', async () => {
+    // A re-run on a project with a SECOND section: the rebuild now deletes
+    // only the columns it rebuilds, so a prompt that says the neighbour loses
+    // its packing bands is describing something that cannot happen.
+    const base = makeShellCtx('geotechnical')
+    const twoSections = [
+      base.sections.sections[0],
+      { ...base.sections.sections[0], id: 'sec-2', name: 'Cross-section 2' },
+    ]
+    renderToolbar(makeCtx({ sections: { sections: twoSections } }))
     await openPipeline()
-    fireEvent.click(screen.getByTestId('geotech-accept-correlations-all'))
-    await waitFor(() => expect(toast).toHaveBeenCalled())
-    expect(String(toast.mock.calls[0][1])).toContain('all sections')
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+
+    const dialog = await screen.findByTestId('re-subdivide-confirm-dialog')
+    expect(dialog.textContent ?? '').not.toMatch(/other section/i)
+    expect(dialog.textContent ?? '').not.toMatch(/on all sections/i)
   })
 })
 

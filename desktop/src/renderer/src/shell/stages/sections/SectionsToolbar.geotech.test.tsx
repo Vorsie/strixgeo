@@ -568,7 +568,8 @@ describe('SectionsToolbar geotech axis toggle (F3)', () => {
 //        operation is model-wide).
 //   BF4  Clicking the enabled button calls handleSubdivideAllBodies with the
 //        OPEN section's id (owner ruling 2026-08-15 — the verb is section
-//        scoped; the "on all sections" item is the model-wide press).
+//        scoped, and after "I didn't ask for the on all sections option ...
+//        delete it and keep only on this section" that is its only scope).
 
 describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
   it('BF1 — button is present when the axis is "geotechnical"', () => {
@@ -608,11 +609,12 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
     expect(screen.getByTestId('geotech-subdivide-cpts')).toBeDisabled()
   })
 
-  it('BF3b — with no section open the scoped half is dead, the escape is live', () => {
-    // RE-PINNED 2026-08-15. The old pin read "ENABLED even when no section is
-    // selected (model-wide operation)". Owner: "i want subdivide cpt's also to
-    // be section scoped" — the primary press now needs a section to scope to,
-    // and the all-sections item is the way to run without one.
+  it('BF3b — with no section open the step is dead, and nothing stands in for it', () => {
+    // RE-PINNED 2026-08-15 (twice in one day). The oldest pin read "ENABLED
+    // even when no section is selected (model-wide operation)"; the second
+    // added an all-sections escape beside it, which the owner then deleted
+    // ("I didn't ask for the on all sections option, it's ugly and confusing").
+    // Open a section, or the step does not run.
     renderToolbar(
       makeCtx({
         sectionModelAxis: 'geotechnical',
@@ -621,7 +623,7 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
       }),
     )
     expect(screen.getByTestId('geotech-subdivide-cpts')).toBeDisabled()
-    expect(screen.getByTestId('geotech-subdivide-cpts-all')).not.toBeDisabled()
+    expect(screen.queryByTestId('geotech-subdivide-cpts-all')).toBeNull()
   })
 
   it('BF4 — clicking the button subdivides the section on screen', () => {

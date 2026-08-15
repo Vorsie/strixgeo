@@ -145,8 +145,8 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     // (review MAJOR-2: a section-scoped verb could never satisfy the
     // model-wide step-4 gate). The owner overturned it — "I also see that this
     // is model wide and not per section, i don't like that" — and the gate's
-    // objection is answered instead by the "on all sections" item beside this
-    // one plus a gate that now names the sections still pending.
+    // objection is answered instead by a gate that now names the sections
+    // still pending.
     // What is UNCHANGED and still pinned here: the GEOTECH model id, never the
     // litho parent.
     renderToolbar(makeCtx('geotechnical'))
@@ -160,13 +160,14 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
   })
 
-  it('GC4b — with no section open, the escape is what stays pressable', () => {
+  it('GC4b — with no section open the verb is dead, and there is no way round it', () => {
     // RE-PINNED 2026-08-15: was "the verb works with no section open
-    // (model-wide, MAJOR-2 re-pin)". The primary press needs a section to
-    // scope to now; running without one is a deliberate second item.
+    // (model-wide, MAJOR-2 re-pin)", then briefly "the escape is what stays
+    // pressable". The owner deleted the escape — "I didn't ask for the on all
+    // sections option, it's ugly and confusing" — so a section is required.
     renderToolbar(makeCtx('geotechnical', { sections: { selectedSectionId: null } }))
     expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
-    expect(screen.getByTestId('geotech-auto-correlate-all')).not.toBeDisabled()
+    expect(screen.queryByTestId('geotech-auto-correlate-all')).toBeNull()
   })
 
   it('GC5 — it adds; it never deletes or rebuilds (the owner invariant)', async () => {
@@ -252,28 +253,29 @@ describe('SectionsToolbar — geotech accept correlations', () => {
     expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
   })
 
-  it('GA3b — with no section open, the escape is what stays pressable', () => {
+  it('GA3b — with no section open the verb is dead, and there is no way round it', () => {
     // RE-PINNED 2026-08-15. The 2026-08-05 pin made this verb model-wide on
     // the argument that a section-scoped "Accept all" could never satisfy the
     // model-wide step-4 gate. The owner overruled the resulting behaviour —
     // "I also see that this is model wide and not per section, i don't like
     // that" — and accepting a correlation is a judgement about geometry he can
     // SEE, so approving ties on sections that are not on screen is exactly
-    // what the primary press must stop doing. The gate's objection is answered
-    // by the second item below plus a gate that now names the sections still
-    // pending, so there is still a one-press way out.
+    // what this press must stop doing. An all-sections item briefly stood
+    // beside it and was deleted the same day ("it's ugly and confusing"); the
+    // gate's objection is answered by a gate that now names the sections
+    // still pending, which he clears one section at a time.
     renderToolbar(makeCtx('geotechnical', { sections: { selectedSectionId: null } }))
     expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
-    expect(screen.getByTestId('geotech-accept-correlations-all')).not.toBeDisabled()
+    expect(screen.queryByTestId('geotech-accept-correlations-all')).toBeNull()
   })
 
-  it('GA3c — the all-sections item still reaches the whole model', async () => {
-    // The escape hatch keeps the property the old primary had: it is the one
-    // press that can clear step 4's model-wide gate.
+  it('GA3c — no press of this verb approves a tie on a section he is not looking at', async () => {
+    // The wire carries the OPEN section, never a model-wide null: that is the
+    // whole point of the ruling, and the only remaining item must honour it.
     renderToolbar(makeCtx('geotechnical'))
-    fireEvent.click(screen.getByTestId('geotech-accept-correlations-all'))
+    fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
-    expect(acceptContactCorrelations.mock.calls[0][2]).toBeNull()
+    expect(acceptContactCorrelations.mock.calls[0][2]).toBe('sec-1')
   })
 
   it('GA4 — the accept verb is absent on the litho axis (control)', () => {

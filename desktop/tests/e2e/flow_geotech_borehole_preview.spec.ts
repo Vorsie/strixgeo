@@ -152,6 +152,36 @@ test.describe('flow_geotech_borehole_preview', () => {
         'the preview endpoint must not write borehole geotech layers',
       ).toBe(0)
 
+      // Step 3b: clear every pending tie, model-wide, over HTTP.
+      //
+      // The ghosts this spec is about are drawn from the FINAL tie-informed
+      // plan, and step 4's gate counts the whole model — but under the
+      // 2026-08-06 refinement the combined verb's derived ties can arrive
+      // pending (only litho-tie restatements are born accepted), on sections
+      // this spec never opens.
+      //
+      // Done on the wire rather than through the toolbar because the toolbar
+      // no longer offers a model-wide accept: the owner deleted the
+      // "on all sections" items on 2026-08-15 ("it's ugly and confusing"), so
+      // the UI path would mean opening each section in turn to accept its
+      // ties — a tour of the fixture that tests nothing this spec is for.
+      // The subdivide two steps above is already a model-wide HTTP call, so
+      // the accept matching it is the consistent half.
+      const acceptAll = await page.evaluate(
+        async ([base, pid, gid]) => {
+          const r = await fetch(
+            `${base}/projects/${pid}/geology/models/${gid}/contact-correlations/accept`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+          )
+          return { status: r.status, body: await r.json() }
+        },
+        [API_BASE, FIXTURE_PROJECT_ID, geotechModelId] as const,
+      )
+      expect(
+        acceptAll.status,
+        `accept returned HTTP ${acceptAll.status}: ${JSON.stringify(acceptAll.body)}`,
+      ).toBe(200)
+
       // Step 4: re-open so the shell picks up the geotech model (React state
       // for activeGeotechModel only refreshes on project open).
       await page.reload()
@@ -170,23 +200,8 @@ test.describe('flow_geotech_borehole_preview', () => {
       await sectionRow.click()
       await page.getByRole('radio', { name: 'Geotech' }).click()
 
-      // Step 6: clear any pending ties FIRST, so the plan the preview draws is
-      // the final tie-informed one. Under the 2026-08-06 refinement the
-      // combined verb's derived ties can arrive pending (only litho-tie
-      // restatements are born accepted). Conditional, because the fixture may
-      // leave nothing pending. The steps live in the "Packing pipeline"
-      // dropdown (owner tidy-up 2026-08-05); an item click auto-closes the
-      // menu, so re-open per press.
-      //
-      // The ALL-SECTIONS item on purpose (owner ruling 2026-08-15 made the
-      // primary press section-scoped): the subdivide above ran over the whole
-      // model via HTTP, so ties exist on sections this spec never opens, and
-      // step 4's gate still counts the whole model.
-      await page.getByTestId('geotech-pipeline').click()
-      const acceptTies = page.getByTestId('geotech-accept-correlations-all')
-      if (await acceptTies.isEnabled()) {
-        await acceptTies.click()
-      }
+      // (Step 3b already cleared the pending ties model-wide, before the
+      // reload — the toolbar has no model-wide accept to press here.)
 
       // The preview is OPT-IN (owner ruling 2026-08-07: no tie state may make
       // ghosts appear uninvited — they read as "my boreholes got subdivided").

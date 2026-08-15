@@ -43,6 +43,12 @@ import { usePsdPreviewOn } from '../../../utils/psdPreviewOnStore'
 import { sampleDisplayMenuItems } from './sampleDisplayMenuItems'
 import { useSampleMarkersHotkey } from './useSampleMarkersHotkey'
 import { useLithoFillHotkey } from './useLithoFillHotkey'
+import {
+  LITHO_FILL_TOAST_KEY,
+  SAMPLE_MARKERS_TOAST_KEY,
+  lithoFillToastMessage,
+  sampleMarkersToastMessage,
+} from './displayToggleToast'
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
@@ -188,8 +194,13 @@ export default function SectionsToolbar(): JSX.Element {
   // AFTER the useShell destructure because it reads ``toast``; hoisting it up
   // with the other store hooks would be a temporal-dead-zone crash that no
   // type check catches.
+  //
+  // Both announcements carry a REPLACE KEY (owner 2026-08-15: "when i
+  // repeatedly press l the toast just kind of stack on the right ... you can
+  // just immediately replace it and don't need to flood the screen"), so
+  // hammering either key updates one toast in place instead of stacking.
   useSampleMarkersHotkey(nowOn =>
-    toast('success', nowOn ? 'Sample markers on' : 'Sample markers off'),
+    toast('success', sampleMarkersToastMessage(nowOn), SAMPLE_MARKERS_TOAST_KEY),
   )
   // Bare L mirrors the litho-fill item of whichever axis is open (owner
   // 2026-08-15: "a hide litho fill hotkey would be nice too, toggling quite
@@ -197,8 +208,7 @@ export default function SectionsToolbar(): JSX.Element {
   // menu does, so the announcement and the menu item agree. Same TDZ caveat as
   // the P hotkey above — it reads ``toast``, so it stays below the destructure.
   useLithoFillHotkey(sectionModelAxis, nowOn => {
-    const label = sectionModelAxis === 'geotechnical' ? 'Litho fill' : 'Band fill'
-    toast('success', `${label} ${nowOn ? 'on' : 'off'}`)
+    toast('success', lithoFillToastMessage(sectionModelAxis, nowOn), LITHO_FILL_TOAST_KEY)
   })
   const geotechStatistic =
     (statisticState?.modelId === activeGeotechModel?.id ? statisticState?.statistic : undefined) ??
@@ -1535,16 +1545,18 @@ export default function SectionsToolbar(): JSX.Element {
             title={
               'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, ' +
               '3 review and accept them, 4 divide the boreholes. Steps 1–3 act on ' +
-              'the section you have open, each with an “on all sections” item ' +
-              'beside it; step 4 rewrites every section, so it stays model-wide ' +
-              'and locked while any tie is still proposed.'
+              'the section you have open and leave every other section as it is; ' +
+              'step 4 rewrites every section, so it stays model-wide and locked ' +
+              'while any tie is still proposed.'
             }
             testid="geotech-pipeline"
             items={[
               {
-                label: subdividingBodies
-                  ? 'Subdividing…'
-                  : '1 · Subdivide CPTs on this section',
+                // No "on this section" qualifier: after the owner deleted the
+                // all-sections twin (2026-08-15, "it's ugly and confusing"),
+                // the verb has one meaning and a qualifier on a verb with one
+                // meaning only invites the question of what the other one is.
+                label: subdividingBodies ? 'Subdividing…' : '1 · Subdivide CPTs',
                 icon: <SplitSquareVertical size={13} />,
                 // Ruling 8: a statistic change never silently re-derives - this
                 // tag is where the debt surfaces until the re-subdivide runs.
@@ -1563,25 +1575,13 @@ export default function SectionsToolbar(): JSX.Element {
                 title: !activeLithoModel
                   ? 'Create a lithostratigraphic model in the Lithology stage first'
                   : selectedSectionId === null
-                    ? 'Open a cross-section first, or use “on all sections”'
-                    : 'Step 1 of 4 — derive NAD packing classes (1–31) on THIS section’s CPTs. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run. A CPT that is on no cross-section is never subdivided.',
+                    ? 'Open a cross-section first — this step subdivides the CPTs on the section you have open'
+                    : 'Step 1 of 4 — derive NAD packing classes (1–31) on THIS section’s CPTs, leaving every other section’s bands, ties and bodies untouched. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run. A CPT that is on no cross-section is never subdivided.',
                 testid: 'geotech-subdivide-cpts',
                 onClick: () => pressSubdivide(selectedSectionId),
               },
               {
-                label: subdividingBodies ? 'Subdividing…' : '1 · Subdivide CPTs on all sections',
-                icon: <SplitSquareVertical size={13} />,
-                disabled: subdividingBodies || !activeLithoModel,
-                title: !activeLithoModel
-                  ? 'Create a lithostratigraphic model in the Lithology stage first'
-                  : 'The same step 1 over every CPT that appears on ANY cross-section. CPTs on no section stay out of the model either way.',
-                testid: 'geotech-subdivide-cpts-all',
-                onClick: () => pressSubdivide(null),
-              },
-              {
-                label: autoCorrelatingGeotech
-                  ? 'Correlating…'
-                  : '2 · Auto-correlate on this section',
+                label: autoCorrelatingGeotech ? 'Correlating…' : '2 · Auto-correlate',
                 icon: <Zap size={13} />,
                 disabled:
                   activeGeotechModel === null ||
@@ -1591,7 +1591,7 @@ export default function SectionsToolbar(): JSX.Element {
                   activeGeotechModel === null
                     ? 'Run “1 · Subdivide CPTs” first to create packing bands'
                     : selectedSectionId === null
-                      ? 'Open a cross-section first, or use “on all sections”'
+                      ? 'Open a cross-section first — this step proposes ties on the section you have open'
                       : 'Step 2 of 4 — derive the same-class packing ties inside each correlated litho unit ON THIS SECTION, jumping across borehole columns that carry no packing yet. Ties that restate a litho correlation you already approved arrive ACCEPTED; the rest arrive as proposals. Hand-drawn correlations are never touched.',
                 testid: 'geotech-auto-correlate',
                 onClick: () => {
@@ -1599,24 +1599,7 @@ export default function SectionsToolbar(): JSX.Element {
                 },
               },
               {
-                label: autoCorrelatingGeotech
-                  ? 'Correlating…'
-                  : '2 · Auto-correlate on all sections',
-                icon: <Zap size={13} />,
-                disabled: activeGeotechModel === null || autoCorrelatingGeotech,
-                title:
-                  activeGeotechModel === null
-                    ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                    : 'The same step 2 over EVERY section of the model — the fast path once you trust the proposals, and the way to clear step 4’s model-wide gate in one press.',
-                testid: 'geotech-auto-correlate-all',
-                onClick: () => {
-                  void runAutoCorrelateGeotech(null)
-                },
-              },
-              {
-                label: acceptingGeotechCorrelations
-                  ? 'Accepting…'
-                  : '3 · Accept ties on this section',
+                label: acceptingGeotechCorrelations ? 'Accepting…' : '3 · Accept ties',
                 icon: <CheckCheck size={13} />,
                 disabled:
                   activeGeotechModel === null ||
@@ -1632,30 +1615,11 @@ export default function SectionsToolbar(): JSX.Element {
                   activeGeotechModel === null
                     ? 'Run “1 · Subdivide CPTs” first to create packing bands'
                     : selectedSectionId === null
-                      ? 'Open a cross-section first, or use “on all sections”'
+                      ? 'Open a cross-section first — this step accepts the ties on the section you have open'
                       : 'Step 3 of 4 — review, then approve, on the section in front of you. First DELETE the faulty proposals (right-click a tie → Delete) and accept the ones you want to check off singly (right-click → Accept tie). Then press this to accept every remaining proposal ON THIS SECTION. Afterwards, hand-connect anything auto-correlate missed with “Correlate packing”.',
                 testid: 'geotech-accept-correlations',
                 onClick: () => {
                   void runAcceptGeotechCorrelations(selectedSectionId)
-                },
-              },
-              {
-                label: acceptingGeotechCorrelations
-                  ? 'Accepting…'
-                  : '3 · Accept ties on all sections',
-                icon: <CheckCheck size={13} />,
-                disabled: activeGeotechModel === null || acceptingGeotechCorrelations,
-                tag:
-                  tieStatus.loaded && tieStatus.pending > 0
-                    ? `${tieStatus.pending} in model`
-                    : undefined,
-                title:
-                  activeGeotechModel === null
-                    ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                    : 'Accept every remaining proposal in the MODEL, including ties on sections you are not looking at. This is what clears step 4’s gate in one press — at the cost of approving geometry you have not seen.',
-                testid: 'geotech-accept-correlations-all',
-                onClick: () => {
-                  void runAcceptGeotechCorrelations(null)
                 },
               },
               {
@@ -2112,11 +2076,6 @@ export default function SectionsToolbar(): JSX.Element {
         onConfirm={handleReSubdivideConfirm}
         busy={subdividingBodies}
         handEditCount={geotechHandEditCount}
-        // A scoped re-run still wipes the whole geotech model, so the dialog
-        // has to disclose what the sections it does NOT rebuild will lose
-        // (owner ruling 2026-08-15).
-        scopedToSection={pendingSubdivideSectionId !== null}
-        otherSectionCount={Math.max(sections.length - 1, 0)}
       />
 
       {/* Reset manual points confirmation — clearing every hand-drawn body

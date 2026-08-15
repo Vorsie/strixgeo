@@ -35,7 +35,10 @@ describe('SectionsCanvas — implausible section coordinates', () => {
       </ShellContext.Provider>,
     )
 
-    const crsWarnings = (): [string, string][] =>
+    // The tuple is widened to the toast signature's own parameter list — it
+    // grew an optional replace key (2026-08-15) and this filter reads only the
+    // first two.
+    const crsWarnings = (): Parameters<typeof ctx.toasts.toast>[] =>
       vi
         .mocked(ctx.toasts.toast)
         .mock.calls.filter(([, message]) => message.includes('outside that CRS'))
