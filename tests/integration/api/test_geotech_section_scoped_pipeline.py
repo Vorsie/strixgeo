@@ -19,6 +19,17 @@ Two sections 1 km apart, each with its own correlated CPT pair:
 Nothing correlates across the two, so a verb that leaks out of its scope shows
 up as edges on the section it was not aimed at.
 
+Step 1 is scoped the same way, and the next morning the owner deleted the
+all-sections escape beside all three verbs:
+
+    "I didn't ask for the on all sections option, it's ugly and confusing
+    delete it and keep only on this section"
+
+which makes the scoped subdivide the ONLY subdivide he can press — so it may
+no longer wipe what it does not rebuild.  Before that ruling the verb deleted
+the whole geotech model and only narrowed the rebuild, which with no escape
+left would mean two sections could never be subdivided at the same time.
+
 Cases
 -----
 GS1  Step 2 scoped to section A proposes on A and leaves B empty.
@@ -26,6 +37,13 @@ GS2  Step 2 with the field OMITTED still reaches both sections.
 GS3  Step 3 scoped to section A leaves section B's ties pending.
 GS4  ``tie-status`` reports the pending count PER SECTION — the number the
      toolbar's chip and the step-4 gate now speak in.
+GS5  Step 1 scoped to section A bands A's CPTs and not B's.
+GS6  Subdividing B afterwards ADDS B's bands and leaves A's standing — the two
+     sections are subdivided at the same time.
+GS7  Re-running A rebuilds A and does not touch B's rows at all.
+GS8  An accepted tie on B's columns survives a subdivide of A.
+GS9  A scoped run does not report the OTHER section's columns as left out of
+     the model — they are still in it, this press simply did not touch them.
 
 Run via the integration wrapper:
     .\\scripts\\run-integration-tests.ps1 \\
@@ -187,15 +205,65 @@ async def two_section_scene(
     }
 
 
-async def _subdivide_cpts(client: AsyncClient, scene: dict) -> str:
-    """Run pipeline step 1 and return the geotech model id it created."""
+async def _subdivide_cpts(
+    client: AsyncClient, scene: dict, *, section_id: str | None = None
+) -> str:
+    """Run pipeline step 1 and return the geotech model id it created.
+
+    Parameters
+    ----------
+    section_id : str | None
+        Scope the run to one section, the way the toolbar's only remaining
+        subdivide item does.  ``None`` omits the field entirely — the historic
+        model-wide press.
+    """
+    body: dict = {"litho_model_id": scene["litho_model_id"]}
+    if section_id is not None:
+        body["section_id"] = section_id
     resp = await client.post(
         f"/projects/{scene['project_id']}/geology/models/"
         f"{scene['litho_model_id']}/geotech/subdivide-cpts",
-        json={"litho_model_id": scene["litho_model_id"]},
+        json=body,
     )
     assert resp.status_code == 200, resp.text
     return str(resp.json()["geotech_model_id"])
+
+
+async def _bands_by_cpt(
+    db_session: AsyncSession, geotech_model_id: str
+) -> dict[UUID, list[tuple[UUID, float, float]]]:
+    """Every geotech band of the model, grouped by the CPT it sits on.
+
+    Returns
+    -------
+    dict[UUID, list[tuple[UUID, float, float]]]
+        ``cpt_id -> [(layer_id, depth_top_m, depth_base_m), ...]``, depth
+        ordered.  The layer id is carried so a test can tell "rebuilt
+        identically" from "never touched".
+    """
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(geotech_model_id),
+                    LithoLayerOrm.cpt_id.is_not(None),
+                )
+                .order_by(LithoLayerOrm.cpt_id, LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    grouped: dict[UUID, list[tuple[UUID, float, float]]] = {}
+    for row in rows:
+        grouped.setdefault(row.cpt_id, []).append((row.id, row.depth_top_m, row.depth_base_m))
+    return grouped
+
+
+def _shape(bands: list[tuple[UUID, float, float]]) -> list[tuple[float, float]]:
+    """The depths of a column's bands, with the row ids dropped."""
+    return [(top, base) for _, top, base in bands]
 
 
 async def _auto_correlate(
@@ -258,11 +326,18 @@ async def _stage_pending_tie(
     section_id: str,
     cpt_a_id: UUID,
     cpt_b_id: UUID,
+    approved: bool = False,
 ) -> None:
-    """Insert one PENDING packing tie between two CPTs' shallowest bands.
+    """Insert one packing tie between two CPTs' shallowest bands.
 
     Staged by hand rather than derived so the scoping assertions read a known
     count instead of whatever the derivation happens to produce.
+
+    Parameters
+    ----------
+    approved : bool
+        ``False`` (the default) stages a PENDING proposal; ``True`` stages the
+        engineer's own accepted tie, which nothing may destroy.
     """
 
     async def _top_layer(cpt_id: UUID) -> LithoLayerOrm:
@@ -295,8 +370,8 @@ async def _stage_pending_tie(
             layer_b_id=hi,
             layer_a_side="top",
             layer_b_side="top",
-            user_approved=False,
-            source="auto",
+            user_approved=approved,
+            source="manual" if approved else "auto",
         )
     )
     await db_session.commit()
@@ -446,3 +521,166 @@ async def test_gs4_tie_status_reports_the_pending_count_per_section(
     status = await _tie_status(async_client, two_section_scene, geotech_model_id)
     assert status["pending_tie_count"] == 1
     assert status["pending_by_section"] == {two_section_scene["section_b_id"]: 1}
+
+
+# ---------------------------------------------------------------------------
+# GS5-GS8 — a scoped subdivide only WIPES what it rebuilds
+#
+# With the all-sections escape deleted, the scoped press is the only press
+# there is.  If it still cleared the whole geotech model first, subdividing
+# CS1 would strip CS2 and no project could ever have two sections subdivided
+# at once.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gs5_step_one_scoped_to_a_section_bands_only_that_sections_cpts(
+    two_section_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GS5: aimed at section A, step 1 subdivides A's CPTs and nobody else's."""
+    geotech_model_id = await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_a_id"]
+    )
+
+    bands = await _bands_by_cpt(db_session, geotech_model_id)
+    assert two_section_scene["cpt_a1_id"] in bands
+    assert two_section_scene["cpt_a2_id"] in bands
+    assert two_section_scene["cpt_b1_id"] not in bands
+    assert two_section_scene["cpt_b2_id"] not in bands
+
+
+@pytest.mark.asyncio
+async def test_gs6_subdividing_the_second_section_keeps_the_first_sections_bands(
+    two_section_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GS6: two sections subdivided at the same time — the point of the scoping.
+
+    Before the fix the rebuild deleted the whole geotech model and only
+    narrowed what it re-created, so this second press erased the first one's
+    work and there was no way to have both.
+    """
+    geotech_model_id = await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_a_id"]
+    )
+    before = await _bands_by_cpt(db_session, geotech_model_id)
+    assert before[two_section_scene["cpt_a1_id"]], "section A must be banded before we test B"
+
+    await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_b_id"]
+    )
+    after = await _bands_by_cpt(db_session, geotech_model_id)
+
+    assert after[two_section_scene["cpt_b1_id"]], "section B's CPTs must now carry bands"
+    assert after[two_section_scene["cpt_b2_id"]]
+    assert after.get(two_section_scene["cpt_a1_id"]) == before[two_section_scene["cpt_a1_id"]], (
+        "subdividing B may not delete, move or renumber a single band on A — "
+        "the rows must be the SAME rows"
+    )
+    assert after.get(two_section_scene["cpt_a2_id"]) == before[two_section_scene["cpt_a2_id"]]
+
+
+@pytest.mark.asyncio
+async def test_gs7_re_running_a_section_rebuilds_it_and_leaves_the_other_alone(
+    two_section_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GS7: a re-run of A is idempotent for A and does not touch B's rows."""
+    geotech_model_id = await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_a_id"]
+    )
+    await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_b_id"]
+    )
+    before = await _bands_by_cpt(db_session, geotech_model_id)
+
+    await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_a_id"]
+    )
+    after = await _bands_by_cpt(db_session, geotech_model_id)
+
+    # A is rebuilt: same geometry from the same qc, fresh rows.
+    assert _shape(after[two_section_scene["cpt_a1_id"]]) == _shape(
+        before[two_section_scene["cpt_a1_id"]]
+    ), "the same qc over the same litho unit must come back with the same bands"
+    # B is not rebuilt: the very same rows, ids and all.
+    assert after[two_section_scene["cpt_b1_id"]] == before[two_section_scene["cpt_b1_id"]]
+    assert after[two_section_scene["cpt_b2_id"]] == before[two_section_scene["cpt_b2_id"]]
+
+
+@pytest.mark.asyncio
+async def test_gs8_an_accepted_tie_on_the_other_section_survives_the_subdivide(
+    two_section_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GS8: the engineer's accepted tie on B is not collateral of a rebuild of A.
+
+    The endpoint FKs cascade, so a wholesale layer wipe takes an accepted tie
+    with it without passing through any application code.  A tie on columns
+    the run does not rebuild must never reach that path at all.
+    """
+    geotech_model_id = await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_a_id"]
+    )
+    await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_b_id"]
+    )
+    await _stage_pending_tie(
+        db_session,
+        geotech_model_id,
+        section_id=two_section_scene["section_b_id"],
+        cpt_a_id=two_section_scene["cpt_b1_id"],
+        cpt_b_id=two_section_scene["cpt_b2_id"],
+        approved=True,
+    )
+    grouped = await _edges_by_section(db_session, geotech_model_id)
+    tie_before = grouped[two_section_scene["section_b_id"]][0]
+    endpoints_before = (tie_before.layer_a_id, tie_before.layer_b_id)
+
+    await _subdivide_cpts(
+        async_client, two_section_scene, section_id=two_section_scene["section_a_id"]
+    )
+
+    db_session.expire_all()
+    grouped = await _edges_by_section(db_session, geotech_model_id)
+    surviving = grouped.get(two_section_scene["section_b_id"], [])
+    assert len(surviving) == 1, (
+        "the accepted tie on section B was destroyed by a rebuild of section A"
+    )
+    assert surviving[0].user_approved is True
+    assert surviving[0].source == "manual", "a hand-drawn tie must still read as hand work"
+    assert (surviving[0].layer_a_id, surviving[0].layer_b_id) == endpoints_before, (
+        "B's bands were never rebuilt, so its tie must still point at the very same rows"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gs9_a_scoped_run_does_not_report_the_other_section_as_left_out(
+    two_section_scene: dict,
+    async_client: AsyncClient,
+) -> None:
+    """GS9: "left out of the model" means on NO section, not "not on this one".
+
+    The skip report exists to say a model came out smaller than the sidebar's
+    investigation count.  A column on the neighbouring section is IN the model
+    and keeps its bands through this press, so naming it here would send the
+    engineer looking for a problem that is not there.
+    """
+    resp = await async_client.post(
+        f"/projects/{two_section_scene['project_id']}/geology/models/"
+        f"{two_section_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={
+            "litho_model_id": two_section_scene["litho_model_id"],
+            "section_id": two_section_scene["section_a_id"],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+
+    assert payload["skipped_off_section_count"] == 0, payload["skipped_off_section_labels"]
+    assert payload["skipped_off_section_labels"] == []
