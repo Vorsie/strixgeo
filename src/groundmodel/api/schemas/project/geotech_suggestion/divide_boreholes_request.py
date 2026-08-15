@@ -6,6 +6,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.project.voxel_build_request import (
+    SectionPartitionInputSchema,
+)
+
 
 class DivideBoreholesRequest(BaseModel):
     """Optional body of ``POST .../geotech/divide-boreholes``.
@@ -63,5 +67,16 @@ class DivideBoreholesRequest(BaseModel):
             "Divide only this section's boreholes and gate on this section's "
             "pending ties; omit or null for the whole model (the historic "
             "behaviour)."
+        ),
+    )
+    section_partitions: dict[UUID, SectionPartitionInputSchema] | None = Field(
+        default=None,
+        description=(
+            "The 2-D section partitions, keyed by section id — the same shape "
+            "the 3-D build receives. When a partition covers a borehole it "
+            "OUTRANKS the donor rule: the geometry between the two CPTs "
+            "already says what lies in the gap, so the borehole's column is "
+            "read as a vertical line through it (owner ruling 2026-08-15). "
+            "Omit for the donor-only behaviour."
         ),
     )
