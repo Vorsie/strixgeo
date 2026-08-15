@@ -385,10 +385,12 @@ async def load_geotech_edges_for_supersession(
 ) -> list[GeotechEdgeForSupersession]:
     """Load one section's geotech edges as the jump-tie supersession needs them.
 
-    The supersession judgment (owner ruling 2026-08-14: a bridged CPT↔CPT jump
-    tie is REPLACED by the mediated chain once "Divide boreholes" materialises
-    it) needs each edge's endpoint bands AND the investigation each band sits
-    on — investigations are what a direct litho tie is declared between.
+    The supersession judgment (owner ruling 2026-08-14: a CPT↔CPT tie that
+    jumps a column is REPLACED by the mediated chain once "Divide boreholes"
+    materialises it) needs each edge's endpoint bands AND the investigation
+    each band sits on — the investigation is what the section's along-position
+    map is keyed by, and the span between the two is what decides whether the
+    tie jumps anything at all.
 
     Parameters
     ----------

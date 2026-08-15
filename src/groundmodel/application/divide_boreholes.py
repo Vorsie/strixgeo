@@ -1482,26 +1482,37 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
             # Owner ruling 2026-08-14: "those cpt to cpt ties should be
             # replaced by cpt to borehole to borehole to cpt ties once i click
-            # subdivide boreholes" / "just delete all".  A bridged jump tie
-            # kept alongside the chain would still weld one body straight
-            # across a borehole whose bands disagree, and the fill would still
-            # draw its straight bridge line over the real bands.  Deletion
-            # only fires when an ACCEPTED direct-litho-backed path connects
-            # the same two bands, so connectivity is unchanged by construction
-            # and the resolver pass below needs no extra trigger.
-            direct_inv_pairs: set[tuple[str, str]] = set()
-            for la, lb in approved:
-                inv_a = litho_layer_depths.get(la)
-                inv_b = litho_layer_depths.get(lb)
-                if inv_a is None or inv_b is None:
-                    continue
-                lo, hi = sorted((inv_a[0], inv_b[0]))
-                direct_inv_pairs.add((lo, hi))
+            # subdivide boreholes" / "just delete all".  A tie kept alongside
+            # the chain would still weld one body straight across a borehole
+            # whose bands disagree, and the fill would still draw its straight
+            # bridge line over the real bands.  Deletion only fires when an
+            # ACCEPTED chain of shorter hops inside the tie's own span already
+            # connects the same two bands, so connectivity is unchanged by
+            # construction and the resolver pass below needs no extra trigger.
+            #
+            # The judgment is GEOMETRIC, so it needs the section's own column
+            # order — the same projection the section view, the DXF export and
+            # the flanking rule use, so a borehole the engineer sees between
+            # two CPTs is the borehole this rule sees between them.  (Keying on
+            # provenance instead spared every restatement of a direct litho tie,
+            # which on the owner's model is exactly the tie he wanted replaced:
+            # he correlates CPT→CPT ACROSS the boreholes at the litho stage.)
+            along_by_investigation = {
+                str(inv_id): value
+                for inv_id, value in (
+                    await project_investigations_onto_section(
+                        self._session,
+                        project_id=project_id,
+                        section_id=section.id,
+                        missing_ok=True,
+                    )
+                ).items()
+            }
             section_edges = await load_geotech_edges_for_supersession(
                 self._session, geotech_model_id, section.id
             )
             edge_by_id = {e.edge_id: e for e in section_edges}
-            for edge_id in superseded_jump_tie_ids(section_edges, direct_inv_pairs):
+            for edge_id in superseded_jump_tie_ids(section_edges, along_by_investigation):
                 superseded_edge_ids.append(edge_id)
                 doomed = edge_by_id[edge_id]
                 superseded_labels.append(
