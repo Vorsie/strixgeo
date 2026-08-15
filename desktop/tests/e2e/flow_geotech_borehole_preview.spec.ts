@@ -177,8 +177,13 @@ test.describe('flow_geotech_borehole_preview', () => {
       // leave nothing pending. The steps live in the "Packing pipeline"
       // dropdown (owner tidy-up 2026-08-05); an item click auto-closes the
       // menu, so re-open per press.
+      //
+      // The ALL-SECTIONS item on purpose (owner ruling 2026-08-15 made the
+      // primary press section-scoped): the subdivide above ran over the whole
+      // model via HTTP, so ties exist on sections this spec never opens, and
+      // step 4's gate still counts the whole model.
       await page.getByTestId('geotech-pipeline').click()
-      const acceptTies = page.getByTestId('geotech-accept-correlations')
+      const acceptTies = page.getByTestId('geotech-accept-correlations-all')
       if (await acceptTies.isEnabled()) {
         await acceptTies.click()
       }

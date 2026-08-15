@@ -38,6 +38,19 @@ interface Props {
    * sentence at all.
    */
   handEditCount?: number
+  /**
+   * True when the pending run is scoped to ONE section (owner ruling
+   * 2026-08-15). The verb is still wipe-and-rebuild over the whole geotech
+   * model, so a scoped re-run rebuilds this section's columns and leaves the
+   * others with none — a consequence the menu item's "on this section" wording
+   * actively hides.
+   */
+  scopedToSection?: boolean
+  /**
+   * How many OTHER sections the project carries. Zero means the scoped run and
+   * the model-wide run are the same thing, so there is nothing to disclose.
+   */
+  otherSectionCount?: number
 }
 
 /**
@@ -56,8 +69,12 @@ export default function ReSubdivideConfirmDialog({
   onConfirm,
   busy = false,
   handEditCount = 0,
+  scopedToSection = false,
+  otherSectionCount = 0,
 }: Props): JSX.Element {
   const oneHandEdit = handEditCount === 1
+  const disclosesScope = scopedToSection && otherSectionCount > 0
+  const oneOtherSection = otherSectionCount === 1
   return (
     <ConfirmDialog
       open={open}
@@ -85,6 +102,21 @@ export default function ReSubdivideConfirmDialog({
               </span>{' '}
               you split or merged {oneHandEdit ? 'goes' : 'go'} back to the
               segmenter&rsquo;s boundaries. That cannot be recovered.
+            </p>
+          )}
+          {/* The scoped press LOOKS narrow and is not: the rebuild still wipes the whole
+              geotech model first, so the sections it does not rebuild come back empty.
+              The engineer cannot infer that from a menu item reading "on this section",
+              which is exactly why it has to be said here (owner ruling 2026-08-15). */}
+          {disclosesScope && (
+            <p className="mt-2" data-testid="re-subdivide-scope">
+              You chose <span className="font-semibold">this section only</span>. The
+              rebuild still clears the whole geotech model first, so the{' '}
+              <span className="font-semibold">
+                {otherSectionCount} other section{oneOtherSection ? '' : 's'}
+              </span>{' '}
+              {oneOtherSection ? 'loses' : 'lose'} their packing bands until you run
+              &ldquo;on all sections&rdquo;.
             </p>
           )}
           {/* The dialog used to be a dead end: wiping the model was the only way to get

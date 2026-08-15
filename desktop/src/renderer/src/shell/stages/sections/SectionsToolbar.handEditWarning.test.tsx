@@ -147,6 +147,12 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     expect(handleSubdivideAllBodies).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('re-subdivide-confirm'))
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
+    // RE-PINNED 2026-08-15: the scope chosen at the press survives the dialog
+    // (the shared fixture has "sec-1" open). Confirming must run the SAME
+    // press the engineer made — not silently widen it to the whole model.
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'sec-1',
+    })
   })
 })

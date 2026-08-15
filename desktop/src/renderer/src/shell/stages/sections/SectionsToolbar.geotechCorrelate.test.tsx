@@ -140,14 +140,19 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     expect(screen.getByTestId('correlate-mode-caret')).toBeTruthy()
   })
 
-  it('GC3 — pressing it asks the GEOTECH model for proposals across the whole model', async () => {
-    // RE-PINNED 2026-08-05 (review MAJOR-2): the pipeline gate is model-wide,
-    // so its feeder verbs are too. The geotech model id — never the litho
-    // parent — and a null section = every section.
+  it('GC3 — pressing it asks the GEOTECH model for proposals on the open section', async () => {
+    // RE-PINNED 2026-08-15. The 2026-08-05 pin read "across the whole model"
+    // (review MAJOR-2: a section-scoped verb could never satisfy the
+    // model-wide step-4 gate). The owner overturned it — "I also see that this
+    // is model wide and not per section, i don't like that" — and the gate's
+    // objection is answered instead by the "on all sections" item beside this
+    // one plus a gate that now names the sections still pending.
+    // What is UNCHANGED and still pinned here: the GEOTECH model id, never the
+    // litho parent.
     renderToolbar(makeCtx('geotechnical'))
     fireEvent.click(screen.getByTestId('geotech-auto-correlate'))
     await waitFor(() => expect(autoCorrelateGeotech).toHaveBeenCalled())
-    expect(autoCorrelateGeotech).toHaveBeenCalledWith('proj-1', 'geotech-model-1', null)
+    expect(autoCorrelateGeotech).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
   })
 
   it('GC4 — the verb is disabled until a geotech model exists', () => {
@@ -155,11 +160,13 @@ describe('SectionsToolbar — geotech auto-correlate', () => {
     expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
   })
 
-  it('GC4b — the verb works with no section open (model-wide, MAJOR-2 re-pin)', () => {
-    // Proposals are REVIEWED per section (pending style + per-tie accept), but
-    // proposing is model-wide so the model-wide gate can ever be satisfied.
+  it('GC4b — with no section open, the escape is what stays pressable', () => {
+    // RE-PINNED 2026-08-15: was "the verb works with no section open
+    // (model-wide, MAJOR-2 re-pin)". The primary press needs a section to
+    // scope to now; running without one is a deliberate second item.
     renderToolbar(makeCtx('geotechnical', { sections: { selectedSectionId: null } }))
-    expect(screen.getByTestId('geotech-auto-correlate')).not.toBeDisabled()
+    expect(screen.getByTestId('geotech-auto-correlate')).toBeDisabled()
+    expect(screen.getByTestId('geotech-auto-correlate-all')).not.toBeDisabled()
   })
 
   it('GC5 — it adds; it never deletes or rebuilds (the owner invariant)', async () => {
@@ -232,12 +239,12 @@ describe('SectionsToolbar — geotech accept correlations', () => {
     expect(screen.getByTestId('geotech-accept-correlations')).toBeTruthy()
   })
 
-  it('GA2 — accepting promotes the GEOTECH model’s pending ties model-wide', async () => {
-    // RE-PINNED 2026-08-05 (review MAJOR-2) — see GA3b for the reasoning.
+  it('GA2 — accepting promotes the GEOTECH model’s ties on the open section', async () => {
+    // RE-PINNED 2026-08-15 (was "model-wide", 2026-08-05 MAJOR-2) — see GA3b.
     renderToolbar(makeCtx('geotechnical'))
     fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
-    expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', null)
+    expect(acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'geotech-model-1', 'sec-1')
   })
 
   it('GA3 — the accept verb is disabled until a geotech model exists', () => {
@@ -245,24 +252,27 @@ describe('SectionsToolbar — geotech accept correlations', () => {
     expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
   })
 
-  it('GA3b — the accept verb works with no section open (model-wide)', () => {
-    // RE-PINNED 2026-08-05 (review MAJOR-2). The earlier pin scoped accepting
-    // to the open section — but step 4's gate and the pending chip count the
-    // WHOLE model, so a section-scoped "Accept all" could never satisfy them:
-    // on a multi-section model the gate stayed closed with no in-app escape.
-    // The label says ALL and the owner's pipeline gates a model-wide divide on
-    // it, so the verb is model-wide; the per-tie right-click accept remains
-    // the section-local review path. (Trade-off flagged to the owner: bulk
-    // accept approves ties on sections not currently on screen.)
+  it('GA3b — with no section open, the escape is what stays pressable', () => {
+    // RE-PINNED 2026-08-15. The 2026-08-05 pin made this verb model-wide on
+    // the argument that a section-scoped "Accept all" could never satisfy the
+    // model-wide step-4 gate. The owner overruled the resulting behaviour —
+    // "I also see that this is model wide and not per section, i don't like
+    // that" — and accepting a correlation is a judgement about geometry he can
+    // SEE, so approving ties on sections that are not on screen is exactly
+    // what the primary press must stop doing. The gate's objection is answered
+    // by the second item below plus a gate that now names the sections still
+    // pending, so there is still a one-press way out.
     renderToolbar(makeCtx('geotechnical', { sections: { selectedSectionId: null } }))
-    expect(screen.getByTestId('geotech-accept-correlations')).not.toBeDisabled()
+    expect(screen.getByTestId('geotech-accept-correlations')).toBeDisabled()
+    expect(screen.getByTestId('geotech-accept-correlations-all')).not.toBeDisabled()
   })
 
-  it('GA3c — accepting reaches the whole model, matching the gate it must clear', async () => {
+  it('GA3c — the all-sections item still reaches the whole model', async () => {
+    // The escape hatch keeps the property the old primary had: it is the one
+    // press that can clear step 4's model-wide gate.
     renderToolbar(makeCtx('geotechnical'))
-    fireEvent.click(screen.getByTestId('geotech-accept-correlations'))
+    fireEvent.click(screen.getByTestId('geotech-accept-correlations-all'))
     await waitFor(() => expect(acceptContactCorrelations).toHaveBeenCalled())
-    // Model-wide on purpose — see GA3b. A section id here would re-open MAJOR-2.
     expect(acceptContactCorrelations.mock.calls[0][2]).toBeNull()
   })
 

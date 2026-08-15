@@ -134,7 +134,11 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
     ].map((id) => screen.getByTestId(id).textContent ?? '')
     expect(labels[0]).toContain('1 · Subdivide CPTs')
     expect(labels[1]).toContain('2 · Auto-correlate')
-    expect(labels[2]).toContain('3 · Accept all ties')
+    // RE-PINNED 2026-08-15: was "3 · Accept all ties". The primary press is
+    // now section-scoped ("I also see that this is model wide and not per
+    // section, i don't like that"), and "Accept ALL ties on this section" is a
+    // contradiction — the label had to lose the "all".
+    expect(labels[2]).toContain('3 · Accept ties')
     expect(labels[3]).toContain('4 · Divide boreholes')
     // Document order matches press order — the toolbar reads as the workflow.
     const rendered = document.body.textContent ?? ''
@@ -172,7 +176,13 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
     )
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
+    // RE-PINNED 2026-08-15: the press now also carries the open section's id
+    // (the shared fixture selects "sec-1"). The claim under test is unchanged
+    // — deriveEdges stays false, i.e. step 1 still correlates nothing.
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'sec-1',
+    })
   })
 })
 

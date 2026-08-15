@@ -163,3 +163,56 @@ describe('ReSubdivideConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 })
+
+// Scope disclosure (owner ruling 2026-08-15). Step 1 became section-scoped —
+// "i want subdivide cpt's also to be section scoped" — but the verb is still
+// wipe-and-rebuild over the WHOLE geotech model. A scoped re-run therefore
+// rebuilds this section's columns and leaves the others with nothing, which the
+// engineer cannot possibly infer from a menu item that says "on this section".
+//
+// AC11  a scoped re-run says the other sections lose their bands
+// AC12  the all-sections re-run says nothing about other sections
+
+describe('ReSubdivideConfirmDialog — scope disclosure', () => {
+  it('AC11 — a scoped re-run discloses what the other sections lose', () => {
+    render(
+      <ReSubdivideConfirmDialog
+        open
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+        scopedToSection
+        otherSectionCount={3}
+      />,
+    )
+    const note = document.body.querySelector('[data-testid="re-subdivide-scope"]')
+    expect(note).not.toBeNull()
+    expect(note?.textContent ?? '').toContain('3')
+    expect(note?.textContent ?? '').toMatch(/other section/i)
+  })
+
+  it('AC11b — with no other section there is nothing to disclose', () => {
+    render(
+      <ReSubdivideConfirmDialog
+        open
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+        scopedToSection
+        otherSectionCount={0}
+      />,
+    )
+    expect(document.body.querySelector('[data-testid="re-subdivide-scope"]')).toBeNull()
+  })
+
+  it('AC12 — the all-sections re-run says nothing about other sections', () => {
+    render(
+      <ReSubdivideConfirmDialog
+        open
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+        scopedToSection={false}
+        otherSectionCount={3}
+      />,
+    )
+    expect(document.body.querySelector('[data-testid="re-subdivide-scope"]')).toBeNull()
+  })
+})

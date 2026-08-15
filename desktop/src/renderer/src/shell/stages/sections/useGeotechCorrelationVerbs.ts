@@ -11,6 +11,11 @@
  * correlation session is safe. ``runAcceptCorrelations`` promotes the proposals the
  * engineer keeps, which is the point at which the resolver folds them into bodies.
  *
+ * Both take a SCOPE (owner ruling 2026-08-15: *"I also see that this is model
+ * wide and not per section, i don't like that"*): a section id runs the verb on
+ * that section alone, ``null`` is the explicit all-sections escape the toolbar
+ * offers as a second menu item beside each.
+ *
  * Lives outside ``SectionsToolbar`` because that component is already far past the
  * 500-line god-component threshold (debt #201).
  */
@@ -27,7 +32,6 @@ export interface UseGeotechCorrelationVerbsDeps {
   projectId: string
   /** Active geotechnical model — ``null`` until "Subdivide all bodies" has run. */
   activeGeotechModel: GeologicalModelResponse | null
-  /** Selected cross-section; ``null`` widens both verbs to the whole model. */
   /** Toast stack action. */
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
   /** Mark the project dirty (two-stage save model). */
@@ -54,10 +58,30 @@ export interface UseGeotechCorrelationVerbsResult {
   autoCorrelating: boolean
   /** True while the accept request is in flight. */
   acceptingCorrelations: boolean
-  /** Propose the automatic packing ties again, without touching existing ones. */
-  runAutoCorrelate: () => Promise<void>
-  /** Promote this section's pending packing ties to approved. */
-  runAcceptCorrelations: () => Promise<void>
+  /**
+   * Propose the automatic packing ties again, without touching existing ones.
+   *
+   * ``sectionId`` scopes the run to one section; ``null`` is the explicit
+   * all-sections escape.
+   */
+  runAutoCorrelate: (sectionId: string | null) => Promise<void>
+  /**
+   * Promote pending packing ties to approved.
+   *
+   * ``sectionId`` scopes the accept to one section; ``null`` is the explicit
+   * all-sections escape.
+   */
+  runAcceptCorrelations: (sectionId: string | null) => Promise<void>
+}
+
+/**
+ * Name the scope a run covered, in the words the menu item used.
+ *
+ * @param sectionId - The scoped section, or ``null`` for the whole model.
+ * @returns A phrase to drop into a toast.
+ */
+function scopePhrase(sectionId: string | null): string {
+  return sectionId === null ? 'on all sections' : 'on this section'
 }
 
 /**
@@ -90,131 +114,147 @@ export function useGeotechCorrelationVerbs(
   const [autoCorrelating, setAutoCorrelating] = useState(false)
   const [acceptingCorrelations, setAcceptingCorrelations] = useState(false)
 
-  const runAutoCorrelate = useCallback(async (): Promise<void> => {
-    if (!activeGeotechModel || autoCorrelating) return
-    const modelId = activeGeotechModel.id
-    log.info(
-      'sections',
-      `geotechAutoCorrelate: model=${modelId} scope=model-wide`,
-    )
-    setAutoCorrelating(true)
-    try {
-      // MODEL-WIDE on purpose (review MAJOR-2, 2026-08-05): step 4's gate and
-      // the pending chip count the whole model, so a section-scoped step 2/3
-      // could never satisfy them — "Accept all ties" on one section left the
-      // gate closed with no in-app way to open it. Per-tie accept on the
-      // canvas remains the section-local path.
-      const result = await api.geology.autoCorrelateGeotech(projectId, modelId, null)
-      const accepted = result.edges_accepted ?? 0
-      const emitted = result.edges_proposed + accepted
-      log.success(
+  const runAutoCorrelate = useCallback(
+    async (sectionId: string | null): Promise<void> => {
+      if (!activeGeotechModel || autoCorrelating) return
+      const modelId = activeGeotechModel.id
+      log.info(
         'sections',
-        `geotechAutoCorrelate: proposed=${result.edges_proposed} ` +
-          `accepted_restatements=${accepted} ` +
-          `skipped_existing=${result.edges_skipped_existing} ` +
-          `sections=${result.sections_processed} ` +
-          `no_lcs=${result.skipped_no_lcs} empty_stack=${result.skipped_empty_stack}`,
+        `geotechAutoCorrelate: model=${modelId} scope=${sectionId ?? 'model-wide'}`,
       )
-      if (emitted > 0) markMutated()
-      // Born-accepted restatements band immediately — schedule the geotech
-      // identity recompute (slice 5). Pending proposals move nothing yet.
-      if (accepted > 0) requestBodyRecompute?.('geotech')
-      // The edge list must come back for both kinds; the pending ones also
-      // move the tie-status chip. (Body membership from the born-accepted
-      // restatements re-resolves on the next accept/divide verb — the banding
-      // render itself consumes edges, not body_id.)
-      requestCorrelationEdgesRefetch?.()
-      refreshTieStatus?.()
-      if (emitted === 0) {
-        toast(
-          'success',
-          result.edges_skipped_existing > 0
-            ? `Auto-correlate: nothing new — all ${result.edges_skipped_existing} ` +
-                'automatic tie(s) are already correlated.'
-            : 'Auto-correlate: no automatic packing ties found — subdivide the bodies first.',
+      setAutoCorrelating(true)
+      try {
+        // SECTION-SCOPED by default since the owner's 2026-08-15 dogfeed ("this
+        // is model wide and not per section, i don't like that"). The earlier
+        // MAJOR-2 objection — that a section-scoped step 2/3 can never satisfy
+        // the model-wide step-4 gate — is answered by the gate now NAMING the
+        // sections still pending, plus the "on all sections" escape sitting
+        // beside this item. Per-tie accept on the canvas is unchanged.
+        const result = await api.geology.autoCorrelateGeotech(projectId, modelId, sectionId)
+        const accepted = result.edges_accepted ?? 0
+        const emitted = result.edges_proposed + accepted
+        log.success(
+          'sections',
+          `geotechAutoCorrelate: proposed=${result.edges_proposed} ` +
+            `accepted_restatements=${accepted} ` +
+            `skipped_existing=${result.edges_skipped_existing} ` +
+            `sections=${result.sections_processed} ` +
+            `no_lcs=${result.skipped_no_lcs} empty_stack=${result.skipped_empty_stack}`,
         )
-      } else {
-        // Owner refinement 2026-08-06: litho-backed restatements band
-        // immediately; the machine's NEW packing-density claims arrive as
-        // pending ghosts for step 3's review.
-        toast(
-          'success',
-          `Auto-correlate: ${accepted} litho-backed tie${accepted === 1 ? '' : 's'} banded, ` +
-            `${result.edges_proposed} new packing tie` +
-            `${result.edges_proposed === 1 ? '' : 's'} proposed, ` +
-            `${result.edges_skipped_existing} left untouched` +
-            (result.edges_proposed > 0
-              ? ' — review the ghosts, then "3 · Accept correlations".'
-              : '.'),
-        )
+        if (emitted > 0) markMutated()
+        // Born-accepted restatements band immediately — schedule the geotech
+        // identity recompute (slice 5). Pending proposals move nothing yet.
+        if (accepted > 0) requestBodyRecompute?.('geotech')
+        // The edge list must come back for both kinds; the pending ones also
+        // move the tie-status chip. (Body membership from the born-accepted
+        // restatements re-resolves on the next accept/divide verb — the banding
+        // render itself consumes edges, not body_id.)
+        requestCorrelationEdgesRefetch?.()
+        refreshTieStatus?.()
+        // Every toast names the SCOPE (owner 2026-08-15): with two presses one
+        // menu apart, a count with no scope tells him nothing about what moved.
+        const scope = scopePhrase(sectionId)
+        if (emitted === 0) {
+          toast(
+            'success',
+            result.edges_skipped_existing > 0
+              ? `Auto-correlate ${scope}: nothing new — all ${result.edges_skipped_existing} ` +
+                  'automatic tie(s) are already correlated.'
+              : `Auto-correlate ${scope}: no automatic packing ties found — ` +
+                  'subdivide the bodies first.',
+          )
+        } else {
+          // Owner refinement 2026-08-06: litho-backed restatements band
+          // immediately; the machine's NEW packing-density claims arrive as
+          // pending ghosts for step 3's review.
+          toast(
+            'success',
+            `Auto-correlate ${scope}: ${accepted} litho-backed tie` +
+              `${accepted === 1 ? '' : 's'} banded, ` +
+              `${result.edges_proposed} new packing tie` +
+              `${result.edges_proposed === 1 ? '' : 's'} proposed, ` +
+              `${result.edges_skipped_existing} left untouched` +
+              (result.edges_proposed > 0
+                ? ' — review the ghosts, then "3 · Accept ties".'
+                : '.'),
+          )
+        }
+      } catch (err) {
+        log.error('sections', 'geotechAutoCorrelate: failed', err)
+        toast('error', 'Auto-correlate packing failed — see console.')
+      } finally {
+        setAutoCorrelating(false)
       }
-    } catch (err) {
-      log.error('sections', 'geotechAutoCorrelate: failed', err)
-      toast('error', 'Auto-correlate packing failed — see console.')
-    } finally {
-      setAutoCorrelating(false)
-    }
-  }, [
-    activeGeotechModel,
-    autoCorrelating,
-    projectId,
-    toast,
-    markMutated,
-    requestCorrelationEdgesRefetch,
-    requestBodyRecompute,
-    refreshTieStatus,
-  ])
+    },
+    [
+      activeGeotechModel,
+      autoCorrelating,
+      projectId,
+      toast,
+      markMutated,
+      requestCorrelationEdgesRefetch,
+      requestBodyRecompute,
+      refreshTieStatus,
+    ],
+  )
 
-  const runAcceptCorrelations = useCallback(async (): Promise<void> => {
-    if (!activeGeotechModel || acceptingCorrelations) return
-    const modelId = activeGeotechModel.id
-    log.info(
-      'sections',
-      `geotechAcceptCorrelations: model=${modelId} scope=model-wide`,
-    )
-    setAcceptingCorrelations(true)
-    try {
-      // Model-wide, same reason as auto-correlate above (review MAJOR-2).
-      const result = await api.geology.acceptContactCorrelations(projectId, modelId, null)
-      log.success(
+  const runAcceptCorrelations = useCallback(
+    async (sectionId: string | null): Promise<void> => {
+      if (!activeGeotechModel || acceptingCorrelations) return
+      const modelId = activeGeotechModel.id
+      log.info(
         'sections',
-        `geotechAcceptCorrelations: ${result.edges_accepted} accepted`,
+        `geotechAcceptCorrelations: model=${modelId} scope=${sectionId ?? 'model-wide'}`,
       )
-      if (result.edges_accepted > 0) {
-        markMutated()
-        // Approved ties join bands into one body, so the body_id stamps the render
-        // reads have moved and the borehole division is now out of date.
-        requestGeotechLayersRefetch()
-        markBoreholesStale()
-        // …and the geotech body identity moved with them (slice 5).
-        requestBodyRecompute?.('geotech')
+      setAcceptingCorrelations(true)
+      try {
+        // Section-scoped by default, same ruling as auto-correlate above:
+        // approving a correlation is a judgement about geometry he can SEE, and
+        // a model-wide accept approves ties on sections that are not on screen.
+        const result = await api.geology.acceptContactCorrelations(projectId, modelId, sectionId)
+        log.success(
+          'sections',
+          `geotechAcceptCorrelations: ${result.edges_accepted} accepted ` +
+            `scope=${sectionId ?? 'model-wide'}`,
+        )
+        if (result.edges_accepted > 0) {
+          markMutated()
+          // Approved ties join bands into one body, so the body_id stamps the render
+          // reads have moved and the borehole division is now out of date.
+          requestGeotechLayersRefetch()
+          markBoreholesStale()
+          // …and the geotech body identity moved with them (slice 5).
+          requestBodyRecompute?.('geotech')
+        }
+        requestCorrelationEdgesRefetch?.()
+        refreshTieStatus?.()
+        const scope = scopePhrase(sectionId)
+        toast(
+          'success',
+          result.edges_accepted === 0
+            ? `No pending packing correlations to accept ${scope}.`
+            : `Accepted ${result.edges_accepted} packing correlation` +
+                `${result.edges_accepted === 1 ? '' : 's'} ${scope}.`,
+        )
+      } catch (err) {
+        log.error('sections', 'geotechAcceptCorrelations: failed', err)
+        toast('error', 'Accept packing correlations failed — see console.')
+      } finally {
+        setAcceptingCorrelations(false)
       }
-      requestCorrelationEdgesRefetch?.()
-      refreshTieStatus?.()
-      toast(
-        'success',
-        result.edges_accepted === 0
-          ? 'No pending packing correlations to accept.'
-          : `Accepted ${result.edges_accepted} packing correlation` +
-              `${result.edges_accepted === 1 ? '' : 's'}.`,
-      )
-    } catch (err) {
-      log.error('sections', 'geotechAcceptCorrelations: failed', err)
-      toast('error', 'Accept packing correlations failed — see console.')
-    } finally {
-      setAcceptingCorrelations(false)
-    }
-  }, [
-    activeGeotechModel,
-    acceptingCorrelations,
-    projectId,
-    toast,
-    markMutated,
-    requestCorrelationEdgesRefetch,
-    requestBodyRecompute,
-    requestGeotechLayersRefetch,
-    refreshTieStatus,
-  ])
+    },
+    [
+      activeGeotechModel,
+      acceptingCorrelations,
+      projectId,
+      toast,
+      markMutated,
+      requestCorrelationEdgesRefetch,
+      requestBodyRecompute,
+      requestGeotechLayersRefetch,
+      refreshTieStatus,
+    ],
+  )
 
   return { autoCorrelating, acceptingCorrelations, runAutoCorrelate, runAcceptCorrelations }
 }

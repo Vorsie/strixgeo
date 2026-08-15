@@ -566,8 +566,9 @@ describe('SectionsToolbar geotech axis toggle (F3)', () => {
 //   BF3  The button is disabled when activeLithoModel is null; enabled when
 //        the model is present (section selection is no longer required — the
 //        operation is model-wide).
-//   BF4  Clicking the enabled button calls handleSubdivideAllBodies with no
-//        arguments (model-wide, no section id).
+//   BF4  Clicking the enabled button calls handleSubdivideAllBodies with the
+//        OPEN section's id (owner ruling 2026-08-15 — the verb is section
+//        scoped; the "on all sections" item is the model-wide press).
 
 describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
   it('BF1 — button is present when the axis is "geotechnical"', () => {
@@ -607,8 +608,11 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
     expect(screen.getByTestId('geotech-subdivide-cpts')).toBeDisabled()
   })
 
-  it('BF3b — button is ENABLED even when no section is selected (model-wide operation)', () => {
-    // The operation no longer requires a section; only the litho model matters.
+  it('BF3b — with no section open the scoped half is dead, the escape is live', () => {
+    // RE-PINNED 2026-08-15. The old pin read "ENABLED even when no section is
+    // selected (model-wide operation)". Owner: "i want subdivide cpt's also to
+    // be section scoped" — the primary press now needs a section to scope to,
+    // and the all-sections item is the way to run without one.
     renderToolbar(
       makeCtx({
         sectionModelAxis: 'geotechnical',
@@ -616,10 +620,12 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
         selectedSectionId: null,
       }),
     )
-    expect(screen.getByTestId('geotech-subdivide-cpts')).not.toBeDisabled()
+    expect(screen.getByTestId('geotech-subdivide-cpts')).toBeDisabled()
+    expect(screen.getByTestId('geotech-subdivide-cpts-all')).not.toBeDisabled()
   })
 
-  it('BF4 — clicking the button calls handleSubdivideAllBodies with no arguments (model-wide)', () => {
+  it('BF4 — clicking the button subdivides the section on screen', () => {
+    // RE-PINNED 2026-08-15: was "with no arguments (model-wide)".
     const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
     renderToolbar(
       makeCtx({
@@ -630,7 +636,10 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
       }),
     )
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'section-abc',
+    })
   })
 })
 
@@ -653,6 +662,9 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
         sectionModelAxis: 'geotechnical',
         activeLithoModel: makeLithoModel(),
         activeGeotechModel: makeGeotechModel(),
+        // A section is open — the state the engineer presses step 1 from since
+        // the verb became section-scoped (owner ruling 2026-08-15).
+        selectedSectionId: 'section-1',
         handleSubdivideAllBodies,
       }),
     )
@@ -672,12 +684,17 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
         sectionModelAxis: 'geotechnical',
         activeLithoModel: makeLithoModel(),
         activeGeotechModel: null,
+        selectedSectionId: 'section-1',
         handleSubdivideAllBodies,
       }),
     )
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
     expect(screen.queryByTestId('re-subdivide-confirm-dialog')).toBeNull()
-    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({ deriveEdges: false })
+    // RE-PINNED 2026-08-15: the press now carries the open section's id.
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith({
+      deriveEdges: false,
+      sectionId: 'section-1',
+    })
   })
 })
 

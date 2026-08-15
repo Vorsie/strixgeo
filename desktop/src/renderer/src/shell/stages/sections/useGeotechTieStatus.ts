@@ -29,6 +29,14 @@ export interface GeotechTieStatus {
   /** Accepted ties a rebuild flagged for review (the violet ``!`` badges). */
   flagged: number
   /**
+   * ``section_id → pending count``, sections with none omitted.
+   *
+   * ``undefined`` when the server answer carried no breakdown — a distinct
+   * state from "every section is clear", and the one the wording helpers in
+   * ``geotechPendingScope.ts`` fall back on.
+   */
+  pendingBySection: Readonly<Record<string, number>> | undefined
+  /**
    * Whether these counts came from the server.
    *
    * ``false`` while there is no geotech model, while the first request is in
@@ -38,7 +46,13 @@ export interface GeotechTieStatus {
   loaded: boolean
 }
 
-const NOT_ASKED: GeotechTieStatus = { pending: 0, accepted: 0, flagged: 0, loaded: false }
+const NOT_ASKED: GeotechTieStatus = {
+  pending: 0,
+  accepted: 0,
+  flagged: 0,
+  pendingBySection: undefined,
+  loaded: false,
+}
 
 /** What the hook hands back: the counts plus a way to re-ask. */
 export interface UseGeotechTieStatusResult {
@@ -94,6 +108,7 @@ export function useGeotechTieStatus(
         pending: result.pending_tie_count,
         accepted: result.accepted_tie_count,
         flagged: result.flagged_tie_count,
+        pendingBySection: result.pending_by_section,
         loaded: true,
       })
       log.debug(
