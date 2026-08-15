@@ -121,7 +121,7 @@ def test_p1_borehole_takes_the_cpt_to_its_left_and_to_its_right_on_the_section()
         along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
     )
 
-    bands, body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+    bands, body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=borehole,
         bh_x=300.0,
         bh_y=0.0,
@@ -155,7 +155,7 @@ def test_p1_borehole_takes_the_cpt_to_its_left_and_to_its_right_on_the_section()
 
 def test_p2_no_cpt_evidence_falls_to_the_lithology_floor() -> None:
     """P2: with no same-lithology CPT band, one band at the absolute minimum."""
-    bands, body_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
+    bands, body_ids, _donor_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=str(uuid7()),
         bh_x=300.0,
         bh_y=0.0,
@@ -183,7 +183,7 @@ def test_p3_cpt_resolved_band_is_marked_cpt_interpolated() -> None:
     cpt = str(uuid7())
     layers = {cpt: [(0.0, 8.0, uuid7(), uuid7(), _NAD_DENSE, uuid7())]}
 
-    bands, _body_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
+    bands, _body_ids, _donor_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=str(uuid7()),
         bh_x=100.0,
         bh_y=0.0,
@@ -288,7 +288,7 @@ def test_p5_a_crowd_of_distant_cpts_does_not_overrule_the_two_flanking_ones() ->
 
     section = SectionPlacement(section_id=str(uuid7()), section_name="A-A'", along_m=along)
 
-    bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+    bands, _body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=borehole,
         bh_x=0.0,
         bh_y=0.0,
@@ -328,7 +328,7 @@ def test_p6_a_borehole_on_no_section_falls_back_to_the_nearest_test() -> None:
         ],
     }
 
-    bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+    bands, _body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=borehole,
         bh_x=0.0,
         bh_y=0.0,
@@ -405,7 +405,7 @@ def test_p7_an_accepted_tie_across_the_borehole_names_the_donor_pair() -> None:
         ),
     ]
 
-    bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+    bands, _body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=borehole,
         bh_x=200.0,
         bh_y=0.0,
@@ -489,7 +489,7 @@ def test_p8_a_tied_surface_is_rescaled_where_the_litho_body_thins() -> None:
     # would not. Both are checked: the surface must land at 40 % of whatever
     # thickness the litho body has HERE.
     for extent_top, extent_base, expected in ((3.0, 5.0, 3.8), (3.0, 4.0, 3.4)):
-        bands, _body_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+        bands, _body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
             inv_id=borehole,
             bh_x=200.0,
             bh_y=0.0,
