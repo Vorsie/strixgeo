@@ -60,6 +60,7 @@ function makeSample(overrides: Partial<SampleResponse> = {}): SampleResponse {
 function renderPopover(
   sample: SampleResponse,
   anchor: { x: number; y: number } = { x: 100, y: 100 },
+  bodyClickable = false,
 ) {
   return render(
     <SamplePsdPopover
@@ -69,6 +70,7 @@ function renderPopover(
       anchorY={anchor.y}
       containerWidth={800}
       containerHeight={500}
+      bodyClickable={bodyClickable}
     />,
   )
 }
@@ -244,6 +246,76 @@ describe('SamplePsdPopover', () => {
     const top = parseFloat(card.style.top)
     expect(top).toBeGreaterThanOrEqual(0)
     // Header + chart + axis strip + the organic line, all above the panel floor.
+    expect(top + 8 * 2 + 30 + 80 + 13 + 12).toBeLessThanOrEqual(500)
+  })
+
+  // Owner (dogfeed 2026-08-15): "impossible, i'm 100% sure some have gehalte
+  // aan organisch materiaal, it's even under organic matter content in the data
+  // stage". On his project that reading lives in the scalar catch-all, not in
+  // the typed organic family, and the card was reading only the typed one.
+  it('SPP13: the organic line renders from the scalar catch-all row too', () => {
+    renderPopover(
+      makeSample({
+        organic_content_tests: [],
+        scalar_lab_tests: [
+          {
+            id: 'sc-1',
+            parameter_group: 'Onderkenning - proeven',
+            // Verbatim from his data — DOV repeats the name in its own brackets.
+            parameter: 'Gehalte Organische stoffen (Gehalte Organische stoffen)',
+            value_numeric: 3.7,
+            value_text: null,
+            unit: '%',
+            method: null,
+            test_date: null,
+            detection_condition: null,
+          },
+        ],
+      }),
+    )
+    const line = screen.getByTestId('sample-organic-content')
+    // The DOV quantity is organic MATTER, so it must be labelled matter.
+    expect(line.textContent).toContain('organic matter')
+    expect(line.textContent).toContain('3.7')
+    expect(line.textContent).not.toContain('carbon')
+  })
+
+  // Owner (dogfeed 2026-08-15): "when i hover a psd, the click to highlight
+  // packing density overlaps the psd graph". The affordance moves INTO the
+  // card — but only where the click actually does something.
+  it('SPP14: a sample whose click highlights a packing body says so on the card', () => {
+    renderPopover(makeSample({ geotech_body_id: 'body-1' }), { x: 100, y: 100 }, true)
+    const card = screen.getByTestId('sample-psd-popover')
+    expect(card.textContent).toContain('Click to highlight packing body')
+  })
+
+  it('SPP15: a sample with no packing body never promises a click', () => {
+    // Before the packing pipeline divides the boreholes, no sample carries a
+    // body — promising a click that does nothing is worse than saying nothing.
+    renderPopover(makeSample({ geotech_body_id: null }), { x: 100, y: 100 }, true)
+    const card = screen.getByTestId('sample-psd-popover')
+    expect(card.textContent).not.toContain('Click to highlight')
+  })
+
+  it('SPP16: on the litho axis, where the click is off, the card stays silent', () => {
+    renderPopover(makeSample({ geotech_body_id: 'body-1' }), { x: 100, y: 100 }, false)
+    const card = screen.getByTestId('sample-psd-popover')
+    expect(card.textContent).not.toContain('Click to highlight')
+  })
+
+  it('SPP17: the click line is paid for in the placement, so the card still fits', () => {
+    renderPopover(
+      makeSample({
+        geotech_body_id: 'body-1',
+        grain_sizes: [makeGrainSize('g-1')],
+      }),
+      { x: 795, y: 495 },
+      true,
+    )
+    const card = screen.getByTestId('sample-psd-popover') as HTMLElement
+    const top = parseFloat(card.style.top)
+    expect(top).toBeGreaterThanOrEqual(0)
+    // Header + chart + axis strip + the click line, all above the panel floor.
     expect(top + 8 * 2 + 30 + 80 + 13 + 12).toBeLessThanOrEqual(500)
   })
 })

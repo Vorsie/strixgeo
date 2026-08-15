@@ -51,6 +51,13 @@ const AXIS_LABEL_HEIGHT = 13
  * the panel instead of hanging off its bottom edge.
  */
 const ORGANIC_LINE_HEIGHT = 12
+/**
+ * Height of the "click to highlight packing body" hint line (px).
+ *
+ * Same treatment as the organic line: measured whenever it renders, so a card
+ * that grew the hint still clamps inside the panel.
+ */
+const HINT_LINE_HEIGHT = 12
 /** Card height when a chart is drawn. */
 const CARD_HEIGHT_WITH_CHART =
   CARD_PADDING * 2 + HEADER_HEIGHT + CHART_HEIGHT + AXIS_LABEL_HEIGHT
@@ -94,6 +101,14 @@ export interface SamplePsdPopoverProps {
   containerWidth: number
   /** Panel height in px — the card clamps inside it. */
   containerHeight: number
+  /**
+   * Whether clicking this sample's marker would highlight its packing body.
+   *
+   * Comes straight from the overlay's own ``bodyClickable`` verdict (sample has
+   * a body AND this axis allows the gesture). Defaults to ``false``: the card
+   * never invents an affordance nobody told it about.
+   */
+  bodyClickable?: boolean
 }
 
 /**
@@ -108,6 +123,7 @@ export default function SamplePsdPopover({
   anchorY,
   containerWidth,
   containerHeight,
+  bodyClickable = false,
 }: SamplePsdPopoverProps): JSX.Element {
   const curves = sample.grain_sizes.map(test => ({
     id: test.id,
@@ -117,8 +133,18 @@ export default function SamplePsdPopover({
   const hasChart = curves.some(c => c.points.length > 0)
   // Organic content rides along on the same hover (owner, dogfeed 2026-08-15).
   // The helper says WHICH quantity it found; the label below prints that, since
-  // organic matter and organic carbon are not the same number.
-  const organic = selectOrganicContent(sample.organic_content_tests)
+  // organic matter and organic carbon are not the same number. It reads the
+  // scalar catch-all as well as the typed family, because on the owner's own
+  // project the measurement only ever arrived in the catch-all.
+  const organic = selectOrganicContent(
+    sample.organic_content_tests,
+    sample.scalar_lab_tests,
+  )
+  // The click affordance moved off the marker's native tooltip and onto the
+  // card (the tooltip covered the chart). The body id is re-checked here rather
+  // than trusted from the prop alone: a card that promises a highlight on a
+  // sample the subdivision never reached would be advertising a no-op.
+  const showClickHint = bodyClickable && sample.geotech_body_id !== null
 
   const { left, top } = clampPopoverPosition({
     anchorX,
@@ -126,7 +152,8 @@ export default function SamplePsdPopover({
     popoverWidth: CARD_WIDTH,
     popoverHeight:
       (hasChart ? CARD_HEIGHT_WITH_CHART : CARD_HEIGHT_COMPACT)
-      + (organic !== null ? ORGANIC_LINE_HEIGHT : 0),
+      + (organic !== null ? ORGANIC_LINE_HEIGHT : 0)
+      + (showClickHint ? HINT_LINE_HEIGHT : 0),
     containerWidth,
     containerHeight,
   })
@@ -287,6 +314,17 @@ export default function SamplePsdPopover({
       ) : (
         <div className="mt-1 text-[10px] leading-tight text-gray-500 dark:text-gray-400">
           No grain-size test
+        </div>
+      )}
+      {/* The affordance the marker's native tooltip used to carry, now a card
+          footer — and only where the click does something (geotech axis, and a
+          sample the packing pipeline actually reached). */}
+      {showClickHint && (
+        <div
+          data-testid="sample-click-hint"
+          className="mt-1 text-[9px] leading-tight italic text-gray-400 dark:text-gray-500 truncate"
+        >
+          Click to highlight packing body
         </div>
       )}
     </div>

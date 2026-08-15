@@ -28,6 +28,7 @@ import {
 } from '../../utils/geotechBodySelectionStore'
 // useSelectedGeotechBodyId gives the raw id; the store record also carries
 // assignmentSource, read by GeotechnicalInspector.
+import { usePsdPreviewOn } from '../../utils/psdPreviewOnStore'
 import { sampleExtentScreenSpan } from '../../utils/sampleExtentSpan'
 
 // Marker appearance constants.
@@ -85,6 +86,15 @@ export interface HoveredSample {
   x: number
   /** Marker's vertical centre, in section-SVG pixels. */
   y: number
+  /**
+   * Whether clicking this marker would actually highlight a packing body.
+   *
+   * Only the overlay knows both halves — the sample carries a body AND this
+   * axis allows the gesture — so it reports the same verdict its own cursor
+   * and ARIA role already use. The hover card prints its "click to highlight"
+   * line from this, and must never promise a click that does nothing.
+   */
+  bodyClickable: boolean
 }
 
 export interface SampleGeotechOverlayProps {
@@ -150,6 +160,16 @@ export default function SampleGeotechOverlay({
   onSampleHover,
 }: SampleGeotechOverlayProps): JSX.Element {
   const selectedBodyId = useSelectedGeotechBodyId()
+  // The native tooltip and the grain-size card fire on the SAME hover, and the
+  // OS draws the tooltip ON TOP of the card — the owner's "when i hover a psd,
+  // the click to highlight packing density overlaps the psd graph". So the
+  // tooltip yields whenever the card can take over: the card is the richer
+  // surface and already carries the sample number and the depth range. With
+  // the card switched off (the ``P`` accelerator / the Display menu item) the
+  // tooltip is the only thing left saying the marker is clickable, so it
+  // returns. ``onSampleHover`` is the second half of "can take over": without
+  // a listener no card is ever mounted, however the toggle stands.
+  const cardCanShow = usePsdPreviewOn() && onSampleHover !== undefined
 
   if (!boreholeDetails) {
     return <g data-testid="sample-geotech-overlay-loading" />
@@ -243,17 +263,21 @@ export default function SampleGeotechOverlay({
                     boreholeName,
                     x: span.x,
                     y: (drawnTop + drawnBottom) / 2,
+                    bodyClickable: clickable,
                   })
                 }
                 onMouseLeave={() => onSampleHover?.(null)}
               >
                 {/* Native tooltip so the depth range is readable without the
-                    richer hover popover (which the user can switch off). */}
-                <title>
-                  {`Sample ${label}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m${
-                    clickable ? '\nClick to highlight packing body' : ''
-                  }`}
-                </title>
+                    richer hover popover — and ONLY then, because the OS draws
+                    it over that popover (see ``cardCanShow`` above). */}
+                {!cardCanShow && (
+                  <title>
+                    {`Sample ${label}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m${
+                      clickable ? '\nClick to highlight packing body' : ''
+                    }`}
+                  </title>
+                )}
               </rect>
 
               {/* Visible capsule — pointer-events:none so the hit rect above

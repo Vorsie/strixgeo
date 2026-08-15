@@ -25,6 +25,7 @@
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SampleGeotechOverlay from './SampleGeotechOverlay'
+import { setPsdPreviewOn } from '../../utils/psdPreviewOnStore'
 import type { BoreholeDetailResponse, SampleResponse } from '../../api/client'
 import type { BoreholePlacedColumn } from './utils'
 import { selectGeotechBody } from '../../utils/geotechBodySelectionStore'
@@ -186,6 +187,8 @@ function num(el: Element, name: string): number {
 beforeEach(() => {
   mockToggle.mockReset()
   selectGeotechBody(null)
+  // The hover card ships on; each tooltip test states the state it needs.
+  setPsdPreviewOn(true)
 })
 
 afterEach(() => {
@@ -403,5 +406,70 @@ describe('SampleGeotechOverlay — extent markers', () => {
     expect(rx, 'corner radius must not swallow the shape').toBeLessThanOrEqual(2)
     expect(rx, 'rounding stays below half the height').toBeLessThan(height / 2)
     expect(num(marker, 'width'), 'wider than tall-rounded: it reads as a bar').toBeGreaterThan(2 * rx)
+  })
+
+  // Owner (dogfeed 2026-08-15): "when i hover a psd, the click to highlight
+  // packing density overlaps the psd graph". The OS draws the marker's native
+  // tooltip on top of the floating card, and the card already carries the
+  // sample number and the depth range — so the tooltip is redundant exactly
+  // when it is in the way. With the card switched off it is the only thing
+  // left telling the engineer the marker is there to be clicked, so it stays.
+  it('SGO15 — while the hover card can show, the marker carries no native tooltip', () => {
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+    renderOverlay([makeBoreholePlacedColumn('bh-1', 50)], details, {
+      onSampleHover: vi.fn(),
+    })
+
+    const hit = screen.getByTestId('sample-hit-s-1')
+    expect(hit.querySelector('title')).toBeNull()
+  })
+
+  it('SGO16 — with the card switched off the native tooltip is back, unchanged', () => {
+    setPsdPreviewOn(false)
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+    renderOverlay([makeBoreholePlacedColumn('bh-1', 50)], details, {
+      onSampleHover: vi.fn(),
+    })
+
+    const title = screen.getByTestId('sample-hit-s-1').querySelector('title')
+    expect(title).not.toBeNull()
+    expect(title?.textContent).toContain('1.00')
+    expect(title?.textContent).toContain('3.00')
+    expect(title?.textContent).toContain('Click to highlight packing body')
+  })
+
+  it('SGO17 — the hover report says whether a click would highlight a body', () => {
+    // The card draws the "click to highlight" line, and only the overlay knows
+    // both halves of the answer: the sample has a body AND this axis lets it be
+    // clicked. It reports the same verdict its own cursor and role already use.
+    const details = new Map([
+      [
+        'bh-1',
+        makeBoreholeDetail('bh-1', [makeSample('s-body', 'body-1'), makeSample('s-none', null)]),
+      ],
+    ])
+    const onSampleHover = vi.fn()
+    const { unmount } = renderOverlay([makeBoreholePlacedColumn('bh-1', 50)], details, {
+      onSampleHover,
+    })
+
+    fireEvent.mouseEnter(screen.getByTestId('sample-hit-s-body'))
+    expect(onSampleHover.mock.calls[0][0]).toMatchObject({ bodyClickable: true })
+    fireEvent.mouseEnter(screen.getByTestId('sample-hit-s-none'))
+    expect(onSampleHover.mock.calls[1][0]).toMatchObject({ bodyClickable: false })
+    unmount()
+
+    // Litho axis: the sample still has its body, but nothing happens on click.
+    const lithoHover = vi.fn()
+    renderOverlay([makeBoreholePlacedColumn('bh-1', 50)], details, {
+      onSampleHover: lithoHover,
+      bodyClickEnabled: false,
+    })
+    fireEvent.mouseEnter(screen.getByTestId('sample-hit-s-body'))
+    expect(lithoHover.mock.calls[0][0]).toMatchObject({ bodyClickable: false })
   })
 })
