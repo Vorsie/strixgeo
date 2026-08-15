@@ -373,6 +373,7 @@ function restorePayloadFrom(file: ProjectFile): ProjectBundleResponse {
     litho_contact_correlation_edges: file.litho_contact_correlation_edges,
     body_boundary_shapes: file.body_boundary_shapes,
     body_boundary_nodes: file.body_boundary_nodes,
+    body_geometry_facts: file.body_geometry_facts,
   }
 }
 
@@ -720,7 +721,8 @@ export function useProject(): UseProject {
                 `+${parsed.bodies.length} bodies, ` +
                 `+${parsed.litho_contact_correlation_edges.length} correlation edges, ` +
                 `+${parsed.formation_absences.length} absences, ` +
-                `+${parsed.body_boundary_shapes.length} boundary shapes)`,
+                `+${parsed.body_boundary_shapes.length} boundary shapes, ` +
+                `+${parsed.body_geometry_facts.length} body geometry facts)`,
             )
             return restored
           } catch (restoreErr) {

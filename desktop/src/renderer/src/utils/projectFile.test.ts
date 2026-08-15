@@ -52,6 +52,7 @@ function makeWellFormedV3(
     formation_absences: [{ id: 'absence-1' }],
     body_boundary_shapes: [{ id: 'shape-1' }],
     body_boundary_nodes: [{ id: 'node-1' }],
+    body_geometry_facts: [{ id: 'fact-1' }],
     stratigraphy_lumping: null,
     ...overrides,
   }
@@ -88,7 +89,44 @@ describe('parseProjectFile — happy path', () => {
     expect(parsed?.formation_absences).toEqual([{ id: 'absence-1' }])
     expect(parsed?.body_boundary_shapes).toEqual([{ id: 'shape-1' }])
     expect(parsed?.body_boundary_nodes).toEqual([{ id: 'node-1' }])
+    expect(parsed?.body_geometry_facts).toEqual([{ id: 'fact-1' }])
     expect(parsed?.stratigraphy_lumping).toBeNull()
+  })
+
+  it('carries the geometric body-identity facts from the bundle into the file', () => {
+    // Owner ruling 2026-08-12: "every same litho that is connected should get
+    // the same body id — how else are we going to extract qc or sample data by
+    // body". Those unions are EVIDENCE, not a rebuildable cache: a file that
+    // drops them reopens with every merged body split apart again, silently.
+    // Asserted against the BUNDLE's value, not against the writer's own
+    // output, so a writer that forgets the key cannot pass by agreeing with
+    // itself.
+    const facts = [
+      { id: 'fact-a', model_id: 'gm-1', layer_a_id: 'layer-1', layer_b_id: 'layer-2' },
+      { id: 'fact-b', model_id: 'gm-1', layer_a_id: 'layer-2', layer_b_id: 'layer-3' },
+    ]
+    const bundle = {
+      project: { id: 'proj-uuid-facts', name: 'Facts survive' },
+      cpts: [],
+      boreholes: [],
+      geological_formations: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+      litho_contact_correlation_edges: [],
+      bodies: [],
+      formation_absences: [],
+      body_boundary_shapes: [],
+      body_boundary_nodes: [],
+      body_geometry_facts: facts,
+    } as unknown as ProjectBundleResponse
+
+    const built = buildProjectFile(bundle, null)
+    expect(built.body_geometry_facts).toEqual(facts)
+
+    // …and back off disk unchanged, which is the half the user actually feels.
+    const parsed = parseProjectFile(serialiseProjectFile(built))
+    expect(parsed?.body_geometry_facts).toEqual(facts)
   })
 
   it('round-trips through serialise → parse without losing a field', () => {
@@ -252,6 +290,10 @@ describe('parseProjectFile — additive keys tolerate absence, reject wrong type
     'formation_absences',
     'body_boundary_shapes',
     'body_boundary_nodes',
+    // Additive too: a file written before the facts shipped simply has none,
+    // and must still open — with the merges absent rather than the file
+    // rejected.
+    'body_geometry_facts',
   ] as const
 
   it('backfills each absent additive array to [] so downstream array consumers never see undefined', () => {

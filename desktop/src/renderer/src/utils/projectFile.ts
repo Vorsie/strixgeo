@@ -14,8 +14,16 @@
 //     "geological_formations": [ ... ],
 //     "geological_models":     [ { ...model, contacts: [...] } ],
 //     "cross_sections":        [ ... ],
-//     "investigation_reviews": [ ...per-(project, investigation) decisions ]
+//     "investigation_reviews": [ ...per-(project, investigation) decisions ],
+//     "body_geometry_facts":   [ ...observed layer-pair body unions ]
 //   }
+//
+// Adding a collection here is ADDITIVE and does not bump the version, but it
+// takes four edits in this file (interface / buildProjectFile / isProjectFileV3
+// / parseProjectFile) plus ``restorePayloadFrom`` in hooks/useProject.ts.
+// ``buildProjectFile`` is a hand-written whitelist — it silently drops any
+// bundle key it does not name, which is how ``body_geometry_facts`` went
+// missing between 2026-08-12 and 2026-08-15.
 //
 // Every per-project decision lives here, never in localStorage. See
 // memory/project_decisions_in_bundle.md.
@@ -82,6 +90,17 @@ export interface ProjectFileV3 {
   body_boundary_shapes: Record<string, unknown>[]
   body_boundary_nodes: Record<string, unknown>[]
   /**
+   * Geometric body-identity facts — the observed layer-pair adjacencies the
+   * body resolver unions with the correlation ties (owner ruling 2026-08-12:
+   * "every same litho that is connected should get the same body id").
+   *
+   * These are EVIDENCE, not a rebuildable cache like ``litho_solids``: a file
+   * without them reopens with every geometric body union undone, and nothing
+   * says so. Absent in files saved before this field shipped — normalised to
+   * [] on parse, which is honestly "no merges recorded".
+   */
+  body_geometry_facts: Record<string, unknown>[]
+  /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
    * file was saved by an older build that pre-dates this field.
@@ -114,6 +133,7 @@ export function buildProjectFile(
     formation_absences: bundle.formation_absences ?? [],
     body_boundary_shapes: bundle.body_boundary_shapes ?? [],
     body_boundary_nodes: bundle.body_boundary_nodes ?? [],
+    body_geometry_facts: bundle.body_geometry_facts ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -161,6 +181,9 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.body_boundary_nodes === undefined) {
     candidate.body_boundary_nodes = []
   }
+  if (candidate.body_geometry_facts === undefined) {
+    candidate.body_geometry_facts = []
+  }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
   // suspended pre-ship; additive always fine).  Absence means "no lumping
@@ -195,6 +218,7 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     (v.formation_absences === undefined || Array.isArray(v.formation_absences)) &&
     (v.body_boundary_shapes === undefined || Array.isArray(v.body_boundary_shapes)) &&
     (v.body_boundary_nodes === undefined || Array.isArray(v.body_boundary_nodes)) &&
+    (v.body_geometry_facts === undefined || Array.isArray(v.body_geometry_facts)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.

@@ -94,6 +94,12 @@ export interface ProjectBundleResponse {
   /** Body boundary shapes + control nodes (#163f Slice 2). Absent in older bundles. */
   body_boundary_shapes?: Record<string, unknown>[]
   body_boundary_nodes?: Record<string, unknown>[]
+  /**
+   * Geometric body-identity facts — observed layer-pair adjacency, unioned
+   * with the correlation ties by the body resolver (owner ruling 2026-08-12).
+   * Absent in older bundles.
+   */
+  body_geometry_facts?: Record<string, unknown>[]
 }
 
 /** Request body for ``POST /projects/``. */

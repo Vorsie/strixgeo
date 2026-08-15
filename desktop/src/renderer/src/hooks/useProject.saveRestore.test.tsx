@@ -80,6 +80,7 @@ function fileShape(overrides: Record<string, unknown> = {}): Record<string, unkn
     formation_absences: [],
     body_boundary_shapes: [],
     body_boundary_nodes: [],
+    body_geometry_facts: [],
     stratigraphy_lumping: null,
     ...overrides,
   }
@@ -101,6 +102,7 @@ function bundleShape(overrides: Record<string, unknown> = {}): Record<string, un
     formation_absences: [],
     body_boundary_shapes: [],
     body_boundary_nodes: [],
+    body_geometry_facts: [],
     ...overrides,
   }
 }
@@ -213,6 +215,7 @@ describe('openProjectFile — the DB row is gone', () => {
       formation_absences: [{ id: 'abs-1' }],
       body_boundary_shapes: [{ id: 'shape-1' }],
       body_boundary_nodes: [{ id: 'node-1' }],
+      body_geometry_facts: [{ id: 'fact-1' }],
     })
     diskContent = JSON.stringify(ghost)
     asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
@@ -237,6 +240,10 @@ describe('openProjectFile — the DB row is gone', () => {
     expect(payload.formation_absences).toEqual(ghost.formation_absences)
     expect(payload.body_boundary_shapes).toEqual(ghost.body_boundary_shapes)
     expect(payload.body_boundary_nodes).toEqual(ghost.body_boundary_nodes)
+    // Owner ruling 2026-08-12: "every same litho that is connected should get
+    // the same body id". The facts ARE that connectedness; dropped here, the
+    // reopened project comes back with every merged body split again.
+    expect(payload.body_geometry_facts).toEqual(ghost.body_geometry_facts)
   })
 })
 
