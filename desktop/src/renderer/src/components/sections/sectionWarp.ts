@@ -2,10 +2,11 @@
 // slider + collision-nudge that move each column from its true projected X
 // toward a packed position).
 //
-// The forward map lives inline in SectionPanel as ``warpedXToScreen``: it
-// places along-distance content at the screen X interpolated through each
-// placed column's ``(along, effX=nudgedX)`` anchor pair, extrapolating at
-// true scale (``scaleH`` px per along-metre) outside the column range.
+// The forward map is ``warpedAlongToScreenX`` below (SectionPanel renders
+// through it as ``warpedXToScreen``): it places along-distance content at the
+// screen X interpolated through each placed column's ``(along, effX=nudgedX)``
+// anchor pair, extrapolating at true scale (``scaleH`` px per along-metre)
+// outside the column range.
 //
 // This inverse answers the question the wheel-zoom needs: "the cursor is at
 // screen pixel ``px`` — which along-distance is actually drawn there?".
@@ -25,12 +26,59 @@ export interface WarpAnchor {
 }
 
 /**
+ * Apply the section warp: along-distance → screen X.
+ *
+ * This is the forward map ``SectionPanel`` renders through (it delegates to
+ * this function as ``warpedXToScreen``), and the one the wheel zoom asks "if I
+ * lay the columns out at THIS viewport, where does the cursor's world point
+ * land?". Anchors must be sorted ascending by ``along``.
+ *
+ * @param along - Along-section distance to place (world metres).
+ * @param anchors - Placed-column anchors, sorted ascending by ``along``.
+ * @param scaleH - Horizontal scale outside the anchor range (px per metre).
+ * @param fallbackScreenX - Screen X to return when there are no anchors (the
+ *   caller passes the linear forward map so behaviour is unchanged then).
+ * @returns The screen X the along-distance is drawn at.
+ */
+export function warpedAlongToScreenX(
+  along: number,
+  anchors: readonly WarpAnchor[],
+  scaleH: number,
+  fallbackScreenX: number,
+): number {
+  if (anchors.length === 0) return fallbackScreenX
+
+  const first = anchors[0]
+  // Before the first column — true-scale extrapolation so content keeps its
+  // natural slope out to the left edge.
+  if (along <= first.along) {
+    return first.effX - (first.along - along) * scaleH
+  }
+  const last = anchors[anchors.length - 1]
+  // After the last column — same, mirrored.
+  if (along >= last.along) {
+    return last.effX + (along - last.along) * scaleH
+  }
+  // Inside — find the segment whose along range contains ``along`` and
+  // linearly interpolate the screen X.
+  let i = 0
+  while (i < anchors.length - 1 && anchors[i + 1].along < along) i += 1
+  const a = anchors[i]
+  const b = anchors[i + 1]
+  // Defensive against duplicate-along anchors (two tests projected to the same
+  // along-distance) — fall back to ``a``'s effX rather than dividing by zero.
+  if (b.along === a.along) return a.effX
+  const frac = (along - a.along) / (b.along - a.along)
+  return a.effX + frac * (b.effX - a.effX)
+}
+
+/**
  * Invert the section warp: screen X → along-distance.
  *
- * Mirrors the forward ``warpedXToScreen`` exactly so the round-trip is
- * stable. Anchors must be sorted ascending by ``along`` (the caller sorts
- * them); ``effX`` is non-decreasing because the packed layout preserves
- * left-to-right order, which makes the map invertible.
+ * Mirrors {@link warpedAlongToScreenX} exactly so the round-trip is stable.
+ * Anchors must be sorted ascending by ``along`` (the caller sorts them);
+ * ``effX`` is non-decreasing because the packed layout preserves left-to-right
+ * order, which makes the map invertible.
  *
  * @param px - Cursor screen X relative to the plot's coordinate origin (px).
  * @param anchors - Placed-column anchors, sorted ascending by ``along``.

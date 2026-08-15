@@ -12,10 +12,12 @@
  *     ``{ passive: false }`` to intercept the page scroll. The cursor anchor is
  *     SPACING-AWARE: it reads the post-nudge column positions
  *     (``warpAnchorsRef`` / ``columnSpacingRef`` / ``layoutStateRef``), not the
- *     raw projection-along, so the column under the cursor stays pinned at any
+ *     raw projection-along, so what is under the cursor stays pinned at any
  *     ``column_spacing`` slider value. See
  *     ``memory/feedback_section_view_spacing_modifier`` — this anchor math has
- *     bitten twice when computed against raw ``proj.along``.
+ *     bitten three times when computed against raw ``proj.along`` or against an
+ *     approximation of the packed layout. The solve itself is exact and lives
+ *     in ``wheelZoomAnchor.ts``; this hook only supplies the layout snapshot.
  *   * ``useSectionKeyboardShortcuts`` — the section-wide Esc peel cascade
  *     (ghost menu → body menu → column menu → focus → close).
  */
@@ -37,18 +39,26 @@ import {
 } from './cptChannels'
 import type { WarpAnchor } from './sectionWarp'
 import {
-  BARE_COLUMN_WIDTH_PX,
   COLUMN_EDGE_GAP_PX,
   MARGIN,
   WHEEL_ZOOM_FACTOR,
   type PlacedColumn,
   type Viewport,
 } from './utils'
+import {
+  solveCursorAnchoredXMin,
+  zoomLayoutColumn,
+  type ZoomLayoutColumn,
+} from './wheelZoomAnchor'
 
 /**
- * Layout snapshot the wheel handler reads (via a ref, to avoid TDZ) to compute
- * the EXACT cumulative-width offset at the post-zoom band half-width. Mirrored
- * into ``layoutStateRef`` by SectionPanel from its layout useMemos.
+ * Layout snapshot the wheel handler reads (via a ref, to avoid TDZ) so it can
+ * re-run the REAL horizontal layout at the post-zoom scale. Mirrored into
+ * ``layoutStateRef`` by SectionPanel from its layout useMemos.
+ *
+ * ``placedColumns`` carries the columns that are actually DRAWN — i.e. the
+ * focus-filtered set, not the raw layout — so the simulated layout matches the
+ * anchors on screen in column focus too.
  */
 export interface SectionWheelLayoutState {
   placedColumns: PlacedColumn[]
@@ -58,6 +68,42 @@ export interface SectionWheelLayoutState {
   enabledBhChannels: number
   ghostFootprintForLayout: number
   lithoGhostAnchorIds: Set<string>
+  /**
+   * Edge gap for one adjacent pair, left to right — correlated pairs claim a
+   * wider gap. Omitted ⇒ every pair uses the base gap.
+   */
+  gapForPair?: (prevId: string, currId: string) => number
+}
+
+/**
+ * Re-describe the drawn columns as layout footprints, so the wheel zoom can
+ * lay them out again at a scale it has not rendered yet.
+ *
+ * @param state - The mirrored layout snapshot.
+ * @returns One footprint per drawn column.
+ */
+function layoutFootprints(state: SectionWheelLayoutState): ZoomLayoutColumn[] {
+  return state.placedColumns.map(col => {
+    const id = col.proj.item.id
+    // ``cptBandFullWidth`` at a unit half-width returns the MULTIPLE (2 or 0),
+    // which is what survives the band half-width changing under the zoom —
+    // reusing it keeps the applicable-channel rule in exactly one place.
+    const dataBandMultiple =
+      col.kind === 'cpt'
+        ? state.cptPlots?.has(id)
+          ? cptBandFullWidth(col.proj.item.cpt_type, state.cptChannels, 1)
+          : 0
+        : state.boreholeDetails?.has(id)
+          ? state.enabledBhChannels * 2
+          : 0
+    return zoomLayoutColumn(
+      id,
+      col.proj.along,
+      dataBandMultiple,
+      state.lithoGhostAnchorIds.has(id),
+      state.ghostFootprintForLayout,
+    )
+  })
 }
 
 /** Inputs for {@link useSectionWheelZoom}. */
@@ -130,50 +176,22 @@ export function useSectionWheelZoom({
       if (px < MARGIN.left || px > MARGIN.left + plotWidth) return
       if (py < MARGIN.top || py > MARGIN.top + plotHeight) return
 
-      // Cursor zoom anchor — SPACING-AWARE blend (dogfeed 2026-05-31).
-      // Two endpoints, blended by the column-spacing slider:
+      // Cursor zoom anchor — EXACT, not approximated (dogfeed 2026-08-15:
+      // "when i zoom in and out the camera slowly moves left on the section??").
       //
-      //   * spacing = 1 (no compression): the cursor's LINEAR along-
-      //     section world position. Cursor at world 50 m → zoom
-      //     anchored at 50 m. Standard cursor-anchor behaviour.
+      // The horizontal map is piecewise linear through the drawn columns, so
+      // the cursor's world point is recoverable whether the mouse is on a
+      // column or in the gap between two. The post-zoom layout is then RE-RUN
+      // (same code path the render uses) and the viewport translated so that
+      // world point lands back on the cursor pixel. The layout is translation-
+      // equivariant in ``xMin``, so that translation is a closed form — see
+      // ``wheelZoomAnchor.ts``.
       //
-      //   * spacing = 0 (fully packed): the leftmost test's along.
-      //     At spacing=0 every column's screen X is packedX_0 +
-      //     Σ widths, where packedX_0 = xToScreen(leftmost.along). All
-      //     packed columns translate UNIFORMLY when the leftmost's
-      //     screen X moves. So anchoring on the leftmost's along
-      //     keeps every column at the same pixel — the cursor's
-      //     column stays under the cursor, no drift.
-      //
-      // Linear interpolation between the two endpoints by spacing
-      // matches the lerp the column-layout itself does
-      // (lerpedX = packedX + (trueX - packedX) * spacing). Without
-      // this blend, wheel zoom at spacing=0 drifts rightward (the
-      // packed columns translate while the linear anchor preserves
-      // a world point that's decoupled from the visible content).
-      // Cursor anchor — keep the column UNDER the cursor at the same
-      // pixel after the zoom, even at spacing < 1 where bands pack
-      // edge-to-edge instead of sitting at their world-along screen
-      // positions.
-      //
-      // For a column at index C, post-warp:
-      //   nudgedX_C ≈ packedX_0 * (1-α) + trueX_C * α + (1-α) * offset_C
-      // where
-      //   packedX_0 = MARGIN.left + (L - xMin) * scaleH   (leftmost test's screen X)
-      //   trueX_C   = MARGIN.left + (col.along - xMin) * scaleH
-      //   offset_C  = (nudgedX_C - packedX_0_old)         (current packed offset, in px)
-      //   α         = columnSpacing
-      //
-      // bandHalfWidth scales with scaleH, so offset_C grows in
-      // proportion when zooming in — the wheel handler scales it by
-      // (new bandHalfWidth / old bandHalfWidth) to estimate the new
-      // packed offset.
-      //
-      // Solving "nudgedX_C_new = cursor_px" for new_xMin gives the
-      // formula below.  At spacing=1 it collapses to the standard
-      // linear cursor anchor (worldX = col.along, offset term vanishes).
-      // At spacing=0 it accounts for the cumulative width shift that
-      // would otherwise drift columns rightward on every wheel step.
+      // What this replaces: picking the column NEAREST the cursor and solving
+      // for THAT column's pixel, with a band-half-width ratio standing in for
+      // the packed offset. It snapped to a neighbour when the cursor sat
+      // between columns, and the ratio's error did not cancel between a
+      // zoom-in and a zoom-out — which is the camera creep the owner saw.
       const anchorsNow = warpAnchorsRef.current
       const spacing = columnSpacingRef.current
       const factor = e.deltaY < 0 ? 1 / WHEEL_ZOOM_FACTOR : WHEEL_ZOOM_FACTOR
@@ -196,103 +214,24 @@ export function useSectionWheelZoom({
         const atLowerClamp = oldBandHalfWidth <= 14 && !zoomingIn
         if (atUpperClamp || atLowerClamp) return
       }
-      // Find the column closest to the cursor in current screen X.
-      // Anchors are sorted ascending by ``along``; ``effX`` is the
-      // current nudgedX — what the user actually sees under the
-      // cursor.  If no anchors yet (fresh section without projected
-      // columns), fall back to pure linear cursor anchor.
-      let cursorAlong: number
-      let cursorOffsetPxNew: number
-      const linearAlong = viewport.xMin + (px - MARGIN.left) / scaleH
-      if (anchorsNow.length === 0) {
-        cursorAlong = linearAlong
-        cursorOffsetPxNew = 0
-      } else {
-        let bestIdx = 0
-        let bestDist = Math.abs(anchorsNow[0].effX - px)
-        for (let i = 1; i < anchorsNow.length; i += 1) {
-          const d = Math.abs(anchorsNow[i].effX - px)
-          if (d < bestDist) {
-            bestDist = d
-            bestIdx = i
-          }
-        }
-        const cursorCol = anchorsNow[bestIdx]
-        const leftmost = anchorsNow[0]
-        // Compute the EXACT cumulative pixel offset at the new
-        // bandHalfWidth (same simulation the banner-zoom uses).
-        // Walks every placed column up to the cursor's index and sums
-        // the per-column visualWidth at the post-zoom scale. No
-        // approximation — works at any spacing because the formula
-        // matches what placedColumns will ACTUALLY render at the new
-        // viewport.
-        //
-        // Falls back to the per-column-ratio approximation when the
-        // layoutStateRef hasn't been populated yet (fresh mount race).
-        const state = layoutStateRef.current
-        if (state !== null && state.placedColumns.length > 0) {
-          const widthAtNew = (col: PlacedColumn): number => {
-            if (col.kind === 'cpt') {
-              const trackW = state.cptPlots?.has(col.proj.item.id)
-                ? cptBandFullWidth(
-                    col.proj.item.cpt_type,
-                    state.cptChannels,
-                    newBandHalfWidth,
-                  )
-                : 0
-              const lithoBandW = state.lithoGhostAnchorIds.has(col.proj.item.id)
-                ? 2 * newBandHalfWidth
-                : 0
-              return (
-                BARE_COLUMN_WIDTH_PX +
-                Math.max(trackW, lithoBandW) +
-                state.ghostFootprintForLayout
-              )
-            }
-            const stripsW = state.boreholeDetails?.has(col.proj.item.id)
-              ? state.enabledBhChannels * 2 * newBandHalfWidth
-              : 0
-            const lithoBandW = state.lithoGhostAnchorIds.has(col.proj.item.id)
-              ? 2 * newBandHalfWidth
-              : 0
-            return (
-              BARE_COLUMN_WIDTH_PX +
-              Math.max(stripsW, lithoBandW) +
-              state.ghostFootprintForLayout
-            )
-          }
-          const sorted = [...state.placedColumns].sort(
-            (a, b) => a.proj.along - b.proj.along,
-          )
-          const cursorIdx = sorted.findIndex(c => c.proj.along === cursorCol.along)
-          let cumOff = 0
-          if (cursorIdx > 0) {
-            for (let i = 1; i <= cursorIdx; i += 1) {
-              cumOff +=
-                (widthAtNew(sorted[i - 1]) + widthAtNew(sorted[i])) / 2 +
-                COLUMN_EDGE_GAP_PX
-            }
-          }
-          cursorOffsetPxNew = cumOff
-        } else {
-          // Fall-back per-column ratio when layout ref hasn't been
-          // mirrored yet. Same approximation as the previous fix.
-          const oldPerCol =
-            BARE_COLUMN_WIDTH_PX + 2 * oldBandHalfWidth + COLUMN_EDGE_GAP_PX
-          const newPerCol =
-            BARE_COLUMN_WIDTH_PX + 2 * newBandHalfWidth + COLUMN_EDGE_GAP_PX
-          const widthRatio = oldPerCol > 0 ? newPerCol / oldPerCol : 1
-          cursorOffsetPxNew = (cursorCol.effX - leftmost.effX) * widthRatio
-        }
-        // Blend with leftmost.along by spacing — at spacing=1 we anchor
-        // on the cursor column's along, at spacing=0 we anchor on the
-        // leftmost.along and the offset term carries the packed
-        // location.
-        cursorAlong = leftmost.along * (1 - spacing) + cursorCol.along * spacing
-      }
-
-      const newXMin =
-        cursorAlong - (px - MARGIN.left - (1 - spacing) * cursorOffsetPxNew) / newScaleH
+      // Re-run the horizontal layout at the post-zoom scale and translate the
+      // viewport so the cursor's world point lands back on the cursor pixel.
+      // With no mirrored layout yet (fresh mount) the column list is empty and
+      // the solve degenerates to the plain linear cursor anchor.
+      const state = layoutStateRef.current
+      const newXMin = solveCursorAnchoredXMin({
+        cursorPx: px,
+        currentAnchors: anchorsNow,
+        currentXMin: viewport.xMin,
+        currentScaleH: scaleH,
+        newScaleH,
+        newBandHalfWidth,
+        columns: state === null ? [] : layoutFootprints(state),
+        columnSpacing: spacing,
+        marginLeft: MARGIN.left,
+        edgeGapPx: COLUMN_EDGE_GAP_PX,
+        gapForPair: state?.gapForPair,
+      })
       const newXMax = newXMin + newXRange
 
       const worldLevel = effLevelMax - (py - MARGIN.top) / scaleV

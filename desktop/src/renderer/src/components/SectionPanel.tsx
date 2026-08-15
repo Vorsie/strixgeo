@@ -55,7 +55,6 @@ import type {
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
-import { nudgeColumns } from '../utils/columnLayout'
 import { computeScrubBounds } from '../utils/scrubBounds'
 import { sectionLength, type ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
@@ -144,7 +143,17 @@ import BodyContextMenu from './sections/BodyContextMenu'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
-import { type WarpAnchor, warpedScreenXToAlong } from './sections/sectionWarp'
+import {
+  type WarpAnchor,
+  warpedAlongToScreenX,
+  warpedScreenXToAlong,
+} from './sections/sectionWarp'
+import {
+  columnLayoutWidthPx,
+  layoutColumnsHorizontally,
+  zoomLayoutColumn,
+  type ZoomLayoutColumn,
+} from './sections/wheelZoomAnchor'
 
 /** Stable empty map so the PartitionFillOverlay prop identity doesn't churn. */
 const EMPTY_LENS_BOUNDARIES: ReadonlyMap<string, BodyBoundaryResponse> = new Map()
@@ -175,7 +184,6 @@ import SectionScrubBar from './sections/SectionScrubBar'
 // MarkAsLensDialog removed in #101 R5 (Approach-C → Position 4)
 import { useSectionData } from './sections/useSectionData'
 import {
-  BARE_COLUMN_WIDTH_PX,
   COLUMN_EDGE_GAP_PX,
   CORRELATED_PAIR_EDGE_GAP_PX,
   DEFAULT_LEVEL_RANGE,
@@ -186,7 +194,6 @@ import {
   ticks,
   useElementSize,
   type PlacedColumn,
-  type PlacedColumnInput,
   type Viewport,
 } from './sections/utils'
 import {
@@ -1405,121 +1412,17 @@ export default function SectionPanel({
     return ids
   }, [lithoGhostState, bulkLithoGhostState])
 
-  const placedColumns = useMemo<PlacedColumn[]>(() => {
-    // ``columnSpacing`` lerps between two layouts, both collision-safe:
-    //
-    //   spacing = 1.0 → TRUTH layout: each column's trueX is its
-    //     projected along-distance. Nudge runs over the truth and
-    //     only displaces columns whose natural positions would
-    //     overlap. Distant tests sit exactly where they should.
-    //   spacing = 0.0 → PACKED layout: columns are placed
-    //     edge-to-edge in projection-order starting from the
-    //     leftmost trueX. Adjacent tests sit "right next to each
-    //     other" regardless of how far apart they are on the actual
-    //     section line.
-    //
-    // For each column we feed the lerped position as its trueX into
-    // nudgeColumns, so the standard edge-gap collision rule applies
-    // at every spacing value — bands NEVER overlap.
-    // Type the array as the discriminated union directly so TS
-    // doesn't widen the per-branch ``proj`` to a single union and
-    // force the cast back at the consumer (debt #28).
-    type RawCpt = {
-      kind: 'cpt'
-      proj: ProjectedInvestigation<CptListItem>
-      trueX: number
-      visualWidth: number
-    }
-    type RawBh = {
-      kind: 'borehole'
-      proj: ProjectedInvestigation<BoreholeListItem>
-      trueX: number
-      visualWidth: number
-    }
-    // The ghost rail extends to the right of each column's data
-    // band. Adding the same footprint to every column's visualWidth
-    // means the nudge pass guarantees: column[i+1].left_edge >=
-    // column[i].band_right + ghostFootprint + edgeGap, which is the
-    // condition for the ghosts NOT to overlap column[i+1]'s band.
-    // The extra is symmetric (both sides) for nudge math symmetry —
-    // a small over-spacing on the leftmost column is acceptable.
-    // Litho band footprint (#28): a suggestion ghost draws ``2 * bandHalfWidth``
-    // wide even when the data band is off, so reserve at least that so the
-    // nudge keeps adjacent litho bands from overlapping.
-    const lithoBandW = (id: string): number =>
-      lithoGhostAnchorIds.has(id) ? 2 * bandHalfWidth : 0
-    const rawItems: (RawCpt | RawBh)[] = [
-      ...projectedCpts.map((proj): RawCpt => {
-        const trackW = cptPlots?.has(proj.item.id)
-          ? cptBandFullWidth(proj.item.cpt_type, cptChannels, bandHalfWidth)
-          : 0
-        return {
-          kind: 'cpt',
-          proj,
-          trueX: xToScreen(proj.along),
-          visualWidth:
-            BARE_COLUMN_WIDTH_PX +
-            Math.max(trackW, lithoBandW(proj.item.id)) +
-            ghostFootprintForLayout,
-        }
-      }),
-      ...projectedBoreholes.map((proj): RawBh => {
-        const stripsW = boreholeDetails?.has(proj.item.id)
-          ? enabledBhChannels * 2 * bandHalfWidth
-          : 0
-        return {
-          kind: 'borehole',
-          proj,
-          trueX: xToScreen(proj.along),
-          visualWidth:
-            BARE_COLUMN_WIDTH_PX +
-            Math.max(stripsW, lithoBandW(proj.item.id)) +
-            ghostFootprintForLayout,
-        }
-      }),
-    ]
-    // Stable sort by trueX for the packed layout. The original order
-    // re-emerges naturally because each item carries its identity
-    // (kind + item.id); rendering uses the result keyed by id.
-    const sorted = [...rawItems].sort((a, b) => a.trueX - b.trueX)
-    // Edge-to-edge packed positions starting from the leftmost trueX.
-    // Each consecutive column's centre lands half-its-width past the
-    // previous column's right edge.
-    const packedXBySortedIndex: number[] = []
-    let cursor = sorted.length > 0 ? sorted[0].trueX : 0
-    for (let i = 0; i < sorted.length; i += 1) {
-      const halfW = sorted[i].visualWidth / 2
-      if (i === 0) {
-        packedXBySortedIndex.push(cursor)
-        cursor = cursor + halfW
-      } else {
-        cursor += halfW
-        packedXBySortedIndex.push(cursor)
-        cursor += halfW
-      }
-    }
-    // Re-attach the packed X to each item by identity; rawItems is in
-    // CPT-then-borehole order so we look up each one's place in
-    // ``sorted`` via reference identity.
-    const items: PlacedColumnInput[] = rawItems.map(item => {
-      const sortedIdx = sorted.indexOf(item)
-      const packedX = packedXBySortedIndex[sortedIdx]
-      const lerpedX = packedX + (item.trueX - packedX) * columnSpacing
-      // Branch on kind so the (kind, proj) pair stays correlated —
-      // a single literal-object return widens to a non-discriminated
-      // union and tsc loses the narrowing.
-      return item.kind === 'cpt'
-        ? { kind: 'cpt', proj: item.proj, trueX: lerpedX, width: item.visualWidth }
-        : { kind: 'borehole', proj: item.proj, trueX: lerpedX, width: item.visualWidth }
-    })
-    // Edge-aware pair gap (dogfeed 2026-05-31): two adjacent columns
-    // connected by a correlation edge get CORRELATED_PAIR_EDGE_GAP_PX of
-    // clear space so the ribbon between them has room to render.
-    // Unconnected pairs keep the base 4 px floor so unrelated columns
-    // don't sprawl at the most-packed spacing setting. Pair keys are
-    // canonical ``min(invA, invB)|max(invA, invB)`` so order does not
-    // matter; built from contactEdges by mapping contact id →
-    // investigation id via the section's contacts list.
+  // Edge-aware pair gap (dogfeed 2026-05-31): two adjacent columns connected by
+  // a correlation edge get CORRELATED_PAIR_EDGE_GAP_PX of clear space so the
+  // ribbon between them has room to render. Unconnected pairs keep the base
+  // 4 px floor so unrelated columns don't sprawl at the most-packed spacing
+  // setting. Pair keys are canonical ``min(invA, invB)|max(invA, invB)`` so
+  // order does not matter.
+  //
+  // Hoisted out of the layout memo because the wheel zoom re-runs the SAME
+  // layout at the post-zoom scale and needs the same gaps — a gap it did not
+  // know about is a pixel of drift on every wheel notch.
+  const correlatedInvPairs = useMemo<Set<string>>(() => {
     const investigationByContactId = new Map<string, string>()
     for (const c of contacts) {
       const inv = c.cpt_id ?? c.borehole_id
@@ -1539,61 +1442,133 @@ export default function SectionPanel({
       const inv = layer.cpt_id ?? layer.borehole_id
       if (inv) investigationByContactId.set(layer.id, inv)
     }
-    const correlatedInvPairs = new Set<string>()
+    const pairs = new Set<string>()
     for (const edge of contactEdges ?? []) {
       const invA = investigationByContactId.get(edge.layer_a_id)
       const invB = investigationByContactId.get(edge.layer_b_id)
       if (!invA || !invB || invA === invB) continue
       const lo = invA < invB ? invA : invB
       const hi = invA < invB ? invB : invA
-      correlatedInvPairs.add(`${lo}|${hi}`)
+      pairs.add(`${lo}|${hi}`)
     }
-    const pairKey = (a: string, b: string): string =>
-      a < b ? `${a}|${b}` : `${b}|${a}`
-    return nudgeColumns(items, COLUMN_EDGE_GAP_PX, (prev, curr) =>
-      correlatedInvPairs.has(pairKey(prev.proj.item.id, curr.proj.item.id))
+    return pairs
+  }, [contacts, lithoLayers, contactEdges])
+
+  const gapForPair = useCallback(
+    (a: string, b: string): number =>
+      correlatedInvPairs.has(a < b ? `${a}|${b}` : `${b}|${a}`)
         ? CORRELATED_PAIR_EDGE_GAP_PX
         : COLUMN_EDGE_GAP_PX,
-    ).map(r =>
-      r.item.kind === 'cpt'
-        ? {
-            kind: 'cpt' as const,
-            proj: r.item.proj,
-            trueX: r.trueX,
-            nudgedX: r.nudgedX,
-            width: r.item.width,
-            displaced: r.displaced,
-          }
-        : {
-            kind: 'borehole' as const,
-            proj: r.item.proj,
-            trueX: r.trueX,
-            nudgedX: r.nudgedX,
-            width: r.item.width,
-            displaced: r.displaced,
-          },
-    )
+    [correlatedInvPairs],
+  )
+
+  // What horizontal room each column claims, split into the part that is fixed
+  // and the part that scales with the band half-width. The split is what lets
+  // the wheel zoom re-derive the post-zoom widths without re-reading any toggle
+  // state (see ``wheelZoomAnchor.ts``).
+  //
+  // The ghost rail extends to the right of each column's data band. Adding the
+  // same footprint to every column means the nudge pass guarantees
+  // ``column[i+1].left_edge >= column[i].band_right + ghostFootprint +
+  // edgeGap``, which is the condition for the ghosts NOT to overlap
+  // column[i+1]'s band. Litho band footprint (#28): a suggestion ghost draws
+  // ``2 * bandHalfWidth`` wide even when the data band is off, so reserve at
+  // least that or adjacent litho bands overlap into a smear.
+  const columnFootprints = useMemo<
+    (
+      | { kind: 'cpt'; proj: ProjectedInvestigation<CptListItem>; spec: ZoomLayoutColumn }
+      | {
+          kind: 'borehole'
+          proj: ProjectedInvestigation<BoreholeListItem>
+          spec: ZoomLayoutColumn
+        }
+    )[]
+  >(
+    () => [
+      ...projectedCpts.map(proj => ({
+        kind: 'cpt' as const,
+        proj,
+        spec: zoomLayoutColumn(
+          proj.item.id,
+          proj.along,
+          // ``cptBandFullWidth`` at a unit half-width IS the multiple (2 or 0),
+          // so the applicable-channel rule stays in exactly one place.
+          cptPlots?.has(proj.item.id)
+            ? cptBandFullWidth(proj.item.cpt_type, cptChannels, 1)
+            : 0,
+          lithoGhostAnchorIds.has(proj.item.id),
+          ghostFootprintForLayout,
+        ),
+      })),
+      ...projectedBoreholes.map(proj => ({
+        kind: 'borehole' as const,
+        proj,
+        spec: zoomLayoutColumn(
+          proj.item.id,
+          proj.along,
+          boreholeDetails?.has(proj.item.id) ? enabledBhChannels * 2 : 0,
+          lithoGhostAnchorIds.has(proj.item.id),
+          ghostFootprintForLayout,
+        ),
+      })),
+    ],
+    [
+      projectedCpts,
+      projectedBoreholes,
+      cptPlots,
+      boreholeDetails,
+      cptChannels,
+      enabledBhChannels,
+      ghostFootprintForLayout,
+      lithoGhostAnchorIds,
+    ],
+  )
+
+  // Column collision handling — when multiple investigations project near the
+  // same along-distance their columns would overlap into an unreadable stack.
+  //
+  // ``columnSpacing`` lerps between two collision-safe layouts:
+  //
+  //   spacing = 1.0 → TRUTH layout: each column sits at its projected
+  //     along-distance; the nudge only displaces columns that would overlap.
+  //   spacing = 0.0 → PACKED layout: columns are placed edge-to-edge in
+  //     projection order from the leftmost, however far apart they really are.
+  //
+  // The pass itself lives in ``wheelZoomAnchor.ts`` because the wheel zoom runs
+  // it too, at a viewport it has not rendered yet.
+  const placedColumns = useMemo<PlacedColumn[]>(() => {
+    const byId = new Map(columnFootprints.map(c => [c.spec.id, c]))
+    return layoutColumnsHorizontally({
+      columns: columnFootprints.map(c => c.spec),
+      xMin: viewport.xMin,
+      scaleH,
+      bandHalfWidth,
+      columnSpacing,
+      marginLeft: MARGIN.left,
+      edgeGapPx: COLUMN_EDGE_GAP_PX,
+      gapForPair,
+    }).map(p => {
+      const src = byId.get(p.id) as NonNullable<ReturnType<typeof byId.get>>
+      const common = {
+        trueX: p.trueX,
+        nudgedX: p.nudgedX,
+        width: p.width,
+        displaced: p.displaced,
+      }
+      // Branch on kind so the (kind, proj) pair stays correlated — a single
+      // literal-object return widens to a non-discriminated union and tsc
+      // loses the narrowing (debt #28).
+      return src.kind === 'cpt'
+        ? { kind: 'cpt' as const, proj: src.proj, ...common }
+        : { kind: 'borehole' as const, proj: src.proj, ...common }
+    })
   }, [
-    projectedCpts,
-    projectedBoreholes,
-    xToScreen,
-    cptPlots,
-    boreholeDetails,
-    cptChannels,
+    columnFootprints,
+    viewport.xMin,
+    scaleH,
     bandHalfWidth,
     columnSpacing,
-    enabledBhChannels,
-    ghostFootprintForLayout,
-    lithoGhostAnchorIds,
-    // Edge-aware pair gap depends on the contact-edge graph + the
-    // contact→investigation mapping; both can change without any other
-    // layout input changing (e.g. user accepts a correlation), so they
-    // belong in the dep list.
-    contactEdges,
-    contacts,
-    // The edge→investigation map is also built from lithoLayers (the layers the
-    // edges reference), so the correlated-pair gap recomputes when they change.
-    lithoLayers,
+    gapForPair,
   ])
 
   // Scrub-bar outer bounds: the WARP-EFFECTIVE leftmost / rightmost
@@ -1634,32 +1609,6 @@ export default function SectionPanel({
   useEffect(() => {
     columnSpacingRef.current = columnSpacing
   }, [columnSpacing])
-
-  // Mirror the layout state the wheel handler's exact-simulation path
-  // needs into ``layoutStateRef``. handleWheel is declared above all
-  // these memos / destructures so it can't close over them directly.
-  // The ref lets the wheel compute cumulative widths at the post-zoom
-  // bandHalfWidth for the cursor's column without the per-column-
-  // ratio approximation that drifts at intermediate spacing.
-  useEffect(() => {
-    layoutStateRef.current = {
-      placedColumns,
-      cptPlots,
-      boreholeDetails,
-      cptChannels,
-      enabledBhChannels,
-      ghostFootprintForLayout,
-      lithoGhostAnchorIds,
-    }
-  }, [
-    placedColumns,
-    cptPlots,
-    boreholeDetails,
-    cptChannels,
-    enabledBhChannels,
-    ghostFootprintForLayout,
-    lithoGhostAnchorIds,
-  ])
 
   // Virtuele Boring overlay — index the predictions by
   // investigation_id once per prop change so the SVG render walks a
@@ -1878,24 +1827,19 @@ export default function SectionPanel({
       // every borehole with enabledBhChannels > 0 gets the strip
       // band. This matches what the rendered layout settles to and
       // the target lands dead-centre once the data is in.
-      const newVisualWidth = (col: typeof placedColumns[number]): number => {
-        if (col.kind === 'cpt') {
-          const trackW = cptBandFullWidth(
-            col.proj.item.cpt_type,
-            cptChannels,
-            newBandHalfWidth,
-          )
-          const lithoBandW = lithoGhostAnchorIds.has(col.proj.item.id)
-            ? 2 * newBandHalfWidth
-            : 0
-          return BARE_COLUMN_WIDTH_PX + Math.max(trackW, lithoBandW) + ghostFootprintForLayout
-        }
-        const stripsW = enabledBhChannels * 2 * newBandHalfWidth
-        const lithoBandW = lithoGhostAnchorIds.has(col.proj.item.id)
-          ? 2 * newBandHalfWidth
-          : 0
-        return BARE_COLUMN_WIDTH_PX + Math.max(stripsW, lithoBandW) + ghostFootprintForLayout
-      }
+      const newVisualWidth = (col: (typeof placedColumns)[number]): number =>
+        columnLayoutWidthPx(
+          zoomLayoutColumn(
+            col.proj.item.id,
+            col.proj.along,
+            col.kind === 'cpt'
+              ? cptBandFullWidth(col.proj.item.cpt_type, cptChannels, 1)
+              : enabledBhChannels * 2,
+            lithoGhostAnchorIds.has(col.proj.item.id),
+            ghostFootprintForLayout,
+          ),
+          newBandHalfWidth,
+        )
 
       // Sort placedColumns by along (the packing order).
       const sortedCols = [...placedColumns].sort(
@@ -2043,6 +1987,36 @@ export default function SectionPanel({
         return { ...c, trueX: sx, nudgedX: sx, displaced: false }
       })
   }, [placedColumns, focusedColumn, xToScreen])
+
+  // Mirror the layout state the wheel handler needs into ``layoutStateRef``.
+  // handleWheel is declared far above these memos, so it can't close over them
+  // directly; the ref lets it re-run the SAME horizontal layout at the
+  // post-zoom scale and land the cursor's world point back on the cursor pixel.
+  //
+  // It reads ``visibleColumns``, not ``placedColumns``: in column focus the
+  // panel draws ONE re-anchored column, and the simulation has to match what is
+  // drawn or the zoom anchors on a layout nobody can see.
+  useEffect(() => {
+    layoutStateRef.current = {
+      placedColumns: visibleColumns,
+      cptPlots,
+      boreholeDetails,
+      cptChannels,
+      enabledBhChannels,
+      ghostFootprintForLayout,
+      lithoGhostAnchorIds,
+      gapForPair,
+    }
+  }, [
+    visibleColumns,
+    cptPlots,
+    boreholeDetails,
+    cptChannels,
+    enabledBhChannels,
+    ghostFootprintForLayout,
+    lithoGhostAnchorIds,
+    gapForPair,
+  ])
 
   // Right-click context menu state + handlers — both the
   // ColumnGlyph hit-box handler and the SVG-level catch-all
@@ -2337,30 +2311,8 @@ export default function SectionPanel({
   }, [warpAnchors])
 
   const warpedXToScreen = useCallback(
-    (along: number): number => {
-      if (warpAnchors.length === 0) return xToScreen(along)
-      // Before the first anchor — extrapolate at true scale so the
-      // DEM extends to the left edge with its natural slope.
-      if (along <= warpAnchors[0].along) {
-        return warpAnchors[0].effX - (warpAnchors[0].along - along) * scaleH
-      }
-      // After the last anchor — same on the right.
-      const last = warpAnchors[warpAnchors.length - 1]
-      if (along >= last.along) {
-        return last.effX + (along - last.along) * scaleH
-      }
-      // Inside — find the segment and linearly interpolate.
-      let i = 0
-      while (i < warpAnchors.length - 1 && warpAnchors[i + 1].along < along) i += 1
-      const a = warpAnchors[i]
-      const b = warpAnchors[i + 1]
-      // Defensive against duplicate-along anchors (two tests
-      // projected to the same along-distance) — fall back to ``a``'s
-      // effX rather than dividing by zero.
-      if (b.along === a.along) return a.effX
-      const frac = (along - a.along) / (b.along - a.along)
-      return a.effX + frac * (b.effX - a.effX)
-    },
+    (along: number): number =>
+      warpedAlongToScreenX(along, warpAnchors, scaleH, xToScreen(along)),
     [warpAnchors, xToScreen, scaleH],
   )
 
@@ -3720,6 +3672,7 @@ export default function SectionPanel({
             anchorY={hoveredSample.y}
             containerWidth={size.width}
             containerHeight={size.height}
+            bodyClickable={hoveredSample.bodyClickable}
           />
         )}
         <CanvasHints
