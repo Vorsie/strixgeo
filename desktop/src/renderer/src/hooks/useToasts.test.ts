@@ -79,3 +79,136 @@ describe('useToasts — errors do not scroll past unnoticed', () => {
     expect(result.current.toasts.map(t => t.message)).toEqual(['second'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// A recurring toast replaces itself instead of stacking
+//
+// Owner (dogfeed 2026-08-15):
+//
+//   > "when i repeatedly press l the toast just kind of stack on the right, if
+//   > it is a recurring toast for example by pressing same hotkey multiple
+//   > times, you can just immediately replace it and don't need to flood the
+//   > screen"
+//
+//   TR1  the same recurring toast replaces the one already on screen
+//   TR2  the replacement keeps the slot it had — it does not jump to the bottom
+//   TR3  the replacement gets the full window again, not the leftovers
+//   TR4  a recurring message that turns into an error waits to be read
+//   TR5  ...and an error replaced by a report goes back to expiring
+//   TR6  two different recurring messages never replace each other
+//   TR7  a message with nothing recurring about it still stacks as before
+// ---------------------------------------------------------------------------
+
+describe('useToasts — a recurring toast replaces itself', () => {
+  it('TR1: pressing the same key again replaces the toast instead of flooding', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+      result.current.toast('success', 'Litho fill off', 'litho-fill')
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+    })
+
+    expect(result.current.toasts).toHaveLength(1)
+    expect(result.current.toasts[0].message).toBe('Litho fill on')
+  })
+
+  it('TR2: the replacement stays where it was — it does not jump to the bottom', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+      result.current.toast('error', 'Subdivide failed')
+    })
+    act(() => {
+      result.current.toast('success', 'Litho fill off', 'litho-fill')
+    })
+
+    expect(result.current.toasts.map(t => t.message)).toEqual([
+      'Litho fill off',
+      'Subdivide failed',
+    ])
+  })
+
+  it('TR3: the replacement gets the whole window again', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+    })
+    // Almost expired, then replaced: the new message must not inherit the
+    // remaining sliver of the old one's window.
+    act(() => {
+      vi.advanceTimersByTime(TOAST_TIMEOUT_MS - 100)
+      result.current.toast('success', 'Litho fill off', 'litho-fill')
+    })
+    act(() => {
+      vi.advanceTimersByTime(TOAST_TIMEOUT_MS - 100)
+    })
+
+    expect(result.current.toasts.map(t => t.message)).toEqual(['Litho fill off'])
+
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    expect(result.current.toasts).toHaveLength(0)
+  })
+
+  it('TR4: a recurring report that turns into an error waits to be read', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+      result.current.toast('error', 'Litho fill could not be read', 'litho-fill')
+    })
+    act(() => {
+      vi.advanceTimersByTime(TOAST_TIMEOUT_MS * 10)
+    })
+
+    expect(result.current.toasts).toHaveLength(1)
+    expect(result.current.toasts[0].message).toBe('Litho fill could not be read')
+    expect(result.current.toasts[0].sticky).toBe(true)
+  })
+
+  it('TR5: an error replaced by a plain report goes back to expiring', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('error', 'Litho fill could not be read', 'litho-fill')
+    })
+    act(() => {
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+    })
+    act(() => {
+      vi.advanceTimersByTime(TOAST_TIMEOUT_MS)
+    })
+
+    expect(result.current.toasts).toHaveLength(0)
+  })
+
+  it('TR6: two different recurring messages never replace each other', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('success', 'Litho fill on', 'litho-fill')
+      result.current.toast('success', 'Sample markers on', 'sample-markers')
+      result.current.toast('success', 'Litho fill off', 'litho-fill')
+    })
+
+    expect(result.current.toasts.map(t => t.message)).toEqual([
+      'Litho fill off',
+      'Sample markers on',
+    ])
+  })
+
+  it('TR7: a message with nothing recurring about it still stacks', () => {
+    const { result } = renderHook(() => useToasts())
+
+    act(() => {
+      result.current.toast('success', 'Accepted 3 correlations')
+      result.current.toast('success', 'Accepted 3 correlations')
+    })
+
+    expect(result.current.toasts).toHaveLength(2)
+  })
+})

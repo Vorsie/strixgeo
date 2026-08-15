@@ -11,6 +11,15 @@
 // before an engineer looking at the section noticed it, with no in-app history
 // to recover it from. Successes and warnings still expire: they report, they
 // do not ask. An error asks, so it waits to be dismissed.
+//
+// A RECURRING TOAST REPLACES ITSELF (owner dogfeed 2026-08-15): "when i
+// repeatedly press l the toast just kind of stack on the right, if it is a
+// recurring toast for example by pressing same hotkey multiple times, you can
+// just immediately replace it and don't need to flood the screen". A caller
+// that can fire the same announcement over and over passes a replace key; the
+// live toast carrying that key is swapped in place — same slot, new message,
+// fresh window. Callers that pass no key keep stacking, which is right for
+// results (three accepts are three facts, not one restated).
 
 import { useRef, useState } from 'react'
 
@@ -30,13 +39,29 @@ export interface Toast {
    * error, which is the bug this closes.
    */
   sticky: boolean
+  /**
+   * Identifies a RECURRING announcement, so the next one of its kind takes
+   * this toast's place instead of stacking beside it.
+   *
+   * Absent on the ordinary result toast: two accepts are two facts and both
+   * deserve saying. Present on the announcements a key can repeat — a display
+   * toggle, for one — where the second press restates the first.
+   */
+  replaceKey?: string
 }
 
 export interface UseToastsResult {
   /** Current live toasts — render these as the stack. */
   toasts: Toast[]
-  /** Append a toast; auto-dismisses after 4 s unless it is an error. */
-  toast: (type: 'success' | 'error' | 'warning', message: string) => void
+  /**
+   * Show a toast; auto-dismisses after 4 s unless it is an error.
+   *
+   * With a ``replaceKey``, a live toast already carrying that key is REPLACED
+   * where it stands — same position in the stack, new message and type, fresh
+   * 4 s window — so hammering a hotkey shows one toast that updates rather
+   * than a column of identical ones. Without one, the toast is appended.
+   */
+  toast: (type: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
   /** Remove one toast by id — what the close button on a sticky toast calls. */
   dismissToast: (id: number) => void
 }
@@ -70,13 +95,33 @@ export function useToasts(): UseToastsResult {
   // them out of useCallback prevents them from appearing in dep arrays of
   // other hooks (which would cause false re-subscription cycles).
   function dismissToast(id: number): void {
-    setToasts(prev => prev.filter(t => t.id !== id))
+    // Returning the SAME array when the id is already gone keeps a replaced
+    // toast's orphaned timer from re-rendering the stack when it fires.
+    setToasts(prev => (prev.some(t => t.id === id) ? prev.filter(t => t.id !== id) : prev))
   }
 
-  function toast(type: 'success' | 'error' | 'warning', message: string): void {
+  function toast(
+    type: 'success' | 'error' | 'warning',
+    message: string,
+    replaceKey?: string,
+  ): void {
     const id = ++toastId.current
     const sticky = type === 'error'
-    setToasts(prev => [...prev, { id, type, message, sticky }])
+    const next: Toast = { id, type, message, sticky, replaceKey }
+    setToasts(prev => {
+      const at = replaceKey === undefined ? -1 : prev.findIndex(t => t.replaceKey === replaceKey)
+      if (at === -1) return [...prev, next]
+      // In place, not re-appended: the toast the engineer is already reading
+      // must not jump to the bottom of the stack under his eyes.
+      const kept = prev.slice()
+      kept[at] = next
+      return kept
+    })
+    // The replaced toast's own timer is left to expire harmlessly — it names an
+    // id that is no longer in the stack, so it removes nothing. This entry gets
+    // a full window of its own, which is what "restart the timer" means; and a
+    // report replaced by an ERROR schedules nothing at all, so the sticky rule
+    // survives the swap in both directions.
     if (!sticky) setTimeout(() => dismissToast(id), TOAST_TIMEOUT_MS)
   }
 
