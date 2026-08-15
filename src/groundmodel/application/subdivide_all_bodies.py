@@ -142,8 +142,8 @@ from groundmodel.application.geotech_edge_derivation import (
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_approved_litho_edge_sets,
-    load_existing_geotech_sided_edges_by_section,
     load_existing_geotech_edge_pairs_by_section,
+    load_existing_geotech_sided_edges_by_section,
     load_litho_layer_depths,
     load_project_sections,
 )
@@ -154,6 +154,10 @@ from groundmodel.application.geotech_tie_reanchor import (
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.application.section_membership import (
+    load_investigation_names,
+    load_section_member_investigation_ids,
+)
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
     read_view_state_float,
@@ -258,6 +262,15 @@ class SubdivideAllBodiesResult:
     proposed_tie_count : int
         Packing ties this run PROPOSED — unapproved suggestions, not accepted
         work.  ``0`` whenever ``edges_derived`` is ``False``.
+    skipped_off_section_count : int
+        Investigations that carry accepted litho layers but appear on NO
+        cross-section in scope, and were therefore left out of the geotech
+        model (owner ruling 2026-08-15).  Reported so the caller can say the
+        model came out smaller on purpose — a silent skip is exactly the kind
+        of thing that surfaces in an export instead.
+    skipped_off_section_labels : list[str]
+        The names of those investigations.  A count alone cannot be acted on;
+        the names tell the engineer which columns to put on a section.
     """
 
     geotech_model_id: UUID
@@ -275,6 +288,8 @@ class SubdivideAllBodiesResult:
     lost_tie_labels: list[str] = field(default_factory=list)
     edges_derived: bool = True
     proposed_tie_count: int = 0
+    skipped_off_section_count: int = 0
+    skipped_off_section_labels: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -402,13 +417,27 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         project_id: UUID,
         litho_model_id: UUID,
         derive_edges: bool = True,
+        section_id: UUID | None = None,
     ) -> SubdivideAllBodiesResult:
-        """Subdivide all model bodies and materialise geotech spatial bodies.
+        """Subdivide the model's on-section bodies and materialise geotech bodies.
 
-        Processes the WHOLE litho model (all investigations, all sections) in
-        one transaction.  Geotech layers are model-wide; geotech edges are
+        Processes the litho model in one transaction.  Geotech layers are
+        written once per investigation (section-independent); geotech edges are
         per-section (each section's approved litho edges are mapped to geotech
         sub-layers and tagged with that section's id).
+
+        **Membership rule** (owner ruling 2026-08-15): only investigations that
+        appear on a cross-section take part.  A CPT on no section cannot be
+        drawn, correlated or corrected in the section view, so subdividing it
+        would put bands in the model that nobody can reach — yet they would
+        still enter the resolver, the 3-D build and every export.
+
+        ⚠ **The reset stays model-wide even in the scoped mode.**  This verb has
+        always been "wipe the geotech model and rebuild it"
+        (:meth:`_delete_all_geotech_data`), which is why the toolbar gates a
+        re-run behind a confirmation dialog.  Passing ``section_id`` narrows
+        WHICH columns are rebuilt, not what is wiped: columns on other sections
+        lose their bands until the verb is run again without a scope.
 
         Parameters
         ----------
@@ -417,6 +446,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         litho_model_id : UUID
             The lithostratigraphic model to subdivide.  Must be
             ``kind='lithostratigraphic'``.
+        section_id : UUID | None
+            Restrict the rebuild to the investigations on ONE section.
+            ``None`` (the default) takes every investigation on ANY section —
+            the historic breadth minus the off-section ones the membership rule
+            excludes in both modes.
         derive_edges : bool
             Whether to run the per-section packing-tie derivation (Phase 9).
             ``True`` — the historic behaviour — keeps the combined verb doing
@@ -440,8 +474,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         """
         t0 = time.monotonic()
         self.info(
-            f"SubdivideAllBodies: litho_model={litho_model_id} (model-wide) "
-            f"derive_edges={derive_edges}"
+            f"SubdivideAllBodies: litho_model={litho_model_id} "
+            f"scope={section_id or 'all sections'} derive_edges={derive_edges}"
         )
 
         litho_model = await load_scoped_or_raise(
@@ -464,9 +498,37 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         tie_reanchor = GeotechTieReanchor(self._session)
         captured_ties = await tie_reanchor.capture(geotech_model.id)
 
-        # Phase 2 — load ALL model picks (no section restriction).
-        picks = await self._litho_repo.load_body_picks(litho_model_id)
-        self.info(f"SubdivideAllBodies: {len(picks)} pick(s) across whole model")
+        # Phase 2 — load the model's picks, then keep only the ones on a section.
+        #
+        # The membership rule (owner ruling 2026-08-15) is applied HERE, on the
+        # picks, rather than by restricting the query: the difference between
+        # the two sets is exactly the report the engineer needs — which of his
+        # interpreted columns were left out, and why his model came back
+        # smaller than the sidebar's investigation count.
+        all_picks = await self._litho_repo.load_body_picks(litho_model_id)
+        members = await load_section_member_investigation_ids(
+            self._session, project_id=project_id, section_id=section_id
+        )
+        picks = [pick for pick in all_picks if UUID(pick.investigation_id) in members]
+        off_section_ids = {UUID(pick.investigation_id) for pick in all_picks} - members
+        skipped_labels: list[str] = []
+        if off_section_ids:
+            names = await load_investigation_names(self._session, off_section_ids)
+            skipped_labels = sorted(names.get(inv_id, str(inv_id)) for inv_id in off_section_ids)
+            # NAMES, at INFO: a model that silently came out smaller is the
+            # class of surprise that only shows up in an export. Note that
+            # "off-section" here also covers a column the section EXCLUDES —
+            # project_investigations_onto_section honours excluded_cpt_ids.
+            self.info(
+                f"SubdivideAllBodies: {len(off_section_ids)} interpreted column(s) skipped — "
+                f"they project onto no cross-section "
+                f"{'in scope' if section_id is not None else 'in the project'}: "
+                f"{', '.join(skipped_labels)}"
+            )
+        self.info(
+            f"SubdivideAllBodies: {len(picks)} pick(s) on section "
+            f"(of {len(all_picks)} in the litho model)"
+        )
         if not picks:
             # Model-wide idempotent reset MUST run on the empty path too: a
             # rebuild after the litho picks were cleared (e.g. the litho model
@@ -510,6 +572,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     {REASON_BAND_ABSENT: len(captured_ties)} if captured_ties else {}
                 ),
                 edges_derived=derive_edges,
+                skipped_off_section_count=len(off_section_ids),
+                skipped_off_section_labels=skipped_labels,
             )
 
         # Phase 3 — geo-bound picks (same pipeline as C1, but a wider geotech
@@ -754,6 +818,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # it materialises the borehole bands, adding the borehole-mediated edges
         # (groundmodel.application.geotech_edge_derivation).
         sections = await load_project_sections(self._session, project_id)
+        if section_id is not None:
+            # A scoped run rebuilt one section's columns, so it may only
+            # propose on that section — deriving elsewhere would tie bands that
+            # this pass just deleted and did not re-create.
+            sections = [s for s in sections if s.id == section_id]
         edge_totals = EdgeDerivationCounts()
         sections_with_edges = 0
         if not derive_edges:
@@ -873,6 +942,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             lost_tie_labels=reanchor_plan.lost_tie_labels,
             edges_derived=derive_edges,
             proposed_tie_count=edge_totals.edges_emitted,
+            skipped_off_section_count=len(off_section_ids),
+            skipped_off_section_labels=skipped_labels,
         )
         self.success(
             f"SubdivideAllBodies: geotech_model={geotech_model.id} "

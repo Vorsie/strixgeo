@@ -128,6 +128,10 @@ from groundmodel.application.project_investigations_onto_section import (
 )
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.application.section_membership import (
+    load_investigation_names,
+    load_section_member_investigation_ids,
+)
 from groundmodel.domain.services.assign_borehole_band_body import (
     CptBandRef,
     assign_borehole_band_body,
@@ -565,9 +569,31 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
         self.info(f"DivideBoreholes: geotech_model={geotech_model.id}")
 
-        # Phase 3 — load litho body picks and geo-bound them.
-        picks = await self._litho_repo.load_body_picks(litho_model_id)
-        self.info(f"DivideBoreholes: {len(picks)} pick(s) in litho model")
+        # Phase 3 — load litho body picks, keep only the ones on a section, and
+        # geo-bound them.
+        #
+        # The membership rule (owner ruling 2026-08-15) applies here for the
+        # same reason it applies to the subdivide: a borehole that projects
+        # onto no cross-section cannot be drawn, correlated or corrected, so
+        # bands written on it are unreachable. Verified 2026-08-15 that this
+        # guard is NOT redundant — before it, an off-section borehole sharing a
+        # body with an on-section CPT was filled from that CPT's transition
+        # surfaces and entered the model.
+        all_picks = await self._litho_repo.load_body_picks(litho_model_id)
+        members = await load_section_member_investigation_ids(self._session, project_id=project_id)
+        picks = [pick for pick in all_picks if UUID(pick.investigation_id) in members]
+        off_section_ids = {UUID(pick.investigation_id) for pick in all_picks} - members
+        if off_section_ids:
+            names = await load_investigation_names(self._session, off_section_ids)
+            self.info(
+                f"DivideBoreholes: {len(off_section_ids)} interpreted column(s) skipped — "
+                f"they project onto no cross-section: "
+                f"{', '.join(sorted(names.get(i, str(i)) for i in off_section_ids))}"
+            )
+        self.info(
+            f"DivideBoreholes: {len(picks)} pick(s) on section "
+            f"(of {len(all_picks)} in the litho model)"
+        )
         if not picks:
             self.warning("DivideBoreholes: no litho picks found — no borehole bands to materialise")
             return DivideBoreholePlan(
