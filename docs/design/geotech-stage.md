@@ -67,6 +67,35 @@ so render and build cannot diverge, and the engineer's NAD correlations drive
 the fill with litho's own 2/1/0 semantics (2 tied contacts = BAND, 1 = ONLAP,
 0 = LENS) — nothing transposed, nothing re-derived.
 
+**...assembled on the LITHO FRAME's column axis** (owner dogfeed 2026-08-15;
+`utils/frameAlignedPartition.ts`). The shared column assembly drops a column
+with no accepted units, so before this an undivided borehole simply vanished
+from the geotech input: the engine saw ONE wide test-to-test gap straight over
+the borehole and tiled it with terminations answering to no column (*"what are
+those weird polygons between the boreholes?"*), the two gap axes stopped
+lining up index-for-index so the litho-frame clip below was skipped for the
+WHOLE section (*"clearly the litho model isn't the base of the geotech fill
+because it mismatches a ton"*), and with no clip there were no per-face bare
+areas for the "correlate me" texture to mark (*"i don't see the hashed
+fallback nowhere"*). One cause, three symptoms.
+
+The frame's columns are therefore the axis: an un-banded column contributes an
+EMPTY stack, which splits the frame into maximal runs of consecutive banded
+columns (`frameGapRuns`). Each run is partitioned on its own and its regions
+are shifted back onto the frame's gap axis (`shiftRegionGaps`), so a gap that
+touches a column the packing model never classified receives NO packing
+geometry — the honest answer, which the clip then resolves to bare ground. The
+split happens OUTSIDE the engine deliberately: `partitionFillV2/sectionGeom`
+drops a unit-less column and re-indexes the gaps, which is the very
+re-indexing being corrected. Off the geotech axis, and on it once every
+borehole is divided, this is ONE run at offset 0 and every call is literally
+the previous call.
+
+Measured on the owner's mid-pipeline model (19 of CS1's 24 columns banded):
+litho-consistency CS1 90.5 % → 99.2 %, and the six tie-sections that carry a
+single banded column 3.1–14.7 % → 100 %; CS1's total un-painted area 312 → 102
+m², the residual being one raster cell along each seam.
+
 **The litho geometry stays authoritative** three ways:
 
 * **By construction — complete tie restatement.** Every direct litho tie
@@ -86,11 +115,16 @@ the fill with litho's own 2/1/0 semantics (2 tied contacts = BAND, 1 = ONLAP,
   every face keeps its packing class only where its soil matches the litho
   region it sits in; foreign classes re-label to a same-soil class of the
   region; regions with no class of their soil fall back to litho colour;
-  nothing exceeds the frame. The clip runs whenever the geotech and litho
-  column sets match positionally; an undivided borehole (columns differ)
-  keeps the raw partition + the whole-region fallback heuristic
-  (`utils/geotechFillFallback.ts`) until step 4 divides it — the same answer
-  the build has always had.
+  nothing exceeds the frame. Since 2026-08-15 the clip runs ALWAYS: the
+  partition above is built on the frame's own column axis, so the two gap
+  axes coincide by construction. The whole-region fallback heuristic
+  (`utils/geotechFillFallback.ts`) survives only as the guard path for a
+  frame with fewer than two columns — and it is what left the owner's
+  *"gap between two left tests on cs1"*: a 0.66 m wedge at mid-gap where the
+  packing model terminated INSIDE the gap, which the heuristic refused to
+  call bare because *one packed side is enough to disqualify it* — true when
+  the packing partition reaches across, false when it stops half-way. The
+  clip answers per FACE, so that remainder is ordinary bare ground.
 * **On screen.** The litho partition keeps rendering as the dark region
   outlines on top (`partition-litho-outline`); clip-fallback faces render
   litho-coloured beneath the packing fills (`partition-litho-fallback`).
@@ -862,6 +896,17 @@ geotech fill may only SUBDIVIDE the litho fill, never redraw it. The gate:
   ids + per-section agreement; a drop > 0.1 pp FAILS, an improvement is
   re-frozen (`CONSISTENCY_FREEZE=1`). Different model ids → NOT COMPARABLE,
   nothing enforced.
+* **The geotech arm IS the render's construction** (2026-08-15). It was not:
+  the gate clipped unconditionally, remapping gap indices by matching the
+  gap's left along-metre, while the render clipped only when the two column
+  sets matched. On a fully divided model the two agree, which is why the
+  discrepancy stayed invisible; on a MID-PIPELINE model the gate reported
+  99–100 % for a fill nobody could see, because every gap the geotech arm
+  could not reach fell back to litho and therefore agreed with litho by
+  definition. The arm now assembles frame-aligned per-run exactly as §2
+  describes, and `CONSISTENCY_LEGACY=1` reproduces the old render for a
+  before/after read. The report line also carries the packed and un-banded
+  FACE counts, so "the texture is drawn nowhere" is a number, not a look.
 * **Numbers.** The gate measures the CLIPPED fill by default (the render's
   truth; `CONSISTENCY_RAW=1` measures the unclipped tie-driven partition
   for what-if analysis). Frozen 2026-08-14 on the LIVE dev model, clipped:
@@ -873,6 +918,13 @@ geotech fill may only SUBDIVIDE the litho fill, never redraw it. The gate:
   step-2 re-run 87.0–98.8 % (CS1 95.8); step-3 accept-all CS1 96.9 % while
   CS3 DROPS to 94.9 % — some old pending ghosts are geologically wrong,
   which is why the review flow beats a blind accept-all.
+  On the owner's CURRENT (mid-pipeline) model the frame-aligned arm reads
+  **99.2 % on CS1 and 100 % everywhere else**, against 90.5 % / 3.1–14.7 %
+  for the render he dogfed (`CONSISTENCY_LEGACY=1`). The frozen baseline is
+  NOT re-frozen for either: it was frozen on a different geotech model id,
+  and re-running it against the fully-divided dump of that model reproduces
+  its numbers to the digit — the change is a no-op once every borehole is
+  divided, which is the property that makes it safe.
 * **The target is 100 %** (owner ruling 2026-08-14: "litho consistency
   should be 100%"). The measured residual decomposes into three named
   classes (per-gap drill-downs: `geotechSectionDump.diag.test.ts`,
