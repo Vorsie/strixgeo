@@ -31,6 +31,7 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -43,6 +44,11 @@ from groundmodel.application.divide_boreholes import (
 from groundmodel.domain.services.borehole_flank_donors import SectionPlacement
 from groundmodel.domain.services.geotech_tie_donors import AcceptedTie
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.voxel_litho.voxel_types import (
+    RegionInput,
+    SectionColumnInput,
+    SectionPartitionInput,
+)
 
 # NAD 5 = SAND loose (the ZAND floor); 7 = SAND dense. Real class integers so a
 # mis-wired lookup shows up as a wrong label rather than a passing tautology.
@@ -510,3 +516,178 @@ def test_p8_a_tied_surface_is_rescaled_where_the_litho_body_thins() -> None:
         assert round(bands[0].base, 3) == expected
         assert bands[0].top == extent_top
         assert bands[-1].base == extent_base
+
+
+def _partition(
+    *,
+    columns: list[tuple[str, float]],
+    regions: list[RegionInput],
+) -> SectionPartitionInput:
+    """One section's 2-D partition, as the renderer ships it."""
+    return SectionPartitionInput(
+        start_x=0.0,
+        start_y=0.0,
+        end_x=600.0,
+        end_y=0.0,
+        columns=tuple(
+            SectionColumnInput(investigation_id=inv, along_m=along, world_x=along, world_y=0.0)
+            for inv, along in columns
+        ),
+        regions=tuple(regions),
+    )
+
+
+def test_pg1_the_borehole_reads_its_bands_off_the_section_geometry() -> None:
+    """PG1 (owner ruling 2026-08-15): the borehole is a vertical line through
+    the partition, not a stack interpolated onto it.
+
+    The gap holds a loose band over a dense one, split at elevation 1.0 m — 4 m
+    down the CPTs' 8 m unit. The borehole stands halfway across, and its OWN
+    litho unit is only 4 m thick, so the split must land 2 m down it: the same
+    FRACTION, not the same depth. That is the rescale, and it is what keeps the
+    litho model authoritative.
+    """
+    cpt_a, cpt_b, borehole = str(uuid7()), str(uuid7()), str(uuid7())
+    section_id = str(uuid7())
+    loose_formation, dense_formation = str(uuid7()), str(uuid7())
+    partition = _partition(
+        columns=[(cpt_a, 0.0), (cpt_b, 600.0)],
+        regions=[
+            RegionInput(
+                formation_id=loose_formation,
+                body_id=None,
+                polygon=((0.0, 5.0), (1.0, 5.0), (1.0, 1.0), (0.0, 1.0)),
+                gap_index=0,
+                kind="quad",
+                layer_ids=("band-loose-A", "band-loose-B"),
+            ),
+            RegionInput(
+                formation_id=dense_formation,
+                body_id=None,
+                polygon=((0.0, 1.0), (1.0, 1.0), (1.0, -3.0), (0.0, -3.0)),
+                gap_index=0,
+                kind="quad",
+                layer_ids=("band-dense-A", "band-dense-B"),
+            ),
+        ],
+    )
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A",
+        along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
+    )
+
+    bands, _body_ids, correspondences, _selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=300.0,
+        bh_y=0.0,
+        bh_surface_elev=5.0,
+        geo_top_m=0.0,
+        geo_base_m=4.0,
+        cpt_segs=[_cpt_pick(cpt_a, 0.0, 8.0), _cpt_pick(cpt_b, 0.0, 8.0)],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth={},
+        cpt_xy={UUID(cpt_a): (0.0, 0.0, 5.0), UUID(cpt_b): (600.0, 0.0, 5.0)},
+        cpt_names={UUID(cpt_a): "CPT-A", UUID(cpt_b): "CPT-B"},
+        section_placements=[section],
+        section_partitions={UUID(section_id): partition},
+        geotech_formation_info={
+            loose_formation: (_NAD_LOOSE, uuid7(), None),
+            dense_formation: (_NAD_DENSE, uuid7(), None),
+        },
+    )
+
+    assert [b.nad_class for b in bands] == [_NAD_LOOSE, _NAD_DENSE]
+    assert bands[0].base == pytest.approx(2.0)
+    assert (bands[0].top, bands[-1].base) == (0.0, 4.0)
+    assert correspondences == [
+        ("band-loose-A", "band-loose-B"),
+        ("band-dense-A", "band-dense-B"),
+    ]
+
+
+def test_pg2_a_lens_that_pinched_out_before_the_borehole_is_not_read() -> None:
+    """PG2: half-length lenses are drawn between two CPTs, so a borehole past
+    the lens's end does not have it — and nothing is interpolated into the space
+    it would have taken."""
+    cpt_a, cpt_b, borehole = str(uuid7()), str(uuid7()), str(uuid7())
+    section_id = str(uuid7())
+    matrix_formation, lens_formation = str(uuid7()), str(uuid7())
+    partition = _partition(
+        columns=[(cpt_a, 0.0), (cpt_b, 600.0)],
+        regions=[
+            RegionInput(
+                formation_id=matrix_formation,
+                body_id=None,
+                polygon=((0.0, 5.0), (1.0, 5.0), (1.0, -3.0), (0.0, -3.0)),
+                gap_index=0,
+                kind="quad",
+                layer_ids=("matrix-A", "matrix-B"),
+            ),
+            RegionInput(
+                formation_id=lens_formation,
+                body_id=None,
+                polygon=((0.0, 3.0), (0.2, 2.0), (0.0, 1.0)),
+                gap_index=0,
+                kind="lens",
+                overlay_tier="lens",
+                layer_ids=("lens-A",),
+            ),
+        ],
+    )
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A",
+        along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
+    )
+
+    bands, _body_ids, correspondences, _selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=300.0,
+        bh_y=0.0,
+        bh_surface_elev=5.0,
+        geo_top_m=0.0,
+        geo_base_m=8.0,
+        cpt_segs=[_cpt_pick(cpt_a, 0.0, 8.0), _cpt_pick(cpt_b, 0.0, 8.0)],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth={},
+        cpt_xy={UUID(cpt_a): (0.0, 0.0, 5.0), UUID(cpt_b): (600.0, 0.0, 5.0)},
+        cpt_names={UUID(cpt_a): "CPT-A", UUID(cpt_b): "CPT-B"},
+        section_placements=[section],
+        section_partitions={UUID(section_id): partition},
+        geotech_formation_info={
+            matrix_formation: (_NAD_LOOSE, uuid7(), None),
+            lens_formation: (_NAD_DENSE, uuid7(), None),
+        },
+    )
+
+    assert [b.nad_class for b in bands] == [_NAD_LOOSE]
+    assert correspondences == [("matrix-A", "matrix-B")]
+
+
+def test_pg3_without_a_partition_the_donor_rule_still_answers() -> None:
+    """PG3: the geometry outranks the donor rule only where it reaches. The
+    preview, and any borehole no partition covers, keep today's answer — so the
+    new path can never make a column worse than it was."""
+    cpt = str(uuid7())
+    layers = {cpt: [(0.0, 8.0, uuid7(), uuid7(), _NAD_DENSE, uuid7())]}
+
+    bands, _body_ids, _correspondences, selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=str(uuid7()),
+        bh_x=100.0,
+        bh_y=0.0,
+        bh_surface_elev=5.0,
+        geo_top_m=0.0,
+        geo_base_m=8.0,
+        cpt_segs=[_cpt_pick(cpt, 0.0, 8.0)],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth=layers,
+        cpt_xy={UUID(cpt): (0.0, 0.0, 5.0)},
+        cpt_names={UUID(cpt): "CPT-A"},
+        section_placements=[],
+        section_partitions={},
+        geotech_formation_info={},
+    )
+
+    assert [b.nad_class for b in bands] == [_NAD_DENSE]
+    assert selection.mode in {"single_donor", "nearest_fallback"}
