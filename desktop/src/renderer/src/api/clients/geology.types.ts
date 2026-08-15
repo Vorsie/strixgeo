@@ -1019,9 +1019,14 @@ export interface SubdivideAllBodiesResponse {
    * Interpreted investigations left OUT of the model because they project onto
    * no cross-section in scope (owner ruling 2026-08-15). Optional so an older
    * backend simply reports nothing rather than a misleading zero.
+   *
+   * NOT shown to the engineer — owner, same day: *"wtf are of section skips,
+   * this is useless info for the user?"*. The pair stays on the wire (and in
+   * the backend's INFO log) as the audit trail for a model that came out
+   * smaller than the sidebar's count; the toast says nothing about it.
    */
   skipped_off_section_count?: number
-  /** Names of those investigations — a count alone cannot be acted on. */
+  /** Names of those investigations — the log's, not the toast's. */
   skipped_off_section_labels?: string[]
 }
 

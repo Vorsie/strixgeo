@@ -871,6 +871,14 @@ export interface UseGeologicalModelResult {
      * investigations are excluded in both modes.
      */
     sectionId?: string | null
+    /**
+     * Create the geotech model under this representative-qc statistic — the
+     * choice the engineer made before there was a model to store it on (owner
+     * ruling 2026-08-15). Honoured by the backend only on the call that
+     * CREATES the model; a re-run keeps the model's own choice, which
+     * ``POST .../geotech/statistic`` remains the only way to change.
+     */
+    representativeStatistic?: string | null
   }) => Promise<void>
   /**
    * TIN-divide borehole columns using CPT packing-transition surfaces.
@@ -879,16 +887,21 @@ export interface UseGeologicalModelResult {
    * already exist.  Idempotent: prior borehole bands are replaced.
    *
    * ``boreholeIds`` scopes the run to a subset — the ghost-accept gesture
-   * divides ONE column. Omitting it divides every borehole; an empty array is
-   * refused rather than sent, because "divide none" is never what a click
-   * means.  The backend refuses the call outright while packing ties are still
+   * divides ONE column. Omitting it divides every borehole in scope; an empty
+   * array is refused rather than sent, because "divide none" is never what a
+   * click means.  ``sectionId`` scopes it to one cross-section (owner ruling
+   * 2026-08-15), which is what the toolbar's step 4 sends.  The backend
+   * refuses the call outright while packing ties in that scope are still
    * proposed (``geotech_ties_pending``), and its message is surfaced verbatim.
    *
    * Returns
    * -------
    * Promise<void>
    */
-  handleDivideBoreholes: (options?: { boreholeIds?: readonly string[] }) => Promise<void>
+  handleDivideBoreholes: (options?: {
+    boreholeIds?: readonly string[]
+    sectionId?: string | null
+  }) => Promise<void>
   // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
   // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
   // hook is model-agnostic (the voxel builder parameterises on ``model_id``),
@@ -2381,7 +2394,11 @@ export function useGeologicalModel({
   //   (d) markMutated + addToSessionImports for the new formations → dirty flag
   // The verb must be usable when NO geotech model exists yet (first run).
   const handleSubdivideAllBodies = useCallback(
-    async (options?: { deriveEdges?: boolean; sectionId?: string | null }): Promise<void> => {
+    async (options?: {
+      deriveEdges?: boolean
+      sectionId?: string | null
+      representativeStatistic?: string | null
+    }): Promise<void> => {
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
         toast('error', 'Select a lithostratigraphic model first.')
@@ -2390,6 +2407,11 @@ export function useGeologicalModel({
       // Owner ruling 2026-08-15 — a section id rebuilds that section's columns
       // only; null is the deliberate all-sections press.
       const sectionId = options?.sectionId ?? null
+      // The statistic chosen before any geotech model existed (owner ruling
+      // 2026-08-15). The backend applies it only when this call CREATES the
+      // model, so passing it on a re-run is harmless — and the toolbar clears
+      // it the moment a model exists anyway.
+      const representativeStatistic = options?.representativeStatistic ?? null
       // Pipeline step 1 (owner ruling 2026-08-04) subdivides the CPTs and
       // proposes NOTHING; the combined verb is the compatibility path and is
       // the only caller that asks for edges. Everything AFTER the request is
@@ -2398,13 +2420,24 @@ export function useGeologicalModel({
       const verb = deriveEdges ? 'subdivideAllBodies' : 'subdivideCpts'
       log.info(
         'geology',
-        `${verb} entry lithoModel=${lithoModel.id} scope=${sectionId ?? 'all sections'}`,
+        `${verb} entry lithoModel=${lithoModel.id} scope=${sectionId ?? 'all sections'}` +
+          ` statistic=${representativeStatistic ?? 'model default'}`,
       )
       let result: SubdivideAllBodiesResponse
       try {
         result = deriveEdges
-          ? await api.geology.subdivideAllBodies(project.id, lithoModel.id, sectionId)
-          : await api.geology.subdivideCpts(project.id, lithoModel.id, sectionId)
+          ? await api.geology.subdivideAllBodies(
+              project.id,
+              lithoModel.id,
+              sectionId,
+              representativeStatistic,
+            )
+          : await api.geology.subdivideCpts(
+              project.id,
+              lithoModel.id,
+              sectionId,
+              representativeStatistic,
+            )
       } catch (err) {
         log.error('geology', `${verb} failed`, err)
         toast('error', `${deriveEdges ? 'Subdivide all bodies' : 'Subdivide CPTs'} failed — see console.`)
@@ -2482,8 +2515,6 @@ export function useGeologicalModel({
           oneClassBodyCount: result.one_class_body_count,
           boreholeOnlyCount: result.borehole_only_count ?? 0,
           reanchoredTieCount: result.reanchored_tie_count ?? 0,
-          skippedOffSectionCount: result.skipped_off_section_count ?? 0,
-          skippedOffSectionLabels: result.skipped_off_section_labels ?? [],
           deriveEdges,
         }),
       )
@@ -2519,7 +2550,10 @@ export function useGeologicalModel({
   // least once (a 404 from the API means the geotech model doesn't exist yet).
   const dividingBoreholesRef = useRef(false)
   const handleDivideBoreholes = useCallback(
-    async (options?: { boreholeIds?: readonly string[] }): Promise<void> => {
+    async (options?: {
+      boreholeIds?: readonly string[]
+      sectionId?: string | null
+    }): Promise<void> => {
       // Concurrent-divide guard (review MINOR-1): the toolbar debounces via its
       // busy state, but the ghost right-click path has no such state — a double
       // click must not fire two overlapping delete-and-rewrite passes.
@@ -2543,9 +2577,13 @@ export function useGeologicalModel({
         toast('warning', 'No borehole selected — nothing to divide.')
         return
       }
+      // Owner ruling 2026-08-15 — step 4 joined the other three: a section id
+      // divides that section's boreholes and gates on that section's ties.
+      const sectionId = options?.sectionId ?? null
       log.info(
         'geology',
         `divideBoreholes entry lithoModel=${lithoModel.id} ` +
+          `scope=${sectionId ?? 'all sections'} ` +
           `boreholes=${subset === undefined ? 'ALL' : subset.length}`,
       )
       let result: DivideBoreholeResponse
@@ -2553,6 +2591,7 @@ export function useGeologicalModel({
       try {
         result = await api.geology.divideBoreholes(project.id, lithoModel.id, {
           boreholeIds: subset,
+          sectionId,
         })
       } catch (err) {
         log.error('geology', 'divideBoreholes failed', err)

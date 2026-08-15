@@ -113,10 +113,15 @@ import type {
 function divideBoreholesBody(options?: {
   boreholeIds?: readonly string[]
   ignorePendingTies?: boolean
+  sectionId?: string | null
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {}
   if (options?.boreholeIds !== undefined) body.borehole_ids = [...options.boreholeIds]
   if (options?.ignorePendingTies) body.ignore_pending_ties = true
+  // Omitted, never sent as null, for the same reason as ``borehole_ids``: the
+  // backend reads "no section_id" as the whole-model run, and a caller with no
+  // section open has nothing to scope to.
+  if (options?.sectionId != null) body.section_id = options.sectionId
   return body
 }
 
@@ -860,15 +865,23 @@ export const geologyClient = {
    * ``sectionId`` restricts the rebuild to one section's columns (owner ruling
    * 2026-08-15); ``null`` takes every investigation that appears on ANY
    * section. Investigations on NO section are excluded either way.
+   *
+   * ``representativeStatistic`` creates the geotech model under a chosen qc
+   * statistic; see ``subdivideCpts`` below for why it exists.
    */
   subdivideAllBodies: (
     projectId: string,
     lithoModelId: string,
     sectionId?: string | null,
+    representativeStatistic?: string | null,
   ): Promise<SubdivideAllBodiesResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-all-bodies`,
-      { litho_model_id: lithoModelId, section_id: sectionId ?? null },
+      {
+        litho_model_id: lithoModelId,
+        section_id: sectionId ?? null,
+        representative_statistic: representativeStatistic ?? null,
+      },
     ),
 
   /**
@@ -883,16 +896,28 @@ export const geologyClient = {
    * ``sectionId`` scopes the rebuild to one section's columns (owner ruling
    * 2026-08-15: *"i want subdivide cpt's also to be section scoped"*); ``null``
    * is the all-sections press. Either way an investigation that projects onto
-   * NO section is skipped, and reported in ``skipped_off_section_*``.
+   * NO section is skipped, and reported in ``skipped_off_section_*`` (log +
+   * wire only — the toast deliberately says nothing about it).
+   *
+   * ``representativeStatistic`` is the qc statistic the engineer picked before
+   * any geotech model existed (owner ruling 2026-08-15). The backend applies it
+   * only when THIS call creates the model; on a re-run the model's own choice
+   * stands and ``setGeotechStatistic`` is the one way to change it. ``null`` /
+   * omitted keeps the median default.
    */
   subdivideCpts: (
     projectId: string,
     lithoModelId: string,
     sectionId?: string | null,
+    representativeStatistic?: string | null,
   ): Promise<SubdivideAllBodiesResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-cpts`,
-      { litho_model_id: lithoModelId, section_id: sectionId ?? null },
+      {
+        litho_model_id: lithoModelId,
+        section_id: sectionId ?? null,
+        representative_statistic: representativeStatistic ?? null,
+      },
     ),
 
   /**
@@ -926,7 +951,16 @@ export const geologyClient = {
   divideBoreholes: (
     projectId: string,
     lithoModelId: string,
-    options?: { boreholeIds?: readonly string[]; ignorePendingTies?: boolean },
+    options?: {
+      boreholeIds?: readonly string[]
+      ignorePendingTies?: boolean
+      /**
+       * Divide only this section's boreholes, and gate on this section's
+       * pending ties (owner ruling 2026-08-15). Omitted / null keeps the
+       * whole-model run and its whole-model gate.
+       */
+      sectionId?: string | null
+    },
   ): Promise<DivideBoreholeResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes`,
@@ -948,7 +982,7 @@ export const geologyClient = {
   previewDivideBoreholes: (
     projectId: string,
     lithoModelId: string,
-    options?: { boreholeIds?: readonly string[] },
+    options?: { boreholeIds?: readonly string[]; sectionId?: string | null },
   ): Promise<DivideBoreholePreviewResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/divide-boreholes/preview`,
