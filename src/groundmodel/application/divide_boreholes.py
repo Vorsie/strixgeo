@@ -162,6 +162,10 @@ from groundmodel.domain.services.geotech_edge_crossing_guard import (
     crossing_partners,
     gap_key,
 )
+from groundmodel.domain.services.geotech_edge_dedup import (
+    GeotechEdgeRow,
+    duplicate_edge_ids_to_drop,
+)
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     superseded_jump_tie_ids,
 )
@@ -2801,6 +2805,54 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             self.info(
                 f"DivideBoreholes: sample assignment assigned={assigned} "
                 f"(fallback_no_body={fallback_no_body}) unresolved={unresolved}"
+            )
+
+        # Both writers have now had their say: the re-anchor carried the
+        # engineer's ties across the rebuild, and the derivation re-emitted the
+        # ones the litho model restates. They write their endpoints in whatever
+        # order they hold them, so the same correlation can land twice with the
+        # columns reversed — the owner met this as flagged ties he deleted by
+        # hand after every press (2026-08-16), the flagged copy being the
+        # carried one and the clean copy the freshly derived one.
+        edge_rows = (
+            await self._session.execute(
+                select(
+                    LithoContactCorrelationEdgeOrm.id,
+                    LithoContactCorrelationEdgeOrm.section_id,
+                    LithoContactCorrelationEdgeOrm.layer_a_id,
+                    LithoContactCorrelationEdgeOrm.layer_b_id,
+                    LithoContactCorrelationEdgeOrm.layer_a_side,
+                    LithoContactCorrelationEdgeOrm.layer_b_side,
+                    LithoContactCorrelationEdgeOrm.source,
+                    LithoContactCorrelationEdgeOrm.review_reason,
+                ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
+            )
+        ).all()
+        duplicate_ids = duplicate_edge_ids_to_drop(
+            [
+                GeotechEdgeRow(
+                    edge_id=edge_row.id,
+                    section_id=edge_row.section_id,
+                    layer_a_id=edge_row.layer_a_id,
+                    layer_b_id=edge_row.layer_b_id,
+                    layer_a_side=edge_row.layer_a_side,
+                    layer_b_side=edge_row.layer_b_side,
+                    source=edge_row.source,
+                    review_reason=edge_row.review_reason,
+                )
+                for edge_row in edge_rows
+            ]
+        )
+        if duplicate_ids:
+            await self._session.execute(
+                delete(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.id.in_(duplicate_ids)
+                )
+            )
+            self.info(
+                f"DivideBoreholes: {len(duplicate_ids)} duplicate packing tie(s) dropped "
+                "— the same correlation had been both carried across the rebuild and "
+                "re-derived from the litho model"
             )
 
         await self._session.flush()
