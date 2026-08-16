@@ -27,6 +27,7 @@ import {
   type SectionLike,
 } from '../../../utils/assembleLithoSectionInputs'
 import { buildDividePartition } from '../../../utils/buildDividePartition'
+import { DIVIDE_GEOMETRY_ENABLED } from '../../../utils/divideGeometryFlag'
 import type { SectionPartitionInput } from '../../../utils/buildVoxelRequest'
 import { log } from '../../../utils/log'
 import { fetchApprovedEdgesBySection } from './fetchApprovedEdgesBySection'
@@ -67,6 +68,11 @@ export async function assembleDividePartition(
   params: DividePartitionAssemblyParams,
 ): Promise<Record<string, SectionPartitionInput> | null> {
   const { projectId, geotechModelId, section, investigations, layers } = params
+  // Off by default — see ``divideGeometryFlag``. Returning null here (rather
+  // than gating at the call site) keeps the whole path one import away from
+  // being live again, and means the divide behaves EXACTLY as it did before
+  // the geometry existed: the backend answers with the donor rule.
+  if (!DIVIDE_GEOMETRY_ENABLED) return null
   if (!projectId || !geotechModelId || section === null) return null
 
   const { edgesBySectionId, failedSectionIds } = await fetchApprovedEdgesBySection(
