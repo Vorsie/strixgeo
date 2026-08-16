@@ -118,23 +118,19 @@ def test_p1_borehole_takes_the_cpt_to_its_left_and_to_its_right_on_the_section()
             (5.0, 8.0, uuid7(), uuid7(), _NAD_DENSE, body_dense),
         ],
     }
-    # Spacing is scaffolding, not the rule: the borehole sits midway, which is
-    # what fixes the band split below. Kept inside MAX_DONOR_MAP_DISTANCE_M so
-    # both flanks qualify as donors — a column further than that says nothing
-    # about this borehole (owner, 2026-08-16: "777m is too far anyhow").
     cpt_xy = {
         UUID(cpt_a): (0.0, 0.0, 5.0),
-        UUID(cpt_b): (200.0, 0.0, 5.0),
+        UUID(cpt_b): (600.0, 0.0, 5.0),
     }
     section = SectionPlacement(
         section_id=str(uuid7()),
         section_name="A-A'",
-        along_m={cpt_a: 0.0, borehole: 100.0, cpt_b: 200.0},
+        along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
     )
 
     bands, body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
         inv_id=borehole,
-        bh_x=100.0,
+        bh_x=300.0,
         bh_y=0.0,
         bh_surface_elev=5.0,
         geo_top_m=0.0,
