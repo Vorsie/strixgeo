@@ -449,16 +449,20 @@ _DEPTH_TOL_M = 0.001
 """Depth grain: ``litho_layer`` stores intervals to the millimetre."""
 
 
-MAX_DONOR_MAP_DISTANCE_M = 200.0
+MAX_DONOR_MAP_DISTANCE_M = 500.0
 """How far a column may be and still donate packing to a borehole.
 
 Owner, 2026-08-16: *"777m is too far anyhow"* — his B4 took loose sand from a
 CPT 777 m away because it was the only column in the borehole's (body,
-geological band) group.  200 m is not a new number: it is the distance at
-which :mod:`donor_confidence` already stops calling a donor "medium" and
-starts calling it "low" (his ruling of 2026-08-11, *"just take distance to
-nearest cpt as a measure for now"*).  Past the point where we admit the answer
-is weak, it stops being an answer.
+geological band) group.
+
+The value has to sit between two of his own rulings.  Above 200 m a donor is
+already stamped ``low`` confidence rather than refused (2026-08-11, *"just
+take distance to nearest cpt as a measure for now"*), so capping AT 200 m
+would delete that tier — a weak-but-honest answer is still an answer, and he
+asked for it.  Below 777 m, because he has now said that is too far.  500 m
+keeps the low tier alive and rules his case out; ⚠ the exact number is his to
+set and has not been.
 """
 
 
