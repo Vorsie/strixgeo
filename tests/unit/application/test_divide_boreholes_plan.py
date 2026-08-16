@@ -691,3 +691,71 @@ def test_pg3_without_a_partition_the_donor_rule_still_answers() -> None:
 
     assert [b.nad_class for b in bands] == [_NAD_DENSE]
     assert selection.mode in {"single_donor", "nearest_fallback"}
+
+
+def test_pg4_a_partly_covered_layer_still_comes_out_contiguous() -> None:
+    """PG4: the sampler PRESERVES gaps — depth the partition does not cover is
+    genuinely unclassified and it will not invent a class for it. But a
+    ``litho_layer`` column must be gap-free: the database trigger rejects the
+    whole transaction otherwise, which is exactly how this surfaced on the
+    owner's first geometry press ("litho_layer column not contiguous: 10
+    gap/overlap(s)").
+
+    So the cuts go through the same conservative filler the donor path uses.
+    Here the geometry covers only the top 2 m of an 8 m unit; the rest must come
+    back as a conservative band, and the column must tile its extent exactly.
+    """
+    cpt_a, cpt_b, borehole = str(uuid7()), str(uuid7()), str(uuid7())
+    section_id = str(uuid7())
+    covered_formation = str(uuid7())
+    partition = _partition(
+        columns=[(cpt_a, 0.0), (cpt_b, 600.0)],
+        regions=[
+            # Elevation 5.0 down to 3.0 only — the unit runs 5.0 down to -3.0.
+            RegionInput(
+                formation_id=covered_formation,
+                body_id=None,
+                polygon=((0.0, 5.0), (1.0, 5.0), (1.0, 3.0), (0.0, 3.0)),
+                gap_index=0,
+                kind="quad",
+                layer_ids=("band-A", "band-B"),
+            ),
+        ],
+    )
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A",
+        along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
+    )
+
+    bands, _body_ids, correspondences, _selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=300.0,
+        bh_y=0.0,
+        bh_surface_elev=5.0,
+        geo_top_m=0.0,
+        geo_base_m=8.0,
+        cpt_segs=[_cpt_pick(cpt_a, 0.0, 8.0), _cpt_pick(cpt_b, 0.0, 8.0)],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth={},
+        cpt_xy={UUID(cpt_a): (0.0, 0.0, 5.0), UUID(cpt_b): (600.0, 0.0, 5.0)},
+        cpt_names={UUID(cpt_a): "CPT-A", UUID(cpt_b): "CPT-B"},
+        section_placements=[section],
+        section_partitions={UUID(section_id): partition},
+        geotech_formation_info={covered_formation: (_NAD_DENSE, uuid7(), None)},
+    )
+
+    # Tiles the extent exactly, no gap and no overlap — what the trigger checks.
+    assert bands[0].top == 0.0
+    assert bands[-1].base == 8.0
+    for upper, lower in zip(bands, bands[1:]):
+        assert upper.base == lower.top
+
+    # The covered stretch keeps its geometry class AND its correspondence; the
+    # uncovered stretch is a conservative fill that continues nothing, so it
+    # carries no tie — inventing one there would claim a correlation from
+    # ground the section never described.
+    assert bands[0].nad_class == _NAD_DENSE
+    assert correspondences[0] == ("band-A", "band-B")
+    assert bands[-1].source in {"body_min", "absolute_min"}
+    assert correspondences[-1] == ()
