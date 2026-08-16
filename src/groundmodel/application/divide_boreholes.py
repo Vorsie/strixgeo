@@ -534,6 +534,103 @@ def correlated_donor_picks(
     ]
 
 
+_UNRESOLVED_SOURCES = frozenset({"body_min", "absolute_min"})
+"""Provenance tags meaning "no column spoke for this band".
+
+``body_min`` is the weakest class anywhere in the body, ``absolute_min`` the
+lithology floor — both are conservative guesses made when the donor search
+came back empty, not readings.
+"""
+
+LAYER_INHERITED_SOURCE = "layer_inherited"
+"""Provenance for a band that took its class from its own litho layer.
+
+Distinct from ``cpt_interpolated`` because no column was read at this depth,
+and distinct from ``body_min`` because the class is not a body-wide guess: it
+is what the SAME litho layer, on the SAME column, already resolved.
+"""
+
+
+def inherit_class_within_litho_layer(
+    bands: Sequence[PlannedBand],
+    *,
+    borehole_layers: Sequence[tuple[UUID, float, float]],
+) -> list[PlannedBand]:
+    """Fill a donorless slice from the resolved part of its own litho layer.
+
+    A geological contact cuts a litho layer into several planning units, each
+    matched against its own ``(body, geological band)`` group.  A slice whose
+    group holds no column within reach falls back to the weakest class in the
+    body, which on the owner's B4 drew a 0.43 m LOOSE stripe directly on top
+    of the MEDIUM DENSE sand of the very same litho layer.
+
+    The layer is one soil unit and the litho model is authoritative over it, so
+    the slice takes what the layer already resolved on this column.  Nothing is
+    invented and nothing crosses a layer boundary: a clay slice can never
+    inherit from the sand above it.
+
+    Parameters
+    ----------
+    bands : Sequence[PlannedBand]
+        Every band planned for ONE borehole, across all of its body groups.
+    borehole_layers : Sequence[tuple[UUID, float, float]]
+        That borehole's litho layers as ``(id, top_m, base_m)``.
+
+    Returns
+    -------
+    list[PlannedBand]
+        The bands in the given order.  A donorless band whose layer resolved
+        elsewhere is replaced by a copy carrying that class and
+        :data:`LAYER_INHERITED_SOURCE`; every other band is returned unchanged,
+        including a resolved one — inheritance fills a gap, it never corrects
+        evidence.
+    """
+
+    def layer_of(band: PlannedBand) -> UUID | None:
+        return next(
+            (
+                layer_id
+                for layer_id, top, base in borehole_layers
+                if top <= band.depth_top_m + _DEPTH_TOL_M
+                and base >= band.depth_base_m - _DEPTH_TOL_M
+            ),
+            None,
+        )
+
+    resolved_by_layer: dict[UUID, list[PlannedBand]] = defaultdict(list)
+    for band in bands:
+        if band.source in _UNRESOLVED_SOURCES:
+            continue
+        layer_id = layer_of(band)
+        if layer_id is not None:
+            resolved_by_layer[layer_id].append(band)
+
+    out: list[PlannedBand] = []
+    for band in bands:
+        layer_id = layer_of(band) if band.source in _UNRESOLVED_SOURCES else None
+        donors_in_layer = resolved_by_layer.get(layer_id) if layer_id is not None else None
+        if not donors_in_layer:
+            out.append(band)
+            continue
+        # Nearest by depth: the slice sits against one end of the resolved
+        # part, and that neighbour is what it continues.
+        midpoint = (band.depth_top_m + band.depth_base_m) / 2.0
+        nearest = min(
+            donors_in_layer,
+            key=lambda other: abs((other.depth_top_m + other.depth_base_m) / 2.0 - midpoint),
+        )
+        out.append(
+            replace(
+                band,
+                nad_class=nearest.nad_class,
+                source=LAYER_INHERITED_SOURCE,
+                # Still an inference, and the badge must keep saying so.
+                confidence="low",
+            )
+        )
+    return out
+
+
 def flank_pick_for_unit(
     picks: Sequence[BodyLayerPick],
     *,
@@ -1645,6 +1742,45 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         ),
                     )
                 )
+
+        # A slice the donor search could not answer takes the class its OWN
+        # litho layer resolved on this column. Gathered across every segment of
+        # a borehole first: a geological contact puts the two slices of one
+        # layer in different body groups, so within a single segment the
+        # resolved sibling is not even visible.
+        bands_by_borehole: dict[str, list[tuple[int, int, PlannedBand]]] = defaultdict(list)
+        for seg_index, planned in enumerate(planned_segments):
+            for band_index, planned_band in enumerate(planned.bands):
+                bands_by_borehole[planned.investigation_id].append(
+                    (seg_index, band_index, planned_band)
+                )
+
+        band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
+        inherited_count = 0
+        for inv, entries in bands_by_borehole.items():
+            ordered = sorted(entries, key=lambda entry: entry[2].depth_top_m)
+            healed = inherit_class_within_litho_layer(
+                [entry[2] for entry in ordered],
+                borehole_layers=layers_by_investigation.get(inv, []),
+            )
+            for (seg_index, band_index, before), after in zip(ordered, healed):
+                if before.source != after.source:
+                    band_updates[seg_index][band_index] = after
+                    inherited_count += 1
+        for seg_index, changes in band_updates.items():
+            planned = planned_segments[seg_index]
+            planned_segments[seg_index] = replace(
+                planned,
+                bands=tuple(
+                    changes.get(band_index, planned_band)
+                    for band_index, planned_band in enumerate(planned.bands)
+                ),
+            )
+        if inherited_count:
+            self.info(
+                f"DivideBoreholes: {inherited_count} band(s) with no donor took the "
+                "class their own litho layer resolved on the same column"
+            )
 
         self.info(
             f"DivideBoreholes.plan: geotech_model={geotech_model.id} "
