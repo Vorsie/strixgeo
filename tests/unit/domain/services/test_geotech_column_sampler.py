@@ -33,6 +33,7 @@ import pytest
 
 from groundmodel.domain.services.geotech_column_sampler import (
     LithoFrame,
+    SampledBand,
     locate_column_in_partition,
     place_bands_in_litho_layer,
     sample_regions_at_fraction,
@@ -273,3 +274,40 @@ class TestLocating:
     def test_lc4_a_zero_width_gap_is_refused(self) -> None:
         """LC4: two coincident columns have no interior to sample."""
         assert locate_column_in_partition([("A", 10.0), ("B", 10.0)], 10.0) is None
+
+
+def test_pl5_overlapping_cuts_come_out_disjoint() -> None:
+    """PL5: two cuts can overlap — a partition not perfectly disjoint at the
+    sampling line, or two overlays covering the same stretch — and a
+    ``litho_layer`` column may not.
+
+    The database's contiguity trigger refuses the whole write on an overlap,
+    which is how this surfaced: the owner's second geometry press died with
+    "litho_layer column not contiguous: 5 gap/overlap(s)" and the divide wrote
+    nothing at all. The shallower cut holds its ground; the deeper one starts
+    where it ends.
+    """
+    frame = LithoFrame(
+        left_top_elev_m=20.0,
+        left_base_elev_m=10.0,
+        right_top_elev_m=20.0,
+        right_base_elev_m=10.0,
+    )
+    overlapping = [
+        SampledBand(top_elev_m=20.0, base_elev_m=14.0, formation_id="A", layer_ids=("a",)),
+        # Starts 2 m ABOVE where the first one ended.
+        SampledBand(top_elev_m=16.0, base_elev_m=10.0, formation_id="B", layer_ids=("b",)),
+    ]
+
+    placed = place_bands_in_litho_layer(
+        overlapping, fraction=0.0, frame=frame, layer_top_m=0.0, layer_base_m=10.0
+    )
+
+    assert [p.formation_id for p in placed] == ["A", "B"]
+    for upper, lower in zip(placed, placed[1:]):
+        assert upper.depth_base_m <= lower.depth_top_m, (
+            f"cuts must not overlap in the column: {upper} then {lower}"
+        )
+    # The first keeps its full extent; the second is pushed down to meet it.
+    assert placed[0].depth_base_m == pytest.approx(6.0)
+    assert placed[1].depth_top_m == pytest.approx(6.0)
