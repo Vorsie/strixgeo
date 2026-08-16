@@ -223,10 +223,10 @@ def place_unit_boundaries(
     # Two boundaries closer than the storage grain are one boundary; keeping the
     # first is what makes the resulting bands writable.
     deduped: list[PlacedBoundary] = []
-    for boundary in inside:
-        if deduped and boundary.depth_m - deduped[-1].depth_m < _MIN_OFFSET:
+    for candidate in inside:
+        if deduped and candidate.depth_m - deduped[-1].depth_m < _MIN_OFFSET:
             continue
-        deduped.append(boundary)
+        deduped.append(candidate)
     return deduped
 
 
