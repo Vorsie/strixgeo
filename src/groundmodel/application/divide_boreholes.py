@@ -631,6 +631,41 @@ def inherit_class_within_litho_layer(
     return out
 
 
+def clip_bands_to_slice(
+    bands: Sequence[FillBand], slice_top_m: float, slice_base_m: float
+) -> list[FillBand]:
+    """Keep the part of a layer's derivation that falls inside one slice.
+
+    A geological contact cuts a litho layer into pieces that are planned and
+    written separately.  The packing is derived once across the whole layer, so
+    each piece takes its own window out of that one answer instead of reading
+    the neighbouring column again — which on the owner's B9 produced the
+    flank's ``6 -> 8 -> 7`` sand twice over.
+
+    Parameters
+    ----------
+    bands : Sequence[FillBand]
+        The layer's bands, contiguous and top to bottom.
+    slice_top_m, slice_base_m : float
+        The slice's own extent, which the result tiles exactly.
+
+    Returns
+    -------
+    list[FillBand]
+        The overlapping bands, trimmed to the slice.  A band shorter than the
+        1 mm depth grain after trimming is dropped: it is a boundary that
+        coincides with the cut, not a band.
+    """
+    out: list[FillBand] = []
+    for band in bands:
+        top = max(band.top, slice_top_m)
+        base = min(band.base, slice_base_m)
+        if base - top < _DEPTH_TOL_M:
+            continue
+        out.append(replace(band, top=top, base=base))
+    return out
+
+
 def flank_pick_for_unit(
     picks: Sequence[BodyLayerPick],
     *,
@@ -1647,6 +1682,23 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 ]
                 unit_cpt_segs = cpt_segs + [c for c in correlated if c not in cpt_segs]
 
+                # The litho layer this slice belongs to. A geological contact
+                # can cut one layer into several slices, and each would
+                # otherwise read the neighbouring column again and re-derive
+                # its whole succession — the owner's B9 got S9's 6-8-7 sand
+                # twice for exactly this reason.
+                unit_layer = next(
+                    (
+                        (layer_top, layer_base)
+                        for _layer_id, layer_top, layer_base in layers_by_investigation.get(
+                            inv_id, []
+                        )
+                        if layer_top <= geo_top + _DEPTH_TOL_M
+                        and layer_base >= geo_base - _DEPTH_TOL_M
+                    ),
+                    None,
+                )
+
                 (
                     fill_band_list,
                     fill_band_body_ids,
@@ -1659,6 +1711,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     bh_surface_elev=bh_elev,
                     geo_top_m=geo_top,
                     geo_base_m=geo_base,
+                    litho_layer_top_m=None if unit_layer is None else unit_layer[0],
+                    litho_layer_base_m=None if unit_layer is None else unit_layer[1],
                     cpt_segs=unit_cpt_segs,
                     litho_abs_min_class=litho_abs_min_class,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
@@ -2795,6 +2849,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         bh_surface_elev: float,
         geo_top_m: float,
         geo_base_m: float,
+        litho_layer_top_m: float | None = None,
+        litho_layer_base_m: float | None = None,
         cpt_segs: list[BodyLayerPick],
         litho_abs_min_class: int,
         geotech_layer_by_inv_depth: dict[
@@ -2890,6 +2946,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # Unchanged from the ordinal era on purpose: this dict feeds the
         # conservative body_min floor and the per-band body assignment, neither
         # of which the flanking ruling touches.
+        # A geological contact splits a litho layer into slices that are planned
+        # separately. The packing is mapped across the WHOLE layer so the
+        # neighbouring column is read once; the slice takes its own window out
+        # of that answer at the end. Absent a layer extent the slice IS the
+        # layer, which is the uncut case.
+        layer_top_m = geo_top_m if litho_layer_top_m is None else litho_layer_top_m
+        layer_base_m = geo_base_m if litho_layer_base_m is None else litho_layer_base_m
+        derive_top_m, derive_base_m = layer_top_m, layer_base_m
+
         filtered_cpt_layers: dict[
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
         ] = {}
@@ -2938,7 +3003,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             ties=accepted_ties,
         ) or select_flank_donors(borehole_id=inv_id, donors=donors, sections=section_placements)
         donor_surfaces = flank_packing_surfaces_with_donors(
-            selection, extent_top_m=geo_top_m, extent_base_m=geo_base_m
+            selection, extent_top_m=derive_top_m, extent_base_m=derive_base_m
         )
         cpt_packing_surfaces = [(s.top, s.base, s.nad_class) for s in donor_surfaces]
         self.info(
@@ -2980,12 +3045,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # Step 5: call the pure helper to produce litho-confined fill bands.
         # -------------------------------------------------------------------
         fill_bands = fill_borehole_litho_body_extent(
-            extent_top=geo_top_m,
-            extent_base=geo_base_m,
+            extent_top=derive_top_m,
+            extent_base=derive_base_m,
             cpt_packing_surfaces=cpt_packing_surfaces,
             body_min_class=body_min_class,
             litho_abs_min_class=litho_abs_min_class,
         )
+        # The layer answered once; this slice takes its own window out of it.
+        if (derive_top_m, derive_base_m) != (geo_top_m, geo_base_m):
+            fill_bands = clip_bands_to_slice(fill_bands, geo_top_m, geo_base_m)
 
         # -------------------------------------------------------------------
         # Step 6: build CptBandRef list for geotech body_id assignment.
@@ -3044,16 +3112,37 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # polygons. Tried first because a tie names BOTH bands it joins, so the
         # hops it licenses reach both CPTs and the chain closes; the region
         # sampler below could only ever name one side.
+        # Derived across the whole litho layer, for the same reason the donor
+        # path is: a geological cut must not buy a second copy of the flank's
+        # succession. The slice takes its window out of the answer below.
         tied = self._plan_bands_from_unit_ties(
             inv_id=inv_id,
-            geo_top_m=geo_top_m,
-            geo_base_m=geo_base_m,
+            geo_top_m=derive_top_m,
+            geo_base_m=derive_base_m,
             bh_surface_elev=bh_surface_elev,
             cpt_segs=cpt_segs,
             geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
             section_placements=section_placements,
             accepted_ties=accepted_ties,
         )
+        if tied is not None and (derive_top_m, derive_base_m) != (geo_top_m, geo_base_m):
+            kept = [
+                (
+                    replace(band, top=max(band.top, geo_top_m), base=min(band.base, geo_base_m)),
+                    correspondence,
+                )
+                for band, correspondence in zip(tied.bands, tied.correspondences)
+                if min(band.base, geo_base_m) - max(band.top, geo_top_m) >= _DEPTH_TOL_M
+            ]
+            tied = (
+                replace(
+                    tied,
+                    bands=[band for band, _ in kept],
+                    correspondences=[correspondence for _, correspondence in kept],
+                )
+                if kept
+                else None
+            )
         if tied is not None and _tiles_extent(tied.bands, geo_top_m, geo_base_m):
             self.info(
                 f"DivideBoreholes: borehole={inv_id} "
