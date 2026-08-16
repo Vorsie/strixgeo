@@ -96,7 +96,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -2043,6 +2043,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 for left_member, right_member in zip(chain, chain[1:]):
                     left_id, left_inv, left_top, _left_pos = left_member
                     right_id, right_inv, right_top, _right_pos = right_member
+                    # A hop crosses a GAP. Two bands of the same column sort
+                    # adjacent here (identical along-position), and linking them
+                    # writes a correlation from a column to itself — which the
+                    # section draws as a diagonal line through the column's own
+                    # interior (owner, 2026-08-16: "weird as diagonal bands over
+                    # columns"; 7 of them on his model). A column needs no tie
+                    # to say its own bands are stacked.
+                    if left_inv == right_inv:
+                        continue
                     canonical = (left_id, right_id) if left_id < right_id else (right_id, left_id)
                     if canonical in seen:
                         continue
@@ -2140,6 +2149,45 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     f"DivideBoreholes: {len(replaced_edge_ids)} tie(s) deleted — "
                     "re-expressed as hops through the boreholes between their columns"
                 )
+
+        # A correlation from a column to ITSELF is never valid — a column needs
+        # no tie to say its own bands are stacked — and the section draws one as
+        # a diagonal line through the column's own interior (owner, 2026-08-16:
+        # "weird as diagonal bands over columns").
+        #
+        # Swept here rather than only guarded at the write site because the
+        # re-anchor CARRIES an existing tie onto the rebuilt bands: both
+        # endpoints are on the borehole being re-divided, so a self-tie already
+        # in the model survives every subsequent press. Whatever wrote it, this
+        # is the pass that can see it and clear it.
+        self_tie_rows = (
+            await self._session.execute(
+                text(
+                    """
+                    SELECT ed.id
+                    FROM litho_contact_correlation_edge ed
+                    JOIN litho_layer la ON la.id = ed.layer_a_id
+                    JOIN litho_layer lb ON lb.id = ed.layer_b_id
+                    WHERE ed.model_id = :model_id
+                      AND COALESCE(la.cpt_id, la.borehole_id)
+                        = COALESCE(lb.cpt_id, lb.borehole_id)
+                    """
+                ),
+                {"model_id": geotech_model_id},
+            )
+        ).all()
+        self_tie_ids = [row.id for row in self_tie_rows]
+        if self_tie_ids:
+            await self._session.execute(
+                delete(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.id.in_(self_tie_ids)
+                )
+            )
+            self.info(
+                f"DivideBoreholes: {len(self_tie_ids)} self-tie(s) deleted — "
+                "a correlation from a column to itself draws as a diagonal "
+                "through that column and means nothing"
+            )
 
         superseded_edge_ids: list[UUID] = []
         superseded_labels: list[str] = []
