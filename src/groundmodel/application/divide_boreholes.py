@@ -478,6 +478,93 @@ def donor_is_within_reach(map_distance_m: float) -> bool:
     return map_distance_m <= MAX_DONOR_MAP_DISTANCE_M
 
 
+def layer_donor_picks(
+    correlated: Sequence[BodyLayerPick],
+    body_picks: Sequence[BodyLayerPick],
+    *,
+    own_soil_code: str | None,
+    soil_by_formation: Mapping[str, str | None],
+    layer_top_elev_m: float,
+    layer_base_elev_m: float,
+    map_distance_m: Mapping[str, float],
+) -> list[BodyLayerPick]:
+    """The columns a borehole litho layer may borrow its packing from.
+
+    Candidates used to be the CPTs in the borehole's ``(body, geological
+    band)`` group.  That is the wrong unit twice over: a geological contact can
+    put the two ends of one hand-drawn correlation in different groups, and it
+    can leave a group with no column near enough to say anything.  Both bit the
+    owner on B4 in one afternoon — a band he had tied to two medium dense
+    columns 90 m away took LOOSE sand from a CPT 777 m off, the only other
+    member of its group.
+
+    So the LAYER names its donors: the columns its correlations point at, else
+    the columns sharing its body.  Two constraints are hard.  A donor must be
+    the SAME SOIL — his litho ties may legitimately cross facies, but a packing
+    class belongs to a soil column, and a silt donor on a sand layer would put
+    a SILT class inside a ZAND unit (Data Integrity Rule 3).  And a donor must
+    be close enough to be evidence at all.
+
+    Parameters
+    ----------
+    correlated : Sequence[BodyLayerPick]
+        Layers this one is tied to by an approved litho correlation.
+    body_picks : Sequence[BodyLayerPick]
+        Layers sharing this one's litho body, whatever geological band.
+    own_soil_code : str | None
+        The borehole layer's soil; ``None`` admits nothing, because without it
+        the soil cannot be checked at all.
+    soil_by_formation : Mapping[str, str | None]
+        Soil code per litho formation. Compared by SOIL rather than by
+        formation identity: two columns can carry different formation rows of
+        the same soil, and refusing those would strand a borehole with no
+        donor at all.
+    layer_top_elev_m, layer_base_elev_m : float
+        The borehole layer's extent in elevation, top above base.
+    map_distance_m : Mapping[str, float]
+        Distance from the borehole to each column.  A column absent from this
+        map is skipped: the reach rule cannot be applied honestly to a distance
+        nobody knows.
+
+    Returns
+    -------
+    list[BodyLayerPick]
+        At most one layer per column — a body split by an enclosed lens owns
+        several, and only elevation says which is the same sheet.
+    """
+    by_investigation: dict[str, list[BodyLayerPick]] = defaultdict(list)
+    tied_columns: set[str] = set()
+    for pick in correlated:
+        if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
+            continue
+        by_investigation[pick.investigation_id].append(pick)
+        tied_columns.add(pick.investigation_id)
+    for pick in body_picks:
+        # The tie already said WHICH of that column's layers this one
+        # continues; the body must not offer a second.
+        if pick.investigation_id in tied_columns:
+            continue
+        if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
+            continue
+        distance = map_distance_m.get(pick.investigation_id)
+        if distance is None or not donor_is_within_reach(distance):
+            continue
+        by_investigation[pick.investigation_id].append(pick)
+
+    return [
+        chosen
+        for group in by_investigation.values()
+        if (
+            chosen := flank_pick_for_unit(
+                group,
+                unit_top_elev_m=layer_top_elev_m,
+                unit_base_elev_m=layer_base_elev_m,
+            )
+        )
+        is not None
+    ]
+
+
 def correlated_donor_picks(
     *,
     unit_top_m: float,
@@ -536,103 +623,6 @@ def correlated_donor_picks(
         for partner in sorted(partners_by_layer.get(own, frozenset()), key=str)
         for pick in picks_by_layer.get(partner, ())
     ]
-
-
-_UNRESOLVED_SOURCES = frozenset({"body_min", "absolute_min"})
-"""Provenance tags meaning "no column spoke for this band".
-
-``body_min`` is the weakest class anywhere in the body, ``absolute_min`` the
-lithology floor — both are conservative guesses made when the donor search
-came back empty, not readings.
-"""
-
-LAYER_INHERITED_SOURCE = "layer_inherited"
-"""Provenance for a band that took its class from its own litho layer.
-
-Distinct from ``cpt_interpolated`` because no column was read at this depth,
-and distinct from ``body_min`` because the class is not a body-wide guess: it
-is what the SAME litho layer, on the SAME column, already resolved.
-"""
-
-
-def inherit_class_within_litho_layer(
-    bands: Sequence[PlannedBand],
-    *,
-    borehole_layers: Sequence[tuple[UUID, float, float]],
-) -> list[PlannedBand]:
-    """Fill a donorless slice from the resolved part of its own litho layer.
-
-    A geological contact cuts a litho layer into several planning units, each
-    matched against its own ``(body, geological band)`` group.  A slice whose
-    group holds no column within reach falls back to the weakest class in the
-    body, which on the owner's B4 drew a 0.43 m LOOSE stripe directly on top
-    of the MEDIUM DENSE sand of the very same litho layer.
-
-    The layer is one soil unit and the litho model is authoritative over it, so
-    the slice takes what the layer already resolved on this column.  Nothing is
-    invented and nothing crosses a layer boundary: a clay slice can never
-    inherit from the sand above it.
-
-    Parameters
-    ----------
-    bands : Sequence[PlannedBand]
-        Every band planned for ONE borehole, across all of its body groups.
-    borehole_layers : Sequence[tuple[UUID, float, float]]
-        That borehole's litho layers as ``(id, top_m, base_m)``.
-
-    Returns
-    -------
-    list[PlannedBand]
-        The bands in the given order.  A donorless band whose layer resolved
-        elsewhere is replaced by a copy carrying that class and
-        :data:`LAYER_INHERITED_SOURCE`; every other band is returned unchanged,
-        including a resolved one — inheritance fills a gap, it never corrects
-        evidence.
-    """
-
-    def layer_of(band: PlannedBand) -> UUID | None:
-        return next(
-            (
-                layer_id
-                for layer_id, top, base in borehole_layers
-                if top <= band.depth_top_m + _DEPTH_TOL_M
-                and base >= band.depth_base_m - _DEPTH_TOL_M
-            ),
-            None,
-        )
-
-    resolved_by_layer: dict[UUID, list[PlannedBand]] = defaultdict(list)
-    for band in bands:
-        if band.source in _UNRESOLVED_SOURCES:
-            continue
-        layer_id = layer_of(band)
-        if layer_id is not None:
-            resolved_by_layer[layer_id].append(band)
-
-    out: list[PlannedBand] = []
-    for band in bands:
-        layer_id = layer_of(band) if band.source in _UNRESOLVED_SOURCES else None
-        donors_in_layer = resolved_by_layer.get(layer_id) if layer_id is not None else None
-        if not donors_in_layer:
-            out.append(band)
-            continue
-        # Nearest by depth: the slice sits against one end of the resolved
-        # part, and that neighbour is what it continues.
-        midpoint = (band.depth_top_m + band.depth_base_m) / 2.0
-        nearest = min(
-            donors_in_layer,
-            key=lambda other: abs((other.depth_top_m + other.depth_base_m) / 2.0 - midpoint),
-        )
-        out.append(
-            replace(
-                band,
-                nad_class=nearest.nad_class,
-                source=LAYER_INHERITED_SOURCE,
-                # Still an inference, and the badge must keep saying so.
-                confidence="low",
-            )
-        )
-    return out
 
 
 def clip_bands_to_slice(
@@ -1401,9 +1391,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # A pick is a GEO-BOUNDED slice of a litho layer, so one layer owns
         # several; all of them are lent, and the flank rule chooses between
         # them by elevation overlap.
-        picks_by_layer: dict[UUID, list[BodyLayerPick]] = defaultdict(list)
-        for group_picks in groups.values():
-            for group_pick in group_picks:
+        layer_picks_by_layer: dict[UUID, list[BodyLayerPick]] = defaultdict(list)
+        for group_pick in shallow.picks:
+            if True:
                 owner_layer = next(
                     (
                         plan_layer_id
@@ -1416,7 +1406,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     None,
                 )
                 if owner_layer is not None:
-                    picks_by_layer[owner_layer].append(group_pick)
+                    layer_picks_by_layer[owner_layer].append(group_pick)
         self.info(f"DivideBoreholes: {len(groups)} body group(s)")
 
         # Phase 5 — classify each investigation as borehole or CPT.
@@ -1569,6 +1559,37 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             )
 
+        # The donor pool, at LITHO-LAYER extent and with the geological banding
+        # deliberately ignored.
+        #
+        # Candidates used to be the CPTs in the borehole's own (body,
+        # geological band) group, which is the wrong unit twice over: a
+        # geological contact can put the two ends of one hand-drawn correlation
+        # in different groups, and it can leave a group with no column near
+        # enough to say anything. The owner met both on B4 — a band he had tied
+        # to two medium dense columns 90 m away took LOOSE sand from a CPT
+        # 777 m away, because that CPT was the only member of the group.
+        #
+        # The litho layer is what owns a borehole's packing, so the layer names
+        # its own donors: the columns its correlations point at, else the
+        # columns sharing its body that overlap it in elevation and stand close
+        # enough to be evidence.
+        litho_soil_by_formation: dict[str, str | None] = {
+            str(formation_row.id): formation_row.litho_main_soil_code
+            for formation_row in (
+                await self._session.execute(
+                    select(
+                        GeologicalFormationOrm.id,
+                        GeologicalFormationOrm.litho_main_soil_code,
+                    )
+                )
+            ).all()
+        }
+        cpt_layer_picks_by_body: dict[str, list[BodyLayerPick]] = defaultdict(list)
+        for pool_pick in shallow.picks:
+            if anchor_kind.get(pool_pick.investigation_id) == "cpt":
+                cpt_layer_picks_by_body[pool_pick.body_id].append(pool_pick)
+
         # Phase 8 (planning half) — litho-confined borehole fill per body group.
         #
         # Nothing below writes.  The delete of the PRIOR borehole bands lives in
@@ -1670,22 +1691,6 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 if geo_base <= geo_top:
                     continue
 
-                # A column named by his litho correlation donates whatever
-                # group it landed in; only CPTs, because a borehole's own bands
-                # are what this verb is (re)deriving.
-                correlated = [
-                    correlated_pick
-                    for correlated_pick in correlated_donor_picks(
-                        unit_top_m=geo_top,
-                        unit_base_m=geo_base,
-                        borehole_layers=layers_by_investigation.get(inv_id, []),
-                        partners_by_layer=partners_by_layer,
-                        picks_by_layer=picks_by_layer,
-                    )
-                    if anchor_kind.get(correlated_pick.investigation_id) == "cpt"
-                ]
-                unit_cpt_segs = cpt_segs + [c for c in correlated if c not in cpt_segs]
-
                 # The litho layer this slice belongs to. A geological contact
                 # can cut one layer into several slices, and each would
                 # otherwise read the neighbouring column again and re-derive
@@ -1693,14 +1698,58 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 # twice for exactly this reason.
                 unit_layer = next(
                     (
-                        (layer_top, layer_base)
-                        for _layer_id, layer_top, layer_base in layers_by_investigation.get(
+                        (own_layer_id, layer_top, layer_base)
+                        for own_layer_id, layer_top, layer_base in layers_by_investigation.get(
                             inv_id, []
                         )
                         if layer_top <= geo_top + _DEPTH_TOL_M
                         and layer_base >= geo_base - _DEPTH_TOL_M
                     ),
                     None,
+                )
+                # ``divide_picks_by_geology`` re-stamps body_id on the slices it
+                # cuts, so the slice cannot name the litho body it came from.
+                # Its layer can.
+                unit_body_id = (
+                    None if unit_layer is None else litho_body_by_layer.get(unit_layer[0])
+                )
+
+                # The columns this LAYER may borrow from. Correlations first —
+                # a tie is the engineer's statement that two layers are the same
+                # sheet, and it outranks anything the engine grouped. Where he
+                # drew none, the body answers, bounded by reach.
+                correlated = [
+                    correlated_pick
+                    for correlated_pick in correlated_donor_picks(
+                        unit_top_m=geo_top,
+                        unit_base_m=geo_base,
+                        borehole_layers=layers_by_investigation.get(inv_id, []),
+                        partners_by_layer=partners_by_layer,
+                        picks_by_layer=layer_picks_by_layer,
+                    )
+                    if anchor_kind.get(correlated_pick.investigation_id) == "cpt"
+                ]
+                cpt_map_distance_m = {
+                    str(cpt_id): ((location[0] - bh_x) ** 2 + (location[1] - bh_y) ** 2) ** 0.5
+                    for cpt_id, location in cpt_xy.items()
+                }
+
+                # A donor must be the SAME SOIL. The engineer's litho ties may
+                # legitimately cross facies — his own cross-soil correlations do
+                # — but a packing class belongs to a soil column, so a silt
+                # donor on a sand layer would put a SILT class inside a ZAND
+                # unit and break the invariant the whole fill exists to keep
+                # (Data Integrity Rule 3). Body grouping used to enforce this
+                # for free; naming donors by correlation does not.
+
+                unit_cpt_segs = layer_donor_picks(
+                    correlated,
+                    cpt_layer_picks_by_body.get(unit_body_id or "", []),
+                    own_soil_code=soil_code,
+                    soil_by_formation=litho_soil_by_formation,
+                    layer_top_elev_m=bh_elev - (geo_top if unit_layer is None else unit_layer[1]),
+                    layer_base_elev_m=bh_elev - (geo_base if unit_layer is None else unit_layer[2]),
+                    map_distance_m=cpt_map_distance_m,
                 )
 
                 (
@@ -1715,8 +1764,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     bh_surface_elev=bh_elev,
                     geo_top_m=geo_top,
                     geo_base_m=geo_base,
-                    litho_layer_top_m=None if unit_layer is None else unit_layer[0],
-                    litho_layer_base_m=None if unit_layer is None else unit_layer[1],
+                    litho_layer_top_m=None if unit_layer is None else unit_layer[1],
+                    litho_layer_base_m=None if unit_layer is None else unit_layer[2],
                     cpt_segs=unit_cpt_segs,
                     litho_abs_min_class=litho_abs_min_class,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
@@ -1800,45 +1849,6 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         ),
                     )
                 )
-
-        # A slice the donor search could not answer takes the class its OWN
-        # litho layer resolved on this column. Gathered across every segment of
-        # a borehole first: a geological contact puts the two slices of one
-        # layer in different body groups, so within a single segment the
-        # resolved sibling is not even visible.
-        bands_by_borehole: dict[str, list[tuple[int, int, PlannedBand]]] = defaultdict(list)
-        for seg_index, planned in enumerate(planned_segments):
-            for band_index, planned_band in enumerate(planned.bands):
-                bands_by_borehole[planned.investigation_id].append(
-                    (seg_index, band_index, planned_band)
-                )
-
-        band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
-        inherited_count = 0
-        for inv, entries in bands_by_borehole.items():
-            ordered = sorted(entries, key=lambda entry: entry[2].depth_top_m)
-            healed = inherit_class_within_litho_layer(
-                [entry[2] for entry in ordered],
-                borehole_layers=layers_by_investigation.get(inv, []),
-            )
-            for (seg_index, band_index, before), after in zip(ordered, healed):
-                if before.source != after.source:
-                    band_updates[seg_index][band_index] = after
-                    inherited_count += 1
-        for seg_index, changes in band_updates.items():
-            planned = planned_segments[seg_index]
-            planned_segments[seg_index] = replace(
-                planned,
-                bands=tuple(
-                    changes.get(band_index, planned_band)
-                    for band_index, planned_band in enumerate(planned.bands)
-                ),
-            )
-        if inherited_count:
-            self.info(
-                f"DivideBoreholes: {inherited_count} band(s) with no donor took the "
-                "class their own litho layer resolved on the same column"
-            )
 
         self.info(
             f"DivideBoreholes.plan: geotech_model={geotech_model.id} "
