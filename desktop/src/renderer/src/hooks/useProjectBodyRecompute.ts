@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { assembleBodyRecomputePayload } from '../shell/stages/shared/makeBodyRecomputeBuilder'
+import { assembleDividePartition } from '../shell/stages/shared/makeDividePartitionBuilder'
 import type {
   InvestigationLocation,
   LithoLayerLike,
@@ -42,6 +43,26 @@ import { useBodyRecompute, type UseBodyRecomputeResult } from './useBodyRecomput
  */
 export const sectionsBodyRecomputeCallback: {
   current: ((modelId: string) => Promise<void>) | null
+} = {
+  current: null,
+}
+
+/**
+ * Module-ref bridge to the toolbar's "4 · Divide boreholes" verb — same pattern
+ * as ``sectionsBodyRecomputeCallback`` above.
+ *
+ * The divide reads each borehole column off the 2-D geometry it stands in
+ * (owner ruling 2026-08-15), and this hook is where the inputs that geometry is
+ * assembled from already live: the visible sections, every investigation's
+ * position, and the geotech bands. The toolbar has none of them, so it calls
+ * this and hands the result to the divide.
+ *
+ * Returns ``null`` when the geometry cannot be assembled, which the divide
+ * sends as an omitted field — the backend then answers with the donor rule,
+ * exactly as it did before the geometry existed.
+ */
+export const sectionsDividePartitionCallback: {
+  current: ((sectionId: string) => Promise<Record<string, unknown> | null>) | null
 } = {
   current: null,
 }
@@ -147,6 +168,26 @@ export function useProjectBodyRecompute(
     [projectId, geotechModelId, visibleSections, investigations, geotechLayers, lithoLayers],
   )
 
+  // The geometry "4 · Divide boreholes" reads each borehole column off. Built
+  // here because this hook already holds every input it needs; the boreholes
+  // are named so the partition can exclude them (a divided borehole would
+  // otherwise become a COLUMN and split the very gap it is supposed to stand
+  // inside — see ``buildDividePartition``).
+  const buildDividePartitionForSection = useCallback(
+    async (sectionId: string): Promise<Record<string, unknown> | null> => {
+      const section = visibleSections.find(s => s.id === sectionId) ?? null
+      return assembleDividePartition({
+        projectId,
+        geotechModelId,
+        section,
+        investigations,
+        layers: geotechLayers,
+        boreholeInvestigationIds: new Set(visibleBoreholes.map(b => b.id)),
+      }) as Promise<Record<string, unknown> | null>
+    },
+    [projectId, geotechModelId, visibleSections, investigations, geotechLayers, visibleBoreholes],
+  )
+
   const { scheduleRecompute, recomputeNow } = useBodyRecompute({
     projectId,
     buildPayload,
@@ -157,6 +198,7 @@ export function useProjectBodyRecompute(
   // Module-ref bridge for the toolbar's manual verb. Assigned every render so
   // the ref is always current while the shell is mounted.
   sectionsBodyRecomputeCallback.current = recomputeNow
+  sectionsDividePartitionCallback.current = buildDividePartitionForSection
 
   // ---- 1. PROJECT-OPEN once-markers, reset on switch/close. -----------------
   // Declared BEFORE the trigger effects so the reset runs first on the commit
