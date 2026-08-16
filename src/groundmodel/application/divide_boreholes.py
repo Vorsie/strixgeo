@@ -2259,6 +2259,42 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 f"between={sampled.left_investigation_id}|{sampled.right_investigation_id} "
                 f"({sampled.gap_width_m:.0f}m) bands={len(sampled.bands)}"
             )
+            # The geometry PRESERVES gaps on purpose — depth the partition does
+            # not cover at this position is genuinely unclassified, and the
+            # sampler is in no position to invent a class for it. But a
+            # ``litho_layer`` column must be contiguous (the DB trigger rejects
+            # the whole transaction otherwise: "column not contiguous: N
+            # gap/overlap(s)", which is exactly how this surfaced on the owner's
+            # first geometry press). So the cuts go through the SAME
+            # conservative filler the donor path uses: it clips them to the
+            # extent and closes every remaining stretch with body_min /
+            # absolute_min, which is the honest answer for ground no CPT spoke
+            # for.
+            geometry_bands = fill_borehole_litho_body_extent(
+                extent_top=geo_top_m,
+                extent_base=geo_base_m,
+                cpt_packing_surfaces=[(b.top, b.base, b.nad_class) for b in sampled.bands],
+                body_min_class=body_min_class,
+                litho_abs_min_class=litho_abs_min_class,
+            )
+            # Re-attach each cut's correspondence by midpoint: the filler only
+            # ever clips the spans it was given, so a band it marks
+            # ``cpt_interpolated`` lies inside exactly one of them. A
+            # conservative fill continues nothing and carries no tie.
+            geometry_correspondences: list[tuple[str, ...]] = []
+            for band in geometry_bands:
+                midpoint = 0.5 * (band.top + band.base)
+                match: tuple[str, ...] = ()
+                if band.source == "cpt_interpolated":
+                    for cut, ids in zip(sampled.bands, sampled.correspondences):
+                        if cut.top <= midpoint <= cut.base:
+                            match = ids
+                            break
+                geometry_correspondences.append(match)
+            self.debug(
+                f"DivideBoreholes: borehole={inv_id} geometry cuts={len(sampled.bands)} "
+                f"→ {len(geometry_bands)} contiguous band(s) after the conservative fill"
+            )
             fill_band_body_ids = [
                 assign_borehole_band_body(
                     band_nad_class=fb.nad_class,
@@ -2266,9 +2302,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     borehole_y=bh_y,
                     cpt_bands_in_group=cpt_band_refs,
                 )
-                for fb in sampled.bands
+                for fb in geometry_bands
             ]
-            return sampled.bands, fill_band_body_ids, sampled.correspondences, selection
+            return geometry_bands, fill_band_body_ids, geometry_correspondences, selection
 
         # -------------------------------------------------------------------
         # Step 7b: name the donor band each fill band continues.
