@@ -3274,11 +3274,8 @@ async def borehole_tin_division_scene(
     After ``SubdivideAllBodies``, the borehole must be divided into TWO geotech
     layers whose split depth is the TIN-interpolation of the two CPTs'
     packing-transition surface at the borehole's XY.  The borehole sits at
-    x=149 150 m (between CPT-S1 at 149 000 m and CPT-S2 at 149 300 m), so
-    the interpolated split is 4.0 + (5.0 - 4.0) * (150 / 300) = 4.5 m ± 0.5 m
-    — midway, as before; the spacing was halved only to keep both flanks
-    inside MAX_DONOR_MAP_DISTANCE_M, since a column 300 m off is no longer
-    evidence about this borehole
+    x=149 300 m (between CPT-S1 at 149 000 m and CPT-S2 at 149 600 m), so
+    the interpolated split is 4.0 + (5.0 - 4.0) * (300 / 600) = 4.5 m ± 0.5 m
     (linear in x since both CPTs share y=200 000 m and the surface is a flat
     TIN across two control points — flat-mean fallback since <3 non-collinear
     points).
@@ -3368,7 +3365,7 @@ async def borehole_tin_division_scene(
         project_id="BHT",
         test_id="BHT/CPT-S2",
         app_project_id=proj.id,
-        location_x=149_300.0,
+        location_x=149_600.0,
         location_y=200_000.0,
         elevation_m=5.0,
         z_epsg=5710,
@@ -3389,7 +3386,7 @@ async def borehole_tin_division_scene(
         app_project_id=proj.id,
         project_id="BHT",
         test_id="BHT/BH-S",
-        location_x=149_150.0,
+        location_x=149_300.0,
         location_y=200_000.0,
         elevation_m=5.0,
         z_epsg=5710,
