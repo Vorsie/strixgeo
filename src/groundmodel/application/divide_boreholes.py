@@ -1770,6 +1770,52 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # CPT↔CPT ties are deliberately NOT captured: Phase 7 does not touch
         # their endpoints, so their rows survive untouched and counting them as
         # "carried" would overstate what this verb did.
+        # A correlation from a column to ITSELF is never valid — a column needs
+        # no tie to say its own bands are stacked — and the section draws one as
+        # a diagonal line through the column's own interior (owner, 2026-08-16:
+        # "weird as diagonal bands over columns").
+        #
+        # Swept here rather than only guarded at the write site because the
+        # re-anchor CARRIES an existing tie onto the rebuilt bands: both
+        # endpoints are on the borehole being re-divided, so a self-tie already
+        # in the model survives every subsequent press. Whatever wrote it, this
+        # is the pass that can see it and clear it.
+        #
+        # BEFORE the capture below, and that ordering is the whole point:
+        # the re-anchor picks a self-tie up like any other, cannot place it
+        # on the rebuilt bands, and reports it LOST — "1 accepted packing
+        # tie could not be kept ... B9 13.29-13.40 <-> B9 13.40-16.12"
+        # (owner, 2026-08-16). Sweeping afterwards deletes the row but the
+        # engineer has already been told he lost work he never drew.
+        self_tie_rows = (
+            await self._session.execute(
+                text(
+                    """
+                    SELECT ed.id
+                    FROM litho_contact_correlation_edge ed
+                    JOIN litho_layer la ON la.id = ed.layer_a_id
+                    JOIN litho_layer lb ON lb.id = ed.layer_b_id
+                    WHERE ed.model_id = :model_id
+                      AND COALESCE(la.cpt_id, la.borehole_id)
+                        = COALESCE(lb.cpt_id, lb.borehole_id)
+                    """
+                ),
+                {"model_id": geotech_model_id},
+            )
+        ).all()
+        self_tie_ids = [row.id for row in self_tie_rows]
+        if self_tie_ids:
+            await self._session.execute(
+                delete(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.id.in_(self_tie_ids)
+                )
+            )
+            self.info(
+                f"DivideBoreholes: {len(self_tie_ids)} self-tie(s) deleted — "
+                "a correlation from a column to itself draws as a diagonal "
+                "through that column and means nothing"
+            )
+
         tie_reanchor = GeotechTieReanchor(self._session)
         captured_ties = await tie_reanchor.capture(
             geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
@@ -2149,45 +2195,6 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     f"DivideBoreholes: {len(replaced_edge_ids)} tie(s) deleted — "
                     "re-expressed as hops through the boreholes between their columns"
                 )
-
-        # A correlation from a column to ITSELF is never valid — a column needs
-        # no tie to say its own bands are stacked — and the section draws one as
-        # a diagonal line through the column's own interior (owner, 2026-08-16:
-        # "weird as diagonal bands over columns").
-        #
-        # Swept here rather than only guarded at the write site because the
-        # re-anchor CARRIES an existing tie onto the rebuilt bands: both
-        # endpoints are on the borehole being re-divided, so a self-tie already
-        # in the model survives every subsequent press. Whatever wrote it, this
-        # is the pass that can see it and clear it.
-        self_tie_rows = (
-            await self._session.execute(
-                text(
-                    """
-                    SELECT ed.id
-                    FROM litho_contact_correlation_edge ed
-                    JOIN litho_layer la ON la.id = ed.layer_a_id
-                    JOIN litho_layer lb ON lb.id = ed.layer_b_id
-                    WHERE ed.model_id = :model_id
-                      AND COALESCE(la.cpt_id, la.borehole_id)
-                        = COALESCE(lb.cpt_id, lb.borehole_id)
-                    """
-                ),
-                {"model_id": geotech_model_id},
-            )
-        ).all()
-        self_tie_ids = [row.id for row in self_tie_rows]
-        if self_tie_ids:
-            await self._session.execute(
-                delete(LithoContactCorrelationEdgeOrm).where(
-                    LithoContactCorrelationEdgeOrm.id.in_(self_tie_ids)
-                )
-            )
-            self.info(
-                f"DivideBoreholes: {len(self_tie_ids)} self-tie(s) deleted — "
-                "a correlation from a column to itself draws as a diagonal "
-                "through that column and means nothing"
-            )
 
         superseded_edge_ids: list[UUID] = []
         superseded_labels: list[str] = []
