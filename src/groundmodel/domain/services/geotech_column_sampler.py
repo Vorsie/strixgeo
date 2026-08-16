@@ -315,14 +315,24 @@ def place_bands_in_litho_layer(
     -------
     list[PlacedBand]
         Bands inside ``[layer_top_m, layer_base_m]``, ordered top to bottom,
-        clipped to the layer and with sub-mm slivers dropped.  Empty when the
-        frame is degenerate at this fraction or the layer has no thickness.
+        clipped to the layer, DISJOINT, and with sub-mm slivers dropped.  Empty
+        when the frame is degenerate at this fraction or the layer has no
+        thickness.
 
     Notes
     -----
     Gaps are preserved.  Depth the section geometry leaves unclassified at this
     position stays unclassified here; deciding what to do with it is the
     caller's business, not this function's.
+
+    Overlaps are NOT preserved.  Two cuts can overlap — a partition that is not
+    perfectly disjoint at the sampling line, or two overlay regions covering the
+    same stretch — and a ``litho_layer`` column may not, so the shallower cut
+    holds its ground and the deeper one starts where it ends.  That is the same
+    precedence :func:`sample_regions_at_fraction` already applied between an
+    overlay and its matrix, carried through to the column.  Without it the
+    database's contiguity trigger refuses the whole write, which is how this
+    surfaced (owner's second geometry press: "5 gap/overlap(s)").
     """
     unit_top_elev, unit_base_elev = frame.bounds_at(fraction)
     unit_thickness = unit_top_elev - unit_base_elev
@@ -331,6 +341,8 @@ def place_bands_in_litho_layer(
         return []
 
     placed: list[PlacedBand] = []
+    # Runs down the column: nothing may start above where the last band ended.
+    cursor = layer_top_m
     for band in sorted(bands, key=lambda b: -b.top_elev_m):
         # 0 at the unit top, 1 at its base — the owner's rescale.
         top_u = (unit_top_elev - band.top_elev_m) / unit_thickness
@@ -339,7 +351,7 @@ def place_bands_in_litho_layer(
         base_u = min(max(base_u, 0.0), 1.0)
         if base_u - top_u <= 0.0:
             continue
-        depth_top = layer_top_m + top_u * layer_thickness
+        depth_top = max(layer_top_m + top_u * layer_thickness, cursor)
         depth_base = layer_top_m + base_u * layer_thickness
         if depth_base - depth_top < _MIN_SPAN_M:
             continue
@@ -352,6 +364,7 @@ def place_bands_in_litho_layer(
                 kind=band.kind,
             )
         )
+        cursor = depth_base
     return placed
 
 
