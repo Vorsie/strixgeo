@@ -311,3 +311,38 @@ def test_pl5_overlapping_cuts_come_out_disjoint() -> None:
     # The first keeps its full extent; the second is pushed down to meet it.
     assert placed[0].depth_base_m == pytest.approx(6.0)
     assert placed[1].depth_top_m == pytest.approx(6.0)
+
+
+def test_cs6_a_region_that_dips_back_up_covers_two_spans() -> None:
+    """CS6: a region is not always a top curve over a base curve.
+
+    The first sampler took the outer extremes of the crossings, on the
+    assumption that every region is vertically convex wherever the line meets
+    it. On the owner's model that was false: a substrate region reported a
+    12.5 m span at borehole B3, overlapping five real bands beneath it, and the
+    disjointness rule then let it swallow all five — the extent collapsed from
+    3 bands to 1.
+
+    A polygon that dips back up across the sampling line covers TWO spans, and
+    the ground between them belongs to whatever else is there.
+    """
+    # A "C" opening to the right: the line at x=0.5 crosses it twice.
+    notched = _region(
+        [
+            (0.0, 10.0),
+            (1.0, 10.0),
+            (1.0, 8.0),
+            (0.4, 8.0),
+            (0.4, 4.0),
+            (1.0, 4.0),
+            (1.0, 2.0),
+            (0.0, 2.0),
+        ],
+        formation_id="C",
+    )
+
+    bands = sample_regions_at_fraction([notched], gap_index=0, fraction=0.5)
+
+    assert len(bands) == 2, f"expected the two arms of the C, got {bands}"
+    assert (bands[0].top_elev_m, bands[0].base_elev_m) == pytest.approx((10.0, 8.0))
+    assert (bands[1].top_elev_m, bands[1].base_elev_m) == pytest.approx((4.0, 2.0))
