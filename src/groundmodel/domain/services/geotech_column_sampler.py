@@ -126,10 +126,10 @@ class SampledBand:
     overlay_tier: str | None = None
 
 
-def _vertical_span(
+def _vertical_spans(
     polygon: Sequence[tuple[float, float]], fraction: float
-) -> tuple[float, float] | None:
-    """Elevation span a vertical line at *fraction* cuts from *polygon*.
+) -> list[tuple[float, float]]:
+    """Elevation spans a vertical line at *fraction* cuts from *polygon*.
 
     Parameters
     ----------
@@ -140,18 +140,26 @@ def _vertical_span(
 
     Returns
     -------
-    tuple[float, float] | None
-        ``(top_elev_m, base_elev_m)``, or ``None`` when the line misses the
-        polygon (a lens that pinched out before this column) or grazes it.
+    list[tuple[float, float]]
+        ``(top_elev_m, base_elev_m)`` per span the line covers, ordered top to
+        bottom.  Empty when the line misses the polygon (a lens that pinched
+        out before this column) or only grazes it.
 
     Notes
     -----
-    Uses the extreme crossings rather than even-odd pairing.  Every region the
-    partition engine emits is a top curve over a base curve — vertically convex
-    at any fraction it covers — so the highest and lowest crossings ARE the
-    band.  Even-odd pairing would be equivalent there but is fragile exactly
-    where these polygons are not: at shared vertices and vertical end edges,
-    which every quad has two of.
+    Even-odd pairing of the crossings, NOT the outer extremes.  The first
+    version took ``max`` and ``min`` on the assumption that every region the
+    partition emits is a top curve over a base curve — vertically convex at any
+    fraction it covers.  That assumption is false: on the owner's model a
+    substrate region 12.5 m tall was reported at B3, overlapping five real
+    bands beneath it, and the disjointness rule then let it swallow all five
+    (the extent collapsed from 3 bands to 1).  A polygon that dips back up
+    across the sampling line covers two spans, not one, and saying otherwise
+    invents ground between them.
+
+    Edges are tested half-open (``lo <= fraction < hi``) so a shared vertex is
+    counted once; a vertical edge lying exactly on the line contributes
+    nothing, its neighbours already carry the crossing.
     """
     crossings: list[float] = []
     count = len(polygon)
@@ -159,21 +167,20 @@ def _vertical_span(
         x1, y1 = polygon[index]
         x2, y2 = polygon[(index + 1) % count]
         if abs(x2 - x1) <= _FRACTION_EPS:
-            # A vertical edge — it lies at the sampling fraction or nowhere.
-            if abs(x1 - fraction) <= _FRACTION_EPS:
-                crossings.append(y1)
-                crossings.append(y2)
             continue
         low, high = (x1, x2) if x1 < x2 else (x2, x1)
-        if low - _FRACTION_EPS <= fraction <= high + _FRACTION_EPS:
+        if low - _FRACTION_EPS <= fraction < high - _FRACTION_EPS:
             t = (fraction - x1) / (x2 - x1)
             crossings.append(y1 + t * (y2 - y1))
     if len(crossings) < 2:
-        return None
-    top, base = max(crossings), min(crossings)
-    if top - base < _MIN_SPAN_M:
-        return None
-    return top, base
+        return []
+    crossings.sort(reverse=True)
+    spans: list[tuple[float, float]] = []
+    for i in range(0, len(crossings) - 1, 2):
+        top, base = crossings[i], crossings[i + 1]
+        if top - base >= _MIN_SPAN_M:
+            spans.append((top, base))
+    return spans
 
 
 def sample_regions_at_fraction(
@@ -206,18 +213,16 @@ def sample_regions_at_fraction(
     for region in regions:
         if region.gap_index != gap_index:
             continue
-        span = _vertical_span(region.polygon, fraction)
-        if span is None:
-            continue
-        band = SampledBand(
-            top_elev_m=span[0],
-            base_elev_m=span[1],
-            formation_id=region.formation_id,
-            layer_ids=tuple(region.layer_ids),
-            kind=region.kind,
-            overlay_tier=region.overlay_tier,
-        )
-        (overlays if region.overlay_tier is not None else mains).append(band)
+        for span in _vertical_spans(region.polygon, fraction):
+            band = SampledBand(
+                top_elev_m=span[0],
+                base_elev_m=span[1],
+                formation_id=region.formation_id,
+                layer_ids=tuple(region.layer_ids),
+                kind=region.kind,
+                overlay_tier=region.overlay_tier,
+            )
+            (overlays if region.overlay_tier is not None else mains).append(band)
 
     if not overlays:
         return sorted(mains, key=lambda b: -b.top_elev_m)
