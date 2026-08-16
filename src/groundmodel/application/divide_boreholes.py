@@ -156,6 +156,12 @@ from groundmodel.domain.services.geotech_edge_crossing_guard import (
     crossing_partners,
     gap_key,
 )
+from groundmodel.domain.services.geotech_unit_boundaries import (
+    ColumnBoundary,
+    PlacedBoundary,
+    place_unit_boundaries,
+    replaced_tie_indices,
+)
 from groundmodel.domain.services.geotech_column_sampler import (
     LithoFrame,
     locate_column_in_partition,
@@ -304,6 +310,137 @@ class PlannedBand:
     section_name: str | None = None
 
 
+def _bands_in_extent(
+    geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
+    pick: BodyLayerPick,
+) -> list[tuple[UUID, float, float, int | None]]:
+    """The packing bands a CPT reads inside its own litho extent, top to bottom.
+
+    Parameters
+    ----------
+    geotech_layer_by_inv_depth : dict
+        Every geotech band per investigation id.
+    pick : BodyLayerPick
+        The CPT's litho-unit extent for this body group.
+
+    Returns
+    -------
+    list[tuple[UUID, float, float, int | None]]
+        ``(layer_id, top_m, base_m, nad_class)``, ordered shallow to deep.
+    """
+    out: list[tuple[UUID, float, float, int | None]] = []
+    for row in geotech_layer_by_inv_depth.get(pick.investigation_id, []):
+        top, base, layer_id, _formation_id, nad_class = row[0], row[1], row[2], row[3], row[4]
+        # Containment with a mm tolerance: the bands were cut to this very
+        # extent, so a float remainder is not a band outside it.
+        if top >= pick.top_depth_m - 0.001 and base <= pick.base_depth_m + 0.001:
+            out.append((layer_id, top, base, nad_class))
+    out.sort(key=lambda b: b[1])
+    return out
+
+
+def _interior_boundaries(
+    stack: list[tuple[UUID, float, float, int | None]], pick: BodyLayerPick
+) -> list[ColumnBoundary]:
+    """The stack's INTERIOR boundaries as fractions of the unit.
+
+    Parameters
+    ----------
+    stack : list
+        The column's in-extent bands, shallow to deep.
+    pick : BodyLayerPick
+        The unit extent the fractions are read in.
+
+    Returns
+    -------
+    list[ColumnBoundary]
+        One entry per seam between consecutive bands. The unit's own top and
+        base are NOT included: those are litho contacts.
+    """
+    thickness = pick.base_depth_m - pick.top_depth_m
+    if thickness <= 0.0:
+        return []
+    return [
+        ColumnBoundary(
+            fraction=(stack[i][1] - pick.top_depth_m) / thickness,
+            band_above_id=str(stack[i - 1][0]),
+            band_below_id=str(stack[i][0]),
+        )
+        for i in range(1, len(stack))
+    ]
+
+
+def _bands_between(
+    placed: Sequence[PlacedBoundary],
+    left_stack: list[tuple[UUID, float, float, int | None]],
+    right_stack: list[tuple[UUID, float, float, int | None]],
+    unit_top_m: float,
+    unit_base_m: float,
+) -> tuple[list[FillBand], list[tuple[str, ...]]]:
+    """Turn placed boundaries into contiguous bands, with their correspondence.
+
+    Parameters
+    ----------
+    placed : Sequence[PlacedBoundary]
+        Boundaries on the borehole, top to bottom.
+    left_stack, right_stack : list
+        The two columns' in-extent bands, for the class and the tie endpoints.
+    unit_top_m, unit_base_m : float
+        The borehole's own unit extent, which the bands tile exactly.
+
+    Returns
+    -------
+    tuple[list[FillBand], list[tuple[str, ...]]]
+        The bands and, per band, the ``litho_layer`` ids it continues — both
+        columns' where a tie declared the boundary, one where a lens did.
+    """
+    class_of: dict[str, int | None] = {}
+    for band in [*left_stack, *right_stack]:
+        class_of[str(band[0])] = band[3]
+
+    # The band ABOVE the first boundary continues whatever sat above it.
+    cuts = [unit_top_m, *[b.depth_m for b in placed], unit_base_m]
+    bands: list[FillBand] = []
+    correspondences: list[tuple[str, ...]] = []
+    for i in range(len(cuts) - 1):
+        top, base = cuts[i], cuts[i + 1]
+        if base - top < 0.001:
+            continue
+        # Which band ids this interval continues: below the boundary that opens
+        # it, or above the one that closes it for the topmost interval.
+        ids: list[str] = []
+        if i > 0:
+            opener = placed[i - 1]
+            ids = [
+                x for x in (opener.left_band_below_id, opener.right_band_below_id) if x is not None
+            ]
+        elif placed:
+            closer = placed[0]
+            ids = [
+                x for x in (closer.left_band_above_id, closer.right_band_above_id) if x is not None
+            ]
+        elif left_stack:
+            ids = [str(left_stack[0][0])]
+        nad = next((class_of[x] for x in ids if class_of.get(x) is not None), None)
+        if nad is None:
+            return [], []
+        # Two boundaries that do not change the class are not a boundary: the
+        # columns simply disagree about where a seam sits inside one packing
+        # unit. Merging keeps the correspondence of both.
+        if bands and bands[-1].nad_class == int(nad):
+            bands[-1] = FillBand(
+                top=bands[-1].top,
+                base=base,
+                nad_class=bands[-1].nad_class,
+                source=bands[-1].source,
+            )
+            correspondences[-1] = tuple(dict.fromkeys([*correspondences[-1], *ids]))
+            continue
+        bands.append(FillBand(top=top, base=base, nad_class=int(nad), source="cpt_interpolated"))
+        correspondences.append(tuple(ids))
+    return bands, correspondences
+
+
 def _tiles_extent(bands: Sequence[FillBand], top_m: float, base_m: float) -> bool:
     """Whether *bands* cover ``[top_m, base_m]`` exactly, with no gap or overlap.
 
@@ -331,6 +468,34 @@ def _tiles_extent(bands: Sequence[FillBand], top_m: float, base_m: float) -> boo
     if abs(bands[0].top - top_m) > tolerance or abs(bands[-1].base - base_m) > tolerance:
         return False
     return all(abs(upper.base - lower.top) <= tolerance for upper, lower in zip(bands, bands[1:]))
+
+
+@dataclass(frozen=True)
+class UnitTiePlacement:
+    """One litho unit's bands on a borehole, laid from the ties.
+
+    Parameters
+    ----------
+    bands : list[FillBand]
+        The bands, tiling the borehole's own unit extent.
+    correspondences : list[tuple[str, ...]]
+        Per band, the ``litho_layer`` ids it continues — both columns' where a
+        tie declared the boundary, one where a lens or onlap did.
+    replaced_tie_layer_pairs : list[tuple[str, str]]
+        The ``(left band, right band)`` pairs whose tie was re-expressed here,
+        and which the caller therefore deletes (owner, 2026-08-16: *"then you
+        delete all the bands you checked and replaced by hops"*).
+    section_name : str
+        The section the bracket was read on.
+    gap_width_m : float
+        Along-distance between the two bracketing CPTs.
+    """
+
+    bands: list[FillBand]
+    correspondences: list[tuple[str, ...]]
+    replaced_tie_layer_pairs: list[tuple[str, str]]
+    section_name: str
+    gap_width_m: float
 
 
 @dataclass(frozen=True)
@@ -453,6 +618,12 @@ class DivideBoreholePlan:
     pick_count: int
     cpt_layer_index: dict[str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]]
     borehole_names: dict[str, str]
+    # (left band, right band) per tie the tie-driven placement re-expressed
+    # on a borehole. The commit deletes them once the hops are written
+    # (owner 2026-08-16: "then you delete all the bands you checked and
+    # replaced by hops"). Defaulted so the empty-plan early return and every
+    # existing construction site stay valid.
+    replaced_tie_layer_pairs: tuple[tuple[str, str], ...] = ()
 
     def columns(self) -> list[PlannedBoreholeColumn]:
         """Aggregate the flat segments into one entry per borehole column.
@@ -731,6 +902,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # needs that formation's class and its find-or-create key. Loaded once
         # here rather than per borehole — the geometry path reads it for every
         # cut it makes.
+        # The ties the tie-driven placement re-expressed on a borehole, as
+        # (left band, right band). Deleted after the hops are written -
+        # owner 2026-08-16: "then you delete all the bands you checked and
+        # replaced by hops".
+        replaced_tie_pairs: list[tuple[str, str]] = []
         geotech_formation_info: dict[str, tuple[int | None, UUID, UUID | None]] = {}
         if section_partitions:
             for formation_row in (
@@ -1041,6 +1217,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     accepted_ties=accepted_ties,
                     section_partitions=section_partitions,
                     geotech_formation_info=geotech_formation_info,
+                    replaced_tie_pairs=replaced_tie_pairs,
                 )
                 n_bands = len(fill_band_list)
                 total_layers += n_bands
@@ -1121,6 +1298,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"divided={divided_borehole_count} single={single_band_borehole_count}"
         )
         return DivideBoreholePlan(
+            replaced_tie_layer_pairs=tuple(replaced_tie_pairs),
             geotech_model_id=geotech_model.id,
             segments=tuple(planned_segments),
             divided_borehole_count=divided_borehole_count,
@@ -1777,6 +1955,48 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 + (f", {hops_refused} refused as crossing" if hops_refused else "")
             )
 
+        # ------------------------------------------------------------------
+        # The ties the tie-driven placement RE-EXPRESSED, deleted outright.
+        #
+        # Owner, 2026-08-16: "then you delete all the bands you checked and
+        # replaced by hops". This is bookkeeping, not search: a tie whose
+        # boundary was drawn on the borehole has had its replacement written, so
+        # it goes. The geometric supersession below still runs for everything
+        # this pass did not touch — a tie with no borehole between its columns
+        # was never re-expressed and is not this rule's business.
+        replaced_edge_ids: list[UUID] = []
+        if plan.replaced_tie_layer_pairs:
+            wanted = {
+                (UUID(a), UUID(b)) if UUID(a) < UUID(b) else (UUID(b), UUID(a))
+                for a, b in plan.replaced_tie_layer_pairs
+            }
+            for replaced_row in (
+                await self._session.execute(
+                    select(
+                        LithoContactCorrelationEdgeOrm.id,
+                        LithoContactCorrelationEdgeOrm.layer_a_id,
+                        LithoContactCorrelationEdgeOrm.layer_b_id,
+                    ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
+                )
+            ).all():
+                edge_key = (
+                    (replaced_row.layer_a_id, replaced_row.layer_b_id)
+                    if replaced_row.layer_a_id < replaced_row.layer_b_id
+                    else (replaced_row.layer_b_id, replaced_row.layer_a_id)
+                )
+                if edge_key in wanted:
+                    replaced_edge_ids.append(replaced_row.id)
+            if replaced_edge_ids:
+                await self._session.execute(
+                    delete(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.id.in_(replaced_edge_ids)
+                    )
+                )
+                self.info(
+                    f"DivideBoreholes: {len(replaced_edge_ids)} tie(s) deleted — "
+                    "re-expressed as hops through the boreholes between their columns"
+                )
+
         superseded_edge_ids: list[UUID] = []
         superseded_labels: list[str] = []
         for section in sections:
@@ -1999,7 +2219,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             lost_tie_count=len(reanchor_plan.lost),
             lost_tie_reasons=reanchor_plan.loss_reason_counts(),
             lost_tie_labels=reanchor_plan.lost_tie_labels,
-            superseded_jump_tie_count=len(superseded_edge_ids),
+            # BOTH deletions: the ties the tie-driven placement re-expressed
+            # as hops, and the ones the geometric supersession found
+            # redundant. They are the same user-facing fact - "the borehole
+            # chain replaced this" - and a divide that deletes a tie it does
+            # not report is exactly what GP10 refuses.
+            superseded_jump_tie_count=len(superseded_edge_ids) + len(replaced_edge_ids),
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model_id} "
@@ -2036,6 +2261,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         accepted_ties: Sequence[AcceptedTie] = (),
         section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
         geotech_formation_info: Mapping[str, tuple[int | None, UUID, UUID | None]] | None = None,
+        replaced_tie_pairs: list[tuple[str, str]] | None = None,
     ) -> tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
@@ -2269,6 +2495,43 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # preview, a borehole off every section, a bracketing column with no
         # layer in this body group.
         # -------------------------------------------------------------------
+        # Owner's rule, 2026-08-16 — the ties place the boundaries, not the
+        # polygons. Tried first because a tie names BOTH bands it joins, so the
+        # hops it licenses reach both CPTs and the chain closes; the region
+        # sampler below could only ever name one side.
+        tied = self._plan_bands_from_unit_ties(
+            inv_id=inv_id,
+            geo_top_m=geo_top_m,
+            geo_base_m=geo_base_m,
+            cpt_segs=cpt_segs,
+            geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
+            section_placements=section_placements,
+            accepted_ties=accepted_ties,
+        )
+        if tied is not None and _tiles_extent(tied.bands, geo_top_m, geo_base_m):
+            self.info(
+                f"DivideBoreholes: borehole={inv_id} "
+                f"extent=[{geo_top_m:.2f},{geo_base_m:.2f}] mode=unit_ties "
+                f"section={tied.section_name} ({tied.gap_width_m:.0f}m) "
+                f"bands={len(tied.bands)} replaced_ties={len(tied.replaced_tie_layer_pairs)}"
+            )
+            if replaced_tie_pairs is not None:
+                replaced_tie_pairs.extend(tied.replaced_tie_layer_pairs)
+            return (
+                tied.bands,
+                [
+                    assign_borehole_band_body(
+                        band_nad_class=fb.nad_class,
+                        borehole_x=bh_x,
+                        borehole_y=bh_y,
+                        cpt_bands_in_group=cpt_band_refs,
+                    )
+                    for fb in tied.bands
+                ],
+                tied.correspondences,
+                selection,
+            )
+
         sampled: GeometrySampling | None = None
         if section_partitions and geotech_formation_info:
             sampled = self._plan_bands_from_section_geometry(
@@ -2388,6 +2651,161 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         )
 
         return fill_bands, fill_band_body_ids, fill_band_donor_ids, selection
+
+    def _plan_bands_from_unit_ties(
+        self,
+        *,
+        inv_id: str,
+        geo_top_m: float,
+        geo_base_m: float,
+        cpt_segs: list[BodyLayerPick],
+        geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
+        section_placements: list[SectionPlacement],
+        accepted_ties: Sequence[AcceptedTie],
+    ) -> UnitTiePlacement | None:
+        """Lay this litho unit's packing boundaries on the borehole, from the TIES.
+
+        Owner's rule, 2026-08-16.  A boundary that is a litho contact is already
+        on the borehole and is never interpolated; an interior packing boundary
+        is placed at its fraction between the bounding litho contacts; a
+        continuous one is drawn; a lens or onlap only when the borehole stands
+        within half the gap of the column that declared it.
+
+        Reads no partition.  The ties already say what is continuous, and each
+        one NAMES the two bands it joins — which is what makes the hop
+        two-sided and the chain CPT→BH→BH→CPT close by construction.
+
+        Parameters
+        ----------
+        inv_id : str
+            The borehole, stringified.
+        geo_top_m, geo_base_m : float
+            The unit's extent on the BOREHOLE's own log.  Never moved.
+        cpt_segs : list[BodyLayerPick]
+            The CPT picks in this body group; the bracketing pair's own extents
+            are the frames the fractions are read in.
+        geotech_layer_by_inv_depth : dict
+            Every geotech band, per investigation id.
+        section_placements : list[SectionPlacement]
+            Along-positions per section; the tightest bracket wins.
+        accepted_ties : Sequence[AcceptedTie]
+            The engineer's accepted packing correlations.
+
+        Returns
+        -------
+        UnitTiePlacement | None
+            The bands, their per-band correspondence and the ties they replaced,
+            or ``None`` when no section brackets this borehole with two picks of
+            this group — the donor rule answers there, and an uncorrelated pair
+            is the engineer's own choice to leave uncorrelated (owner,
+            2026-08-16), not something to invent across.
+        """
+        picks = {seg.investigation_id: seg for seg in cpt_segs}
+        best: UnitTiePlacement | None = None
+        best_width = float("inf")
+        for placement in section_placements:
+            bh_along = placement.along_m.get(inv_id)
+            if bh_along is None:
+                continue
+            # An accepted tie STRADDLING this borehole names the pair outright
+            # and outranks the nearest flanks — the owner's ruling of
+            # 2026-08-11: "we correlate over the boreholes from cpt to cpt, so
+            # the user's ties will define this". Only when no tie spans the
+            # column does the nearest pair either side answer.
+            left_id = right_id = None
+            left_along = right_along = 0.0
+            for tie in accepted_ties:
+                if tie.section_id != placement.section_id:
+                    continue
+                a_along = placement.along_m.get(tie.investigation_a)
+                b_along = placement.along_m.get(tie.investigation_b)
+                if a_along is None or b_along is None:
+                    continue
+                if tie.investigation_a not in picks or tie.investigation_b not in picks:
+                    continue
+                low, high = sorted((a_along, b_along))
+                if not (low < bh_along < high):
+                    continue
+                if left_id is not None and high - low >= right_along - left_along:
+                    continue
+                if a_along <= b_along:
+                    left_id, left_along, right_id, right_along = (
+                        tie.investigation_a,
+                        a_along,
+                        tie.investigation_b,
+                        b_along,
+                    )
+                else:
+                    left_id, left_along, right_id, right_along = (
+                        tie.investigation_b,
+                        b_along,
+                        tie.investigation_a,
+                        a_along,
+                    )
+            if left_id is None:
+                for inv, along in placement.along_m.items():
+                    if inv not in picks:
+                        continue
+                    if along <= bh_along and (left_id is None or along > left_along):
+                        left_id, left_along = inv, along
+                    if along >= bh_along and (right_id is None or along < right_along):
+                        right_id, right_along = inv, along
+            if left_id is None or right_id is None or left_id == right_id:
+                continue
+            width = right_along - left_along
+            if width <= 0.0 or width >= best_width:
+                continue
+
+            left_stack = _bands_in_extent(geotech_layer_by_inv_depth, picks[left_id])
+            right_stack = _bands_in_extent(geotech_layer_by_inv_depth, picks[right_id])
+            if not left_stack or not right_stack:
+                continue
+            left_bounds = _interior_boundaries(left_stack, picks[left_id])
+            right_bounds = _interior_boundaries(right_stack, picks[right_id])
+            index_of_left = {b[0]: i for i, b in enumerate(left_stack)}
+            index_of_right = {b[0]: i for i, b in enumerate(right_stack)}
+            ties: list[tuple[int, int]] = []
+            for tie in accepted_ties:
+                pair = {tie.investigation_a: tie.layer_a_id, tie.investigation_b: tie.layer_b_id}
+                if left_id not in pair or right_id not in pair:
+                    continue
+                li = index_of_left.get(UUID(pair[left_id]))
+                ri = index_of_right.get(UUID(pair[right_id]))
+                # A tie names two BANDS; the boundary it declares is the one
+                # above each. The topmost band's "boundary above" is the litho
+                # contact, which the litho model already owns.
+                if li is None or ri is None or li == 0 or ri == 0:
+                    continue
+                ties.append((li - 1, ri - 1))
+
+            placed = place_unit_boundaries(
+                left_bounds,
+                right_bounds,
+                ties,
+                fraction=(bh_along - left_along) / width,
+                unit_top_m=geo_top_m,
+                unit_base_m=geo_base_m,
+            )
+            bands, correspondences = _bands_between(
+                placed, left_stack, right_stack, geo_top_m, geo_base_m
+            )
+            if not bands:
+                continue
+            best_width = width
+            best = UnitTiePlacement(
+                bands=bands,
+                correspondences=correspondences,
+                replaced_tie_layer_pairs=[
+                    (
+                        str(left_stack[ties[i][0] + 1][0]),
+                        str(right_stack[ties[i][1] + 1][0]),
+                    )
+                    for i in replaced_tie_indices(placed)
+                ],
+                section_name=placement.section_name,
+                gap_width_m=width,
+            )
+        return best
 
     def _plan_bands_from_section_geometry(
         self,
