@@ -901,6 +901,13 @@ export interface UseGeologicalModelResult {
   handleDivideBoreholes: (options?: {
     boreholeIds?: readonly string[]
     sectionId?: string | null
+    /**
+     * The section's 2-D partition, keyed by section id — the geometry each
+     * borehole column is read off (owner ruling 2026-08-15). Omitted when the
+     * caller could not assemble it; the backend then answers with the donor
+     * rule exactly as before.
+     */
+    sectionPartitions?: Record<string, unknown> | null
   }) => Promise<void>
   // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
   // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
@@ -2553,6 +2560,7 @@ export function useGeologicalModel({
     async (options?: {
       boreholeIds?: readonly string[]
       sectionId?: string | null
+      sectionPartitions?: Record<string, unknown> | null
     }): Promise<void> => {
       // Concurrent-divide guard (review MINOR-1): the toolbar debounces via its
       // busy state, but the ghost right-click path has no such state — a double
@@ -2592,6 +2600,7 @@ export function useGeologicalModel({
         result = await api.geology.divideBoreholes(project.id, lithoModel.id, {
           boreholeIds: subset,
           sectionId,
+          sectionPartitions: options?.sectionPartitions ?? null,
         })
       } catch (err) {
         log.error('geology', 'divideBoreholes failed', err)
