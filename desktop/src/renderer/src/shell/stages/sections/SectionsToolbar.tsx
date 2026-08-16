@@ -60,7 +60,10 @@ import {
   type GeotechStatistic,
 } from '../../../utils/geotechStatistic'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
-import { sectionsBodyRecomputeCallback } from '../../../hooks/useProjectBodyRecompute'
+import {
+  sectionsBodyRecomputeCallback,
+  sectionsDividePartitionCallback,
+} from '../../../hooks/useProjectBodyRecompute'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
 import {
   dividePendingTag,
@@ -1781,7 +1784,23 @@ export default function SectionsToolbar(): JSX.Element {
                   )
                     return
                   setDividingBoreholes(true)
-                  void handleDivideBoreholes({ sectionId: selectedSectionId }).finally(() => {
+                  // Assemble the geometry the boreholes are read off BEFORE the
+                  // press: the divide rebuilds every borehole band, so a
+                  // partition fetched afterwards would describe the model the
+                  // press has already changed. A null result is not a failure —
+                  // the backend answers with the donor rule (owner ruling
+                  // 2026-08-15).
+                  void (async () => {
+                    const buildPartition = sectionsDividePartitionCallback.current
+                    const sectionPartitions =
+                      buildPartition === null
+                        ? null
+                        : await buildPartition(selectedSectionId).catch(() => null)
+                    await handleDivideBoreholes({
+                      sectionId: selectedSectionId,
+                      sectionPartitions,
+                    })
+                  })().finally(() => {
                     setDividingBoreholes(false)
                   })
                 },
