@@ -441,6 +441,111 @@ def _bands_between(
     return bands, correspondences
 
 
+def litho_contact_tie_pairs(
+    accepted_ties: Sequence[AcceptedTie],
+    geotech_layer_by_inv_depth: Mapping[str, list[tuple[Any, ...]]],
+    litho_layer_depths: Mapping[UUID, tuple[str, float, float]],
+    litho_body_by_layer: Mapping[UUID, str | None],
+    along_by_investigation: Mapping[str, float],
+    borehole_ids: set[str],
+) -> list[tuple[str, str]]:
+    """Ties that declare the BASE CONTACT of one shared litho unit.
+
+    Owner's step 1, 2026-08-16: *"if a cpt to cpt contact is a litho contact,
+    then you replace it by the litho bands"*.  Every borehole between the two
+    columns carries that contact in its own log, so dividing it re-expresses
+    the tie and the tie is deleted with the rest.
+
+    The case that exposed it is the owner's own, and his framing is the one
+    encoded here — *"i thought we were talking about the silt unit on top that
+    should be one unit"*.  His S13 KLEI-21 ↔ S6 ZAND-5 tie looks like a
+    cross-facies oddity if you read the bands it names: clay below on one
+    column, sand below on the other.  Read the unit ABOVE instead and it is one
+    silt body (measured: S6 1.52–7.542 and S13 1.42–8.16 share a ``body_id``),
+    so the tie declares that body's base — a single contact, with the facies
+    changing beneath it.
+
+    Both clauses matter.  "Topmost band of its own unit" makes the surface a
+    litho contact on each column; "one unit above" makes it the SAME contact
+    laterally.  Without the second, this would delete a tie joining two
+    unrelated contacts that merely happen to be unit boundaries.
+
+    Parameters
+    ----------
+    accepted_ties : Sequence[AcceptedTie]
+        The engineer's accepted packing correlations on one section.
+    geotech_layer_by_inv_depth : Mapping[str, list[tuple[Any, ...]]]
+        Every geotech band per investigation, ``(top, base, layer_id, ...)``.
+    litho_layer_depths : Mapping[UUID, tuple[str, float, float]]
+        ``litho layer id -> (investigation, top_m, base_m)``.
+    litho_body_by_layer : Mapping[UUID, str | None]
+        ``litho layer id -> body id``; the correlated-unit identity.
+    along_by_investigation : Mapping[str, float]
+        Along-positions on that section.
+    borehole_ids : set[str]
+        Investigations that are boreholes.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        ``(layer_a, layer_b)`` per tie to delete.  Only ties with a borehole
+        BETWEEN their columns — with none there nothing was re-expressed.
+    """
+    layers_by_inv: dict[str, list[tuple[UUID, float, float]]] = {}
+    for layer_id, (inv, top, base) in litho_layer_depths.items():
+        layers_by_inv.setdefault(inv, []).append((layer_id, top, base))
+
+    band_top: dict[str, tuple[str, float]] = {}
+    for inv, rows in geotech_layer_by_inv_depth.items():
+        for row in rows:
+            band_top[str(row[2])] = (inv, float(row[0]))
+
+    def unit_above(layer_id: str) -> str | None:
+        """The body of the litho unit sitting ON this band, when it starts a unit.
+
+        ``None`` when the band is not the topmost of its own unit (the surface
+        is an interior packing seam, not a contact) or when nothing sits above
+        it (the contact is the ground surface, which no tie restates).
+        """
+        entry = band_top.get(layer_id)
+        if entry is None:
+            return None
+        inv, top = entry
+        own = next(
+            # 1 mm: litho_layer stores intervals at that grain and the geotech
+            # bands were cut to these contacts, so coincidence within it is the
+            # same surface.
+            (lid for lid, ltop, _lbase in layers_by_inv.get(inv, []) if abs(ltop - top) <= 0.001),
+            None,
+        )
+        if own is None:
+            return None
+        above = next(
+            (lid for lid, _ltop, lbase in layers_by_inv.get(inv, []) if abs(lbase - top) <= 0.001),
+            None,
+        )
+        return None if above is None else litho_body_by_layer.get(above)
+
+    out: list[tuple[str, str]] = []
+    for tie in accepted_ties:
+        a_along = along_by_investigation.get(tie.investigation_a)
+        b_along = along_by_investigation.get(tie.investigation_b)
+        if a_along is None or b_along is None:
+            continue
+        low, high = sorted((a_along, b_along))
+        if not any(
+            low < along_by_investigation[inv] < high
+            for inv in borehole_ids
+            if inv in along_by_investigation
+        ):
+            continue
+        body_a = unit_above(tie.layer_a_id)
+        body_b = unit_above(tie.layer_b_id)
+        if body_a is not None and body_a == body_b:
+            out.append((tie.layer_a_id, tie.layer_b_id))
+    return out
+
+
 def _tiles_extent(bands: Sequence[FillBand], top_m: float, base_m: float) -> bool:
     """Whether *bands* cover ``[top_m, base_m]`` exactly, with no gap or overlap.
 
@@ -1094,6 +1199,45 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"DivideBoreholes: {len(accepted_ties)} accepted CPT↔CPT packing tie(s) "
             f"available to inform donor selection"
         )
+
+        # Owner's step 1, 2026-08-16, with his own guard: a tie whose surface is
+        # the BASE CONTACT OF ONE SHARED litho unit is already on every borehole
+        # between the two columns — the litho log carries it — so dividing them
+        # re-expresses it and it is deleted with the rest.
+        #
+        # His framing is what makes this findable: read the unit ABOVE, not the
+        # bands the tie names. His S13 KLEI ↔ S6 ZAND tie looks cross-facies
+        # from the bands, and its two bands live in different body groups so the
+        # per-unit placement never sees the pair — but one silt body sits on
+        # both columns and the tie declares its base.
+        plan_litho_depths = await load_litho_layer_depths(self._session, litho_model.id, None)
+        litho_body_by_layer = {
+            row.id: (str(row.body_id) if row.body_id is not None else None)
+            for row in (
+                await self._session.execute(
+                    select(LithoLayerOrm.id, LithoLayerOrm.body_id).where(
+                        LithoLayerOrm.model_id == litho_model.id
+                    )
+                )
+            ).all()
+        }
+        borehole_id_strings = {
+            inv
+            for placement in section_placements
+            for inv in placement.along_m
+            if inv not in geotech_layer_by_inv_depth
+        }
+        for placement in section_placements:
+            replaced_tie_pairs.extend(
+                litho_contact_tie_pairs(
+                    [t for t in accepted_ties if t.section_id == placement.section_id],
+                    geotech_layer_by_inv_depth,
+                    plan_litho_depths,
+                    litho_body_by_layer,
+                    placement.along_m,
+                    borehole_id_strings,
+                )
+            )
 
         # Phase 8 (planning half) — litho-confined borehole fill per body group.
         #
