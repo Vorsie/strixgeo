@@ -151,22 +151,16 @@ from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
     fill_borehole_litho_body_extent,
 )
-from groundmodel.domain.services.geotech_edge_crossing_guard import (
-    GapTie,
-    crossing_partners,
-    gap_key,
-)
-from groundmodel.domain.services.geotech_unit_boundaries import (
-    ColumnBoundary,
-    PlacedBoundary,
-    place_unit_boundaries,
-    replaced_tie_indices,
-)
 from groundmodel.domain.services.geotech_column_sampler import (
     LithoFrame,
     locate_column_in_partition,
     place_bands_in_litho_layer,
     sample_regions_at_fraction,
+)
+from groundmodel.domain.services.geotech_edge_crossing_guard import (
+    GapTie,
+    crossing_partners,
+    gap_key,
 )
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     superseded_jump_tie_ids,
@@ -174,6 +168,12 @@ from groundmodel.domain.services.geotech_jump_tie_supersession import (
 from groundmodel.domain.services.geotech_tie_donors import (
     AcceptedTie,
     select_tie_informed_donors,
+)
+from groundmodel.domain.services.geotech_unit_boundaries import (
+    ColumnBoundary,
+    PlacedBoundary,
+    place_unit_boundaries,
+    replaced_tie_indices,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import (
@@ -439,6 +439,59 @@ def _bands_between(
         bands.append(FillBand(top=top, base=base, nad_class=int(nad), source="cpt_interpolated"))
         correspondences.append(tuple(ids))
     return bands, correspondences
+
+
+def flank_pick_for_unit(
+    picks: Sequence[BodyLayerPick],
+    *,
+    unit_top_elev_m: float,
+    unit_base_elev_m: float,
+) -> BodyLayerPick | None:
+    """Which of a column's intervals in this body flanks the borehole's unit.
+
+    A body split by an enclosed lens owns MORE THAN ONE interval per column,
+    so "the flank column's layer in this body" is not a single thing.  Keying
+    them by investigation — as this planner did until 2026-08-16 — silently
+    kept whichever came last, and every shallow unit then read its packing off
+    the deep interval.  The owner saw the result on Cross-section 1: S6's very
+    dense sand from 14.90 m appeared at 11.87 m on B6 and B4, above a lens it
+    lies below on S6, at a depth where neither flank is very dense.
+
+    Matched on ELEVATION overlap, not on position in the list: two columns can
+    carry a different number of intervals (the lens pinches out), and only
+    elevation says which interval is the same sheet.
+
+    Parameters
+    ----------
+    picks : Sequence[BodyLayerPick]
+        One column's intervals in this body group.
+    unit_top_elev_m, unit_base_elev_m : float
+        The borehole unit's own extent, in elevation (top above base).
+
+    Returns
+    -------
+    BodyLayerPick | None
+        The overlapping interval, the largest overlap winning; the nearest
+        interval when none overlaps; ``None`` when the column has no layer in
+        this body at all.
+    """
+    best: BodyLayerPick | None = None
+    best_overlap = 0.0
+    best_gap = float("inf")
+    for pick in picks:
+        top = pick.surface_elev_m - pick.top_depth_m
+        base = pick.surface_elev_m - pick.base_depth_m
+        overlap = min(top, unit_top_elev_m) - max(base, unit_base_elev_m)
+        if overlap > best_overlap:
+            best, best_overlap = pick, overlap
+            continue
+        if best_overlap > 0.0:
+            continue
+        # Nothing has overlapped yet: keep the nearest as the fallback.
+        gap = max(base - unit_top_elev_m, unit_base_elev_m - top, 0.0)
+        if gap < best_gap:
+            best, best_gap = pick, gap
+    return best
 
 
 def litho_contact_tie_pairs(
@@ -2702,6 +2755,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             inv_id=inv_id,
             geo_top_m=geo_top_m,
             geo_base_m=geo_base_m,
+            bh_surface_elev=bh_surface_elev,
             cpt_segs=cpt_segs,
             geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
             section_placements=section_placements,
@@ -2857,6 +2911,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         inv_id: str,
         geo_top_m: float,
         geo_base_m: float,
+        bh_surface_elev: float,
         cpt_segs: list[BodyLayerPick],
         geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
         section_placements: list[SectionPlacement],
@@ -2880,6 +2935,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             The borehole, stringified.
         geo_top_m, geo_base_m : float
             The unit's extent on the BOREHOLE's own log.  Never moved.
+        bh_surface_elev : float
+            The borehole's collar, to compare its unit against a flank's
+            intervals in elevation rather than in each column's own depths.
         cpt_segs : list[BodyLayerPick]
             The CPT picks in this body group; the bracketing pair's own extents
             are the frames the fractions are read in.
@@ -2899,7 +2957,23 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             is the engineer's own choice to leave uncorrelated (owner,
             2026-08-16), not something to invent across.
         """
-        picks = {seg.investigation_id: seg for seg in cpt_segs}
+        picks_by_inv: dict[str, list[BodyLayerPick]] = defaultdict(list)
+        for seg in cpt_segs:
+            picks_by_inv[seg.investigation_id].append(seg)
+        # An enclosed lens splits a body into several intervals per column,
+        # so the flank is chosen per unit rather than per column.
+        picks = {
+            inv: pick
+            for inv, group in picks_by_inv.items()
+            if (
+                pick := flank_pick_for_unit(
+                    group,
+                    unit_top_elev_m=bh_surface_elev - geo_top_m,
+                    unit_base_elev_m=bh_surface_elev - geo_base_m,
+                )
+            )
+            is not None
+        }
         best: UnitTiePlacement | None = None
         best_width = float("inf")
         for placement in section_placements:
@@ -3326,8 +3400,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             Per-borehole accumulator for the Phase-9 sample assignment (mutated).
         donor_hops : list[tuple[UUID, UUID, UUID, str]]
             Accumulator (mutated) of ``(section_id, donor_band_id,
-            borehole_band_id, borehole_investigation_id, borehole_band_top_m)`` — the borehole hops the fraction rescale
-            licensed, ready for Phase 8.5 to write as accepted edges.
+            borehole_band_id, borehole_investigation_id, borehole_band_top_m)``
+            — the borehole hops the fraction rescale licensed, ready for
+            Phase 8.5 to write as accepted edges.
         """
         for band in segment.bands:
             # All planned nad_class values are concrete (no None) — the fill
