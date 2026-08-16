@@ -836,7 +836,7 @@ describe('SectionsToolbar "Divide boreholes" verb (E)', () => {
       }),
     )
     fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
-    expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'section-1' })
+    expect(handleDivideBoreholes).toHaveBeenCalledWith(expect.objectContaining({ sectionId: 'section-1' }))
   })
 
   it('BE3b — with no section open the step is dead, like steps 1-3', () => {

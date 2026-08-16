@@ -42,6 +42,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import SectionsToolbar from './SectionsToolbar'
+import { sectionsDividePartitionCallback } from '../../../hooks/useProjectBodyRecompute'
 import {
   makeShellCtx,
   makeLithoModel,
@@ -359,7 +360,7 @@ describe('SectionsToolbar — step 4 follows the open section', () => {
     renderToolbar(bandedCtx({ geoModel: { handleDivideBoreholes } }))
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
-    expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'sec-1' })
+    expect(handleDivideBoreholes).toHaveBeenCalledWith(expect.objectContaining({ sectionId: 'sec-1' }))
   })
 
   it('SC12: the label no longer says "(whole model)"', async () => {
@@ -380,7 +381,7 @@ describe('SectionsToolbar — step 4 follows the open section', () => {
     const divide = screen.getByTestId('geotech-divide-boreholes')
     expect(divide).not.toBeDisabled()
     fireEvent.click(divide)
-    expect(handleDivideBoreholes).toHaveBeenCalledWith({ sectionId: 'sec-1' })
+    expect(handleDivideBoreholes).toHaveBeenCalledWith(expect.objectContaining({ sectionId: 'sec-1' }))
   })
 
   it('SC14: proposals on THIS section still do', async () => {
@@ -538,5 +539,56 @@ describe('SectionsToolbar — steps 2-4 follow the open section’s own bands', 
         'Open a cross-section first',
       )
     }
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// SC17-SC18 — step 4 carries the geometry it reads the boreholes off
+// ---------------------------------------------------------------------------
+//
+//   > "the borehole thing is really a geometry problem, we draw half length
+//   > lenses between two cpts same for onlaps. you just need to check if a
+//   > borehole column intersects a lens or onlap"     (owner, 2026-08-15)
+//
+// The backend does the intersecting, but it can only intersect geometry it was
+// given. These pin the two halves of that hand-off: the partition is assembled
+// BEFORE the press (afterwards it would describe the model the press has
+// already rewritten), and a failure to assemble it is not a failure to divide.
+
+describe('SectionsToolbar — step 4 carries the section geometry', () => {
+  it('SC17: the assembled partition is handed to the divide', async () => {
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    const partition = { 'sec-1': { columns: [], regions: [] } }
+    sectionsDividePartitionCallback.current = vi.fn(() => Promise.resolve(partition))
+
+    renderToolbar(bandedCtx({ geoModel: { handleDivideBoreholes } }))
+    await openPipeline()
+    fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
+
+    await waitFor(() =>
+      expect(handleDivideBoreholes).toHaveBeenCalledWith(
+        expect.objectContaining({ sectionId: 'sec-1', sectionPartitions: partition }),
+      ),
+    )
+    expect(sectionsDividePartitionCallback.current).toHaveBeenCalledWith('sec-1')
+  })
+
+  it('SC18: a partition that cannot be assembled still divides', async () => {
+    // Null is not a failure — the backend falls back to the donor rule, which
+    // is exactly the behaviour that shipped before the geometry existed. A
+    // borehole must never go undivided because the geometry did not load.
+    const handleDivideBoreholes = vi.fn(() => Promise.resolve())
+    sectionsDividePartitionCallback.current = vi.fn(() => Promise.reject(new Error('boom')))
+
+    renderToolbar(bandedCtx({ geoModel: { handleDivideBoreholes } }))
+    await openPipeline()
+    fireEvent.click(screen.getByTestId('geotech-divide-boreholes'))
+
+    await waitFor(() =>
+      expect(handleDivideBoreholes).toHaveBeenCalledWith(
+        expect.objectContaining({ sectionId: 'sec-1', sectionPartitions: null }),
+      ),
+    )
   })
 })
