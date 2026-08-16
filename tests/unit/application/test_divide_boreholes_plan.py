@@ -31,6 +31,8 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+import random
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
@@ -759,3 +761,100 @@ def test_pg4_a_partly_covered_layer_still_comes_out_contiguous() -> None:
     assert correspondences[0] == ("band-A", "band-B")
     assert bands[-1].source in {"body_min", "absolute_min"}
     assert correspondences[-1] == ()
+
+
+def test_pg5_any_geometry_produces_a_column_that_tiles_its_extent() -> None:
+    """PG5: the property the database enforces, fuzzed.
+
+    A ``litho_layer`` column must tile its extent exactly — the contiguity
+    trigger refuses the WHOLE transaction on any gap or overlap, so one bad
+    column takes the entire press down and nothing is written. That happened
+    twice on the owner's real model (10, then 5 gap/overlap(s)), which is why
+    this is a fuzz rather than one example: the geometry that reaches a borehole
+    is whatever the engineer's correlations drew, and it will not be tidy.
+
+    Regions here deliberately overlap each other, leave gaps, hang outside the
+    unit and duplicate spans — everything the partition can hand a column.
+    """
+    rng = random.Random(20260816)
+    cpt_a, cpt_b, borehole = str(uuid7()), str(uuid7()), str(uuid7())
+    section_id = str(uuid7())
+    formation = str(uuid7())
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A",
+        along_m={cpt_a: 0.0, borehole: 300.0, cpt_b: 600.0},
+    )
+
+    geometry_cases = 0
+    for case in range(300):
+        regions = []
+        for _ in range(rng.randint(0, 6)):
+            top = rng.uniform(-4.0, 6.0)
+            base = top - rng.uniform(0.0, 5.0)
+            left = rng.uniform(0.0, 0.6)
+            right = rng.uniform(left, 1.0)
+            regions.append(
+                RegionInput(
+                    formation_id=formation,
+                    body_id=None,
+                    polygon=((left, top), (right, top), (right, base), (left, base)),
+                    gap_index=0,
+                    kind=rng.choice(["quad", "pinch", "lens"]),
+                    overlay_tier=rng.choice([None, "lens", "onlap"]),
+                    layer_ids=("band-A", "band-B"),
+                )
+            )
+        extent_top = rng.uniform(0.0, 3.0)
+        extent_base = extent_top + rng.uniform(0.05, 9.0)
+
+        bands, _body_ids, correspondences, _selection = (
+            _use_case()._plan_borehole_bands_litho_confined(
+                inv_id=borehole,
+                bh_x=300.0,
+                bh_y=0.0,
+                bh_surface_elev=5.0,
+                geo_top_m=extent_top,
+                geo_base_m=extent_base,
+                cpt_segs=[_cpt_pick(cpt_a, 0.0, 8.0), _cpt_pick(cpt_b, 0.0, 8.0)],
+                litho_abs_min_class=_NAD_LOOSE,
+                geotech_layer_by_inv_depth={},
+                cpt_xy={UUID(cpt_a): (0.0, 0.0, 5.0), UUID(cpt_b): (600.0, 0.0, 5.0)},
+                cpt_names={UUID(cpt_a): "CPT-A", UUID(cpt_b): "CPT-B"},
+                section_placements=[section],
+                section_partitions={
+                    UUID(section_id): _partition(
+                        columns=[(cpt_a, 0.0), (cpt_b, 600.0)], regions=regions
+                    )
+                },
+                geotech_formation_info={formation: (_NAD_DENSE, uuid7(), None)},
+            )
+        )
+
+        assert bands, f"case {case}: a column may never come back empty"
+        assert len(correspondences) == len(bands), f"case {case}: correspondence count"
+        # Did the GEOMETRY answer, or did the tiling guard fall back to the
+        # donor rule? Only the geometry can carry a region's layer ids here
+        # (no donor bands exist in this scene), so this is what separates
+        # "the sampler produced a good column" from "the guard rescued a bad
+        # one" — without it the fuzz passes even with the sampler broken, which
+        # is exactly what it did on first writing.
+        if any(ids for ids in correspondences):
+            geometry_cases += 1
+        # Exactly what the trigger checks, on the mm grid it stores.
+        assert abs(bands[0].top - extent_top) <= 0.0005, f"case {case}: top {bands[0].top}"
+        assert abs(bands[-1].base - extent_base) <= 0.0005, f"case {case}: base"
+        for upper, lower in zip(bands, bands[1:]):
+            assert abs(upper.base - lower.top) <= 0.0005, (
+                f"case {case}: seam {upper.base} -> {lower.top} is a gap or overlap"
+            )
+
+    # The guard is insurance, not the mechanism. If the sampler starts handing
+    # out non-tiling columns the guard hides it behind the donor rule and every
+    # assertion above still passes — so the fuzz only means something while the
+    # geometry is answering most of the time.
+    assert geometry_cases >= 200, (
+        f"only {geometry_cases}/300 cases were answered by the section geometry — "
+        "the tiling guard is falling back, which means the sampler is producing "
+        "columns the database would refuse"
+    )
