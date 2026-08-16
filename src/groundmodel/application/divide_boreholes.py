@@ -441,6 +441,99 @@ def _bands_between(
     return bands, correspondences
 
 
+_DEPTH_TOL_M = 0.001
+"""Depth grain: ``litho_layer`` stores intervals to the millimetre."""
+
+
+MAX_DONOR_MAP_DISTANCE_M = 200.0
+"""How far a column may be and still donate packing to a borehole.
+
+Owner, 2026-08-16: *"777m is too far anyhow"* — his B4 took loose sand from a
+CPT 777 m away because it was the only column in the borehole's (body,
+geological band) group.  200 m is not a new number: it is the distance at
+which :mod:`donor_confidence` already stops calling a donor "medium" and
+starts calling it "low" (his ruling of 2026-08-11, *"just take distance to
+nearest cpt as a measure for now"*).  Past the point where we admit the answer
+is weak, it stops being an answer.
+"""
+
+
+def donor_is_within_reach(map_distance_m: float) -> bool:
+    """Whether a donor column is close enough to say anything about a borehole.
+
+    Parameters
+    ----------
+    map_distance_m : float
+        Map distance from the borehole to the donor column.
+
+    Returns
+    -------
+    bool
+        ``True`` up to and including :data:`MAX_DONOR_MAP_DISTANCE_M`.
+    """
+    return map_distance_m <= MAX_DONOR_MAP_DISTANCE_M
+
+
+def correlated_donor_picks(
+    *,
+    unit_top_m: float,
+    unit_base_m: float,
+    borehole_layers: Sequence[tuple[UUID, float, float]],
+    partners_by_layer: Mapping[UUID, frozenset[UUID]],
+    picks_by_layer: Mapping[UUID, Sequence[BodyLayerPick]],
+) -> list[BodyLayerPick]:
+    """The columns the engineer's litho correlation ties this unit to.
+
+    Donors are otherwise grouped by ``(body, geological band)``, and a
+    geological contact can put two ends of one hand-drawn correlation in
+    different groups.  The owner's B4 is the case: he tied its 6.00-8.43 sand
+    to S13's 9.69-15.16 and B6's 9.50-12.59, both medium dense, and the group
+    held neither — so the search reached 777 m for the only column it could
+    see and copied that column's LOOSE sand onto the borehole.
+
+    A tie is the engineer's statement that two layers are the same sheet, so
+    it outranks a grouping the engine derived.  Ruling of 2026-08-11 in the
+    same words: *"the user's ties will define this"*.
+
+    Parameters
+    ----------
+    unit_top_m, unit_base_m : float
+        The planning unit's extent on the borehole.  Geological bounding cuts
+        a litho layer into several units, each of which inherits the layer's
+        correlations rather than losing them to the cut.
+    borehole_layers : Sequence[tuple[UUID, float, float]]
+        The borehole's own litho layers as ``(id, top_m, base_m)``.
+    partners_by_layer : Mapping[UUID, frozenset[UUID]]
+        Approved litho correlations, layer to the layers it is tied to.
+    picks_by_layer : Mapping[UUID, Sequence[BodyLayerPick]]
+        Every pick each layer holds.  Geological bounding cuts one layer into
+        several picks, so this is a list: the flank rule chooses among them by
+        elevation overlap once they are candidates.
+
+    Returns
+    -------
+    list[BodyLayerPick]
+        The correlated columns' picks, in a stable order.  Empty when the
+        unit's layer is uncorrelated, or when a partner belongs to no body
+        group and therefore has no stack to lend.
+    """
+    own = next(
+        (
+            layer_id
+            for layer_id, top, base in borehole_layers
+            if top <= unit_top_m + _DEPTH_TOL_M and base >= unit_base_m - _DEPTH_TOL_M
+        ),
+        None,
+    )
+    if own is None:
+        return []
+    return [
+        pick
+        for partner in sorted(partners_by_layer.get(own, frozenset()), key=str)
+        for pick in picks_by_layer.get(partner, ())
+    ]
+
+
 def flank_pick_for_unit(
     picks: Sequence[BodyLayerPick],
     *,
@@ -1140,6 +1233,54 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
         # Phase 4 — group by (body_id, source_geo_formation_id).
         groups = await self._group_segments(divided, geo_surfaces)
+
+        # The engineer's own litho correlations. Donors are grouped by (body,
+        # geological band), and a geological contact can put the two ends of
+        # one hand-drawn tie in different groups — which is how the owner's B4
+        # ended up taking loose sand from a CPT 777 m away while the two medium
+        # dense columns he had tied it to sat one gap either side. A tie
+        # outranks a grouping the engine derived.
+        plan_litho_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
+        partner_rows = (
+            await self._session.execute(
+                text(
+                    """
+                    SELECT ed.layer_a_id, ed.layer_b_id
+                    FROM litho_contact_correlation_edge ed
+                    WHERE ed.model_id = :model_id AND ed.user_approved IS TRUE
+                    """
+                ),
+                {"model_id": litho_model_id},
+            )
+        ).all()
+        partner_sets: dict[UUID, set[UUID]] = defaultdict(set)
+        for partner_row in partner_rows:
+            partner_sets[partner_row.layer_a_id].add(partner_row.layer_b_id)
+            partner_sets[partner_row.layer_b_id].add(partner_row.layer_a_id)
+        partners_by_layer = {k: frozenset(v) for k, v in partner_sets.items()}
+
+        layers_by_investigation: dict[str, list[tuple[UUID, float, float]]] = defaultdict(list)
+        for plan_layer_id, (plan_inv, plan_top, plan_base) in plan_litho_depths.items():
+            layers_by_investigation[plan_inv].append((plan_layer_id, plan_top, plan_base))
+        # A pick is a GEO-BOUNDED slice of a litho layer, so one layer owns
+        # several; all of them are lent, and the flank rule chooses between
+        # them by elevation overlap.
+        picks_by_layer: dict[UUID, list[BodyLayerPick]] = defaultdict(list)
+        for group_picks in groups.values():
+            for group_pick in group_picks:
+                owner_layer = next(
+                    (
+                        plan_layer_id
+                        for plan_layer_id, plan_top, plan_base in layers_by_investigation.get(
+                            group_pick.investigation_id, []
+                        )
+                        if plan_top <= group_pick.top_depth_m + _DEPTH_TOL_M
+                        and plan_base >= group_pick.base_depth_m - _DEPTH_TOL_M
+                    ),
+                    None,
+                )
+                if owner_layer is not None:
+                    picks_by_layer[owner_layer].append(group_pick)
         self.info(f"DivideBoreholes: {len(groups)} body group(s)")
 
         # Phase 5 — classify each investigation as borehole or CPT.
@@ -1393,6 +1534,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 if geo_base <= geo_top:
                     continue
 
+                # A column named by his litho correlation donates whatever
+                # group it landed in; only CPTs, because a borehole's own bands
+                # are what this verb is (re)deriving.
+                correlated = [
+                    correlated_pick
+                    for correlated_pick in correlated_donor_picks(
+                        unit_top_m=geo_top,
+                        unit_base_m=geo_base,
+                        borehole_layers=layers_by_investigation.get(inv_id, []),
+                        partners_by_layer=partners_by_layer,
+                        picks_by_layer=picks_by_layer,
+                    )
+                    if anchor_kind.get(correlated_pick.investigation_id) == "cpt"
+                ]
+                unit_cpt_segs = cpt_segs + [c for c in correlated if c not in cpt_segs]
+
                 (
                     fill_band_list,
                     fill_band_body_ids,
@@ -1405,7 +1562,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     bh_surface_elev=bh_elev,
                     geo_top_m=geo_top,
                     geo_base_m=geo_base,
-                    cpt_segs=cpt_segs,
+                    cpt_segs=unit_cpt_segs,
                     litho_abs_min_class=litho_abs_min_class,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
                     cpt_xy=cpt_xy,
@@ -3345,7 +3502,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     map_distance_m=((x_m - bh_x) ** 2 + (y_m - bh_y) ** 2) ** 0.5,
                 )
             )
-        return donors
+        # A column too far away to say anything is not a weak answer, it is no
+        # answer — owner, 2026-08-16: "777m is too far anyhow". Dropped after
+        # the stacks are built so the count reported below is the count that
+        # actually qualified.
+        reachable = [d for d in donors if donor_is_within_reach(d.map_distance_m)]
+        if len(reachable) != len(donors):
+            self.info(
+                f"DivideBoreholes: {len(donors) - len(reachable)} donor(s) beyond "
+                f"{MAX_DONOR_MAP_DISTANCE_M:.0f} m dropped "
+                f"(nearest kept: "
+                + (f"{min(d.map_distance_m for d in reachable):.0f} m" if reachable else "none")
+                + ")"
+            )
+        return reachable
 
     # ------------------------------------------------------------------
     # Persistence — transcribe a planned segment into rows
