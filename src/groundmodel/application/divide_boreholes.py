@@ -304,6 +304,35 @@ class PlannedBand:
     section_name: str | None = None
 
 
+def _tiles_extent(bands: Sequence[FillBand], top_m: float, base_m: float) -> bool:
+    """Whether *bands* cover ``[top_m, base_m]`` exactly, with no gap or overlap.
+
+    The same property the database's ``litho_layer`` contiguity trigger
+    enforces, checked before the write so a failure degrades one column instead
+    of aborting the whole divide.
+
+    Parameters
+    ----------
+    bands : Sequence[FillBand]
+        The planned bands for one extent, in depth order.
+    top_m, base_m : float
+        The extent they must tile.
+
+    Returns
+    -------
+    bool
+        ``True`` when the bands run top to base with every seam shared.
+    """
+    if not bands:
+        return False
+    # The trigger works on the stored mm grid, so compare there: a float
+    # remainder below that grain is not a gap the database will ever see.
+    tolerance = 0.0005
+    if abs(bands[0].top - top_m) > tolerance or abs(bands[-1].base - base_m) > tolerance:
+        return False
+    return all(abs(upper.base - lower.top) <= tolerance for upper, lower in zip(bands, bands[1:]))
+
+
 @dataclass(frozen=True)
 class GeometrySampling:
     """What a borehole's vertical line read out of the section partition.
@@ -2295,16 +2324,38 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 f"DivideBoreholes: borehole={inv_id} geometry cuts={len(sampled.bands)} "
                 f"→ {len(geometry_bands)} contiguous band(s) after the conservative fill"
             )
-            fill_band_body_ids = [
-                assign_borehole_band_body(
-                    band_nad_class=fb.nad_class,
-                    borehole_x=bh_x,
-                    borehole_y=bh_y,
-                    cpt_bands_in_group=cpt_band_refs,
+            # A ``litho_layer`` column must tile its extent exactly: the
+            # database trigger refuses the WHOLE transaction on any gap or
+            # overlap, so a defect anywhere in the geometry path takes the
+            # entire press down with it and nothing is written (that is how the
+            # owner's first two geometry presses both died, on 10 and then 5
+            # gap/overlap(s)). Prove the tiling here rather than discover it at
+            # commit: if it does not hold, say so loudly and let the donor rule
+            # answer for this column. A borehole divided by the older rule is a
+            # far better outcome than a press that writes nothing at all.
+            if not _tiles_extent(geometry_bands, geo_top_m, geo_base_m):
+                self.error(
+                    f"DivideBoreholes: borehole={inv_id} — the section geometry produced a "
+                    f"non-contiguous column over [{geo_top_m:.3f},{geo_base_m:.3f}]; falling "
+                    "back to the donor rule for this column. This is a bug in the sampler, "
+                    "not in the data — please report the borehole id."
                 )
-                for fb in geometry_bands
-            ]
-            return geometry_bands, fill_band_body_ids, geometry_correspondences, selection
+            else:
+                fill_band_body_ids = [
+                    assign_borehole_band_body(
+                        band_nad_class=fb.nad_class,
+                        borehole_x=bh_x,
+                        borehole_y=bh_y,
+                        cpt_bands_in_group=cpt_band_refs,
+                    )
+                    for fb in geometry_bands
+                ]
+                return (
+                    geometry_bands,
+                    fill_band_body_ids,
+                    geometry_correspondences,
+                    selection,
+                )
 
         # -------------------------------------------------------------------
         # Step 7b: name the donor band each fill band continues.
