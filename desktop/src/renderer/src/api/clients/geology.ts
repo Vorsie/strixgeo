@@ -114,10 +114,15 @@ function divideBoreholesBody(options?: {
   boreholeIds?: readonly string[]
   ignorePendingTies?: boolean
   sectionId?: string | null
+  sectionPartitions?: Record<string, unknown> | null
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {}
   if (options?.boreholeIds !== undefined) body.borehole_ids = [...options.boreholeIds]
   if (options?.ignorePendingTies) body.ignore_pending_ties = true
+  // The 2-D geometry the borehole columns are read off (owner ruling
+  // 2026-08-15). Omitted when the caller could not assemble it, which the
+  // backend reads as "use the donor rule" — the pre-geometry behaviour.
+  if (options?.sectionPartitions != null) body.section_partitions = options.sectionPartitions
   // Omitted, never sent as null, for the same reason as ``borehole_ids``: the
   // backend reads "no section_id" as the whole-model run, and a caller with no
   // section open has nothing to scope to.
@@ -960,6 +965,14 @@ export const geologyClient = {
        * whole-model run and its whole-model gate.
        */
       sectionId?: string | null
+      /**
+       * The section's 2-D partition, keyed by section id — the geometry each
+       * borehole column is read off (owner ruling 2026-08-15: *"you just need
+       * to check if a borehole column intersects a lens or onlap"*). Omitted
+       * when it could not be assembled; the backend then answers with the
+       * donor rule exactly as before.
+       */
+      sectionPartitions?: Record<string, unknown> | null
     },
   ): Promise<DivideBoreholeResponse> =>
     post(
