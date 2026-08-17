@@ -49,7 +49,7 @@ and a rebuild destroyed both).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -112,6 +112,10 @@ class EdgeDerivationCounts:
     # ``skipped_existing_pair`` because it means something quite different: not
     # "already there" but "would have broken the fill on that gap".
     skipped_crossing_tie: int = 0
+    # Candidates refused because the engineer DELETED this tie before (owner
+    # 2026-08-17: "a tie i delete stays deleted"), matched by place — the
+    # bands are rebuilt every subdivide, so ids cannot carry the memory.
+    skipped_tombstoned: int = 0
 
     def add(self, other: EdgeDerivationCounts) -> None:
         """Accumulate another pass's counters into this one."""
@@ -123,6 +127,7 @@ class EdgeDerivationCounts:
         self.skipped_empty_stack += other.skipped_empty_stack
         self.skipped_existing_pair += other.skipped_existing_pair
         self.skipped_crossing_tie += other.skipped_crossing_tie
+        self.skipped_tombstoned += other.skipped_tombstoned
 
 
 async def load_project_sections(session: AsyncSession, project_id: UUID) -> list[CrossSectionOrm]:
@@ -565,6 +570,7 @@ async def derive_geotech_edges_from_litho(
     existing_accepted_sided_edges: set[tuple[UUID, UUID, str, str]] | None = None,
     source: str = AUTO_SOURCE,
     born_accepted: bool = False,
+    tie_tombstoned: Callable[[str, float, str, float], bool] | None = None,
 ) -> EdgeDerivationCounts:
     """Emit geotech edges by packing alignment within each correlated litho unit.
 
@@ -776,6 +782,20 @@ async def derive_geotech_edges_from_litho(
         if resolved is None:
             return True
         key, candidate = resolved
+        # The engineer deleted this tie before — it stays deleted (owner
+        # 2026-08-17). Judged by PLACE via the caller's closure, because band
+        # ids die at every rebuild. Checked at this single gate so every emit
+        # path — restatements, aligned pairs, interior proposals — obeys it.
+        if tie_tombstoned is not None and tie_tombstoned(
+            key[0], candidate.depth_first_m, key[1], candidate.depth_second_m
+        ):
+            counts.skipped_tombstoned += 1
+            log.info(
+                f"derive_geotech_edges_from_litho: withheld a tie the engineer "
+                f"deleted - {key[0]} at {candidate.depth_first_m:.2f} m to "
+                f"{key[1]} at {candidate.depth_second_m:.2f} m"
+            )
+            return False
         standing = ties_by_gap.setdefault(key, [])
         judged = [t for t in standing if t.accepted] if accepted else standing
         blocking = crossing_partners(judged, candidate)
