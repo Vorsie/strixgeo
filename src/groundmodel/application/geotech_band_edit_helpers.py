@@ -35,12 +35,11 @@ from groundmodel.application.geotech_tie_reanchor import (
     REVIEW_BAND_ABSORBED,
     REVIEW_CLASS_CHANGED,
 )
+from groundmodel.application.geotech_view_state import (
+    read_geotech_min_thickness_m,
+)
 from groundmodel.application.litho_geo_link_helpers import load_geo_contacts_at_investigation
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
-from groundmodel.application.view_state_helpers import (
-    load_project_view_state,
-    read_view_state_float,
-)
 from groundmodel.domain.services.geotech_band_reclassification import (
     BandEditPlan,
     GeotechBand,
@@ -57,13 +56,6 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES, BaseLithology
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# The minimum packing-band thickness knob. Imported from the build rather than
-# re-declared so the preview warns against the SAME number the build enforces —
-# a second copy would drift the moment one of them is tuned.
-from groundmodel.application.subdivide_all_bodies import (  # isort: skip
-    _DEFAULT_MIN_THICKNESS_M,
-)
 
 
 @dataclass(frozen=True)
@@ -755,13 +747,10 @@ async def load_geotech_column_context(
             depth_m = list(series.depths_m)
             qc_mpa = list(series.qc_mpa)
 
-    view_state = await load_project_view_state(session, project_id)
-    min_thickness_m = read_view_state_float(
-        view_state,
-        "geotech_subdivision",
-        "minimum_layer_thickness_m",
-        _DEFAULT_MIN_THICKNESS_M,
-    )
+    # Read through the shared helper so the preview warns against the SAME
+    # number the build enforces — a second copy of the key path would drift the
+    # moment one of them is tuned.
+    min_thickness_m = await read_geotech_min_thickness_m(session, project_id)
 
     # The model's representative-qc statistic (ruling 7). Identity-map hit in
     # the common case — the router just loaded the model for its kind guard.

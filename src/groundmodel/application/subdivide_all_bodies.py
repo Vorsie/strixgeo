@@ -159,6 +159,7 @@ from groundmodel.application.geotech_tie_reanchor import (
     GeotechTieReanchor,
     rebuilt_bands_from_layer_index,
 )
+from groundmodel.application.geotech_view_state import read_geotech_min_thickness_m
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.application.section_membership import (
@@ -203,7 +204,6 @@ from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES
 # 0.35 m (owner directive 2026-06-25): 0.50 m was over-merging real packing
 # transitions; 0.35 m resolves a dense-sand-over-medium boundary the engineer
 # would place by hand without descending to sliver noise.
-_DEFAULT_MIN_THICKNESS_M: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -721,7 +721,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # no body-wide total depths now that split surfaces aren't interpolated).
         all_cpt_ids = {UUID(inv_id) for inv_id, kind in anchor_kind.items() if kind == "cpt"}
         cpt_series = await self._load_cpt_series(all_cpt_ids)
-        min_thickness_m = await self._read_min_thickness_m(geotech_model.app_project_id)
+        min_thickness_m = await read_geotech_min_thickness_m(
+            self._session, geotech_model.app_project_id
+        )
         gradient_snap, gradient_snap_window_m = await self._read_gradient_snap(
             geotech_model.app_project_id
         )
@@ -1341,33 +1343,6 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             .all()
         )
         return {s.cpt_id: s for s in rows}
-
-    async def _read_min_thickness_m(self, project_id: UUID) -> float:
-        """Read the geotech minimum sub-unit thickness from the project view-state.
-
-        Reads ``view_state["geotech_subdivision"]["minimum_layer_thickness_m"]``
-        — a GEOTECH-specific knob, distinct from the litho segmenter's, so
-        coarsening packing bands never affects lithology layering.
-
-        Parameters
-        ----------
-        project_id : UUID
-            Owning project id.
-
-        Returns
-        -------
-        float
-            The configured geotech minimum thickness, or
-            ``_DEFAULT_MIN_THICKNESS_M`` (0.35 m) when absent, non-positive, or
-            non-numeric.
-        """
-        view_state = await load_project_view_state(self._session, project_id)
-        return read_view_state_float(
-            view_state,
-            "geotech_subdivision",
-            "minimum_layer_thickness_m",
-            _DEFAULT_MIN_THICKNESS_M,
-        )
 
     async def _read_gradient_snap(self, project_id: UUID) -> tuple[bool, float]:
         """Read the geotech gradient-snap knobs from the project view-state.
