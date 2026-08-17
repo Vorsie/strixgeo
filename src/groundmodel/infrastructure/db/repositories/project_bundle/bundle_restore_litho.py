@@ -44,6 +44,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.geotech_tie_tombstone_orm import (
+    GeotechTieTombstoneOrm,
+)
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -1113,6 +1116,143 @@ async def _restore_litho_solids(
             f"(model/formation not in project or missing FK)"
         )
     return new_solids, skipped, dropped
+
+
+async def _restore_tie_tombstones(
+    session: AsyncSession,
+    project_id: UUID,
+    geotech_tie_tombstones_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert deleted-tie tombstones from the bundle.
+
+    A tombstone (owner rulings 2026-08-17: *"a tie i delete stays deleted"*,
+    keyed *"position xyz left and xyz right and the section it was on"*) is the
+    engineer's recorded deletion of a machine-restatable packing tie.  It MUST
+    survive the bundle round-trip: without this restorer a Discard or a
+    reopen-after-wipe would revive every tie he deleted, which is precisely the
+    loop the table exists to end.
+
+    Guards mirror ``_restore_geometry_facts``: dedupe by id, model-scope guard
+    (bundle-injection defence), the section must belong to this project, and
+    all six coordinates must be finite numbers — a tombstone with a corrupt
+    coordinate could otherwise silently suppress an unrelated tie forever.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    geotech_tie_tombstones_payload : list[dict[str, Any]]
+        Raw tombstone dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_tombstones, skipped_tombstones, dropped_tombstones)``.
+    """
+    total = len(geotech_tie_tombstones_payload)
+    if total == 0:
+        return 0, 0, 0
+    logger.info(f"restore_project_bundle({project_id}): restoring {total} deleted-tie tombstone(s)")
+    valid_section_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    existing = set(
+        (
+            await session.execute(
+                select(GeotechTieTombstoneOrm.id)
+                .join(
+                    GeologicalModelOrm,
+                    GeotechTieTombstoneOrm.model_id == GeologicalModelOrm.id,
+                )
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_rows = 0
+    skipped = 0
+    dropped = 0
+    for i, payload in enumerate(geotech_tie_tombstones_payload, start=1):
+        row_id = _uuid(payload.get("id"))
+        if row_id is None:
+            logger.debug(f"[{i}/{total}] tombstone skipped - payload has no id")
+            skipped += 1
+            continue
+        if row_id in existing:
+            logger.debug(f"[{i}/{total}] tombstone {row_id} already present - skipped")
+            skipped += 1
+            continue
+        model_id = _require_fk(
+            payload,
+            "model_id",
+            valid_model_ids,
+            label=f"tombstone {row_id}",
+            note="bundle-injection guard",
+            i=i,
+            total=total,
+            logger=logger,
+        )
+        if model_id is None:
+            dropped += 1
+            continue
+        section_id = _uuid(payload.get("section_id"))
+        if section_id is None or section_id not in valid_section_ids:
+            logger.warning(
+                f"[{i}/{total}] tombstone {row_id}: section not in this project - dropped"
+            )
+            dropped += 1
+            continue
+        raw_coords = [payload.get(key) for key in ("a_x", "a_y", "a_z", "b_x", "b_y", "b_z")]
+        # bool is an int subclass and NaN != NaN — both are corrupt here.
+        finite = [
+            float(v)
+            for v in raw_coords
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v
+        ]
+        coords = finite if len(finite) == len(raw_coords) else None
+        if coords is None:
+            logger.warning(
+                f"[{i}/{total}] tombstone {row_id}: non-numeric coordinate - dropped "
+                f"(a corrupt place could silently suppress an unrelated tie forever)"
+            )
+            dropped += 1
+            continue
+        session.add(
+            GeotechTieTombstoneOrm(
+                id=row_id,
+                model_id=model_id,
+                section_id=section_id,
+                a_x=coords[0],
+                a_y=coords[1],
+                a_z=coords[2],
+                b_x=coords[3],
+                b_y=coords[4],
+                b_z=coords[5],
+            )
+        )
+        new_rows += 1
+        logger.debug(f"[{i}/{total}] tombstone {row_id} queued for insert")
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} deleted-tie tombstone(s)"
+        )
+    return new_rows, skipped, dropped
 
 
 async def _restore_lens_shapes_and_nodes(
