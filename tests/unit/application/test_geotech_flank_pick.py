@@ -80,12 +80,19 @@ def test_fp3_a_column_with_one_interval_is_unchanged() -> None:
     assert chosen is only
 
 
-def test_fp4_no_overlap_falls_back_to_the_nearest_interval() -> None:
-    """A unit that overlaps neither interval takes the closer one.
+def test_fp4_no_overlap_is_not_a_donor_at_all() -> None:
+    """A flank interval that does not overlap the unit cannot be the same sheet.
 
-    Steep dip or a mis-picked contact can leave a unit clear of both.  Nearest
-    is a guess, but it is a bounded one; silently taking whichever interval
-    happened to be last is not.
+    Owner, 2026-08-17, on a dense band that surfaced 4 m shallower than the
+    sand it was copied from: *"that's the fallback, but that is not what we
+    said, the fallback should be the most conservative class on the column, so
+    all of it should've been MD sand?"*
+
+    This function used to answer "nearest" here, and the caller then treated
+    that guess as evidence — copying the donor's internal structure, stamping
+    high confidence, and writing a correlation from it. Returning nothing
+    instead lets the unit fall to the column floor, which is one band at the
+    loosest class the column measured.
     """
     shallow = _pick(1.00, 2.00)
     deep = _pick(30.00, 31.00)
@@ -94,7 +101,7 @@ def test_fp4_no_overlap_falls_back_to_the_nearest_interval() -> None:
         unit_top_elev_m=SURFACE_M - 3.00,
         unit_base_elev_m=SURFACE_M - 4.00,
     )
-    assert chosen is shallow
+    assert chosen is None
 
 
 def test_fp5_no_intervals_yields_nothing() -> None:
