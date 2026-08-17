@@ -125,3 +125,110 @@ def bridge_litho_edges_over_bandless_columns(
                 else:
                     queue.append(neighbour)
     return bridged
+
+
+def bridged_contact_pairs(
+    *,
+    litho_sided_ties: set[tuple[UUID, UUID, str, str]],
+    layer_depths: dict[UUID, tuple[str, float, float]],
+    columns_with_bands: set[str],
+) -> set[tuple[tuple[UUID, str], tuple[UUID, str]]]:
+    """Chain litho CONTACT ties through bandless columns, packing-agnostic.
+
+    Owner corrections, 2026-08-17 (both in one evening):
+
+    * *"just walk a tie to the next cpt, if it arrives you place a direct
+      connection if not then skip"*;
+    * *"litho ties are packing agnostic which means you are not emitting the
+      litho ties but are interpreting and emitting ties based on packing"* —
+      the layer-pair bridge above feeds the class-matched aligner, so a
+      chained litho tie whose end bands differ in NAD class simply vanished
+      (his red line: the sand top S6 9.82 ↔ S13 9.69 through B6 and B4, D on
+      one side and MD read on the other).
+
+    So this walk carries the CONTACT.  A node is a depth on a column — never a
+    ``(layer, side)`` label, because the same physical contact is stored as one
+    layer's base and its neighbour's top and a label-keyed walk dies exactly at
+    the hop where the two rows disagree (the xyz ruling, third appearance).
+    Each edge is one of his accepted DIRECT litho ties.  A column carrying
+    geotech bands is a terminal; a column carrying none is transit.  From every
+    terminal contact, walk transit contacts only and connect to each terminal
+    contact reached; a chain that never arrives emits nothing.
+
+    Packing classes are not an input.  What class the arriving bands hold is
+    the emitter's problem — the statement being carried is the litho tie.
+
+    Parameters
+    ----------
+    litho_sided_ties : set[tuple[UUID, UUID, str, str]]
+        The section's approved direct litho ties as
+        ``(layer_a, layer_b, side_a, side_b)``, any orientation.
+    layer_depths : dict[UUID, tuple[str, float, float]]
+        ``litho_layer_id → (investigation_id_str, top_m, base_m)``.  A tie
+        naming a layer absent from this map is ignored — it cannot be placed.
+    columns_with_bands : set[str]
+        Investigation ids carrying at least one geotech band.  Everything
+        else is what the walk passes through.
+
+    Returns
+    -------
+    set[tuple[tuple[UUID, str], tuple[UUID, str]]]
+        One ``((layer_a, side_a), (layer_b, side_b))`` per pair of terminal
+        contacts joined through at least one transit hop, canonically ordered
+        by layer id.  Direct terminal↔terminal ties are never re-emitted (they
+        restate on their own), and the walk stops at the first terminal — a
+        banded column's onward correlations are its own statements.
+    """
+
+    def _node(layer_id: UUID, side: str) -> tuple[str, float] | None:
+        entry = layer_depths.get(layer_id)
+        if entry is None:
+            return None
+        inv, top, base = entry
+        # Millimetre identity: litho depths are stored on the mm grid, so two
+        # rows naming one contact agree to well under this rounding.
+        return (inv, round(top if side == "top" else base, 3))
+
+    # The contact graph: node → {(neighbour node, how the tie names the
+    # neighbour end)}. The (layer, side) label rides along so an emitted pair
+    # can name real rows, but identity — visited sets, adjacency keys — is the
+    # depth node alone.
+    adjacency: dict[tuple[str, float], set[tuple[tuple[str, float], tuple[UUID, str]]]] = {}
+    label_of: dict[tuple[str, float], tuple[UUID, str]] = {}
+    for layer_a, layer_b, side_a, side_b in litho_sided_ties:
+        node_a = _node(layer_a, side_a)
+        node_b = _node(layer_b, side_b)
+        if node_a is None or node_b is None or node_a[0] == node_b[0]:
+            continue
+        adjacency.setdefault(node_a, set()).add((node_b, (layer_b, side_b)))
+        adjacency.setdefault(node_b, set()).add((node_a, (layer_a, side_a)))
+        label_of.setdefault(node_a, (layer_a, side_a))
+        label_of.setdefault(node_b, (layer_b, side_b))
+
+    def _terminal(node: tuple[str, float]) -> bool:
+        return node[0] in columns_with_bands
+
+    out: set[tuple[tuple[UUID, str], tuple[UUID, str]]] = set()
+    for start in adjacency:
+        if not _terminal(start):
+            continue
+        start_label = label_of[start]
+        visited: set[tuple[str, float]] = {start}
+        frontier = [
+            node for node, _ in adjacency[start] if not _terminal(node) and node not in visited
+        ]
+        visited.update(frontier)
+        while frontier:
+            current = frontier.pop()
+            for node, node_label in adjacency.get(current, ()):
+                if node in visited:
+                    continue
+                visited.add(node)
+                if _terminal(node):
+                    if node[0] == start[0]:
+                        continue  # looped back onto the starting column
+                    a, b = start_label, node_label
+                    out.add((a, b) if a[0] < b[0] else (b, a))
+                else:
+                    frontier.append(node)
+    return out
