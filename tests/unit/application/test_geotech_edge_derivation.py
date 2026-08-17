@@ -100,7 +100,10 @@ async def test_skips_empty_stack_when_one_endpoint_has_no_geotech_bands() -> Non
 async def test_skips_no_lcs_when_classes_are_disjoint_on_a_bridged_pair() -> None:
     """A BRIDGED pair with no common NAD class → no LCS, no edge.
 
-    Only bridged jump pairs keep the class-equality requirement: a direct
+    Only bridged jump pairs keep the class-equality requirement FOR THE
+    ALIGNER — their litho contact ties are restated packing-agnostic by the
+    contact walk (BR1), so what stays class-gated is the interior packing
+    proposals only: a direct
     litho tie now always restates its topmost pair (owner ruling 2026-08-13,
     the test below), but a bridged pair was inferred, not drawn — nothing
     licenses a cross-class connection there.
@@ -1200,3 +1203,109 @@ async def test_bl9_a_sandwich_on_both_columns_still_gets_no_below_lens_proposal(
     # The lenses themselves are new information and may still pair.
     assert frozenset((a_lens, b_lens)) in emitted
     assert counts.skipped_below_lens >= 1
+
+
+@pytest.mark.asyncio
+async def test_br1_a_chained_litho_tie_restates_whatever_the_classes_are() -> None:
+    """Owner, 2026-08-17: *"litho ties are packing agnostic ... you are not
+    emitting the litho ties but are interpreting and emitting ties based on
+    packing"*.
+
+    His red line: the sand top S6 9.82 ↔ S13 9.69, chained S6↔B6↔B4↔S13
+    through two bandless boreholes.  One side reads D, the other MD — the
+    class-matched aligner dropped it, and no restatement path covered bridged
+    pairs at all.  The chain must arrive as a direct connection between the
+    bands owning the two contacts, classes never consulted, PENDING (a chained
+    statement is derived, not one he drew — step 3 is his review).
+    """
+    session = _mock_session()
+    s6_sand, b6_mid, b4_mid, s13_sand = uuid4(), uuid4(), uuid4(), uuid4()
+    s6_band, s13_band = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        # The layer-pair bridge the callers pass already contains the chained
+        # pair; the contact walk is what turns it into a restatement.
+        litho_approved_edges={
+            (min(s6_sand, b6_mid), max(s6_sand, b6_mid)),
+            (min(b6_mid, b4_mid), max(b6_mid, b4_mid)),
+            (min(b4_mid, s13_sand), max(b4_mid, s13_sand)),
+            (min(s6_sand, s13_sand), max(s6_sand, s13_sand)),
+        },
+        litho_layer_depths={
+            s6_sand: ("inv-S6", 9.82, 12.42),
+            b6_mid: ("inv-B6", 9.50, 12.59),
+            b4_mid: ("inv-B4", 6.00, 12.52),
+            s13_sand: ("inv-S13", 9.69, 12.90),
+        },
+        geotech_layer_by_inv_depth={
+            # D on one side, MD on the other — the classes must not matter.
+            "inv-S6": [(9.82, 12.42, s6_band, uuid4(), 7)],
+            "inv-S13": [(9.69, 12.90, s13_band, uuid4(), 6)],
+        },
+        seen_layer_pairs=set(),
+        direct_litho_pairs={
+            (min(s6_sand, b6_mid), max(s6_sand, b6_mid)),
+            (min(b6_mid, b4_mid), max(b6_mid, b4_mid)),
+            (min(b4_mid, s13_sand), max(b4_mid, s13_sand)),
+        },
+        litho_sided_edges={
+            (s6_sand, b6_mid, "top", "top"),
+            (b6_mid, b4_mid, "top", "top"),
+            (b4_mid, s13_sand, "top", "top"),
+        },
+        seen_sided_edges=set(),
+    )
+    emitted = [e.args[0] for e in session.add.call_args_list]
+    chained = [e for e in emitted if {e.layer_a_id, e.layer_b_id} == {s6_band, s13_band}]
+    assert len(chained) == 1, (
+        f"the chained contact must restate exactly once, got {len(chained)} "
+        f"of {len(emitted)} emitted"
+    )
+    assert chained[0].user_approved is False
+    assert chained[0].layer_a_side == "top" and chained[0].layer_b_side == "top"
+    assert counts.edges_proposed >= 1
+
+
+@pytest.mark.asyncio
+async def test_br2_a_same_class_chain_does_not_double_emit_with_the_aligner() -> None:
+    """When the classes DO match, the aligner would find the same top pair —
+    the model must still hold exactly one row for it."""
+    session = _mock_session()
+    s6_sand, b6_mid, s13_sand = uuid4(), uuid4(), uuid4()
+    s6_band, s13_band = uuid4(), uuid4()
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={
+            (min(s6_sand, b6_mid), max(s6_sand, b6_mid)),
+            (min(b6_mid, s13_sand), max(b6_mid, s13_sand)),
+            (min(s6_sand, s13_sand), max(s6_sand, s13_sand)),
+        },
+        litho_layer_depths={
+            s6_sand: ("inv-S6", 9.82, 12.42),
+            b6_mid: ("inv-B6", 9.50, 12.59),
+            s13_sand: ("inv-S13", 9.69, 12.90),
+        },
+        geotech_layer_by_inv_depth={
+            "inv-S6": [(9.82, 12.42, s6_band, uuid4(), 6)],
+            "inv-S13": [(9.69, 12.90, s13_band, uuid4(), 6)],
+        },
+        seen_layer_pairs=set(),
+        direct_litho_pairs={
+            (min(s6_sand, b6_mid), max(s6_sand, b6_mid)),
+            (min(b6_mid, s13_sand), max(b6_mid, s13_sand)),
+        },
+        litho_sided_edges={
+            (s6_sand, b6_mid, "top", "top"),
+            (b6_mid, s13_sand, "top", "top"),
+        },
+        seen_sided_edges=set(),
+    )
+    emitted = [e.args[0] for e in session.add.call_args_list]
+    rows = [e for e in emitted if {e.layer_a_id, e.layer_b_id} == {s6_band, s13_band}]
+    assert len(rows) == 1, f"one statement, one row — got {len(rows)}"
