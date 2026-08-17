@@ -2318,14 +2318,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for inv, stack in stacks.items()
             for top, base, band_id in stack
         }
-        existing_sided: set[tuple[UUID, UUID, str, str]] = set()
+        existing_sided: dict[tuple[UUID, UUID, str, str], LithoContactCorrelationEdgeOrm] = {}
         for edge in all_edges:
             a, b = edge.layer_a_id, edge.layer_b_id
-            existing_sided.add(
+            existing_sided[
                 (a, b, edge.layer_a_side, edge.layer_b_side)
                 if a < b
                 else (b, a, edge.layer_b_side, edge.layer_a_side)
-            )
+            ] = edge
 
         def node_to_surface(inv: str, depth: float) -> tuple[UUID, str] | None:
             """The (band, side) owning a contact depth on a column."""
@@ -2386,30 +2386,45 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     f"resolved to no contact; the span stands"
                 )
                 continue
+            # The span may only die when EVERY hop slot ends ACCEPTED — the
+            # 2026-08-15 ruling stands: approved information must never ride
+            # on pending rows. A slot already held by a pending machine
+            # proposal is PROMOTED (the accepted-tie-evicts-a-pending-proposal
+            # precedent): the piece re-expresses an accepted statement, so the
+            # proposal for its exact surfaces becomes that statement.
+            queued: list[tuple[UUID, UUID, str, str]] = []
+            promotions: list[LithoContactCorrelationEdgeOrm] = []
             for (band_a, side_a), (band_b, side_b) in zip(surfaces, surfaces[1:]):
                 if band_a == band_b:
-                    continue  # both nodes inside one band — nothing to state
+                    continue  # defensive; adjacent nodes sit on different columns
                 key = (
                     (band_a, band_b, side_a, side_b)
                     if band_a < band_b
                     else (band_b, band_a, side_b, side_a)
                 )
-                if key in existing_sided:
-                    continue  # the chain piece already exists — one row per statement
-                existing_sided.add(key)
-                self._session.add(
-                    LithoContactCorrelationEdgeOrm(
-                        id=uuid7(),
-                        model_id=geotech_model_id,
-                        section_id=edge.section_id,
-                        layer_a_id=key[0],
-                        layer_b_id=key[1],
-                        layer_a_side=key[2],
-                        layer_b_side=key[3],
-                        source="auto",
-                        user_approved=True,
-                    )
+                held = existing_sided.get(key)
+                if held is not None and held.id == edge.id:
+                    held = None  # the span itself is not a carrier of its pieces
+                if held is None and key not in queued:
+                    queued.append(key)
+                elif held is not None and not held.user_approved:
+                    promotions.append(held)
+            for key in queued:
+                existing_sided[key] = LithoContactCorrelationEdgeOrm(
+                    id=uuid7(),
+                    model_id=geotech_model_id,
+                    section_id=edge.section_id,
+                    layer_a_id=key[0],
+                    layer_b_id=key[1],
+                    layer_a_side=key[2],
+                    layer_b_side=key[3],
+                    source="auto",
+                    user_approved=True,
                 )
+                self._session.add(existing_sided[key])
+                pieces_created += 1
+            for held in promotions:
+                held.user_approved = True
                 pieces_created += 1
             doomed_spans.append(edge.id)
             replaced += 1
