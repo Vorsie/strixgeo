@@ -74,6 +74,7 @@ from groundmodel.domain.services.geotech_packing_edges import (
     aligned_pairs_with_forced_top,
     aligned_same_class_pairs,
     overlap_gated_interior_pairs,
+    shadowed_below_lens,
 )
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -116,6 +117,12 @@ class EdgeDerivationCounts:
     # 2026-08-17: "a tie i delete stays deleted"), matched by place — the
     # bands are rebuilt every subdivide, so ids cannot carry the memory.
     skipped_tombstoned: int = 0
+    # Machine proposals withheld because their endpoint repeats a class from
+    # above across an intervening lens (owner dogfeed 2026-08-17: "don't emit
+    # auto correlations ties below a lens if above the lens and below the lens
+    # have the same packing density and litho" — the merge unifies that mass,
+    # so the proposal is noise fanning from an already-tied contact).
+    skipped_below_lens: int = 0
 
     def add(self, other: EdgeDerivationCounts) -> None:
         """Accumulate another pass's counters into this one."""
@@ -128,6 +135,7 @@ class EdgeDerivationCounts:
         self.skipped_existing_pair += other.skipped_existing_pair
         self.skipped_crossing_tie += other.skipped_crossing_tie
         self.skipped_tombstoned += other.skipped_tombstoned
+        self.skipped_below_lens += other.skipped_below_lens
 
 
 async def load_project_sections(session: AsyncSession, project_id: UUID) -> list[CrossSectionOrm]:
@@ -978,6 +986,13 @@ async def derive_geotech_edges_from_litho(
 
         nad_by_layer = dict(left_stack) | dict(right_stack)
         pairs_skipped_null = 0
+        # Below-lens repeats never receive machine PROPOSALS (owner rule
+        # 2026-08-17). Computed per column from the same fraction stacks the
+        # interior machinery reads; restatements and born-accepted hops are
+        # exempt — they carry the engineer's own work.
+        shadowed = shadowed_below_lens(
+            _stack_with_fractions(inv_a_str, top_a, base_a)
+        ) | shadowed_below_lens(_stack_with_fractions(inv_b_str, top_b, base_b))
 
         for la, rb in aligned:
             # Defensive null-skip (both aligners already exclude None, but
@@ -1015,6 +1030,9 @@ async def derive_geotech_edges_from_litho(
             # The crossing guard is told the approval, because that is what
             # decides whose neighbours may veto it.
             approved = born_accepted or restates_litho_tie
+            if not approved and (la in shadowed or rb in shadowed):
+                counts.skipped_below_lens += 1
+                continue
             # A refused candidate is NOT added to ``seen_layer_pairs``: it was
             # never emitted, so a later pass with different neighbours (a
             # re-derive after the engineer resolves the conflict) must be free
@@ -1062,6 +1080,9 @@ async def derive_geotech_edges_from_litho(
             )
             for la, rb in interior:
                 if (la, rb) in aligned_set:
+                    continue
+                if not born_accepted and (la in shadowed or rb in shadowed):
+                    counts.skipped_below_lens += 1
                     continue
                 geotech_a_id = UUID(la)
                 geotech_b_id = UUID(rb)
