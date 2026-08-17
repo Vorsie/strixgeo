@@ -30,7 +30,7 @@ from uuid import UUID
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -814,13 +814,16 @@ async def test_db4_accepted_borehole_tie_survives_a_re_divide(
     )
 
     # And the app must say so rather than reporting a bare success.
-    assert second.reanchored_tie_count == 2, (
-        # 2 since the owner's ruling of 2026-08-17 — "you don't need to invent
-        # correlations ... other than that, you don't link jack shit" — removed
-        # the donor-hop machinery: what a re-divide carries is his own tie plus
-        # the restatement of a litho one. It was 3 while the divide also wrote a
-        # hop to each side of every placed boundary.
-        f"DB4: expected the hand tie AND the divide's own hop to be carried, "
+    assert second.reanchored_tie_count == 3, (
+        # 3 since Phase 8.6 (owner ruling 2026-08-17 night: a tie spanning a
+        # data-bearing borehole splits into the chain): the FIRST divide splits
+        # the accepted CPT-to-CPT restatement at BH-S, and the resulting chain
+        # piece is itself an accepted borehole-anchored tie the re-divide must
+        # carry — alongside his hand tie and the restatement of the litho tie.
+        # (It was 2 after the "don't invent correlations" wave removed the
+        # donor-hop machinery, and 3 before that for a different reason.)
+        f"DB4: expected the hand tie, the litho restatement AND the split "
+        f"chain piece to be carried, "
         f"got reanchored={second.reanchored_tie_count} lost={second.lost_tie_count}"
     )
 
@@ -1053,10 +1056,12 @@ async def test_db6_preview_reports_the_ties_the_commit_carries(
     )
     assert preview_resp.status_code == 200, preview_resp.text
     preview = preview_resp.json()
-    assert preview["carried_tie_count"] == 2, (
-        # 2 — see DB4. What this test is really guarding is the line below:
-        # whatever the count is, the preview and the commit must agree on it.
-        f"DB6: preview should see the hand tie and the divide's hop, got {preview}"
+    assert preview["carried_tie_count"] == 3, (
+        # 3 — see DB4 (the split chain piece counts too). What this test is
+        # really guarding is the line below: whatever the count is, the preview
+        # and the commit must agree on it.
+        f"DB6: preview should see the hand tie, the restatement and the split "
+        f"piece, got {preview}"
     )
 
     second = await DivideBoreholes(db_session).execute(
@@ -1156,3 +1161,112 @@ async def test_db7_preview_between_two_divides_equals_the_second_divide(
     assert preview["layer_count"] == second_summary["layer_count"]
     assert preview["divided_borehole_count"] == second_summary["divided_borehole_count"]
     assert preview["single_band_borehole_count"] == second_summary["single_band_borehole_count"]
+
+
+@pytest.mark.asyncio
+async def test_db8_a_manual_span_over_the_borehole_splits_into_the_chain(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """DB8 — owner ruling 2026-08-17 night: *"The ties i manually made spanning
+    both boreholes aren't replaced by hops but never deleted. You can delete
+    user correlations spanning 2 boreholes. If the borehole has data"*.
+
+    A manual accepted CPT-A ↔ CPT-B tie drawn at a depth BH-S (between them)
+    covers is replaced on divide: the span is deleted and chain pieces land on
+    BH-S's nearest contact — accepted, machine-owned.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = UUID(divide_boreholes_scene["litho_model_id"])
+    bh_s_id = divide_boreholes_scene["bh_s_id"]
+    cpt_a_id = divide_boreholes_scene["cpt_a_id"]
+    cpt_b_id = divide_boreholes_scene["cpt_b_id"]
+    section_id = UUID(divide_boreholes_scene["section_id"])
+
+    sab_result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    geotech_model_id = sab_result.geotech_model_id
+    await db_session.commit()
+
+    async def _bands(inv_col, inv_id):
+        return (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm)
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        inv_col == inv_id,
+                    )
+                    .order_by(LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    a_bands = await _bands(LithoLayerOrm.cpt_id, cpt_a_id)
+    b_bands = await _bands(LithoLayerOrm.cpt_id, cpt_b_id)
+    assert len(a_bands) >= 2 and len(b_bands) >= 2
+
+    # SAB's own machine proposal for the pair would collide with the plant —
+    # in his real scene the manual span sits at depths the machine never tied,
+    # so clear the machine's claim on this pair first.
+    await db_session.execute(
+        delete(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+            LithoContactCorrelationEdgeOrm.layer_a_id.in_([a_bands[1].id, b_bands[1].id]),
+            LithoContactCorrelationEdgeOrm.layer_b_id.in_([a_bands[1].id, b_bands[1].id]),
+        )
+    )
+    await db_session.commit()
+
+    # The manual span: A's dicht top (4.0 m) to B's dicht top (5.0 m) — the
+    # depth BH-S's committed bands will cover (its split lands ~4.5 m).
+    span = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=geotech_model_id,
+        section_id=section_id,
+        layer_a_id=min(a_bands[1].id, b_bands[1].id),
+        layer_b_id=max(a_bands[1].id, b_bands[1].id),
+        layer_a_side="top",
+        layer_b_side="top",
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add(span)
+    await db_session.commit()
+    span_id = span.id
+    # Plain ids, captured before expire_all — an expired ORM row read after
+    # the divide would lazy-refresh outside the greenlet.
+    watched_band_ids = {a_bands[0].id, a_bands[1].id, b_bands[0].id, b_bands[1].id}
+
+    result = await DivideBoreholes(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    await db_session.commit()
+    db_session.expire_all()
+
+    assert result.replaced_span_count >= 1, "the span over a data-bearing borehole must split"
+    remaining = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert span_id not in {e.id for e in remaining}, "the original span must be deleted"
+    bh_bands = await _bands(LithoLayerOrm.borehole_id, bh_s_id)
+    bh_ids = {b.id for b in bh_bands}
+    chain_pieces = [
+        e
+        for e in remaining
+        if (e.layer_a_id in bh_ids) != (e.layer_b_id in bh_ids)
+        and {e.layer_a_id, e.layer_b_id} & watched_band_ids
+    ]
+    assert chain_pieces, "chain pieces landing on BH-S must exist"
+    assert all(e.user_approved and e.source == "auto" for e in chain_pieces)
