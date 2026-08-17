@@ -1118,3 +1118,85 @@ async def test_td2_a_different_depth_on_the_same_columns_still_emits() -> None:
     )
     assert counts.edges_emitted == 1
     assert counts.skipped_tombstoned == 0
+
+
+@pytest.mark.asyncio
+async def test_bl8_no_proposal_lands_below_a_lens() -> None:
+    """Owner rule 2026-08-17: the below-lens repeat gets no machine proposal.
+
+    His S13↔S12 scene: one silt beside a [silt, denser silt, silt] sandwich.
+    The restatement ties the tops (accepted); the machine used to ALSO propose
+    the single silt onto the below-lens repeat — a fan from an already-tied
+    contact that the merge step makes redundant.  The lens band itself stays
+    proposable: it is new information.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    s13_silt = uuid4()
+    s12_top, s12_lens, s12_below = uuid4(), uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 6.0), lb: ("inv-B", 0.0, 6.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 6.0, s13_silt, uuid4(), 13)],
+            "inv-B": [
+                (0.0, 2.0, s12_top, uuid4(), 13),
+                (2.0, 3.5, s12_lens, uuid4(), 15),
+                (3.5, 6.0, s12_below, uuid4(), 13),
+            ],
+        },
+        seen_layer_pairs=set(),
+    )
+    emitted = {
+        frozenset((e.layer_a_id, e.layer_b_id)): e.user_approved
+        for e in session.add.call_args_list
+        for e in [e.args[0]]
+    }
+    assert emitted.get(frozenset((s13_silt, s12_top))) is True, "the restatement stands"
+    assert frozenset((s13_silt, s12_below)) not in emitted, (
+        "the below-lens repeat must not be proposed"
+    )
+    assert counts.skipped_below_lens >= 1
+
+
+@pytest.mark.asyncio
+async def test_bl9_a_sandwich_on_both_columns_still_gets_no_below_lens_proposal() -> None:
+    """His rule is per column and unconditional — the merge owns the repeat."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    a_top, a_lens, a_below = uuid4(), uuid4(), uuid4()
+    b_top, b_lens, b_below = uuid4(), uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 6.0), lb: ("inv-B", 0.0, 6.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [
+                (0.0, 2.0, a_top, uuid4(), 13),
+                (2.0, 3.5, a_lens, uuid4(), 15),
+                (3.5, 6.0, a_below, uuid4(), 13),
+            ],
+            "inv-B": [
+                (0.0, 2.0, b_top, uuid4(), 13),
+                (2.0, 3.6, b_lens, uuid4(), 15),
+                (3.6, 6.0, b_below, uuid4(), 13),
+            ],
+        },
+        seen_layer_pairs=set(),
+    )
+    emitted = {
+        frozenset((e.layer_a_id, e.layer_b_id)): e.user_approved
+        for e in session.add.call_args_list
+        for e in [e.args[0]]
+    }
+    assert frozenset((a_below, b_below)) not in emitted
+    # The lenses themselves are new information and may still pair.
+    assert frozenset((a_lens, b_lens)) in emitted
+    assert counts.skipped_below_lens >= 1
