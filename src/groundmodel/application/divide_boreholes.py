@@ -629,6 +629,86 @@ def correlated_donor_picks(
     ]
 
 
+_UNRESOLVED_SOURCES = frozenset({"body_min", "absolute_min"})
+"""Provenance tags meaning "no column spoke for this band".
+
+``body_min`` is the weakest class observed anywhere in the body, ``absolute_min``
+the NAD table's floor for the soil — both are guesses made when the donor rule
+came back empty, not readings.
+"""
+
+COLUMN_MIN_SOURCE = "column_min"
+"""Provenance for a band raised to the loosest class its own column measured."""
+
+
+def apply_column_floor(
+    bands: Sequence[PlannedBand],
+    *,
+    soil_of_formation: Mapping[str, str | None],
+) -> list[PlannedBand]:
+    """Raise an unanswered band to the loosest class ITS COLUMN measured.
+
+    Owner, 2026-08-16: *"when the fallback fires, there is already a sand
+    beneath it that does have a higher NAD class.  So we take that NAD class as
+    the lowest on the column ... the upper bands which fall back to the lowest
+    class will get medium instead of loose."*
+
+    The NAD table's floor is not the conservative answer, it is a fictional
+    one.  A LOOSE sand band dropped into a column whose every measured sand
+    reads medium dense or better is a layer the site shows nowhere on that
+    column, and packing density feeds strength — so inventing one can drive a
+    design on data that does not exist.  What the column itself measured for
+    that soil is the honest floor.
+
+    Runs AFTER the donor rule has answered everything it can, across all of a
+    borehole's segments, because it reads those answers.
+
+    Parameters
+    ----------
+    bands : Sequence[PlannedBand]
+        Every band planned for ONE borehole, any order.
+    soil_of_formation : Mapping[str, str | None]
+        Soil code per litho formation id — a sand band's floor must come from
+        sand, never from the clay next to it.
+
+    Returns
+    -------
+    list[PlannedBand]
+        The bands in the given order.  An unanswered band whose soil the column
+        did measure is replaced by a copy at that soil's loosest measured class,
+        stamped :data:`COLUMN_MIN_SOURCE`, still at ``low`` confidence — the
+        interval was not read, and the badge must keep saying so.  Never lowers
+        a class: a standing sub-minimum sliver (his ruling of 2026-08-11) keeps
+        its own conservative value.
+    """
+    loosest_measured: dict[str, int] = {}
+    for band in bands:
+        if band.source in _UNRESOLVED_SOURCES:
+            continue
+        soil = soil_of_formation.get(str(band.source_litho_formation_id))
+        if soil is None:
+            continue
+        held = loosest_measured.get(soil)
+        if held is None or band.nad_class < held:
+            loosest_measured[soil] = band.nad_class
+
+    out: list[PlannedBand] = []
+    for band in bands:
+        soil = soil_of_formation.get(str(band.source_litho_formation_id))
+        floor = loosest_measured.get(soil) if soil is not None else None
+        if (
+            band.source not in _UNRESOLVED_SOURCES
+            or floor is None
+            # Only ever upward: the guess was already at or above what the
+            # column showed, so there is nothing honest to add.
+            or floor <= band.nad_class
+        ):
+            out.append(band)
+            continue
+        out.append(replace(band, nad_class=floor, source=COLUMN_MIN_SOURCE, confidence="low"))
+    return out
+
+
 def clip_bands_to_slice(
     bands: Sequence[FillBand], slice_top_m: float, slice_base_m: float
 ) -> list[FillBand]:
@@ -1853,6 +1933,44 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         ),
                     )
                 )
+
+        # The donor rule has now answered everything it can, so the bands it
+        # could NOT answer can be honest about this column instead of about the
+        # NAD table. Gathered across every segment of a borehole, because the
+        # measured sand that sets a sliver's floor is usually in a different
+        # body group from the sliver.
+        bands_by_borehole: dict[str, list[tuple[int, int, PlannedBand]]] = defaultdict(list)
+        for seg_index, planned in enumerate(planned_segments):
+            for band_index, planned_band in enumerate(planned.bands):
+                bands_by_borehole[planned.investigation_id].append(
+                    (seg_index, band_index, planned_band)
+                )
+
+        band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
+        raised_count = 0
+        for entries in bands_by_borehole.values():
+            raised = apply_column_floor(
+                [entry[2] for entry in entries],
+                soil_of_formation=litho_soil_by_formation,
+            )
+            for (seg_index, band_index, before), after in zip(entries, raised):
+                if before.source != after.source:
+                    band_updates[seg_index][band_index] = after
+                    raised_count += 1
+        for seg_index, changes in band_updates.items():
+            planned = planned_segments[seg_index]
+            planned_segments[seg_index] = replace(
+                planned,
+                bands=tuple(
+                    changes.get(band_index, planned_band)
+                    for band_index, planned_band in enumerate(planned.bands)
+                ),
+            )
+        if raised_count:
+            self.info(
+                f"DivideBoreholes: {raised_count} unanswered band(s) raised to the loosest "
+                "class their own column measured for that soil, rather than the NAD floor"
+            )
 
         self.info(
             f"DivideBoreholes.plan: geotech_model={geotech_model.id} "
