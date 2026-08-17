@@ -83,7 +83,10 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.session import get_session
-from groundmodel.shared.exceptions import CrossLithoBodyCorrelationError
+from groundmodel.shared.exceptions import (
+    CrossingCorrelationError,
+    CrossLithoBodyCorrelationError,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 router = APIRouter()
@@ -134,7 +137,8 @@ async def create_contact_correlation(
         When layer_a_id == layer_b_id (self-loop), when either contact
         does not belong to the model / project, or when a geotech packing
         correlation crosses lithostratigraphic body boundaries
-        (``CrossLithoBodyCorrelationError``).
+        (``CrossLithoBodyCorrelationError``), or would cross a tie already
+        standing in the same gap (``CrossingCorrelationError``).
     """
     repo = GeologyRepository(session)
     await get_in_project_or_404(
@@ -153,6 +157,14 @@ async def create_contact_correlation(
             layer_a_side=body.layer_a_side,
             layer_b_side=body.layer_b_side,
         )
+    except CrossingCorrelationError as err:
+        # Owner ruling 2026-08-17: a crossing tie the engineer draws is rejected
+        # with a toast. The renderer shows the server's own words, so the
+        # message must name columns and depths rather than ids.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
     except CrossLithoBodyCorrelationError as err:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
