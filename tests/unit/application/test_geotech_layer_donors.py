@@ -7,10 +7,12 @@ different groups, and can leave a group with no column near enough to say
 anything.  Both bit the owner on B4 in one afternoon.
 
 The layer names them instead — the columns its correlations point at, else
-the columns sharing its body — under two hard constraints.  A donor must be
+the columns sharing its body — under THREE hard constraints.  A donor must be
 the SAME SOIL, because a packing class belongs to a soil column and his litho
-ties may legitimately cross facies.  And a donor must be close enough to be
-evidence: *"777m is too far anyhow"*.
+ties may legitimately cross facies.  A donor must FLANK the borehole on a
+section — *"only left and right test on section can be donor"*, reaffirmed the
+night B4's sand borrowed from a test 623 m away.  And within those, elevation
+picks the sheet.
 """
 
 from groundmodel.application.divide_boreholes import layer_donor_picks
@@ -60,7 +62,7 @@ def _donors(correlated: list[BodyLayerPick], body: list[BodyLayerPick]) -> list[
     ]
 
 
-def test_ld1_a_correlated_column_donates_however_far_the_grouping_put_it() -> None:
+def test_ld1_a_correlated_flank_donates_whatever_the_grouping_said() -> None:
     """His tie names the sheet; the geological banding does not get a veto."""
     assert _donors([_pick("S13", 9.69, 15.16)], []) == ["S13"]
 
@@ -70,18 +72,27 @@ def test_ld2_the_body_answers_where_he_drew_no_tie() -> None:
     assert _donors([], [_pick("S6", 10.26, 12.42)]) == ["S6"]
 
 
-def test_ld3_the_pool_is_not_filtered_by_distance_or_adjacency() -> None:
-    """Owner, 2026-08-17: *"donor reach is obsolete, only left and right test on
-    section can be donor"* — which ``select_flank_donors`` already implements
-    downstream by picking the nearest candidate each side.
+def test_ld3_a_non_flank_is_refused_even_when_it_carries_the_soil() -> None:
+    """Owner, twice: *"donor reach is obsolete, only left and right test on
+    section can be donor"* (2026-08-17 midday) and — after I kept the wider
+    pool because filtering measured as starving the model — *"the fallback
+    stopped working, the sand on B4 has no neighbours so it should default to
+    the lowest packing class on B4"* (2026-08-17 night, when B4's sand took
+    its packing from a test 623 m away).
 
-    Filtering the POOL instead was measured on his model and starves it: the
-    geometrically flanking test usually does not carry the unit's soil, so
-    donor-backed bands fell from 118 to 37 and two thirds of the model dropped
-    to a floor. A column carrying the soil stays a candidate; the flanking rule
-    decides which two are used.
+    The starvation trade-off was HIS to make, not mine, and he made it: an
+    honest conservative floor beats a confident answer from a test that is
+    nowhere near.  S11 carries the sand but does not flank the borehole — no
+    donation.
     """
-    assert _donors([], [_pick("S11", 10.26, 12.42)]) == ["S11"]
+    assert _donors([], [_pick("S11", 10.26, 12.42)]) == []
+
+
+def test_ld9_a_correlated_non_flank_is_refused_too() -> None:
+    """The B4 case verbatim: a litho tie pointed 623 m away, and the tie was
+    treated as a licence past the flank rule.  It is not — the tie stays a
+    correlation, the donor pool stays the flanks."""
+    assert _donors([_pick("FARAWAY", 9.0, 12.5)], []) == []
 
 
 def test_ld4_a_donor_of_another_soil_is_refused() -> None:
