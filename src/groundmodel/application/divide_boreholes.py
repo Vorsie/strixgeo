@@ -125,6 +125,7 @@ from groundmodel.application.geotech_tie_reanchor import (
     plan_tie_reanchor,
     rebuilt_bands_from_layer_index,
 )
+from groundmodel.application.geotech_tie_tombstones import build_tombstone_gates
 from groundmodel.application.geotech_view_state import (
     DEFAULT_MIN_THICKNESS_M,
     read_geotech_min_thickness_m,
@@ -2699,6 +2700,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         accepted_sided_by_section = await load_accepted_geotech_sided_edges_by_section(
             self._session, geotech_model_id
         )
+        # The engineer's deleted ties, per section — consulted at the emit
+        # gate so a deletion stays deleted (owner 2026-08-17). Empty dict in
+        # the ordinary never-deleted case.
+        tombstone_gates = await build_tombstone_gates(self._session, geotech_model_id, project_id)
         litho_layer_depths = await load_litho_layer_depths(self._session, litho_model_id, None)
         sections = await load_project_sections(self._session, project_id)
         if section_id is not None:
@@ -2771,6 +2776,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     # press-accept-press, and the second press only wrote more
                     # of them. Step 2 keeps the ghost/review flow.
                     born_accepted=True,
+                    tie_tombstoned=tombstone_gates.get(section.id),
                 )
             )
             # Owner ruling 2026-08-14: "those cpt to cpt ties should be
