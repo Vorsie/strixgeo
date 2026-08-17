@@ -20,6 +20,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.geotech_tie_tombstones import record_tie_tombstone
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.geotech_edge_crossing_guard import (
@@ -886,8 +887,9 @@ class UncorrelateLithoContacts(GroundModelLogger):
                 "owner directive 2026-06-08)."
             )
 
-        # Scope guard — mirrors the create path.
-        await load_scoped_or_raise(
+        # Scope guard — mirrors the create path. The model row is kept: the
+        # kind decides whether this deletion leaves a tombstone below.
+        model = await load_scoped_or_raise(
             self._session, GeologicalModelOrm, model_id, project_id, label="Model"
         )
 
@@ -917,6 +919,17 @@ class UncorrelateLithoContacts(GroundModelLogger):
             )
             await self._session.commit()
             return
+
+        # A deletion the ENGINEER makes on a geotechnical model stays deleted
+        # (owner 2026-08-17: "a tie i delete stays deleted but does not delete
+        # on the litho model"). The tombstone is written BEFORE the delete —
+        # it reads the edge's endpoint bands — and remembers the PLACE (xyz
+        # both ends + section), because every subdivide rebuilds the bands and
+        # ids cannot carry the memory. Litho-model deletions record nothing:
+        # a litho tie's absence is already its own statement, and the geotech
+        # derivation only restates what the litho model still holds.
+        if model.kind == MODEL_KIND_GEOTECHNICAL:
+            await record_tie_tombstone(self._session, self, existing)
 
         await self._session.delete(existing)
         await self._session.flush()
