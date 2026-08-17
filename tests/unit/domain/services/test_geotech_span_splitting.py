@@ -29,25 +29,40 @@ from groundmodel.domain.services.geotech_span_splitting import (
 
 # His image-61 scene: S6 — B6 — B4 — S13, collars all ~13.1-13.4.
 S6 = SpanColumn(
-    investigation_id="s6", along_m=0.0, collar_elev_m=13.13,
-    contacts_m=(1.52, 8.27, 9.82, 12.42, 13.0, 15.48, 21.5), deepest_base_m=21.5,
+    investigation_id="s6",
+    along_m=0.0,
+    collar_elev_m=13.13,
+    contacts_m=(1.52, 8.27, 9.82, 12.42, 13.0, 15.48, 21.5),
+    deepest_base_m=21.5,
 )
 B6 = SpanColumn(
-    investigation_id="b6", along_m=5.0, collar_elev_m=13.17,
-    contacts_m=(6.89, 9.5, 12.59, 14.75, 20.0), deepest_base_m=20.0,
+    investigation_id="b6",
+    along_m=5.0,
+    collar_elev_m=13.17,
+    contacts_m=(6.89, 9.5, 12.59, 14.75, 20.0),
+    deepest_base_m=20.0,
 )
 B4 = SpanColumn(
-    investigation_id="b4", along_m=50.0, collar_elev_m=13.13,
-    contacts_m=(5.62, 6.0, 12.52, 12.9, 15.5, 17.0), deepest_base_m=17.0,
+    investigation_id="b4",
+    along_m=50.0,
+    collar_elev_m=13.13,
+    contacts_m=(5.62, 6.0, 12.52, 12.9, 15.5, 17.0),
+    deepest_base_m=17.0,
 )
 S13 = SpanColumn(
-    investigation_id="s13", along_m=90.0, collar_elev_m=13.37,
-    contacts_m=(1.42, 8.16, 9.69, 15.16, 23.06), deepest_base_m=23.06,
+    investigation_id="s13",
+    along_m=90.0,
+    collar_elev_m=13.37,
+    contacts_m=(1.42, 8.16, 9.69, 15.16, 23.06),
+    deepest_base_m=23.06,
 )
 # A shallow CPT: bands stop at 2.7 m.
 S7A = SpanColumn(
-    investigation_id="s7a", along_m=45.0, collar_elev_m=13.07,
-    contacts_m=(1.61, 2.65), deepest_base_m=2.65,
+    investigation_id="s7a",
+    along_m=45.0,
+    collar_elev_m=13.07,
+    contacts_m=(1.61, 2.65),
+    deepest_base_m=2.65,
 )
 ORDER = [S6, B6, B4, S13]
 
@@ -105,8 +120,29 @@ def test_sp6_a_span_above_a_columns_first_band_is_subtd_there_too() -> None:
     assert plan is None
 
 
+def test_sp8_a_line_through_a_bands_interior_does_not_split_there() -> None:
+    """His S6↔S10 VD ties cross B2's thick homogeneous sand mid-band — the
+    nearest contact is metres away (measured: 3.28 m and 1.22 m).  Landing
+    there would bend his statement onto a boundary that is NOT the boundary he
+    tied, and his two parallel VD ties would collapse onto one contact — the
+    quad he wants would die harder.  A column whose nearest contact is beyond
+    ``SPAN_LANDING_TOLERANCE_M`` does not express the boundary: the span keeps
+    spanning it, exactly like sub-TD."""
+    b2 = SpanColumn(
+        investigation_id="b2",
+        along_m=45.0,
+        collar_elev_m=13.05,
+        contacts_m=(8.8, 11.23, 17.5),
+        deepest_base_m=17.5,
+    )
+    order = [S6, b2, S13]
+    # Line at ~14.2 on B2 — nearest contact 17.5, 3.3 m off.
+    assert split_span(_tie("s6", 14.02, "s13", 14.09), order) is None
+
+
 def test_sp7_an_endpoint_column_missing_from_the_order_keeps_the_tie() -> None:
     """A tie whose endpoint is not on this section cannot be judged here."""
-    other = SpanTie(edge_id=UUID(int=8), inv_a="elsewhere", depth_a_m=5.0,
-                    inv_b="s13", depth_b_m=5.0)
+    other = SpanTie(
+        edge_id=UUID(int=8), inv_a="elsewhere", depth_a_m=5.0, inv_b="s13", depth_b_m=5.0
+    )
     assert split_span(other, ORDER) is None
