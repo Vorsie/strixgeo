@@ -144,6 +144,8 @@ beforeEach(async () => {
   ;(globalThis as unknown as { window: { electron: unknown } }).window.electron = {
     showProjectOpenDialog: vi.fn(),
     showProjectSaveDialog: vi.fn(),
+    // Present by default: the missing-file branch is opted into per test.
+    projectFileExists: vi.fn().mockResolvedValue(true),
     readProjectFile: vi.fn().mockImplementation(async () => diskContent),
     writeProjectFile: vi.fn().mockImplementation(async (_path: string, content: string) => {
       diskContent = content
@@ -159,6 +161,29 @@ function lastWrittenFile(): Record<string, unknown> {
   const [, content] = calls[calls.length - 1] as [string, string]
   return JSON.parse(content)
 }
+
+describe('openProjectFile — the file is gone (moved or renamed)', () => {
+  // Owner, 2026-08-17: "open from recent project should always open from the
+  // strix file, if user moved it you get a toast, file not found, did you
+  // change it's location". The file IS the anchor — when it is gone the open
+  // must say so, not fall back to the database and pretend nothing happened,
+  // and not blame corruption or the API (the old catch-all banner did both).
+  it("returns 'file-missing' without touching the file or the API", async () => {
+    const { api } = await import('../api/client')
+    asMock(window.electron.projectFileExists).mockResolvedValue(false)
+
+    const { result } = renderHook(() => useProject())
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.openProjectFile('C:/moved/away.strix')
+    })
+
+    expect(returned).toBe('file-missing')
+    expect(window.electron.readProjectFile).not.toHaveBeenCalled()
+    expect(api.project.get).not.toHaveBeenCalled()
+    expect(result.current.project).toBeNull()
+  })
+})
 
 describe('openProjectFile — the DB row is gone', () => {
   it('restores from the file when GET rejects with the 404 the API client actually produces', async () => {
