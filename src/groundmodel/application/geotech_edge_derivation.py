@@ -61,6 +61,7 @@ from uuid6 import uuid7
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import AUTO_SOURCE
 from groundmodel.domain.services.geotech_edge_bridging import (
     bridge_litho_edges_over_bandless_columns,
+    bridged_contact_pairs,
 )
 from groundmodel.domain.services.geotech_edge_crossing_guard import (
     GapTie,
@@ -845,6 +846,8 @@ async def derive_geotech_edges_from_litho(
         contact_a_m: float,
         inv_b_str: str,
         contact_b_m: float,
+        approved: bool = True,
+        register_pair: bool = False,
     ) -> None:
         """Restate one sided litho tie onto the bands owning its contacts.
 
@@ -889,9 +892,21 @@ async def derive_geotech_edges_from_litho(
         if key in sided_seen:
             counts.skipped_existing_pair += 1
             return
-        if not _may_land(str(key[0]), key[2], str(key[1]), key[3], True):
+        if not _may_land(str(key[0]), key[2], str(key[1]), key[3], approved):
             return
         sided_seen.add(key)
+        if register_pair and key[2] == "top" and key[3] == "top":
+            # CHAINED restatements only, and only when the contact resolved to
+            # the bands' TOPS: the aligner emits top-top rows keyed by pair, so
+            # a same-class chain would double-emit without this. A base-side
+            # resolution must NOT register — on a column whose bands stop at
+            # the litho floor, a chained BOTTOM contact resolves to the same
+            # band pair as a legitimate interior top pair (found live: S6's
+            # 21.50 base tie versus the 16.38↔17.06 interior clay pair), and
+            # pair-only registration silently killed the interior statement.
+            # A DIRECT pair never registers — a single-band unit carries its
+            # top AND base restatement on one band pair by design.
+            seen_layer_pairs.add((min(band_a, band_b), max(band_a, band_b)))
         session.add(
             LithoContactCorrelationEdgeOrm(
                 id=uuid7(),
@@ -902,14 +917,46 @@ async def derive_geotech_edges_from_litho(
                 layer_a_side=key[2],
                 layer_b_side=key[3],
                 source=source,
-                # A sided restatement carries the litho approval down exactly
-                # like the topmost one — the engineer tied these very contact
-                # surfaces at the litho level.
-                user_approved=True,
+                # A DIRECT sided restatement carries the litho approval down —
+                # the engineer tied these very contact surfaces. A CHAINED one
+                # (walked through bandless columns) is derived, so it arrives
+                # pending for his step-3 review.
+                user_approved=approved,
             )
         )
         counts.edges_emitted += 1
-        counts.edges_accepted += 1
+        if approved:
+            counts.edges_accepted += 1
+        else:
+            counts.edges_proposed += 1
+
+    # Chained restatements (owner corrections 2026-08-17): a litho tie WALKED
+    # through bandless columns arrives as a direct connection — *"walk a tie
+    # to the next cpt, if it arrives you place a direct connection if not then
+    # skip"* — and it is the LITHO tie being carried, so packing classes are
+    # never consulted: *"litho ties are packing agnostic which means you are
+    # not emitting the litho ties but are interpreting and emitting ties based
+    # on packing"*. Depth-resolved at both ends like every restatement; born
+    # pending (a chained statement is derived, not drawn — step 3 reviews it).
+    if litho_sided_edges:
+        columns_with_bands = {inv for inv, rows in sorted_geotech.items() if rows}
+        for (chain_a, chain_sa), (chain_b, chain_sb) in bridged_contact_pairs(
+            litho_sided_ties=litho_sided_edges,
+            layer_depths=litho_layer_depths,
+            columns_with_bands=columns_with_bands,
+        ):
+            entry_a = litho_layer_depths.get(chain_a)
+            entry_b = litho_layer_depths.get(chain_b)
+            if entry_a is None or entry_b is None:
+                continue
+            _emit_sided_restatement(
+                entry_a[0],
+                entry_a[1] if chain_sa == "top" else entry_a[2],
+                entry_b[0],
+                entry_b[1] if chain_sb == "top" else entry_b[2],
+                approved=born_accepted,
+                register_pair=True,
+            )
 
     for litho_a_id, litho_b_id in litho_approved_edges:
         entry_a = litho_layer_depths.get(litho_a_id)
@@ -929,9 +976,11 @@ async def derive_geotech_edges_from_litho(
         # — and for a direct tie WITH a top↔top litho edge the topmost pair
         # is FORCED regardless of class (owner ruling 2026-08-13). A pair
         # whose only litho tie is mixed or base↔base gets the plain LCS
-        # (nothing licenses a forced top pair), and a bridged jump pair was
-        # inferred, not drawn, so nothing licenses a cross-class connection
-        # there either.
+        # (nothing licenses a forced top pair). A BRIDGED pair also gets the
+        # plain class-matched LCS here — but only for its interior packing
+        # proposals: the litho ties it chains are restated PACKING-AGNOSTIC by
+        # the contact walk above (owner 2026-08-17 — "litho ties are packing
+        # agnostic"), so a cross-class chained contact no longer vanishes.
         pair_is_direct = (litho_a_id, litho_b_id) in direct
         pair_sides = sided_by_pair.get((litho_a_id, litho_b_id))
         has_top_top = ("top", "top") in pair_sides if pair_sides is not None else True
