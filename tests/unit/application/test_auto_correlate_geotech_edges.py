@@ -106,6 +106,10 @@ class _FakeSession:
         """Answer a SELECT from the canned rows chosen by the statement's tables."""
         sql = str(stmt)
         self.executed_sql.append(sql)
+        if "geotech_tie_tombstone" in sql:
+            # No deletions recorded in these scenes — build_tombstone_gates
+            # answers an empty gate map and the derivation runs ungated.
+            return _Rows([])
         if "cross_section" in sql:
             return _Rows([SimpleNamespace(id=SECTION, name="CS1", display_order=0)])
         if "litho_contact_correlation_edge" in sql:
