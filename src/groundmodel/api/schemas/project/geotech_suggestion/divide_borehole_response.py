@@ -46,6 +46,9 @@ class DivideBoreholeResponse(BaseModel):
     lost_tie_labels : list[str]
         One line per lost tie naming both investigations and each endpoint's
         depth range, so the engineer can find them in the section.
+    replaced_span_count : int
+        Spanning ties replaced by chains at data-bearing columns; sub-TD spans
+        kept.
     crossing_tie_count : int
         Machine ties deleted for crossing another tie in the same gap.  Legacy
         rows only: the emit-time guard refuses a crossing candidate.  Hand-drawn
@@ -120,6 +123,14 @@ class DivideBoreholeResponse(BaseModel):
             "Bridged CPT-to-CPT jump ties deleted because the borehole-mediated "
             "chain now carries the same connection (owner ruling 2026-08-14: the "
             "chain replaces the jump tie, hand-drawn or machine)."
+        ),
+    )
+    replaced_span_count: int = Field(
+        0,
+        description=(
+            "Accepted ties spanning columns that now have data at the line, "
+            "replaced by chains landing on those columns' nearest packing "
+            "contacts (owner ruling 2026-08-17). Sub-TD spans are kept."
         ),
     )
     crossing_tie_count: int = Field(
