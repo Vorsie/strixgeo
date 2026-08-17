@@ -2377,8 +2377,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
             if plan is None:
                 continue
-            surfaces = [node_to_surface(node.investigation_id, node.depth_m) for node in plan]
-            if any(surface is None for surface in surfaces):
+            maybe_surfaces = [node_to_surface(node.investigation_id, node.depth_m) for node in plan]
+            surfaces = [surface for surface in maybe_surfaces if surface is not None]
+            if len(surfaces) != len(maybe_surfaces):
                 # A landing that resolves to no real contact would leave a hole
                 # in the chain — keep the span rather than lose the statement.
                 self.warning(
