@@ -947,6 +947,59 @@ geotech fill may only SUBDIVIDE the litho fill, never redraw it. The gate:
 
 ## 8. Where a borehole's packing comes from — the flanking CPTs (2026-08-04)
 
+### 8-0. The unit of work is the LITHO LAYER (restructure 2026-08-16)
+
+Donor candidates used to be the CPTs sharing the borehole's
+``(body, geological band)`` group.  That is the wrong unit, and it produced
+four separate dogfeed defects in one afternoon: a body owns several layers per
+column where a lens splits it, so a dict keyed by column kept the wrong one; a
+geological contact can put the two ends of one hand-drawn correlation in
+different groups; and it can leave a group with no column near enough to say
+anything, which is how a band the owner had tied to two MEDIUM DENSE columns
+90 m away took LOOSE sand from a CPT 777 m off.
+
+What owns a borehole's packing is the **litho layer**, so the layer names its
+own donors (``layer_donor_picks``):
+
+1. The columns its approved litho **correlations** point at — a tie is the
+   engineer's statement that two layers are the same sheet, and it outranks any
+   grouping the engine derived (his ruling of 2026-08-11, *"the user's ties
+   will define this"*).
+2. Failing that, the columns sharing its **body**, whatever geological band.
+3. Under two hard constraints: **same soil** (his litho ties may legitimately
+   cross facies, but a packing class belongs to a soil column — a silt donor on
+   a sand layer put NAD 15 inside a ZAND unit during the restructure, caught by
+   its own diff), and **within ``MAX_DONOR_MAP_DISTANCE_M``**.
+4. One layer per column, chosen by elevation overlap.
+
+The packing is then derived **once across the whole layer**, and the
+geological contacts **cut** that answer (``clip_bands_to_slice``).  A cut is a
+cut: it divides a layer into pieces that may carry different geological
+parents, and it is never a reason to read a neighbouring column twice.  Before
+this, each slice re-derived independently and the owner's B9 received S9's
+``6 → 8 → 7`` sand TWICE — *"none of that messy dense very dense succession on
+top"*.
+
+### 8-0b. A band with no evidence is CONSERVATIVE, never inherited (owner, 2026-08-16)
+
+Owner, on a 0.43 m sliver that had been given a neighbour's medium dense
+class: *"wouldn't have been easier to just take the least dense packing on the
+column for the fallback. That's where you wouldn't have the loose end with a
+medium scent instead."*
+
+**A slice the donor rule cannot answer takes the lithology floor, not a
+borrowed class.**  Packing density feeds strength, so the unsafe direction is
+denser: a loose end must read loose.  The floor is
+``loosest_class_for(soil, admixtures)`` — the NAD table's weakest class for
+that soil AND its variant (audit F19), which is at least as conservative as the
+loosest class observed nearby.  It is stamped ``absolute_min`` / ``low``.
+
+A short-lived "inherit the class from another slice of the same layer" pass
+existed on 2026-08-16 and was **deleted the same day**.  Do not rebuild it: it
+dressed an unmeasured interval as medium dense.  On the live model the ladder
+now reads 138 donor-backed bands and 27 at the floor, with the middle rung
+(``body_min``, weakest observed in the body) firing zero times.
+
 **Owner ruling, dogfeed of §6:** *the borehole's packing must come from the CPT
 to the right and to the left on the cross section.*
 
