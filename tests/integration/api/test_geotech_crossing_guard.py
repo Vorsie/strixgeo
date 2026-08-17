@@ -583,3 +583,140 @@ async def test_xgdb6_a_tie_that_crosses_nothing_still_lands(
     )
     assert first == 201
     assert second == 201, f"a monotone second tie must land: {detail}"
+
+
+async def _delete_tie(
+    async_client: AsyncClient,
+    scene: dict,
+    geotech_model_id: str,
+    edge: LithoContactCorrelationEdgeOrm,
+) -> None:
+    """Delete a packing tie the way the engineer's gesture does, via the API."""
+    resp = await async_client.request(
+        "DELETE",
+        f"/projects/{scene['project_id']}/geology/models/{geotech_model_id}/contact-correlations",
+        json={
+            "layer_a_id": str(edge.layer_a_id),
+            "layer_b_id": str(edge.layer_b_id),
+            "layer_a_side": edge.layer_a_side,
+            "layer_b_side": edge.layer_b_side,
+            "request_section_id": str(edge.section_id),
+        },
+    )
+    assert resp.status_code == 204, resp.text
+
+
+async def _all_edges(
+    db_session: AsyncSession, geotech_model_id: str
+) -> list[LithoContactCorrelationEdgeOrm]:
+    return list(
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id)
+                )
+            )
+        ).scalars()
+    )
+
+
+@pytest.mark.asyncio
+async def test_ts1_a_deleted_tie_stays_deleted_across_a_reautocorrelate(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """TS1 — owner ruling 2026-08-17: *"A tie i delete stays deleted"*.
+
+    The full loop he actually lives: step 2 derives ties, he deletes one, he
+    presses step 2 again.  Before the tombstone every press re-stated the
+    deleted tie from the litho model — the machine arguing with his judgement
+    forever.  The deletion is remembered by PLACE (*"just do position xyz left
+    and xyz right and the section it was on"*), because step 1 and step 4
+    rebuild every band and ids cannot carry the memory.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    await _auto_correlate(async_client, crossing_scene, geotech_model_id)
+    db_session.expire_all()
+    before = await _all_edges(db_session, geotech_model_id)
+    assert before, "the scene must derive at least one tie to delete"
+    victim = before[0]
+    victim_pair = frozenset((victim.layer_a_id, victim.layer_b_id))
+
+    await _delete_tie(async_client, crossing_scene, geotech_model_id, victim)
+
+    await _auto_correlate(async_client, crossing_scene, geotech_model_id)
+    db_session.expire_all()
+    after = {
+        frozenset((e.layer_a_id, e.layer_b_id))
+        for e in await _all_edges(db_session, geotech_model_id)
+    }
+    assert victim_pair not in after, (
+        "the deleted tie came back — the tombstone is not being consulted"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ts2_without_a_deletion_the_second_press_keeps_the_tie(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """TS2 — negative control: TS1 fails for the RIGHT reason.
+
+    A second press on an untouched model keeps every tie, so TS1's absence can
+    only come from the tombstone, not from step 2 being non-repeatable.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    await _auto_correlate(async_client, crossing_scene, geotech_model_id)
+    db_session.expire_all()
+    before = {
+        frozenset((e.layer_a_id, e.layer_b_id))
+        for e in await _all_edges(db_session, geotech_model_id)
+    }
+
+    await _auto_correlate(async_client, crossing_scene, geotech_model_id)
+    db_session.expire_all()
+    after = {
+        frozenset((e.layer_a_id, e.layer_b_id))
+        for e in await _all_edges(db_session, geotech_model_id)
+    }
+    assert before <= after and before
+
+
+@pytest.mark.asyncio
+async def test_ts3_a_litho_tie_deletion_writes_no_tombstone(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """TS3 — *"but does not delete on the litho model"*, and the converse.
+
+    The tombstone records geotech judgement only.  A litho correlation the
+    engineer removes is already its own statement — the derivation simply
+    stops restating it — so recording it would be dead weight at best and a
+    future false suppression at worst.
+    """
+    from groundmodel.infrastructure.db.models.geotech_tie_tombstone_orm import (
+        GeotechTieTombstoneOrm,
+    )
+
+    litho_edges = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id
+                    == UUID(crossing_scene["litho_model_id"])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert litho_edges, "the scene correlates the litho pair in its fixture"
+    await _delete_tie(
+        async_client, crossing_scene, crossing_scene["litho_model_id"], litho_edges[0]
+    )
+    db_session.expire_all()
+    stones = (await db_session.execute(select(GeotechTieTombstoneOrm))).scalars().all()
+    assert stones == []
