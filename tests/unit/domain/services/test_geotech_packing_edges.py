@@ -318,3 +318,63 @@ def test_interior_pairs_stay_monotone_when_candidates_cross():
     # candidates (a1,b2) and (a2,b1) cross AND have weak overlap; nothing
     # monotone with real overlap exists.
     assert overlap_gated_interior_pairs(left, right) == []
+
+
+# --- below-lens shadowing (owner dogfeed 2026-08-17, image 58) ---------------
+#
+# S12's silt unit reads [SILT 13, denser SILT 15, SILT 13]; S13's is one
+# SILT 13.  The top pair is tied by the restatement, and the machine ALSO
+# proposed S13's 1.42 -> S12's 3.47 — the band below the lens.  Owner rule,
+# verbatim: *"don't emit auto correlations ties below a lens if above the lens
+# and below the lens have the same packing density and litho?"*  The merge
+# step unifies that silt around the lens anyway, so the extra proposal is
+# noise he has to delete — and it fans from a contact that is already tied.
+
+from groundmodel.domain.services.geotech_packing_edges import shadowed_below_lens
+
+
+def _frac(layer_id: str, cls: int | None, top: float, base: float):
+    return (layer_id, cls, top, base)
+
+
+def test_bl1_his_s12_sandwich_shadows_the_below_lens_band() -> None:
+    stack = [_frac("top", 13, 0.0, 0.4), _frac("lens", 15, 0.4, 0.6), _frac("below", 13, 0.6, 1.0)]
+    assert shadowed_below_lens(stack) == {"below"}
+
+
+def test_bl2_a_stack_without_a_lens_shadows_nothing() -> None:
+    assert shadowed_below_lens([_frac("a", 13, 0.0, 0.5), _frac("b", 15, 0.5, 1.0)]) == set()
+
+
+def test_bl3_the_lens_itself_is_never_shadowed() -> None:
+    """The lens band may still tie — only the same-class repeat below it."""
+    stack = [_frac("top", 13, 0.0, 0.4), _frac("lens", 15, 0.4, 0.6), _frac("below", 13, 0.6, 1.0)]
+    assert "lens" not in shadowed_below_lens(stack)
+
+
+def test_bl4_a_different_class_below_the_lens_is_not_shadowed() -> None:
+    """[13, 15, 21]: the 21 is new information, not a repeat around a lens."""
+    stack = [_frac("a", 13, 0.0, 0.4), _frac("b", 15, 0.4, 0.6), _frac("c", 21, 0.6, 1.0)]
+    assert shadowed_below_lens(stack) == set()
+
+
+def test_bl5_two_lenses_shadow_every_repeat_below_them() -> None:
+    stack = [
+        _frac("a", 13, 0.0, 0.2),
+        _frac("l1", 15, 0.2, 0.4),
+        _frac("b", 13, 0.4, 0.6),
+        _frac("l2", 16, 0.6, 0.8),
+        _frac("c", 13, 0.8, 1.0),
+    ]
+    assert shadowed_below_lens(stack) == {"b", "c"}
+
+
+def test_bl6_adjacent_same_class_bands_are_not_a_lens_shape() -> None:
+    """[13, 13]: a geological cut, not a sandwich — nothing intervenes."""
+    assert shadowed_below_lens([_frac("a", 13, 0.0, 0.5), _frac("b", 13, 0.5, 1.0)]) == set()
+
+
+def test_bl7_skeleton_bands_neither_shadow_nor_are_shadowed() -> None:
+    """A None class is no evidence of anything (spec §8)."""
+    stack = [_frac("a", 13, 0.0, 0.4), _frac("gap", None, 0.4, 0.6), _frac("b", 13, 0.6, 1.0)]
+    assert shadowed_below_lens(stack) == set()
