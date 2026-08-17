@@ -49,6 +49,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.geotech_crossing_sweep import sweep_crossing_ties
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
@@ -92,6 +93,10 @@ class AutoCorrelateGeotechResult:
     skipped_no_lcs : int
         Correlated litho units whose two packing stacks share no NAD class, so
         nothing could be tied automatically (the engineer connects those).
+    crossing_tie_count : int
+        Machine ties deleted for crossing another tie in the same gap — legacy
+        rows an emit-time guard cannot reach (owner ruling 2026-08-17).  The
+        engineer's own lines are never deleted.
     skipped_empty_stack : int
         Correlated litho units where one column carries no geotech bands at all
         (e.g. a column the build has not subdivided yet).
@@ -103,6 +108,7 @@ class AutoCorrelateGeotechResult:
     sections_processed: int
     skipped_no_lcs: int = 0
     skipped_empty_stack: int = 0
+    crossing_tie_count: int = 0
 
 
 class AutoCorrelateGeotechEdges(GroundModelLogger):
@@ -285,6 +291,13 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                 )
             )
 
+        # Legacy crossings, swept on this press too: step 2 is the verb the
+        # engineer reaches for when a gap looks wrong, and the sweep is the only
+        # thing that can reach a stored crossing (the emit-time guard refuses
+        # candidates; the re-anchor carries rows across rebuilds). Owner ruling
+        # 2026-08-17 — "ties shouldn't be able to cross"; his own lines stand.
+        crossing_dropped = await sweep_crossing_ties(self._session, self, model_id)
+
         await self._session.commit()
         self.success(
             f"AutoCorrelateGeotechEdges: proposed={totals.edges_proposed} "
@@ -292,7 +305,8 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             f"skipped_existing={totals.skipped_existing_pair} "
             f"sections={sections_processed}/{len(sections)} "
             f"skipped_no_lcs={totals.skipped_no_lcs} "
-            f"skipped_empty_stack={totals.skipped_empty_stack}"
+            f"skipped_empty_stack={totals.skipped_empty_stack} "
+            f"crossing_ties_deleted={crossing_dropped}"
         )
         return AutoCorrelateGeotechResult(
             edges_proposed=totals.edges_proposed,
@@ -301,6 +315,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             sections_processed=sections_processed,
             skipped_no_lcs=totals.skipped_no_lcs,
             skipped_empty_stack=totals.skipped_empty_stack,
+            crossing_tie_count=crossing_dropped,
         )
 
     async def _load_geotech_bands(
