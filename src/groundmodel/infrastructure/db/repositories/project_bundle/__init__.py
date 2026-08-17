@@ -254,6 +254,7 @@ class ProjectBundleService(GroundModelLogger):
         body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
         body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
         litho_solids_payload: list[dict[str, Any]] | None = None,
+        geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
         *,
         replace: bool = False,
     ) -> ProjectOrm:
@@ -327,6 +328,10 @@ class ProjectBundleService(GroundModelLogger):
             body_boundary_shapes_payload,
             body_boundary_nodes_payload,
             litho_solids_payload,
+            # Keyword deliberately: the positional block above is frozen (a
+            # mid-list insertion once shifted three payloads into the wrong
+            # restorers); everything new travels by name.
+            geotech_tie_tombstones_payload=geotech_tie_tombstones_payload,
             logger=self,
             replace=replace,
         )
@@ -379,6 +384,7 @@ async def restore_project_bundle(
     body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     litho_solids_payload: list[dict[str, Any]] | None = None,
+    geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
     *,
     replace: bool = False,
 ) -> ProjectOrm:
@@ -418,6 +424,8 @@ async def restore_project_bundle(
         Lens boundary node rows.
     litho_solids_payload : list[dict[str, Any]] | None
         Cached watertight body-solid rows (watertight-loft Task 9).
+    geotech_tie_tombstones_payload : list[dict[str, Any]] | None
+        The engineer's deleted packing ties, keyed by place (owner 2026-08-17).
     replace : bool
         When True, wipe before insert (revert-to-last-save).
 
@@ -447,5 +455,6 @@ async def restore_project_bundle(
         body_boundary_shapes_payload,
         body_boundary_nodes_payload,
         litho_solids_payload,
+        geotech_tie_tombstones_payload=geotech_tie_tombstones_payload,
         replace=replace,
     )
