@@ -97,6 +97,7 @@ declare global {
       // Project file lifecycle (Phase 4 multi-project)
       showProjectOpenDialog: () => Promise<string | null>
       showProjectSaveDialog: (defaultName?: string) => Promise<string | null>
+      projectFileExists: (filePath: string) => Promise<boolean>
       readProjectFile: (filePath: string) => Promise<string>
       writeProjectFile: (filePath: string, contents: string) => Promise<void>
       // Generic export save-dialog + binary write (v1.0 MVP gate #5).
@@ -1293,7 +1294,8 @@ export default function App() {
           }}
           onOpenRecent={async path => {
             const result = await openProjectFile(path)
-            return result !== null
+            if (result === 'file-missing') return 'missing'
+            return result !== null ? 'opened' : 'failed'
           }}
         />
         {/* The File-menu's New Project item also opens the dialog from
