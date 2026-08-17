@@ -58,11 +58,12 @@ from .bundle_restore_litho import (
     _attach_companion_body_links,
     _restore_bodies,
     _restore_contact_edges,
-    _restore_geometry_facts,
     _restore_formation_absences,
     _restore_geological_models,
+    _restore_geometry_facts,
     _restore_lens_shapes_and_nodes,
     _restore_litho_solids,
+    _restore_tie_tombstones,
 )
 from .bundle_row_builders import _build_borehole, _build_cpt, _series_row_count, _uuid
 from .bundle_serialization import _MAX_CPT_SERIES_ROWS, _apply_json_to_kwargs
@@ -629,6 +630,11 @@ async def _restore_project_bundle_impl(
     body_boundary_shapes_payload: list[dict[str, Any]] | None = None,
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     litho_solids_payload: list[dict[str, Any]] | None = None,
+    # NEW COLLECTIONS GO HERE, AT THE END: ProjectBundleService.restore
+    # forwards positionally, so inserting a parameter mid-list silently
+    # shifts every later payload into the wrong restorer (found the hard way
+    # — a boundary shape restored as a "tombstone" and was dropped).
+    geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
     replace: bool = False,
@@ -680,6 +686,9 @@ async def _restore_project_bundle_impl(
         Formation-absence rows.
     litho_contact_correlation_edges_payload : list[dict[str, Any]] | None
         Litho contact correlation edge rows.
+    geotech_tie_tombstones_payload : list[dict[str, Any]] | None
+        Deleted packing ties, keyed by place (owner 2026-08-17); absent in
+        bundles saved before 2026-08-17 → empty.
     body_geometry_facts_payload : list[dict[str, Any]] | None
         Geometric body-connectivity fact rows (owner ruling 2026-08-12) —
         restored after litho layers, unioned by the post-restore resolver.
@@ -719,6 +728,7 @@ async def _restore_project_bundle_impl(
     formation_absences_payload = formation_absences_payload or []
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
     body_geometry_facts_payload = body_geometry_facts_payload or []
+    geotech_tie_tombstones_payload = geotech_tie_tombstones_payload or []
     body_boundary_shapes_payload = body_boundary_shapes_payload or []
     body_boundary_nodes_payload = body_boundary_nodes_payload or []
     # Legacy tolerance: a bundle saved before the litho_solids field existed
@@ -884,6 +894,18 @@ async def _restore_project_bundle_impl(
         body_geometry_facts_payload,
         valid_model_ids,
         geological_models_payload,
+        logger=logger,
+    )
+
+    # ---- Phase 10c: Deleted-tie tombstones --------------------------------
+    # The engineer's deleted packing ties (owner 2026-08-17), keyed by place.
+    # No layer FKs — only model + section — so ordering needs nothing beyond
+    # the models and sections being in.
+    new_tombstones, skipped_tombstones, dropped_tombstones = await _restore_tie_tombstones(
+        session,
+        project_id,
+        geotech_tie_tombstones_payload,
+        valid_model_ids,
         logger=logger,
     )
 
