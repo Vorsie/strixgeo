@@ -36,6 +36,9 @@ from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionO
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.geotech_tie_tombstone_orm import (
+    GeotechTieTombstoneOrm,
+)
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -208,6 +211,18 @@ async def _build_project_bundle_impl(
         )
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
+    # The engineer's deleted packing ties (owner 2026-08-17: "a tie i delete
+    # stays deleted"). Scoped through geological_model like the edges; keyed by
+    # PLACE (xyz both ends + section) so the memory survives band rebuilds AND
+    # a save/reopen round-trip — without this a Discard would resurrect them.
+    tie_tombstones_stmt = (
+        select(GeotechTieTombstoneOrm)
+        .join(
+            GeologicalModelOrm,
+            GeotechTieTombstoneOrm.model_id == GeologicalModelOrm.id,
+        )
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
     # Lens boundary shapes + nodes (#163f Slice 2). Scoped through
     # geological_model (the shape carries model_id; nodes hang off the shape).
     lens_shapes_stmt = (
@@ -245,6 +260,7 @@ async def _build_project_bundle_impl(
     absences = (await session.execute(absences_stmt)).scalars().all()
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
     geometry_facts = (await session.execute(geometry_facts_stmt)).scalars().all()
+    tie_tombstones = (await session.execute(tie_tombstones_stmt)).scalars().all()
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
     litho_solids = (
@@ -340,6 +356,9 @@ async def _build_project_bundle_impl(
         # waiting for the first recompute. Additive: older bundles open cleanly
         # via the schema's default_factory=list.
         "body_geometry_facts": [_column_to_json(f, _SKIP_COLUMNS) for f in geometry_facts],
+        # Deleted packing ties, keyed by place (owner 2026-08-17). Additive:
+        # older bundles open cleanly via the restore's empty-list default.
+        "geotech_tie_tombstones": [_column_to_json(t, _SKIP_COLUMNS) for t in tie_tombstones],
         # Body boundary shapes + control nodes (#163f Slice 2). Shapes carry
         # (model_id, body_id, render_style); nodes carry (shape_id,
         # boundary, node_index, along_m, elevation_m). Additive — bundles saved
