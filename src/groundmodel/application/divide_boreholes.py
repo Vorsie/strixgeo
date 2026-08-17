@@ -124,6 +124,10 @@ from groundmodel.application.geotech_tie_reanchor import (
     plan_tie_reanchor,
     rebuilt_bands_from_layer_index,
 )
+from groundmodel.application.geotech_view_state import (
+    DEFAULT_MIN_THICKNESS_M,
+    read_geotech_min_thickness_m,
+)
 from groundmodel.application.project_investigations_onto_section import (
     project_investigations_onto_section,
 )
@@ -733,6 +737,107 @@ def band_may_carry_a_hop(source: str) -> bool:
         closed: an unrecognised tag may not claim a correspondence either.
     """
     return source == "cpt_interpolated"
+
+
+def coarsen_to_minimum_thickness(
+    bands: Sequence[FillBand], *, minimum_thickness_m: float
+) -> list[FillBand]:
+    """Merge away bands the model's minimum thickness says cannot exist.
+
+    Owner, 2026-08-17: *"just respect minimum thickness and the cpt bands"*.
+
+    Mapping a donor's packing onto a borehole rescales it to the borehole's own
+    unit thickness, so a thin unit receives a COMPRESSED copy of the donor's
+    structure.  His B5 got seven sub-bands — 2 cm to 19 cm — inside a 0.465 m
+    tail, which is not a model of anything.
+
+    Two cases, and the difference matters:
+
+    * A sub-minimum band beside a band that **stands on its own** is absorbed
+      into it and the survivor keeps its own class.  Below the minimum it was
+      never a band, so nothing is being made denser — a 5 cm loose lens inside
+      2 m of very dense sand is under the model's resolution, and reporting 2 m
+      of loose sand because of it would be the tail wagging the dog.
+    * Where **no** neighbour stands either — the whole run is slivers — they
+      merge together and the survivor takes the **loosest** class of the run.
+      That is his ruling of 2026-08-11 (audit F05): *"absorbing may never
+      silently make a band denser"*.
+
+    Parameters
+    ----------
+    bands : Sequence[FillBand]
+        The mapped bands, contiguous and top to bottom.
+    minimum_thickness_m : float
+        The geotech model's minimum sub-unit thickness.
+
+    Returns
+    -------
+    list[FillBand]
+        Contiguous bands tiling the same extent, every one at or above the
+        minimum unless the extent itself is thinner.  Adjacent bands of one
+        class are coalesced, so a merge never leaves two rows saying the same
+        thing.
+    """
+
+    def thickness(band: FillBand) -> float:
+        return band.base - band.top
+
+    def coalesce(rows: list[FillBand]) -> list[FillBand]:
+        out: list[FillBand] = []
+        for band in rows:
+            if out and out[-1].nad_class == band.nad_class:
+                out[-1] = replace(out[-1], base=band.base)
+                continue
+            out.append(band)
+        return out
+
+    work = coalesce(list(bands))
+    while len(work) > 1:
+        # The thinnest offender first, so one pass cannot leave a thinner band
+        # behind a thicker one it should have absorbed.
+        index = min(
+            (i for i, band in enumerate(work) if thickness(band) < minimum_thickness_m),
+            key=lambda i: thickness(work[i]),
+            default=None,
+        )
+        if index is None:
+            break
+        left = work[index - 1] if index > 0 else None
+        right = work[index + 1] if index + 1 < len(work) else None
+        standing = [
+            neighbour
+            for neighbour in (left, right)
+            if neighbour is not None and thickness(neighbour) >= minimum_thickness_m
+        ]
+        if standing:
+            # Absorbed into the thicker standing neighbour, which keeps its class.
+            host = max(standing, key=thickness)
+            merged = replace(
+                host,
+                top=min(host.top, work[index].top),
+                base=max(host.base, work[index].base),
+            )
+            work[work.index(host)] = merged
+            work.pop(index)
+        else:
+            # Nothing here stands: merge with the thicker sliver and never end
+            # up denser than the loosest of the two.
+            partner_index = (
+                index + 1
+                if left is None
+                else index - 1
+                if right is None
+                else (index - 1 if thickness(left) >= thickness(right) else index + 1)
+            )
+            low, high = sorted((index, partner_index))
+            work[low] = replace(
+                work[low],
+                base=work[high].base,
+                nad_class=min(work[low].nad_class, work[high].nad_class),
+            )
+            work.pop(high)
+        work = coalesce(work)
+    return work
 
 
 def clip_bands_to_slice(
@@ -1455,6 +1560,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
 
         snap_tol = await self._read_geotech_snap_tolerance_m(project_id)
+        min_thickness_m = await read_geotech_min_thickness_m(self._session, project_id)
         geo_surfaces = await self._load_geo_surfaces_with_formation(litho_model.parent_model_id)
         boundary_sampler = self._make_boundary_sampler(geo_surfaces)
         lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
@@ -1872,6 +1978,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     geo_base_m=geo_base,
                     litho_layer_top_m=None if unit_layer is None else unit_layer[1],
                     litho_layer_base_m=None if unit_layer is None else unit_layer[2],
+                    min_thickness_m=min_thickness_m,
                     cpt_segs=unit_cpt_segs,
                     litho_abs_min_class=litho_abs_min_class,
                     geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
@@ -3057,6 +3164,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         geo_base_m: float,
         litho_layer_top_m: float | None = None,
         litho_layer_base_m: float | None = None,
+        min_thickness_m: float = DEFAULT_MIN_THICKNESS_M,
         cpt_segs: list[BodyLayerPick],
         litho_abs_min_class: int,
         geotech_layer_by_inv_depth: dict[
@@ -3257,6 +3365,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             body_min_class=body_min_class,
             litho_abs_min_class=litho_abs_min_class,
         )
+        # Owner, 2026-08-17: "just respect minimum thickness and the cpt bands".
+        # Rescaling a donor onto a thinner unit compresses its structure, and a
+        # 0.465 m tail cannot hold the seven sub-bands his B5 received.
+        fill_bands = coarsen_to_minimum_thickness(fill_bands, minimum_thickness_m=min_thickness_m)
+
         # The layer answered once; this slice takes its own window out of it.
         if (derive_top_m, derive_base_m) != (geo_top_m, geo_base_m):
             fill_bands = clip_bands_to_slice(fill_bands, geo_top_m, geo_base_m)
@@ -3331,6 +3444,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             section_placements=section_placements,
             accepted_ties=accepted_ties,
         )
+        if tied is not None:
+            # The minimum applies to the TIE path too — same reason, same rule.
+            # Correspondences ride along per band, so they are carried by the
+            # index of the band that survives each merge.
+            coarsened = coarsen_to_minimum_thickness(
+                tied.bands, minimum_thickness_m=min_thickness_m
+            )
+            if len(coarsened) != len(tied.bands):
+                kept_correspondences = [
+                    tuple(
+                        dict.fromkeys(
+                            item
+                            for band, correspondence in zip(tied.bands, tied.correspondences)
+                            if band.top >= survivor.top - _DEPTH_TOL_M
+                            and band.base <= survivor.base + _DEPTH_TOL_M
+                            for item in correspondence
+                        )
+                    )
+                    for survivor in coarsened
+                ]
+                tied = replace(tied, bands=coarsened, correspondences=kept_correspondences)
+
         if tied is not None and (derive_top_m, derive_base_m) != (geo_top_m, geo_base_m):
             kept = [
                 (
