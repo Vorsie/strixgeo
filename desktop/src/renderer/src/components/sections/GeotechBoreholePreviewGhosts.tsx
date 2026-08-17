@@ -124,6 +124,7 @@ const PROVENANCE_PROSE: Readonly<Record<string, string>> = {
   cpt_interpolated: 'interpolated from the surrounding CPTs',
   body_min: 'weakest class seen in this body (no CPT resolves this depth)',
   absolute_min: 'lithology floor (no CPT evidence in this body)',
+  column_min: 'loosest class this column measured for that soil (not read here)',
 }
 
 /** `5 m left` / `624 m right` / `256 m` (fallback has no side to name). */
