@@ -22,6 +22,11 @@ from uuid6 import uuid7
 
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.domain.services.geotech_edge_crossing_guard import (
+    GapTie,
+    crossing_partners,
+    gap_key,
+)
 from groundmodel.domain.services.litho_body_guard import shares_litho_body
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -33,7 +38,10 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
-from groundmodel.shared.exceptions import CrossLithoBodyCorrelationError
+from groundmodel.shared.exceptions import (
+    CrossingCorrelationError,
+    CrossLithoBodyCorrelationError,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Containment tolerance for matching a geotech band's depth range to the
@@ -274,6 +282,30 @@ class CorrelateLithoContacts(GroundModelLogger):
                     f"bodies={sorted(litho_bodies_of.get(str(cb.id), set()))!r}"
                 )
                 raise CrossLithoBodyCorrelationError(band_a=band_a, band_b=band_b)
+
+            # -------------------------------------------------------------- #
+            # 4c. Geotech-only crossing guard.                                 #
+            #     Owner ruling 2026-08-17: "ties shouldn't be able to cross    #
+            #     ... when someone tries to draw a crossing tie, send a toast  #
+            #     and reject the tie". A crossing is a hard conflict — the     #
+            #     renderer suspends BOTH ties and neither side bands — so a    #
+            #     crossing that lands silently kills the fill on that gap.     #
+            # -------------------------------------------------------------- #
+            crossed = await self._crossing_tie_description(
+                model_id=model_id,
+                section_id=request_section_id,
+                a_id=ca.id,
+                a_side=layer_a_side,
+                b_id=cb.id,
+                b_side=layer_b_side,
+            )
+            if crossed is not None:
+                self.warning(
+                    f"CorrelateLithoContacts: crossing packing correlation blocked — "
+                    f"candidate {ca.id}({layer_a_side}) ↔ {cb.id}({layer_b_side}) "
+                    f"crosses {crossed}"
+                )
+                raise CrossingCorrelationError(crossed)
 
         # ------------------------------------------------------------------ #
         # 5. Canonical ordering: (min, max), sides paired with their ids.      #
@@ -637,6 +669,114 @@ class CorrelateLithoContacts(GroundModelLogger):
             # wrapper — dropping the unit's own body would empty legit sets.
             return None
         return str(above_unit.body_id)
+
+    async def _crossing_tie_description(
+        self,
+        *,
+        model_id: UUID,
+        section_id: UUID | None,
+        a_id: UUID,
+        a_side: str,
+        b_id: UUID,
+        b_side: str,
+    ) -> str | None:
+        """Name the standing tie a candidate would cross, or ``None`` if free.
+
+        Owner ruling, 2026-08-17: *"When someone tries to draw a crossing tie,
+        send a toast and reject the tie"*.
+
+        Shares its arithmetic with the derivation's emit-time guard
+        (:func:`~groundmodel.domain.services.geotech_edge_crossing_guard.ties_cross`)
+        so the hand and the machine cannot disagree about what crossing means.
+        Depth below collar, not elevation: both differences the test takes are
+        WITHIN one column, so the sign flip cancels.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The geotech model.
+        section_id : UUID | None
+            The section the gesture was made on.  Correlations are
+            section-scoped, so only ties on the same section can be crossed.
+        a_id, b_id : UUID
+            The two bands the gesture joins.
+        a_side, b_side : str
+            ``'top'`` or ``'base'`` — which surface of each band, resolved into
+            a depth here.
+
+        Returns
+        -------
+        str | None
+            The blocking tie in the engineer's own vocabulary — column names and
+            depths, never a database id, because *"i can't rule, unclear for me
+            which tests"* was his verdict on the id-bearing warning.  ``None``
+            when nothing is crossed.
+        """
+        candidate_home = await self._band_home(a_id, a_side)
+        partner_home = await self._band_home(b_id, b_side)
+        if candidate_home is None or partner_home is None:
+            return None
+        (inv_a, depth_a), (inv_b, depth_b) = candidate_home, partner_home
+        if inv_a == inv_b:
+            return None  # spans no gap, so it crosses nothing
+        gap = gap_key(inv_a, inv_b)
+        first, second = (depth_a, depth_b) if gap[0] == inv_a else (depth_b, depth_a)
+        candidate = GapTie(
+            depth_first_m=first,
+            depth_second_m=second,
+            accepted=True,
+            layer_first_id=str(a_id),
+            layer_second_id=str(b_id),
+        )
+
+        stmt = select(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == model_id
+        )
+        if section_id is not None:
+            stmt = stmt.where(LithoContactCorrelationEdgeOrm.section_id == section_id)
+        for edge in (await self._session.execute(stmt)).scalars():
+            home_a = await self._band_home(edge.layer_a_id, edge.layer_a_side)
+            home_b = await self._band_home(edge.layer_b_id, edge.layer_b_side)
+            if home_a is None or home_b is None:
+                continue
+            if gap_key(home_a[0], home_b[0]) != gap:
+                continue
+            standing_first, standing_second = (
+                (home_a[1], home_b[1]) if gap[0] == home_a[0] else (home_b[1], home_a[1])
+            )
+            standing = GapTie(
+                depth_first_m=standing_first,
+                depth_second_m=standing_second,
+                accepted=True,
+                layer_first_id=str(edge.layer_a_id),
+                layer_second_id=str(edge.layer_b_id),
+            )
+            if not crossing_partners([standing], candidate):
+                continue
+            name_a = await self._investigation_name(home_a[0])
+            name_b = await self._investigation_name(home_b[0])
+            return f"{name_a} at {home_a[1]:.2f} m to {name_b} at {home_b[1]:.2f} m"
+        return None
+
+    async def _band_home(self, band_id: UUID, side: str) -> tuple[str, float] | None:
+        """The column a band sits on, and the depth of the surface named by ``side``."""
+        band = await self._session.get(LithoLayerOrm, band_id)
+        if band is None:
+            return None
+        investigation = band.cpt_id or band.borehole_id
+        if investigation is None:
+            return None
+        depth = band.depth_top_m if side == "top" else band.depth_base_m
+        return str(investigation), float(depth)
+
+    async def _investigation_name(self, investigation_id: str) -> str:
+        """The column's name as the engineer reads it on the section."""
+        as_uuid = UUID(investigation_id)
+        cpt = await self._session.get(CptOrm, as_uuid)
+        if cpt is not None:
+            return cpt.name
+        borehole = await self._session.get(BoreholeOrm, as_uuid)
+        return borehole.name if borehole is not None else investigation_id
 
     async def _describe_geotech_band(self, contact_id: UUID) -> str:
         """Name a geotech band for the refusal toast: formation @ investigation.
