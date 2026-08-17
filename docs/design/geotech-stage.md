@@ -987,18 +987,42 @@ class: *"wouldn't have been easier to just take the least dense packing on the
 column for the fallback. That's where you wouldn't have the loose end with a
 medium scent instead."*
 
-**A slice the donor rule cannot answer takes the lithology floor, not a
-borrowed class.**  Packing density feeds strength, so the unsafe direction is
-denser: a loose end must read loose.  The floor is
-``loosest_class_for(soil, admixtures)`` — the NAD table's weakest class for
-that soil AND its variant (audit F19), which is at least as conservative as the
-loosest class observed nearby.  It is stamped ``absolute_min`` / ``low``.
+**A slice the donor rule cannot answer takes a floor, not a borrowed class**
+— borrowing the neighbouring band's class dresses an unmeasured interval as
+whatever sat next to it, which on a sliver above medium dense sand read medium
+dense.  Which floor, he then corrected the same day:
+
+> *"when the fallback fires, there is already a sand beneath it that does have
+> a higher NAD class.  So we take that NAD class as the lowest on the column
+> ... the upper bands which fall back to the lowest class will get medium
+> instead of loose."*
+
+So the ladder has two rungs (``apply_column_floor``):
+
+1. **The loosest class the COLUMN measured for that soil** (``column_min``).
+   The NAD table's floor is not the conservative answer, it is a fictional one:
+   a LOOSE sand band dropped into a column whose every measured sand reads
+   medium dense or better is a layer the site shows nowhere on that column, and
+   inventing one can drive a design on data that does not exist.
+2. **The table floor** ``loosest_class_for(soil, admixtures)`` — variant-aware
+   per audit F19 — only where the column measured none of that soil
+   (``absolute_min``).  On the live model that is mostly peat, which no CPT
+   reads.
+
+Both stay at ``low`` confidence: the interval was not read, and the badge must
+keep saying so.  The pass raises only, never lowers, so a standing sub-minimum
+sliver (his ruling of 2026-08-11) keeps its own conservative value.  It runs
+after the donor rule across ALL of a borehole's segments, because the measured
+sand that sets a sliver's floor is usually in a different body group from the
+sliver.
 
 A short-lived "inherit the class from another slice of the same layer" pass
 existed on 2026-08-16 and was **deleted the same day**.  Do not rebuild it: it
-dressed an unmeasured interval as medium dense.  On the live model the ladder
-now reads 138 donor-backed bands and 27 at the floor, with the middle rung
-(``body_min``, weakest observed in the body) firing zero times.
+took the NEIGHBOURING class, which can be denser than anything the column
+measured, where ``column_min`` takes the loosest and is bounded by the column's
+own evidence.  On the live model the ladder reads 138 donor-backed bands, 5 at
+``column_min`` and 22 at the table floor; ``body_min`` (weakest observed in the
+BODY, across columns) fires zero times.
 
 **Owner ruling, dogfeed of §6:** *the borehole's packing must come from the CPT
 to the right and to the left on the cross section.*
