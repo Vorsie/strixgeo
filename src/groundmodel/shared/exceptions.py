@@ -180,6 +180,40 @@ class CrossLithoBodyCorrelationError(GroundModelError):
         )
 
 
+class CrossingCorrelationError(GroundModelError):
+    """Raised when a packing correlation would cross another tie in its gap.
+
+    Owner ruling, 2026-08-17: *"Ties shouldn't be able to cross ... When someone
+    tries to draw a crossing tie, send a toast and reject the tie?"*
+
+    A crossing is a HARD CONFLICT by his §8 Q4 ruling: the renderer suspends
+    BOTH ties and neither side bands.  So a crossing that lands does not merely
+    look wrong — it silently kills the fill on that gap, and the engineer finds
+    out later with no idea which gesture caused it.  Refusing at the write is
+    the only moment he still has the gesture in mind.
+
+    The message names the COLUMNS and DEPTHS of the tie that is in the way,
+    never a database id: his verdict on the existing crossing warning was *"i
+    can't rule, unclear for me which tests, don't see gap numbers in the app"*.
+
+    The router maps this exception to HTTP 422 (Unprocessable Entity).
+    """
+
+    def __init__(self, standing: str) -> None:
+        """Initialise, naming the tie the gesture would have crossed.
+
+        Parameters
+        ----------
+        standing : str
+            The tie in the way, in the engineer's own vocabulary, e.g.
+            ``"GEO-23/125-S9 at 8.10 m to 1411-GEO-23/126-B3 at 9.00 m"``.
+        """
+        super().__init__(
+            f"This tie would cross the existing tie {standing} — two ties that cross "
+            "leave both bands unfilled, so redraw one of them first"
+        )
+
+
 class DemExtentRefusedError(GroundModelError):
     """Raised when a DEM tile request's extent cannot be a real place.
 
