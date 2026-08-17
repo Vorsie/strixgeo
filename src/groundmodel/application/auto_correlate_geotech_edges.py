@@ -61,6 +61,7 @@ from groundmodel.application.geotech_edge_derivation import (
     load_litho_layer_depths,
     load_project_sections,
 )
+from groundmodel.application.geotech_tie_tombstones import build_tombstone_gates
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import AUTO_SOURCE
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -229,6 +230,10 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         accepted_sided_by_section = await load_accepted_geotech_sided_edges_by_section(
             self._session, model_id
         )
+        # The engineer's deleted ties, per section — consulted at the emit
+        # gate so a deletion stays deleted (owner 2026-08-17). Empty dict in
+        # the ordinary never-deleted case.
+        tombstone_gates = await build_tombstone_gates(self._session, model_id, project_id)
         self.debug(
             f"AutoCorrelateGeotechEdges: preloaded existing edges on "
             f"{len(seen_pairs_by_section)} section(s) — these are left untouched"
@@ -288,6 +293,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     seen_sided_edges=seen_sided_by_section.setdefault(section.id, set()),
                     existing_accepted_sided_edges=accepted_sided_by_section.get(section.id, set()),
                     source=AUTO_SOURCE,
+                    tie_tombstoned=tombstone_gates.get(section.id),
                 )
             )
 
