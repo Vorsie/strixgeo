@@ -709,6 +709,32 @@ def apply_column_floor(
     return out
 
 
+def band_may_carry_a_hop(source: str) -> bool:
+    """Whether a band's provenance justifies a correlation to another column.
+
+    Owner, 2026-08-17: *"those hops are then from the fallbacks? Don't hop
+    those? The ties from the litho are good, your hops are the issue."*
+
+    A hop claims two bands are the same packing surface.  A band the donor rule
+    could not answer has no partner — its class comes from its own column's
+    other bands, or from the NAD table — so a correlation drawn from it dresses
+    a guess as a correspondence, and the fill then bands that guess laterally.
+    On his B4 that grew a dense sheet across the gap that nobody drew.
+
+    Parameters
+    ----------
+    source : str
+        The band's provenance tag.
+
+    Returns
+    -------
+    bool
+        ``True`` only for a band a flanking column actually resolved.  Default
+        closed: an unrecognised tag may not claim a correspondence either.
+    """
+    return source == "cpt_interpolated"
+
+
 def clip_bands_to_slice(
     bands: Sequence[FillBand], slice_top_m: float, slice_base_m: float
 ) -> list[FillBand]:
@@ -774,26 +800,22 @@ def flank_pick_for_unit(
     Returns
     -------
     BodyLayerPick | None
-        The overlapping interval, the largest overlap winning; the nearest
-        interval when none overlaps; ``None`` when the column has no layer in
-        this body at all.
+        The overlapping interval, the largest overlap winning.  ``None`` when
+        nothing overlaps — an interval that shares no elevation with the unit is
+        not the same sheet, and answering "nearest" here let a guess be treated
+        as evidence: the owner's B4 took its structure, and a correlation, from
+        a sand 4 m deeper (2026-08-17).  With no donor the unit falls to the
+        column floor, which is one band at the loosest class the column
+        measured.
     """
     best: BodyLayerPick | None = None
     best_overlap = 0.0
-    best_gap = float("inf")
     for pick in picks:
         top = pick.surface_elev_m - pick.top_depth_m
         base = pick.surface_elev_m - pick.base_depth_m
         overlap = min(top, unit_top_elev_m) - max(base, unit_base_elev_m)
         if overlap > best_overlap:
             best, best_overlap = pick, overlap
-            continue
-        if best_overlap > 0.0:
-            continue
-        # Nothing has overlapped yet: keep the nearest as the fallback.
-        gap = max(base - unit_top_elev_m, unit_base_elev_m - top, 0.0)
-        if gap < best_gap:
-            best, best_gap = pick, gap
     return best
 
 
@@ -4015,7 +4037,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             # read along. Collected here rather than re-derived later because
             # re-deriving it per gap is exactly what used to produce two
             # incompatible answers either side of the same borehole.
-            if band.section_id is not None:
+            if band.section_id is not None and band_may_carry_a_hop(band.source):
                 section_uuid = UUID(band.section_id)
                 for donor_layer_id in band.donor_layer_ids:
                     donor_hops.append(
