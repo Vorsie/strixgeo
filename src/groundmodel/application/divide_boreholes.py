@@ -486,11 +486,11 @@ def layer_donor_picks(
     member of its group.
 
     So the LAYER names its donors: the columns its correlations point at, else
-    the columns sharing its body.  Two constraints are hard.  A donor must be
+    the columns sharing its body.  Three constraints are hard.  A donor must be
     the SAME SOIL — his litho ties may legitimately cross facies, but a packing
     class belongs to a soil column, and a silt donor on a sand layer would put
-    a SILT class inside a ZAND unit (Data Integrity Rule 3).  And a donor must
-    be close enough to be evidence at all.
+    a SILT class inside a ZAND unit (Data Integrity Rule 3).  A donor must
+    FLANK the borehole on a section.  And elevation picks the sheet.
 
     Parameters
     ----------
@@ -509,16 +509,16 @@ def layer_donor_picks(
     layer_top_elev_m, layer_base_elev_m : float
         The borehole layer's extent in elevation, top above base.
     flanking_investigations : set[str]
-        Accepted for the caller's bookkeeping and deliberately NOT used as a
-        filter.  Owner ruling, 2026-08-17: *"donor reach is obsolete, only left
-        and right test on section can be donor"* — which
-        ``select_flank_donors`` already implements downstream, picking the
-        nearest candidate each side.  Filtering the POOL to the geometrically
-        adjacent tests instead was measured on his model and starves it: the
-        flanking test usually does not carry the unit's soil, and donor-backed
-        bands fell from 118 to 37 with two thirds of the model dropping to a
-        floor. So the pool stays "every column carrying this soil in this body"
-        and the flanking rule chooses between them.
+        The columns immediately left and right of the borehole, on every
+        section it appears on — and this IS the donor gate for both candidate
+        sets.  Owner ruling, given twice: *"only left and right test on
+        section can be donor"* (2026-08-17 midday), and — after the pool was
+        kept wide because filtering measured as starving the model
+        (donor-backed bands 118 → 37) — *"the sand on B4 has no neighbours so
+        it should default to the lowest packing class on B4"* (2026-08-17
+        night, when that wide pool donated from 623 m away).  The starvation
+        trade-off was his to make and he made it: an honest conservative
+        floor beats a confident answer from a test that is nowhere near.
 
     Returns
     -------
@@ -529,6 +529,11 @@ def layer_donor_picks(
     by_investigation: dict[str, list[BodyLayerPick]] = defaultdict(list)
     tied_columns: set[str] = set()
     for pick in correlated:
+        if pick.investigation_id not in flanking_investigations:
+            # A tie is a correlation, not a licence past the flank rule —
+            # B4's sand borrowed from a tied test 623 m away the night this
+            # gate was missing, and the owner chose the floor over it.
+            continue
         if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
             continue
         by_investigation[pick.investigation_id].append(pick)
@@ -537,6 +542,8 @@ def layer_donor_picks(
         # The tie already said WHICH of that column's layers this one
         # continues; the body must not offer a second.
         if pick.investigation_id in tied_columns:
+            continue
+        if pick.investigation_id not in flanking_investigations:
             continue
         if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
             continue
