@@ -54,14 +54,41 @@ def test_mt1_his_b5_tail_becomes_one_band_at_the_loosest_class() -> None:
     ) == [(18.035, 18.5, _MD)]
 
 
-def test_mt2_a_sliver_beside_a_real_band_is_absorbed_into_it() -> None:
-    """Below the minimum it was never a band, so the neighbour keeps its class.
+def test_mt2_a_hairline_beside_a_thick_band_still_merges() -> None:
+    """5 cm is not a band the compression thinned, it is an artefact.
 
-    A 5 cm loose lens inside 2 m of very dense sand is under the model's
-    resolution; reporting 2 m of loose sand because of it would be the tail
-    wagging the dog.
+    Growing it to 0.35 m would invent seven times the thickness it was measured
+    over. It merges, and the survivor takes the LOOSEST class.
     """
-    assert _out([_band(0.0, 0.05, _MD), _band(0.05, 2.05, _VD)]) == [(0.0, 2.05, _VD)]
+    assert _out([_band(0.0, 0.05, _MD), _band(0.05, 2.05, _VD)]) == [(0.0, 2.05, _MD)]
+
+
+def test_mt2b_his_b4_basal_clay_keeps_its_mf_top() -> None:
+    """A band the compression thinned GROWS instead of vanishing.
+
+    Owner, 2026-08-17: *"the basal clay in b4 doesn't get a mf top while all
+    columns around have this"*.  S6 and S13 both read KLEI 22 over KLEI 23; B4's
+    mapped MF top was 0.22 m against a 0.35 m minimum, and the first version of
+    this rule absorbed it into the 1.28 m FF band below, so the borehole lost a
+    layer both its neighbours have.
+
+    0.22 m is over half the minimum — substantially a band — and the unit has
+    room for both, so the FF band gives 0.13 m and both stand.
+    """
+    assert _out([_band(15.5, 15.72, 22), _band(15.72, 17.0, 23)]) == [
+        (15.5, 15.85, 22),
+        (15.85, 17.0, 23),
+    ]
+
+
+def test_mt2c_a_neighbour_with_no_spare_absorbs_instead() -> None:
+    """Growing may not push the neighbour below the minimum in its turn.
+
+    0.05 + 0.5: giving 0.30 m away would leave 0.20 m, so the pair merges and
+    the survivor takes the LOOSEST class (his 2026-08-11 ruling — absorbing may
+    never silently make a band denser).
+    """
+    assert _out([_band(0.0, 0.05, _VD), _band(0.05, 0.55, _MD)]) == [(0.0, 0.55, _MD)]
 
 
 def test_mt3_bands_that_all_stand_are_untouched() -> None:
