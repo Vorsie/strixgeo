@@ -102,6 +102,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.geotech_band_edit_helpers import _parse_admixtures
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.geotech_crossing_sweep import sweep_crossing_ties
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
     bridge_edges_over_bandless_columns,
@@ -1325,6 +1326,12 @@ class DivideBoreholeResult:
         Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain
         now carries the same connection (owner ruling 2026-08-14: the chain
         REPLACES the jump tie — hand-drawn or machine, accepted or pending).
+    crossing_tie_count : int
+        MACHINE ties deleted because they crossed another tie in the same gap
+        (owner ruling 2026-08-17: *"ties shouldn't be able to cross"*).  Legacy
+        rows from an older derivation: the guard refuses a crossing candidate at
+        emit time, so nothing this pass writes can add to this count.  Hand-drawn
+        ties are never deleted — *"user made ties should be left alone"*.
     """
 
     geotech_model_id: UUID
@@ -1338,6 +1345,7 @@ class DivideBoreholeResult:
     lost_tie_reasons: dict[str, int] = field(default_factory=dict)
     lost_tie_labels: list[str] = field(default_factory=list)
     superseded_jump_tie_count: int = 0
+    crossing_tie_count: int = 0
 
 
 class DivideBoreholes(GeotechBoreholeMaterialiser):
@@ -2976,6 +2984,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 "re-derived from the litho model"
             )
 
+        # Legacy crossings the guard cannot reach: it refuses new candidates,
+        # while the re-anchor carries stored ties across every rebuild. Owner
+        # 2026-08-17 — "ties shouldn't be able to cross"; hand-drawn ties are
+        # never candidates ("user made ties should be left alone").
+        crossing_dropped = await sweep_crossing_ties(self._session, self, geotech_model_id)
+
         await self._session.flush()
         await self._session.commit()
 
@@ -2995,6 +3009,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             # longer re-expresses anything as a hop, so there is no second
             # source of deletions to report.
             superseded_jump_tie_count=len(superseded_edge_ids),
+            crossing_tie_count=crossing_dropped,
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model_id} "
