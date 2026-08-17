@@ -103,6 +103,7 @@ beforeEach(async () => {
   ;(globalThis as unknown as { window: { electron: unknown } }).window.electron = {
     showProjectOpenDialog: vi.fn(),
     showProjectSaveDialog: vi.fn(),
+    projectFileExists: vi.fn().mockResolvedValue(true),
     readProjectFile: vi.fn(),
     writeProjectFile: vi.fn().mockResolvedValue(undefined),
     addRecentProject: vi.fn().mockResolvedValue([]),
