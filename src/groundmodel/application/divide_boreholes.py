@@ -105,6 +105,7 @@ from groundmodel.application.geotech_borehole_materialiser import GeotechBorehol
 from groundmodel.application.geotech_crossing_sweep import sweep_crossing_ties
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
+    band_at_contact,
     bridge_edges_over_bandless_columns,
     derive_geotech_edges_from_litho,
     load_accepted_geotech_sided_edges_by_section,
@@ -170,6 +171,11 @@ from groundmodel.domain.services.geotech_edge_dedup import (
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     superseded_jump_tie_ids,
 )
+from groundmodel.domain.services.geotech_span_splitting import (
+    SpanColumn,
+    SpanTie,
+    split_span,
+)
 from groundmodel.domain.services.geotech_tie_donors import (
     AcceptedTie,
     select_tie_informed_donors,
@@ -188,6 +194,7 @@ from groundmodel.domain.services.litho_geo_bounding import (
 from groundmodel.domain.services.nad_classifier import loosest_class_for
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -1334,6 +1341,11 @@ class DivideBoreholeResult:
         Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain
         now carries the same connection (owner ruling 2026-08-14: the chain
         REPLACES the jump tie — hand-drawn or machine, accepted or pending).
+    replaced_span_count : int
+        Accepted ties spanning columns that NOW have data at the line, replaced
+        by chains landing on those columns' nearest contacts (owner ruling
+        2026-08-17 night). Sub-TD spans are kept — there the span is the only
+        way the statement can be made.
     crossing_tie_count : int
         MACHINE ties deleted because they crossed another tie in the same gap
         (owner ruling 2026-08-17: *"ties shouldn't be able to cross"*).  Legacy
@@ -1354,6 +1366,7 @@ class DivideBoreholeResult:
     lost_tie_labels: list[str] = field(default_factory=list)
     superseded_jump_tie_count: int = 0
     crossing_tie_count: int = 0
+    replaced_span_count: int = 0
 
 
 class DivideBoreholes(GeotechBoreholeMaterialiser):
@@ -2223,6 +2236,196 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             borehole_names=borehole_names,
         )
 
+    async def _split_spanning_ties(self, *, geotech_model_id: UUID, project_id: UUID) -> int:
+        """Split accepted spanning ties at every column with data at the line.
+
+        The application half of
+        :func:`~groundmodel.domain.services.geotech_span_splitting.split_span`
+        — load, judge, write the chain, delete the span, report.  Runs after
+        Phase 8.5 has written the borehole bands and BEFORE the dedup and the
+        crossing sweep, so both passes judge the post-split model.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotech model just divided.
+        project_id : UUID
+            Its project — the section placements live per project.
+
+        Returns
+        -------
+        int
+            How many spanning ties were replaced by chains.  0 in the ordinary
+            no-spans case.
+        """
+        await self._session.flush()
+        band_rows = (
+            await self._session.execute(
+                select(
+                    LithoLayerOrm.id,
+                    LithoLayerOrm.cpt_id,
+                    LithoLayerOrm.borehole_id,
+                    LithoLayerOrm.depth_top_m,
+                    LithoLayerOrm.depth_base_m,
+                ).where(LithoLayerOrm.model_id == geotech_model_id)
+            )
+        ).all()
+        stacks: dict[str, list[tuple[float, float, UUID]]] = defaultdict(list)
+        for row in band_rows:
+            stacks[str(row.cpt_id or row.borehole_id)].append(
+                (row.depth_top_m, row.depth_base_m, row.id)
+            )
+        for stack in stacks.values():
+            stack.sort()
+
+        placements = await self._load_section_placements(project_id)
+        placement_by_section = {UUID(pl.section_id): pl for pl in placements}
+        collar_rows = (
+            await self._session.execute(
+                select(CptOrm.id, CptOrm.elevation_m).where(CptOrm.app_project_id == project_id)
+            )
+        ).all()
+        bh_rows = (
+            await self._session.execute(
+                select(BoreholeOrm.id, BoreholeOrm.elevation_m).where(
+                    BoreholeOrm.app_project_id == project_id
+                )
+            )
+        ).all()
+        collars = {
+            str(row.id): row.elevation_m
+            for row in [*collar_rows, *bh_rows]
+            if row.elevation_m is not None
+        }
+
+        # ALL edges, not accepted-only: the dedup registry below must know the
+        # PENDING rows too, or a chain piece collides with a machine proposal
+        # already occupying the same (pair, sides) slot at the flush.
+        all_edges = (
+            (
+                await self._session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        edges = [edge for edge in all_edges if edge.user_approved]
+        band_home = {
+            str(band_id): (inv, top, base)
+            for inv, stack in stacks.items()
+            for top, base, band_id in stack
+        }
+        existing_sided: set[tuple[UUID, UUID, str, str]] = set()
+        for edge in all_edges:
+            a, b = edge.layer_a_id, edge.layer_b_id
+            existing_sided.add(
+                (a, b, edge.layer_a_side, edge.layer_b_side)
+                if a < b
+                else (b, a, edge.layer_b_side, edge.layer_a_side)
+            )
+
+        def node_to_surface(inv: str, depth: float) -> tuple[UUID, str] | None:
+            """The (band, side) owning a contact depth on a column."""
+            resolved = band_at_contact(
+                [(top, base, band_id) for top, base, band_id in stacks.get(inv, [])], depth
+            )
+            return resolved
+
+        replaced = 0
+        pieces_created = 0
+        doomed_spans: list[UUID] = []
+        for edge in edges:
+            home_a = band_home.get(str(edge.layer_a_id))
+            home_b = band_home.get(str(edge.layer_b_id))
+            if home_a is None or home_b is None:
+                continue
+            placement = placement_by_section.get(edge.section_id)
+            if placement is None:
+                continue
+            depth_a = home_a[1] if edge.layer_a_side == "top" else home_a[2]
+            depth_b = home_b[1] if edge.layer_b_side == "top" else home_b[2]
+            columns = [
+                SpanColumn(
+                    investigation_id=inv,
+                    along_m=along,
+                    collar_elev_m=collars.get(inv, 0.0),
+                    contacts_m=tuple(
+                        sorted(
+                            {top for top, _b, _i in stacks.get(inv, [])}
+                            | ({max(b for _t, b, _i in stacks[inv])} if stacks.get(inv) else set())
+                        )
+                    ),
+                    deepest_base_m=(
+                        max(b for _t, b, _i in stacks[inv]) if stacks.get(inv) else None
+                    ),
+                )
+                for inv, along in placement.along_m.items()
+                if inv in collars or inv in (home_a[0], home_b[0])
+            ]
+            plan = split_span(
+                SpanTie(
+                    edge_id=edge.id,
+                    inv_a=home_a[0],
+                    depth_a_m=depth_a,
+                    inv_b=home_b[0],
+                    depth_b_m=depth_b,
+                ),
+                columns,
+            )
+            if plan is None:
+                continue
+            surfaces = [node_to_surface(node.investigation_id, node.depth_m) for node in plan]
+            if any(surface is None for surface in surfaces):
+                # A landing that resolves to no real contact would leave a hole
+                # in the chain — keep the span rather than lose the statement.
+                self.warning(
+                    f"DivideBoreholes: span {edge.id} not split — a landing "
+                    f"resolved to no contact; the span stands"
+                )
+                continue
+            for (band_a, side_a), (band_b, side_b) in zip(surfaces, surfaces[1:]):
+                if band_a == band_b:
+                    continue  # both nodes inside one band — nothing to state
+                key = (
+                    (band_a, band_b, side_a, side_b)
+                    if band_a < band_b
+                    else (band_b, band_a, side_b, side_a)
+                )
+                if key in existing_sided:
+                    continue  # the chain piece already exists — one row per statement
+                existing_sided.add(key)
+                self._session.add(
+                    LithoContactCorrelationEdgeOrm(
+                        id=uuid7(),
+                        model_id=geotech_model_id,
+                        section_id=edge.section_id,
+                        layer_a_id=key[0],
+                        layer_b_id=key[1],
+                        layer_a_side=key[2],
+                        layer_b_side=key[3],
+                        source="auto",
+                        user_approved=True,
+                    )
+                )
+                pieces_created += 1
+            doomed_spans.append(edge.id)
+            replaced += 1
+
+        if doomed_spans:
+            await self._session.execute(
+                delete(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.id.in_(doomed_spans)
+                )
+            )
+            self.info(
+                f"DivideBoreholes: Phase 8.6 — {replaced} spanning tie(s) replaced by "
+                f"{pieces_created} chain piece(s) at columns with data; sub-TD spans kept"
+            )
+        return replaced
+
     async def _load_section_placements(self, project_id: UUID) -> list[SectionPlacement]:
         """Load every section's along-positions once, for the flanking rule.
 
@@ -2843,6 +3046,26 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"skipped_no_lcs={edge_totals.skipped_no_lcs})"
         )
 
+        # ------------------------------------------------------------------ #
+        # Phase 8.6 — split spanning ties at the columns that now have data.  #
+        #                                                                      #
+        # Owner rulings, 2026-08-17 night: "The ties i manually made spanning  #
+        # both boreholes aren't replaced by hops but never deleted. You can    #
+        # delete user correlations spanning 2 boreholes. If the borehole has   #
+        # data, otherwise it is a subTD tie."  A tie is a straight line in     #
+        # (along, elevation) space; at every intermediate column whose bands   #
+        # reach the line, it lands on the nearest packing contact and          #
+        # continues — the chain this verb was always expected to leave behind. #
+        # Sub-TD stretches keep their span: there the span is the only way     #
+        # the statement can be made.  The pieces are born ACCEPTED (they       #
+        # re-express a correlation that was already accepted) and machine-     #
+        # owned (source='auto'); the original span is deleted, no tombstone —  #
+        # this is the model's housekeeping, not his judgement.                 #
+        # ------------------------------------------------------------------ #
+        replaced_span_count = await self._split_spanning_ties(
+            geotech_model_id=geotech_model_id, project_id=project_id
+        )
+
         # Re-run the resolver over the geotech model so body_id spans the newly
         # connected borehole chains. This is what fixes an orphan borehole band
         # (body_id NULL because no same-class CPT sat in its group) — once it is
@@ -3023,6 +3246,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             # source of deletions to report.
             superseded_jump_tie_count=len(superseded_edge_ids),
             crossing_tie_count=crossing_dropped,
+            replaced_span_count=replaced_span_count,
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model_id} "
