@@ -159,6 +159,7 @@ from groundmodel.application.geotech_tie_reanchor import (
     GeotechTieReanchor,
     rebuilt_bands_from_layer_index,
 )
+from groundmodel.application.geotech_tie_tombstones import build_tombstone_gates
 from groundmodel.application.geotech_view_state import read_geotech_min_thickness_m
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
@@ -980,6 +981,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             accepted_sided_by_section = await load_accepted_geotech_sided_edges_by_section(
                 self._session, geotech_model.id
             )
+            # The engineer's deleted ties, per section — consulted at the emit
+            # gate so a deletion stays deleted (owner 2026-08-17). Empty dict
+            # in the ordinary never-deleted case.
+            tombstone_gates = await build_tombstone_gates(
+                self._session, geotech_model.id, project_id
+            )
 
             for section in sections:
                 edge_sets = await load_approved_litho_edge_sets(
@@ -1021,6 +1028,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                         existing_accepted_sided_edges=accepted_sided_by_section.get(
                             section.id, set()
                         ),
+                        tie_tombstoned=tombstone_gates.get(section.id),
                     )
                 )
             self.info(
