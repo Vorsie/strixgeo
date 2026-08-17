@@ -232,7 +232,9 @@ export function useProjectLifecycle({
   // Source type from useProject — `PickAndOpenResult` is the
   // discriminated union the openProjectFile flow returns.
   pickAndOpenProject: () => Promise<PickAndOpenResult>
-  openProjectFile: (path: string) => Promise<unknown>
+  // 'file-missing' = the .strix is no longer at its saved location; the
+  // menu path toasts it (a moved file must not fail into silence).
+  openProjectFile: (path: string) => Promise<ProjectResponse | 'file-missing' | null>
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null
   stageLumping: (lumping: StratigraphyLumping) => void
@@ -680,9 +682,16 @@ export function useProjectLifecycle({
 
   const handleMenuProjectOpenRecent = useCallback(
     async (path: string) => {
-      await openProjectFile(path)
+      const outcome = await openProjectFile(path)
+      // The menu path has no welcome-screen banner, so a moved file would
+      // otherwise fail into silence (the old call ignored the result
+      // entirely). Owner, 2026-08-17: "if user moved it you get a toast,
+      // file not found, did you change it's location".
+      if (outcome === 'file-missing') {
+        toast('error', `Couldn't find the project file at ${path}. Did you move or rename it?`)
+      }
     },
-    [openProjectFile],
+    [openProjectFile, toast],
   )
 
   // File menu Save / Ctrl+S — soft no-op when clean, commit when dirty.
