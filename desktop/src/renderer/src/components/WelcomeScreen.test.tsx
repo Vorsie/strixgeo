@@ -178,7 +178,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('invokes onOpenRecent with the entry path when a row is clicked', async () => {
-    const onOpenRecent = vi.fn().mockResolvedValue(true)
+    const onOpenRecent = vi.fn().mockResolvedValue('opened')
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -194,7 +194,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('shows a banner + refreshes recent when onOpenRecent reports failure', async () => {
-    const onOpenRecent = vi.fn().mockResolvedValue(false)
+    const onOpenRecent = vi.fn().mockResolvedValue('failed')
     // First load returns both entries; the refresh that fires after a
     // failed open returns only the remaining one (Site A removed in main).
     const getRecent = vi
@@ -219,6 +219,31 @@ describe('WelcomeScreen', () => {
     // Stale entry removed after the refresh.
     expect(screen.queryByText('Site A')).not.toBeInTheDocument()
     expect(screen.getByText('Site B')).toBeInTheDocument()
+  })
+
+  it("names the moved file when onOpenRecent reports 'missing'", async () => {
+    // Owner, 2026-08-17: "if user moved it you get a toast, file not found,
+    // did you change it's location". The old catch-all blamed corruption or
+    // the API for a file that had simply been moved — the wrong diagnosis,
+    // pointing the user at the wrong fix.
+    const onOpenRecent = vi.fn().mockResolvedValue('missing')
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={onOpenRecent}
+      />,
+    )
+    const row = await screen.findByText('Site A')
+    fireEvent.click(row)
+    const alert = await screen.findByRole('alert')
+    // The message must carry the three things the user needs: which project,
+    // where the file was expected, and the move question.
+    expect(alert.textContent).toMatch(/Couldn't find the file for "Site A"/)
+    expect(alert.textContent).toContain('C:/projects/site-A.gmproj')
+    expect(alert.textContent).toMatch(/move or rename/i)
+    // And it must NOT blame corruption — that is the other failure's banner.
+    expect(alert.textContent).not.toMatch(/corrupt/i)
   })
 
   it('falls back to an empty list when getRecentProjects rejects', async () => {
