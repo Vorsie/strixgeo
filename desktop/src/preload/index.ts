@@ -60,6 +60,11 @@ contextBridge.exposeInMainWorld('electron', {
   showProjectSaveDialog: (defaultName?: string): Promise<string | null> =>
     ipcRenderer.invoke('project:save-dialog', defaultName),
 
+  // Existence probe for the recents flow — lets a moved file get its own
+  // message instead of the generic open-failed banner.
+  projectFileExists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke('project:file-exists', filePath),
+
   readProjectFile: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('project:read-file', filePath),
 
