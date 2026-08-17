@@ -41,7 +41,7 @@ from uuid import UUID
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -1135,19 +1135,26 @@ async def test_gp13_a_pending_chain_hop_keeps_the_spanning_tie(
     )
     assert pending_run.status_code == 200, pending_run.text
     assert pending_run.json()["superseded_jump_tie_count"] == 0, (
-        "GP13: every chain hop is a pending proposal — nothing carries the "
-        "connection yet, so nothing may be deleted"
+        "GP13: the supersession reads per-hop approval and every hop is "
+        "pending — IT may delete nothing"
     )
-    assert await _edge_exists(db_session, hand_tie), (
-        "GP13: the hand-drawn spanning tie is still the only accepted carrier"
+    assert pending_run.json()["replaced_span_count"] >= 1, (
+        "GP13: Phase 8.6 replaces the span with its own accepted pieces "
+        "instead — the borehole has data at the line"
     )
-
-    # Negative control: accept the chain, ask again, and it is replaced.
-    await _accept_all_ties(async_client, pipeline_scene, geotech_model_id)
-    accepted_run = await async_client.post(divide_url, json={"borehole_ids": []})
-    assert accepted_run.status_code == 200, accepted_run.text
-    assert accepted_run.json()["superseded_jump_tie_count"] >= 1
     assert not await _edge_exists(db_session, hand_tie), (
-        "GP13: with the chain accepted the hand-drawn tie is replaced — "
-        '"just delete all, it\'ll be a real bother to delete all by hand"'
+        "GP13: the span is re-expressed, not preserved"
     )
+    # The approved information survives as ACCEPTED pieces anchored on the
+    # borehole — nothing rides on the pending hops.
+    accepted_count = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(LithoContactCorrelationEdgeOrm)
+            .where(
+                LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id),
+                LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+            )
+        )
+    ).scalar_one()
+    assert accepted_count >= 2, "GP13: the chain pieces landing on the borehole must exist accepted"
