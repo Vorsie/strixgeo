@@ -681,6 +681,7 @@ async def divide_boreholes(
         lost_tie_labels=result.lost_tie_labels,
         superseded_jump_tie_count=result.superseded_jump_tie_count,
         crossing_tie_count=result.crossing_tie_count,
+        replaced_span_count=result.replaced_span_count,
     )
 
 
