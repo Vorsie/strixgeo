@@ -240,9 +240,11 @@ async def test_the_context_loads_only_the_edited_columns_bands(
         "groundmodel.application.geotech_band_edit_helpers.LithoLayerRepository",
         MagicMock(return_value=repo),
     )
+    # The view-state read moved behind the shared geotech reader (2026-08-17),
+    # so the same three callers cannot drift on the minimum-thickness default.
     monkeypatch.setattr(
-        "groundmodel.application.geotech_band_edit_helpers.load_project_view_state",
-        AsyncMock(return_value={}),
+        "groundmodel.application.geotech_band_edit_helpers.read_geotech_min_thickness_m",
+        AsyncMock(return_value=0.35),
     )
 
     context = await load_geotech_column_context(
