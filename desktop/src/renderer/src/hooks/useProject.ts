@@ -159,7 +159,10 @@ export type PickAndOpenResult =
 
 interface UseProjectActions {
   newProject: (metadata: ProjectCreatePayload) => Promise<ProjectResponse | null>
-  openProjectFile: (filePath: string) => Promise<ProjectResponse | null>
+  // 'file-missing' = the .strix is no longer at its saved location (moved or
+  // renamed) — callers surface "did you move it?" instead of the corrupt/API
+  // catch-all (owner, 2026-08-17).
+  openProjectFile: (filePath: string) => Promise<ProjectResponse | 'file-missing' | null>
   pickAndOpenProject: () => Promise<PickAndOpenResult>
   /** Append IDs to the manifest. Called by the import handlers after
    * a successful CPT/borehole import so the new rows become visible
@@ -620,10 +623,21 @@ export function useProject(): UseProject {
   )
 
   const openProjectFile = useCallback(
-    async (path: string): Promise<ProjectResponse | null> => {
+    async (path: string): Promise<ProjectResponse | 'file-missing' | null> => {
       let parsed: ReturnType<typeof parseProjectFile> = null
       let parsedId: string | null = null
       try {
+        // The file IS the anchor — a recents entry whose .strix has been moved
+        // or renamed must say so, not fall through to the catch-all "corrupt or
+        // API unreachable" banner (owner, 2026-08-17: "file not found, did you
+        // change it's location"). Probed explicitly rather than sniffed out of
+        // the read's wrapped IPC error text — the 404-text gate below documents
+        // where that road leads.
+        const exists = await window.electron.projectFileExists(path)
+        if (!exists) {
+          log.warn('project', `openProjectFile(${path}): file not found — moved or renamed?`)
+          return 'file-missing'
+        }
         const raw = await window.electron.readProjectFile(path)
         parsed = parseProjectFile(raw)
         if (parsed === null) {
@@ -741,7 +755,9 @@ export function useProject(): UseProject {
     const path = await window.electron.showProjectOpenDialog()
     if (path === null) return { outcome: 'cancelled' }
     const project = await openProjectFile(path)
-    if (project === null) return { outcome: 'failed', path }
+    // 'file-missing' is unreachable from the OS picker (it only returns files
+    // that exist), so it folds into the ordinary failure outcome.
+    if (project === null || project === 'file-missing') return { outcome: 'failed', path }
     return { outcome: 'opened', project, path }
   }, [openProjectFile])
 
