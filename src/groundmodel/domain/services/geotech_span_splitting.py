@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 __all__ = [
+    "SPAN_LANDING_TOLERANCE_M",
     "SpanColumn",
     "SpanNode",
     "SpanTie",
@@ -42,6 +43,17 @@ __all__ = [
 # at that depth". Millimetre slack only — the judgement is geometric, and the
 # depths on both sides come off the same mm grid.
 _DATA_TOL_M = 0.001
+
+# How far a landing contact may sit from the tie's interpolated line before the
+# column is judged not to EXPRESS the boundary at all. Measured on the owner's
+# live model (2026-08-17 night): every believable chain landed 0.04-0.93 m from
+# the line (B4 0.04, B3 0.11, B6 0.17/0.24, B4 0.41, B9 0.93), while the two
+# wrong ones — his VD ties crossing B2's thick homogeneous sand mid-band — were
+# 1.22 m and 3.28 m from the nearest contact. Landing those would bend his
+# statement onto a boundary he never tied AND collapse his two parallel VD ties
+# onto one contact. 1.0 m separates the measured cases cleanly; it is a
+# tuning constant, not a law — the owner may move it.
+SPAN_LANDING_TOLERANCE_M = 1.0
 
 
 @dataclass(frozen=True)
@@ -147,6 +159,11 @@ def split_span(tie: SpanTie, section_order: list[SpanColumn]) -> list[SpanNode] 
         ):
             continue
         nearest = min(col.contacts_m, key=lambda contact: abs(contact - line_depth))
+        if abs(nearest - line_depth) > SPAN_LANDING_TOLERANCE_M:
+            # The line crosses this column mid-band: no boundary near it, so
+            # the column does not express the tie's surface — keep spanning it
+            # (the SP8 case: B2's thick homogeneous sand).
+            continue
         landed.append(SpanNode(investigation_id=col.investigation_id, depth_m=nearest))
 
     if not landed:
