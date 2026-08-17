@@ -858,6 +858,18 @@ ipcMain.handle(
   },
 )
 
+// Existence probe for the recents flow. The renderer asks BEFORE reading so a
+// moved .strix gets its own message ("did you move it?") instead of the
+// catch-all corruption/API banner — sniffing ENOENT out of the wrapped IPC
+// error text is exactly the trap the 404-text gate fell into (see
+// useProject.openProjectFile). Same path-authorisation as the read: an
+// unauthorised path answers false rather than becoming a filesystem oracle
+// for an XSS-escalated renderer.
+ipcMain.handle('project:file-exists', (_event, filePath: string): boolean => {
+  if (!pathIsAuthorised(filePath)) return false
+  return existsSync(filePath)
+})
+
 ipcMain.handle('project:read-file', (_event, filePath: string): string => {
   if (!pathIsAuthorised(filePath)) {
     throw new Error(`project:read-file refused — path not authorised: ${filePath}`)
