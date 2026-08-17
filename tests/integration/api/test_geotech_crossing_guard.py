@@ -24,6 +24,9 @@ XG-DB2  Negative control on the same scene with no hand-drawn tie: the very
 XG-DB3  The SWEEP deletes a stored machine crossing pair and nothing else —
         the guard gates candidates and cannot reach a row already in the model.
 XG-DB4  The sweep never deletes a hand-drawn tie; the machine one yields.
+XG-DB5  DRAWING a crossing tie is refused 422 with a reason naming the two
+        columns and depths — never a database id — and writes nothing.
+XG-DB6  Negative control: a tie that keeps the order still lands.
 
 Run via the integration wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_geotech_crossing_guard.py
@@ -481,3 +484,102 @@ async def test_xgdb4_the_sweep_never_deletes_a_hand_drawn_tie(
     assert deleted == 1
     assert his in remaining, "his hand-drawn tie must survive its own crossing"
     assert machine not in remaining
+
+
+async def _draw_tie(
+    async_client: AsyncClient,
+    scene: dict,
+    geotech_model_id: str,
+    band_a: LithoLayerOrm,
+    band_b: LithoLayerOrm,
+) -> tuple[int, str]:
+    """Draw a packing tie the way the engineer's gesture does, via the API."""
+    resp = await async_client.post(
+        f"/projects/{scene['project_id']}/geology/models/{geotech_model_id}/contact-correlations",
+        json={
+            "layer_a_id": str(band_a.id),
+            "layer_b_id": str(band_b.id),
+            "layer_a_side": "top",
+            "layer_b_side": "top",
+            "source": "manual",
+            "request_section_id": str(scene["section_id"]),
+        },
+    )
+    return resp.status_code, resp.text
+
+
+@pytest.mark.asyncio
+async def test_xgdb5_drawing_a_crossing_tie_is_refused_with_a_readable_reason(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """XG-DB5: owner ruling — *"send a toast and reject the tie"*.
+
+    A crossing is a hard conflict: the renderer suspends BOTH ties and neither
+    side bands, so letting the gesture land means silently killing the fill on
+    that gap.  Refusing at the write is the only place the engineer finds out
+    while he still has the gesture in mind.
+
+    The message must name what he can SEE.  His words on the existing warning:
+    *"i can't rule, unclear for me which tests, don't see gap numbers in the
+    app"* — so the refusal names the two columns and the depths, never a
+    database id.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    a_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_b_id"])
+
+    landed, _ = await _draw_tie(
+        async_client, crossing_scene, geotech_model_id, a_bands[0], b_bands[-1]
+    )
+    assert landed == 201, "the first tie has nothing to cross"
+
+    refused, detail = await _draw_tie(
+        async_client, crossing_scene, geotech_model_id, a_bands[-1], b_bands[0]
+    )
+    assert refused == 422, f"a crossing tie must be refused, got {refused}: {detail}"
+    assert "cross" in detail.lower(), detail
+    assert "CPT-A" in detail and "CPT-B" in detail, (
+        f"the reason must name both columns, not database ids: {detail}"
+    )
+    assert str(a_bands[0].id) not in detail, f"no ids in a user-facing reason: {detail}"
+
+    db_session.expire_all()
+    stored = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(stored) == 1, "a refused gesture must write nothing"
+
+
+@pytest.mark.asyncio
+async def test_xgdb6_a_tie_that_crosses_nothing_still_lands(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """XG-DB6: negative control — the guard is not a blanket "refuse more".
+
+    Two ties in the same gap that keep their order are the ordinary case, and
+    they are how a band is stated at all.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    a_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_b_id"])
+
+    first, _ = await _draw_tie(
+        async_client, crossing_scene, geotech_model_id, a_bands[0], b_bands[0]
+    )
+    second, detail = await _draw_tie(
+        async_client, crossing_scene, geotech_model_id, a_bands[1], b_bands[1]
+    )
+    assert first == 201
+    assert second == 201, f"a monotone second tie must land: {detail}"
