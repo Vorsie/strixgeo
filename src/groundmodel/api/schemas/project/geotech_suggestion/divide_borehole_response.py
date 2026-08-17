@@ -46,6 +46,10 @@ class DivideBoreholeResponse(BaseModel):
     lost_tie_labels : list[str]
         One line per lost tie naming both investigations and each endpoint's
         depth range, so the engineer can find them in the section.
+    crossing_tie_count : int
+        Machine ties deleted for crossing another tie in the same gap.  Legacy
+        rows only: the emit-time guard refuses a crossing candidate.  Hand-drawn
+        ties are never deleted.
     superseded_jump_tie_count : int
         Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain
         now carries the same connection (owner ruling 2026-08-14).
@@ -116,5 +120,15 @@ class DivideBoreholeResponse(BaseModel):
             "Bridged CPT-to-CPT jump ties deleted because the borehole-mediated "
             "chain now carries the same connection (owner ruling 2026-08-14: the "
             "chain replaces the jump tie, hand-drawn or machine)."
+        ),
+    )
+    crossing_tie_count: int = Field(
+        0,
+        description=(
+            "Machine-made packing ties deleted because they crossed another tie in "
+            "the same gap (owner ruling 2026-08-17: ties should not be able to "
+            "cross). These are legacy rows from an older derivation, which no "
+            "emit-time guard can reach because the re-anchor carries stored ties "
+            "across every band rebuild. Hand-drawn ties are never deleted."
         ),
     )
