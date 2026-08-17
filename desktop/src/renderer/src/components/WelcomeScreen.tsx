@@ -51,11 +51,12 @@ interface Props {
   // dialog).
   onOpenProject: () => Promise<'opened' | 'cancelled' | 'failed'>
   // Click handler for a recent-projects entry. Receives the file path
-  // and returns whether the open succeeded — when it didn't (most
-  // commonly because the DB row is gone) the welcome screen surfaces
-  // an inline banner and refreshes the recent list so the stale entry
-  // disappears.
-  onOpenRecent: (path: string) => Promise<boolean>
+  // and answers what happened, because the two failures need different
+  // banners: 'missing' = the .strix is no longer at its saved location
+  // (moved/renamed — owner 2026-08-17: "did you change it's location"),
+  // 'failed' = the file is there but could not be opened. The entry is
+  // kept in the list either way — the user may put the file back.
+  onOpenRecent: (path: string) => Promise<'opened' | 'missing' | 'failed'>
 }
 
 export default function WelcomeScreen({
@@ -162,13 +163,15 @@ export default function WelcomeScreen({
     setBusy(true)
     setOpenError(null)
     try {
-      const ok = await onOpenRecent(path)
-      if (!ok) {
+      const outcome = await onOpenRecent(path)
+      if (outcome !== 'opened') {
         const entry = recent.find(r => r.path === path)
+        const name = entry ? `"${entry.name}"` : 'the project'
         setOpenError(
-          entry
-            ? `Couldn't open "${entry.name}". The file may be corrupt, or the API isn't reachable.`
-            : `Couldn't open the project file. The file may be corrupt, or the API isn't reachable.`,
+          outcome === 'missing'
+            ? `Couldn't find the file for ${name} at ${path}. Did you move or rename it? ` +
+                'Put it back, or open it from its new location with "Open project from file".'
+            : `Couldn't open ${name}. The file may be corrupt, or the API isn't reachable.`,
         )
         refreshRecent()
       }
