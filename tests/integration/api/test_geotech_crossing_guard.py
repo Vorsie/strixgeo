@@ -21,6 +21,9 @@ XG-DB1  With that approval standing, auto-correlate emits NO tie that crosses
 XG-DB2  Negative control on the same scene with no hand-drawn tie: the very
         same middle pair IS proposed, so the guard is not a blanket
         "propose less".
+XG-DB3  The SWEEP deletes a stored machine crossing pair and nothing else —
+        the guard gates candidates and cannot reach a row already in the model.
+XG-DB4  The sweep never deletes a hand-drawn tie; the machine one yields.
 
 Run via the integration wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_geotech_crossing_guard.py
@@ -37,6 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.geotech_crossing_sweep import sweep_crossing_ties
 from groundmodel.domain.services.geotech_edge_crossing_guard import GapTie, ties_cross
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -45,6 +49,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.shared.logging.logger_factory import LoggerFactory
 from tests.integration.api.geotech_scene_helpers import accept_cpt_litho, correlate
 
 # The two columns break their packing at DIFFERENT depths, which is what lets a
@@ -349,3 +354,130 @@ async def test_xgdb2_without_the_standing_approval_the_same_pair_is_proposed(
         "nothing crosses here — the middle same-class pair is exactly what the "
         "engineer presses auto-correlate for"
     )
+
+
+async def _plant_tie(
+    db_session: AsyncSession,
+    scene: dict,
+    geotech_model_id: str,
+    band_a: LithoLayerOrm,
+    band_b: LithoLayerOrm,
+    *,
+    source: str,
+) -> UUID:
+    """Store one approved tie between two bands and return its id."""
+    lo, hi = (band_a, band_b) if band_a.id < band_b.id else (band_b, band_a)
+    edge_id = uuid7()
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=edge_id,
+            model_id=UUID(geotech_model_id),
+            section_id=UUID(str(scene["section_id"])),
+            layer_a_id=lo.id,
+            layer_b_id=hi.id,
+            layer_a_side="top",
+            layer_b_side="top",
+            user_approved=True,
+            source=source,
+        )
+    )
+    await db_session.commit()
+    return edge_id
+
+
+@pytest.mark.asyncio
+async def test_xgdb3_the_sweep_deletes_a_machine_crossing_pair(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """XG-DB3: two machine ties crossing only each other both go.
+
+    Owner ruling 2026-08-17: *"Ties shouldn't be able to cross, if any crossing
+    ties are in my test.strix it is because you generated them, not because i
+    drew them."*  Verified on his model: all 14 edges behind his four crossings
+    were ``source='auto'``.
+
+    The guard cannot help here — it refuses new CANDIDATES, while these rows are
+    already stored, and the re-anchor carries them across every rebuild.  Planted
+    directly for that reason: this pins the repair, not the emitter.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    a_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_b_id"])
+
+    # A's shallow band to B's deep band, and A's deep band to B's shallow one:
+    # inverted between the columns, so they cross.
+    down = await _plant_tie(
+        db_session, crossing_scene, geotech_model_id, a_bands[0], b_bands[-1], source="auto"
+    )
+    up = await _plant_tie(
+        db_session, crossing_scene, geotech_model_id, a_bands[-1], b_bands[0], source="auto"
+    )
+    survivor = await _plant_tie(
+        db_session, crossing_scene, geotech_model_id, a_bands[1], b_bands[1], source="auto"
+    )
+
+    deleted = await sweep_crossing_ties(
+        db_session, LoggerFactory.get_logger(__name__), UUID(geotech_model_id)
+    )
+    await db_session.commit()
+    db_session.expire_all()
+
+    remaining = {
+        row.id
+        for row in (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id)
+                )
+            )
+        ).scalars()
+    }
+    assert deleted == 2, f"expected the crossing pair to go, swept {deleted}"
+    assert down not in remaining and up not in remaining
+    assert survivor in remaining, "the monotone middle tie must not be collateral"
+
+
+@pytest.mark.asyncio
+async def test_xgdb4_the_sweep_never_deletes_a_hand_drawn_tie(
+    crossing_scene: dict,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """XG-DB4: *"user made ties should be left alone"* — the machine one yields.
+
+    His steep lines are deliberate: *"if the users draws a steep tie, he has a
+    reason for it"*.  So a crossing between his tie and a machine tie is resolved
+    by deleting the machine's, and the sweep is not a licence to tidy his work.
+    """
+    geotech_model_id = await _subdivide_cpts(async_client, crossing_scene)
+    a_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_a_id"])
+    b_bands = await _bands(db_session, geotech_model_id, crossing_scene["cpt_b_id"])
+
+    his = await _plant_tie(
+        db_session, crossing_scene, geotech_model_id, a_bands[0], b_bands[-1], source="manual"
+    )
+    machine = await _plant_tie(
+        db_session, crossing_scene, geotech_model_id, a_bands[-1], b_bands[0], source="auto"
+    )
+
+    deleted = await sweep_crossing_ties(
+        db_session, LoggerFactory.get_logger(__name__), UUID(geotech_model_id)
+    )
+    await db_session.commit()
+    db_session.expire_all()
+
+    remaining = {
+        row.id
+        for row in (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == UUID(geotech_model_id)
+                )
+            )
+        ).scalars()
+    }
+    assert deleted == 1
+    assert his in remaining, "his hand-drawn tie must survive its own crossing"
+    assert machine not in remaining
