@@ -170,6 +170,7 @@ from groundmodel.domain.services.geotech_edge_dedup import (
     GeotechEdgeRow,
     HopCandidate,
     duplicate_edge_ids_to_drop,
+    hop_skips_a_column,
     hops_to_emit,
 )
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
@@ -2754,6 +2755,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
 
             along_by_section: dict[UUID, dict[str, float]] = {}
+            # Columns carrying each geotech body, so a hop can tell whether it
+            # is reaching over one.
+            banded_invs_by_body: dict[UUID, set[str]] = defaultdict(set)
+            body_of_geotech_layer: dict[UUID, UUID | None] = {}
+            for inv, band_rows in geotech_layer_by_inv_depth.items():
+                for band_row in band_rows:
+                    body_of_geotech_layer[band_row[2]] = band_row[5]
+                    if band_row[5] is not None:
+                        banded_invs_by_body[band_row[5]].add(inv)
             # donor band -> the bands that continue it, per section.
             citers: dict[tuple[UUID, UUID], list[tuple[UUID, str, float]]] = defaultdict(list)
             for (
@@ -2783,6 +2793,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     }
                 along = along_by_section[hop_section_id]
                 donor = donor_info.get(donor_band_id)
+                donor_body_id = body_of_geotech_layer.get(donor_band_id)
                 if donor is None or donor[0] not in along:
                     continue
                 # The donor and every band continuing it, left to right. A
@@ -2806,6 +2817,27 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     # columns"; 7 of them on his model). A column needs no tie
                     # to say its own bands are stacked.
                     if left_inv == right_inv:
+                        continue
+                    # A hop crosses ONE gap. With a column carrying this body
+                    # between the two, the claim belongs to that column's own
+                    # pair, not to a line drawn over its head — the owner's
+                    # 284 m clay tie across five columns (2026-08-17).
+                    if hop_skips_a_column(
+                        along[left_inv],
+                        along[right_inv],
+                        [
+                            position
+                            for inv, position in along.items()
+                            if donor_body_id is not None
+                            and inv in banded_invs_by_body.get(donor_body_id, set())
+                        ],
+                    ):
+                        hops_refused += 1
+                        self.info(
+                            f"DivideBoreholes: refused a borehole hop "
+                            f"{left_inv} <-> {right_inv} — a column carrying the same "
+                            "body lies between them, so the claim is that column's"
+                        )
                         continue
                     canonical = (left_id, right_id) if left_id < right_id else (right_id, left_id)
                     if canonical in seen:
