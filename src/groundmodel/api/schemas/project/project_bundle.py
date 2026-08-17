@@ -275,6 +275,14 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
+    # Deleted packing ties, keyed by place (owner 2026-08-17: "a tie i delete
+    # stays deleted"). Additive — absent in older bundles. No FK on layers, so
+    # restore order only needs models + sections in. Same ceiling as edges:
+    # every tombstone is a tie the engineer deleted by hand, one at a time.
+    geotech_tie_tombstones: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
+    )
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive — absent
     # in older bundles; default_factory=list. Restore order: shapes after
     # geological_models (model_id FK), nodes after shapes (shape_id FK).
@@ -350,6 +358,8 @@ class ProjectBundleResponse(BaseModel):
     litho_contact_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
     # Geometric body-connectivity facts (owner ruling 2026-08-12). Additive.
     body_geometry_facts: list[dict[str, Any]] = Field(default_factory=list)
+    # Deleted packing ties, keyed by place (owner 2026-08-17). Additive.
+    geotech_tie_tombstones: list[dict[str, Any]] = Field(default_factory=list)
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive.
     body_boundary_shapes: list[dict[str, Any]] = Field(default_factory=list)
     body_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
