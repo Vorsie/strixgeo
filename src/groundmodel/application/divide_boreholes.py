@@ -91,7 +91,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
@@ -161,17 +161,9 @@ from groundmodel.domain.services.geotech_column_sampler import (
     place_bands_in_litho_layer,
     sample_regions_at_fraction,
 )
-from groundmodel.domain.services.geotech_edge_crossing_guard import (
-    GapTie,
-    crossing_partners,
-    gap_key,
-)
 from groundmodel.domain.services.geotech_edge_dedup import (
     GeotechEdgeRow,
-    HopCandidate,
     duplicate_edge_ids_to_drop,
-    hop_skips_a_column,
-    hops_to_emit,
 )
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     superseded_jump_tie_ids,
@@ -729,32 +721,6 @@ def apply_column_floor(
             continue
         out.append(replace(band, nad_class=floor, source=COLUMN_MIN_SOURCE, confidence="low"))
     return out
-
-
-def band_may_carry_a_hop(source: str) -> bool:
-    """Whether a band's provenance justifies a correlation to another column.
-
-    Owner, 2026-08-17: *"those hops are then from the fallbacks? Don't hop
-    those? The ties from the litho are good, your hops are the issue."*
-
-    A hop claims two bands are the same packing surface.  A band the donor rule
-    could not answer has no partner — its class comes from its own column's
-    other bands, or from the NAD table — so a correlation drawn from it dresses
-    a guess as a correspondence, and the fill then bands that guess laterally.
-    On his B4 that grew a dense sheet across the gap that nobody drew.
-
-    Parameters
-    ----------
-    source : str
-        The band's provenance tag.
-
-    Returns
-    -------
-    bool
-        ``True`` only for a band a flanking column actually resolved.  Default
-        closed: an unrecognised tag may not claim a correspondence either.
-    """
-    return source == "cpt_interpolated"
 
 
 def coarsen_to_minimum_thickness(
@@ -2653,441 +2619,26 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             sections = [section for section in sections if section.id == section_id]
         edge_totals = EdgeDerivationCounts()
         # ------------------------------------------------------------------
-        # Phase 8.5a — write the hops the fill already knows about.
-        #
-        # Owner, 2026-08-15: *"take the litho and check if new subdivisions are
-        # there, then take top as 0 an bottom as 1 and rescale them on a
-        # borehole"*.  That rescale is what laid these bands, and it laid each
-        # one between a NAMED pair of flank bands.  Writing the hop straight
-        # off that correspondence is the difference between a chain that closes
-        # and one that does not: the alignment pass below sees each gap on its
-        # own, so the gap left of a borehole and the gap right of it used to
-        # pick different borehole bands for the same unit, and the CPT↔CPT tie
-        # spanning them was never replaced by anything (76 of 86 on his model
-        # had no borehole hop at all).
-        #
-        # These land ACCEPTED for the same reason the derived hops do: they
-        # re-express a correlation the engineer already made, through a column
-        # the press has just divided.
-        #
-        # The hops are laid CONSECUTIVELY along the section, never as a star
-        # back to the donor.  Every band that cites donor band D corresponds to
-        # D and therefore to every other citer, but writing D↔each of them
-        # produces ties that themselves fly over the boreholes in between — one
-        # of which was the survivor the owner arrowed on 2026-08-15 (S6↔B4 with
-        # B6 sitting between them, both citing S6).  Ordering the citers by
-        # along-position and linking neighbour to neighbour writes the chain he
-        # asked for — CPT→BH→BH→CPT — and nothing that jumps.
         # ------------------------------------------------------------------
-        # The columns this verb derives — their contacts are the ones the cap
-        # protects, because they are where step 4 invents.
-        derived_investigations = {segment.investigation_id for segment in plan.segments}
-        hop_candidates: list[HopCandidate] = []
-        hop_rows: list[tuple[UUID, UUID, UUID]] = []
-        hops_refused = 0
-        if donor_hops:
-            donor_info = {
-                row.id: (
-                    str(row.cpt_id if row.cpt_id is not None else row.borehole_id),
-                    row.depth_top_m,
-                )
-                for row in (
-                    await self._session.execute(
-                        select(
-                            LithoLayerOrm.id,
-                            LithoLayerOrm.cpt_id,
-                            LithoLayerOrm.borehole_id,
-                            LithoLayerOrm.depth_top_m,
-                        ).where(LithoLayerOrm.id.in_({d for _s, d, _b, _i, _t in donor_hops}))
-                    )
-                ).all()
-            }
-            # The crossing registry, seeded with what already stands in each
-            # gap. A hop is a tie like any other: two of them that cross make a
-            # self-intersecting quad, which is what the owner saw as "quads
-            # between borehole and cpt not rendering correctly" (2026-08-16).
-            # The derivation below has always guarded its own candidates; these
-            # hops bypassed it because they are written directly.
-            geotech_band_index: dict[UUID, tuple[str, float]] = {
-                row.id: (
-                    str(row.cpt_id if row.cpt_id is not None else row.borehole_id),
-                    row.depth_top_m,
-                )
-                for row in (
-                    await self._session.execute(
-                        select(
-                            LithoLayerOrm.id,
-                            LithoLayerOrm.cpt_id,
-                            LithoLayerOrm.borehole_id,
-                            LithoLayerOrm.depth_top_m,
-                        ).where(LithoLayerOrm.model_id == geotech_model_id)
-                    )
-                ).all()
-            }
-            registry: dict[tuple[str, str], list[GapTie]] = defaultdict(list)
-            for edge_row in (
-                await self._session.execute(
-                    select(
-                        LithoContactCorrelationEdgeOrm.layer_a_id,
-                        LithoContactCorrelationEdgeOrm.layer_b_id,
-                        LithoContactCorrelationEdgeOrm.user_approved,
-                    ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
-                )
-            ).all():
-                seed_left = geotech_band_index.get(edge_row.layer_a_id)
-                seed_right = geotech_band_index.get(edge_row.layer_b_id)
-                if seed_left is None or seed_right is None:
-                    continue
-                seed_key = gap_key(seed_left[0], seed_right[0])
-                first, second = (
-                    (seed_left, seed_right)
-                    if seed_key[0] == seed_left[0]
-                    else (seed_right, seed_left)
-                )
-                registry[seed_key].append(
-                    GapTie(
-                        depth_first_m=first[1],
-                        depth_second_m=second[1],
-                        accepted=bool(edge_row.user_approved),
-                        layer_first_id="existing",
-                        layer_second_id="existing",
-                    )
-                )
-
-            along_by_section: dict[UUID, dict[str, float]] = {}
-            # Columns carrying each geotech body, so a hop can tell whether it
-            # is reaching over one.
-            banded_invs_by_body: dict[UUID, set[str]] = defaultdict(set)
-            body_of_geotech_layer: dict[UUID, UUID | None] = {}
-            for inv, band_rows in geotech_layer_by_inv_depth.items():
-                for band_row in band_rows:
-                    body_of_geotech_layer[band_row[2]] = band_row[5]
-                    if band_row[5] is not None:
-                        banded_invs_by_body[band_row[5]].add(inv)
-            # donor band -> the bands that continue it, per section.
-            citers: dict[tuple[UUID, UUID], list[tuple[UUID, str, float]]] = defaultdict(list)
-            for (
-                hop_section_id,
-                donor_band_id,
-                borehole_band_id,
-                borehole_inv,
-                borehole_top_m,
-            ) in donor_hops:
-                if section_id is not None and hop_section_id != section_id:
-                    continue
-                citers[(hop_section_id, donor_band_id)].append(
-                    (borehole_band_id, borehole_inv, borehole_top_m)
-                )
-            for (hop_section_id, donor_band_id), members in citers.items():
-                if hop_section_id not in along_by_section:
-                    along_by_section[hop_section_id] = {
-                        str(inv): value
-                        for inv, value in (
-                            await project_investigations_onto_section(
-                                self._session,
-                                project_id=project_id,
-                                section_id=hop_section_id,
-                                missing_ok=True,
-                            )
-                        ).items()
-                    }
-                along = along_by_section[hop_section_id]
-                donor = donor_info.get(donor_band_id)
-                donor_body_id = body_of_geotech_layer.get(donor_band_id)
-                if donor is None or donor[0] not in along:
-                    continue
-                # The donor and every band continuing it, left to right. A
-                # member the section does not draw has no position and cannot
-                # be placed in the chain.
-                chain = [(donor_band_id, donor[0], donor[1], along[donor[0]])] + [
-                    (band_id, inv, top_m, along[inv])
-                    for band_id, inv, top_m in members
-                    if inv in along
-                ]
-                chain.sort(key=lambda item: item[3])
-                seen = seen_pairs_by_section.setdefault(hop_section_id, set())
-                for left_member, right_member in zip(chain, chain[1:]):
-                    left_id, left_inv, left_top, _left_pos = left_member
-                    right_id, right_inv, right_top, _right_pos = right_member
-                    # A hop crosses a GAP. Two bands of the same column sort
-                    # adjacent here (identical along-position), and linking them
-                    # writes a correlation from a column to itself — which the
-                    # section draws as a diagonal line through the column's own
-                    # interior (owner, 2026-08-16: "weird as diagonal bands over
-                    # columns"; 7 of them on his model). A column needs no tie
-                    # to say its own bands are stacked.
-                    if left_inv == right_inv:
-                        continue
-                    # A hop crosses ONE gap. With a column carrying this body
-                    # between the two, the claim belongs to that column's own
-                    # pair, not to a line drawn over its head — the owner's
-                    # 284 m clay tie across five columns (2026-08-17).
-                    if hop_skips_a_column(
-                        along[left_inv],
-                        along[right_inv],
-                        [
-                            position
-                            for inv, position in along.items()
-                            if donor_body_id is not None
-                            and inv in banded_invs_by_body.get(donor_body_id, set())
-                        ],
-                    ):
-                        hops_refused += 1
-                        self.info(
-                            f"DivideBoreholes: refused a borehole hop "
-                            f"{left_inv} <-> {right_inv} — a column carrying the same "
-                            "body lies between them, so the claim is that column's"
-                        )
-                        continue
-                    canonical = (left_id, right_id) if left_id < right_id else (right_id, left_id)
-                    if canonical in seen:
-                        continue
-                    hop_key = gap_key(left_inv, right_inv)
-                    depth_first, depth_second = (
-                        (left_top, right_top) if hop_key[0] == left_inv else (right_top, left_top)
-                    )
-                    candidate = GapTie(
-                        depth_first_m=depth_first,
-                        depth_second_m=depth_second,
-                        accepted=True,
-                        layer_first_id=str(left_id),
-                        layer_second_id=str(right_id),
-                    )
-                    # An accepted candidate is judged against accepted
-                    # neighbours only — the same rule the derivation uses, so a
-                    # proposal can never veto the chain.
-                    blocking = crossing_partners(
-                        [tie for tie in registry[hop_key] if tie.accepted], candidate
-                    )
-                    if blocking:
-                        hops_refused += 1
-                        # INFO, not DEBUG: the machine is declining to write a
-                        # correlation the geometry implied, and the reason is
-                        # not visible from the result.
-                        self.info(
-                            f"DivideBoreholes: refused a borehole hop in gap "
-                            f"{hop_key[0]}<->{hop_key[1]} "
-                            f"— {left_inv} at {left_top:.3f} m <-> {right_inv} at "
-                            f"{right_top:.3f} m crosses a standing accepted tie"
-                        )
-                        continue
-                    registry[hop_key].append(candidate)
-                    seen.add(canonical)
-                    # Recorded, not written. The litho restatements are derived
-                    # below, and a contact they claim may not also take a hop
-                    # (owner, 2026-08-17) — so nothing is inserted until they
-                    # have spoken. Computing a row only to delete it is waste.
-                    # Only a contact on a column this verb DERIVES is capped:
-                    # a CPT's contacts are step 2's business and are routinely
-                    # tied both left and right, which is how a band spans a gap.
-                    inv_of_layer = {left_id: left_inv, right_id: right_inv}
-                    hop_candidates.append(
-                        HopCandidate(
-                            # Keyed by section AND direction. Section because
-                            # a correlation is section-scoped; direction because
-                            # a contact ties left and right to make a band span
-                            # the gap, and a cap blind to that leaves every
-                            # borehole reaching one flank only.
-                            contact_a=(
-                                hop_section_id,
-                                canonical[0],
-                                "top",
-                                "right" if canonical[0] == left_id else "left",
-                            ),
-                            contact_b=(
-                                hop_section_id,
-                                canonical[1],
-                                "top",
-                                "right" if canonical[1] == left_id else "left",
-                            ),
-                            jump_m=abs(left_top - right_top),
-                            cap_a=inv_of_layer[canonical[0]] in derived_investigations,
-                            cap_b=inv_of_layer[canonical[1]] in derived_investigations,
-                        )
-                    )
-                    hop_rows.append((hop_section_id, canonical[0], canonical[1]))
-        if hops_refused:
-            self.info(f"DivideBoreholes: Phase 8.5a — {hops_refused} hop(s) refused as crossing")
-
-        # ------------------------------------------------------------------
-        # Phase 8.5b — write the hops the litho ties left room for.
+        # Step 4 does not invent correlations.
         #
-        # Owner's safeguard, 2026-08-17: *"put litho ties first, if a contact
-        # already has a tie it can't get a second tie for step 4"*. The taken
-        # set is READ from the model — the engineer's own ties and the ones the
-        # re-anchor just carried across the rebuild — so a hop whose contact is
-        # already spoken for is never written. Nothing is created to be deleted
-        # afterwards (*"why prune instead of no emit?"*).
+        # Owner, 2026-08-17: *"you don't need to invent correlations, just put
+        # the litho correlations on there and if a density band has an obvious
+        # match then you link it too, other than that, you don't link jack
+        # shit"*.
         #
-        # Placed BEFORE the restatement derivation deliberately: that pass
-        # skips any pair already stored, so one tie per pair survives either
-        # way, and running it first would instead leave the duplicate for the
-        # re-anchor to collide with.
+        # So the donor-hop machinery is gone. It derived a correlation from the
+        # fraction rescale that produced a band — a chain through the boreholes,
+        # bridged over columns, born accepted — and every one of those was a
+        # claim about lateral continuity that nothing in his model made. What
+        # remains is the derivation below: the restatement of his own litho
+        # ties, plus same-class pairs where the match is obvious.
         #
-        # Two hops competing for a bare contact are ranked by how far they jump,
-        # so the flatter one gets it.
+        # Deleted with it: the re-expression sweep that removed his CPT-to-CPT
+        # ties on the grounds that a chain had replaced them. With no chain,
+        # nothing replaces them, so nothing of his is removed.
         # ------------------------------------------------------------------
         hops_written = 0
-        if hop_candidates:
-            # The restatements above may still be pending, and this session does
-            # not autoflush — without this the reads below cannot see the very
-            # ties whose contacts they are meant to respect, and the insert then
-            # collides with the unique triple (integration GP13, 2026-08-17).
-            await self._session.flush()
-            # Which column each geotech band sits on, so an existing tie's
-            # direction can be read off the section's along-positions.
-            inv_of_layer_id: dict[UUID, str] = {
-                UUID(str(entry[2])): inv
-                for inv, entries in geotech_layer_by_inv_depth.items()
-                for entry in entries
-            }
-            taken_contacts: set[Hashable] = set()
-            for taken_row in (
-                await self._session.execute(
-                    select(
-                        LithoContactCorrelationEdgeOrm.section_id,
-                        LithoContactCorrelationEdgeOrm.layer_a_id,
-                        LithoContactCorrelationEdgeOrm.layer_a_side,
-                        LithoContactCorrelationEdgeOrm.layer_b_id,
-                        LithoContactCorrelationEdgeOrm.layer_b_side,
-                    ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
-                )
-            ).all():
-                along = along_by_section.get(taken_row.section_id, {})
-                inv_a = inv_of_layer_id.get(taken_row.layer_a_id)
-                inv_b = inv_of_layer_id.get(taken_row.layer_b_id)
-                if inv_a is None or inv_b is None or inv_a not in along or inv_b not in along:
-                    # Position unknown, so direction is unknowable: claim the
-                    # contact in BOTH directions rather than let a hop slip past
-                    # a tie whose geometry we cannot read.
-                    for layer_id, side in (
-                        (taken_row.layer_a_id, taken_row.layer_a_side),
-                        (taken_row.layer_b_id, taken_row.layer_b_side),
-                    ):
-                        for direction in ("left", "right"):
-                            taken_contacts.add((taken_row.section_id, layer_id, side, direction))
-                    continue
-                a_is_left = along[inv_a] <= along[inv_b]
-                taken_contacts.add(
-                    (
-                        taken_row.section_id,
-                        taken_row.layer_a_id,
-                        taken_row.layer_a_side,
-                        "right" if a_is_left else "left",
-                    )
-                )
-                taken_contacts.add(
-                    (
-                        taken_row.section_id,
-                        taken_row.layer_b_id,
-                        taken_row.layer_b_side,
-                        "left" if a_is_left else "right",
-                    )
-                )
-
-            # The contact cap governs how many ties a surface may carry; whether
-            # a row already exists is a separate question, and the DB's unique
-            # triple answers it. A subset divide leaves both of a hop's columns
-            # outside the derived set, so neither contact is capped and the pair
-            # could otherwise be inserted twice.
-            # A tie is undirected, and the two writers store their endpoints in
-            # whatever order they hold them, so the check must be order-blind.
-            def pair_key(
-                section_id: UUID, a: UUID, side_a: str, b: UUID, side_b: str
-            ) -> tuple[UUID, tuple[UUID, str], tuple[UUID, str]]:
-                ends = sorted(((a, side_a), (b, side_b)), key=lambda end: (end[0].int, end[1]))
-                return (section_id, ends[0], ends[1])
-
-            existing_pairs = {
-                pair_key(
-                    row.section_id,
-                    row.layer_a_id,
-                    row.layer_a_side,
-                    row.layer_b_id,
-                    row.layer_b_side,
-                )
-                for row in (
-                    await self._session.execute(
-                        select(
-                            LithoContactCorrelationEdgeOrm.section_id,
-                            LithoContactCorrelationEdgeOrm.layer_a_id,
-                            LithoContactCorrelationEdgeOrm.layer_b_id,
-                            LithoContactCorrelationEdgeOrm.layer_a_side,
-                            LithoContactCorrelationEdgeOrm.layer_b_side,
-                        ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
-                    )
-                ).all()
-            }
-            for hop_index in hops_to_emit(hop_candidates, taken_contacts=taken_contacts):
-                emit_section_id, emit_a, emit_b = hop_rows[hop_index]
-                emit_key = pair_key(emit_section_id, emit_a, "top", emit_b, "top")
-                if emit_key in existing_pairs:
-                    continue
-                existing_pairs.add(emit_key)
-                self._session.add(
-                    LithoContactCorrelationEdgeOrm(
-                        id=uuid7(),
-                        model_id=geotech_model_id,
-                        section_id=emit_section_id,
-                        layer_a_id=emit_a,
-                        layer_b_id=emit_b,
-                        layer_a_side="top",
-                        layer_b_side="top",
-                        source="auto",
-                        user_approved=True,
-                    )
-                )
-                hops_written += 1
-            await self._session.flush()
-            self.info(
-                f"DivideBoreholes: Phase 8.5b — {hops_written} of "
-                f"{len(hop_candidates)} borehole hop(s) written; "
-                f"{len(hop_candidates) - hops_written} declined because their contact "
-                "was already correlated"
-            )
-
-        # ------------------------------------------------------------------
-        # The ties the tie-driven placement RE-EXPRESSED, deleted outright.
-        #
-        # Owner, 2026-08-16: "then you delete all the bands you checked and
-        # replaced by hops". This is bookkeeping, not search: a tie whose
-        # boundary was drawn on the borehole has had its replacement written, so
-        # it goes. The geometric supersession below still runs for everything
-        # this pass did not touch — a tie with no borehole between its columns
-        # was never re-expressed and is not this rule's business.
-        replaced_edge_ids: list[UUID] = []
-        if plan.replaced_tie_layer_pairs:
-            wanted = {
-                (UUID(a), UUID(b)) if UUID(a) < UUID(b) else (UUID(b), UUID(a))
-                for a, b in plan.replaced_tie_layer_pairs
-            }
-            for replaced_row in (
-                await self._session.execute(
-                    select(
-                        LithoContactCorrelationEdgeOrm.id,
-                        LithoContactCorrelationEdgeOrm.layer_a_id,
-                        LithoContactCorrelationEdgeOrm.layer_b_id,
-                    ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
-                )
-            ).all():
-                edge_key = (
-                    (replaced_row.layer_a_id, replaced_row.layer_b_id)
-                    if replaced_row.layer_a_id < replaced_row.layer_b_id
-                    else (replaced_row.layer_b_id, replaced_row.layer_a_id)
-                )
-                if edge_key in wanted:
-                    replaced_edge_ids.append(replaced_row.id)
-            if replaced_edge_ids:
-                await self._session.execute(
-                    delete(LithoContactCorrelationEdgeOrm).where(
-                        LithoContactCorrelationEdgeOrm.id.in_(replaced_edge_ids)
-                    )
-                )
-                self.info(
-                    f"DivideBoreholes: {len(replaced_edge_ids)} tie(s) deleted — "
-                    "re-expressed as hops through the boreholes between their columns"
-                )
-
         superseded_edge_ids: list[UUID] = []
         superseded_labels: list[str] = []
         for section in sections:
@@ -3358,12 +2909,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             lost_tie_count=len(reanchor_plan.lost),
             lost_tie_reasons=reanchor_plan.loss_reason_counts(),
             lost_tie_labels=reanchor_plan.lost_tie_labels,
-            # BOTH deletions: the ties the tie-driven placement re-expressed
-            # as hops, and the ones the geometric supersession found
-            # redundant. They are the same user-facing fact - "the borehole
-            # chain replaced this" - and a divide that deletes a tie it does
-            # not report is exactly what GP10 refuses.
-            superseded_jump_tie_count=len(superseded_edge_ids) + len(replaced_edge_ids),
+            # Only the geometric supersession deletes ties now: step 4 no
+            # longer re-expresses anything as a hop, so there is no second
+            # source of deletions to report.
+            superseded_jump_tie_count=len(superseded_edge_ids),
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model_id} "
@@ -4400,23 +3949,6 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 body_id=band.body_id,
             )
             self._session.add(layer)
-            # The band's donor correspondence becomes a hop the moment the row
-            # has an id: donor band ↔ this band, on the section the donors were
-            # read along. Collected here rather than re-derived later because
-            # re-deriving it per gap is exactly what used to produce two
-            # incompatible answers either side of the same borehole.
-            if band.section_id is not None and band_may_carry_a_hop(band.source):
-                section_uuid = UUID(band.section_id)
-                for donor_layer_id in band.donor_layer_ids:
-                    donor_hops.append(
-                        (
-                            section_uuid,
-                            UUID(donor_layer_id),
-                            layer.id,
-                            segment.investigation_id,
-                            band.depth_top_m,
-                        )
-                    )
             geotech_layer_by_inv_depth[segment.investigation_id].append(
                 (
                     band.depth_top_m,

@@ -814,12 +814,12 @@ async def test_db4_accepted_borehole_tie_survives_a_re_divide(
     )
 
     # And the app must say so rather than reporting a bare success.
-    assert second.reanchored_tie_count == 3, (
-        # 3 since the owner's 2026-08-16 rule placed the borehole's boundaries
-        # from the TIES: each placed boundary names the bands on BOTH columns,
-        # so the divide writes a hop to each side rather than one. 2 under the
-        # 2026-08-15 born-accepted ruling alone, 1 under the superseded
-        # 2026-08-06 refinement where the derived hop arrived pending.
+    assert second.reanchored_tie_count == 2, (
+        # 2 since the owner's ruling of 2026-08-17 — "you don't need to invent
+        # correlations ... other than that, you don't link jack shit" — removed
+        # the donor-hop machinery: what a re-divide carries is his own tie plus
+        # the restatement of a litho one. It was 3 while the divide also wrote a
+        # hop to each side of every placed boundary.
         f"DB4: expected the hand tie AND the divide's own hop to be carried, "
         f"got reanchored={second.reanchored_tie_count} lost={second.lost_tie_count}"
     )
@@ -1053,8 +1053,8 @@ async def test_db6_preview_reports_the_ties_the_commit_carries(
     )
     assert preview_resp.status_code == 200, preview_resp.text
     preview = preview_resp.json()
-    assert preview["carried_tie_count"] == 3, (
-        # 3 — see DB4. What this test is really guarding is the line below:
+    assert preview["carried_tie_count"] == 2, (
+        # 2 — see DB4. What this test is really guarding is the line below:
         # whatever the count is, the preview and the commit must agree on it.
         f"DB6: preview should see the hand tie and the divide's hop, got {preview}"
     )

@@ -13,16 +13,12 @@ no review.  Two lines, one of them nagging, saying the same thing.
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 __all__ = [
     "GeotechEdgeRow",
     "duplicate_edge_ids_to_drop",
-    "HopCandidate",
-    "hop_skips_a_column",
-    "hops_to_emit",
 ]
 
 
@@ -120,120 +116,3 @@ def duplicate_edge_ids_to_drop(rows: list[GeotechEdgeRow]) -> list[UUID]:
             best[key] = row
     survivors = {row.edge_id for row in best.values()}
     return [row.edge_id for row in rows if row.edge_id not in survivors]
-
-
-@dataclass(frozen=True)
-class HopCandidate:
-    """A correlation step 4 would like to write, before anything is written.
-
-    Parameters
-    ----------
-    contact_a, contact_b : Hashable
-        The two contacts it would join.  Opaque to this module, and the caller's
-        key carries more than the layer: the SECTION, because correlations are
-        section-scoped and a contact tied on one section must not block a hop on
-        another; and the DIRECTION, because a contact legitimately ties left AND
-        right — that is how a band spans a gap.  Both were measured on 2026-08-17
-        by capping without them: model-wide keys blocked cross-section hops, and
-        direction-blind keys left every borehole able to reach only one flank, so
-        the chain CPT->BH->CPT could not close at all.
-    jump_m : float
-        How far apart the two contacts sit in depth.  Ranks competing
-        candidates: both are guesses, and the flatter is the less extravagant
-        one.
-    cap_a, cap_b : bool
-        Whether each contact is subject to the one-tie cap.  Only contacts on a
-        column step 4 is DERIVING are — that is where it invents.  A CPT's
-        contacts are step 2's business and are routinely tied both left and
-        right, which is how a band spans a section; capping them refused every
-        borehole hop in the model (measured 2026-08-17: nine integration
-        scenarios lost their chain entirely).
-    """
-
-    contact_a: Hashable
-    contact_b: Hashable
-    jump_m: float
-    cap_a: bool = True
-    cap_b: bool = True
-
-
-def hops_to_emit(candidates: Sequence[HopCandidate], *, taken_contacts: set[Hashable]) -> list[int]:
-    """Which candidate hops may be written, given what is already correlated.
-
-    Owner, 2026-08-17: *"put litho ties first, if a contact already has a tie it
-    can't get a second tie for step 4"*.
-
-    A contact is one surface of one band — a ``(layer, side)`` pair.  Step 4 was
-    writing hops onto surfaces that already carried a correlation, his own or a
-    litho restatement's, so the cap is one tie per contact and the machine's hop
-    is what yields.  Seeding ``taken_contacts`` from the ties that already exist
-    is what makes "litho first" true; nothing here deletes anything, because a
-    hop that may not exist is simply never written.
-
-    Ties the ENGINEER drew are never affected: two of his ties on one contact is
-    how a band spans a section, and this function only ever declines to add.
-
-    Parameters
-    ----------
-    candidates : Sequence[HopCandidate]
-        The hops step 4 derived, in any order.
-    taken_contacts : set[Hashable]
-        Contacts already spoken for, keyed the same way as the candidates'.  MUTATED: each emitted hop claims its
-        CAPPED contacts, so two candidates cannot both take one of them.
-
-    Returns
-    -------
-    list[int]
-        Indices into ``candidates``, ascending, of the hops to write.  Ordered
-        by jump so that where two compete for a bare contact, the flatter one is
-        the one that gets it.
-    """
-    order = sorted(range(len(candidates)), key=lambda i: (candidates[i].jump_m, i))
-    emit: list[int] = []
-    for index in order:
-        candidate = candidates[index]
-        capped = [
-            contact
-            for contact, capped_flag in (
-                (candidate.contact_a, candidate.cap_a),
-                (candidate.contact_b, candidate.cap_b),
-            )
-            if capped_flag
-        ]
-        if any(contact in taken_contacts for contact in capped):
-            continue
-        taken_contacts.update(capped)
-        emit.append(index)
-    return sorted(emit)
-
-
-def hop_skips_a_column(
-    left_along_m: float, right_along_m: float, banded_along_m: Sequence[float]
-) -> bool:
-    """Whether a column carrying the same body lies BETWEEN a hop's endpoints.
-
-    Owner, 2026-08-17: *"especially when you look at the clay tie crossing a
-    cpt, i didn't do that"*.  His model held exactly one tie over 200 m — B4's
-    clay top to a CPT 284 m away — with four banded columns in between and no
-    litho tie to restate.
-
-    A hop asserts that two bands are the same surface across ONE gap.  With a
-    column carrying that body in between, the assertion is not the engine's to
-    make: that column is evidence, and it was not consulted.
-
-    Parameters
-    ----------
-    left_along_m, right_along_m : float
-        Along-section positions of the two endpoints, in either order.
-    banded_along_m : Sequence[float]
-        Along-positions of every column carrying this body on the section,
-        endpoints included — being one of the two joined does not count as
-        being between them.
-
-    Returns
-    -------
-    bool
-        ``True`` when at least one such column lies strictly between.
-    """
-    low, high = sorted((left_along_m, right_along_m))
-    return any(low < along < high for along in banded_along_m)
