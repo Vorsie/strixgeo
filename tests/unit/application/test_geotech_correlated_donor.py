@@ -16,11 +16,7 @@ candidate 777 m away, and copied its loose sand onto the borehole.
 
 from uuid import UUID
 
-from groundmodel.application.divide_boreholes import (
-    MAX_DONOR_MAP_DISTANCE_M,
-    correlated_donor_picks,
-    donor_is_within_reach,
-)
+from groundmodel.application.divide_boreholes import correlated_donor_picks
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 
 B4_UPPER_SAND = UUID("00000000-0000-0000-0000-0000000000b4")
@@ -115,12 +111,6 @@ def test_cd4_a_partner_with_no_pick_is_skipped() -> None:
     )
 
 
-def test_cd5_a_donor_three_quarters_of_a_kilometre_away_does_not_qualify() -> None:
-    """ "777m is too far anyhow" — S11 stops being a candidate."""
-    assert donor_is_within_reach(777.0) is False
-
-
-def test_cd6_a_donor_at_the_limit_still_qualifies() -> None:
-    """The cut-off is the distance at which confidence already reads low."""
-    assert donor_is_within_reach(MAX_DONOR_MAP_DISTANCE_M) is True
-    assert donor_is_within_reach(MAX_DONOR_MAP_DISTANCE_M + 0.01) is False
+# CD5/CD6 pinned the 500 m reach cap, deleted 2026-08-17: *"donor reach is
+# obsolete, only left and right test on section can be donor"*.  Adjacency is
+# the gate now and it lives in ``layer_donor_picks`` — see LD3 there.

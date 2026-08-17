@@ -40,7 +40,8 @@ def _pick(
     )
 
 
-NEAR = {"S13": 90.0, "S6": 5.0, "S11": 777.0, "SILTY": 20.0}
+# Owner ruling 2026-08-17: the flanking tests on the section, and only those.
+FLANKS = {"S13", "S6", "SILTY", "NOWHERE"}
 
 
 def _donors(correlated: list[BodyLayerPick], body: list[BodyLayerPick]) -> list[str]:
@@ -54,7 +55,7 @@ def _donors(correlated: list[BodyLayerPick], body: list[BodyLayerPick]) -> list[
             soil_by_formation=SOIL,
             layer_top_elev_m=13.0 - 9.07,
             layer_base_elev_m=13.0 - 12.52,
-            map_distance_m=NEAR,
+            flanking_investigations=FLANKS,
         )
     ]
 
@@ -69,9 +70,18 @@ def test_ld2_the_body_answers_where_he_drew_no_tie() -> None:
     assert _donors([], [_pick("S6", 10.26, 12.42)]) == ["S6"]
 
 
-def test_ld3_a_column_too_far_away_is_not_evidence() -> None:
-    """ "777m is too far anyhow" — S11 never becomes a candidate."""
-    assert _donors([], [_pick("S11", 10.0, 12.0)]) == []
+def test_ld3_the_pool_is_not_filtered_by_distance_or_adjacency() -> None:
+    """Owner, 2026-08-17: *"donor reach is obsolete, only left and right test on
+    section can be donor"* — which ``select_flank_donors`` already implements
+    downstream by picking the nearest candidate each side.
+
+    Filtering the POOL instead was measured on his model and starves it: the
+    geometrically flanking test usually does not carry the unit's soil, so
+    donor-backed bands fell from 118 to 37 and two thirds of the model dropped
+    to a floor. A column carrying the soil stays a candidate; the flanking rule
+    decides which two are used.
+    """
+    assert _donors([], [_pick("S11", 10.26, 12.42)]) == ["S11"]
 
 
 def test_ld4_a_donor_of_another_soil_is_refused() -> None:
@@ -102,7 +112,7 @@ def test_ld6_one_layer_per_column_chosen_by_elevation() -> None:
         soil_by_formation=SOIL,
         layer_top_elev_m=13.0 - 9.07,
         layer_base_elev_m=13.0 - 12.52,
-        map_distance_m=NEAR,
+        flanking_investigations=FLANKS,
     )
     assert picks == [above_lens]
 
@@ -116,6 +126,6 @@ def test_ld8_a_different_formation_of_the_same_soil_still_donates() -> None:
     assert _donors([], [_pick("S6", 10.26, 12.42, formation=SAND_ELSEWHERE)]) == ["S6"]
 
 
-def test_ld7_a_column_with_no_known_distance_is_skipped() -> None:
-    """Distance unknowable means the reach rule cannot be applied honestly."""
-    assert _donors([], [_pick("NOWHERE", 10.0, 12.0)]) == []
+def test_ld7_a_flank_donates_however_far_along_the_section_it_sits() -> None:
+    """Nothing stands between a flank and the borehole, so distance is not a gate."""
+    assert _donors([], [_pick("NOWHERE", 10.26, 12.42)]) == ["NOWHERE"]
