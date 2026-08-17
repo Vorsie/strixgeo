@@ -508,6 +508,7 @@ async def restore_project(
             body_boundary_shapes_payload=request.body_boundary_shapes,
             body_boundary_nodes_payload=request.body_boundary_nodes,
             litho_solids_payload=request.litho_solids,
+            geotech_tie_tombstones_payload=request.geotech_tie_tombstones,
             replace=replace,
         )
     except BundleIntegrityError as err:
