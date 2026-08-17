@@ -148,6 +148,56 @@ def aligned_pairs_with_forced_top(
 INTERIOR_MIN_OVERLAP_SHARE = 0.25
 
 
+def shadowed_below_lens(
+    stack: list[tuple[str, int | None, float, float]],
+) -> set[str]:
+    """Bands that repeat a class from above across an intervening lens.
+
+    Owner rule (dogfeed 2026-08-17, verbatim): *"don't emit auto correlations
+    ties below a lens if above the lens and below the lens have the same
+    packing density and litho?"*  His scene: S12's silt unit reads
+    ``[SILT 13, denser SILT 15, SILT 13]`` beside S13's single ``SILT 13`` —
+    the top pair is already tied by the restatement, the merge step unifies
+    the silt around the lens, and the machine's extra proposal onto the
+    below-lens repeat is noise he has to delete (it also fans from a contact
+    that is already tied).
+
+    Within one litho unit the litho is constant, so "same litho" is given and
+    the judgment is class-shape alone: a band is shadowed when some band above
+    it in the same window carries the SAME class with at least one
+    known-DIFFERENT class strictly between them.  A ``None`` (skeleton) class
+    is no evidence either way — it neither shadows nor counts as a lens.
+
+    Parameters
+    ----------
+    stack : list[tuple[str, int | None, float, float]]
+        One test's sub-band stack as ``(layer_id, nad_class, fraction_top,
+        fraction_base)`` ordered top→base (the ``_stack_with_fractions``
+        shape; the fractions are unused here but keep the two consumers on
+        one input).
+
+    Returns
+    -------
+    set[str]
+        Layer ids the machine must not PROPOSE ties onto.  Restatements are
+        unaffected — they carry the engineer's own litho ties and resolve to
+        contacts, never to interior repeats.
+    """
+    shadowed: set[str] = set()
+    for i, (layer_id, cls, _t, _b) in enumerate(stack):
+        if cls is None:
+            continue
+        for j in range(i):
+            above_cls = stack[j][1]
+            if above_cls != cls or above_cls is None:
+                continue
+            between = [stack[k][1] for k in range(j + 1, i)]
+            if any(mid is not None and mid != cls for mid in between):
+                shadowed.add(layer_id)
+                break
+    return shadowed
+
+
 def overlap_gated_interior_pairs(
     left: list[tuple[str, int | None, float, float]],
     right: list[tuple[str, int | None, float, float]],
@@ -182,7 +232,9 @@ def overlap_gated_interior_pairs(
         Monotone ``(left_layer_id, right_layer_id)`` proposal pairs, top→base.
     """
 
-    def weight(a: tuple[str, int | None, float, float], b: tuple[str, int | None, float, float]) -> float:
+    def weight(
+        a: tuple[str, int | None, float, float], b: tuple[str, int | None, float, float]
+    ) -> float:
         _, a_cls, a_top, a_base = a
         _, b_cls, b_top, b_base = b
         if a_cls is None or b_cls is None or a_cls != b_cls:
