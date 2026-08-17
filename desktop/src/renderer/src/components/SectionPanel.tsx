@@ -63,6 +63,9 @@ import LithoCompositionPickerDialog from './interpretation/LithoCompositionPicke
 import BoreholeColumn from './sections/BoreholeColumn'
 import CanvasHints from './sections/CanvasHints'
 import ColumnContextMenu from './sections/ColumnContextMenu'
+import ColumnFindBar from './sections/ColumnFindBar'
+import { panViewportToScreenX, type ColumnFindEntry } from './sections/columnFind'
+import { useColumnFindHotkey } from './sections/useColumnFindHotkey'
 import { buildRemoveFromSectionCommand } from './sections/removeFromSectionCommand'
 import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer, {
@@ -959,6 +962,21 @@ export default function SectionPanel({
   )
 
   const [viewport, setViewport] = useState<Viewport>(defaultViewport)
+
+  // Ctrl+F column find (owner, 2026-08-17: "go easily to a column header
+  // like s8"). The bar owns the query; this owns open/flash and the jump.
+  const [findOpen, setFindOpen] = useState(false)
+  // Which column to flash after a jump — looked up by id at render time so
+  // the highlight lands on the column's POST-pan position, not where it was.
+  const [findFlashId, setFindFlashId] = useState<string | null>(null)
+  const findFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useColumnFindHotkey(() => setFindOpen(true))
+  useEffect(
+    () => () => {
+      if (findFlashTimer.current !== null) clearTimeout(findFlashTimer.current)
+    },
+    [],
+  )
   // Reset to default framing when the section identity changes
   // (the user picked a different section in the sidebar).
   useEffect(() => {
@@ -1987,6 +2005,34 @@ export default function SectionPanel({
         return { ...c, trueX: sx, nudgedX: sx, displaced: false }
       })
   }, [placedColumns, focusedColumn, xToScreen])
+
+  // The placed columns as the find bar needs them. Reads visibleColumns (not
+  // placedColumns) so column-focus mode offers only what is actually drawn,
+  // and nudgedX so a jump centres the RENDERED position at any spacing.
+  const findEntries = useMemo<ColumnFindEntry[]>(
+    () =>
+      visibleColumns.map(col => ({
+        id: col.proj.item.id,
+        name: col.proj.item.name,
+        along: col.proj.along,
+        nudgedX: col.nudgedX,
+      })),
+    [visibleColumns],
+  )
+
+  const handleFindJump = useCallback(
+    (target: ColumnFindEntry) => {
+      // One-shot pan: a viewport shift moves every column by the same pixel
+      // delta, so the target lands at centre exactly, packed or not.
+      setViewport(prev =>
+        panViewportToScreenX(prev, target.nudgedX, MARGIN.left + plotWidth / 2, scaleH),
+      )
+      setFindFlashId(target.id)
+      if (findFlashTimer.current !== null) clearTimeout(findFlashTimer.current)
+      findFlashTimer.current = setTimeout(() => setFindFlashId(null), 2000)
+    },
+    [plotWidth, scaleH],
+  )
 
   // Mirror the layout state the wheel handler needs into ``layoutStateRef``.
   // handleWheel is declared far above these memos, so it can't close over them
@@ -3574,12 +3620,44 @@ export default function SectionPanel({
                 onClose={dismissBodyCtxMenu}
               />
             )}
+
+            {/* Ctrl+F landing flash — a brief amber band over the found
+                column so the eye lands with the camera. Looked up by id so
+                it draws at the POST-pan position; pointer-events-none so it
+                can never eat the next gesture. */}
+            {findFlashId !== null &&
+              (() => {
+                const hit = visibleColumns.find(c => c.proj.item.id === findFlashId)
+                if (!hit) return null
+                return (
+                  <rect
+                    data-testid="column-find-flash"
+                    x={hit.nudgedX - 22}
+                    y={MARGIN.top}
+                    width={44}
+                    height={plotHeight}
+                    fill="rgb(245 158 11 / 0.28)"
+                    className="animate-pulse"
+                    pointerEvents="none"
+                  />
+                )
+              })()}
           </svg>
         )}
         {!size && (
           <div className="flex items-center justify-center h-full text-xs text-gray-400">
             Sizing canvas…
           </div>
+        )}
+        {findOpen && (
+          <ColumnFindBar
+            columns={findEntries}
+            onJump={handleFindJump}
+            onClose={() => {
+              setFindOpen(false)
+              setFindFlashId(null)
+            }}
+          />
         )}
         {/* Cursor elevation readout (dogfeed 2026-06-19): the mTAW height under
             the pointer, bottom-right, so the user can call out exact elevations.
