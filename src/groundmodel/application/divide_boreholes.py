@@ -723,6 +723,72 @@ def apply_column_floor(
     return out
 
 
+_WEAKEST_FIRST = ("absolute_min", "body_min", "column_min", "layer_inherited")
+"""Provenance tags ordered weakest-first, for a merge that must not upgrade."""
+
+
+def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
+    """Undo a geological cut that split a packing band of unchanged class.
+
+    Owner, 2026-08-17: *"we're still emitting geotech bands to the geological
+    boundary that was split off, that's the user's decision"*.  He has the
+    gesture for it — right-click a band → "Split band…", and "Link to geology"
+    to couple the boundary — so the engine making that split for him is
+    unasked-for surface.
+
+    Where it came from: ``divide_picks_by_geology`` cuts every litho pick at the
+    geological surfaces BEFORE any packing is derived, so each piece is
+    classified on its own and can land on the same class.  His B4 carried
+    ``0.00-0.60 SILT (NAD 13)`` over ``0.60-5.19 SILT (NAD 13)`` — a contact
+    marking no packing change — and each piece then earned its own correlation,
+    which is how one litho tie became two geotech ties on one contact.
+
+    Merged only when the class AND the litho unit are the same and the two
+    bands touch: the litho model owns its own boundaries whatever the classes
+    are, and a gap is a different defect than a cut.
+
+    Parameters
+    ----------
+    bands : Sequence[PlannedBand]
+        One borehole's bands, any order.
+
+    Returns
+    -------
+    list[PlannedBand]
+        Bands top to bottom.  A merged band keeps the SHALLOWER piece's
+        geological parent — one band, one parent, and the shallower piece owns
+        the contact above it — and the WEAKEST piece's provenance, so merging
+        never claims evidence for ground no donor answered.
+    """
+
+    def weakness(source: str) -> int:
+        return _WEAKEST_FIRST.index(source) if source in _WEAKEST_FIRST else len(_WEAKEST_FIRST)
+
+    out: list[PlannedBand] = []
+    for band in sorted(bands, key=lambda item: item.depth_top_m):
+        held = out[-1] if out else None
+        if (
+            held is not None
+            and held.nad_class == band.nad_class
+            and held.source_litho_formation_id == band.source_litho_formation_id
+            and abs(held.depth_base_m - band.depth_top_m) <= _DEPTH_TOL_M
+        ):
+            weaker = min((held, band), key=lambda item: weakness(item.source))
+            out[-1] = replace(
+                held,
+                depth_base_m=band.depth_base_m,
+                source=weaker.source,
+                confidence=weaker.confidence,
+                donors=held.donors or band.donors,
+                donor_layer_ids=tuple(
+                    dict.fromkeys([*held.donor_layer_ids, *band.donor_layer_ids])
+                ),
+            )
+            continue
+        out.append(band)
+    return out
+
+
 def coarsen_to_minimum_thickness(
     bands: Sequence[FillBand], *, minimum_thickness_m: float
 ) -> list[FillBand]:
@@ -2081,6 +2147,34 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 bands_by_borehole[planned.investigation_id].append(
                     (seg_index, band_index, planned_band)
                 )
+
+        # A geological cut that split a packing band of unchanged class is undone
+        # first: the merged band is what the floor and the ties should see, and
+        # the split was never a packing decision (owner, 2026-08-17 — he has the
+        # "Split band…" gesture for the ones he wants).
+        merged_away = 0
+        for inv, entries in bands_by_borehole.items():
+            merged = merge_geo_split_bands([entry[2] for entry in entries])
+            if len(merged) == len(entries):
+                continue
+            merged_away += len(entries) - len(merged)
+            # The whole borehole is rewritten into its FIRST segment: a merged
+            # band spans two geological slices, so it no longer belongs to
+            # either one's segment alone.
+            first_seg = min(entry[0] for entry in entries)
+            for seg_index in {entry[0] for entry in entries}:
+                planned_segments[seg_index] = replace(
+                    planned_segments[seg_index],
+                    bands=tuple(merged) if seg_index == first_seg else (),
+                )
+            bands_by_borehole[inv] = [
+                (first_seg, band_index, band) for band_index, band in enumerate(merged)
+            ]
+        if merged_away:
+            self.info(
+                f"DivideBoreholes: {merged_away} band(s) merged back — a geological "
+                "contact had split a packing band whose class does not change across it"
+            )
 
         band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
         raised_count = 0
