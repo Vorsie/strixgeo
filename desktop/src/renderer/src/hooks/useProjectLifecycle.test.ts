@@ -412,6 +412,55 @@ describe('useProjectLifecycle — close-flow notes reach the main process', () =
   })
 })
 
+// Owner, 2026-08-17: "open from recent project should always open from the
+// strix file, if user moved it you get a toast, file not found, did you
+// change it's location". The File-menu recents path used to discard the
+// open's outcome entirely, so a moved file failed into pure silence — no
+// banner (that's the welcome screen's), no toast, nothing.
+describe('useProjectLifecycle — File > Open Recent with a moved file', () => {
+  it('toasts the move question when the file is gone', async () => {
+    const toast = vi.fn()
+    const openProjectFile = vi.fn().mockResolvedValue('file-missing')
+    let fireOpenRecent: ((path: string) => void) | null = null
+    ;(window.electron as unknown as Record<string, unknown>).onMenuProjectOpenRecent = vi
+      .fn()
+      .mockImplementation((cb: (path: string) => void) => {
+        fireOpenRecent = cb
+        return noopUnsub
+      })
+    renderHook(() => useProjectLifecycle(makeArgs({ toast, openProjectFile })))
+
+    await act(async () => {
+      fireOpenRecent?.('C:/moved/test.strix')
+    })
+
+    expect(openProjectFile).toHaveBeenCalledWith('C:/moved/test.strix')
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast.mock.calls[0][0]).toBe('error')
+    expect(String(toast.mock.calls[0][1])).toContain('C:/moved/test.strix')
+    expect(String(toast.mock.calls[0][1])).toMatch(/move or rename/i)
+  })
+
+  it('stays silent when the open succeeds', async () => {
+    const toast = vi.fn()
+    const openProjectFile = vi.fn().mockResolvedValue({ id: 'p1', name: 'Test' })
+    let fireOpenRecent: ((path: string) => void) | null = null
+    ;(window.electron as unknown as Record<string, unknown>).onMenuProjectOpenRecent = vi
+      .fn()
+      .mockImplementation((cb: (path: string) => void) => {
+        fireOpenRecent = cb
+        return noopUnsub
+      })
+    renderHook(() => useProjectLifecycle(makeArgs({ toast, openProjectFile })))
+
+    await act(async () => {
+      fireOpenRecent?.('C:/projects/test.strix')
+    })
+
+    expect(toast).not.toHaveBeenCalled()
+  })
+})
+
 // Audit 2026-08-02, MAJOR: a save that never reached its .strix, and a
 // Discard whose revert was refused, both ended in a console line. The rule,
 // in the rule's own words: an engineer who clicks Save or Don't Save and does
