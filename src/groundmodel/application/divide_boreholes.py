@@ -91,7 +91,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
@@ -168,7 +168,9 @@ from groundmodel.domain.services.geotech_edge_crossing_guard import (
 )
 from groundmodel.domain.services.geotech_edge_dedup import (
     GeotechEdgeRow,
+    HopCandidate,
     duplicate_edge_ids_to_drop,
+    hops_to_emit,
 )
 from groundmodel.domain.services.geotech_jump_tie_supersession import (
     superseded_jump_tie_ids,
@@ -2638,7 +2640,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # along-position and linking neighbour to neighbour writes the chain he
         # asked for — CPT→BH→BH→CPT — and nothing that jumps.
         # ------------------------------------------------------------------
-        hops_written = 0
+        # The columns this verb derives — their contacts are the ones the cap
+        # protects, because they are where step 4 invents.
+        derived_investigations = {segment.investigation_id for segment in plan.segments}
+        hop_candidates: list[HopCandidate] = []
+        hop_rows: list[tuple[UUID, UUID, UUID]] = []
         hops_refused = 0
         if donor_hops:
             donor_info = {
@@ -2797,26 +2803,177 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         continue
                     registry[hop_key].append(candidate)
                     seen.add(canonical)
-                    self._session.add(
-                        LithoContactCorrelationEdgeOrm(
-                            id=uuid7(),
-                            model_id=geotech_model_id,
-                            section_id=hop_section_id,
-                            layer_a_id=canonical[0],
-                            layer_b_id=canonical[1],
-                            layer_a_side="top",
-                            layer_b_side="top",
-                            source="auto",
-                            user_approved=True,
+                    # Recorded, not written. The litho restatements are derived
+                    # below, and a contact they claim may not also take a hop
+                    # (owner, 2026-08-17) — so nothing is inserted until they
+                    # have spoken. Computing a row only to delete it is waste.
+                    # Only a contact on a column this verb DERIVES is capped:
+                    # a CPT's contacts are step 2's business and are routinely
+                    # tied both left and right, which is how a band spans a gap.
+                    inv_of_layer = {left_id: left_inv, right_id: right_inv}
+                    hop_candidates.append(
+                        HopCandidate(
+                            # Keyed by section AND direction. Section because
+                            # a correlation is section-scoped; direction because
+                            # a contact ties left and right to make a band span
+                            # the gap, and a cap blind to that leaves every
+                            # borehole reaching one flank only.
+                            contact_a=(
+                                hop_section_id,
+                                canonical[0],
+                                "top",
+                                "right" if canonical[0] == left_id else "left",
+                            ),
+                            contact_b=(
+                                hop_section_id,
+                                canonical[1],
+                                "top",
+                                "right" if canonical[1] == left_id else "left",
+                            ),
+                            jump_m=abs(left_top - right_top),
+                            cap_a=inv_of_layer[canonical[0]] in derived_investigations,
+                            cap_b=inv_of_layer[canonical[1]] in derived_investigations,
                         )
                     )
-                    hops_written += 1
-        if hops_written:
+                    hop_rows.append((hop_section_id, canonical[0], canonical[1]))
+        if hops_refused:
+            self.info(f"DivideBoreholes: Phase 8.5a — {hops_refused} hop(s) refused as crossing")
+
+        # ------------------------------------------------------------------
+        # Phase 8.5b — write the hops the litho ties left room for.
+        #
+        # Owner's safeguard, 2026-08-17: *"put litho ties first, if a contact
+        # already has a tie it can't get a second tie for step 4"*. The taken
+        # set is READ from the model — the engineer's own ties and the ones the
+        # re-anchor just carried across the rebuild — so a hop whose contact is
+        # already spoken for is never written. Nothing is created to be deleted
+        # afterwards (*"why prune instead of no emit?"*).
+        #
+        # Placed BEFORE the restatement derivation deliberately: that pass
+        # skips any pair already stored, so one tie per pair survives either
+        # way, and running it first would instead leave the duplicate for the
+        # re-anchor to collide with.
+        #
+        # Two hops competing for a bare contact are ranked by how far they jump,
+        # so the flatter one gets it.
+        # ------------------------------------------------------------------
+        hops_written = 0
+        if hop_candidates:
+            # The restatements above may still be pending, and this session does
+            # not autoflush — without this the reads below cannot see the very
+            # ties whose contacts they are meant to respect, and the insert then
+            # collides with the unique triple (integration GP13, 2026-08-17).
+            await self._session.flush()
+            # Which column each geotech band sits on, so an existing tie's
+            # direction can be read off the section's along-positions.
+            inv_of_layer_id: dict[UUID, str] = {
+                UUID(str(entry[2])): inv
+                for inv, entries in geotech_layer_by_inv_depth.items()
+                for entry in entries
+            }
+            taken_contacts: set[Hashable] = set()
+            for taken_row in (
+                await self._session.execute(
+                    select(
+                        LithoContactCorrelationEdgeOrm.section_id,
+                        LithoContactCorrelationEdgeOrm.layer_a_id,
+                        LithoContactCorrelationEdgeOrm.layer_a_side,
+                        LithoContactCorrelationEdgeOrm.layer_b_id,
+                        LithoContactCorrelationEdgeOrm.layer_b_side,
+                    ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
+                )
+            ).all():
+                along = along_by_section.get(taken_row.section_id, {})
+                inv_a = inv_of_layer_id.get(taken_row.layer_a_id)
+                inv_b = inv_of_layer_id.get(taken_row.layer_b_id)
+                if inv_a is None or inv_b is None or inv_a not in along or inv_b not in along:
+                    # Position unknown, so direction is unknowable: claim the
+                    # contact in BOTH directions rather than let a hop slip past
+                    # a tie whose geometry we cannot read.
+                    for layer_id, side in (
+                        (taken_row.layer_a_id, taken_row.layer_a_side),
+                        (taken_row.layer_b_id, taken_row.layer_b_side),
+                    ):
+                        for direction in ("left", "right"):
+                            taken_contacts.add((taken_row.section_id, layer_id, side, direction))
+                    continue
+                a_is_left = along[inv_a] <= along[inv_b]
+                taken_contacts.add(
+                    (
+                        taken_row.section_id,
+                        taken_row.layer_a_id,
+                        taken_row.layer_a_side,
+                        "right" if a_is_left else "left",
+                    )
+                )
+                taken_contacts.add(
+                    (
+                        taken_row.section_id,
+                        taken_row.layer_b_id,
+                        taken_row.layer_b_side,
+                        "left" if a_is_left else "right",
+                    )
+                )
+
+            # The contact cap governs how many ties a surface may carry; whether
+            # a row already exists is a separate question, and the DB's unique
+            # triple answers it. A subset divide leaves both of a hop's columns
+            # outside the derived set, so neither contact is capped and the pair
+            # could otherwise be inserted twice.
+            # A tie is undirected, and the two writers store their endpoints in
+            # whatever order they hold them, so the check must be order-blind.
+            def pair_key(
+                section_id: UUID, a: UUID, side_a: str, b: UUID, side_b: str
+            ) -> tuple[UUID, tuple[UUID, str], tuple[UUID, str]]:
+                ends = sorted(((a, side_a), (b, side_b)), key=lambda end: (end[0].int, end[1]))
+                return (section_id, ends[0], ends[1])
+
+            existing_pairs = {
+                pair_key(
+                    row.section_id,
+                    row.layer_a_id,
+                    row.layer_a_side,
+                    row.layer_b_id,
+                    row.layer_b_side,
+                )
+                for row in (
+                    await self._session.execute(
+                        select(
+                            LithoContactCorrelationEdgeOrm.section_id,
+                            LithoContactCorrelationEdgeOrm.layer_a_id,
+                            LithoContactCorrelationEdgeOrm.layer_b_id,
+                            LithoContactCorrelationEdgeOrm.layer_a_side,
+                            LithoContactCorrelationEdgeOrm.layer_b_side,
+                        ).where(LithoContactCorrelationEdgeOrm.model_id == geotech_model_id)
+                    )
+                ).all()
+            }
+            for hop_index in hops_to_emit(hop_candidates, taken_contacts=taken_contacts):
+                emit_section_id, emit_a, emit_b = hop_rows[hop_index]
+                emit_key = pair_key(emit_section_id, emit_a, "top", emit_b, "top")
+                if emit_key in existing_pairs:
+                    continue
+                existing_pairs.add(emit_key)
+                self._session.add(
+                    LithoContactCorrelationEdgeOrm(
+                        id=uuid7(),
+                        model_id=geotech_model_id,
+                        section_id=emit_section_id,
+                        layer_a_id=emit_a,
+                        layer_b_id=emit_b,
+                        layer_a_side="top",
+                        layer_b_side="top",
+                        source="auto",
+                        user_approved=True,
+                    )
+                )
+                hops_written += 1
             await self._session.flush()
             self.info(
-                f"DivideBoreholes: Phase 8.5a — {hops_written} borehole hop(s) written "
-                "from the donor correspondence the fraction rescale established"
-                + (f", {hops_refused} refused as crossing" if hops_refused else "")
+                f"DivideBoreholes: Phase 8.5b — {hops_written} of "
+                f"{len(hop_candidates)} borehole hop(s) written; "
+                f"{len(hop_candidates) - hops_written} declined because their contact "
+                "was already correlated"
             )
 
         # ------------------------------------------------------------------
