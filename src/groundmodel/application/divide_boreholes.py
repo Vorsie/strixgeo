@@ -455,6 +455,21 @@ _DEPTH_TOL_M = 0.001
 """Depth grain: ``litho_layer`` stores intervals to the millimetre."""
 
 
+GROWABLE_FRACTION_OF_MINIMUM = 0.5
+"""How thin a band may be and still be GROWN to the minimum rather than merged.
+
+A band the compression thinned is worth keeping at the minimum: his B4's basal
+clay lost the KLEI 22 top both neighbours read because the mapped band was
+0.22 m against a 0.35 m minimum (2026-08-17).  A hairline is not — growing a
+2 cm reading to 35 cm invents seventeen times the thickness it was measured
+over, which is a worse lie than dropping it.
+
+Half the minimum is the cut: at or above it the band was substantially there;
+below it, it was an artefact of squeezing a donor into a thin unit.  ⚠ The
+fraction is not the owner's number and has not been ruled on.
+"""
+
+
 MAX_DONOR_MAP_DISTANCE_M = 500.0
 """How far a column may be and still donate packing to a borehole.
 
@@ -755,15 +770,15 @@ def coarsen_to_minimum_thickness(
 
     Two cases, and the difference matters:
 
-    * A sub-minimum band beside a band that **stands on its own** is absorbed
-      into it and the survivor keeps its own class.  Below the minimum it was
-      never a band, so nothing is being made denser — a 5 cm loose lens inside
-      2 m of very dense sand is under the model's resolution, and reporting 2 m
-      of loose sand because of it would be the tail wagging the dog.
-    * Where **no** neighbour stands either — the whole run is slivers — they
-      merge together and the survivor takes the **loosest** class of the run.
-      That is his ruling of 2026-08-11 (audit F05): *"absorbing may never
-      silently make a band denser"*.
+    * A sub-minimum band **grows** to the minimum at the expense of a
+      neighbour that can spare the thickness and still stand.  It is a reading
+      the flanking column made, and deleting it loses a layer the neighbours
+      have: his B4's basal clay lost the KLEI 22 top that both S6 and S13 read,
+      because the mapped band was 0.22 m (2026-08-17).
+    * Where **no** neighbour can spare it — the run is all slivers, or giving
+      would push the neighbour under in its turn — they merge and the survivor
+      takes the **loosest** class of the run.  That is his ruling of 2026-08-11
+      (audit F05): *"absorbing may never silently make a band denser"*.
 
     Parameters
     ----------
@@ -784,6 +799,15 @@ def coarsen_to_minimum_thickness(
     def thickness(band: FillBand) -> float:
         return band.base - band.top
 
+    def stands(band: FillBand) -> bool:
+        """Whether a band meets the minimum, to the millimetre grain.
+
+        Compared with a tolerance because growing a band to exactly the minimum
+        lands a float an atom short of it — and an atom short means "grow it
+        again", forever, since growing does not shorten the list.
+        """
+        return thickness(band) >= minimum_thickness_m - _DEPTH_TOL_M
+
     def coalesce(rows: list[FillBand]) -> list[FillBand]:
         out: list[FillBand] = []
         for band in rows:
@@ -794,11 +818,16 @@ def coarsen_to_minimum_thickness(
         return out
 
     work = coalesce(list(bands))
-    while len(work) > 1:
+    # Each pass either grows one band to the minimum or removes one, so the
+    # number of passes is bounded by twice the band count. The cap is a
+    # backstop against a rule change reintroducing a non-terminating pass.
+    for _pass in range(2 * len(work) + 2):
+        if len(work) < 2:
+            break
         # The thinnest offender first, so one pass cannot leave a thinner band
         # behind a thicker one it should have absorbed.
         index = min(
-            (i for i, band in enumerate(work) if thickness(band) < minimum_thickness_m),
+            (i for i, band in enumerate(work) if not stands(band)),
             key=lambda i: thickness(work[i]),
             default=None,
         )
@@ -806,21 +835,30 @@ def coarsen_to_minimum_thickness(
             break
         left = work[index - 1] if index > 0 else None
         right = work[index + 1] if index + 1 < len(work) else None
-        standing = [
-            neighbour
-            for neighbour in (left, right)
-            if neighbour is not None and thickness(neighbour) >= minimum_thickness_m
-        ]
-        if standing:
-            # Absorbed into the thicker standing neighbour, which keeps its class.
-            host = max(standing, key=thickness)
-            merged = replace(
-                host,
-                top=min(host.top, work[index].top),
-                base=max(host.base, work[index].base),
-            )
-            work[work.index(host)] = merged
-            work.pop(index)
+        # A neighbour that could give the band its missing thickness and still
+        # stand on its own. Growing beats absorbing: the band is a reading the
+        # flanking column actually made, and deleting it loses a layer the
+        # neighbours have (owner's B4 basal clay, 2026-08-17).
+        shortfall = minimum_thickness_m - thickness(work[index])
+        growable = thickness(work[index]) >= GROWABLE_FRACTION_OF_MINIMUM * minimum_thickness_m
+        donors = (
+            []
+            if not growable
+            else [
+                neighbour
+                for neighbour in (left, right)
+                if neighbour is not None and thickness(neighbour) - shortfall >= minimum_thickness_m
+            ]
+        )
+        if donors:
+            donor = max(donors, key=thickness)
+            donor_index = work.index(donor)
+            if donor_index < index:
+                work[donor_index] = replace(donor, base=donor.base - shortfall)
+                work[index] = replace(work[index], top=work[index].top - shortfall)
+            else:
+                work[donor_index] = replace(donor, top=donor.top + shortfall)
+                work[index] = replace(work[index], base=work[index].base + shortfall)
         else:
             # Nothing here stands: merge with the thicker sliver and never end
             # up denser than the loosest of the two.
@@ -3608,14 +3646,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             coarsened = coarsen_to_minimum_thickness(
                 tied.bands, minimum_thickness_m=min_thickness_m
             )
-            if len(coarsened) != len(tied.bands):
+            # Compared by VALUE, not by count: growing a band to the minimum
+            # changes its boundaries and leaves the count alone, so a
+            # length check silently threw the result away.
+            if list(coarsened) != list(tied.bands):
+                # A survivor keeps the correspondences of every original band
+                # it overlaps — growing shifts a boundary, merging unions two,
+                # and both are covered by overlap rather than containment.
                 kept_correspondences = [
                     tuple(
                         dict.fromkeys(
                             item
                             for band, correspondence in zip(tied.bands, tied.correspondences)
-                            if band.top >= survivor.top - _DEPTH_TOL_M
-                            and band.base <= survivor.base + _DEPTH_TOL_M
+                            if min(band.base, survivor.base) - max(band.top, survivor.top)
+                            > _DEPTH_TOL_M
                             for item in correspondence
                         )
                     )
