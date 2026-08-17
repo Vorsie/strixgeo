@@ -49,6 +49,7 @@ and a rebuild destroyed both).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -107,7 +108,7 @@ class EdgeDerivationCounts:
     skipped_existing_pair: int = 0
     # Candidates refused because they would CROSS a tie already standing in the
     # same gap (owner §8 Q4: a crossing is a hard conflict — neither side bands
-    # and the section warns until it is resolved). Counted separately from
+    # and the section warns until it is resolved)). Counted separately from
     # ``skipped_existing_pair`` because it means something quite different: not
     # "already there" but "would have broken the fill on that gap".
     skipped_crossing_tie: int = 0
@@ -504,6 +505,50 @@ def bridge_edges_over_bandless_columns(
     )
 
 
+def band_at_contact(
+    stack: Sequence[tuple[Any, ...]], contact_depth_m: float
+) -> tuple[UUID, str] | None:
+    """Which band owns the contact at a depth, and on which of its surfaces.
+
+    Owner, 2026-08-17: *"of course you make a copy and tie it to the actual depth
+    of the contact? ... Can't work in x,y,z space without using x,y,z
+    coordinates."*
+
+    A tie names a CONTACT — a surface at a depth on a column.  Storing it as
+    (layer, side) is lossy, because the two ends of one litho tie are not
+    recorded the same way: one names the layer below the contact (side ``top``),
+    the other the layer above it (side ``base``).  Copying that pair by identity
+    tied a clay band to a sand band across a contact that is clay-over-sand on
+    both columns.
+
+    It also produced every crossing on his model.  All four were machine-made,
+    and one CPT contact had been tied to two different borehole depths — two
+    lines from one point, which must cross something.
+
+    Parameters
+    ----------
+    stack : Sequence[tuple[Any, ...]]
+        One column's packing bands as ``(top, base, layer_id, ...)``, any order.
+    contact_depth_m : float
+        The contact's depth on that column.
+
+    Returns
+    -------
+    tuple[UUID, str] | None
+        ``(layer_id, side)`` — the band starting at that depth and ``'top'``, or
+        the deepest band and ``'base'`` where nothing starts there.  ``None``
+        when the depth is not a contact on this column at all: mid-band is not a
+        surface, and inventing one is exactly how this went wrong.
+    """
+    for row in stack:
+        if abs(float(row[0]) - contact_depth_m) <= _DEPTH_TOL_M:
+            return (row[2] if isinstance(row[2], UUID) else UUID(str(row[2]))), "top"
+    for row in stack:
+        if abs(float(row[1]) - contact_depth_m) <= _DEPTH_TOL_M:
+            return (row[2] if isinstance(row[2], UUID) else UUID(str(row[2]))), "base"
+    return None
+
+
 async def derive_geotech_edges_from_litho(
     session: AsyncSession,
     log: GroundModelLogger,
@@ -674,6 +719,11 @@ async def derive_geotech_edges_from_litho(
     # resolves to the depth the guard compares. Depth below collar, not
     # elevation: both differences the crossing test takes are WITHIN one column,
     # so the sign flip cancels and the two spaces agree (see the guard module).
+    # Every band's packing class, for the skeleton guard on a depth-resolved
+    # endpoint (a resolution by depth never carries the class along with it).
+    nad_by_band: dict[str, int | None] = {
+        str(row[2]): row[4] for intervals in sorted_geotech.values() for row in intervals
+    }
     band_home: dict[str, tuple[str, float, float]] = {
         str(row[2]): (inv_str, float(row[0]), float(row[1]))
         for inv_str, intervals in sorted_geotech.items()
@@ -763,20 +813,39 @@ async def derive_geotech_edges_from_litho(
             sided_by_pair.setdefault((a, b), []).append((sa, sb))
 
     def _emit_sided_restatement(
-        left_stack: list[tuple[str, int | None]],
-        right_stack: list[tuple[str, int | None]],
-        side_a: str,
-        side_b: str,
+        inv_a_str: str,
+        contact_a_m: float,
+        inv_b_str: str,
+        contact_b_m: float,
     ) -> None:
         """Restate one sided litho tie onto the bands owning its contacts.
 
-        A ``top`` side maps to the unit's TOPMOST band, a ``base`` side to
-        its DEEPEST — the band that owns the very contact surface the litho
-        tie joins. Sides travel with their endpoints through
-        canonicalisation.
+        Owner ruling, 2026-08-17: *"of course you make a copy and tie it to the
+        actual depth of the contact? ... Can't work in x,y,z space without using
+        x,y,z coordinates."*
+
+        Each end is resolved from its DEPTH — the contact's depth on its own
+        column — not from the litho layer's identity and side.  That matters
+        because one litho tie records its two ends differently: a mixed
+        ``top``/``base`` onlap names the layer BELOW the contact on one column
+        and the layer ABOVE it on the other.  Resolving by identity therefore
+        tied a clay band to a sand band across a contact that is clay-over-sand
+        on both columns — his "weird dense quad".  Resolving by depth returns the
+        band starting at the contact on BOTH columns, so the pair is homogeneous
+        and the fill draws the region it should.
         """
-        la_id, la_cls = left_stack[0] if side_a == "top" else left_stack[-1]
-        rb_id, rb_cls = right_stack[0] if side_b == "top" else right_stack[-1]
+        resolved_a = band_at_contact(sorted_geotech.get(inv_a_str, []), contact_a_m)
+        resolved_b = band_at_contact(sorted_geotech.get(inv_b_str, []), contact_b_m)
+        if resolved_a is None or resolved_b is None:
+            # The depth is no packing contact on that column — the unit was
+            # never subdivided there, or the litho contact falls inside a band.
+            # Naming a band anyway is what invented geometry before.
+            counts.skipped_empty_stack += 1
+            return
+        (la_uuid, side_a), (rb_uuid, side_b) = resolved_a, resolved_b
+        la_id, rb_id = str(la_uuid), str(rb_uuid)
+        la_cls = nad_by_band.get(la_id)
+        rb_cls = nad_by_band.get(rb_id)
         if la_cls is None or rb_cls is None:
             # Skeleton bands never auto-tie (spec §8) — a sided restatement
             # is blocked exactly like the topmost one.
@@ -847,10 +916,15 @@ async def derive_geotech_edges_from_litho(
         # Side-aware restatements (owner ruling 2026-08-14): every non-top↔top
         # direct litho tie — bottom ties AND the mixed onlap declarations —
         # restates onto the bands owning its contact surfaces, sides kept.
-        if pair_is_direct and pair_sides and left_stack and right_stack:
+        if pair_is_direct and pair_sides:
             for side_a, side_b in pair_sides:
                 if (side_a, side_b) != ("top", "top"):
-                    _emit_sided_restatement(left_stack, right_stack, side_a, side_b)
+                    _emit_sided_restatement(
+                        inv_a_str,
+                        top_a if side_a == "top" else base_a,
+                        inv_b_str,
+                        top_b if side_b == "top" else base_b,
+                    )
 
         left_classes = [c for _, c in left_stack]
         right_classes = [c for _, c in right_stack]
