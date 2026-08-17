@@ -21,6 +21,7 @@ __all__ = [
     "GeotechEdgeRow",
     "duplicate_edge_ids_to_drop",
     "HopCandidate",
+    "hop_skips_a_column",
     "hops_to_emit",
 ]
 
@@ -204,3 +205,35 @@ def hops_to_emit(candidates: Sequence[HopCandidate], *, taken_contacts: set[Hash
         taken_contacts.update(capped)
         emit.append(index)
     return sorted(emit)
+
+
+def hop_skips_a_column(
+    left_along_m: float, right_along_m: float, banded_along_m: Sequence[float]
+) -> bool:
+    """Whether a column carrying the same body lies BETWEEN a hop's endpoints.
+
+    Owner, 2026-08-17: *"especially when you look at the clay tie crossing a
+    cpt, i didn't do that"*.  His model held exactly one tie over 200 m — B4's
+    clay top to a CPT 284 m away — with four banded columns in between and no
+    litho tie to restate.
+
+    A hop asserts that two bands are the same surface across ONE gap.  With a
+    column carrying that body in between, the assertion is not the engine's to
+    make: that column is evidence, and it was not consulted.
+
+    Parameters
+    ----------
+    left_along_m, right_along_m : float
+        Along-section positions of the two endpoints, in either order.
+    banded_along_m : Sequence[float]
+        Along-positions of every column carrying this body on the section,
+        endpoints included — being one of the two joined does not count as
+        being between them.
+
+    Returns
+    -------
+    bool
+        ``True`` when at least one such column lies strictly between.
+    """
+    low, high = sorted((left_along_m, right_along_m))
+    return any(low < along < high for along in banded_along_m)
