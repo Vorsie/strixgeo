@@ -1052,3 +1052,69 @@ async def test_ba2_a_bridged_jump_pair_is_born_accepted_too() -> None:
     )
     edge = session.add.call_args_list[0].args[0]
     assert edge.user_approved is True
+
+
+@pytest.mark.asyncio
+async def test_td1_a_tombstoned_pair_is_never_restated() -> None:
+    """Owner, 2026-08-17: *"A tie i delete stays deleted"*.
+
+    The bands are rebuilt by every subdivide — new rows, new ids — so the
+    deletion is remembered as a PLACE and consulted here, at the single gate
+    every emit passes.  The gate receives the candidate's two (column, depth)
+    ends; the closure the caller builds does the xyz translation.
+    """
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    band_a, band_b = uuid4(), uuid4()
+
+    def tombstoned(inv_a: str, depth_a: float, inv_b: str, depth_b: float) -> bool:
+        ends = sorted([(inv_a, round(depth_a, 3)), (inv_b, round(depth_b, 3))])
+        return ends == [("inv-A", 0.0), ("inv-B", 0.0)]
+
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, band_a, uuid4(), 23)],
+            "inv-B": [(0.0, 10.0, band_b, uuid4(), 23)],
+        },
+        seen_layer_pairs=set(),
+        tie_tombstoned=tombstoned,
+    )
+    assert counts.edges_emitted == 0
+    assert counts.skipped_tombstoned == 1
+    session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_td2_a_different_depth_on_the_same_columns_still_emits() -> None:
+    """The deletion covers ONE tie, not the gap — its neighbours still band."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    band_a, band_b = uuid4(), uuid4()
+
+    def tombstoned(inv_a: str, depth_a: float, inv_b: str, depth_b: float) -> bool:
+        # A deletion recorded two metres deeper — must not match the top pair.
+        ends = sorted([(inv_a, round(depth_a, 3)), (inv_b, round(depth_b, 3))])
+        return ends == [("inv-A", 2.0), ("inv-B", 2.0)]
+
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            "inv-A": [(0.0, 10.0, band_a, uuid4(), 23)],
+            "inv-B": [(0.0, 10.0, band_b, uuid4(), 23)],
+        },
+        seen_layer_pairs=set(),
+        tie_tombstoned=tombstoned,
+    )
+    assert counts.edges_emitted == 1
+    assert counts.skipped_tombstoned == 0
