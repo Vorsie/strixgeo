@@ -463,39 +463,6 @@ fraction is not the owner's number and has not been ruled on.
 """
 
 
-MAX_DONOR_MAP_DISTANCE_M = 500.0
-"""How far a column may be and still donate packing to a borehole.
-
-Owner, 2026-08-16: *"777m is too far anyhow"* — his B4 took loose sand from a
-CPT 777 m away because it was the only column in the borehole's (body,
-geological band) group.
-
-The value has to sit between two of his own rulings.  Above 200 m a donor is
-already stamped ``low`` confidence rather than refused (2026-08-11, *"just
-take distance to nearest cpt as a measure for now"*), so capping AT 200 m
-would delete that tier — a weak-but-honest answer is still an answer, and he
-asked for it.  Below 777 m, because he has now said that is too far.  500 m
-keeps the low tier alive and rules his case out; ⚠ the exact number is his to
-set and has not been.
-"""
-
-
-def donor_is_within_reach(map_distance_m: float) -> bool:
-    """Whether a donor column is close enough to say anything about a borehole.
-
-    Parameters
-    ----------
-    map_distance_m : float
-        Map distance from the borehole to the donor column.
-
-    Returns
-    -------
-    bool
-        ``True`` up to and including :data:`MAX_DONOR_MAP_DISTANCE_M`.
-    """
-    return map_distance_m <= MAX_DONOR_MAP_DISTANCE_M
-
-
 def layer_donor_picks(
     correlated: Sequence[BodyLayerPick],
     body_picks: Sequence[BodyLayerPick],
@@ -504,7 +471,7 @@ def layer_donor_picks(
     soil_by_formation: Mapping[str, str | None],
     layer_top_elev_m: float,
     layer_base_elev_m: float,
-    map_distance_m: Mapping[str, float],
+    flanking_investigations: set[str],
 ) -> list[BodyLayerPick]:
     """The columns a borehole litho layer may borrow its packing from.
 
@@ -539,10 +506,17 @@ def layer_donor_picks(
         donor at all.
     layer_top_elev_m, layer_base_elev_m : float
         The borehole layer's extent in elevation, top above base.
-    map_distance_m : Mapping[str, float]
-        Distance from the borehole to each column.  A column absent from this
-        map is skipped: the reach rule cannot be applied honestly to a distance
-        nobody knows.
+    flanking_investigations : set[str]
+        Accepted for the caller's bookkeeping and deliberately NOT used as a
+        filter.  Owner ruling, 2026-08-17: *"donor reach is obsolete, only left
+        and right test on section can be donor"* — which
+        ``select_flank_donors`` already implements downstream, picking the
+        nearest candidate each side.  Filtering the POOL to the geometrically
+        adjacent tests instead was measured on his model and starves it: the
+        flanking test usually does not carry the unit's soil, and donor-backed
+        bands fell from 118 to 37 with two thirds of the model dropping to a
+        floor. So the pool stays "every column carrying this soil in this body"
+        and the flanking rule chooses between them.
 
     Returns
     -------
@@ -563,9 +537,6 @@ def layer_donor_picks(
         if pick.investigation_id in tied_columns:
             continue
         if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
-            continue
-        distance = map_distance_m.get(pick.investigation_id)
-        if distance is None or not donor_is_within_reach(distance):
             continue
         by_investigation[pick.investigation_id].append(pick)
 
@@ -1870,6 +1841,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             ).all()
         }
+        # The columns immediately left and right of each borehole, unioned over
+        # every section it appears on. Owner ruling, 2026-08-17: only these may
+        # donate, so adjacency replaces the old distance cap outright.
+        flanking_by_borehole: dict[str, set[str]] = defaultdict(set)
+        for flank_placement in section_placements:
+            in_order = sorted(flank_placement.along_m.items(), key=lambda item: item[1])
+            for position, (inv_here, _along_here) in enumerate(in_order):
+                if anchor_kind.get(inv_here) != "borehole":
+                    continue
+                # The nearest TEST each side, walking past other boreholes: a
+                # borehole has no qc and cannot donate packing, so stopping at
+                # one would leave the unit with no donor at all (measured
+                # 2026-08-17: donor-backed bands fell 118 -> 33).
+                for step in (-1, 1):
+                    probe = position + step
+                    while 0 <= probe < len(in_order):
+                        candidate_inv = in_order[probe][0]
+                        if anchor_kind.get(candidate_inv) == "cpt":
+                            flanking_by_borehole[inv_here].add(candidate_inv)
+                            break
+                        probe += step
+
         cpt_layer_picks_by_body: dict[str, list[BodyLayerPick]] = defaultdict(list)
         for pool_pick in shallow.picks:
             if anchor_kind.get(pool_pick.investigation_id) == "cpt":
@@ -2014,11 +2007,6 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     )
                     if anchor_kind.get(correlated_pick.investigation_id) == "cpt"
                 ]
-                cpt_map_distance_m = {
-                    str(cpt_id): ((location[0] - bh_x) ** 2 + (location[1] - bh_y) ** 2) ** 0.5
-                    for cpt_id, location in cpt_xy.items()
-                }
-
                 # A donor must be the SAME SOIL. The engineer's litho ties may
                 # legitimately cross facies — his own cross-soil correlations do
                 # — but a packing class belongs to a soil column, so a silt
@@ -2034,7 +2022,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     soil_by_formation=litho_soil_by_formation,
                     layer_top_elev_m=bh_elev - (geo_top if unit_layer is None else unit_layer[1]),
                     layer_base_elev_m=bh_elev - (geo_base if unit_layer is None else unit_layer[2]),
-                    map_distance_m=cpt_map_distance_m,
+                    flanking_investigations=flanking_by_borehole.get(inv_id, set()),
                 )
 
                 (
@@ -3944,20 +3932,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     map_distance_m=((x_m - bh_x) ** 2 + (y_m - bh_y) ** 2) ** 0.5,
                 )
             )
-        # A column too far away to say anything is not a weak answer, it is no
-        # answer — owner, 2026-08-16: "777m is too far anyhow". Dropped after
-        # the stacks are built so the count reported below is the count that
-        # actually qualified.
-        reachable = [d for d in donors if donor_is_within_reach(d.map_distance_m)]
-        if len(reachable) != len(donors):
-            self.info(
-                f"DivideBoreholes: {len(donors) - len(reachable)} donor(s) beyond "
-                f"{MAX_DONOR_MAP_DISTANCE_M:.0f} m dropped "
-                f"(nearest kept: "
-                + (f"{min(d.map_distance_m for d in reachable):.0f} m" if reachable else "none")
-                + ")"
-            )
-        return reachable
+        # No distance gate here: the candidate set is already only the
+        # flanking tests (owner, 2026-08-17), and a flank is a flank however far
+        # away it is — there is nothing between it and the borehole.
+        return donors
 
     # ------------------------------------------------------------------
     # Persistence — transcribe a planned segment into rows
