@@ -148,6 +148,14 @@ export interface UseGeotechBandEditResult {
     upperBoundaryDepthM: number,
     lowerBoundaryDepthM: number,
   ) => void
+  /**
+   * Set a BOREHOLE band's NAD class by hand (owner ask 2026-08-18). Commits
+   * DIRECTLY — no consequence sheet: the change is one number, fully undoable
+   * (``previousClass`` is the undo anchor), and the sheet exists for edits
+   * whose re-derived outcome the engineer cannot see coming. Here the outcome
+   * IS the choice.
+   */
+  onRequestSetBandClass?: (bandId: string, nadClass: number, previousClass: number) => void
   /** What the pending edit would do; null when no sheet is open. */
   plan: GeotechBandEditPlanResponse | null
   /** True while a preview or a commit is in flight. */
@@ -320,6 +328,64 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         .finally(() => setBusy(false))
     },
     [modelId, projectId, reportFailure],
+  )
+
+  const onRequestSetBandClass = useCallback(
+    (bandId: string, nadClass: number, previousClass: number): void => {
+      if (modelId === null) return
+      log.info('section', `band-set-class: band=${bandId} ${previousClass} → ${nadClass}`)
+      setBusy(true)
+      // Write + view fan-out, shared by the first commit and both undo
+      // closures. Deliberately NOT settleAfterWrite: its markBoreholesStale
+      // would amber "Divide boreholes", and a re-divide is exactly what
+      // ERASES a hand class (it rebuilds every borehole band from the
+      // donors). A class change moves no geometry, so nothing is out of date.
+      const commit = async (cls: number): Promise<number> => {
+        const result = await api.geology.setGeotechBandClass(projectId, modelId, bandId, cls)
+        requestGeotechLayersRefetch()
+        await refetchGeotechPackingEdges()
+        markMutated()
+        requestBodyRecompute?.('geotech')
+        const flaggedIds = result.flagged_edge_ids ?? []
+        if (flaggedIds.length > 0) onAcceptedTiesFlagged?.(flaggedIds)
+        return flaggedIds.length
+      }
+      void commit(nadClass)
+        .then(flagged => {
+          undoStack.push({
+            description: 'Set packing class',
+            revert: async () => {
+              await commit(previousClass)
+            },
+            reapply: async () => {
+              await commit(nadClass)
+            },
+          })
+          toast(
+            'success',
+            flagged === 0
+              ? `Class set to NAD ${nadClass}.`
+              : `Class set to NAD ${nadClass}; ${flagged} accepted tie${flagged === 1 ? '' : 's'} flagged for review.`,
+          )
+        })
+        .catch((err: unknown) => {
+          log.warn('section', 'band-set-class failed', err)
+          reportFailure(err, 'Could not set the class — try again.')
+        })
+        .finally(() => setBusy(false))
+    },
+    [
+      modelId,
+      projectId,
+      requestGeotechLayersRefetch,
+      refetchGeotechPackingEdges,
+      markMutated,
+      requestBodyRecompute,
+      undoStack,
+      toast,
+      reportFailure,
+      onAcceptedTiesFlagged,
+    ],
   )
 
   const cancel = useCallback((): void => {
@@ -558,6 +624,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     onRequestMergeBands: modelId === null ? undefined : onRequestMergeBands,
     onRequestMoveBoundary: modelId === null ? undefined : onRequestMoveBoundary,
     onRequestAbsorbLens: modelId === null ? undefined : onRequestAbsorbLens,
+    onRequestSetBandClass: modelId === null ? undefined : onRequestSetBandClass,
     plan,
     busy,
     confirm,
