@@ -79,7 +79,7 @@ tested without a database.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
 # Bands thinner than this are dropped rather than written: `litho_layer` stores
@@ -754,3 +754,76 @@ def confidence_from_donor_distance(distance_m: float | None) -> str:
     if distance_m <= DONOR_CONFIDENCE_MEDIUM_M:
         return "medium"
     return "low"
+
+
+def depth_aware_flanks(
+    borehole_id: str,
+    *,
+    ordered_columns: Sequence[str],
+    kind_of: Mapping[str, str],
+    banded_extent_by_inv: Mapping[str, tuple[float, float]],
+    window_top_elev_m: float,
+    window_base_elev_m: float,
+    min_data_m: float,
+) -> set[str]:
+    """The flanking CPTs for ONE layer window, walking past silent columns.
+
+    Owner ruling, 2026-08-18, after B2's 8.7 m sand came back as one band:
+    *"If there are no cpt data below TD, then you look to the next cpt over
+    ofcourse. Close cpt where there is data, further away below TD."*  The
+    flank is therefore judged per LAYER, not per borehole: a short CPT whose
+    bands end above this layer's window is silent here and the walk continues
+    to the next CPT over.  A CPT whose bands DO cover the window blocks the
+    walk even when none of them are this layer's soil — data that disagrees
+    is still data, and borrowing from beyond it would fake continuity through
+    ground it says is something else.  Boreholes are always stepped over: no
+    qc, nothing to donate.
+
+    Parameters
+    ----------
+    borehole_id : str
+        The borehole whose flanks are asked for.
+    ordered_columns : Sequence[str]
+        One section's investigation ids, in along order.
+    kind_of : Mapping[str, str]
+        ``"cpt"`` or ``"borehole"`` per investigation id.
+    banded_extent_by_inv : Mapping[str, tuple[float, float]]
+        Per investigation, the (top, base) ELEVATION extent of its geotech
+        bands, top above base.  Missing = no bands at all.
+    window_top_elev_m, window_base_elev_m : float
+        The borehole layer's elevation window, top above base.
+    min_data_m : float
+        The model's minimum writable band thickness.  A column whose data
+        covers less of the window than one writable band cannot express
+        anything here and counts as silent — on the real B2, the next CPT's
+        clay grazed the sand window by 2 cm, and 2 cm of clay must not veto
+        an 8.7 m question.
+
+    Returns
+    -------
+    set[str]
+        At most one CPT per side on this section.  Empty when the borehole is
+        not on the section, or no CPT with data in the window exists a side.
+    """
+    try:
+        position = ordered_columns.index(borehole_id)
+    except ValueError:
+        return set()
+
+    def _has_data(inv: str) -> bool:
+        extent = banded_extent_by_inv.get(inv)
+        if extent is None:
+            return False
+        top, base = extent
+        return min(top, window_top_elev_m) - max(base, window_base_elev_m) > min_data_m
+
+    flanks: set[str] = set()
+    for step in (-1, 1):
+        probe = position + step
+        while 0 <= probe < len(ordered_columns):
+            candidate = ordered_columns[probe]
+            if kind_of.get(candidate) == "cpt" and _has_data(candidate):
+                flanks.add(candidate)
+                break
+            probe += step
+    return flanks
