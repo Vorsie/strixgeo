@@ -151,6 +151,7 @@ from groundmodel.domain.services.borehole_flank_donors import (
     FlankSelection,
     SectionPlacement,
     confidence_from_donor_distance,
+    depth_aware_flanks,
     flank_packing_surfaces_with_donors,
     select_flank_donors,
 )
@@ -1922,27 +1923,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             ).all()
         }
-        # The columns immediately left and right of each borehole, unioned over
-        # every section it appears on. Owner ruling, 2026-08-17: only these may
-        # donate, so adjacency replaces the old distance cap outright.
-        flanking_by_borehole: dict[str, set[str]] = defaultdict(set)
-        for flank_placement in section_placements:
-            in_order = sorted(flank_placement.along_m.items(), key=lambda item: item[1])
-            for position, (inv_here, _along_here) in enumerate(in_order):
-                if anchor_kind.get(inv_here) != "borehole":
-                    continue
-                # The nearest TEST each side, walking past other boreholes: a
-                # borehole has no qc and cannot donate packing, so stopping at
-                # one would leave the unit with no donor at all (measured
-                # 2026-08-17: donor-backed bands fell 118 -> 33).
-                for step in (-1, 1):
-                    probe = position + step
-                    while 0 <= probe < len(in_order):
-                        candidate_inv = in_order[probe][0]
-                        if anchor_kind.get(candidate_inv) == "cpt":
-                            flanking_by_borehole[inv_here].add(candidate_inv)
-                            break
-                        probe += step
+        # The columns immediately left and right of each borehole, per layer
+        # window, unioned over every section it appears on. Owner ruling,
+        # 2026-08-17: only these may donate, so adjacency replaces the old
+        # distance cap. Refined 2026-08-18 after B2's sand came back as one
+        # band: *"If there are no cpt data below TD, then you look to the next
+        # cpt over ofcourse. Close cpt where there is data, further away below
+        # TD."* — the walk (``depth_aware_flanks``) is therefore run per LAYER
+        # at the donor-pick site below; only the section orderings and the
+        # per-column banded elevation extents are prepared here.
+        ordered_columns_by_section: list[list[str]] = [
+            [inv for inv, _along in sorted(placement.along_m.items(), key=lambda item: item[1])]
+            for placement in section_placements
+        ]
+        banded_extent_by_inv: dict[str, tuple[float, float]] = {}
+        for extent_inv, extent_rows in geotech_layer_by_inv_depth.items():
+            extent_surf = cpt_xy.get(UUID(extent_inv))
+            if not extent_rows or extent_surf is None:
+                continue
+            banded_extent_by_inv[extent_inv] = (
+                extent_surf[2] - min(r[0] for r in extent_rows),
+                extent_surf[2] - max(r[1] for r in extent_rows),
+            )
 
         cpt_layer_picks_by_body: dict[str, list[BodyLayerPick]] = defaultdict(list)
         for pool_pick in shallow.picks:
@@ -2105,14 +2107,27 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 # (Data Integrity Rule 3). Body grouping used to enforce this
                 # for free; naming donors by correlation does not.
 
+                layer_top_elev = bh_elev - (geo_top if unit_layer is None else unit_layer[1])
+                layer_base_elev = bh_elev - (geo_base if unit_layer is None else unit_layer[2])
+                layer_flanks: set[str] = set()
+                for section_columns in ordered_columns_by_section:
+                    layer_flanks |= depth_aware_flanks(
+                        inv_id,
+                        ordered_columns=section_columns,
+                        kind_of=anchor_kind,
+                        banded_extent_by_inv=banded_extent_by_inv,
+                        window_top_elev_m=layer_top_elev,
+                        window_base_elev_m=layer_base_elev,
+                        min_data_m=min_thickness_m,
+                    )
                 unit_cpt_segs = layer_donor_picks(
                     correlated,
                     cpt_layer_picks_by_body.get(unit_body_id or "", []),
                     own_soil_code=soil_code,
                     soil_by_formation=litho_soil_by_formation,
-                    layer_top_elev_m=bh_elev - (geo_top if unit_layer is None else unit_layer[1]),
-                    layer_base_elev_m=bh_elev - (geo_base if unit_layer is None else unit_layer[2]),
-                    flanking_investigations=flanking_by_borehole.get(inv_id, set()),
+                    layer_top_elev_m=layer_top_elev,
+                    layer_base_elev_m=layer_base_elev,
+                    flanking_investigations=layer_flanks,
                 )
 
                 (
