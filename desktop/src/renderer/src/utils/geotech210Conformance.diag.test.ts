@@ -16,6 +16,10 @@
  *              never closed (the spur-stripped onlap flank).
  *   V-NOSPAN   a band tied >= 2x into a gap does not reach the far column.
  *
+ * A gap whose FACING test carries no bands at all is out of scope: an
+ * un-divided test shows empty ground by ruling (2026-08-15), so nothing being
+ * emitted there is the law working. Everything else is audited.
+ *
  * RATCHET, not absolute truth: the oracle is deliberately coarse (a dipping
  * one-tie onlap can legitimately exceed the height cap by its tie's dip), so
  * violations are COUNTED per section against a frozen baseline and may only
@@ -32,6 +36,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
+import { frameAlignedColumns } from './frameAlignedPartition'
+import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -67,7 +73,7 @@ interface RawArm {
   edges: { a: string; b: string; aSide?: string; bSide?: string }[]
   alongM: number[]
 }
-interface RawSection {
+interface RawSection extends RawArm {
   name: string
   geotech: RawArm
 }
@@ -102,15 +108,57 @@ function assemble(arm: RawArm): {
   }
 }
 
-function auditSection(sec: RawSection): Violation[] {
+/**
+ * The partition the gate audits.
+ *
+ * By default it is the RENDERED one — the hierarchical fill, on the LITHO
+ * FRAME's column axis (the axis the render and the build both use). Set
+ * ``GEOTECH_210_RAW=1`` to audit the pre-hierarchical whole-section geotech
+ * partition instead, which is what the committed baseline was frozen on; the
+ * two agree column-for-column wherever every borehole is divided (Cross-section
+ * 1), and the raw arm simply has FEWER gaps elsewhere because a column with no
+ * bands is dropped from its axis.
+ */
+function auditedPartition(sec: RawSection): {
+  columns: PartitionColumn[]
+  alongM: number[]
+  edges: CorrelationEdge[]
+  regions: SectionRegion[]
+} {
   const G = assemble(sec.geotech)
   const empty = new Map<string, BodyBoundaryResponse>()
-  const regions = computeSectionFillActive(
-    G.columns,
-    G.edges,
-    deriveSectionApexOverrides(G.columns, G.edges, G.alongM, empty, true),
-    G.alongM,
+  if (process.env.GEOTECH_210_RAW === '1') {
+    return {
+      ...G,
+      regions: computeSectionFillActive(
+        G.columns,
+        G.edges,
+        deriveSectionApexOverrides(G.columns, G.edges, G.alongM, empty, true),
+        G.alongM,
+      ),
+    }
+  }
+  const L = assemble(sec)
+  if (L.columns.length < 2) return { ...G, regions: [] }
+  const geotechColumns = frameAlignedColumns(
+    L.columns,
+    new Map(G.columns.map((c) => [c.investigationId, c])),
   )
+  const lithoRegions = computeSectionFillActive(L.columns, L.edges, undefined, L.alongM)
+  const out = computeHierarchicalGeotechFill({
+    lithoColumns: L.columns,
+    lithoEdges: L.edges,
+    lithoRegions,
+    geotechColumns,
+    geotechEdges: G.edges,
+    alongM: L.alongM,
+  })
+  return { columns: geotechColumns, alongM: L.alongM, edges: G.edges, regions: out.regions }
+}
+
+function auditSection(sec: RawSection): Violation[] {
+  const G = auditedPartition(sec)
+  const regions = G.regions
 
   // layerId → owning column index.
   const columnOf = new Map<string, number>()
@@ -171,6 +219,15 @@ function auditSection(sec: RawSection): Violation[] {
       const thickness = u.baseDepthM - u.topDepthM
       const gaps = [ci - 1, ci].filter((g) => g >= 0 && g < G.columns.length - 1)
       for (const gap of gaps) {
+        // OUT OF SCOPE: the test facing this one across the gap has no packing
+        // bands at all — it has not been divided. The owner's 2026-08-15 ruling
+        // is that such ground reads visibly EMPTY until "4 · Divide boreholes"
+        // is pressed, so a band emitting nothing into that gap is the RULE
+        // being obeyed, not broken. Auditing it would bury a real regression
+        // under hundreds of intended absences (measured: 350 across the five
+        // sections that still carry un-divided tests).
+        const facing = gap === ci ? ci + 1 : gap
+        if ((G.columns[facing]?.units.length ?? 0) === 0) continue
         const ties = tieCount.get(`${u.layerId}|${gap}`) ?? 0
         const mine = regionsOf.get(`${u.layerId}|${gap}`) ?? []
         const tag = `${sec.name} col${ci} gap${gap} class=${u.formationId.slice(0, 8)} ` +
