@@ -1309,3 +1309,103 @@ async def test_br2_a_same_class_chain_does_not_double_emit_with_the_aligner() ->
     emitted = [e.args[0] for e in session.add.call_args_list]
     rows = [e for e in emitted if {e.layer_a_id, e.layer_b_id} == {s6_band, s13_band}]
     assert len(rows) == 1, f"one statement, one row — got {len(rows)}"
+
+
+@pytest.mark.asyncio
+async def test_de1_an_interior_pair_with_disjoint_extents_is_not_proposed() -> None:
+    """DE1 (owner deletions, 2026-08-18): the machine tied S9's DEEP D band
+    (fractions 0.79-1.0 of its unit) to a SHALLOW D band on S10 (0.13-0.18) —
+    a 5 m diagonal he deleted on sight. Class match alone is not
+    correspondence: an interior pair must OVERLAP in its litho window, or the
+    machine stays silent and the engineer draws it himself."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    left_top, left_deep7 = uuid4(), uuid4()
+    right_top, right_shallow7, right_8 = uuid4(), uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            # Left: MD to 9 m, D only at the very bottom (0.9-1.0).
+            "inv-A": [(0.0, 9.0, left_top, uuid4(), 6), (9.0, 10.0, left_deep7, uuid4(), 7)],
+            # Right: MD sliver, D sliver near the TOP (0.1-0.2), then VD.
+            "inv-B": [
+                (0.0, 1.0, right_top, uuid4(), 6),
+                (1.0, 2.0, right_shallow7, uuid4(), 7),
+                (2.0, 10.0, right_8, uuid4(), 8),
+            ],
+        },
+        seen_layer_pairs=set(),
+    )
+    # The forced topmost restatement is the ONLY emission; the deep-left-7 ↔
+    # shallow-right-7 class match never overlaps and is withheld.
+    assert counts.edges_emitted == 1
+    assert counts.skipped_disjoint_extent == 1
+    edge = session.add.call_args.args[0]
+    assert {edge.layer_a_id, edge.layer_b_id} == {left_top, right_top}
+
+
+@pytest.mark.asyncio
+async def test_de2_an_overlapping_interior_pair_is_still_proposed() -> None:
+    """DE2: a genuinely dipping band whose extents overlap keeps its
+    proposal — the gate kills class-match-without-correspondence, not
+    dipping geology."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    left_top, left_7 = uuid4(), uuid4()
+    right_top, right_7 = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            # Left D at 0.30-0.50 of the unit, right D at 0.45-0.65: offset
+            # but overlapping — a dipping sheet.
+            "inv-A": [(0.0, 3.0, left_top, uuid4(), 6), (3.0, 5.0, left_7, uuid4(), 7)],
+            "inv-B": [(0.0, 4.5, right_top, uuid4(), 6), (4.5, 6.5, right_7, uuid4(), 7)],
+        },
+        seen_layer_pairs=set(),
+    )
+    assert counts.edges_emitted == 2
+    assert counts.skipped_disjoint_extent == 0
+    emitted_pairs = [
+        {call.args[0].layer_a_id, call.args[0].layer_b_id} for call in session.add.call_args_list
+    ]
+    assert {left_7, right_7} in emitted_pairs
+
+
+@pytest.mark.asyncio
+async def test_de3_a_near_miss_within_one_band_thickness_stays_proposed() -> None:
+    """DE3: a band may dip by about its own thickness and still be one sheet
+    — the extents miss by 0.05 of the unit against a 0.25-thick band, so the
+    proposal stands. The gate kills jumps, not dips."""
+    session = _mock_session()
+    la, lb = uuid4(), uuid4()
+    left_top, left_7 = uuid4(), uuid4()
+    right_top, right_7 = uuid4(), uuid4()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges={(min(la, lb), max(la, lb))},
+        litho_layer_depths={la: ("inv-A", 0.0, 10.0), lb: ("inv-B", 0.0, 10.0)},
+        geotech_layer_by_inv_depth={
+            # Left D at 0.30-0.50, right D at 0.55-0.80: a 0.05 miss.
+            "inv-A": [(0.0, 3.0, left_top, uuid4(), 6), (3.0, 5.0, left_7, uuid4(), 7)],
+            "inv-B": [(0.0, 5.5, right_top, uuid4(), 6), (5.5, 8.0, right_7, uuid4(), 7)],
+        },
+        seen_layer_pairs=set(),
+    )
+    assert counts.skipped_disjoint_extent == 0
+    emitted_pairs = [
+        {call.args[0].layer_a_id, call.args[0].layer_b_id} for call in session.add.call_args_list
+    ]
+    assert {left_7, right_7} in emitted_pairs
