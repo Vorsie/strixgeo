@@ -119,15 +119,37 @@ function auditSection(sec: RawSection): Violation[] {
   }
   // Ties per (layerId, gapIndex): only edges between ADJACENT columns count —
   // a jump tie over a bandless stretch is bridge machinery with its own rules.
+  const unitOf = new Map<string, { u: RawUnit; ci: number }>()
+  for (let ci = 0; ci < G.columns.length; ci++) {
+    for (const u of G.columns[ci].units) unitOf.set(u.layerId, { u: u as RawUnit, ci })
+  }
+  const surfaceElev = (layer: string): number => {
+    const home = unitOf.get(layer)
+    return home ? G.columns[home.ci].surfaceElevM : 0
+  }
   const tieCount = new Map<string, number>()
+  // Per (layerId, gap): the tied LINE as (elev at left column, elev at right column).
+  const tieLines = new Map<string, [number, number][]>()
   for (const e of G.edges) {
     const ca = columnOf.get(e.a)
     const cb = columnOf.get(e.b)
     if (ca === undefined || cb === undefined || Math.abs(ca - cb) !== 1) continue
     const gap = Math.min(ca, cb)
+    const elevOf = (layer: string, side: 'top' | 'base'): number => {
+      const home = unitOf.get(layer)
+      if (!home) return 0
+      return surfaceElev(layer) - (side === 'top' ? home.u.topDepthM : home.u.baseDepthM)
+    }
+    const elevA = elevOf(e.a, e.aSide ?? 'top')
+    const elevB = elevOf(e.b, e.bSide ?? 'top')
+    const left = (columnOf.get(e.a) ?? 0) < (columnOf.get(e.b) ?? 0) ? elevA : elevB
+    const right = left === elevA ? elevB : elevA
     for (const layer of [e.a, e.b]) {
       const key = `${layer}|${gap}`
       tieCount.set(key, (tieCount.get(key) ?? 0) + 1)
+      const list = tieLines.get(key) ?? []
+      list.push([left, right])
+      tieLines.set(key, list)
     }
   }
   // Regions per (layerId, gapIndex), via the v2 layer-id attribution.
@@ -173,18 +195,39 @@ function auditSection(sec: RawSection): Violation[] {
           out.push({ kind: 'missing', detail: tag })
           continue
         }
-        const cap = thickness * BALLOON_SLACK + BALLOON_GRACE_M
+        // The allowed envelope: the band's own extent, UNIONED with its tie
+        // line evaluated over the region's own fraction reach — a one-tie
+        // onlap legitimately spans its tie's dip (it follows the line), but
+        // it may never leave [own level ∪ the line], which is exactly what
+        // the balloons did (the 0.41 m crust reached the channel floor 1.4 m
+        // below its tie's local level).
+        const bandTop = surf - u.topDepthM
+        const bandBase = surf - u.baseDepthM
+        const lines = tieLines.get(`${u.layerId}|${gap}`) ?? []
         for (const r of mine) {
           let lo = Infinity
           let hi = -Infinity
+          let f0 = 1
+          let f1 = 0
           for (const p of r.polygon) {
             if (p.elevation < lo) lo = p.elevation
             if (p.elevation > hi) hi = p.elevation
+            if (p.fraction < f0) f0 = p.fraction
+            if (p.fraction > f1) f1 = p.fraction
           }
-          if (hi - lo > cap) {
+          let allowLo = bandBase
+          let allowHi = bandTop
+          for (const [l, rr] of lines) {
+            const atF0 = l + f0 * (rr - l)
+            const atF1 = l + f1 * (rr - l)
+            allowLo = Math.min(allowLo, atF0, atF1)
+            allowHi = Math.max(allowHi, atF0, atF1)
+          }
+          const grace = thickness * (BALLOON_SLACK - 1) + BALLOON_GRACE_M
+          if (lo < allowLo - grace || hi > allowHi + grace) {
             out.push({
               kind: 'balloon',
-              detail: `${tag} region ${lo.toFixed(2)}..${hi.toFixed(2)} = ${(hi - lo).toFixed(2)}m vs cap ${cap.toFixed(2)}m`,
+              detail: `${tag} region ${lo.toFixed(2)}..${hi.toFixed(2)} vs envelope ${(allowLo - grace).toFixed(2)}..${(allowHi + grace).toFixed(2)}`,
             })
             break // one balloon per (band, gap) is enough signal
           }
