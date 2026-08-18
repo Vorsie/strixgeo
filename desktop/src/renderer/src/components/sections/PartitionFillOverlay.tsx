@@ -89,6 +89,7 @@ import {
   type FallbackPackingBand,
 } from '../../utils/geotechFillFallback'
 import { clipPartitionToLithoFrame } from '../../utils/clipPartitionToLithoFrame'
+import { lithoOutlineEdges } from '../../utils/lithoOutlineEdges'
 import {
   frameAlignedColumns,
   frameGapRuns,
@@ -2250,13 +2251,26 @@ export default function PartitionFillOverlay({
         color: lithoFrame.lithoFormationColorById.get(r.formationId) ?? FALLBACK_COLOR,
       })
     }
+    // Soil-level dissolve (owner dogfeed 2026-08-18: "weird ass horizontal
+    // black lines without meaning to the user"): only edges where the SOIL
+    // changes — or the frame's outer envelope — draw; internal seams between
+    // touching same-soil litho units dissolve. One path per gap.
+    const segsByGap = new Map<number, string[]>()
+    for (const s of lithoOutlineEdges(lithoRegions, lithoFrame.lithoSoilByFormationId)) {
+      const g = lithoGapXs[s.gapIndex]
+      if (!g || g.rightX - g.leftX < 1) continue // degenerate-gap guard (mirror-spill)
+      const px = (q: { fraction: number; elevation: number }): string => {
+        const x = g.leftX + q.fraction * (g.rightX - g.leftX)
+        const y = clampY(levelToScreen(q.elevation))
+        return `${x.toFixed(2)},${y.toFixed(2)}`
+      }
+      const list = segsByGap.get(s.gapIndex) ?? []
+      list.push(`M ${px(s.a)} L ${px(s.b)}`)
+      segsByGap.set(s.gapIndex, list)
+    }
     const outlines: { key: string; d: string }[] = []
-    let oi = 0
-    for (const r of lithoRegions) {
-      if (r.kind === 'lens') continue
-      const d = pathFor(r.gapIndex, r.polygon)
-      if (!d) continue
-      outlines.push({ key: `lo-${oi++}`, d })
+    for (const [gap, parts] of segsByGap) {
+      outlines.push({ key: `lo-${gap}`, d: parts.join(' ') })
     }
     return { fallbackPolys, outlines }
   }, [
@@ -3328,11 +3342,13 @@ export default function PartitionFillOverlay({
         )
       })}
 
-      {/* LITHO ENVELOPE OUTLINES (geotech axis, owner ruling 2026-08-13):
-          "litho boundaries persist". Drawn AFTER every fill + seam stroke so
-          the dark line sits on top of the packing bands, and before the
-          labels/handles so it never covers a control. Lens envelopes are
-          skipped — a lens outline reads as a lithology boundary it is not. */}
+      {/* LITHO OUTLINES (geotech axis, owner ruling 2026-08-13): "litho
+          boundaries persist". Drawn AFTER every fill + seam stroke so the
+          dark line sits on top of the packing bands, and before the
+          labels/handles so it never covers a control. Soil-level dissolve
+          (owner 2026-08-18): only edges where the soil changes draw — a
+          same-soil internal seam or a lens inside its own soil is machine
+          partition anatomy, not a lithology boundary. */}
       {lithoFrame && lithoFrameScreen.outlines.length > 0 && (
         <g data-testid="partition-litho-outline-layer">
           {lithoFrameScreen.outlines.map((p) => (
