@@ -156,6 +156,13 @@ export interface UseGeotechBandEditResult {
    * IS the choice.
    */
   onRequestSetBandClass?: (bandId: string, nadClass: number, previousClass: number) => void
+  /**
+   * Clear ONE test's subdivision (owner ask 2026-08-18) — the escape hatch of
+   * first-subdivision-wins: the pipeline presses import already-banded
+   * columns as-is, so redoing one column is clear-then-press. Fires
+   * immediately (his words: "you can fire it"); the toast names the rebuild.
+   */
+  onRequestClearColumn?: (investigationId: string, name: string) => void
   /** What the pending edit would do; null when no sheet is open. */
   plan: GeotechBandEditPlanResponse | null
   /** True while a preview or a commit is in flight. */
@@ -386,6 +393,33 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
       reportFailure,
       onAcceptedTiesFlagged,
     ],
+  )
+
+  const onRequestClearColumn = useCallback(
+    (investigationId: string, name: string): void => {
+      if (modelId === null) return
+      log.info('section', `clear-subdivision: investigation=${investigationId} (${name})`)
+      setBusy(true)
+      void api.geology
+        .clearGeotechColumn(projectId, modelId, investigationId)
+        .then(async result => {
+          toast(
+            'success',
+            `Cleared ${result.deleted_band_count} band${
+              result.deleted_band_count === 1 ? '' : 's'
+            } on ${name} — press 1 (CPT) or 4 (borehole) to rebuild it.`,
+          )
+          // The full fan-out fits here (unlike set-class): the column's bands
+          // are GONE, so the divide's amber prompt is the honest next step.
+          await settleAfterWrite()
+        })
+        .catch((err: unknown) => {
+          log.warn('section', 'clear-subdivision failed', err)
+          reportFailure(err, 'Could not clear the subdivision — try again.')
+        })
+        .finally(() => setBusy(false))
+    },
+    [modelId, projectId, settleAfterWrite, toast, reportFailure],
   )
 
   const cancel = useCallback((): void => {
@@ -625,6 +659,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     onRequestMoveBoundary: modelId === null ? undefined : onRequestMoveBoundary,
     onRequestAbsorbLens: modelId === null ? undefined : onRequestAbsorbLens,
     onRequestSetBandClass: modelId === null ? undefined : onRequestSetBandClass,
+    onRequestClearColumn: modelId === null ? undefined : onRequestClearColumn,
     plan,
     busy,
     confirm,
