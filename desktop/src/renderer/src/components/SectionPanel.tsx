@@ -305,6 +305,12 @@ interface Props {
    */
   onRequestGeotechSplitBand?: (bandId: string, depthM: number) => void
   /**
+   * Set a BOREHOLE band's NAD class by hand (owner ask 2026-08-18). Borehole
+   * bands only — a CPT band's class is measured from its own qc. Absent →
+   * borehole bands stay view-only.
+   */
+  onRequestGeotechSetBandClass?: (bandId: string, nadClass: number, previousClass: number) => void
+  /**
    * Merge two adjacent packing sub-bands inside one litho body (geotech axis only).
    * ``boundaryDepthM`` = their shared boundary today, the undo anchor.
    */
@@ -740,6 +746,7 @@ export default function SectionPanel({
   onUpdateContactDepth,
   onDeleteContact,
   onRequestGeotechSplitBand,
+  onRequestGeotechSetBandClass,
   onRequestGeotechMergeBands,
   onRequestGeotechMoveBoundary,
   onRequestGeotechAbsorbLens,
@@ -3363,6 +3370,7 @@ export default function SectionPanel({
                 onRequestMerge={onRequestGeotechMergeBands}
                 onRequestMoveBoundary={onRequestGeotechMoveBoundary}
                 onRequestAbsorbLens={onRequestGeotechAbsorbLens}
+                onRequestSetClass={onRequestGeotechSetBandClass}
                 nadClassByFormationId={geotechNadClassByFormationId}
                 smallLensThicknessM={geotechSmallLensThicknessM}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
