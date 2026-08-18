@@ -120,6 +120,36 @@ export function emitTerminationSweep(
   // carrier reads corr ≥ 1 (onlap/band, never a suppressed lens) and pass-through columns lens.
   // ``emitSubTdLenses`` / the flag-OFF seam path still consume ``bridgeAnchored``.
   void bridgeAnchored
+  // ---- RULING 8t IS ORDER-DEPENDENT WITHOUT THIS (owner round 3, 2026-08-18). ----
+  // "just emit the closed loops (lenses and onlaps) and let matrix fill". A corr-1 ONLAP flank
+  // detours around any corr-0 lens diamond it cuts through (ruling 8t, ``emitOnlap``) — but the
+  // detour reads the diamonds COLLECTED SO FAR, and the sweep walks a column shallow→deep. So a
+  // lens on a DEEPER unit is emitted AFTER the shallower unit's onlap and the flank never detours
+  // around it: the two constructs overlap, the DCEL wires them into one self-touching ring, and
+  // ``faces.splitAtRepeats`` drops the degenerate lobe — the onlap bounds NO face and the band
+  // silently vanishes from the gap. Measured on the owner's CS1 gap 18: ZAND-5's flank is
+  // ``oflankterm139`` while ZAND-6's lens is ``term140``/``term141`` — allocated from the same
+  // counter, one unit later, so the crust's loop never closed.
+  //
+  // THE FIX IS A PLAN PASS, not a re-ordering: the identical sweep runs first into THROWAWAY
+  // sinks purely to learn every diamond it will emit, and the real pass detours against that
+  // COMPLETE set. Emission order — and therefore every curve id — is untouched, so this cannot
+  // move any face that was already correct.
+  const plannedDiamonds: Corr0Diamond[] = []
+  runColumnSweep(new Map(), [], plannedDiamonds, undefined)
+  runColumnSweep(lensLabels, out, diamonds, plannedDiamonds)
+
+  /**
+   * One full column-first pass. ``sink*`` receive the emitted curves/labels/diamonds;
+   * ``detour`` is the diamond set an onlap flank detours around (the complete planned set on
+   * the real pass, ``undefined`` on the plan pass, where it falls back to the live collection).
+   */
+  function runColumnSweep(
+    sinkLabels: Map<string, LensLabel>,
+    sinkOut: InputCurve[],
+    sinkDiamonds: Corr0Diamond[] | undefined,
+    detour: readonly Corr0Diamond[] | undefined,
+  ): void {
   let seq = 0
   const nextId = (): string => `term${seq++}`
   // A SEPARATE ``flood``-prefixed id space for the vacated-wedge closures.
@@ -139,12 +169,13 @@ export function emitTerminationSweep(
     // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
     // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
     if (ci + 1 < columns.length) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, sinkLabels, nextId, nextFloodId, sinkOut, sinkDiamonds, overrides, detour)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
     if (ci - 1 >= 0) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, out, diamonds, overrides)
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, sinkLabels, nextId, nextFloodId, sinkOut, sinkDiamonds, overrides, detour)
     }
+  }
   }
 }
 
@@ -172,6 +203,7 @@ function emitSideSweep(
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
   overrides?: ReadonlyMap<string, LensApexOverride>,
+  detourDiamonds?: readonly Corr0Diamond[],
 ): void {
   // ``colIndex`` is retained for signature parity / future per-column diagnostics; the
   // direction-blind bridge suppression that consumed it is deleted (Part B, ruling 8i(e)).
@@ -300,7 +332,7 @@ function emitSideSweep(
       // line art), never a reason to restore the guard.
       emitCorr0Termination(
         u, piece.hostUnitIndex, eff, col, facing, side, colX, facingX, gapIndex, shallowTD,
-        activeTies, lensLabels, nextId, nextFloodId, out, false, pieceIsFirst, pieceIsLast, diamonds, overrides,
+        activeTies, lensLabels, nextId, nextFloodId, out, false, pieceIsFirst, pieceIsLast, diamonds, overrides, detourDiamonds,
       )
       continue
     }
@@ -366,6 +398,7 @@ function emitSideSweep(
       out,
       diamonds,
       overrides,
+      detourDiamonds,
     )
     }
   }
@@ -432,6 +465,7 @@ export function emitCorr0Termination(
   isLastOverride?: boolean,
   diamonds?: Corr0Diamond[],
   overrides?: ReadonlyMap<string, LensApexOverride>,
+  detourDiamonds?: readonly Corr0Diamond[],
 ): void {
   if (subTd) {
     // SUB-TD: the deep-to-deep substrate is the flood. Emit ONLY the bare lens closing (no facing
@@ -462,6 +496,6 @@ export function emitCorr0Termination(
   // no-ops a sub-snap lens cleanly). Byte-identical to the pre-S34 ``isMinorityWide``-true path.
   drawTermination(
     u, ui, 0, eff.topTied, eff.baseTied, eff.topTie, eff.baseTie, false, false,
-    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out, diamonds, overrides,
+    side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out, diamonds, overrides, detourDiamonds,
   )
 }
