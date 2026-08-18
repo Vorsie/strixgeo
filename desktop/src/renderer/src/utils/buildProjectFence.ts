@@ -1,6 +1,8 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
-import { type CorrelationEdge } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { frameAlignedColumns } from './frameAlignedPartition'
+import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import {
   assembleSectionsWithCanonical,
@@ -52,15 +54,42 @@ export interface FenceSectionInput {
  *     carries ``formationId``, ``bodyId``, world-space ``vertices`` and
  *     ``triangles``.
  */
-export function buildProjectFence(sections: readonly FenceSectionInput[]): FencePanel[] {
+export function buildProjectFence(
+  sections: readonly FenceSectionInput[],
+  frameSections?: readonly FenceSectionInput[],
+): FencePanel[] {
   // Pass 1 (shared with ``buildVoxelRequest``): assemble every section +
   // compute the canonical per-test world positions.
   const { assembled, canonical } = assembleSectionsWithCanonical(sections)
 
+  // THE LITHO FRAME, for a GEOTECH fence (owner ruling 2026-08-18): with it the
+  // panels carry the SAME hierarchical fill the geotech axis renders and the
+  // voxel build posts. Without it (every litho fence) nothing changes.
+  const sectionKey = (input: FenceSectionInput): string =>
+    input.sectionId ??
+    `${input.section.start_x},${input.section.start_y},${input.section.end_x},${input.section.end_y}`
+  const frameByKey = new Map<
+    string,
+    { columns: PartitionColumn[]; orderedColumns: FenceColumn[]; edges: readonly CorrelationEdge[] }
+  >()
+  if (frameSections !== undefined) {
+    for (const f of assembleSectionsWithCanonical(frameSections).assembled) {
+      frameByKey.set(sectionKey(f.input), {
+        columns: f.columns,
+        orderedColumns: f.orderedColumns,
+        edges: f.input.edges,
+      })
+    }
+  }
+
   // Pass 2: build panels, stamping each column's canonical world position.
   const all: FencePanel[] = []
   for (const { input, columns, orderedColumns } of assembled) {
-    const worldColumns: FenceColumn[] = orderedColumns.map((c) => {
+    const lithoFrame = frameByKey.get(sectionKey(input))
+    // The frame owns the axis when it is present — its columns carry the tests
+    // the packing model has not divided, and the regions are indexed on ITS gaps.
+    const axisColumns = lithoFrame ? lithoFrame.orderedColumns : orderedColumns
+    const worldColumns: FenceColumn[] = axisColumns.map((c) => {
       const w = canonical.get(c.investigationId)
       return w ? { ...c, worldX: w.x, worldY: w.y } : c
     })
@@ -74,7 +103,29 @@ export function buildProjectFence(sections: readonly FenceSectionInput[]): Fence
     // kept explicit rather than silently unified; align it deliberately (add
     // ``orderedColumns.map((c) => c.alongM)`` as the 4th arg) when the owner
     // signs off on the fence render change.
-    const regions = computeSectionFillActive(columns, input.edges)
+    const regions = lithoFrame
+      ? computeHierarchicalGeotechFill({
+          lithoColumns: lithoFrame.columns,
+          lithoEdges: lithoFrame.edges,
+          // The frame's own partition. Unlike the litho arm above this DOES
+          // pass the real along-metres: the hierarchical fill works in absolute
+          // along-section position, so a uniform fallback would put the family
+          // runs on a different axis than their clip. The known divergence is
+          // the litho arm's, and it stays exactly as it was.
+          lithoRegions: computeSectionFillActive(
+            lithoFrame.columns,
+            lithoFrame.edges,
+            undefined,
+            lithoFrame.orderedColumns.map((c) => c.alongM),
+          ),
+          geotechColumns: frameAlignedColumns(
+            lithoFrame.columns,
+            new Map(columns.map((c) => [c.investigationId, c])),
+          ),
+          geotechEdges: input.edges,
+          alongM: lithoFrame.orderedColumns.map((c) => c.alongM),
+        }).regions
+      : computeSectionFillActive(columns, input.edges)
     const fenceRegions: FenceRegion[] = regions.map((r) => ({
       formationId: r.formationId,
       bodyId: r.bodyId,
