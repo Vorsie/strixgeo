@@ -929,3 +929,122 @@ def test_pg5_any_geometry_produces_a_column_that_tiles_its_extent() -> None:
         "the tiling guard is falling back, which means the sampler is producing "
         "columns the database would refuse"
     )
+
+
+def test_p10_a_straddling_tie_lands_even_when_an_interbed_splits_the_donor() -> None:
+    """P10: 1411-GEO-23/126-B2 in miniature (owner dogfeed 2026-08-18: "at
+    b2's column we have a very dense sand band bounded by two ties, that
+    doesn't get rendered").
+
+    The borehole's single sand unit spans what the left column reads as TWO
+    litho units (a silt interbed splits its sand). The engineer's two VD ties
+    start from the left column's LOWER sand — outside the one pick the flank
+    machinery keeps per column — and straddle the borehole to the right
+    column. The ties are his statement that the VD sheet runs through here:
+    they land at the drawn lines' elevations and the borehole reads
+    MD / VD / MD, not one top-to-bottom band."""
+    borehole = str(uuid7())
+    left, right = str(uuid7()), str(uuid7())
+    body_sand = uuid7()
+    upper_fm, silt_fm, lower_fm = uuid7(), uuid7(), uuid7()
+    l_upper, l_silt, l_vd = uuid7(), uuid7(), uuid7()
+    r_md, r_vd, r_md2 = uuid7(), uuid7(), uuid7()
+    layers = {
+        left: [
+            # One MD sand unit, then a SILT interbed, then the VD sand unit.
+            (8.8, 13.2, l_upper, upper_fm, _NAD_LOOSE, body_sand),
+            (13.2, 14.1, l_silt, silt_fm, 16, body_sand),
+            (14.1, 16.2, l_vd, lower_fm, _NAD_VERY_DENSE, body_sand),
+        ],
+        right: [
+            (13.0, 14.0, r_md, lower_fm, _NAD_LOOSE, body_sand),
+            (14.0, 16.3, r_vd, lower_fm, _NAD_VERY_DENSE, body_sand),
+            (16.3, 18.9, r_md2, lower_fm, _NAD_LOOSE, body_sand),
+        ],
+    }
+    section_id = str(uuid7())
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="CS1",
+        along_m={left: 575.0, borehole: 578.0, right: 725.0},
+    )
+    ties = [
+        # VD top: left lower-sand top (elev 12.9-14.1 = -1.2) <-> right VD top
+        # (13.0-14.0 = -1.0).
+        AcceptedTie(
+            investigation_a=left,
+            layer_a_id=str(l_vd),
+            investigation_b=right,
+            layer_b_id=str(r_vd),
+            section_id=section_id,
+        ),
+        # VD base: left lower-sand base (16.2 = -3.3) <-> right bottom-MD top
+        # (16.3 = -3.3).
+        AcceptedTie(
+            investigation_a=left,
+            layer_a_id=str(l_vd),
+            investigation_b=right,
+            layer_b_id=str(r_md2),
+            section_id=section_id,
+            side_a="base",
+            side_b="top",
+        ),
+    ]
+    # The flank machinery keeps ONE pick per column: the left column's pick is
+    # its UPPER sand unit (the better window overlap) — the tie endpoints live
+    # in the lower one.
+    left_pick = BodyLayerPick(
+        investigation_id=left,
+        x_m=575.0,
+        y_m=0.0,
+        surface_elev_m=12.9,
+        body_id=str(body_sand),
+        formation_id=str(upper_fm),
+        top_depth_m=8.8,
+        base_depth_m=13.2,
+        kind="cpt",
+    )
+    right_pick = BodyLayerPick(
+        investigation_id=right,
+        x_m=725.0,
+        y_m=0.0,
+        surface_elev_m=13.0,
+        body_id=str(body_sand),
+        formation_id=str(lower_fm),
+        top_depth_m=13.0,
+        base_depth_m=18.9,
+        kind="cpt",
+    )
+
+    bands, _body_ids, _donor_ids, _selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=578.0,
+        bh_y=0.0,
+        bh_surface_elev=13.0,
+        geo_top_m=8.8,
+        geo_base_m=17.5,
+        cpt_segs=[left_pick, right_pick],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth=layers,
+        cpt_xy={UUID(left): (575.0, 0.0, 12.9), UUID(right): (725.0, 0.0, 13.0)},
+        cpt_names={UUID(left): "S10", UUID(right): "S6"},
+        section_placements=[section],
+        accepted_ties=ties,
+        unit_soil_code="ZAND",
+        soil_by_formation={
+            str(upper_fm): "ZAND",
+            str(lower_fm): "ZAND",
+            str(silt_fm): "SILT",
+        },
+    )
+
+    assert [b.nad_class for b in bands] == [_NAD_LOOSE, _NAD_VERY_DENSE, _NAD_LOOSE], (
+        f"the ties bound a VD band through the borehole, got "
+        f"{[(round(b.top, 2), round(b.base, 2), b.nad_class) for b in bands]}"
+    )
+    # The boundaries sit on the drawn lines: 2 % across a 150 m gap.
+    frac = (578.0 - 575.0) / 150.0
+    line1 = -1.2 + frac * (-1.0 - -1.2)
+    line2 = -3.3 + frac * (-3.3 - -3.3)
+    assert bands[0].base == pytest.approx(13.0 - line1, abs=0.001)
+    assert bands[1].base == pytest.approx(13.0 - line2, abs=0.001)
