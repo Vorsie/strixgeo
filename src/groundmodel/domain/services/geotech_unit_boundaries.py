@@ -30,7 +30,18 @@ prove after the fact that a replacement exists.
 
 Litho stays authoritative: a boundary that IS a litho contact is already on the
 borehole's own log and is never interpolated; only boundaries INTERIOR to a
-litho unit are placed, and they are placed at their fraction of that unit.
+litho unit are placed.
+
+Where they land changed on 2026-08-18. The first build read "measure it's
+position relative to those two" as a FRACTION of the unit, blended between the
+columns. On B9 that put the committed contact 2.2 m above the tie line the
+engineer had drawn — his unit is far thicker than the flanks', so the fraction
+blend and the drawn line disagree. His ruling: *"go for the mtaw, it'll look
+better than the fractional"*. A tied boundary now lands where the drawn tie
+LINE crosses the borehole's column (elevation-interpolated between the two
+columns' boundary elevations); a one-sided construct carries flat at its own
+elevation. A landing outside the borehole's unit is dropped — the litho
+contact already bounds it there.
 
 Pure domain module: no I/O, no ORM, no logging.
 """
@@ -38,7 +49,7 @@ Pure domain module: no I/O, no ORM, no logging.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # Boundaries closer than this to the unit's own top or base are the unit
 # contact itself, not an interior packing boundary: ``litho_layer`` stores
@@ -57,17 +68,17 @@ class ColumnBoundary:
 
     Parameters
     ----------
-    fraction : float
-        Position within the unit, ``0`` at its top contact and ``1`` at its
-        base. Interior boundaries only — the contacts themselves are the litho
-        model's and are never carried here.
+    elev_m : float
+        The boundary's elevation on its own column (mTAW) — collar minus its
+        depth. Interior boundaries only — the contacts themselves are the
+        litho model's and are never carried here.
     band_above_id : str
         ``litho_layer`` id of the packing band immediately above the boundary.
     band_below_id : str
         ``litho_layer`` id of the band immediately below it.
     """
 
-    fraction: float
+    elev_m: float
     band_above_id: str
     band_below_id: str
 
@@ -94,6 +105,13 @@ class PlacedBoundary:
         Index into the caller's tie list for a ``continuous`` boundary — what
         the caller deletes once it has written the hops. ``None`` otherwise:
         a one-sided construct replaced no tie.
+    on_log : bool
+        ``True`` when the boundary lands strictly inside the borehole's unit
+        and becomes a band cut on its log. ``False`` for a tie LINE that
+        crosses the column outside the unit (or on its contact): the litho
+        contact bounds the unit there, so nothing is drawn and the tie is not
+        replaced — but the line still says which bands run PAST the unit, so
+        the caller can classify the intervals it clips.
     """
 
     depth_m: float
@@ -104,6 +122,7 @@ class PlacedBoundary:
     right_band_below_id: str | None
     kind: str
     tie_index: int | None
+    on_log: bool = True
 
 
 def interior_boundary_index(band_index: int, side: str, band_count: int) -> int | None:
@@ -146,6 +165,7 @@ def place_unit_boundaries(
     fraction: float,
     unit_top_m: float,
     unit_base_m: float,
+    bh_collar_elev_m: float,
 ) -> list[PlacedBoundary]:
     """Lay one litho unit's interior packing boundaries onto a borehole.
 
@@ -153,7 +173,7 @@ def place_unit_boundaries(
     ----------
     left, right : Sequence[ColumnBoundary]
         The unit's interior packing boundaries on the gap's two CPT columns,
-        each already expressed as a fraction of that column's own unit.
+        each carrying its own elevation (mTAW).
     ties : Sequence[tuple[int, int]]
         Accepted correlations as ``(index into left, index into right)``. Each
         one declares its boundary CONTINUOUS across the gap.
@@ -163,28 +183,42 @@ def place_unit_boundaries(
     unit_top_m, unit_base_m : float
         The unit's extent on the BOREHOLE's own log — the litho model's answer,
         never interpolated.
+    bh_collar_elev_m : float
+        The borehole's collar elevation, to convert a landed elevation back to
+        a depth on its log.
 
     Returns
     -------
     list[PlacedBoundary]
-        Boundaries inside ``(unit_top_m, unit_base_m)``, ordered top to bottom
-        and strictly increasing. A boundary that would land on the unit's own
-        contact, or outside it, is dropped: the contact is the litho model's.
+        Boundaries ordered top to bottom. Entries with ``on_log=True`` land
+        strictly inside ``(unit_top_m, unit_base_m)`` and become band cuts. A
+        tied LINE that lands on the unit's contact or outside it is returned
+        with ``on_log=False`` — never drawn (the contact is the litho
+        model's), but its band names still classify the intervals it clips. A
+        one-sided construct outside the unit is dropped outright.
 
     Notes
     -----
-    A tied boundary is blended between the two columns' fractions by the
-    borehole's position, so a boundary 40 % down the unit on both sides stays
-    40 % down it here however the unit thickens.
+    A tied boundary lands where the drawn tie LINE crosses the borehole: its
+    elevation interpolated between the two columns' boundary elevations by the
+    borehole's position across the gap. The committed contact and the line on
+    screen are then the same thing (owner, 2026-08-18: *"go for the mtaw,
+    it'll look better than the fractional"*).
 
     An untied boundary is a lens or an onlap: it is drawn only if the borehole
-    stands within half the gap of the column that declared it, and otherwise
-    the matrix wins. That is the same half-length the 2/1/0 fill draws these
-    with, so the section and the borehole agree about where they end.
+    stands within half the gap of the column that declared it — flat, at its
+    own elevation — and otherwise the matrix wins. That is the same
+    half-length the 2/1/0 fill draws these with, so the section and the
+    borehole agree about where they end.
     """
     thickness = unit_base_m - unit_top_m
     if thickness <= 0.0:
         return []
+
+    def _at(elev_m: float) -> tuple[float, float]:
+        """A landing elevation as (depth on the borehole, fraction of its unit)."""
+        depth_m = bh_collar_elev_m - elev_m
+        return depth_m, (depth_m - unit_top_m) / thickness
 
     tied_left = {i for i, _ in ties}
     tied_right = {j for _, j in ties}
@@ -193,11 +227,12 @@ def place_unit_boundaries(
     for tie_index, (i, j) in enumerate(ties):
         if not (0 <= i < len(left) and 0 <= j < len(right)):
             continue
-        blended = left[i].fraction + fraction * (right[j].fraction - left[i].fraction)
+        line_elev = left[i].elev_m + fraction * (right[j].elev_m - left[i].elev_m)
+        depth_m, unit_fraction = _at(line_elev)
         placed.append(
             PlacedBoundary(
-                depth_m=unit_top_m + blended * thickness,
-                fraction=blended,
+                depth_m=depth_m,
+                fraction=unit_fraction,
                 left_band_above_id=left[i].band_above_id,
                 left_band_below_id=left[i].band_below_id,
                 right_band_above_id=right[j].band_above_id,
@@ -214,10 +249,11 @@ def place_unit_boundaries(
         for i, boundary in enumerate(left):
             if i in tied_left:
                 continue
+            depth_m, unit_fraction = _at(boundary.elev_m)
             placed.append(
                 PlacedBoundary(
-                    depth_m=unit_top_m + boundary.fraction * thickness,
-                    fraction=boundary.fraction,
+                    depth_m=depth_m,
+                    fraction=unit_fraction,
                     left_band_above_id=boundary.band_above_id,
                     left_band_below_id=boundary.band_below_id,
                     right_band_above_id=None,
@@ -230,10 +266,11 @@ def place_unit_boundaries(
         for j, boundary in enumerate(right):
             if j in tied_right:
                 continue
+            depth_m, unit_fraction = _at(boundary.elev_m)
             placed.append(
                 PlacedBoundary(
-                    depth_m=unit_top_m + boundary.fraction * thickness,
-                    fraction=boundary.fraction,
+                    depth_m=depth_m,
+                    fraction=unit_fraction,
                     left_band_above_id=None,
                     left_band_below_id=None,
                     right_band_above_id=boundary.band_above_id,
@@ -244,13 +281,17 @@ def place_unit_boundaries(
             )
 
     # The unit's own contacts belong to the litho model; a boundary landing on
-    # one of them would redraw it.
-    inside = [
-        b
-        for b in placed
-        if b.depth_m - unit_top_m >= _MIN_OFFSET and unit_base_m - b.depth_m >= _MIN_OFFSET
-    ]
-    inside.sort(key=lambda b: b.depth_m)
+    # one of them would redraw it. A tied LINE outside the unit is kept as
+    # off-log context — it still says which bands run past the unit — while a
+    # one-sided construct outside it is simply absent (the matrix rule).
+    def _is_inside(b: PlacedBoundary) -> bool:
+        return b.depth_m - unit_top_m >= _MIN_OFFSET and unit_base_m - b.depth_m >= _MIN_OFFSET
+
+    inside = sorted((b for b in placed if _is_inside(b)), key=lambda b: b.depth_m)
+    context = sorted(
+        (replace(b, on_log=False) for b in placed if not _is_inside(b) and b.kind == "continuous"),
+        key=lambda b: b.depth_m,
+    )
 
     # Two boundaries closer than the storage grain are one boundary; keeping the
     # first is what makes the resulting bands writable.
@@ -259,7 +300,7 @@ def place_unit_boundaries(
         if deduped and candidate.depth_m - deduped[-1].depth_m < _MIN_OFFSET:
             continue
         deduped.append(candidate)
-    return deduped
+    return sorted([*context, *deduped], key=lambda b: b.depth_m)
 
 
 def replaced_tie_indices(placed: Sequence[PlacedBoundary]) -> list[int]:
@@ -268,8 +309,8 @@ def replaced_tie_indices(placed: Sequence[PlacedBoundary]) -> list[int]:
     Owner, 2026-08-16: *"then you delete all the bands you checked and replaced
     by hops"*. A tie whose boundary was placed on the borehole has had its
     replacement written, so it goes. A tie whose boundary was NOT placed — it
-    fell on the unit's own contact, or it was an onlap the borehole stood
-    beyond — was not replaced and must survive.
+    fell on the unit's own contact or outside the unit, or it was an onlap the
+    borehole stood beyond — was not replaced and must survive.
 
     Parameters
     ----------
@@ -281,4 +322,4 @@ def replaced_tie_indices(placed: Sequence[PlacedBoundary]) -> list[int]:
     list[int]
         Tie indices, ascending and unique.
     """
-    return sorted({b.tie_index for b in placed if b.tie_index is not None})
+    return sorted({b.tie_index for b in placed if b.tie_index is not None and b.on_log})
