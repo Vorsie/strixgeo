@@ -8460,3 +8460,22 @@ micro-face absorption question dissolved), the cs1 gates pass 8/8 unmodified,
 holes/overlaps 0/0 on all 14 sections, and the consistency baseline moved by
 exactly +0.01 pp on one section (Tie-section 14, re-frozen). Pinned by the
 exact repro + the closing-scope negative in `arrangement.test.ts`.
+
+## 272. The litho-consistency ratchet is inert — baseline frozen on stale model ids (S)
+
+**What.** `geotechLithoConsistency.diag.test.ts` compares its frozen baseline by
+model id, and the owner has since wiped and rebuilt the geotech model, so the
+gate reports "NOT COMPARABLE — the baseline was frozen on different model ids;
+enforcing nothing" and passes vacuously. Found 2026-08-18 by the F1 clean-onlap
+agent, which had to measure consistency by hand instead (clipped: identical on
+all 14 sections; raw: CS1 95.6 % → 96.9 % after the fix).
+
+**Why deferred.** The fix is a re-freeze against the CURRENT model — a
+deliberate act the ratchet exists to make deliberate — and today's dogfeed
+round is mid-flight: freezing now would bake in a state the owner is still
+correcting by hand.
+
+**When to revisit.** The next session that touches `partitionFillV2` or the
+geotech derivation: re-freeze the baseline first (or key the baseline on the
+section NAMES instead of model ids so a model wipe cannot orphan it), and only
+then trust the gate again.
