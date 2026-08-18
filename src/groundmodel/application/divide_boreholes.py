@@ -184,7 +184,6 @@ from groundmodel.domain.services.geotech_tie_donors import (
 from groundmodel.domain.services.geotech_unit_boundaries import (
     ColumnBoundary,
     PlacedBoundary,
-    interior_boundary_index,
     place_unit_boundaries,
     replaced_tie_indices,
 )
@@ -2152,6 +2151,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     cpt_names=cpt_names,
                     section_placements=section_placements,
                     accepted_ties=accepted_ties,
+                    unit_soil_code=soil_code,
+                    soil_by_formation=litho_soil_by_formation,
                     section_partitions=section_partitions,
                     geotech_formation_info=geotech_formation_info,
                     replaced_tie_pairs=replaced_tie_pairs,
@@ -3455,6 +3456,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         geotech_formation_info: Mapping[str, tuple[int | None, UUID, UUID | None]] | None = None,
         replaced_tie_pairs: list[tuple[str, str]] | None = None,
         preferred_section_id: str | None = None,
+        unit_soil_code: str | None = None,
+        soil_by_formation: Mapping[str, str | None] | None = None,
     ) -> tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
@@ -3729,6 +3732,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             geotech_layer_by_inv_depth=geotech_layer_by_inv_depth,
             section_placements=section_placements,
             accepted_ties=accepted_ties,
+            unit_soil_code=unit_soil_code,
+            soil_by_formation=soil_by_formation,
         )
         if tied is not None:
             # The minimum applies to the TIE path too — same reason, same rule.
@@ -3931,14 +3936,17 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         geotech_layer_by_inv_depth: dict[str, list[tuple[Any, ...]]],
         section_placements: list[SectionPlacement],
         accepted_ties: Sequence[AcceptedTie],
+        unit_soil_code: str | None = None,
+        soil_by_formation: Mapping[str, str | None] | None = None,
     ) -> UnitTiePlacement | None:
         """Lay this litho unit's packing boundaries on the borehole, from the TIES.
 
-        Owner's rule, 2026-08-16.  A boundary that is a litho contact is already
-        on the borehole and is never interpolated; an interior packing boundary
-        is placed at its fraction between the bounding litho contacts; a
-        continuous one is drawn; a lens or onlap only when the borehole stands
-        within half the gap of the column that declared it.
+        Owner's rule, 2026-08-16, revised 2026-08-18 ("go for the mtaw").  A
+        boundary that is a litho contact is already on the borehole and is
+        never interpolated; a tied interior boundary lands where the drawn
+        tie LINE crosses the column, in elevation; a lens or onlap only when
+        the borehole stands within half the gap of the column that declared
+        it, flat at its own elevation.
 
         Reads no partition.  The ties already say what is continuous, and each
         one NAMES the two bands it joins — which is what makes the hop
@@ -3962,6 +3970,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             Along-positions per section; the tightest bracket wins.
         accepted_ties : Sequence[AcceptedTie]
             The engineer's accepted packing correlations.
+        unit_soil_code : str | None
+            The litho unit's soil.  A tie endpoint band of another soil never
+            places a boundary here (Data Integrity Rule 3), and the
+            neighbouring band each boundary names is the nearest SAME-SOIL
+            one.  ``None`` = unknown, no filtering.
+        soil_by_formation : Mapping[str, str | None] | None
+            Soil code per formation id, for the filter above.
 
         Returns
         -------
@@ -4048,16 +4063,61 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             right_stack = _bands_in_extent(geotech_layer_by_inv_depth, picks[right_id])
             if not left_stack or not right_stack:
                 continue
-            left_bounds = _interior_boundaries(left_stack, picks[left_id])
-            right_bounds = _interior_boundaries(right_stack, picks[right_id])
-            index_of_left = {b[0]: i for i, b in enumerate(left_stack)}
-            index_of_right = {b[0]: i for i, b in enumerate(right_stack)}
-            ties: list[tuple[int, int]] = []
-            # The (left band, right band) layer-id pair per ``ties`` entry, so
-            # the replaced-tie report names the ORIGINAL rows. Reconstructing
-            # them from the seam index assumed a top-side tie (audit P1-2).
+            fraction = (bh_along - left_along) / width
+
+            def _same_soil(formation_id: object) -> bool:
+                if unit_soil_code is None or not soil_by_formation:
+                    return True
+                soil = soil_by_formation.get(str(formation_id))
+                return soil is None or soil == unit_soil_code
+
+            def _tie_boundary(inv: str, layer_id: str, side: str) -> ColumnBoundary | None:
+                """The tie endpoint as a boundary on its OWN column, in mTAW.
+
+                Resolved from the band the tie names — not from the one pick
+                the flank machinery keeps per column, because the endpoint may
+                live in ANOTHER litho unit of the same body (B2, 2026-08-18:
+                the left column's silt interbed splits its sand, and both VD
+                ties start from the lower unit while the pick was the upper).
+                The neighbouring band on each face is the nearest SAME-SOIL
+                one — a cross-soil interbed is a lens inside the mass, not
+                what continues past this line.
+                """
+                collar_pick = picks.get(inv)
+                if collar_pick is None:
+                    return None
+                rows = sorted(geotech_layer_by_inv_depth.get(inv, []), key=lambda r: r[0])
+                index = next((i for i, r in enumerate(rows) if str(r[2]) == layer_id), None)
+                if index is None or not _same_soil(rows[index][3]):
+                    return None
+                depth = rows[index][0] if side == "top" else rows[index][1]
+
+                def _walk(candidates: Sequence[tuple[Any, ...]]) -> str | None:
+                    return next(
+                        (str(r[2]) for r in candidates if _same_soil(r[3]) and r[4] is not None),
+                        None,
+                    )
+
+                if side == "top":
+                    above = _walk(list(reversed(rows[:index])))
+                    below: str | None = str(rows[index][2])
+                else:
+                    above = str(rows[index][2])
+                    below = _walk(rows[index + 1 :])
+                return ColumnBoundary(
+                    elev_m=collar_pick.surface_elev_m - depth,
+                    band_above_id=above,
+                    band_below_id=below,
+                )
+
+            tie_left_bounds: list[ColumnBoundary] = []
+            tie_right_bounds: list[ColumnBoundary] = []
+            # The (left band, right band) layer-id pair per tie, so the
+            # replaced-tie report names the ORIGINAL rows (audit P1-2).
             tie_layer_pairs: list[tuple[str, str]] = []
             for tie in accepted_ties:
+                if tie.section_id != placement.section_id:
+                    continue
                 pair = {
                     tie.investigation_a: (tie.layer_a_id, tie.side_a),
                     tie.investigation_b: (tie.layer_b_id, tie.side_b),
@@ -4066,38 +4126,85 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     continue
                 left_layer, left_side = pair[left_id]
                 right_layer, right_side = pair[right_id]
-                li = index_of_left.get(UUID(left_layer))
-                ri = index_of_right.get(UUID(right_layer))
-                if li is None or ri is None:
+                left_boundary = _tie_boundary(left_id, left_layer, left_side)
+                right_boundary = _tie_boundary(right_id, right_layer, right_side)
+                if left_boundary is None or right_boundary is None:
                     continue
-                # A tie names a band AND a side; the side decides which seam
-                # is declared (audit P1-2 — the old code assumed 'top', so a
-                # base↔base tie moved one seam up and a deepest-band base tie
-                # was dropped outright). A seam that is the unit's own litho
-                # contact maps to None: the litho model owns it.
-                lb = interior_boundary_index(li, left_side, len(left_stack))
-                rb = interior_boundary_index(ri, right_side, len(right_stack))
-                if lb is None or rb is None:
-                    continue
-                ties.append((lb, rb))
+                tie_left_bounds.append(left_boundary)
+                tie_right_bounds.append(right_boundary)
                 tie_layer_pairs.append((left_layer, right_layer))
 
-            placed = place_unit_boundaries(
-                left_bounds,
-                right_bounds,
-                ties,
-                fraction=(bh_along - left_along) / width,
-                unit_top_m=geo_top_m,
-                unit_base_m=geo_base_m,
-                bh_collar_elev_m=bh_surface_elev,
+            # One-sided constructs still come from the flank picks — but a
+            # pick seam that IS a tie endpoint (same column, same elevation)
+            # is the tie's, not an onlap.
+            tie_elevs_left = {b.elev_m for b in tie_left_bounds}
+            tie_elevs_right = {b.elev_m for b in tie_right_bounds}
+            left_bounds = [
+                b
+                for b in _interior_boundaries(left_stack, picks[left_id])
+                if not any(abs(b.elev_m - e) < _DEPTH_TOL_M for e in tie_elevs_left)
+            ]
+            right_bounds = [
+                b
+                for b in _interior_boundaries(right_stack, picks[right_id])
+                if not any(abs(b.elev_m - e) < _DEPTH_TOL_M for e in tie_elevs_right)
+            ]
+
+            placed = sorted(
+                [
+                    *place_unit_boundaries(
+                        tie_left_bounds,
+                        tie_right_bounds,
+                        [(i, i) for i in range(len(tie_left_bounds))],
+                        fraction=fraction,
+                        unit_top_m=geo_top_m,
+                        unit_base_m=geo_base_m,
+                        bh_collar_elev_m=bh_surface_elev,
+                    ),
+                    *place_unit_boundaries(
+                        left_bounds,
+                        right_bounds,
+                        [],
+                        fraction=fraction,
+                        unit_top_m=geo_top_m,
+                        unit_base_m=geo_base_m,
+                        bh_collar_elev_m=bh_surface_elev,
+                    ),
+                ],
+                key=lambda b: b.depth_m,
             )
+
+            # The class map must know every band a boundary names — tie
+            # endpoints (and their walked neighbours) can sit outside the
+            # flank picks' windows.
+            referenced = {
+                x
+                for b in placed
+                for x in (
+                    b.left_band_above_id,
+                    b.left_band_below_id,
+                    b.right_band_above_id,
+                    b.right_band_below_id,
+                )
+                if x is not None
+            }
+            known = {str(b[0]) for b in [*left_stack, *right_stack]}
+            extra_rows = [
+                (row[2], row[0], row[1], row[4])
+                for inv in (left_id, right_id)
+                for row in geotech_layer_by_inv_depth.get(inv, [])
+                if str(row[2]) in referenced and str(row[2]) not in known
+            ]
+            class_left = sorted([*left_stack, *extra_rows], key=lambda b: b[1])
+            class_right = right_stack
+
             bands, correspondences = _bands_between(
                 placed,
-                left_stack,
-                right_stack,
+                class_left,
+                class_right,
                 geo_top_m,
                 geo_base_m,
-                (bh_along - left_along) / width,
+                fraction,
             )
             if not bands:
                 continue
