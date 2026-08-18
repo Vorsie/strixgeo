@@ -62,6 +62,7 @@ from groundmodel.api.schemas.project.geotech_band_edit import (
     MergeGeotechBandsRequest,
     MoveGeotechBoundaryRequest,
     RestatedContactMoveResponse,
+    SetGeotechBandClassRequest,
     SetGeotechStatisticRequest,
     SplitGeotechBandRequest,
 )
@@ -86,6 +87,7 @@ from groundmodel.application.merge_geotech_bands import MergeGeotechBands
 from groundmodel.application.move_geotech_band_boundary import MoveGeotechBandBoundary
 from groundmodel.application.move_restated_contact import MoveRestatedContact
 from groundmodel.application.preview_geotech_band_edit import PreviewGeotechBandEdit
+from groundmodel.application.set_geotech_band_class import SetGeotechBandClass
 from groundmodel.application.set_geotech_statistic import SetGeotechStatistic
 from groundmodel.application.split_geotech_band import SplitGeotechBand
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
@@ -1232,6 +1234,71 @@ async def split_geotech_band(
     logger.info(
         f"split_geotech_band ok investigation={result.investigation_id} "
         f"layers={len(result.layer_ids)} dropped_edges={len(result.deleted_edge_ids)}"
+    )
+    return _edit_payload(result)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/set-class",
+    response_model=GeotechBandEditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Set a borehole band's NAD packing class by hand",
+    tags=["geotech"],
+)
+async def set_geotech_band_class(
+    project_id: UUID,
+    model_id: UUID,
+    request: SetGeotechBandClassRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditResponse:
+    """Commit an engineer-chosen class on ONE borehole band. Geometry never moves.
+
+    A borehole band's class is donor-extrapolated, not measured, so the
+    engineer's judgement outranks it (owner ask 2026-08-18). A CPT band is
+    refused — its class comes from its own cone resistance. Ties on the band
+    are re-judged by the standing flag-not-drop machinery.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the band belongs to.
+    request : SetGeotechBandClassRequest
+        Band id + the chosen NAD class.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditResponse
+        The committed change and the correlation consequences.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, the band sits on a CPT (its class
+        is measured), or the class is outside the band's soil family.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/set-class "
+        f"band={request.band_id} class={request.nad_class}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/set-class")
+    try:
+        result = await SetGeotechBandClass(session).execute(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            band_id=request.band_id,
+            nad_class=request.nad_class,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    logger.info(
+        f"set_geotech_band_class ok investigation={result.investigation_id} "
+        f"class={request.nad_class} flagged_edges={len(result.flagged_edge_ids)}"
     )
     return _edit_payload(result)
 
