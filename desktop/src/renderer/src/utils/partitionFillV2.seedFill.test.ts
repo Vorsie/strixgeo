@@ -16,7 +16,8 @@
  *   (b) a zero-seed fillable face is reported as a topology-defect, never invented — a real
  *       flood/substrate instance from the zero-seed-defect list.
  *   (c) a multi-seed face (two distinct column-seed formations) is reported as a topology-defect,
- *       never length-voted — one of the 9 measured multi-seed faces.
+ *       never length-voted — pinned on a hand-built arrangement since 2026-08-18 (all 9 measured
+ *       real-data instances healed; see the case's fixture-history note).
  *   (d) flag-OFF output is byte-identical (the campaign safety line).
  *   (e) the ``literalCorr`` (c)/(d) clay faces seed CLAY (not the SILT the vote paints) — the B3
  *       "SILT termination continued by a CLAY-labelled wedge" inverse, on a deterministic fixture.
@@ -240,18 +241,32 @@ const has = existsSync(INPUT)
 // ===========================================================================
 // (c) A multi-seed face is a topology-defect, never length-voted.
 // ===========================================================================
-;(has ? describe : describe.skip)('(c) a multi-seed face is a topology-defect, never length-voted', () => {
-  // Tie-section 11#10 (x=0, el=7.51): a top-band face spanning a gap whose two columns' first units
-  // are DIFFERENT formations (KLEI + ZAND). Owner rule: "two or more formations -> fail the gate;
-  // repair the linework, never vote/select a label." The seed classifier must call it multi-seed.
-  it('a top-band face over two different-formation column tops classifies multi-seed-defect', () => {
-    const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
-    const tie11 = prepareRealSection(raw.sections.find((s) => s.name === 'Tie-section 11')!)
-    const probes = probeSection(tie11)
-    const face = findByBounds(probes, 0, 7.51)
-    expect(face, 'the Tie-11 x=0 el=7.51 top-band face exists').toBeTruthy()
-    expect(face!.classification, 'two column-top formations -> multi-seed-defect').toBe('multi-seed-defect')
-    expect(face!.seedFormations.length, 'it has TWO distinct column-seed formations').toBe(2)
+describe('(c) a multi-seed face is a topology-defect, never length-voted', () => {
+  // Owner rule: "two or more formations -> fail the gate; repair the linework, never vote/select
+  // a label." Originally pinned on Tie-section 11#10 (x=0, el=7.51) — one of the 9 measured
+  // multi-seed faces. FIXTURE HISTORY (same move as case (b)'s S49/S56 note): a 2026-08-18
+  // all-sections scan found ZERO multi-seed faces left on the current extraction — the campaign's
+  // linework repairs healed every one, and the engine now splits a cross-formation top pair into
+  // single-seed faces, so NO real-data instance of this defect exists to point at. The RULE never
+  // moved; the pin moves to a hand-built arrangement whose one face genuinely owns non-zero-length
+  // column edges of TWO formations — the exact shape the classifier must refuse to vote on.
+  it('a face owning column edges of two different formations classifies multi-seed-defect', () => {
+    const curves = [
+      { id: 'col0:u0', kind: 'column-vertical', points: [{ x: 0, y: 10 }, { x: 0, y: 5 }] },
+      { id: 'col1:u0', kind: 'column-vertical', points: [{ x: 40, y: 10 }, { x: 40, y: 5 }] },
+      { id: 'surface', kind: 'contact', points: [{ x: 0, y: 10 }, { x: 40, y: 10 }] },
+      { id: 'floor', kind: 'contact', points: [{ x: 0, y: 5 }, { x: 40, y: 5 }] },
+    ]
+    const arr = buildArrangement(curves as never)
+    const segCurve = buildSegCurveMap(arr)
+    const cols = [
+      { investigationId: 'L', x: 0, surfaceElevM: 10, units: [{ layerId: 'l0', formationId: KLEI, bodyId: null, topElev: 10, baseElev: 5 }] },
+      { investigationId: 'R', x: 40, surfaceElevM: 10, units: [{ layerId: 'r0', formationId: SILT, bodyId: null, topElev: 10, baseElev: 5 }] },
+    ]
+    const seeds = arr.faces.map((face) => classifyFaceSeed(face, segCurve, cols as never))
+    expect(seeds.length, 'the rectangle traces exactly one bounded face').toBe(1)
+    expect(seeds[0].classification, 'two column-edge formations -> multi-seed-defect').toBe('multi-seed-defect')
+    expect(seeds[0].seedFormations, 'both formations are named, sorted').toEqual([SILT, KLEI].sort())
   })
 })
 
