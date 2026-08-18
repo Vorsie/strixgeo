@@ -378,6 +378,7 @@ def select_flank_donors(
     borehole_id: str,
     donors: Sequence[DonorStack],
     sections: Sequence[SectionPlacement],
+    preferred_section_id: str | None = None,
 ) -> FlankSelection:
     """Choose the CPT(s) a borehole's packing is read from.
 
@@ -398,6 +399,13 @@ def select_flank_donors(
     sections : Sequence[SectionPlacement]
         Every project section, with the along-positions of the columns it
         draws.  Sections that do not draw this borehole are skipped.
+    preferred_section_id : str | None
+        The section the engineer is editing (a scoped divide's own section).
+        Owner ruling 2026-08-18 — *"the section you are editing wins"*: when
+        this section places the borehole beside any donor, its flanks decide,
+        even where another section holds a tighter pair, because the engineer
+        judges the result on the section he is looking at.  ``None`` (the
+        unscoped all-sections press) keeps the tightest-pair ranking.
 
     Returns
     -------
@@ -423,7 +431,15 @@ def select_flank_donors(
         if flanks is not None
     ]
     if candidates:
-        best = min(candidates, key=lambda f: f.sort_key())
+        # The editing section outranks every other; within it (and among the
+        # rest) the normal key applies, so a pair still beats a lone flank.
+        best = min(
+            candidates,
+            key=lambda f: (
+                0 if f.section.section_id == preferred_section_id else 1,
+                *f.sort_key(),
+            ),
+        )
         if best.left is not None and best.right is not None:
             return _pair_selection(
                 best.section, best.left, best.left_distance_m, best.right, best.right_distance_m
