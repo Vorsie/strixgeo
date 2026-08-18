@@ -31,7 +31,8 @@ import { describe, it } from 'vitest'
 
 import type { BodyBoundaryResponse } from '../../api/clients/geology.types'
 import { deriveSectionApexOverrides } from '../../utils/buildVoxelRequest'
-import { clipPartitionToLithoFrame } from '../../utils/clipPartitionToLithoFrame'
+import { frameAlignedColumns } from '../../utils/frameAlignedPartition'
+import { computeHierarchicalGeotechFill } from '../../utils/geotechHierarchicalFill'
 import { computeSectionFillActive } from '../../utils/partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../../utils/partitionFill'
 import { buildColumnStripFills } from './columnStripFills'
@@ -176,9 +177,20 @@ describe('TONE diag — composited coats either side of a card edge', () => {
       let geoRegions: SectionRegion[] = geoRegionsRaw as SectionRegion[]
       let lithoFallback: SectionRegion[] = []
       if (columnsMatch) {
-        const clip = clipPartitionToLithoFrame(geoRegionsRaw, lithoRegions, geoSoil, lithoSoil)
-        geoRegions = clip.regions
-        lithoFallback = clip.lithoFallback
+        // What the geotech axis draws: densities within lithos.
+        const hierarchical = computeHierarchicalGeotechFill({
+          lithoColumns: L.columns,
+          lithoEdges,
+          lithoRegions,
+          geotechColumns: frameAlignedColumns(
+            L.columns,
+            new Map(G.columns.map((c) => [c.investigationId, c])),
+          ),
+          geotechEdges: geoEdges,
+          alongM: L.alongM,
+        })
+        geoRegions = hierarchical.regions
+        lithoFallback = hierarchical.lithoFallback
       }
 
       // --- screen projection (the overlay's own shape, synthetic scale). ------
