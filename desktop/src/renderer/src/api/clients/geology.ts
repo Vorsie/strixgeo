@@ -115,10 +115,14 @@ function divideBoreholesBody(options?: {
   ignorePendingTies?: boolean
   sectionId?: string | null
   sectionPartitions?: Record<string, unknown> | null
+  skipExisting?: boolean
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {}
   if (options?.boreholeIds !== undefined) body.borehole_ids = [...options.boreholeIds]
   if (options?.ignorePendingTies) body.ignore_pending_ties = true
+  // First subdivision wins (owner ruling 2026-08-18): an already-divided
+  // borehole is imported as-is and skipped.
+  if (options?.skipExisting) body.skip_existing = true
   // The 2-D geometry the borehole columns are read off (owner ruling
   // 2026-08-15). Omitted when the caller could not assemble it, which the
   // backend reads as "use the donor rule" — the pre-geometry behaviour.
@@ -915,6 +919,7 @@ export const geologyClient = {
     lithoModelId: string,
     sectionId?: string | null,
     representativeStatistic?: string | null,
+    skipExisting?: boolean,
   ): Promise<SubdivideAllBodiesResponse> =>
     post(
       `/projects/${projectId}/geology/models/${lithoModelId}/geotech/subdivide-cpts`,
@@ -922,6 +927,10 @@ export const geologyClient = {
         litho_model_id: lithoModelId,
         section_id: sectionId ?? null,
         representative_statistic: representativeStatistic ?? null,
+        // First subdivision wins (owner ruling 2026-08-18): an already-banded
+        // column is imported as-is. False = the historic rebuild, which the
+        // statistic re-run and re-derive presses still need.
+        skip_existing: skipExisting ?? false,
       },
     ),
 
@@ -973,6 +982,8 @@ export const geologyClient = {
        * donor rule exactly as before.
        */
       sectionPartitions?: Record<string, unknown> | null
+      /** First subdivision wins: import already-divided boreholes as-is. */
+      skipExisting?: boolean
     },
   ): Promise<DivideBoreholeResponse> =>
     post(
