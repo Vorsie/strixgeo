@@ -185,6 +185,25 @@ See `memory/project_geotech_stage_body_centric.md`.
 
 ## 4. Hand editing of packing sub-bands (2026-08-01, extended 2026-08-08, develop UNPUSHED)
 
+### 4-0. Set a BOREHOLE band's class by hand (owner ask 2026-08-18)
+
+A borehole band's class is donor-extrapolated (§8), never measured, so the
+engineer's judgement outranks it — the workflow half of the editing-section
+ruling: the donors follow the section he edits, and where he still disagrees
+he right-clicks the band and picks the class. `POST
+.../geotech/bands/set-class` (`SetGeotechBandClass`): repoints the band at the
+find-or-create NAD formation, stamps `source='manual'` + `confidence='high'`,
+re-judges ties through the standing flag-not-drop machinery. Geometry never
+moves. A CPT band is REFUSED (its class is measured — the inverse of ruling
+A's `require_cpt_anchor`); a class outside the band's soil family is refused
+naming both. The desktop menu offers the family only
+(`nadClassFamily`), commits DIRECTLY (no consequence sheet — the outcome IS
+the choice), pushes undo (set back to the previous class), and deliberately
+does NOT amber "Divide boreholes": a re-divide REBUILDS every borehole band
+and erases hand classes, so the pipeline's shape is one divide pass, hand
+fixes after the last press. SC1–SC3 at the DB; the overlay rules suite pins
+CPT-never/borehole-only and the family list.
+
 The geotech axis is view-only **except** for the band-edit verbs and the one
 contact gesture in §4c. Everything else stays shut: contacts on this axis cannot
 be created, copied or deleted, and the only drag they accept is the snap in §4c
@@ -1058,13 +1077,20 @@ dense sand at −1.11; its nearest three donors (4.7 / 78 / 78 m, all in its own
 body) read 6→7→8 with the dense top at ≈ −0.9. The module
 `geotech_split_surface.py` is DELETED; it had no other caller.
 
-**Two interpretations, owner veto pending:**
+**Two interpretations — the second RULED 2026-08-18:**
 
 * *Mismatched flank sequences* → the nearer flank's stack verbatim. There is no
   honest pairing between two different class lists; this follows the earlier
   "nearest test that does have packing" ruling.
-* *Several sections* → the section whose flanking pair is tightest (least
-  extrapolation). **This one is consequential**: on B4's shallow sand body,
+* *Several sections* → **the section being EDITED wins** (owner ruling
+  2026-08-18: *"the section you are editing wins — if the user edits TS11 he
+  will notice and change it"*). A SCOPED divide passes its ``section_id`` as
+  ``preferred_section_id``; when that section places the borehole beside any
+  donor, its flanks decide, pair-beats-lone within it. The UNSCOPED
+  all-sections press keeps the older tightest-pair ranking (least
+  extrapolation) — there is no editing context to prefer. F11/F12 pin both
+  arms. The class the engineer then disagrees with has its own lever: the
+  set-class verb below. **This one is consequential**: on B4's shallow sand body,
   Tie-section 11 (lone left flank GEO-23/125-S34 at 78 m, all NAD 6) beats
   Cross-section 1 (lone right flank GEO-23/125-S13 at 90 m, NAD 7 from +1.26)
   by 11.6 m of along-distance — and that is what decides whether the borehole
