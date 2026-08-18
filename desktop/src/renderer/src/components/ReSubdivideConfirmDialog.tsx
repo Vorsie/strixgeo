@@ -61,6 +61,15 @@ interface Props {
    * that genuinely has no name to give.
    */
   sectionName?: string | null
+  /**
+   * The statistic a model-wide re-run will classify under (owner 2026-08-18:
+   * *"rederiving with a new statistic should say, this clears all
+   * subdivisions model wide"*). When set, the body states the model-wide
+   * blast radius instead of the one-section sentence — the press really does
+   * rebuild every section's bands, and a section-named dialog would promise
+   * a smaller loss than the one it delivers.
+   */
+  statisticRebuild?: string | null
 }
 
 /**
@@ -80,11 +89,12 @@ export default function ReSubdivideConfirmDialog({
   busy = false,
   handEditCount = 0,
   sectionName = null,
+  statisticRebuild = null,
 }: Props): JSX.Element {
   const oneHandEdit = handEditCount === 1
   // "Cross-section 2" where there is a name; the generic phrase only where a
   // caller has none. Both read as one section — never as the model.
-  const scope = sectionName ?? 'this section'
+  const scope = statisticRebuild !== null ? 'the model' : (sectionName ?? 'this section')
   return (
     <ConfirmDialog
       open={open}
@@ -97,11 +107,20 @@ export default function ReSubdivideConfirmDialog({
       title="Re-subdivide geotech model?"
       body={
         <>
-          <p>
-            Re-subdividing regenerates the geotech packing connections on{' '}
-            <span className="font-semibold">{scope}</span> &mdash; any manual connections
-            you made there will be cleared.
-          </p>
+          {statisticRebuild !== null ? (
+            <p data-testid="re-subdivide-model-wide">
+              Re-deriving under <span className="font-semibold">{statisticRebuild}</span>{' '}
+              clears <span className="font-semibold">all subdivisions model-wide</span>{' '}
+              &mdash; every section&rsquo;s packing bands and connections are rebuilt from
+              the CPT data, and every borehole goes empty until you divide it again.
+            </p>
+          ) : (
+            <p>
+              Re-subdividing regenerates the geotech packing connections on{' '}
+              <span className="font-semibold">{scope}</span> &mdash; any manual connections
+              you made there will be cleared.
+            </p>
+          )}
           {/* The second loss, and the heavier one — a connection can be re-derived by
               Auto-correlate, a hand-placed boundary cannot be re-derived at all. Rendered
               only when there is something to lose (owner ruling B).
