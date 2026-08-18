@@ -22,6 +22,7 @@
  */
 
 import { type LensLabel } from './emitLenses'
+import { type BracketStrip } from './emitSubstrate'
 import { faceLayerIds, withFaceLayerIds } from './faceLayerIds'
 import { type ColumnGeom } from './sectionGeom'
 import {
@@ -172,6 +173,7 @@ export function labelFaces(
   columns: readonly ColumnGeom[],
   lensLabels?: ReadonlyMap<string, LensLabel>,
   arrangement?: Arrangement,
+  bracketStrips?: readonly BracketStrip[],
 ): LabelledFace[] {
   // The seed classifier needs the per-edge curve provenance; build it once when the flag-ON
   // seed path is active. When the flag is OFF or no arrangement was threaded, ``segCurve`` stays
@@ -181,6 +183,19 @@ export function labelFaces(
 
   const out: LabelledFace[] = []
   for (const face of faces) {
+    // ---- BRACKETED JUMP-TIE STRIP (owner ruling 2026-08-18). ----
+    // "2/1/0 is still the basis of the model — that VD quad has a top and a
+    // bottom correlation so it should be there." A face bounded by BOTH curves
+    // of a bracketed bridge pair IS the strip between the owner's two
+    // correlations: a BAND of the bracketed formation, through every
+    // pass-through column. This outranks the seed path and the column-edge
+    // weighting alike — the pass-through column's own vertical bounds the
+    // strip, but the tie pair, not the crossed band, is the authority here.
+    const bracket = bracketFaceLabel(face, bracketStrips)
+    if (bracket) {
+      out.push(bracket)
+      continue
+    }
     // ---- FLAG-ON SEED PATH (mandate §B). ----
     if (seedActive && segCurve) {
       const seed = classifyFaceSeed(face, segCurve, columns)
@@ -329,6 +344,53 @@ function unitsOf(face: Face): { ci: number; ui: number }[] {
  * face, and (b) as the kind/units source for a single-seed face (whose formation/body it then
  * overrides). Returns ``null`` when the face resolves to no litho (dropped).
  */
+/**
+ * The bracket-strip label for a face, or ``null`` when the face is not one.
+ *
+ * Membership is GEOMETRIC: every vertex of the face lies between the strip's
+ * two lines (with millimetre slack) inside its x-range.  Curve identity is
+ * deliberately not consulted — at the anchor columns the bridge is coincident
+ * with the columns' own contact curves and the arrangement may hand the
+ * boundary to either id, while corner-touching neighbours graze both curves
+ * without lying between them.
+ */
+function bracketFaceLabel(
+  face: Face,
+  bracketStrips?: readonly BracketStrip[],
+): LabelledFace | null {
+  if (!bracketStrips || bracketStrips.length === 0) return null
+  const eps = 2e-3 // the arrangement's 1 mm snap, doubled for interpolation noise
+  for (const strip of bracketStrips) {
+    const span = strip.hiX - strip.loX
+    if (Math.abs(span) < 1e-9) continue
+    let inside = true
+    for (const p of face.polygon) {
+      if (p.x < strip.loX - eps || p.x > strip.hiX + eps) {
+        inside = false
+        break
+      }
+      const t = (p.x - strip.loX) / span
+      const upper = strip.upperLo + t * (strip.upperHi - strip.upperLo)
+      const lower = strip.lowerLo + t * (strip.lowerHi - strip.lowerLo)
+      if (p.y > upper + eps || p.y < lower - eps) {
+        inside = false
+        break
+      }
+    }
+    if (inside) {
+      return {
+        face,
+        formationId: strip.formationId,
+        bodyId: strip.bodyId,
+        klass: 'band',
+        units: unitsOf(face),
+        ...(strip.layerIds.length > 0 ? { layerIds: strip.layerIds } : {}),
+      }
+    }
+  }
+  return null
+}
+
 function labelOneFace(
   face: Face,
   columns: readonly ColumnGeom[],
