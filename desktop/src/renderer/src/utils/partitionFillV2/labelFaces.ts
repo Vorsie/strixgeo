@@ -21,6 +21,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { channelMatrixRelabel } from './channelMatrix'
 import { type LensLabel } from './emitLenses'
 import { type BracketStrip } from './emitSubstrate'
 import { faceLayerIds, withFaceLayerIds } from './faceLayerIds'
@@ -255,6 +256,31 @@ export function labelFaces(
           seedRefs: seed.seedRefs,
           seedClass: 'single-seed',
         }
+        // ---- THE CHANNEL MATRIX OWNS THE VACANCY (owner, 2026-08-18). ----
+        // The paint-bucket rule assumes the surviving column edge speaks for the face. On a
+        // face that OTHER units pinched out of, it does not: the thick masses cut their own
+        // edges away with their flanks and a sliver of a thin band can be the only edge left,
+        // so a 0.38 m silt painted a 1 m channel and a 0.41 m sand crust painted 2.8 m. Such a
+        // face takes the DOMINANT mass of its own column over its own elevation window
+        // (``channelMatrixRelabel``, which returns null — keep the seed — whenever the seed
+        // already is that mass, so every ordinary matrix face is untouched).
+        // A seed spread over TWO columns is a real gap-spanning band, not a vacancy — it has
+        // no single column to answer from, so ``seedColumnOf`` returns null and the face keeps
+        // its seed paint (the deep-to-deep substrate bands live here).
+        const seedCi = seedColumnOf(seed.seedRefs)
+        const relabel =
+          seedCi === null
+            ? null
+            : channelMatrixRelabel(face, columns, lensLabels, seed.seedFormations[0], seedCi)
+        if (relabel) {
+          out.push(
+            withFaceLayerIds(
+              { ...entry, formationId: relabel.unit.formationId, bodyId: relabel.unit.bodyId },
+              [relabel.unit.layerId],
+            ),
+          )
+          continue
+        }
         // ``layerIds`` follows the OVERRIDDEN (seed) formation, never the base's — the
         // spread above may have inherited ids resolved under a different paint.
         out.push(
@@ -273,8 +299,24 @@ export function labelFaces(
       // zero-seed-defect / multi-seed-defect: INTERIM keep the current (pre-seed) paint so the
       // render + holes stay identical, but carry the defect record for the seed gate ratchet.
       if (!base) continue // no interim label either (a genuine hole) — drop, as before.
+      // A ZERO-SEED face is pure vacancy — no column edge speaks for it at all, and its interim
+      // paint is whatever flood label happened to bound it. The same owner ruling applies, read
+      // from the ONE column the face reaches (``'nearest'``); a vacancy touching two columns is
+      // a band and is refused there. MULTI-seed faces are left alone: their interim paint is
+      // already the length-weighted vote across real bounding edges, not a single sliver.
+      const vacancyRelabel =
+        seed.classification === 'zero-seed-defect'
+          ? channelMatrixRelabel(face, columns, lensLabels, base.formationId, 'nearest')
+          : null
       out.push({
         ...base,
+        ...(vacancyRelabel
+          ? {
+              formationId: vacancyRelabel.unit.formationId,
+              bodyId: vacancyRelabel.unit.bodyId,
+              layerIds: [vacancyRelabel.unit.layerId],
+            }
+          : {}),
         seedRefs: seed.seedRefs,
         seedClass: seed.classification,
         defect: {
@@ -325,6 +367,35 @@ function seedBody(
     }
   }
   return { bodyId: null }
+}
+
+/**
+ * The COLUMN index a face's seed refs belong to, or ``null`` when they disagree / none parse.
+ *
+ * A single-seed face's refs all name one formation but may name several units of it; they sit
+ * on ONE column in every real case. Returning ``null`` on disagreement keeps the channel-matrix
+ * rule from guessing which column to read (it then leaves the seed paint alone).
+ *
+ * Parameters
+ * ----------
+ * seedRefs : readonly string[]
+ *     ``col<ci>:u<ui>`` / ``col<ci>:lens<j>`` refs from the seed classifier.
+ *
+ * Returns
+ * -------
+ * number | null
+ *     The shared column index, or ``null``.
+ */
+function seedColumnOf(seedRefs: readonly string[]): number | null {
+  let ci: number | null = null
+  for (const ref of seedRefs) {
+    const m = ref.match(COL_SEED_RE) ?? ref.match(COL_LENS_SEED_RE)
+    if (!m) continue
+    const c = Number(m[1])
+    if (ci === null) ci = c
+    else if (ci !== c) return null
+  }
+  return ci
 }
 
 /** The bounding column-vertical unit refs of a face (fallback ``units`` when no interim label). */
