@@ -101,6 +101,14 @@ export interface ProjectFileV3 {
    */
   body_geometry_facts: Record<string, unknown>[]
   /**
+   * Deleted-tie tombstones (owner 2026-08-17: "a tie i delete stays
+   * deleted"). EVIDENCE like the geometry facts: a file without them reopens
+   * with every deletion forgotten, and the next derivation resurrects the
+   * deleted ties. Absent in files saved before this field shipped —
+   * normalised to [] on parse (audit P1-1, 2026-08-18).
+   */
+  geotech_tie_tombstones: Record<string, unknown>[]
+  /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
    * file was saved by an older build that pre-dates this field.
@@ -134,6 +142,7 @@ export function buildProjectFile(
     body_boundary_shapes: bundle.body_boundary_shapes ?? [],
     body_boundary_nodes: bundle.body_boundary_nodes ?? [],
     body_geometry_facts: bundle.body_geometry_facts ?? [],
+    geotech_tie_tombstones: bundle.geotech_tie_tombstones ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -184,6 +193,9 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.body_geometry_facts === undefined) {
     candidate.body_geometry_facts = []
   }
+  if (candidate.geotech_tie_tombstones === undefined) {
+    candidate.geotech_tie_tombstones = []
+  }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
   // suspended pre-ship; additive always fine).  Absence means "no lumping
@@ -219,6 +231,7 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     (v.body_boundary_shapes === undefined || Array.isArray(v.body_boundary_shapes)) &&
     (v.body_boundary_nodes === undefined || Array.isArray(v.body_boundary_nodes)) &&
     (v.body_geometry_facts === undefined || Array.isArray(v.body_geometry_facts)) &&
+    (v.geotech_tie_tombstones === undefined || Array.isArray(v.geotech_tie_tombstones)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.
