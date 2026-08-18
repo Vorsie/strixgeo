@@ -914,6 +914,19 @@ export const geologyClient = {
    * stands and ``setGeotechStatistic`` is the one way to change it. ``null`` /
    * omitted keeps the median default.
    */
+  clearGeotechColumn: (
+    projectId: string,
+    geotechModelId: string,
+    investigationId: string,
+  ): Promise<{
+    geotech_model_id: string
+    investigation_id: string
+    deleted_band_count: number
+  }> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/columns/clear`, {
+      investigation_id: investigationId,
+    }),
+
   subdivideCpts: (
     projectId: string,
     lithoModelId: string,
