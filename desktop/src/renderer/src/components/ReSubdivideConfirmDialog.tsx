@@ -110,7 +110,7 @@ export default function ReSubdivideConfirmDialog({
           {statisticRebuild !== null ? (
             <p data-testid="re-subdivide-model-wide">
               Re-deriving under <span className="font-semibold">{statisticRebuild}</span>{' '}
-              clears <span className="font-semibold">all subdivisions model-wide</span>{' '}
+              clears all subdivisions <span className="font-bold">model-wide</span>{' '}
               &mdash; every section&rsquo;s packing bands and connections are rebuilt from
               the CPT data, and every borehole goes empty until you divide it again.
             </p>
