@@ -271,6 +271,10 @@ class SubdivideAllBodiesResult:
     proposed_tie_count : int
         Packing ties this run PROPOSED — unapproved suggestions, not accepted
         work.  ``0`` whenever ``edges_derived`` is ``False``.
+    skipped_existing_count : int
+        Columns imported as-is because they already carried geotech bands
+        (owner ruling 2026-08-18, ``skip_existing`` — the first subdivision
+        wins; a tie section must not tell a second story).
     skipped_off_section_count : int
         Investigations that carry accepted litho layers but appear on NO
         cross-section in scope, and were therefore left out of the geotech
@@ -298,6 +302,7 @@ class SubdivideAllBodiesResult:
     edges_derived: bool = True
     proposed_tie_count: int = 0
     skipped_off_section_count: int = 0
+    skipped_existing_count: int = 0
     skipped_off_section_labels: list[str] = field(default_factory=list)
 
 
@@ -428,6 +433,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         derive_edges: bool = True,
         section_id: UUID | None = None,
         representative_statistic: str | None = None,
+        skip_existing: bool = False,
     ) -> SubdivideAllBodiesResult:
         """Subdivide the model's on-section bodies and materialise geotech bodies.
 
@@ -603,6 +609,33 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 f"{', '.join(skipped_labels)}"
             )
 
+        # Phase 2a-skip (owner ruling 2026-08-18): *"does this test already have
+        # a subdivision? if yes import and skip"*. A test is usually subdivided
+        # once BEFORE the tie section, and a later press on a section that
+        # shares it must not tell a second story — the FIRST subdivision wins.
+        # A column that already carries geotech bands is imported as-is: its
+        # picks leave the build, and the destructive phase's scope narrows so
+        # neither its bands nor its ties are touched. Boreholes are protected
+        # the same way (they carry no picks, but the scoped delete would take
+        # their bands).
+        skipped_existing_count = 0
+        if skip_existing:
+            banded_rows = await self._session.execute(
+                select(LithoLayerOrm.cpt_id, LithoLayerOrm.borehole_id).where(
+                    LithoLayerOrm.model_id == geotech_model.id
+                )
+            )
+            banded = {c or b for c, b in banded_rows if (c or b) is not None}
+            protected = (members if scoped_members is None else scoped_members) & banded
+            if protected:
+                skipped_existing_count = len(protected)
+                picks = [pick for pick in picks if UUID(pick.investigation_id) not in protected]
+                scoped_members = (members if scoped_members is None else scoped_members) - protected
+                self.info(
+                    f"SubdivideAllBodies: {skipped_existing_count} already-subdivided "
+                    f"column(s) imported as-is and skipped (skip_existing)"
+                )
+
         # Phase 2b — capture the engineer's ACCEPTED packing ties BEFORE anything
         # is deleted. Their endpoints are geotech litho_layer rows that the reset
         # removes, and the edge FKs cascade, so once the wipe fires there is
@@ -634,7 +667,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             # main path: an empty section clears its own columns, never the
             # neighbour's.
             await self._delete_all_geotech_data(geotech_model.id, restrict_to=scoped_members)
-            if section_id is None:
+            if section_id is None and skipped_existing_count == 0:
                 # Nothing was classified, so nothing can be stale: clear the
                 # stamp to the never-subdivided state the migration deliberately
                 # leaves NULL. Left behind, it makes a later statistic change
@@ -673,6 +706,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 ),
                 edges_derived=derive_edges,
                 skipped_off_section_count=len(off_section_ids),
+                skipped_existing_count=skipped_existing_count,
                 skipped_off_section_labels=skipped_labels,
             )
 
@@ -1077,6 +1111,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             edges_derived=derive_edges,
             proposed_tie_count=edge_totals.edges_emitted,
             skipped_off_section_count=len(off_section_ids),
+            skipped_existing_count=skipped_existing_count,
             skipped_off_section_labels=skipped_labels,
         )
         self.success(
