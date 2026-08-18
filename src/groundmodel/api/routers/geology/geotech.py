@@ -195,6 +195,7 @@ async def subdivide_all_bodies(
         derive_edges=True,
         section_id=request.section_id,
         representative_statistic=request.representative_statistic,
+        skip_existing=request.skip_existing,
     )
 
 
@@ -323,6 +324,7 @@ async def _run_subdivide(
     derive_edges: bool,
     section_id: UUID | None = None,
     representative_statistic: str | None = None,
+    skip_existing: bool = False,
 ) -> SubdivideAllBodiesResponse:
     """Run ``SubdivideAllBodies`` and map its result onto the wire schema.
 
@@ -365,6 +367,7 @@ async def _run_subdivide(
             derive_edges=derive_edges,
             section_id=section_id,
             representative_statistic=representative_statistic,
+            skip_existing=skip_existing,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -403,6 +406,7 @@ async def _run_subdivide(
         edges_derived=result.edges_derived,
         proposed_tie_count=result.proposed_tie_count,
         skipped_off_section_count=result.skipped_off_section_count,
+        skipped_existing_count=result.skipped_existing_count,
         skipped_off_section_labels=result.skipped_off_section_labels,
     )
 
@@ -483,6 +487,7 @@ async def subdivide_cpts(
         derive_edges=False,
         section_id=request.section_id,
         representative_statistic=request.representative_statistic,
+        skip_existing=request.skip_existing,
     )
 
 
@@ -651,6 +656,7 @@ async def divide_boreholes(
                 if body is not None and body.section_partitions
                 else None
             ),
+            skip_existing=body.skip_existing if body is not None else False,
         )
     except HTTPException:
         raise
@@ -682,6 +688,7 @@ async def divide_boreholes(
         lost_tie_reasons=result.lost_tie_reasons,
         lost_tie_labels=result.lost_tie_labels,
         superseded_jump_tie_count=result.superseded_jump_tie_count,
+        skipped_existing_borehole_count=result.skipped_existing_borehole_count,
         crossing_tie_count=result.crossing_tie_count,
         replaced_span_count=result.replaced_span_count,
     )
