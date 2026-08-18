@@ -43,6 +43,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.geotech_tie_tombstone_orm import (
+    GeotechTieTombstoneOrm,
+)
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -248,6 +251,23 @@ async def _make_project_with_every_collection(db_session: AsyncSession) -> Proje
             model_id=litho_model.id,
             layer_a_id=min(cpt_layer.id, bh_layer.id),
             layer_b_id=max(cpt_layer.id, bh_layer.id),
+        )
+    )
+    # One tie tombstone (owner ruling 2026-08-17: "a tie I delete stays
+    # deleted") so the registry guard actually checks its copy path too —
+    # the collection was registered without a fixture row, and the guard
+    # stayed silent until the first FULL run (2026-08-18).
+    db_session.add(
+        GeotechTieTombstoneOrm(
+            id=uuid7(),
+            model_id=litho_model.id,
+            section_id=section.id,
+            a_x=1.0,
+            a_y=2.0,
+            a_z=3.0,
+            b_x=4.0,
+            b_y=5.0,
+            b_z=6.0,
         )
     )
     db_session.add(
