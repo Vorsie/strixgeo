@@ -137,4 +137,23 @@ describe('re-subdivide and the undo stack', () => {
     expect(apiMock.geology.subdivideCpts).toHaveBeenCalled()
     expect(clearUndo).not.toHaveBeenCalled()
   })
+
+  it('SU3 — a SECTION-SCOPED subdivide also clears the whole stack (deliberate)', async () => {
+    // Audit P2-6, resolved as documented behaviour: UndoCommand carries no
+    // section identity, so the entries a scoped rebuild invalidated cannot be
+    // told apart from the still-valid ones. Clearing everything is the
+    // conservative choice — one stale revert firing would trip the F23
+    // discard-everything path anyway, after a confusing 422. If undo entries
+    // ever grow a section tag, this pin is the one to renegotiate.
+    const clearUndo = vi.fn()
+    const { result } = renderHook(() => useGeologicalModel(makeArgs(clearUndo)))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 20))
+    })
+    await act(async () => {
+      await result.current.handleSubdivideAllBodies({ sectionId: 'section-1' })
+    })
+    expect(apiMock.geology.subdivideCpts).toHaveBeenCalled()
+    expect(clearUndo).toHaveBeenCalled()
+  })
 })
