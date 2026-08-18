@@ -15,6 +15,7 @@ from .merge_geotech_bands_request import MergeGeotechBandsRequest
 from .move_geotech_boundary_request import MoveGeotechBoundaryRequest
 from .restated_contact_move_response import RestatedContactMoveResponse
 from .set_geotech_statistic_request import SetGeotechStatisticRequest
+from .set_geotech_band_class_request import SetGeotechBandClassRequest
 from .split_geotech_band_request import SplitGeotechBandRequest
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "MoveGeotechBoundaryRequest",
     "RestatedContactMoveResponse",
     "SetGeotechStatisticRequest",
+    "SetGeotechBandClassRequest",
     "SplitGeotechBandRequest",
 ]
