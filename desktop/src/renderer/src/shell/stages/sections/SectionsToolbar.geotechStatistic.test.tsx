@@ -115,6 +115,7 @@ describe('SectionsToolbar — the qc statistic selector (rulings 7+8)', () => {
       /re-run under harmonic/i,
     )
   })
+
 })
 
 describe('the re-run tag goes away once the re-run has happened', () => {
@@ -332,6 +333,9 @@ describe('the qc statistic can be chosen before the first subdivide', () => {
       deriveEdges: false,
       sectionId: 'sec-1',
       representativeStatistic: 'harmonic',
+      // First subdivision wins (owner 2026-08-18): no rebuild tag is
+      // active in this scene, so the press imports existing bands as-is.
+      rebuildExisting: false,
     })
   })
 
@@ -344,6 +348,9 @@ describe('the qc statistic can be chosen before the first subdivide', () => {
       deriveEdges: false,
       sectionId: 'sec-1',
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag is
+      // active in this scene, so the press imports existing bands as-is.
+      rebuildExisting: false,
     })
   })
 

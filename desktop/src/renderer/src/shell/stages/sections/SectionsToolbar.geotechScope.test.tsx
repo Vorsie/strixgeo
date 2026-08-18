@@ -45,6 +45,7 @@ import SectionsToolbar from './SectionsToolbar'
 import { sectionsDividePartitionCallback } from '../../../hooks/useProjectBodyRecompute'
 import {
   makeShellCtx,
+  makeGeotechModel,
   makeLithoModel,
   onSectionCpt,
   packingBandOn,
@@ -181,7 +182,35 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
       // The qc statistic the engineer may have picked before the model
       // existed (owner 2026-08-15); none picked here.
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag is
+      // active in this scene, so the press imports existing bands as-is.
+      rebuildExisting: false,
     })
+  })
+
+  it('SC1b: a STALE step 1 press is the rebuild, not the skip', async () => {
+    // First-subdivision-wins (owner 2026-08-18) has one deliberate exception:
+    // when the button itself announces a re-run ("re-run under <statistic>"),
+    // the press means rebuild — skipping would keep the old classes and pin
+    // the tag on forever.
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        geoModel: {
+          activeGeotechModel: {
+            ...makeGeotechModel(),
+            representative_statistic: 'harmonic',
+            classified_with_statistic: 'median',
+          },
+          handleSubdivideAllBodies,
+        },
+      }),
+    )
+    await openPipeline()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith(
+      expect.objectContaining({ rebuildExisting: true }),
+    )
   })
 
   it('SC2: step 2 proposes on the section on screen', async () => {

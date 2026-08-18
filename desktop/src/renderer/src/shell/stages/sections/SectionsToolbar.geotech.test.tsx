@@ -644,6 +644,9 @@ describe('SectionsToolbar "Subdivide all bodies" verb (F4)', () => {
       deriveEdges: false,
       sectionId: 'section-abc',
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag is
+      // active in this scene, so the press imports existing bands as-is.
+      rebuildExisting: false,
     })
   })
 })
@@ -713,6 +716,9 @@ describe('SectionsToolbar re-subdivide confirmation gate (C1)', () => {
       deriveEdges: false,
       sectionId: 'section-1',
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag is
+      // active in this scene, so the press imports existing bands as-is.
+      rebuildExisting: false,
     })
   })
 })

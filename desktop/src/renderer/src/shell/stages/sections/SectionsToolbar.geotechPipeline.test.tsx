@@ -199,6 +199,9 @@ describe('SectionsToolbar — the four-step packing pipeline', () => {
       deriveEdges: false,
       sectionId: 'sec-1',
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag is
+      // active in this scene, so the press imports existing bands as-is.
+      rebuildExisting: false,
     })
   })
 })
