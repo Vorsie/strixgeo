@@ -112,6 +112,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     project,
     geoModel: {
       activeLithoModel,
+      lithoLayers,
       activeGeotechModel,
       geotechFormations,
       geotechLayers,
@@ -175,6 +176,10 @@ export default function GeotechnicalCanvas(): JSX.Element {
   } = useBody3DViewState({
     modelId: geotechModelId,
     layers: geotechLayers,
+    // The litho model frames the geotech fence, exactly as it frames the
+    // geotech 2-D render and the geotech build (owner ruling 2026-08-18).
+    frameModelId: activeLithoModel?.id ?? null,
+    frameLayers: lithoLayers,
     resetSplitViewportRef: resetGeotechSplitViewportCallback,
     voxelRequestRef: geotechVoxelRequestCallback,
     fenceActive: dimension === '3d',
@@ -194,6 +199,10 @@ export default function GeotechnicalCanvas(): JSX.Element {
     layers: geotechLayers,
     viewState: project?.view_state,
     logLabel: 'geotech-voxel',
+    // The litho model frames the geotech build, exactly as it frames the
+    // geotech 2-D render (owner ruling 2026-08-18) — one path for both.
+    frameModelId: activeLithoModel?.id ?? null,
+    frameLayers: lithoLayers,
   })
 
   // NAD-coloured formations for the 3D viewer (presentation-boundary recolour;
