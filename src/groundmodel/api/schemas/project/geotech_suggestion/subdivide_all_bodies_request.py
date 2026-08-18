@@ -40,6 +40,15 @@ class SubdivideAllBodiesRequest(BaseModel):
 
     litho_model_id: UUID
     section_id: UUID | None = Field(default=None)
+    skip_existing: bool = Field(
+        default=False,
+        description=(
+            "Owner ruling 2026-08-18: a column that already carries geotech "
+            "bands is imported as-is and skipped — the first subdivision wins, "
+            "so a tie section never tells a second story. False keeps the "
+            "historic idempotent rebuild (statistic re-runs need it)."
+        ),
+    )
     representative_statistic: str | None = Field(
         default=None,
         description=(
