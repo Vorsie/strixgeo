@@ -32,7 +32,7 @@ import math
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
@@ -931,6 +931,7 @@ async def _restore_geometry_facts(
     new_facts = 0
     skipped = 0
     dropped = 0
+    pending_rows: list[dict[str, UUID]] = []
     total = len(body_geometry_facts_payload)
     if total:
         logger.info(
@@ -938,12 +939,7 @@ async def _restore_geometry_facts(
         )
     for i, fact_payload in enumerate(body_geometry_facts_payload, start=1):
         fact_id = _uuid(fact_payload.get("id"))
-        if fact_id is None:
-            logger.debug(f"[{i}/{total}] geometry fact skipped — payload has no id")
-            skipped += 1
-            continue
-        if fact_id in existing:
-            logger.debug(f"[{i}/{total}] geometry fact {fact_id} already present — skipped")
+        if fact_id is None or fact_id in existing:
             skipped += 1
             continue
         fact_model_id = _require_fk(
@@ -968,20 +964,26 @@ async def _restore_geometry_facts(
         if layer_model.get(a_id) != fact_model_id or layer_model.get(b_id) != fact_model_id:
             logger.warning(
                 f"[{i}/{total}] geometry fact {fact_id}: layer endpoint(s) not in the "
-                f"fact's own model "
-                f"project — dropped (dangling FK)"
+                f"fact's own model — dropped (dangling FK)"
             )
             dropped += 1
             continue
         if str(a_id) > str(b_id):
             a_id, b_id = b_id, a_id
-        session.add(
-            BodyGeometryFactOrm(
-                id=fact_id, model_id=fact_model_id, layer_a_id=a_id, layer_b_id=b_id
-            )
+        pending_rows.append(
+            {"id": fact_id, "model_id": fact_model_id, "layer_a_id": a_id, "layer_b_id": b_id}
         )
         new_facts += 1
-        logger.debug(f"[{i}/{total}] geometry fact {fact_id} queued for insert")
+    if pending_rows:
+        # ONE bulk insert instead of 10k ORM adds. The owner's real model
+        # carries 10,721 facts and the per-row path cost the Discard press
+        # ~3.5 s of its "hogs the app" time (measured 2026-08-18); values are
+        # fully validated above, so nothing is lost by skipping the ORM.
+        await session.execute(insert(BodyGeometryFactOrm), pending_rows)
+        logger.debug(
+            f"restore_project_bundle({project_id}): bulk-inserted {len(pending_rows)} "
+            f"geometry fact(s)"
+        )
     if dropped:
         logger.warning(
             f"restore_project_bundle({project_id}): dropped {dropped} geometry fact(s) "
