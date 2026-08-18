@@ -522,7 +522,14 @@ export default function SectionsToolbar(): JSX.Element {
     // 2026-08-15); null is the deliberate all-sections press.
     void handleSubdivideAllBodies({
       deriveEdges: false,
-      sectionId,
+      // A STATISTIC re-run is MODEL-WIDE (owner 2026-08-18: "when you redivide
+      // with another mean statistic all need to be rederived ofcourse"): the
+      // stamp that clears the tag is model-level, so a scoped re-run would
+      // clear it while the other sections still carry old-statistic bands —
+      // and first-subdivision-wins would then freeze that discrepancy in. The
+      // moved-contacts tag stays section-scoped: its stale columns are the
+      // section on screen.
+      sectionId: geotechBandsStale ? null : sectionId,
       // Only ever non-null before the first subdivide — the effect above drops
       // it once a model exists. The backend honours it on creation and ignores
       // it on a re-run, so a stale value cannot re-classify a built model.
@@ -2238,7 +2245,14 @@ export default function SectionsToolbar(): JSX.Element {
         onConfirm={handleReSubdivideConfirm}
         busy={subdividingBodies}
         handEditCount={subdivideScope.handEditCount}
-        sectionName={selectedSection?.name ?? null}
+        // A statistic re-run rebuilds the WHOLE model (owner 2026-08-18:
+        // "all need to be rederived ofcourse") — the dialog must not promise
+        // a one-section blast radius it will exceed.
+        sectionName={
+          geotechBandsStale
+            ? 'the whole model (statistic re-run)'
+            : (selectedSection?.name ?? null)
+        }
       />
 
       {/* Reset manual points confirmation — clearing every hand-drawn body
