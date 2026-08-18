@@ -252,3 +252,39 @@ describe('ReSubdivideConfirmDialog — it names the section it is about', () => 
     expect(warning?.textContent ?? '').not.toMatch(/in this model/i)
   })
 })
+
+describe('the statistic re-run names its model-wide blast radius (owner 2026-08-18)', () => {
+  // Owner, verbatim: *"rederiving with a new statistic should say, this
+  // clears all subdivisions model wide"*. The section-scoped sentence would
+  // promise a one-section blast radius the press exceeds.
+  it('AC15 — statisticRebuild says it clears all subdivisions model-wide', () => {
+    render(
+      <ReSubdivideConfirmDialog
+        open
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+        statisticRebuild="harmonic"
+        sectionName="Cross-section 1"
+      />,
+    )
+    const dialog = document.body.querySelector('[data-testid="re-subdivide-confirm-dialog"]')
+    expect(dialog?.textContent).toContain('clears all subdivisions model-wide')
+    expect(dialog?.textContent).toContain('harmonic')
+    // The one-section sentence must NOT appear — it would undersell the loss.
+    expect(dialog?.textContent).not.toContain('Cross-section 1')
+  })
+
+  it('AC16 — without statisticRebuild the section sentence stays', () => {
+    render(
+      <ReSubdivideConfirmDialog
+        open
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+        sectionName="Cross-section 1"
+      />,
+    )
+    const dialog = document.body.querySelector('[data-testid="re-subdivide-confirm-dialog"]')
+    expect(dialog?.textContent).toContain('Cross-section 1')
+    expect(dialog?.textContent).not.toContain('model-wide')
+  })
+})
