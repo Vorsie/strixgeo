@@ -28,6 +28,7 @@ _attach_companion_body_links
 
 from __future__ import annotations
 
+import math
 from typing import Any
 from uuid import UUID
 
@@ -1226,11 +1227,13 @@ async def _restore_tie_tombstones(
             dropped += 1
             continue
         raw_coords = [payload.get(key) for key in ("a_x", "a_y", "a_z", "b_x", "b_y", "b_z")]
-        # bool is an int subclass and NaN != NaN — both are corrupt here.
+        # bool is an int subclass; NaN and ±Infinity can never match a real
+        # place — all three are corrupt here (the stdlib json parser accepts
+        # the non-standard Infinity token, so it genuinely reaches this code).
         finite = [
             float(v)
             for v in raw_coords
-            if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
         ]
         coords = finite if len(finite) == len(raw_coords) else None
         if coords is None:
