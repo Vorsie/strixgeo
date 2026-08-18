@@ -1131,3 +1131,124 @@ async def test_sc3_a_class_outside_the_bands_soil_family_is_refused(
     assert resp.status_code == 422, resp.text
     message = resp.json()["detail"]["message"].lower()
     assert "21" in message and "zand" in message
+
+
+@pytest.mark.asyncio
+async def test_se1_a_second_subdivide_with_skip_keeps_existing_cpt_bands(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SE1 — owner ruling 2026-08-18: *"does this test already have a subdivision?
+    if yes import and skip"* — no discrepancies on tie sections.
+
+    A test subdivided once (usually before the tie section) must show the SAME
+    bands on every later press: the second press imports the existing columns
+    as-is and builds nothing over them. Identical row ids are the proof — a
+    rebuild mints fresh uuid7s.
+    """
+    gid = await _subdivide(async_client, band_scene)
+
+    async def cpt_row_ids() -> set[str]:
+        db_session.expire_all()
+        rows = (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm.id).where(
+                        LithoLayerOrm.model_id == UUID(gid),
+                        LithoLayerOrm.cpt_id.is_not(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return {str(r) for r in rows}
+
+    before = await cpt_row_ids()
+    assert before, "the first press must have built CPT bands"
+
+    resp = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={"litho_model_id": band_scene["litho_model_id"], "skip_existing": True},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("skipped_existing_count", 0) > 0
+
+    assert await cpt_row_ids() == before, "skip must keep the FIRST subdivision's rows"
+
+
+@pytest.mark.asyncio
+async def test_se2_without_skip_the_second_subdivide_still_rebuilds(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SE2 — negative control: the historic rebuild stays reachable (statistic
+    re-runs and litho-change re-derives depend on it)."""
+    gid = await _subdivide(async_client, band_scene)
+    db_session.expire_all()
+    before = {
+        str(r)
+        for r in (
+            await db_session.execute(
+                select(LithoLayerOrm.id).where(
+                    LithoLayerOrm.model_id == UUID(gid),
+                    LithoLayerOrm.cpt_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+
+    resp = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={"litho_model_id": band_scene["litho_model_id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    db_session.expire_all()
+    after = {
+        str(r)
+        for r in (
+            await db_session.execute(
+                select(LithoLayerOrm.id).where(
+                    LithoLayerOrm.model_id == UUID(gid),
+                    LithoLayerOrm.cpt_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    assert after != before, "the default press is still the idempotent rebuild"
+
+
+@pytest.mark.asyncio
+async def test_se3_a_second_divide_with_skip_keeps_the_hand_classed_borehole(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SE3 — the divide half of the same ruling: an already-divided borehole is
+    imported as-is, so a hand-set class survives the next section's press."""
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+    band_id = rows[0][0]
+
+    set_resp = await async_client.post(
+        _band_url(band_scene, gid, "set-class"),
+        json={"band_id": band_id, "nad_class": 8},
+    )
+    assert set_resp.status_code == 200, set_resp.text
+
+    divide = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={"skip_existing": True},
+    )
+    assert divide.status_code == 200, divide.text
+    assert divide.json().get("skipped_existing_borehole_count", 0) == 1
+
+    db_session.expire_all()
+    row = await db_session.get(LithoLayerOrm, UUID(band_id))
+    assert row is not None, "the hand-classed band must survive the skipped divide"
+    formation = await db_session.get(GeologicalFormationOrm, row.formation_id)
+    assert formation is not None and formation.nad_class == 8, (
+        "the hand class must survive — that is the whole point of the skip"
+    )
