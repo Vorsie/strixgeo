@@ -25,6 +25,25 @@ import type {
 
 export const geotechBandsClient = {
   /**
+   * POST .../geotech/bands/set-class — set a BOREHOLE band's NAD class by hand.
+   *
+   * Owner ask 2026-08-18: a borehole band's class is donor-extrapolated, not
+   * measured, so the engineer's judgement outranks it. Commits directly (the
+   * change is one number and fully undoable); the server refuses CPT bands
+   * and classes outside the band's soil family with a 422.
+   */
+  setGeotechBandClass: (
+    projectId: string,
+    geotechModelId: string,
+    bandId: string,
+    nadClass: number,
+  ): Promise<GeotechBandEditResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/set-class`, {
+      band_id: bandId,
+      nad_class: nadClass,
+    }),
+
+  /**
    * POST .../geotech/bands/preview-split — what splitting this band here would do.
    *
    * Writes nothing. Returns both halves with their re-derived NAD class and the advisory
