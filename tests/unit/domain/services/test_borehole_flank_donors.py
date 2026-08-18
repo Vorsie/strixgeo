@@ -35,6 +35,7 @@ from groundmodel.domain.services.borehole_flank_donors import (
     DonorStack,
     SectionPlacement,
     confidence_from_donor_distance,
+    depth_aware_flanks,
     flank_packing_surfaces,
     flank_packing_surfaces_with_donors,
     select_flank_donors,
@@ -527,3 +528,109 @@ def test_fd3_the_tuple_form_is_a_projection_of_the_donor_form() -> None:
     rich = flank_packing_surfaces_with_donors(selection, extent_top_m=1.0, extent_base_m=9.0)
 
     assert tuples == [(s.top, s.base, s.nad_class) for s in rich]
+
+
+# --- depth-aware flank walk (owner ruling 2026-08-18, the B2 dogfeed) --------
+#
+# His words: "If there are no cpt data below TD, then you look to the next cpt
+# over ofcourse. Close cpt where there is data, further away below TD."
+# B2's right-hand neighbour S7A is a short CPT whose bands end far above B2's
+# sand, so the walk stepped nowhere and B2's 8.7 m sand came back as ONE band
+# from the left donor alone.
+
+
+def test_fw1_the_close_cpt_with_data_is_the_flank() -> None:
+    """FW1: 'close cpt where there is data' — the walk stops at it; the
+    farther CPT never enters."""
+    flanks = depth_aware_flanks(
+        "BH",
+        ordered_columns=["NEAR-L", "BH", "NEAR-R", "FAR-R"],
+        kind_of={"NEAR-L": "cpt", "BH": "borehole", "NEAR-R": "cpt", "FAR-R": "cpt"},
+        banded_extent_by_inv={
+            "NEAR-L": (5.0, -5.0),
+            "NEAR-R": (5.0, -5.0),
+            "FAR-R": (5.0, -5.0),
+        },
+        window_top_elev_m=4.0,
+        window_base_elev_m=-4.0,
+        min_data_m=0.35,
+    )
+
+    assert flanks == {"NEAR-L", "NEAR-R"}
+
+
+def test_fw2_a_cpt_silent_at_this_depth_is_stepped_over() -> None:
+    """FW2: B2 in miniature — 'no cpt data below TD → the next cpt over'. The
+    near-right CPT's bands end at +10.4 while the window is +4.25 to −4.45, so
+    the walk continues to the CPT that HAS data there. The next CPT over grazes
+    the window by 5 cm — less than one writable band — and is silent too."""
+    flanks = depth_aware_flanks(
+        "B2",
+        ordered_columns=["S10", "B2", "S7A", "S7", "S6"],
+        kind_of={"S10": "cpt", "B2": "borehole", "S7A": "cpt", "S7": "cpt", "S6": "cpt"},
+        banded_extent_by_inv={
+            "S10": (11.4, -3.2),
+            "S7A": (11.5, 10.4),
+            "S7": (11.9, 4.2),
+            "S6": (10.7, -3.3),
+        },
+        window_top_elev_m=4.25,
+        window_base_elev_m=-4.45,
+        min_data_m=0.35,
+    )
+
+    assert flanks == {"S10", "S6"}
+
+
+def test_fw3_a_cpt_that_disagrees_still_blocks_the_walk() -> None:
+    """FW3: data that DISAGREES is still data. A CPT whose bands cover the
+    window blocks the walk even if none of them are the layer's soil — the
+    soil gate downstream may refuse it as donor, but walking past it would
+    fake continuity through ground the CPT says is something else."""
+    flanks = depth_aware_flanks(
+        "BH",
+        ordered_columns=["L", "BH", "CLAY-R", "SAND-R"],
+        kind_of={"L": "cpt", "BH": "borehole", "CLAY-R": "cpt", "SAND-R": "cpt"},
+        banded_extent_by_inv={
+            "L": (5.0, -5.0),
+            "CLAY-R": (5.0, -5.0),
+            "SAND-R": (5.0, -5.0),
+        },
+        window_top_elev_m=4.0,
+        window_base_elev_m=-4.0,
+        min_data_m=0.35,
+    )
+
+    assert flanks == {"L", "CLAY-R"}
+
+
+def test_fw4_boreholes_are_stepped_over() -> None:
+    """FW4: a borehole has no qc and cannot donate, so the walk passes it
+    (pre-existing rule, kept)."""
+    flanks = depth_aware_flanks(
+        "BH",
+        ordered_columns=["CPT-L", "OTHER-BH", "BH"],
+        kind_of={"CPT-L": "cpt", "OTHER-BH": "borehole", "BH": "borehole"},
+        banded_extent_by_inv={"CPT-L": (5.0, -5.0)},
+        window_top_elev_m=4.0,
+        window_base_elev_m=-4.0,
+        min_data_m=0.35,
+    )
+
+    assert flanks == {"CPT-L"}
+
+
+def test_fw5_a_grazing_extent_does_not_count_as_data() -> None:
+    """FW5: bands that END at the window's top never enter it — that column is
+    below-TD for this layer and the walk continues."""
+    flanks = depth_aware_flanks(
+        "BH",
+        ordered_columns=["BH", "GRAZE-R", "DEEP-R"],
+        kind_of={"BH": "borehole", "GRAZE-R": "cpt", "DEEP-R": "cpt"},
+        banded_extent_by_inv={"GRAZE-R": (10.0, 4.0), "DEEP-R": (10.0, -5.0)},
+        window_top_elev_m=4.0,
+        window_base_elev_m=-4.0,
+        min_data_m=0.35,
+    )
+
+    assert flanks == {"DEEP-R"}
