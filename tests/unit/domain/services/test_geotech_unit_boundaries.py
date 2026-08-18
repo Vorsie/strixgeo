@@ -160,3 +160,45 @@ class TestDeletion:
         assert kinds == ["continuous", "onlap"], kinds
         # Tie 0 was drawn; tie 1 fell on the unit's base contact and was not.
         assert replaced_tie_indices(placed) == [0]
+
+
+# --- endpoint side → interior boundary index (audit P1-2, 2026-08-18) --------
+#
+# A tie names a band AND a side. The side decides WHICH boundary the tie
+# declares: 'top' is the seam above the band, 'base' the seam below it. The
+# placement used to assume 'top' for every endpoint, so a base↔base tie (the
+# bottom-tie spec — how the deepest band bands at all) was applied one seam
+# too high, and a base tie on the deepest band was silently dropped by the
+# li == 0 guard written for tops.
+
+from groundmodel.domain.services.geotech_unit_boundaries import interior_boundary_index
+
+
+def test_sd1_a_top_side_names_the_seam_above() -> None:
+    """Band 1's top = interior seam 0 (between bands 0 and 1)."""
+    assert interior_boundary_index(1, "top", 3) == 0
+
+
+def test_sd2_a_base_side_names_the_seam_below() -> None:
+    """Band 1's base = interior seam 1 (between bands 1 and 2)."""
+    assert interior_boundary_index(1, "base", 3) == 1
+
+
+def test_sd3_the_topmost_top_is_the_litho_contact() -> None:
+    """The unit's own top belongs to the litho model — not placeable here."""
+    assert interior_boundary_index(0, "top", 3) is None
+
+
+def test_sd4_the_deepest_base_is_the_litho_contact() -> None:
+    """The unit's own base belongs to the litho model — not placeable here."""
+    assert interior_boundary_index(2, "base", 3) is None
+
+
+def test_sd5_the_same_seam_by_either_name() -> None:
+    """Band 0's base and band 1's top are ONE physical seam — one index."""
+    assert interior_boundary_index(0, "base", 2) == interior_boundary_index(1, "top", 2) == 0
+
+
+def test_sd6_a_single_band_unit_has_no_interior_seam() -> None:
+    assert interior_boundary_index(0, "top", 1) is None
+    assert interior_boundary_index(0, "base", 1) is None
