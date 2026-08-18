@@ -53,108 +53,85 @@ spacing below the last reading, so it is genuinely sample-free and neither the
 re-derive loop nor the edit path can classify it from the orphan boundary
 sample. Pinned: UC1–UC3.
 
-## 2. The direct partition — one engine, more classes (owner rulings 2026-08-13)
+## 2. The hierarchical fill — densities within lithos (owner ruling 2026-08-18)
 
-> *"we don't need to invent the fill bands engine, it is build for the litho
-> stage — we only have more classes"* · *"you have to start from the exact
-> litho geometries"*
+> *"once all ties are there, and boreholes are there, you prolly didn't need
+> to build a new fill engine, the litho's worked just fine? It's the same
+> basic rules only with densities on top of lithos"* · *"build the
+> hierarchical construction overnight. structural fix, the plan has been the
+> structural fix from the start, those were exactly my rules going into
+> this."* (Supersedes the 2026-08-13/14 whole-section direct partition + the
+> post-hoc litho-frame clip; git holds that design's history.)
 
-**The geotech axis renders the DIRECT partition:**
-`computeSectionFillActive(GEOTECH bands, GEOTECH ties, overrides, alongM)` —
-the same computation the 3-D build has always used
-(`makeVoxelRequestBuilder` → `buildVoxelRequest`). One engine, one input set,
-so render and build cannot diverge, and the engineer's NAD correlations drive
-the fill with litho's own 2/1/0 semantics (2 tied contacts = BAND, 1 = ONLAP,
-0 = LENS) — nothing transposed, nothing re-derived.
+**The construction** (`utils/geotechHierarchicalFill/`) — the litho partition
+is the frame BY CONSTRUCTION, and the SAME engine subdivides it:
 
-**...assembled on the LITHO FRAME's column axis** (owner dogfeed 2026-08-15;
-`utils/frameAlignedPartition.ts`). The shared column assembly drops a column
-with no accepted units, so before this an undivided borehole simply vanished
-from the geotech input: the engine saw ONE wide test-to-test gap straight over
-the borehole and tiled it with terminations answering to no column (*"what are
-those weird polygons between the boreholes?"*), the two gap axes stopped
-lining up index-for-index so the litho-frame clip below was skipped for the
-WHOLE section (*"clearly the litho model isn't the base of the geotech fill
-because it mismatches a ton"*), and with no clip there were no per-face bare
-areas for the "correlate me" texture to mark (*"i don't see the hashed
-fallback nowhere"*). One cause, three symptoms.
+1. Compute the litho partition (the frame) on the litho columns + approved
+   litho edges.
+2. Group litho units into FAMILIES — connected chains over same-formation
+   approved litho edges + litho-region `layerIds` co-membership
+   (`families.ts`).
+3. Per family, run the ordinary engine (`computeSectionFillActive`) with ONLY
+   that family's geotech bands (parent mapping by geometric containment,
+   `bandParents.ts`) and only the ties whose BOTH ends are family bands. A
+   packing tie whose ends sit in different families is DROPPED and counted
+   (`tiesCrossingFamilies`) — the draw-time cross-litho-body guard's own rule
+   applied at render time.
+4. **Column rule per family run:** a frame column carrying a family litho
+   unit but NO band of it is a BLOCKER — it ends the engine run and sends the
+   family's whole cover in both flanking gaps to litho fallback ("correlate
+   me"). That keeps the 2026-08-15 ruling: an un-divided borehole shows
+   visibly empty ground; previews stay opt-in. A frame column carrying NO
+   litho unit of the family is EXCLUDED from the run, so the engine's own
+   bridge machinery spans it (deep-to-deep / short-test spans keep working).
+5. Clip each family's output per gap to the family's own litho regions —
+   geometry only (`frameClip.ts` + `frameClipGeometry.ts`); there is NO
+   relabelling, because every face of a family run already carries a class of
+   the family's own soil. `levelFill.ts` closes untied bands at their own
+   level where the family partition is silent; `familyMatrix.ts` restates the
+   owner's channel-matrix ruling in family space (a flood face reads the
+   class the reached test measured at the face's own top level — "the matrix
+   is a md sand").
 
-The frame's columns are therefore the axis: an un-banded column contributes an
-EMPTY stack, which splits the frame into maximal runs of consecutive banded
-columns (`frameGapRuns`). Each run is partitioned on its own and its regions
-are shifted back onto the frame's gap axis (`shiftRegionGaps`), so a gap that
-touches a column the packing model never classified receives NO packing
-geometry — the honest answer, which the clip then resolves to bare ground. The
-split happens OUTSIDE the engine deliberately: `partitionFillV2/sectionGeom`
-drops a unit-less column and re-indexes the gaps, which is the very
-re-indexing being corrected. Off the geotech axis, and on it once every
-borehole is divided, this is ONE run at offset 0 and every call is literally
-the previous call.
+**Structural invariants**, held by the committed gate
+`geotechHierarchicalCoverage.diag.test.ts` (`HIER_COV=1`, PIP sweep over all
+14 real sections): **WRONGSOIL 0 · OVERLAP 0 · HOLE 0 · outside-frame 0**. A
+geotech band can never paint outside its parent litho soil geometry — the
+cross-soil vacancy-flood family is impossible, not patched.
+`clipPartitionToLithoFrame.ts` (the relabelling post-hoc clip) is DELETED;
+its geometry primitives live on in `frameClipGeometry.ts`.
 
-Measured on the owner's mid-pipeline model (19 of CS1's 24 columns banded):
-litho-consistency CS1 90.5 % → 99.2 %, and the six tie-sections that carry a
-single banded column 3.1–14.7 % → 100 %; CS1's total un-painted area 312 → 102
-m², the residual being one raster cell along each seam.
+**Render = build = one path.** `PartitionFillOverlay` renders the
+hierarchical fill on the geotech axis (litho axis untouched);
+`buildVoxelRequest` / `makeVoxelRequestBuilder` and the 3-D fences take the
+same frame arm. The litho partition still draws as dark outlines on top, now
+SOIL-DISSOLVED (`utils/lithoOutlineEdges.ts`): only edges where the soil
+changes — or the frame's outer envelope — draw; internal seams between
+touching same-soil litho units are machine anatomy and dissolve (owner
+dogfeed 2026-08-18: "weird ass horizontal black lines without meaning to the
+user"). Clip-fallback faces render litho-coloured beneath the packing fills;
+the "correlate me" hatch marks un-classed litho ground.
 
-**The litho geometry stays authoritative** three ways:
+**Measured** by two ratchets on the real model: the litho-consistency gate
+(§7, soil raster — 96.2–98.6 % + one 100 %, residual = raster hairlines) and
+the 2/1/0 conformance gate (`geotech210Conformance.diag.test.ts`,
+`GEOTECH_210=1` — per band per gap: 2 ties must span, 0/1-tie constructs must
+exist and stay inside their envelope; audits the hierarchical arm on the
+frame axis; a gap whose facing test carries no bands is out of scope, that
+absence being the 2026-08-15 ruling itself). Harvest 2026-08-19: model-wide
+balloon 178→99, missing 200→88; the +2 nospan is model-side — 25 CS1 packing
+ties join bands whose litho units are not correlated, and the construction
+drops them (surface + owner correlation pass tracked in docs/debt.md).
 
-* **By construction — complete tie restatement.** Every direct litho tie
-  restates onto the packing bands that own the same contact surfaces
-  (`application/geotech_edge_derivation.py`): the topmost pair is FORCED
-  regardless of class (`aligned_pairs_with_forced_top`), and a litho
-  base↔base bottom tie restates as a base↔base edge between the two deepest
-  bands. Both are born accepted — they carry the litho approval down (§4a).
-  Without the class-blind forcing, a litho tie whose top bands differed in
-  class never restated, and the fill redrew the litho boundary (the owner's
-  clay case: the sand reached below the litho clay top because the machine
-  had tied the contact to a band one step deeper).
-* **By construction — the litho frame clip** (owner ruling 2026-08-14,
-  "keep exactly the litho model and only subdivide bodies"):
-  `utils/clipPartitionToLithoFrame.ts` overlays the two partitions in the v2
-  arrangement (pre-splitting crossings/T-junctions in float — debt #271) and
-  every face keeps its packing class only where its soil matches the litho
-  region it sits in; foreign classes re-label to a same-soil class of the
-  region; regions with no class of their soil fall back to litho colour;
-  nothing exceeds the frame. Since 2026-08-15 the clip runs ALWAYS: the
-  partition above is built on the frame's own column axis, so the two gap
-  axes coincide by construction. The whole-region fallback heuristic
-  (`utils/geotechFillFallback.ts`) survives only as the guard path for a
-  frame with fewer than two columns — and it is what left the owner's
-  *"gap between two left tests on cs1"*: a 0.66 m wedge at mid-gap where the
-  packing model terminated INSIDE the gap, which the heuristic refused to
-  call bare because *one packed side is enough to disqualify it* — true when
-  the packing partition reaches across, false when it stops half-way. The
-  clip answers per FACE, so that remainder is ordinary bare ground.
-* **On screen.** The litho partition keeps rendering as the dark region
-  outlines on top (`partition-litho-outline`); clip-fallback faces render
-  litho-coloured beneath the packing fills (`partition-litho-fallback`).
-* **Measured.** The litho-consistency gate (§7) rasterises the litho fill
-  against the CLIPPED fill and ratchets the agreement per section.
-
-**Render path.** The direct partition flows through the ordinary litho render
-machinery in `PartitionFillOverlay` — the S61 dissolved fill layer, seam
-strokes, under-column substrate — via per-axis sources in
-`correlationOverlayAxis.ts` (`partitionLayerSource` / `partitionEdgeSource` /
-`partitionColorSource`; the old always-litho edge guard is inverted, layers
-and edges move together). The canvas ships a `geotechAxisModel` bundle; the
-edge list is the same approved `geotechPackingEdges` the build reads
-(suspended review ties included — parity with the build arm). Gesture
-surfaces are gated on `viewOnly = axisMode === 'geotechnical'`; the "Show
-litho fill" toggle swaps the partition source
-(`selectSectionFill.showLithoFillInstead`).
-
-This retired the fraction-space refinement from the render: the vertical
-hairlines the owner circled (per-sample quads × doubled self-colour strokes
-at 0.62 opacity) are gone structurally — one polygon per band. The
-refinement modules (`refineLithoPartition.ts`, `.overlap.ts`,
-`carveOverlayLenses.ts`, `geotechPackingTies.ts`) and their test/diag suites
-are app-dead and get DELETED after owner dogfeed confirms; git holds the
-2026-07-07..2026-08-12 design history.
-
-Backend note that survives from the old model: `DivideBoreholes` re-runs the
-shared edge derivation after borehole-band fill (Phase 8.5) and re-resolves
-`body_id`, so borehole-mediated restatements appear without a manual step-2
-press.
+**Litho geometry stays authoritative in the backend too — complete tie
+restatement.** Every direct litho tie restates onto the packing bands that
+own the same contact surfaces (`application/geotech_edge_derivation.py`): the
+topmost pair is FORCED regardless of class (`aligned_pairs_with_forced_top`),
+and a litho base↔base bottom tie restates as a base↔base edge between the two
+deepest bands. Both are born accepted — they carry the litho approval down
+(§4a). `DivideBoreholes` re-runs the shared edge derivation after
+borehole-band fill (Phase 8.5) and re-resolves `body_id`, so
+borehole-mediated restatements appear without a manual step-2 press.
 
 ## 3. Connecting geotech units (built 2026-06-25, develop UNPUSHED)
 
