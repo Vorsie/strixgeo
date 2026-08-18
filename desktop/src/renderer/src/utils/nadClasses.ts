@@ -277,3 +277,34 @@ const _FULLNAME_TO_COMPACT: ReadonlyMap<string, string> = new Map(
 export function nadCompactFromName(fullName: string): string {
   return _FULLNAME_TO_COMPACT.get(fullName) ?? fullName
 }
+
+/**
+ * The NAD class-number ranges per soil family, both variants included.
+ *
+ * A hand-set class must stay inside the band's own soil family; the server
+ * validates against the norm table, this map only drives the MENU so it never
+ * offers a class the server would refuse. Mirrors the ``NAD_CLASS_NAMES``
+ * grouping above — the class numbers are stable norm facts (ANB Tabel 2.1).
+ */
+const NAD_FAMILY_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [1, 4], // GRAVEL
+  [5, 12], // SAND
+  [13, 20], // SILT
+  [21, 28], // CLAY
+  [29, 31], // PEAT
+]
+
+/**
+ * Every class in the same soil family as ``nadClass``.
+ *
+ * @param nadClass  A NAD class number (1..31).
+ * @returns  The family's class numbers ascending; empty for an unknown number.
+ */
+export function nadClassFamily(nadClass: number): readonly number[] {
+  for (const [lo, hi] of NAD_FAMILY_RANGES) {
+    if (nadClass >= lo && nadClass <= hi) {
+      return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+    }
+  }
+  return []
+}
