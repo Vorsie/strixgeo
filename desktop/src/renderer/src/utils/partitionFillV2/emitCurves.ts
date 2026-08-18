@@ -46,7 +46,7 @@ import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosingFlood } from './emitEnclosingFlood'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
-import { emitSubstrateBridges } from './emitSubstrate'
+import { type BracketStrip, emitSubstrateBridges } from './emitSubstrate'
 import { emitSubTdLenses } from './emitSubTdLenses'
 import { emitTerminationSweep } from './emitTerminationSweep'
 import { buildTerminationPlans } from './terminationPlan'
@@ -112,6 +112,12 @@ export interface EmittedCurves {
    * label must come from here (the lens's own litho), not the matrix.
    */
   lensLabels: Map<string, LensLabel>
+  /**
+   * Bracketed jump-tie strips (owner 2026-08-18): a face lying between a
+   * strip's two lines is the space between two jump ties that bracket one
+   * unit per side — a BAND of that unit's formation.
+   */
+  bracketStrips: BracketStrip[]
   /**
    * Directional bridge-anchor set (``gapIndex|side|ui|contact``) — the jump-tie endpoints
    * scoped to the gap+side the bridge spans toward (ruling 8i(e)). Exposed so the
@@ -266,7 +272,10 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // contact tied (→ corr 1 → onlap) only in the span direction. Pass-through columns the
   // bridge crosses without anchoring stay untied (their units lens).
   const bridgeGapAnchored = new Set<string>()
-  emitSubstrateBridges(survivingSection, curves, bridgeAnchored, bridgeGapAnchored)
+  // Bracketed jump-tie pairs (owner 2026-08-18): the strip between two bridges
+  // that bracket one unit per side is a BAND of that unit's formation.
+  const bracketStrips: BracketStrip[] = []
+  emitSubstrateBridges(survivingSection, curves, bridgeAnchored, bridgeGapAnchored, bracketStrips)
 
   // The shared ``lensLabels`` map: created BEFORE the interval closures so a lone-side
   // pinch's flood-wedge curves (emitLonePinch) can register their bracket-matrix label
@@ -351,7 +360,7 @@ export function emitCurves(section: SectionInput): EmittedCurves {
   // annulus — the session-9/12 sub-TD wall).
   emitSubTdLenses(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans)
 
-  return { curves, conflicts, activeTies: ties, lensLabels, bridgeGapAnchored }
+  return { curves, conflicts, activeTies: ties, lensLabels, bridgeGapAnchored, bracketStrips }
 }
 
 /**
