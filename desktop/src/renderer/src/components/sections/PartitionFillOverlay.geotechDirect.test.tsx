@@ -29,6 +29,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { nadClassColor } from '../../utils/nadClasses'
 import PartitionFillOverlay, { type GeotechLithoFrame, type Props } from './PartitionFillOverlay'
+import { inScreenPoly, parseSubpaths } from './partitionFillSampling.testutil'
 import type { LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
 import type { PlacedColumn } from './utils'
 
@@ -351,42 +352,29 @@ describe('PartitionFillOverlay — the geotech axis partitions the geotech model
       subpaths: parseSubpaths(el.getAttribute('d') ?? ''),
     }))
     expect(painted.length).toBeGreaterThan(1)
-    const blends: string[] = []
-    for (let i = 1; i < 40; i++) {
-      for (let j = 1; j < 40; j++) {
-        const x = (i / 40) * 100
-        const y = (j / 40) * 200
+    // "Exactly one" needs BOTH arms (audit P1-5): >1 is a blend, but 0 inside
+    // the banded envelope is a VOID — and the old loop only recorded blends, so
+    // a render that painted nothing at all passed. The banded envelope here is
+    // the full rectangle between the columns (both banded 0–10 m, collars
+    // +10 m): screen x ∈ [0,100], y ∈ [100,200]. The fractional offsets keep
+    // the sample points off the fills' shared seams, where even-odd
+    // point-in-polygon is undefined.
+    const defects: string[] = []
+    for (let i = 1; i < 39; i++) {
+      for (let j = 1; j < 39; j++) {
+        const x = (i / 40) * 100 + 0.137
+        const y = 100 + (j / 40) * 100 + 0.171
         const hit = new Set<string>()
         for (const p of painted) {
           if (p.subpaths.some((pts) => inScreenPoly(x, y, pts))) hit.add(p.color)
         }
-        if (hit.size > 1) blends.push(`(${x.toFixed(1)},${y.toFixed(1)}) → ${[...hit].join('+')}`)
+        if (hit.size !== 1) {
+          defects.push(
+            `(${x.toFixed(1)},${y.toFixed(1)}) → ${hit.size === 0 ? 'VOID' : [...hit].join('+')}`,
+          )
+        }
       }
     }
-    expect(blends).toEqual([])
+    expect(defects).toEqual([])
   })
 })
-
-/** Split an ``M … Z M … Z`` path into its sub-rings of screen points. */
-function parseSubpaths(d: string): { x: number; y: number }[][] {
-  const out: { x: number; y: number }[][] = []
-  for (const chunk of d.split('M').slice(1)) {
-    const pts: { x: number; y: number }[] = []
-    for (const m of `M${chunk}`.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)) {
-      pts.push({ x: Number(m[1]), y: Number(m[2]) })
-    }
-    if (pts.length >= 3) out.push(pts)
-  }
-  return out
-}
-
-/** Even-odd point-in-polygon in screen space. */
-function inScreenPoly(px: number, py: number, pts: readonly { x: number; y: number }[]): boolean {
-  let inside = false
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const a = pts[i]
-    const b = pts[j]
-    if (a.y > py !== b.y > py && px < a.x + ((py - a.y) / (b.y - a.y)) * (b.x - a.x)) inside = !inside
-  }
-  return inside
-}
