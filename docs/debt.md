@@ -8463,6 +8463,12 @@ exact repro + the closing-scope negative in `arrangement.test.ts`.
 
 ## 272. The litho-consistency ratchet is inert — baseline frozen on stale model ids (S)
 
+**RESOLVED 2026-08-18 late night** — baseline re-frozen on the live model
+(96.67–100 % per section, CS1 98.77) right after the corner-sampler fix; the
+ratchet enforces again. The id-keying residual (a future model wipe orphans
+the baseline again) stays a known property: the gate SAYS "NOT COMPARABLE"
+loudly rather than passing silently, which is how it was caught.
+
 **What.** `geotechLithoConsistency.diag.test.ts` compares its frozen baseline by
 model id, and the owner has since wiped and rebuilt the geotech model, so the
 gate reports "NOT COMPARABLE — the baseline was frozen on different model ids;
