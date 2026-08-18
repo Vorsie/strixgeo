@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { nadClassColor } from '../../utils/nadClasses'
 import PartitionFillOverlay, { type GeotechLithoFrame, type Props } from './PartitionFillOverlay'
+import { coverageDefects, paintedElements } from './partitionFillSampling.testutil'
 import type { LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
 import type { PlacedColumn } from './utils'
 
@@ -252,10 +253,14 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
     const hatch = paths(container, 'partition-unbanded-hatch')
     expect(hatch.some((d) => touchesGap(d, 1))).toBe(true)
     expect(hatch.some((d) => touchesGap(d, 2))).toBe(true)
-    // ... and it is drawn over lithology colour, not over a class.
+    // ... and it is drawn over lithology colour, not over a class. The
+    // non-empty pin comes first: ``every()`` on an empty set is vacuously
+    // true, so without it a render that emitted NO fallback at all passed
+    // (audit P2-8).
     const unbanded = Array.from(
       container.querySelectorAll('[data-testid="partition-litho-fallback"]'),
     )
+    expect(unbanded.length).toBeGreaterThan(0)
     const bareFills = new Set(unbanded.map((el) => el.getAttribute('fill') ?? ''))
     expect([...bareFills].every((c) => c === SAND_COLOR || c === CLAY_COLOR)).toBe(true)
   })
@@ -308,23 +313,22 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
     contactEdges: [edge('g-L-0', 'g-M-0'), edge('g-L-0', 'g-M-0', 'base')],
   }
 
-  /** Deepest screen y any sub-polygon of these paths reaches inside a gap. */
-  function deepestInGap(ds: readonly string[], gap: number): number {
-    const [lo, hi] = GAP_X[gap]
-    let deepest = -Infinity
-    for (const d of ds) {
-      for (const sub of d.split('M').slice(1)) {
-        const pts = [...`M${sub}`.matchAll(/[ML]\s(-?[\d.]+),(-?[\d.]+)/g)].map((m) => ({
-          x: Number(m[1]),
-          y: Number(m[2]),
-        }))
-        if (pts.length === 0) continue
-        const xs = pts.map((p) => p.x)
-        if (!(Math.max(...xs) > lo + 0.5 && Math.min(...xs) < hi - 0.5)) continue
-        deepest = Math.max(deepest, ...pts.map((p) => p.y))
-      }
-    }
-    return deepest
+  /**
+   * The painted plane a viewer sees: classified fills plus bare fallback.
+   * The hatch is texture drawn OVER the fallback, so it stays out of the
+   * exactly-one-colour count.
+   */
+  function paintedPlane(container: HTMLElement) {
+    return [
+      ...paintedElements(container, '[data-testid^="partition-fill-group-"]'),
+      ...paintedElements(container, '[data-testid="partition-litho-fallback"]'),
+    ]
+  }
+
+  /** Sample window for a gap: its x-range, collar (y=100) to clay base (y=250). */
+  function gapWindow(gap: number) {
+    const [x0, x1] = GAP_X[gap]
+    return { x0, x1, y0: 100, y1: 250 }
   }
 
   it('UB5 — ground the packing model stops short of inside a gap is still painted', () => {
@@ -333,11 +337,12 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
         <PartitionFillOverlay {...terminatingProps} />
       </svg>,
     )
-    // The litho clay runs 10-15 m below a 10 mTAW collar, so its base is at
-    // -5 mTAW = screen y 250. Nothing may stop short of it and leave the wedge
-    // the owner's arrow points at.
-    const painted = [...fillPaths(container), ...paths(container, 'partition-litho-fallback')]
-    expect(deepestInGap(painted, 0)).toBeGreaterThanOrEqual(249)
+    // The litho clay runs 10-15 m below a 10 mTAW collar, so the frame reaches
+    // screen y 250 across the gap. The OLD oracle read one scalar — the deepest
+    // vertex — which a mis-placed deep polygon satisfies while the owner's
+    // mid-gap wedge void stands (audit P1-5). Point-sampling the whole window
+    // fails on the void itself, wherever it sits, and on any overlap too.
+    expect(coverageDefects(paintedPlane(container), gapWindow(0))).toEqual([])
   })
 
   it('UB4 — the litho frame governs the whole plane: fills plus bare ground tile it', () => {
@@ -347,14 +352,13 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
       </svg>,
     )
     // "clearly the litho model isn't the base of the geotech fill" — with the
-    // frame as the base, every gap of the LITHO partition is accounted for:
-    // classified where the packing model reaches, bare where it does not.
-    const bare = paths(container, 'partition-litho-fallback')
-    const fills = fillPaths(container)
+    // frame as the base, every point of every gap is accounted for: classified
+    // where the packing model reaches, bare where it does not, and never both.
+    // The OLD oracle asked only whether SOME path touched each gap, which one
+    // sliver satisfies (audit P1-5); this samples the plane point by point.
+    const plane = paintedPlane(container)
     for (const gap of [0, 1, 2]) {
-      const covered =
-        fills.some((d) => touchesGap(d, gap)) || bare.some((d) => touchesGap(d, gap))
-      expect(covered, `gap ${gap} is neither classified nor bare`).toBe(true)
+      expect(coverageDefects(plane, gapWindow(gap)), `gap ${gap}`).toEqual([])
     }
   })
 })
