@@ -472,3 +472,23 @@ The behaviour — not the numbers — is pinned by
 `tests/unit/application/test_build_voxel_litho_model.py::test_another_request_is_served_while_the_labelling_runs`.
 A second Build now WAITS on `_BUILD_CPU_LOCK` rather than running alongside the
 first, so every figure above describes one build at a time by construction.
+
+## 2026-08-18 — the Discard replace-restore ("Delete backup hogs the app")
+
+Measured on the owner's real `test.strix` (10 MB: 68 CPTs / 258k series
+cells, 29 boreholes, 3 models, 640 litho layers, 640 edges, 10,721 body
+geometry facts), REPLACE restore against the integration DB, port 8766:
+
+| phase | before | after |
+|---|---|---|
+| whole REPLACE restore (server) | 13.8 s | **10.3 s** |
+| body geometry facts insert (10,721 rows) | 3.5 s | ~0.1 s (bulk insert) |
+
+Remaining server profile (~10.3 s): resolver verification × 2 models ≈ 2.0 s ·
+borehole tree inserts ≈ 1.1 s · formations/contacts/surfaces ≈ 1.3 s ·
+sections/reviews/layers ≈ 1.0 s · wipe 0.4 s · 10 MB JSON parse/transfer
+≈ 0.8 s · the rest spread. The renderer adds its full reload on top.
+Candidates if the owner wants more: bulk-insert the remaining phases
+(~2 s), skip/thin the post-restore resolver when the bundle carries clean
+body stamps (~2 s, needs care — BF1 depends on the reconcile), and a
+progress overlay instead of a frozen window (renderer, worktree).
