@@ -61,6 +61,14 @@ class DivideBoreholesRequest(BaseModel):
             "false: the gate exists because accepted ties steer the donors."
         ),
     )
+    skip_existing: bool = Field(
+        default=False,
+        description=(
+            "Owner ruling 2026-08-18: a borehole that already carries bands is "
+            "imported as-is and skipped - the first subdivision wins, so a tie "
+            "section never tells a second story."
+        ),
+    )
     section_id: UUID | None = Field(
         default=None,
         description=(
