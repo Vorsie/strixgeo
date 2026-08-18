@@ -117,6 +117,13 @@ class DivideBoreholeResponse(BaseModel):
             "about where to redraw it; the ids were only ever in a server log."
         ),
     )
+    skipped_existing_borehole_count: int = Field(
+        0,
+        description=(
+            "Boreholes imported as-is because they already carried bands "
+            "(skip_existing - the first subdivision wins, owner ruling 2026-08-18)."
+        ),
+    )
     superseded_jump_tie_count: int = Field(
         0,
         description=(
