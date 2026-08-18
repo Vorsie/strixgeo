@@ -50,7 +50,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
-import { clipPartitionToLithoFrame } from './clipPartitionToLithoFrame'
+import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import {
   frameAlignedColumns,
   frameGapRuns,
@@ -282,25 +282,35 @@ describe('geotech fill — litho-consistency gate', () => {
             ),
           )
 
-      // The gate measures the litho-frame-clipped fill BY DEFAULT — the
-      // construction the render draws since the 2026-08-14 ruling ("keep
-      // exactly the litho model and only subdivide bodies"). Clipped faces
-      // live on the LITHO gap axis (the frame), and fallback faces carry
-      // litho formations, so they compare through the litho soil map.
-      // CONSISTENCY_RAW=1 measures the unclipped direct partition instead
-      // (what-if analysis of the tie set alone).
-      const columnsMatch =
-        G.alongM.length === L.alongM.length &&
-        G.alongM.every((x, i) => Math.abs(x - L.alongM[i]) < 1e-6)
-      const clipRuns = process.env.CONSISTENCY_RAW !== '1' && (!legacy || columnsMatch)
-      const clipped = clipRuns
-        ? clipPartitionToLithoFrame(
-            legacy ? geoRegions.map((r) => remapGaps(r, G.alongM, L.alongM)) : geoRegions,
-            lithoRegions,
-            nadSoilCodes,
-            lithoSoil,
-          )
-        : null
+      // The gate measures WHAT THE RENDER DRAWS: the hierarchical fill —
+      // densities within lithos, one engine run per litho family, each clipped
+      // to its own family's cover (owner ruling 2026-08-18). Its faces live on
+      // the LITHO gap axis and its un-classed cover carries litho formations,
+      // so both compare through the litho soil map.
+      //
+      // CONSISTENCY_RAW=1 measures the packing model's own whole-section
+      // partition instead, un-confined (what-if analysis of the tie set alone);
+      // CONSISTENCY_LEGACY=1 reproduces the pre-2026-08-15 render. Neither is
+      // confined any more: the post-hoc clip that used to confine them retired
+      // with this construction, and re-deriving it here would be a second copy
+      // of a rule that no longer exists.
+      const clipped =
+        process.env.CONSISTENCY_RAW === '1' || legacy
+          ? null
+          : ((): { regions: SectionRegion[]; lithoFallback: SectionRegion[] } => {
+              const out = computeHierarchicalGeotechFill({
+                lithoColumns: L.columns,
+                lithoEdges,
+                lithoRegions,
+                geotechColumns: frameAlignedColumns(
+                  L.columns,
+                  new Map(G.columns.map((c) => [c.investigationId, c])),
+                ),
+                geotechEdges: geoEdges,
+                alongM: L.alongM,
+              })
+              return { regions: out.regions, lithoFallback: out.lithoFallback }
+            })()
       // The bare ground the "correlate me" texture is drawn over. The clip
       // names it per face; without the clip the render fell back to the
       // whole-region heuristic, which is what the legacy arm reproduces.
