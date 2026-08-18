@@ -114,9 +114,9 @@ function pointInRing(
  * A point strictly inside a simple ring, robust for concave rings: the
  * centroid of a valid convex ear (same construction the v2 face tracer uses;
  * re-derived here for float fraction×elevation coordinates rather than grid
- * integers).
+ * integers). Exported for the sampler pins (CF7).
  */
-function interiorPoint(ring: readonly Point[]): Point {
+export function interiorPoint(ring: readonly Point[]): Point {
   const n = ring.length
   let area2 = 0
   for (let i = 0; i < n; i++) {
@@ -136,14 +136,29 @@ function interiorPoint(ring: readonly Point[]): Point {
     }
     return inside
   }
+  // LARGEST convex ear first, not first-found: an arrangement face can carry
+  // a cluster of near-coincident vertices (snap debris at a curve junction),
+  // and that cluster forms a micro-ear whose centroid IS the corner — a
+  // sample ON the ring, which then parents across whatever boundary passes
+  // through that corner. The B4|S13 silt face sampled a millimetre below the
+  // litho silt|clay line this way and the whole face re-labelled to clay
+  // (owner dogfeed 2026-08-18 evening). The biggest ear's centroid is
+  // solidly interior whenever any honest ear exists.
+  const ears: { turn: number; c: Point }[] = []
   for (let i = 0; i < n; i++) {
     const prev = ring[(i - 1 + n) % n]
     const cur = ring[i]
     const next = ring[(i + 1) % n]
     const turn = (cur.x - prev.x) * (next.y - prev.y) - (cur.y - prev.y) * (next.x - prev.x)
     if (ccw ? turn <= 0 : turn >= 0) continue
-    const c = { x: (prev.x + cur.x + next.x) / 3, y: (prev.y + cur.y + next.y) / 3 }
-    if (inRing(c)) return c
+    ears.push({
+      turn: Math.abs(turn),
+      c: { x: (prev.x + cur.x + next.x) / 3, y: (prev.y + cur.y + next.y) / 3 },
+    })
+  }
+  ears.sort((a, b) => b.turn - a.turn)
+  for (const ear of ears) {
+    if (inRing(ear.c)) return ear.c
   }
   let sx = 0
   let sy = 0
