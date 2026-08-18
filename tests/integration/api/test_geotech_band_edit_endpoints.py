@@ -1252,3 +1252,91 @@ async def test_se3_a_second_divide_with_skip_keeps_the_hand_classed_borehole(
     assert formation is not None and formation.nad_class == 8, (
         "the hand class must survive — that is the whole point of the skip"
     )
+
+
+@pytest.mark.asyncio
+async def test_cl1_clear_subdivision_empties_one_column_and_only_that_column(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """CL1 — owner ask 2026-08-18: *"a per test clear subdivision just for
+    utility, right click tests label and you can fire it"*.
+
+    The clear is the escape hatch of first-subdivision-wins: wipe ONE test's
+    bands (its ties cascade, no tombstones), then the next pipeline press
+    rebuilds exactly that column. Every other column's rows stay untouched.
+    """
+    gid, _rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+
+    async def rows_of(inv_key: str) -> set[str]:
+        db_session.expire_all()
+        col = LithoLayerOrm.borehole_id if inv_key == "bh_id" else LithoLayerOrm.cpt_id
+        return {
+            str(r)
+            for r in (
+                await db_session.execute(
+                    select(LithoLayerOrm.id).where(
+                        LithoLayerOrm.model_id == UUID(gid),
+                        col == band_scene[inv_key],
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+    bh_before = await rows_of("bh_id")
+    cpt_before = await rows_of("cpt_a_id")
+    assert bh_before and cpt_before
+
+    resp = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/columns/clear",
+        json={"investigation_id": str(band_scene["bh_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted_band_count"] == len(bh_before)
+
+    assert await rows_of("bh_id") == set(), "the cleared column must be empty"
+    assert await rows_of("cpt_a_id") == cpt_before, "no other column may move"
+
+
+@pytest.mark.asyncio
+async def test_cl2_clear_then_skip_press_rebuilds_exactly_the_cleared_column(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """CL2 — the full utility loop: clear one CPT, press step 1 with skip —
+    the cleared column rebuilds, every already-banded column is imported as-is."""
+    gid = await _subdivide(async_client, band_scene)
+
+    async def cpt_rows(key: str) -> set[str]:
+        db_session.expire_all()
+        return {
+            str(r)
+            for r in (
+                await db_session.execute(
+                    select(LithoLayerOrm.id).where(
+                        LithoLayerOrm.model_id == UUID(gid),
+                        LithoLayerOrm.cpt_id == band_scene[key],
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+
+    b_before = await cpt_rows("cpt_b_id")
+
+    clear = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/columns/clear",
+        json={"investigation_id": str(band_scene["cpt_a_id"])},
+    )
+    assert clear.status_code == 200, clear.text
+
+    press = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/subdivide-cpts",
+        json={"litho_model_id": band_scene["litho_model_id"], "skip_existing": True},
+    )
+    assert press.status_code == 200, press.text
+
+    assert await cpt_rows("cpt_a_id"), "the cleared column must be rebuilt"
+    assert await cpt_rows("cpt_b_id") == b_before, "the untouched column is imported as-is"
