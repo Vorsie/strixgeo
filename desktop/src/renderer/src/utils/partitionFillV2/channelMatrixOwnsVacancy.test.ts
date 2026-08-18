@@ -236,32 +236,60 @@ function sceneB(): { columns: PartitionColumn[]; edges: CorrelationEdge[]; along
   }
 }
 
-describe('the sand mass under a clay-base tie fills to the tie; the thin crust does not balloon', () => {
-  it('the dense sand extrapolates up to the tie and fills the channel', () => {
+describe('every band closes its own loop and ONE matrix fills the rest, as in the litho model', () => {
+  // OWNER OVERRIDE, 2026-08-18 round 3, verbatim: *"the loose sand stopped emitting
+  // an onlap. also that is not what i asked, let the matrix flood that triangle, in
+  // my eyes here, the matrix is a md sand, just emit the closed loops (lenses and
+  // onlaps and let matrix fill, as in the litho model?"* — and his addendum:
+  // *"ofcourse the dense sand has no ties on that side, so it emits a lens, a closed
+  // loop."*
+  //
+  // This REPLACES the round-2 expectation on this scene, which asserted the DENSE
+  // sand filled the channel because it was the thickest band in the window. He has
+  // explicitly overridden that value: the matrix is the band sitting UNDER the tie
+  // line once the crust that pinches out is skipped — the MEDIUM-DENSE sand — not
+  // the biggest mass in the window.
+
+  it('the loose crust emits its onlap — a closed wedge, not a band that vanished', () => {
     const { columns, edges, alongM } = sceneB()
     const regions = fill(columns, edges, alongM)
 
-    // The tie runs +4.23 (left) → +7.03 (right). At mid-gap it sits at +5.63, and
-    // the space under it belongs to the sand mass that actually occupies that
-    // depth — the dense sand, the thickest thing in the channel.
-    expect(formationAt(regions, 0, 0.5, 5.0)).toBe(B_SAND_D_R)
-    expect(formationAt(regions, 0, 0.75, 5.5)).toBe(B_SAND_D_R)
+    // 2/1/0 is the law: the crust's top IS the tie, its base is untied → ONE
+    // correlation → it onlaps. That wedge must exist as a drawn face.
+    const loose = extentOf(regions, 0, B_SAND_LOOSE_R)
+    expect(loose).not.toBeNull()
+    // It laps its own tie, so it never rises above the tie's own right endpoint.
+    expect(loose!.hi).toBeLessThanOrEqual(7.03 + 1e-6)
+    // And it is CLOSED: a wedge that stops at its apex on the tie, never a face that
+    // runs on down to the left borehole's floor at +4.23. This is what the loop
+    // failing to close looked like — the crust's flank bounded no face at all, so its
+    // paint spread over the whole channel instead.
+    expect(loose!.lo).toBeGreaterThan(4.23 + 1e-6)
+    // And it is a WEDGE, not the channel: near the right borehole, just under the
+    // tie, the crust is what is drawn.
+    expect(formationAt(regions, 0, 0.95, 6.7)).toBe(B_SAND_LOOSE_R)
   })
 
-  it('the 0.41 m loose crust stays at its own level — it never floods the channel below it', () => {
+  it('the MEDIUM-DENSE sand is the matrix and floods the rest up to the tie', () => {
     const { columns, edges, alongM } = sceneB()
     const regions = fill(columns, edges, alongM)
 
-    // Its own band is +7.03 → +6.62. If it draws anything in the gap it stays
-    // inside that; it must never reach down toward the left borehole's floor.
-    const loose = extentOf(regions, 0, B_SAND_LOOSE_R)
-    if (loose !== null) expect(loose.lo).toBeGreaterThanOrEqual(6.62 - 1e-6)
+    // "the matrix is a md sand". Walking down from the clay-base tie at the right
+    // borehole: the crust pinches out (it has its own closed loop), so the first
+    // band that stays is the medium-dense sand — that is the channel's matrix, and
+    // it fills everything the closed loops do not claim, right up to the tie.
+    expect(formationAt(regions, 0, 0.5, 5.0)).toBe(B_SAND_MD_R)
+    expect(formationAt(regions, 0, 0.75, 5.5)).toBe(B_SAND_MD_R)
+  })
 
-    // The medium-dense sand between them keeps its own level too.
-    const md = extentOf(regions, 0, B_SAND_MD_R)
-    if (md !== null) {
-      expect(md.hi).toBeLessThanOrEqual(6.62 + 1e-6)
-      expect(md.lo).toBeGreaterThanOrEqual(5.84 - 1e-6)
-    }
+  it('the dense sand has no ties on that side, so it stays inside its own closed loop', () => {
+    const { columns, edges, alongM } = sceneB()
+    const regions = fill(columns, edges, alongM)
+
+    // Its own band is +5.84 → +2.00. It lenses; whatever its closed loop does not
+    // claim belongs to the matrix, so it never reaches up toward the tie.
+    const d = extentOf(regions, 0, B_SAND_D_R)
+    expect(d).not.toBeNull()
+    expect(d!.hi).toBeLessThanOrEqual(5.84 + 1e-6)
   })
 })

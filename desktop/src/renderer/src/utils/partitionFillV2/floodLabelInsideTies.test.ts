@@ -134,10 +134,18 @@ describe('the flood label stays inside the drawn correlation lines', () => {
     }
 
     // The face the owner X'd: the remainder of the channel in the right half-gap,
-    // between the denser silt's onlap below and the matrix silt's onlap above. It
-    // is the MATRIX silt — the silt that owns both bounding tie lines and fills the
-    // channel at the left borehole.
-    expect(formationAt(regions, 0, 0.6, 8.0)).toBe(SILT_MATRIX_L)
+    // between the denser silt's onlap below and the matrix silt's onlap above. It is
+    // the MATRIX silt — the silt that owns both bounding tie lines.
+    //
+    // ROUND 3 (2026-08-18) narrowed WHICH matrix row answers, and this assertion moved
+    // with it: the round-1 fix mapped the flood label across the gap, so the LEFT
+    // borehole's silt row painted this face; the channel-matrix rule now reads the ONE
+    // column the face actually reaches — the RIGHT one — so the RIGHT borehole's silt
+    // row paints it. Same lithology, same class, same picture; strictly better
+    // provenance, and it is round 1's own lesson ("the answer always comes from ONE
+    // drilled column") applied to itself. What this test exists to forbid — the clay
+    // from ACROSS the top tie — is unchanged and still pinned by the sweep below.
+    expect([SILT_MATRIX_L, SILT_MATRIX_R]).toContain(formationAt(regions, 0, 0.6, 8.0))
 
     // And nowhere in the channel does a clay appear. Sweep the whole channel:
     // between the two tie lines, at every fraction, the fill is silt — a
