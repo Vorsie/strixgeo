@@ -1270,3 +1270,96 @@ async def test_db8_a_manual_span_over_the_borehole_splits_into_the_chain(
     ]
     assert chain_pieces, "chain pieces landing on BH-S must exist"
     assert all(e.user_approved and e.source == "auto" for e in chain_pieces)
+
+
+@pytest.mark.asyncio
+async def test_db9_a_base_base_tie_steers_placement_like_its_top_top_twin(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """DB9 — audit P1-2 (2026-08-18): the endpoint SIDE decides the seam.
+
+    Band 0's base and band 1's top are ONE physical seam.  A base↔base tie on
+    the matig bands states exactly what a top↔top tie on the dicht bands
+    states.  The old placement assumed every endpoint was a top, so the
+    base↔base form hit the ``li == 0`` guard and was silently dropped — the
+    engineer's accepted correlation stopped steering the borehole.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = UUID(divide_boreholes_scene["litho_model_id"])
+    cpt_a_id = divide_boreholes_scene["cpt_a_id"]
+    cpt_b_id = divide_boreholes_scene["cpt_b_id"]
+    section_id = UUID(divide_boreholes_scene["section_id"])
+
+    sab_result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    geotech_model_id = sab_result.geotech_model_id
+    await db_session.commit()
+
+    a_bands = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id == cpt_a_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    b_bands = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.cpt_id == cpt_b_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(a_bands) == 2 and len(b_bands) == 2
+
+    # Clear every machine tie, then state the seam ONLY as base↔base on the
+    # MATIG bands (band 0 each side).
+    await db_session.execute(
+        delete(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+        )
+    )
+    lo, hi = (
+        (a_bands[0], b_bands[0]) if a_bands[0].id < b_bands[0].id else (b_bands[0], a_bands[0])
+    )
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=geotech_model_id,
+            section_id=section_id,
+            layer_a_id=lo.id,
+            layer_b_id=hi.id,
+            layer_a_side="base",
+            layer_b_side="base",
+            source="manual",
+            user_approved=True,
+        )
+    )
+    await db_session.commit()
+
+    plan = await DivideBoreholes(db_session).plan(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    matig_pair = {str(a_bands[0].id), str(b_bands[0].id)}
+    consumed = [
+        pair for pair in plan.replaced_tie_layer_pairs if set(pair) == matig_pair
+    ]
+    assert consumed, (
+        "the base-base tie must be consumed by the placement (mode unit_ties), "
+        f"got replaced pairs: {plan.replaced_tie_layer_pairs!r}"
+    )
