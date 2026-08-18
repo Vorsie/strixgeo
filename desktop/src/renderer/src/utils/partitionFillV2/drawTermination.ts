@@ -267,6 +267,7 @@ export function drawTermination(
   out: InputCurve[],
   diamonds?: Corr0Diamond[],
   overrides?: ReadonlyMap<string, LensApexOverride>,
+  detourDiamonds?: readonly Corr0Diamond[],
 ): boolean {
   if (corr === 2) return false // band member / first-unit band — given line art (bandc)
   const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
@@ -359,7 +360,7 @@ export function drawTermination(
   // free-draw override (``overrides``) moves that tip to the drawn apex; the arrangement re-closes.
   // ``bentTiePoints`` (session 109) rides the onlap apex onto the BENT host tie when a matched-contact
   // bend deformed it; undefined otherwise (straight-chord, byte-identical).
-  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides, bentTiePoints)
+  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides, bentTiePoints, detourDiamonds)
 }
 
 /**
@@ -530,6 +531,7 @@ function emitOnlap(
   diamonds?: Corr0Diamond[],
   overrides?: ReadonlyMap<string, LensApexOverride>,
   bentTiePoints?: readonly Point[],
+  detourDiamonds?: readonly Corr0Diamond[],
 ): boolean {
   void iu
   // FREE-DRAW APEX OVERRIDE (owner 2026-07-21): a persisted per-body node moves the onlap TIP to
@@ -597,7 +599,12 @@ function emitOnlap(
   // the onlap face wraps it — never shortening the lens, never overlapping it. This reuses the SAME
   // ``detourBandContourAroundLenses`` generaliser the band contours use (ruling 8s Stage B), applied
   // to the onlap flank; the ``diamonds`` collection carries the exact emitted corr-0 apexes.
-  const detoured = diamonds ? detourBandContourAroundLenses(enclosedDetour, gapIndex, diamonds) : enclosedDetour
+  // RULING 8t, ORDER-INDEPENDENT (owner round 3): detour against the sweep's COMPLETE planned
+  // diamond set when the caller supplies one. The live ``diamonds`` collection only holds the
+  // lenses emitted BEFORE this onlap, so a lens on a deeper unit of the same column was invisible
+  // here and the flank crossed it — see the plan pass in ``emitTerminationSweep``.
+  const detourSet = detourDiamonds ?? diamonds
+  const detoured = detourSet ? detourBandContourAroundLenses(enclosedDetour, gapIndex, detourSet) : enclosedDetour
   pushOflank(detoured)
   // FLOOD the vacated width past the onlap tip with the facing enclosing formation. The TIED
   // side is closed by its own tie line, so its wedge is SKIPPED — for a base-tied onlap the
