@@ -270,6 +270,21 @@ class DemUpstreamRecentlyFailedError(GroundModelError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class IncompleteRecomputeCoverageError(GroundModelError):
+    """Raised when a body-identity recompute does not speak for every section.
+
+    The recompute REPLACES a model's geometry facts wholesale (audit P1-3,
+    2026-08-18): a payload that covers only a subset of the project's sections
+    would silently erase the omitted sections' connectivity evidence and split
+    persisted bodies on the next resolver run.  The backend cannot infer
+    completeness from geometry alone, so the payload names its sections and
+    the set must EQUAL the project's — a stale or partially loaded client is
+    refused, never obeyed.
+
+    The router maps this exception to HTTP 422 (Unprocessable Entity).
+    """
+
+
 class EmptyRecomputePayloadError(GroundModelError):
     """Raised when a body-identity recompute arrives with no partition content.
 
