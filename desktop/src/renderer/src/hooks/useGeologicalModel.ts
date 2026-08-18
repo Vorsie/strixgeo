@@ -2454,7 +2454,11 @@ export function useGeologicalModel({
       // gone. Clearing HERE (success only) keeps a failed request from wiping
       // valid history, and beats the alternative the owner met — the first stale
       // Ctrl+Z 422s and the failure handler discards the whole stack anyway,
-      // litho entries included (audit F23).
+      // litho entries included (audit F23). A SECTION-SCOPED run also clears the
+      // WHOLE stack, deliberately (audit P2-6): UndoCommand carries no section
+      // identity, so the entries whose closures now point at deleted rows cannot
+      // be told apart from the still-valid ones — and one stale revert firing
+      // trips the same F23 discard-everything path, only after a confusing 422.
       clearUndo?.()
       log.success(
         'geology',
@@ -2649,11 +2653,12 @@ export function useGeologicalModel({
         addToSessionImports('formation', result.created_formation_ids)
       }
       markMutated()
-      // Boreholes now match the current bodies — clear the stale flag. A SUBSET
-      // run must NOT clear it: the boreholes it left out are still out of date,
-      // and an amber button that goes grey after dividing one column would say
-      // the opposite.
-      if (subset === undefined) clearBoreholesStale()
+      // Boreholes now match the current bodies — clear the stale flag. A SCOPED
+      // run (borehole subset OR a single section) must NOT clear it: the
+      // boreholes it left out are still out of date, and an amber button that
+      // goes grey after dividing one column — or one section — would say the
+      // opposite (audit P1-4: the section arm was missing from this gate).
+      if (subset === undefined && sectionId === null) clearBoreholesStale()
       // Re-dividing throws every borehole band away and rebuilds it with a new
       // id, so an accepted packing tie on a borehole has to be re-anchored:
       // onto the band that came back unchanged, or onto the one it moved into.
