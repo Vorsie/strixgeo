@@ -527,6 +527,12 @@ export default function SectionsToolbar(): JSX.Element {
       // it once a model exists. The backend honours it on creation and ignores
       // it on a re-run, so a stale value cannot re-classify a built model.
       representativeStatistic: pendingStatistic,
+      // First subdivision wins (owner ruling 2026-08-18): an already-banded
+      // column is imported as-is, so pressing the step on a tie section never
+      // tells a second story. The two REBUILD tags are the exception — when
+      // the button itself announces a re-run (statistic change, moved
+      // contacts), the press means rebuild and skipping would pin the tag on.
+      rebuildExisting: geotechBandsStale || columnsNeedingRederive.length > 0,
     }).finally(() => {
       setSubdividingBodies(false)
       // A rebuild re-anchors accepted ties and can flag some of them, so the
@@ -1799,6 +1805,10 @@ export default function SectionsToolbar(): JSX.Element {
                     await handleDivideBoreholes({
                       sectionId: selectedSectionId,
                       sectionPartitions,
+                      // First subdivision wins (owner 2026-08-18): a borehole
+                      // divided from another section keeps its bands — and any
+                      // hand-set class — untouched.
+                      skipExisting: true,
                     })
                   })().finally(() => {
                     setDividingBoreholes(false)
