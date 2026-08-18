@@ -1119,6 +1119,28 @@ the COMBINED verb, running steps 1 + 2 in one press, answering
 `edges_derived: true` and `proposed_tie_count`. Its derived edges have been
 proposals since 2026-08-01; the response is what changed.
 
+### First subdivision wins (owner ruling 2026-08-18)
+
+*"Does this test already have a subdivision? If yes import and skip ... a test
+has been subdivided once already before the tie section usually, I don't want
+any discrepancies."* Both destructive steps take ``skip_existing``: a column
+that already carries geotech bands is imported AS-IS — neither deleted nor
+rebuilt, its hand edits and hand classes untouched — and only band-less
+columns build. The toolbar presses send it by default, so working section by
+section can never make one column tell two stories. Two deliberate
+exceptions send the historic rebuild instead: step 1 pressed under a REBUILD
+tag ("re-run under <statistic>" / "N columns need re-deriving") — the button
+announces the rebuild, and skipping would pin the tag on forever (SC1b).
+Pinned: SE1–SE3 at the DB.
+
+**The escape hatch is per test:** right-click a test's LABEL on the geotech
+axis → **Clear subdivision** (``POST .../geotech/columns/clear``,
+``ClearGeotechColumn``). Its bands go, its ties cascade, NO tombstone is
+written (rebuild preparation, not judgement) — then the next pipeline press
+rebuilds exactly that column. Fires immediately per the owner ("you can fire
+it"); the toast names the rebuilding press. Pinned: CL1/CL2 (the full
+clear-then-press loop).
+
 ### Jump ties — the pairing crosses undivided borehole columns
 
 Step 2 runs BEFORE step 4, so every borehole column is deliberately empty of
