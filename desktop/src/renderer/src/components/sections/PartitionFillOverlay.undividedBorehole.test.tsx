@@ -15,16 +15,28 @@
 // and with the clip skipped there are no per-face un-banded areas, so the
 // "correlate me" texture has nothing to draw over (no hatch).
 //
-// Pinned claims — the geotech partition is assembled on the LITHO FRAME's
-// column axis, an un-banded column contributing an empty stack:
-//   UB1  No packing fill is painted across an un-banded column. The wedges
-//        that spanned the borehole are gone by construction, not by clipping.
+// KEPT through the 2026-08-18 HIERARCHICAL rewrite (owner: "it's the same basic
+// rules only with densities on top of lithos"). The fill is now computed per
+// LITHO FAMILY, which made the meaning of a bandless column a real question, and
+// this ruling is the answer to it:
+//
+//   a column that CARRIES the family's litho unit and has not been divided
+//   BLOCKS the family's constructs — the mass is there and nobody classified it,
+//   so both gaps it flanks read "correlate me". (A column carrying no unit of
+//   the family at all is a different case: the family genuinely is not there, so
+//   the engine's bridge machinery spans it. See H7/H8 in the module's own pins.)
+//
+// The borehole below carries BOTH litho units and no bands, so it blocks both
+// families and every claim here is the 2026-08-15 one, unchanged:
+//   UB1  No packing fill is painted across an un-banded column.
 //   UB2  The ground flanking the un-banded column reads as "correlate me" —
 //        lithology colour under the texture, in BOTH gaps that touch it.
 //   UB3  A gap between two banded columns keeps its packing fill; the fix is
 //        not "stop filling".
-//   UB4  The litho frame governs: every packing fill sits inside it, so the
-//        clip runs even though the two models' column sets differ.
+//   UB4  The litho frame governs: every packing fill sits inside it.
+//   UB6  A litho unit NO test subdivided reads "correlate me" too — the second
+//        way ground goes un-classed, so UB2's texture pin cannot pass merely
+//        because a borehole happens to be un-divided.
 
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -192,6 +204,20 @@ const geotechProps: Props = {
 }
 
 /**
+ * The same scene with the CLAY never subdivided — the "correlate me" case.
+ * Kept as its own props object so UB2's non-vacuous fallback pin does not
+ * depend on a borehole staying un-banded, which is no longer what withholds a
+ * class (UB1).
+ */
+const unsubdividedClayProps: Props = {
+  ...geotechProps,
+  lithoLayers: GEOTECH_LAYERS.filter((l) => l.formation_id !== 'nad-klei-23'),
+  contactEdges: GEOTECH_EDGES.filter(
+    (e) => !e.layer_a_id.endsWith('-2') && !e.layer_b_id.endsWith('-2'),
+  ),
+}
+
+/**
  * Split a path's ``d`` into its sub-polygons (fill groups merge many regions
  * into one element) and return each one's x-extent.
  */
@@ -237,7 +263,9 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
     expect(fills.length).toBeGreaterThan(0)
     // "what are those weird polygons between the boreholes?" — nothing the
     // packing model produced may sit in a gap flanking a column it never
-    // classified.
+    // classified. The jump tie M..R crosses this borehole and STILL does not
+    // license a class over it: accepting that interpretation is what pressing
+    // "4 · Divide boreholes" means.
     expect(fills.filter((d) => touchesGap(d, 1))).toEqual([])
     expect(fills.filter((d) => touchesGap(d, 2))).toEqual([])
   })
@@ -360,5 +388,28 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
     for (const gap of [0, 1, 2]) {
       expect(coverageDefects(plane, gapWindow(gap)), `gap ${gap}`).toEqual([])
     }
+  })
+
+  it('UB6 — a litho unit NO test subdivided reads as "correlate me" as well', () => {
+    // The second way ground goes un-classed, pinned separately so UB2 cannot
+    // pass merely because a borehole happens to be un-divided: here the CLAY is
+    // stripped of its packing bands on EVERY test, so no family classifies it
+    // anywhere and its whole cover carries the texture over lithology colour.
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...unsubdividedClayProps} />
+      </svg>,
+    )
+    const hatch = paths(container, 'partition-unbanded-hatch')
+    expect(hatch.some((d) => touchesGap(d, 0))).toBe(true)
+    const unbanded = Array.from(
+      container.querySelectorAll('[data-testid="partition-litho-fallback"]'),
+    )
+    expect(unbanded.length).toBeGreaterThan(0)
+    const bareFills = new Set(unbanded.map((el) => el.getAttribute('fill') ?? ''))
+    expect([...bareFills].every((c) => c === SAND_COLOR || c === CLAY_COLOR)).toBe(true)
+    // ... and the SAND, which every test IS subdivided for, keeps its class in
+    // the gap between two banded columns.
+    expect(fillPaths(container).some((d) => touchesGap(d, 0))).toBe(true)
   })
 })
