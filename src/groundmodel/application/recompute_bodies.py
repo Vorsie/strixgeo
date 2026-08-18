@@ -49,8 +49,13 @@ from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-from groundmodel.shared.exceptions import EmptyRecomputePayloadError
+from groundmodel.shared.exceptions import (
+    EmptyRecomputePayloadError,
+    IncompleteRecomputeCoverageError,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -106,6 +111,7 @@ class RecomputeBodies(GroundModelLogger):
         model_id: UUID,
         sections: list[SectionPartitionInput],
         section_layer_groups: list[list[list[str]]],
+        section_ids: list[UUID] | None = None,
     ) -> RecomputeBodiesResult:
         """Replace the model's geometry facts and re-stamp body ids.
 
@@ -153,6 +159,33 @@ class RecomputeBodies(GroundModelLogger):
         # correlate click 500'd mid-recompute (owner dogfeed 2026-08-15).
         # Taken here rather than at the resolver call so the fact replace is
         # inside the same serialised unit as the resolve that reads it.
+        # Coverage gate (audit P1-3): the replace below is MODEL-WIDE, so the
+        # payload must speak for every section of the project. A partially
+        # loaded client used to silently erase the omitted sections'
+        # connectivity evidence; now it is refused before anything is touched.
+        project_id = (
+            await self._session.execute(
+                select(GeologicalModelOrm.app_project_id).where(GeologicalModelOrm.id == model_id)
+            )
+        ).scalar_one()
+        project_section_ids = set(
+            (
+                await self._session.execute(
+                    select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+                )
+            ).scalars()
+        )
+        submitted = set(section_ids or [])
+        if submitted != project_section_ids:
+            missing = sorted(str(i) for i in project_section_ids - submitted)
+            unknown = sorted(str(i) for i in submitted - project_section_ids)
+            raise IncompleteRecomputeCoverageError(
+                "Recompute refused: the payload must cover every section of the "
+                f"project exactly (missing: {missing or 'none'}; "
+                f"unknown: {unknown or 'none'}). A partial replace would erase "
+                "the omitted sections' body-connectivity evidence."
+            )
+
         await lock_body_partition(self._session, model_id=model_id, operation="bodies/recompute")
 
         planned = plan_geometry_facts(
