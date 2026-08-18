@@ -106,6 +106,38 @@ class PlacedBoundary:
     tie_index: int | None
 
 
+def interior_boundary_index(band_index: int, side: str, band_count: int) -> int | None:
+    """Which interior seam a tie endpoint's (band, side) declares.
+
+    Audit P1-2 (2026-08-18): the placement used to assume every endpoint was a
+    ``top``, so a base↔base tie — the bottom-tie spec, the only way the deepest
+    band can band — was applied one seam too high, and a base tie on the
+    deepest band was silently dropped by a guard written for tops.  A tie
+    names a band AND a side; the side decides which seam is meant.
+
+    Parameters
+    ----------
+    band_index : int
+        The endpoint band's index in its column stack, 0 = shallowest.
+    side : str
+        ``'top'`` or ``'base'`` — which surface of that band the tie names.
+    band_count : int
+        How many bands the stack holds inside this litho unit.
+
+    Returns
+    -------
+    int | None
+        The interior seam index (seam ``k`` lies between bands ``k`` and
+        ``k+1``), or ``None`` when the named surface is the unit's own litho
+        contact — the litho model owns those, this placement never moves them.
+        Band 0's base and band 1's top are ONE physical seam and map to one
+        index, whichever way the tie was stated.
+    """
+    if side == "base":
+        return band_index if band_index < band_count - 1 else None
+    return band_index - 1 if band_index > 0 else None
+
+
 def place_unit_boundaries(
     left: Sequence[ColumnBoundary],
     right: Sequence[ColumnBoundary],
