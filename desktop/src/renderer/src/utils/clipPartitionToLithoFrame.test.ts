@@ -49,6 +49,26 @@ const area = (r: SectionRegion): number => {
   return Math.abs(a) / 2
 }
 
+/** Ray-cast containment, keyhole-ring aware — a naive vertex centroid would
+ * sit inside the keyhole and lie. */
+const covers = (r: SectionRegion, f: number, e: number): boolean => {
+  let inside = false
+  const ring = r.polygon
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i]
+    const b = ring[j]
+    if (
+      a.elevation > e !== b.elevation > e &&
+      f <
+        a.fraction +
+          ((e - a.elevation) / (b.elevation - a.elevation)) * (b.fraction - a.fraction)
+    ) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
 describe('clipPartitionToLithoFrame', () => {
   it('CF1 — same-soil subdivision inside a litho region survives untouched', () => {
     const litho = [region(0, 'litho-sand', rect(0, 1, 10, 0))]
@@ -131,25 +151,7 @@ describe('clipPartitionToLithoFrame', () => {
     ]
     const geo = [region(0, 'sand-n7', rect(0, 1, 10, 0))]
     const out = clipPartitionToLithoFrame(geo, litho, GEO_SOIL, LITHO_SOIL)
-    // No sand region covers the lens centre (ray-cast, keyhole-ring aware —
-    // a naive vertex centroid would sit inside the keyhole and lie).
-    const covers = (r: SectionRegion, f: number, e: number): boolean => {
-      let inside = false
-      const ring = r.polygon
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const a = ring[i]
-        const b = ring[j]
-        if (
-          a.elevation > e !== b.elevation > e &&
-          f <
-            a.fraction +
-              ((e - a.elevation) / (b.elevation - a.elevation)) * (b.fraction - a.fraction)
-        ) {
-          inside = !inside
-        }
-      }
-      return inside
-    }
+    // No sand region covers the lens centre.
     for (const r of out.regions.filter((x) => x.formationId === 'sand-n7')) {
       expect(covers(r, 0.5, 5)).toBe(false)
     }
@@ -169,6 +171,26 @@ describe('clipPartitionToLithoFrame', () => {
       region(0, 'sand-n7', rect(0, 1, 4, 0)),
     ]
     const out = clipPartitionToLithoFrame(geo, litho, GEO_SOIL, LITHO_SOIL)
+    // Spatial multiplicity, not aggregate area (audit P2-9): a summed-area
+    // oracle passes when a void and an equal-area overlap compensate. Every
+    // sample point of the litho cover (fraction 0..1 × elevation 0..10) must
+    // sit inside EXACTLY one output piece; the fractional offsets keep the
+    // samples off shared seams, where ray-cast containment is undefined.
+    const pieces = [...out.regions, ...out.lithoFallback]
+    const defects: string[] = []
+    for (let i = 1; i < 20; i++) {
+      for (let j = 1; j < 20; j++) {
+        const f = i / 20 + 0.0137
+        const e = (j / 20) * 10 + 0.0171
+        if (f >= 1 || e >= 10) continue
+        const hits = pieces.filter((r) => covers(r, f, e)).length
+        if (hits !== 1) {
+          defects.push(`(${f.toFixed(2)},${e.toFixed(2)}) → ${hits === 0 ? 'VOID' : `${hits}×`}`)
+        }
+      }
+    }
+    expect(defects).toEqual([])
+    // The area sum stays as a cheap cross-check of the sampler itself.
     const total =
       out.regions.reduce((s, r) => s + area(r), 0) +
       out.lithoFallback.reduce((s, r) => s + area(r), 0)
