@@ -468,6 +468,29 @@ Depth vs elevation: the guard works in depth below collar, the renderer in
 elevation. They cannot disagree — both differences the test takes are within a
 single column, so the sign flip cancels in the product.
 
+### 4a-ii. Two more machine-tie guards from the owner's deletions (2026-08-18)
+
+He asked for the pattern in his 13 tombstoned deletions; two guards encode it:
+
+* **An interior class match must CORRESPOND in its litho window**
+  (`_EXTENT_GAP_SLACK` in `geotech_edge_derivation.py`). The LCS tied S9's
+  deep D band (fractions 0.79–1.0 of its unit) to a shallow D band on S10
+  (0.13–0.18) — a 5 m diagonal he deleted on sight. A non-restatement pair is
+  withheld when the fraction gap between its extents exceeds 1.0× the thicker
+  band's own height: a band may dip by about its own thickness; a jump is a
+  different body. Restatements follow the litho frame and stay exempt
+  (DE1–DE3, negative-controlled).
+* **A span landing must present the span's own seam soils** (`split_span`).
+  Nearest-by-depth landed a sand span on B6's ZAND8|KLEI22 seam (0.11 m off)
+  past the VD top (0.42 m off) and wrote the SAND↔CLAY hops he pruned. The
+  landing now picks the nearest contact within tolerance whose (above, below)
+  soils match the span's endpoint seams; none compatible = keep spanning
+  (SP9–SP11).
+
+Not preventable by rule: his S13↔B4 case, where the machine landed on the
+geometrically nearest of two same-class candidates and he wanted the other —
+geological judgement; the tombstone remembers his deletion.
+
 ## 4b. The packing-tie litho-body guard is a SURFACE rule (owner, 2026-08-04)
 
 A contact touches the band above it and the band below it — up to TWO litho
@@ -1225,28 +1248,42 @@ classes is a surface tie, not a correspondence, and is left to the fallback.
 Candidate pairs rank tightest-span first; a share below 0.5 % degrades to
 `single_donor` exactly as F10 decided.
 
-### "Check if the ties stay in the litho body" — the fraction rule
+### The tie line places the boundary — mTAW (owner ruling 2026-08-18)
 
-**Owner ruling:** *check if the ties stay in the litho body otherwise rescale
-based on the litho thickness at that location.* A tied surface is read as a
-fraction of each donor's own litho extent and re-laid at that fraction of the
-BOREHOLE's extent (`flank_packing_surfaces`, unchanged from §8), so a litho body
-that thins at the borehole rescales the surfaces instead of letting them walk
-out of the envelope. Pinned by `test_geotech_tie_donors.py::T5` (2 m body) and
-`test_divide_boreholes_plan.py::P8`, which runs the same donors against a 2 m
-and a 1 m extent and requires 40 % of *whatever thickness is there*.
+**Owner ruling:** *"go for the mtaw, it'll look better than the fractional."*
+A tied boundary lands where the DRAWN TIE LINE crosses the borehole's column:
+its elevation interpolated between the two columns' boundary elevations by the
+borehole's along-position (`place_unit_boundaries`). The committed contact and
+the line on screen are then the same thing — on B9 the earlier fraction blend
+put the MD|VD contact 2.2 m above the line the engineer drew, because his unit
+was far thicker than the flanks'. A one-sided lens/onlap carries FLAT at its
+own elevation (still only within half the gap of its declaring column). A line
+that leaves the borehole's unit places nothing there — the litho contact
+already bounds it — but it still classifies the clipped unit (a thin deep body
+entirely UNDER a dense-top line reads dense, not top-of-stack; `P8`). Pinned
+by `test_geotech_unit_boundaries.py::UB1/UB3/UB7` and
+`test_divide_boreholes_plan.py::P8/P9/P10`.
 
-### What this changes on the dev model today: nothing, and why
+Three companion rules from the same dogfeed round:
 
-All 217 accepted ties in the dev DB are CPT↔CPT and **none of them straddles a
-borehole column** — they join adjacent CPTs, because the derivation that made
-them stopped at borehole columns. So `diag_divide_borehole_explain.py "126-B4"`
-is byte-identical before and after: 15 bands, 12 `single_donor` + 3
-`flank_interpolated`, no `tie_interpolated`; model-wide the census is unchanged
-at 139 `single_donor` / 32 `flank_interpolated` / 4 `nearest_fallback` / 9
-`absolute_min` / 2 `body_min`. The rule only bites once the engineer re-runs the
-new pipeline: the 76 straddling jump pairs are exactly the ties that can then
-name a donor pair.
+* **The nearer flank names the class** where the two flanks disagree about the
+  band between tied lines — the far flank's different class is an onlap that
+  pinched before the borehole (`_bands_between`; B9 at w=0.93 toward S9 had
+  taken S10's D over S9's MD; `P9`).
+* **Flanks are judged per layer window** (`depth_aware_flanks`): *"If there
+  are no cpt data below TD, then you look to the next cpt over ofcourse. Close
+  cpt where there is data, further away below TD."* The walk steps past
+  boreholes and past CPTs whose banded extent misses the layer's window (less
+  coverage than one writable band = silence); a CPT with data of ANOTHER soil
+  still blocks — data that disagrees is still data (`FW1–FW5`).
+* **A straddling tie resolves from its own bands, not the flank pick**
+  (`_tie_boundary`): B2's VD spans start from S10's LOWER sand unit while the
+  flank machinery keeps one pick per column (the upper), so the endpoints
+  resolved to nothing and B2's 8.7 m sand stayed one band. The neighbour band
+  each boundary names is the nearest SAME-SOIL one (a cross-soil interbed is a
+  lens inside the mass); a cross-soil endpoint band never places a boundary
+  (Data Integrity Rule 3). Replayed read-only on the live model: B2 plans
+  MD / VD / MD exactly on the two drawn lines (`P10`).
 
 ### The renderer half (2026-08-05)
 
