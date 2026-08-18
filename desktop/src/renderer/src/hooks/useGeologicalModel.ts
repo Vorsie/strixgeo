@@ -879,6 +879,12 @@ export interface UseGeologicalModelResult {
      * ``POST .../geotech/statistic`` remains the only way to change.
      */
     representativeStatistic?: string | null
+    /**
+     * True = the historic rebuild (statistic re-run / re-derive tags).
+     * Otherwise the press imports already-banded columns as-is (owner ruling
+     * 2026-08-18 — the first subdivision wins).
+     */
+    rebuildExisting?: boolean
   }) => Promise<void>
   /**
    * TIN-divide borehole columns using CPT packing-transition surfaces.
@@ -908,6 +914,8 @@ export interface UseGeologicalModelResult {
      * rule exactly as before.
      */
     sectionPartitions?: Record<string, unknown> | null
+    /** First subdivision wins: import already-divided boreholes as-is. */
+    skipExisting?: boolean
   }) => Promise<void>
   // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
   // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
@@ -2405,6 +2413,10 @@ export function useGeologicalModel({
       deriveEdges?: boolean
       sectionId?: string | null
       representativeStatistic?: string | null
+      /** True = the historic rebuild (statistic re-run / re-derive tags).
+       *  Otherwise the press imports already-banded columns as-is (owner
+       *  ruling 2026-08-18 — first subdivision wins). */
+      rebuildExisting?: boolean
     }): Promise<void> => {
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
@@ -2444,6 +2456,7 @@ export function useGeologicalModel({
               lithoModel.id,
               sectionId,
               representativeStatistic,
+              !(options?.rebuildExisting ?? false),
             )
       } catch (err) {
         log.error('geology', `${verb} failed`, err)
@@ -2565,6 +2578,8 @@ export function useGeologicalModel({
       boreholeIds?: readonly string[]
       sectionId?: string | null
       sectionPartitions?: Record<string, unknown> | null
+      /** First subdivision wins: import already-divided boreholes as-is. */
+      skipExisting?: boolean
     }): Promise<void> => {
       // Concurrent-divide guard (review MINOR-1): the toolbar debounces via its
       // busy state, but the ghost right-click path has no such state — a double
@@ -2605,6 +2620,7 @@ export function useGeologicalModel({
           boreholeIds: subset,
           sectionId,
           sectionPartitions: options?.sectionPartitions ?? null,
+          skipExisting: options?.skipExisting ?? false,
         })
       } catch (err) {
         log.error('geology', 'divideBoreholes failed', err)
