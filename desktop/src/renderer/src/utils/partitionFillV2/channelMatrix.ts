@@ -64,7 +64,10 @@ import { type Face, SNAP_GRID_M } from './types'
  */
 const OWN_FLANK_PREFIXES = ['term', 'oflank'] as const
 
-/** The dominant unit of a column over an elevation window, plus its index and its overlap. */
+/** Offset (metres) that samples a hair INSIDE the window's top, clear of the 1 mm snap. */
+const CHANNEL_SAMPLE_INSET = 1e-3
+
+/** The matrix unit of a column for an elevation window, plus its index and its overlap. */
 export interface DominantUnit {
   unit: UnitGeom
   ci: number
@@ -98,12 +101,22 @@ export function isEnclosingFloodFace(
   paintedFormationId: string,
 ): boolean {
   if (!lensLabels) return false
+  let foreign = false
   for (const id of face.boundingCurveIds) {
     if (!OWN_FLANK_PREFIXES.some((p) => id.startsWith(p))) continue
     const label = lensLabels.get(id)
-    if (label && label.formationId !== paintedFormationId) return true
+    if (!label) continue
+    // THE FACE IS ITS OWN CLOSED LOOP (owner round 3: "just emit the closed loops"). A face
+    // bounded by the termination flank of the very lithology it carries IS that band's own
+    // lens / onlap wedge — the thing the owner asked to see — never a vacancy someone else
+    // left. It must be immune: after the ruling-8t detour was made order-independent, an onlap
+    // flank RIDES collinear with the lens diamond it wraps, so the wedge's boundary also
+    // carries the neighbour's ``term`` ids and would otherwise read as foreign evidence and
+    // repaint the wedge out of existence (measured on the owner's ZAND-5 crust).
+    if (label.formationId === paintedFormationId) return false
+    foreign = true
   }
-  return false
+  return foreign
 }
 
 /** The face's elevation window (its polygon's extremes). */
@@ -153,32 +166,65 @@ function columnTd(col: ColumnGeom): number {
 }
 
 /**
- * The unit of ``columns[ci]`` with the greatest overlap of the elevation window — the
- * channel's dominant mass.
+ * The MATRIX unit of a channel on one column: the unit whose own span CONTAINS the channel's
+ * upper bounding level — the band that sits at the channel's stratigraphic level.
  *
- * Overlap, not thickness: a unit that only clips the window (the sliver at its edge) must
- * not out-weigh a unit that fills it, and a unit far outside the window weighs nothing.
- * Ties break on the smallest ``ui`` (strict ``>``), so the pick is deterministic.
+ * THIS IS THE ENGINE'S OWN MATRIX SEMANTICS, not a new heuristic. ``emitEnclosingFlood``'s
+ * ``enclosingFormationAt`` picks the lateral matrix that floods an interval exactly this way — the
+ * unit spanning the sampled elevation. The owner asked for the same thing in the same words
+ * (round 3): *"just emit the closed loops (lenses and onlaps) and let matrix fill, as in the litho
+ * model?"*, and *"in my eyes here, the matrix is a md sand"* — the medium-dense band sitting under
+ * the clay-base tie, NOT the thickest band in the window.
+ *
+ * This REPLACES the round-2 dominance pick (largest overlap of the window), which the owner
+ * explicitly overrode: on his S7|S6 channel dominance chose the deep DENSE sand because it was the
+ * biggest mass present, while the matrix he means is the band the channel actually starts in.
+ *
+ * Sampling the window's TOP (a hair inside it) rather than its middle is what makes it the
+ * channel's own level: a vacancy is bounded above by the correlation / contact that opened it, so
+ * the band immediately under that line is the one that flooded in. A window top above the column's
+ * surface (an apex riding a tie a few centimetres over a neighbour's collar) falls back to the
+ * NEAREST unit, the same non-inventing fallback ``facingMatrixLabel`` uses.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly ColumnGeom[]
+ *     The normalised section columns.
+ * ci : number
+ *     The reference column.
+ * lo, hi : number
+ *     The face's elevation window.
+ *
+ * Returns
+ * -------
+ * DominantUnit | null
+ *     The matrix unit, or ``null`` for an empty column.
  */
-export function dominantUnitInWindow(
+export function matrixUnitForWindow(
   columns: readonly ColumnGeom[],
   ci: number,
   lo: number,
   hi: number,
 ): DominantUnit | null {
   const col = columns[ci]
-  if (!col) return null
-  let best: DominantUnit | null = null
-  let bestOverlap = 0
+  if (!col || col.units.length === 0) return null
+  // A hair INSIDE the window, so a band whose base IS the bounding line does not win it.
+  const sample = Math.max(lo, hi - CHANNEL_SAMPLE_INSET)
+  let nearest: DominantUnit | null = null
+  let nearestDist = Infinity
   for (let ui = 0; ui < col.units.length; ui++) {
     const u = col.units[ui]
     const overlap = Math.min(u.topElev, hi) - Math.max(u.baseElev, lo)
-    if (overlap > bestOverlap + 1e-9) {
-      bestOverlap = overlap
-      best = { unit: u, ci, ui, overlap }
+    if (u.topElev >= sample - 1e-9 && sample >= u.baseElev - 1e-9) {
+      return { unit: u, ci, ui, overlap }
+    }
+    const dist = sample > u.topElev ? sample - u.topElev : u.baseElev - sample
+    if (dist < nearestDist) {
+      nearestDist = dist
+      nearest = { unit: u, ci, ui, overlap }
     }
   }
-  return best
+  return nearest
 }
 
 /**
@@ -239,16 +285,7 @@ export function channelMatrixRelabel(
   // ordinary), but below TD there is no drilled mass to be dominant — that space belongs to
   // the deep-to-deep substrate, whose own bottom-tie authority stays untouched.
   if (columnTd(columns[ci]) > lo + 1e-9) return null
-  const dominant = dominantUnitInWindow(columns, ci, lo, hi)
-  if (!dominant || dominant.unit.formationId === paintedFormationId) return null
-  // THE MAJORITY CRITERION — what makes "dominant" mean something. A channel HAS a matrix only
-  // when one mass actually occupies MOST of it; where no unit reaches half, nothing can claim
-  // to be the channel's fill and the existing paint stands. This is the whole difference
-  // between the owner's two cases and noise: his silt channel is 93 % one silt and his sand
-  // channel 57 % one sand, whereas the faces this rejects are 6 m and 25 m composites where
-  // the best candidate reaches 24-27 % — flipping those (measured: a sand to a clay on a 1.2x
-  // margin) would be a coin toss dressed up as a rule, and it moved the litho-consistency
-  // ratchet the wrong way.
-  if (dominant.overlap <= (hi - lo) / 2) return null
-  return dominant
+  const matrix = matrixUnitForWindow(columns, ci, lo, hi)
+  if (!matrix || matrix.unit.formationId === paintedFormationId) return null
+  return matrix
 }
