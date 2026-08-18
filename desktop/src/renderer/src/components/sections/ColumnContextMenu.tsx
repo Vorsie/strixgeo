@@ -41,6 +41,12 @@ interface Props {
    * hidden — the action is only meaningful when the parent owns
    * a PATCH path back to the section row. */
   onRemoveFromSection?: () => void
+  /**
+   * Clear this test's packing subdivision (geotech axis only; owner ask
+   * 2026-08-18). Fires immediately — the rebuild is one pipeline press away,
+   * and the toast says which one.
+   */
+  onClearSubdivision?: () => void
   /** Fired when the user clicks anywhere outside the menu, or
    * presses Esc. */
   onClose: () => void
@@ -53,11 +59,18 @@ export default function ColumnContextMenu({
   onFocus,
   onOpenDetail,
   onRemoveFromSection,
+  onClearSubdivision,
   onClose,
 }: Props): JSX.Element {
   const items: (ContextMenuItem | false | undefined)[] = [
     { label: 'Focus this test', onClick: onFocus },
     onOpenDetail && { label: 'Open detail', onClick: onOpenDetail, topBorder: true },
+    onClearSubdivision && {
+      label: 'Clear subdivision',
+      onClick: onClearSubdivision,
+      danger: true,
+      topBorder: true,
+    },
     onRemoveFromSection && {
       label: 'Remove from this section',
       onClick: onRemoveFromSection,
