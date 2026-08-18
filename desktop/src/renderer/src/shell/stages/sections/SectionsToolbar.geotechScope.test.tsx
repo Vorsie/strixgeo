@@ -208,8 +208,32 @@ describe('SectionsToolbar — the pipeline follows the open section', () => {
     )
     await openPipeline()
     fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    // The statistic re-run is MODEL-WIDE (owner 2026-08-18: "all need to be
+    // rederived ofcourse") — the stamp that clears the tag is model-level, so
+    // a scoped re-run would clear it while other sections still carried
+    // old-statistic bands, and first-wins would freeze the discrepancy in.
     expect(handleSubdivideAllBodies).toHaveBeenCalledWith(
-      expect.objectContaining({ rebuildExisting: true }),
+      expect.objectContaining({ rebuildExisting: true, sectionId: null }),
+    )
+  })
+
+  it('SC1c: the moved-contacts re-derive press stays on its own section', async () => {
+    // Unlike the statistic, contact staleness is per-column and the stale
+    // columns are the section on screen — no reason to rebuild the model.
+    const handleSubdivideAllBodies = vi.fn(() => Promise.resolve())
+    renderToolbar(
+      makeCtx({
+        geoModel: {
+          activeGeotechModel: makeGeotechModel(),
+          columnsNeedingRederive: ['cpt-1'],
+          handleSubdivideAllBodies,
+        },
+      }),
+    )
+    await openPipeline()
+    fireEvent.click(screen.getByTestId('geotech-subdivide-cpts'))
+    expect(handleSubdivideAllBodies).toHaveBeenCalledWith(
+      expect.objectContaining({ rebuildExisting: true, sectionId: 'sec-1' }),
     )
   })
 
