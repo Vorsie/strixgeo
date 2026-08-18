@@ -236,12 +236,12 @@ export function classifyOverrideOutcome(
         rawLayerContacts: section.rawLayerContacts,
       }
     const onePass = (): { sliced: SectionRegion[]; merged: SectionRegion[]; conflicts: TieConflict[]; sectionColumns: readonly ColumnGeom[] } => {
-      const { curves, conflicts, lensLabels } = emitCurves(section)
+      const { curves, conflicts, lensLabels, bracketStrips } = emitCurves(section)
       const arrangement = buildArrangement(curves)
       // Pass the whole ARRANGEMENT so the flag-ON seed path (labelFaces, SEED_FILL_MANDATE) can
       // measure each face's non-zero column-edge seeds from the half-edge provenance. Flag-OFF
       // ignores it and takes the original vote path (byte-identical).
-      const labelled = labelFaces(arrangement.faces, section.columns, lensLabels, arrangement)
+      const labelled = labelFaces(arrangement.faces, section.columns, lensLabels, arrangement, bracketStrips)
       const sliced = sliceFaces(labelled, section.columns)
       // RULING 8j "MERGE AFTER FILL" (2026-07-17): after the fill, same-litho regions that TOUCH merge
       // into one body — a body-only relabel (never moves a vertex, so holes/overlaps/conformance are
