@@ -150,3 +150,29 @@ def loosest_class_for(
     if bands is None:
         return None
     return bands[0][1]
+
+
+def hand_settable_classes_for(soil: BaseLithology | str) -> tuple[int, ...]:
+    """Every NAD class an engineer may set BY HAND on a band of this soil.
+
+    Both variants (clean and secondary) are offered: a hand class is the
+    engineer's judgement, and that judgement may include "this interval is the
+    silty variant" — the admixture-derived variant only decides what the
+    MACHINE classifies, never what the engineer is allowed to state.
+
+    Parameters
+    ----------
+    soil : BaseLithology | str
+        Main soil of the band's parent litho unit.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The soil's classes across both variants, ascending; empty for a soil
+        the table does not know (the caller refuses rather than guesses).
+    """
+    classes: set[int] = set()
+    for (table_soil, _variant), bands in NAD_QC_BANDS.items():
+        if table_soil == soil:
+            classes.update(nad_class for _threshold, nad_class in bands)
+    return tuple(sorted(classes))
