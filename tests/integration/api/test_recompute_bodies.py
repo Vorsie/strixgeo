@@ -23,6 +23,7 @@ from uuid6 import uuid7
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
@@ -42,6 +43,7 @@ class _Scene:
     body_b_id: UUID
     inv_1_id: UUID
     inv_2_id: UUID
+    section_id: UUID
 
 
 async def _build_scene(db_session: AsyncSession, *, kind: str = "lithostratigraphic") -> _Scene:
@@ -119,9 +121,25 @@ async def _build_scene(db_session: AsyncSession, *, kind: str = "lithostratigrap
             )
         )
     db_session.add_all(layers)
+    # A REAL cross-section row: the recompute contract (audit P1-3) requires
+    # the payload's section_ids to cover the project's sections exactly, so
+    # the scene owns the one section its payloads speak for.
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="RB-Section",
+        start_x=160000.0,
+        start_y=200000.0,
+        end_x=160100.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=60.0,
+    )
+    db_session.add(section)
     # Plain ids captured BEFORE commit/expire — reading ORM attributes on
     # expired instances lazy-loads synchronously and raises MissingGreenlet.
     project_id, model_id, formation_id = project.id, model.id, sand.id
+    section_id = section.id
     layer_ids = [ly.id for ly in layers]
     inv_ids = [bh.id for bh in boreholes]
     await db_session.commit()
@@ -144,6 +162,7 @@ async def _build_scene(db_session: AsyncSession, *, kind: str = "lithostratigrap
         body_b_id=layer_b.body_id,
         inv_1_id=inv_ids[0],
         inv_2_id=inv_ids[1],
+        section_id=section_id,
     )
 
 
@@ -215,6 +234,7 @@ def _merge_payload(s: _Scene) -> dict:
     """Union evidence: one per-section connectivity group joining the LAYERS."""
     return {
         "sections": [_minimal_section(s)],
+        "section_ids": [str(s.section_id)],
         "layer_groups": [[[str(s.layer_a_id), str(s.layer_b_id)]]],
     }
 
@@ -399,14 +419,71 @@ async def test_rb8_the_cross_section_alias_arm_unions_without_groups(
             }
         ],
     }
+    # The second frame speaks for a REAL second section — coverage is exact.
+    second = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=scene.project_id,
+        name="RB-Section-B",
+        start_x=160000.0,
+        start_y=200050.0,
+        end_x=160100.0,
+        end_y=200050.0,
+        epsg=31370,
+        projection_buffer_m=60.0,
+    )
+    db_session.add(second)
+    await db_session.commit()
     payload = {
         "sections": [section_a, section_b],
+        "section_ids": [str(scene.section_id), str(second.id)],
         "layer_groups": [],
     }
     resp = await async_client.post(_url(scene), json=payload)
     assert resp.status_code == 200, resp.text
     assert resp.json()["bodies_merged"] == 1
     assert len(await _body_ids(db_session, scene)) == 1
+
+
+@pytest.mark.asyncio
+async def test_rb10_partial_section_coverage_is_refused_and_erases_nothing(
+    scene: _Scene, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RB10 — audit P1-3 (2026-08-18): the replace is model-wide, so the
+    payload must speak for the WHOLE model.
+
+    A stale or partially loaded client that posts a subset of the sections
+    must be refused before the delete — the old behaviour silently erased the
+    omitted sections' connectivity evidence, splitting persisted bodies on
+    the next resolver run.
+    """
+    # Establish evidence with full coverage first.
+    resp = await async_client.post(_url(scene), json=_merge_payload(scene))
+    assert resp.status_code == 200, resp.text
+    facts_before = await _fact_count(db_session, scene)
+    assert facts_before >= 1
+
+    # A second section now exists that the next payload does NOT speak for.
+    second = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=scene.project_id,
+        name="RB-Section-C",
+        start_x=160000.0,
+        start_y=200100.0,
+        end_x=160100.0,
+        end_y=200100.0,
+        epsg=31370,
+        projection_buffer_m=60.0,
+    )
+    db_session.add(second)
+    await db_session.commit()
+
+    partial = _merge_payload(scene)  # covers only the first section
+    resp2 = await async_client.post(_url(scene), json=partial)
+    assert resp2.status_code == 422, resp2.text
+    assert resp2.json()["detail"]["code"] == "incomplete_recompute_coverage"
+    assert await _fact_count(db_session, scene) == facts_before, (
+        "a refused recompute must not touch the stored facts"
+    )
 
 
 @pytest.mark.asyncio
