@@ -142,14 +142,52 @@ describe('safe default: TS7 gap0 drilled clay is not flooded by silt (real data)
     expect(here, 'drilled right clay is NOT painted silt').not.toContain(SILT)
   })
 
-  maybe('exposes the repaired units as review flags (the correlate-me surface)', () => {
+  maybe('TS7 no longer needs the repair — zero review flags is the truthful state', () => {
+    // FIXTURE HISTORY (2026-08-18 diagnosis of the long-standing red): this case originally
+    // asserted flags > 0 — a proxy for "the repair FIRED on TS7". The campaign's engine work has
+    // since fixed the TS7 flood AT SOURCE: the two invariant cases above prove the drilled clays
+    // render clay with no repair, so the repair loop finds nothing and zero flags is correct —
+    // a flag here now would be a false "correlate me" nag on a healthy render. The mechanism
+    // itself stays pinned twice: the synthetic detection suite above, and the live-repair case
+    // below on the section that still needs it.
     const { columns, edges, alongM } = prepareTS7()
     const prev = setTwoSidedTerminations(true)
     try {
       const { reviewFlags } = computeSectionFillV2WithConflicts(columns, edges, undefined, alongM)
-      // The flooded clays are surfaced so the UI can offer to correlate them.
-      expect(reviewFlags.length, 'TS7 repaired clays are exposed as review flags').toBeGreaterThan(0)
-      expect(reviewFlags.every((f) => f.gapIndex === 0 && (f.side === 'left' || f.side === 'right'))).toBe(true)
+      expect(reviewFlags, 'a source-fixed section carries no repair flags').toEqual([])
+    } finally {
+      setTwoSidedTerminations(prev)
+    }
+  })
+
+  maybe('a section the repair still fires on exposes its flags (the correlate-me surface)', () => {
+    // Tie-section 11 is the one section on the current extraction where the flooded-unit repair
+    // still fires (2026-08-18 all-sections scan) — the live pin that the repaired units reach the
+    // UI as review flags. If the engine ever heals this section too, move the pin the same way
+    // this file moved it off TS7 (scan for a section with flags; none left = retire into the
+    // synthetic detection suite alone).
+    const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
+    const sec = raw.sections.find((s) => s.name === 'Tie-section 11')!
+    const keep = sec.columns.filter((c) => c.surfaceElevM != null && c.units.length > 0)
+    const columns: PartitionColumn[] = keep.map((c) => ({
+      investigationId: c.investigationId, surfaceElevM: c.surfaceElevM as number, units: c.units,
+    }))
+    const alongM = sec.columns
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => c.surfaceElevM != null && c.units.length > 0)
+      .map(({ i }) => sec.alongM[i])
+    const edges: CorrelationEdge[] = sec.edges.map((e) => ({
+      a: e.a, b: e.b, aSide: (e.aSide ?? 'top') as 'top' | 'base', bSide: (e.bSide ?? 'top') as 'top' | 'base',
+    }))
+    const prev = setTwoSidedTerminations(true)
+    try {
+      const { reviewFlags } = computeSectionFillV2WithConflicts(columns, edges, undefined, alongM)
+      expect(reviewFlags.length, 'the repaired unit is exposed as a review flag').toBeGreaterThan(0)
+      for (const f of reviewFlags) {
+        expect(typeof f.layerId, 'a flag names its layer').toBe('string')
+        expect(f.side === 'left' || f.side === 'right', 'a flag names its side').toBe(true)
+        expect(Number.isInteger(f.gapIndex), 'a flag names its gap').toBe(true)
+      }
     } finally {
       setTwoSidedTerminations(prev)
     }
