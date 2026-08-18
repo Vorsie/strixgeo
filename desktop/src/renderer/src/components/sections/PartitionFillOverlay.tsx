@@ -88,7 +88,7 @@ import {
   selectLithoFallbackRegions,
   type FallbackPackingBand,
 } from '../../utils/geotechFillFallback'
-import { clipPartitionToLithoFrame } from '../../utils/clipPartitionToLithoFrame'
+import { computeHierarchicalGeotechFill } from '../../utils/geotechHierarchicalFill'
 import { lithoOutlineEdges } from '../../utils/lithoOutlineEdges'
 import {
   frameAlignedColumns,
@@ -958,7 +958,11 @@ export default function PartitionFillOverlay({
   // crashes only on first render.
   const engineResultRef = useRef<{
     key: string
-    value: ReturnType<typeof computeSectionFillActiveWithDiagnostics>
+    // The hierarchical arm adds ``lithoFallback`` (the un-classed litho cover);
+    // the litho arm has no such field, hence the optional.
+    value: ReturnType<typeof computeSectionFillActiveWithDiagnostics> & {
+      lithoFallback?: SectionRegion[]
+    }
   } | null>(null)
   // The LITHO frame partition, computed ABOVE the fill memo so the clip can
   // consume it (owner ruling 2026-08-14: "keep exactly the litho model and
@@ -974,6 +978,7 @@ export default function PartitionFillOverlay({
       lithoValid: [] as string[],
       lithoColumns: [] as PartitionColumn[],
       lithoAlongM: [] as number[],
+      lithoEdges: [] as CorrelationEdge[],
       lithoScreenByInv: new Map<string, ColumnScreen>(),
     }
     if (!lithoFrame || !showBands) return empty
@@ -1012,6 +1017,10 @@ export default function PartitionFillOverlay({
       lithoValid,
       lithoColumns,
       lithoAlongM,
+      // Re-exposed for the hierarchical fill: the families it groups the frame
+      // into are the chains these edges make, so it must read the SAME list the
+      // frame partition ran on rather than re-deriving it.
+      lithoEdges,
       lithoScreenByInv: litho.screenByInv,
     }
   }, [lithoFrame, showBands, placedColumns, partitionEngineV2])
@@ -1299,12 +1308,25 @@ export default function PartitionFillOverlay({
       else if (bBody) tieOwnedBaseBodies.add(bBody)
     }
 
+    // The hierarchical arm's answer also depends on the LITHO frame (its
+    // families and its cover), so the frame's own topology joins the key —
+    // without it, editing a litho contact would leave the geotech axis showing
+    // the fill of the previous frame.
     const engineKey = `${topologyKey(orderedColumns, edges, alongM, partitionEngineV2)}|${[
       ...apexOverrides.entries(),
     ]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([k, v]) => `${k}=${v.fraction.toFixed(9)},${v.elevation.toFixed(6)}`)
-      .join(';')}`
+      .join(';')}|${
+      lithoFramePartition.lithoColumns.length >= 2
+        ? topologyKey(
+            lithoFramePartition.lithoColumns,
+            lithoFramePartition.lithoEdges,
+            lithoFramePartition.lithoAlongM,
+            partitionEngineV2,
+          )
+        : ''
+    }`
     const cachedEngine = engineResultRef.current
     /**
      * Partition each run and put its output back on the FRAME's gap axis. A
@@ -1336,8 +1358,55 @@ export default function PartitionFillOverlay({
       }
       return { regions, conflicts: runConflicts, reviewFlags: runReviewFlags, overrideStatus: status }
     }
+    // THE HIERARCHICAL FILL — densities WITHIN lithos (owner ruling 2026-08-18:
+    // "it's the same basic rules only with densities on top of lithos"). On the
+    // geotech axis the partition is NOT one whole-section run that a post-hoc
+    // pass then repairs: the litho frame is split into families (one litho body
+    // as it appears here), the SAME engine runs once per family over that
+    // family's bands and ties alone, and each run is clipped to its own family's
+    // litho regions. A packing class can then never paint outside the litho soil
+    // it subdivides, and a vacancy can never read a foreign soil — by
+    // construction, not by repair. Off the geotech axis (no ``lithoFrame``) this
+    // is untouched: the litho axis keeps its own whole-section run.
+    const { lithoRegions } = lithoFramePartition
+    const hierarchical = framed && lithoRegions.length > 0
     const engineResult =
-      cachedEngine && cachedEngine.key === engineKey ? cachedEngine.value : partitionRuns()
+      cachedEngine && cachedEngine.key === engineKey
+        ? cachedEngine.value
+        : hierarchical
+          ? ((): ReturnType<typeof computeSectionFillActiveWithDiagnostics> & {
+              lithoFallback: SectionRegion[]
+            } => {
+              const out = computeHierarchicalGeotechFill({
+                lithoColumns: lithoFramePartition.lithoColumns,
+                lithoEdges: lithoFramePartition.lithoEdges,
+                lithoRegions,
+                geotechColumns: orderedColumns,
+                geotechEdges: edges,
+                alongM,
+              })
+              log.info(
+                'partition',
+                `hierarchical geotech fill: ${out.diagnostics.families} litho families, ` +
+                  `${out.diagnostics.bands} bands → ${out.regions.length} classed faces, ` +
+                  `${out.lithoFallback.length} un-classed; ` +
+                  `${out.diagnostics.tiesCrossingFamilies} tie(s) dropped across families, ` +
+                  `${out.diagnostics.bandsStraddling} band(s) straddling a litho contact`,
+              )
+              return {
+                regions: out.regions,
+                conflicts: out.conflicts,
+                // Review flags mark uncorrelated same-litho LITHO neighbours; the
+                // markers render on the litho axis only, so a per-family packing
+                // run has none to report.
+                reviewFlags: [],
+                // Free-draw editing is off on this axis, so no drag can be
+                // refused — the override machinery is not consulted at all.
+                overrideStatus: 'unsupported' as const,
+                lithoFallback: out.lithoFallback,
+              }
+            })()
+          : partitionRuns()
     engineResultRef.current = { key: engineKey, value: engineResult }
     const {
       regions: engineRegions,
@@ -1346,29 +1415,9 @@ export default function PartitionFillOverlay({
       overrideStatus,
     } = engineResult
 
-    // THE LITHO FRAME CLIP (owner ruling 2026-08-14, "keep exactly the litho
-    // model and only subdivide bodies"): on the geotech axis, the direct
-    // partition is clipped to the litho partition — every face keeps its
-    // packing class only where that class's soil matches the litho region it
-    // sits in; foreign classes re-label to a same-soil class of the region;
-    // bare regions fall back to litho colour. It runs ALWAYS now (owner
-    // dogfeed 2026-08-15, "clearly the litho model isn't the base of the
-    // geotech fill"): the partition above is built on the frame's own column
-    // axis, so the two gap axes coincide by construction and an undivided
-    // borehole can no longer skip the clip.
-    const { lithoRegions } = lithoFramePartition
-    let sectionRegions = engineRegions
-    let lithoFallbackRegions: SectionRegion[] | null = null
-    if (framed && lithoRegions.length > 0) {
-      const clip = clipPartitionToLithoFrame(
-        engineRegions,
-        lithoRegions,
-        lithoFrame.geotechSoilByFormationId,
-        lithoFrame.lithoSoilByFormationId,
-      )
-      sectionRegions = clip.regions
-      lithoFallbackRegions = clip.lithoFallback
-    }
+    const sectionRegions = engineRegions
+    const lithoFallbackRegions: SectionRegion[] | null =
+      'lithoFallback' in engineResult ? (engineResult.lithoFallback as SectionRegion[]) : null
 
     // Mirror of the line ``buildVoxelRequest`` logs per payload section, so the
     // RENDERED partition and the BUILT one can be compared field for field in one
