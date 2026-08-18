@@ -269,6 +269,9 @@ describe('the statistic re-run names its model-wide blast radius (owner 2026-08-
     )
     const dialog = document.body.querySelector('[data-testid="re-subdivide-confirm-dialog"]')
     expect(dialog?.textContent).toContain('clears all subdivisions model-wide')
+    // "make model wide bold" (owner) — the phrase carries its own bold face.
+    const bold = dialog?.querySelector('.font-bold')
+    expect(bold?.textContent).toBe('model-wide')
     expect(dialog?.textContent).toContain('harmonic')
     // The one-section sentence must NOT appear — it would undersell the loss.
     expect(dialog?.textContent).not.toContain('Cross-section 1')
