@@ -141,3 +141,90 @@ async def test_bf2_the_clone_remaps_and_recanonicalises_fact_endpoints(
         "the fact endpoints must be the CLONE's layers"
     )
     assert clone_project_id != scene.project_id
+
+
+@pytest.mark.asyncio
+async def test_bf3_a_fact_pointing_at_another_models_layer_is_dropped(
+    db_session: AsyncSession, async_client: AsyncClient
+) -> None:
+    """BF3 — audit P2-7 (2026-08-18): fact endpoints must belong to the
+    fact's OWN model.
+
+    The restore used to check endpoints against a project-wide layer set, so
+    a malformed fact for model A whose endpoint sits in model B (same
+    project) persisted and round-tripped — an internally incoherent bundle.
+    """
+    from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+
+    scene = await _build_scene(db_session)
+    # A second litho model in the SAME project, with one accepted layer.
+    other = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=scene.project_id,
+        name="RB-other",
+        kind="lithostratigraphic",
+        parent_model_id=(
+            await db_session.execute(
+                select(GeologicalModelOrm.parent_model_id).where(
+                    GeologicalModelOrm.id == scene.model_id
+                )
+            )
+        ).scalar_one(),
+    )
+    db_session.add(other)
+    await db_session.flush()
+    foreign_layer = LithoLayerOrm(
+        id=uuid7(),
+        model_id=other.id,
+        formation_id=scene.formation_id,
+        borehole_id=scene.inv_1_id,
+        depth_top_m=10.0,
+        depth_base_m=12.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    db_session.add(foreign_layer)
+    foreign_layer_id = foreign_layer.id
+    other_id = other.id
+    await db_session.commit()
+
+    bundle_resp = await async_client.get(f"/projects/{scene.project_id}/bundle")
+    assert bundle_resp.status_code == 200
+    bundle = bundle_resp.json()
+    # The malformed fact: registered on the SCENE model, one endpoint in the
+    # OTHER model.
+    a, b = _canonical_fact_pair(scene.layer_a_id, foreign_layer_id)
+    bundle["body_geometry_facts"] = [
+        {
+            "id": str(uuid7()),
+            "model_id": str(scene.model_id),
+            "layer_a_id": str(a),
+            "layer_b_id": str(b),
+        }
+    ]
+
+    project = await db_session.get(ProjectOrm, scene.project_id)
+    assert project is not None
+    await db_session.delete(project)
+    await db_session.commit()
+
+    restore_resp = await async_client.post(f"/projects/{scene.project_id}/restore", json=bundle)
+    assert restore_resp.status_code == 200, restore_resp.text
+
+    db_session.expire_all()
+    facts = (
+        (
+            await db_session.execute(
+                select(BodyGeometryFactOrm).where(
+                    BodyGeometryFactOrm.model_id == scene.model_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert facts == [], (
+        "a fact whose endpoint belongs to another model must be dropped at restore"
+    )
+    assert str(other_id)  # silence unused warnings honestly
