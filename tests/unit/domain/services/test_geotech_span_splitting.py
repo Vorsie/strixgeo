@@ -109,6 +109,7 @@ def test_sp4_mixed_depth_splits_only_where_the_data_reaches() -> None:
 
 
 def test_sp5_an_adjacent_tie_is_left_alone() -> None:
+    """No intermediate column, nothing to split."""
     assert split_span(_tie("b4", 15.5, "s13", 15.16), ORDER) is None
 
 
@@ -146,3 +147,75 @@ def test_sp7_an_endpoint_column_missing_from_the_order_keeps_the_tie() -> None:
         edge_id=UUID(int=8), inv_a="elsewhere", depth_a_m=5.0, inv_b="s13", depth_b_m=5.0
     )
     assert split_span(other, ORDER) is None
+
+
+# --- landing seam must match the span's soils (owner dogfeed 2026-08-18) -----
+#
+# His 14:25 deletions: a sand span at elev ~-1.7 crossed B6 and landed on the
+# ZAND8|KLEI22 seam (0.11 m off) instead of the VD top (0.52 m off), because
+# the splitter took the nearest contact by depth with no soil check.  The
+# machine wrote SAND↔CLAY hops he then had to prune by hand.
+
+_ZZ = ("ZAND", "ZAND")
+
+
+def _b6_with_soils() -> SpanColumn:
+    """B6's sand/clay transition: ZAND7|ZAND8 at 14.35, ZAND8|KLEI22 at 14.75."""
+    return SpanColumn(
+        investigation_id="b6",
+        along_m=5.0,
+        collar_elev_m=13.17,
+        contacts_m=(9.5, 14.35, 14.75, 20.0),
+        deepest_base_m=20.0,
+        contact_soils=(
+            ("KLEI", "ZAND"),
+            ("ZAND", "ZAND"),
+            ("ZAND", "KLEI"),
+            ("KLEI", None),
+        ),
+    )
+
+
+def _sand_tie(d_a: float, d_b: float) -> SpanTie:
+    return SpanTie(
+        edge_id=UUID(int=9),
+        inv_a="s6",
+        depth_a_m=d_a,
+        inv_b="s13",
+        depth_b_m=d_b,
+        soils_a=_ZZ,
+        soils_b=_ZZ,
+    )
+
+
+def test_sp9_the_landing_seam_must_carry_the_spans_soils() -> None:
+    """SP9: a sand↔sand span may not land on a sand-over-clay seam. The line
+    passes B6 at ~14.77; the nearest contact (14.75, ZAND8|KLEI22) is the
+    wrong seam and the nearest COMPATIBLE one (14.35, ZAND7|ZAND8) is taken —
+    exactly the tie the engineer kept when he pruned the clay hop."""
+    plan = split_span(_sand_tie(14.86, 14.66), [S6, _b6_with_soils(), S13])
+    assert plan is not None
+    assert plan[1].depth_m == 14.35
+
+
+def test_sp10_no_compatible_seam_within_reach_keeps_the_span() -> None:
+    """SP10: when every contact near the line is the wrong soil pair, the
+    column does not express this boundary — the span keeps spanning it, the
+    same answer as mid-band."""
+    b6 = SpanColumn(
+        investigation_id="b6",
+        along_m=5.0,
+        collar_elev_m=13.17,
+        contacts_m=(9.5, 14.75, 20.0),
+        deepest_base_m=20.0,
+        contact_soils=(("KLEI", "ZAND"), ("ZAND", "KLEI"), ("KLEI", None)),
+    )
+    assert split_span(_sand_tie(14.86, 14.66), [S6, b6, S13]) is None
+
+
+def test_sp11_a_span_without_soils_falls_back_to_nearest() -> None:
+    """SP11: endpoint soils unknown → no constraint; the old nearest-contact
+    rule stands (and the loader is expected to always supply soils)."""
+    plan = split_span(_tie("s6", 14.86, "s13", 14.66), [S6, _b6_with_soils(), S13])
+    assert plan is not None
+    assert plan[1].depth_m == 14.75
