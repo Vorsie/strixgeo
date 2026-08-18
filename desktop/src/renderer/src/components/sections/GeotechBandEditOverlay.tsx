@@ -61,6 +61,7 @@ import {
   enclosedLensAt,
   findSmallEnclosedLenses,
 } from './geotechLensSuggestion'
+import { NAD_CLASS_ABBR, nadClassFamily } from '../../utils/nadClasses'
 import type { PlacedColumn } from './utils'
 
 /** Height in px of the strip that sits on a shared band boundary (drag + right-click). */
@@ -146,6 +147,12 @@ export interface Props {
    * suggestion needs it to see host classes; absent → no badge, no menu item.
    */
   nadClassByFormationId?: ReadonlyMap<string, number | null>
+  /**
+   * Set a BOREHOLE band's NAD class by hand (owner ask 2026-08-18). Offered on
+   * borehole bands ONLY — a CPT band's class is measured from its own qc, and
+   * the server refuses it there. Absent → borehole bands stay view-only.
+   */
+  onRequestSetClass?: (bandId: string, nadClass: number, previousClass: number) => void
   /**
    * The model's "thinnest packing band kept" preference — the badge's size gate. The
    * MENU offers the absorb on any enclosed lens regardless (the enclosure is real either
@@ -239,6 +246,16 @@ type MenuState =
       absorbLens: EnclosedLens | null
     }
   | { kind: 'merge'; clientX: number; clientY: number; upperBandId: string; lowerBandId: string; boundaryDepthM: number }
+  | {
+      kind: 'setClass'
+      clientX: number
+      clientY: number
+      bandId: string
+      /** The band's class today — the undo anchor the handler carries. */
+      currentClass: number
+      /** The soil family's classes, the only legal hand choices. */
+      family: readonly number[]
+    }
 
 /**
  * Convert a viewport Y to a depth below one column's collar.
@@ -300,6 +317,7 @@ export default function GeotechBandEditOverlay({
   onRequestMoveBoundary,
   onRequestAbsorbLens,
   nadClassByFormationId,
+  onRequestSetClass,
   smallLensThicknessM,
   suspended = false,
 }: Props): JSX.Element | null {
@@ -425,6 +443,49 @@ export default function GeotechBandEditOverlay({
     lensAware,
     nadClassByFormationId,
     smallLensThicknessM,
+  ])
+
+  /**
+   * Borehole columns — the ones the editable model above SKIPS. Their one verb
+   * is "Set NAD class" (owner ask 2026-08-18): the class is donor-extrapolated
+   * there, so the engineer's judgement outranks it. No strips, no split, no
+   * drag — geometry on a borehole column stays exactly as view-only as before.
+   */
+  const boreholeColumns = useMemo(() => {
+    if (suspended || onRequestSetClass === undefined || nadClassByFormationId === undefined)
+      return []
+    const out: {
+      investigationId: string
+      x0: number
+      x1: number
+      surfaceY: number
+      pxPerMetre: number
+      bands: GeotechBandInterval[]
+    }[] = []
+    for (const col of placedColumns) {
+      const item = col.proj.item as { id: string }
+      const surface = surfaceYForColumn(col, levelToScreen)
+      if (surface.surfaceElevationM === null || surface.pxPerMetre === 0) continue
+      const bands = columnBands(geotechLayers, item.id)
+      if (bands.length === 0 || bands.some(band => band.anchorIsCpt)) continue
+      const half = col.width / 2
+      out.push({
+        investigationId: item.id,
+        x0: col.nudgedX - half,
+        x1: col.nudgedX + half,
+        surfaceY: surface.surfaceY,
+        pxPerMetre: surface.pxPerMetre,
+        bands,
+      })
+    }
+    return out
+  }, [
+    suspended,
+    onRequestSetClass,
+    nadClassByFormationId,
+    placedColumns,
+    levelToScreen,
+    geotechLayers,
   ])
 
   // The menu closes the ways a menu is expected to close. Mirrored from
@@ -564,13 +625,57 @@ export default function GeotechBandEditOverlay({
     })
   }, [onRequestSplit])
 
-  if (!editable) return null
+  if (!editable && boreholeColumns.length === 0) return null
 
   const yAt = (column: ColumnModel, depthM: number): number =>
     column.surfaceY + depthM * column.pxPerMetre
 
   return (
     <g data-testid="geotech-band-edit-overlay">
+      {/* Borehole bands: right-click → "Set NAD class" (their ONE verb). */}
+      {boreholeColumns.map(column => (
+        <g key={`gbe-bh-${column.investigationId}`}>
+          {column.bands.map(band => {
+            const currentClass = nadClassByFormationId?.get(band.formationId) ?? null
+            if (currentClass === null) return null
+            const family = nadClassFamily(currentClass)
+            if (family.length === 0) return null
+            const top = Math.max(plotTop, column.surfaceY + band.topDepthM * column.pxPerMetre)
+            const bottom = Math.min(
+              plotBottom,
+              column.surfaceY + band.baseDepthM * column.pxPerMetre,
+            )
+            if (bottom <= top) return null
+            return (
+              <rect
+                key={`gbe-bh-band-${band.layerId}`}
+                data-testid={`geotech-borehole-band-${band.layerId}`}
+                x={column.x0}
+                y={top}
+                width={column.x1 - column.x0}
+                height={bottom - top}
+                fill="transparent"
+                pointerEvents="all"
+                style={{ cursor: 'context-menu' }}
+                onContextMenu={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setMenu({
+                    kind: 'setClass',
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    bandId: band.layerId,
+                    currentClass,
+                    family,
+                  })
+                }}
+              >
+                <title>Right-click to set this band's NAD class by hand</title>
+              </rect>
+            )
+          })}
+        </g>
+      ))}
       {columns.map(column => (
         <g key={`gbe-${column.investigationId}`}>
           {/* Per-band hit target — RIGHT-CLICK ONLY. It deliberately owns no mousedown:
@@ -1023,6 +1128,32 @@ export default function GeotechBandEditOverlay({
                       Merge into surrounding band
                     </button>
                   )}
+                </>
+              ) : menu.kind === 'setClass' ? (
+                <>
+                  {/* The soil family's classes, current one named and inert. The server
+                      re-validates against the norm table, so this list can never offer
+                      more than the band's soil allows. */}
+                  {menu.family.map(cls => (
+                    <button
+                      key={`gbe-set-class-${cls}`}
+                      type="button"
+                      data-testid={`geotech-band-menu-set-class-${cls}`}
+                      disabled={cls === menu.currentClass}
+                      onClick={() => {
+                        onRequestSetClass?.(menu.bandId, cls, menu.currentClass)
+                        setMenu(null)
+                      }}
+                      style={
+                        cls === menu.currentClass
+                          ? { ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }
+                          : MENU_ITEM_STYLE
+                      }
+                    >
+                      {NAD_CLASS_ABBR[cls] ?? `NAD ${cls}`}
+                      {cls === menu.currentClass ? ' (current)' : ''}
+                    </button>
+                  ))}
                 </>
               ) : (
                 <button
