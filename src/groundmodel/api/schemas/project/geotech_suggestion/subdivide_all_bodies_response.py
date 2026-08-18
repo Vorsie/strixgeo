@@ -164,6 +164,13 @@ class SubdivideAllBodiesResponse(BaseModel):
             "engineer accepts before they mean anything."
         ),
     )
+    skipped_existing_count: int = Field(
+        0,
+        description=(
+            "Columns imported as-is because they already carried geotech bands "
+            "(skip_existing - the first subdivision wins, owner ruling 2026-08-18)."
+        ),
+    )
     skipped_off_section_count: int = Field(
         0,
         description=(
