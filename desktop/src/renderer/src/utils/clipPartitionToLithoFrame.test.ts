@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { clipPartitionToLithoFrame } from './clipPartitionToLithoFrame'
+import { clipPartitionToLithoFrame, interiorPoint } from './clipPartitionToLithoFrame'
 import type { SectionRegion } from './partitionFill'
 
 const region = (
@@ -195,5 +195,29 @@ describe('clipPartitionToLithoFrame', () => {
       out.regions.reduce((s, r) => s + area(r), 0) +
       out.lithoFallback.reduce((s, r) => s + area(r), 0)
     expect(total).toBeCloseTo(10, 1)
+  })
+
+  it('CF7 - the interior sample of a ring with a degenerate corner lands strictly inside', () => {
+    // The B4|S13 face VERBATIM from the live arrangement (owner dogfeed
+    // 2026-08-18 evening, the clay triangle he circled): three vertices
+    // cluster within 0.017 units at the corner where the litho silt|clay
+    // boundary passes. The first-found convex ear was that micro-cluster,
+    // its centroid WAS the corner, the sample landed a millimetre below the
+    // boundary, and the whole SILT face parented to the CLAY band - so the
+    // clip re-labelled a silt face KLEI and painted a clay triangle up the
+    // silt. The sample of a face must never sit on the face's own boundary.
+    const ring = [
+      { x: 50, y: 6.36 },
+      { x: 50, y: 6.359 },
+      { x: 50.017, y: 6.359 },
+      { x: 100, y: 6.69 },
+      { x: 50, y: 12.540000000000001 },
+    ]
+    const p = interiorPoint(ring)
+    // Far from the degenerate corner...
+    expect(Math.hypot(p.x - 50, p.y - 6.36)).toBeGreaterThan(1)
+    // ...and on the INTERIOR side of the bottom edge (50,6.36)->(100,6.69),
+    // the edge the litho boundary runs along.
+    expect(p.y).toBeGreaterThan(6.36 + ((p.x - 50) / 50) * 0.33 + 0.01)
   })
 })
