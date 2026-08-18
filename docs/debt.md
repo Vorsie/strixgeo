@@ -8485,3 +8485,41 @@ correcting by hand.
 geotech derivation: re-freeze the baseline first (or key the baseline on the
 section NAMES instead of model ids so a model wipe cannot orphan it), and only
 then trust the gate again.
+
+## 273. Cross-family packing ties are dropped silently by the hierarchical fill (M)
+
+**What.** The hierarchical fill (2026-08-19) runs the engine per litho
+family and drops any packing tie whose two bands belong to units that are
+not litho-correlated (`tiesCrossingFamilies` diagnostic — 25 on CS1 at
+harvest; column 15's ZAND-8 loses all four of its ties and can no longer
+span, the gate's +2 nospan). The drop is the draw-time cross-litho-body
+guard's own rule applied at render time, so it is CORRECT — but it is
+invisible: the tie still renders as a line while contributing nothing, which
+reads as "my tie does nothing" (the exact complaint class of 2026-08-18).
+
+**Why deferred.** The fix is part UI (badge/tooltip/toast naming the two
+uncorrelated litho units, or a distinct render style for inert ties) and
+part model-side (the owner correlating those litho units); both need the
+owner's eyes on the real 25 first.
+
+**When to revisit.** The owner's next CS1 dogfeed after the hierarchical
+harvest — walk the 25 with him; if most resolve by litho correlation, a
+badge may be all the UI needs.
+
+## 274. Seam strokes double on same-class edges — the pale helper lines (S)
+
+**What.** Owner dogfeed 2026-08-18 (B4|S13 screenshots): thin PALE lines
+inside merged same-class masses on the geotech axis. The black litho
+outlines got the soil-level dissolve (`lithoOutlineEdges.ts`); the
+self-colour seam-stroke pass still strokes both sides of an edge shared by
+two same-class regions, and the doubled 0.62-opacity stroke reads as a
+line. Same treatment needed: classify shared same-class edges and stroke
+them once (or not at all), keeping the hairline-closing behaviour on true
+boundaries.
+
+**Why deferred.** The hierarchical-fill harvest changed the region
+inventory the same night; re-check which pale lines survive it before
+touching the stroke pass.
+
+**When to revisit.** First dogfeed after the hierarchical harvest — if the
+pale lines survive on his screen, this is the next contained renderer fix.
