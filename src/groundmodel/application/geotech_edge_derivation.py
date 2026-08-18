@@ -89,6 +89,15 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # unit's edge can round a hair past it).
 _DEPTH_TOL_M = 0.001
 
+# How far apart two class-matched interior bands may sit and still be
+# proposed, as a multiple of the THICKER band's own height in the litho
+# window. Derived from the owner's 2026-08-18 deletions: the diagonals he
+# pruned jumped 3–12× the band's thickness (gap 0.61 of the unit vs heights
+# 0.05–0.21), while every machine tie he kept overlaps or misses by well
+# under one thickness. 1.0 = "a band may dip by about its own thickness".
+# A tuning constant, not a law — the owner may move it.
+_EXTENT_GAP_SLACK = 1.0
+
 
 @dataclass
 class EdgeDerivationCounts:
@@ -124,6 +133,11 @@ class EdgeDerivationCounts:
     # have the same packing density and litho" — the merge unifies that mass,
     # so the proposal is noise fanning from an already-tied contact).
     skipped_below_lens: int = 0
+    # Interior class matches whose fraction extents never overlap in the litho
+    # window (owner deletions 2026-08-18: the LCS tied S9's DEEP D band to a
+    # SHALLOW D band 5 m up on S10 — class match without correspondence).
+    # Restatements are exempt: they follow the litho frame by construction.
+    skipped_disjoint_extent: int = 0
 
     def add(self, other: EdgeDerivationCounts) -> None:
         """Accumulate another pass's counters into this one."""
@@ -137,6 +151,7 @@ class EdgeDerivationCounts:
         self.skipped_crossing_tie += other.skipped_crossing_tie
         self.skipped_tombstoned += other.skipped_tombstoned
         self.skipped_below_lens += other.skipped_below_lens
+        self.skipped_disjoint_extent += other.skipped_disjoint_extent
 
 
 async def load_project_sections(session: AsyncSession, project_id: UUID) -> list[CrossSectionOrm]:
@@ -1039,9 +1054,35 @@ async def derive_geotech_edges_from_litho(
         # 2026-08-17). Computed per column from the same fraction stacks the
         # interior machinery reads; restatements and born-accepted hops are
         # exempt — they carry the engineer's own work.
-        shadowed = shadowed_below_lens(
-            _stack_with_fractions(inv_a_str, top_a, base_a)
-        ) | shadowed_below_lens(_stack_with_fractions(inv_b_str, top_b, base_b))
+        frac_stack_a = _stack_with_fractions(inv_a_str, top_a, base_a)
+        frac_stack_b = _stack_with_fractions(inv_b_str, top_b, base_b)
+        shadowed = shadowed_below_lens(frac_stack_a) | shadowed_below_lens(frac_stack_b)
+        fraction_extent = {
+            layer_str: (f_top, f_base)
+            for layer_str, _nad, f_top, f_base in [*frac_stack_a, *frac_stack_b]
+        }
+
+        def _extents_disjoint(left_id: str, right_id: str) -> bool:
+            """Class match without correspondence (owner deletions 2026-08-18).
+
+            The LCS tied S9's deep D band (fractions 0.79–1.0 of its unit) to
+            a shallow D band on S10 (0.13–0.18) — a 5 m diagonal he deleted on
+            sight, while he KEPT machine ties whose bands merely dip.  The
+            pattern that separates them: a band may dip by about its own
+            thickness across a gap and still be one sheet; a band asked to
+            jump several times its thickness is a different body.  Withheld
+            when the fraction gap between the two extents exceeds
+            ``_EXTENT_GAP_SLACK`` times the thicker band's own height.
+            """
+            extent_l = fraction_extent.get(left_id)
+            extent_r = fraction_extent.get(right_id)
+            if extent_l is None or extent_r is None:
+                return False
+            gap = max(extent_l[0], extent_r[0]) - min(extent_l[1], extent_r[1])
+            if gap <= 0.0:
+                return False
+            thicker = max(extent_l[1] - extent_l[0], extent_r[1] - extent_r[0])
+            return gap > _EXTENT_GAP_SLACK * thicker
 
         for la, rb in aligned:
             # Defensive null-skip (both aligners already exclude None, but
@@ -1081,6 +1122,11 @@ async def derive_geotech_edges_from_litho(
             approved = born_accepted or restates_litho_tie
             if not approved and (la in shadowed or rb in shadowed):
                 counts.skipped_below_lens += 1
+                continue
+            # A restatement follows the litho frame however the units sit; an
+            # interior class match must actually CORRESPOND in the window.
+            if not restates_litho_tie and _extents_disjoint(la, rb):
+                counts.skipped_disjoint_extent += 1
                 continue
             # A refused candidate is NOT added to ``seen_layer_pairs``: it was
             # never emitted, so a later pass with different neighbours (a
