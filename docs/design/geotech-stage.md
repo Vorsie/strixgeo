@@ -1129,8 +1129,16 @@ rebuilt, its hand edits and hand classes untouched — and only band-less
 columns build. The toolbar presses send it by default, so working section by
 section can never make one column tell two stories. Two deliberate
 exceptions send the historic rebuild instead: step 1 pressed under a REBUILD
-tag ("re-run under <statistic>" / "N columns need re-deriving") — the button
-announces the rebuild, and skipping would pin the tag on forever (SC1b).
+tag — the button announces the rebuild, and skipping would pin the tag on
+forever. The STATISTIC re-run is MODEL-WIDE (owner: *"when you redivide with
+another mean statistic all need to be rederived ofcourse"* — the stamp that
+clears the tag is model-level, so a scoped re-run would clear it while other
+sections still carried old-statistic bands, and first-wins would freeze the
+discrepancy in; the confirm dialog names the whole-model blast radius). The
+moved-contacts re-derive stays section-scoped — its stale columns are the
+section on screen. SC1b/SC1c pin both arms. The statistic rebuild also wipes
+the scope's borehole bands, so every borehole goes honestly empty and the
+next step-4 press rebuilds it from the new CPT bands.
 Pinned: SE1–SE3 at the DB.
 
 **The escape hatch is per test:** right-click a test's LABEL on the geotech
