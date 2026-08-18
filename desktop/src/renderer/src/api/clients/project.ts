@@ -100,6 +100,12 @@ export interface ProjectBundleResponse {
    * Absent in older bundles.
    */
   body_geometry_facts?: Record<string, unknown>[]
+  /**
+   * Deleted-tie tombstones (owner 2026-08-17: "a tie i delete stays
+   * deleted"). Evidence, not cache: dropping them resurrects every tie the
+   * engineer deleted on the next derivation. Absent in older bundles.
+   */
+  geotech_tie_tombstones?: Record<string, unknown>[]
 }
 
 /** Request body for ``POST /projects/``. */
