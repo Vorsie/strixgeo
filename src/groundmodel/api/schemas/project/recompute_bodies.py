@@ -10,6 +10,8 @@ defines identity).
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field, model_validator
 
 from groundmodel.api.schemas.project.voxel_build_request import SectionPartitionInputSchema
@@ -33,6 +35,10 @@ class RecomputeBodiesRequest(BaseModel):
     """
 
     sections: list[SectionPartitionInputSchema] = Field(default_factory=list)
+    # One cross-section id per entry in ``sections``, in the same order. The
+    # replace is model-wide, so the server verifies this set EQUALS the
+    # project's sections (audit P1-3) — geometry alone cannot prove coverage.
+    section_ids: list[UUID] = Field(default_factory=list)
     layer_groups: list[list[list[str]]] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -42,6 +48,16 @@ class RecomputeBodiesRequest(BaseModel):
             raise ValueError(
                 f"layer_groups carries {len(self.layer_groups)} entries for "
                 f"{len(self.sections)} sections — must be parallel or empty"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ids_parallel_to_sections(self) -> RecomputeBodiesRequest:
+        """``section_ids`` must name exactly one section per frame."""
+        if self.sections and len(self.section_ids) != len(self.sections):
+            raise ValueError(
+                f"section_ids carries {len(self.section_ids)} id(s) for "
+                f"{len(self.sections)} sections — every frame must name its section"
             )
         return self
 
