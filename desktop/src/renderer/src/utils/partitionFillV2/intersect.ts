@@ -205,15 +205,26 @@ export function splitSegments(
     //
     // The tolerant arm is KIND-SCOPED: it applies only when NEITHER party is
     // an ``exactOnlyCurveIds`` member (the synthesized ``closing`` curves).
-    // Those flank/apex/bridge curves historically dead-ended when their cut
+    // Those flank/apex curves historically dead-ended when their cut
     // rounded off-line and were stripped as spurs — the shipped v1-parity
     // output depends on that — and their deliberate engagement belongs to the
     // two-sided-terminations cut-over, not this crossing repair. Without the
     // scope, a matched (tied) boundary got cut by a termination flank and the
     // band split in two (PartitionFillOverlay FD2/HP/GH scenes, 2026-08-14).
+    //
+    // ONE widening (owner ruling 2026-08-18, the bracketed VD quad): a closing
+    // crossed by a BRIDGE curve registers tolerantly. A jump tie's bridge runs
+    // shallow across whole gaps, so its crossing with a termination fence
+    // practically never rounds back onto the exact line — and an unsplit fence
+    // leaves the bridge dangling mid-face, which is how the owner's bracketed
+    // band lost its right half. The FD2/HP/GH regression was closing×TIE;
+    // closing×closing and closing×tie stay exact-only.
+    const iExact = exactOnlyCurveIds !== undefined && exactOnlyCurveIds.has(segments[i].curveId)
+    const jExact = exactOnlyCurveIds !== undefined && exactOnlyCurveIds.has(segments[j].curveId)
     const tolerant =
-      exactOnlyCurveIds === undefined ||
-      (!exactOnlyCurveIds.has(segments[i].curveId) && !exactOnlyCurveIds.has(segments[j].curveId))
+      (!iExact && !jExact) ||
+      (iExact !== jExact &&
+        (iExact ? segments[j] : segments[i]).curveId.startsWith('bridge'))
     for (const p of pts) {
       if (pointOnOrNearSegment(p, segments[i], tolerant)) cutSets[i].set(gridKey(p), p)
       if (pointOnOrNearSegment(p, segments[j], tolerant)) cutSets[j].set(gridKey(p), p)
