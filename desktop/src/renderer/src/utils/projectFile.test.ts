@@ -129,6 +129,40 @@ describe('parseProjectFile — happy path', () => {
     expect(parsed?.body_geometry_facts).toEqual(facts)
   })
 
+  it('geotech tie tombstones survive the bundle → file → parse round-trip', () => {
+    // The deletion memory (owner 2026-08-17: "a tie i delete stays deleted")
+    // is EVIDENCE, exactly like the geometry facts above: a save/open loop
+    // that drops it resurrects every tie the engineer deleted, on the next
+    // press, silently. Audit P1-1 (2026-08-18) found precisely this hole —
+    // the backend carried the tombstones and the desktop dropped them at
+    // every surface. Asserted against the BUNDLE's value, not the writer's
+    // own output.
+    const stones = [
+      { id: 'ts-a', model_id: 'gm-1', section_id: 's-1', a_x: 1, a_y: 2, a_z: 3, b_x: 4, b_y: 5, b_z: 6 },
+    ]
+    const bundle = {
+      project: { id: 'proj-uuid-stones', name: 'Tombstones survive' },
+      cpts: [],
+      boreholes: [],
+      geological_formations: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+      litho_contact_correlation_edges: [],
+      bodies: [],
+      formation_absences: [],
+      body_boundary_shapes: [],
+      body_boundary_nodes: [],
+      body_geometry_facts: [],
+      geotech_tie_tombstones: stones,
+    } as unknown as ProjectBundleResponse
+
+    const built = buildProjectFile(bundle, null)
+    expect(built.geotech_tie_tombstones).toEqual(stones)
+    const parsed = parseProjectFile(serialiseProjectFile(built))
+    expect(parsed?.geotech_tie_tombstones).toEqual(stones)
+  })
+
   it('round-trips through serialise → parse without losing a field', () => {
     // What buildProjectFile writes must be exactly what parseProjectFile
     // reads back — the save/open loop the user's anchor depends on.
@@ -294,6 +328,11 @@ describe('parseProjectFile — additive keys tolerate absence, reject wrong type
     // and must still open — with the merges absent rather than the file
     // rejected.
     'body_geometry_facts',
+    // Deleted-tie tombstones (owner 2026-08-17: "a tie i delete stays
+    // deleted"). Same evidence class as the facts: a file without them
+    // reopens with every deletion forgotten, and the next derivation
+    // resurrects the deleted ties.
+    'geotech_tie_tombstones',
   ] as const
 
   it('backfills each absent additive array to [] so downstream array consumers never see undefined', () => {
