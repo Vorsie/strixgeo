@@ -311,6 +311,12 @@ interface Props {
    */
   onRequestGeotechSetBandClass?: (bandId: string, nadClass: number, previousClass: number) => void
   /**
+   * Clear ONE test's packing subdivision (owner ask 2026-08-18) — offered in
+   * the column label's right-click menu on the geotech axis, only where the
+   * column actually carries bands. The escape hatch of first-subdivision-wins.
+   */
+  onRequestGeotechClearColumn?: (investigationId: string, name: string) => void
+  /**
    * Merge two adjacent packing sub-bands inside one litho body (geotech axis only).
    * ``boundaryDepthM`` = their shared boundary today, the undo anchor.
    */
@@ -747,6 +753,7 @@ export default function SectionPanel({
   onDeleteContact,
   onRequestGeotechSplitBand,
   onRequestGeotechSetBandClass,
+  onRequestGeotechClearColumn,
   onRequestGeotechMergeBands,
   onRequestGeotechMoveBoundary,
   onRequestGeotechAbsorbLens,
@@ -3704,6 +3711,16 @@ export default function SectionPanel({
                 ? () => {
                     void handleRemoveFromSection(contextMenu.kind, contextMenu.id)
                   }
+                : undefined
+            }
+            onClearSubdivision={
+              axisMode === 'geotechnical' &&
+              onRequestGeotechClearColumn !== undefined &&
+              geotechModel !== undefined &&
+              geotechModel.geotechLayers.some(
+                l => l.cpt_id === contextMenu.id || l.borehole_id === contextMenu.id,
+              )
+                ? () => onRequestGeotechClearColumn(contextMenu.id, contextMenu.name)
                 : undefined
             }
             onClose={dismissContextMenu}
