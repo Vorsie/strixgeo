@@ -222,6 +222,74 @@ def test_f5_the_section_with_the_tightest_flanking_pair_wins() -> None:
     assert [d.stack.investigation_id for d in selection.donors] == ["TL", "TR"]
 
 
+def test_f11_the_section_the_engineer_is_editing_wins() -> None:
+    """F11: owner ruling 2026-08-18 — *"the section you are editing wins"*.
+
+    A scoped divide names the open section; the classes the borehole takes
+    must come from the flanks the engineer is LOOKING at, even when another
+    section holds a tighter pair — *"if the user edits TS11 he will notice
+    and change it"*.  Tightest-pair (F5) stays the rule only when no section
+    is being edited (the unscoped, all-sections press).
+    """
+    edit_l = _stack("EL", top=0.0, base=10.0, bands=[(0.0, 4.0, _LOOSE), (4.0, 10.0, _DENSE)])
+    edit_r = _stack("ER", top=0.0, base=10.0, bands=[(0.0, 6.0, _LOOSE), (6.0, 10.0, _DENSE)])
+    tight_l = _stack("TL", top=0.0, base=10.0, bands=[(0.0, 1.0, _LOOSE), (1.0, 10.0, _DENSE)])
+    tight_r = _stack("TR", top=0.0, base=10.0, bands=[(0.0, 9.0, _LOOSE), (9.0, 10.0, _DENSE)])
+
+    editing = SectionPlacement(
+        section_id="s-editing",
+        section_name="Editing",
+        along_m={_BH: 200.0, "EL": 100.0, "ER": 300.0},
+    )
+    tight = SectionPlacement(
+        section_id="s-tight",
+        section_name="Tight",
+        along_m={_BH: 200.0, "TL": 190.0, "TR": 210.0},
+    )
+
+    selection = select_flank_donors(
+        borehole_id=_BH,
+        donors=[edit_l, edit_r, tight_l, tight_r],
+        sections=[tight, editing],
+        preferred_section_id="s-editing",
+    )
+
+    assert selection.section_name == "Editing"
+    assert [d.stack.investigation_id for d in selection.donors] == ["EL", "ER"]
+
+
+def test_f12_a_preferred_section_that_does_not_draw_the_borehole_falls_back() -> None:
+    """F12: the editing preference never invents flanks.
+
+    When the open section does not place the borehole beside any donor, the
+    normal ranking (F5) answers — the preference only reorders sections that
+    can actually speak.
+    """
+    tight_l = _stack("TL", top=0.0, base=10.0, bands=[(0.0, 4.0, _LOOSE), (4.0, 10.0, _DENSE)])
+    tight_r = _stack("TR", top=0.0, base=10.0, bands=[(0.0, 6.0, _LOOSE), (6.0, 10.0, _DENSE)])
+
+    empty = SectionPlacement(
+        section_id="s-empty",
+        section_name="Empty",
+        along_m={_BH: 200.0},
+    )
+    tight = SectionPlacement(
+        section_id="s-tight",
+        section_name="Tight",
+        along_m={_BH: 200.0, "TL": 190.0, "TR": 210.0},
+    )
+
+    selection = select_flank_donors(
+        borehole_id=_BH,
+        donors=[tight_l, tight_r],
+        sections=[empty, tight],
+        preferred_section_id="s-empty",
+    )
+
+    assert selection.section_name == "Tight"
+    assert [d.stack.investigation_id for d in selection.donors] == ["TL", "TR"]
+
+
 def test_f6_a_donor_stack_is_re_laid_in_thickness_fraction_space() -> None:
     """F6: the donor's boundary keeps its position WITHIN the unit, not its depth."""
     # Boundary 4 m into a 10 m extent = 40 % down the unit.
