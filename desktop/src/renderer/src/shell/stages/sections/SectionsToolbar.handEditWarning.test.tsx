@@ -167,6 +167,8 @@ describe('SectionsToolbar — hand-edit warning before Subdivide all bodies', ()
       deriveEdges: false,
       sectionId: 'sec-1',
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag active here.
+      rebuildExisting: false,
     })
   })
 })
@@ -212,6 +214,8 @@ describe('SectionsToolbar — the re-subdivide warning is scoped to the press', 
       deriveEdges: false,
       sectionId: 'sec-1',
       representativeStatistic: null,
+      // First subdivision wins (owner 2026-08-18): no rebuild tag active here.
+      rebuildExisting: false,
     })
   })
 
