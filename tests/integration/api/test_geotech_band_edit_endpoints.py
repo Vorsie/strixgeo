@@ -873,12 +873,8 @@ async def test_gb21_undoing_a_merge_gives_both_original_classes_back(
     upper_id, lower_id = bands[0].id, bands[1].id
     boundary_m = bands[0].depth_base_m
 
-    upper_class = (
-        await db_session.get(GeologicalFormationOrm, bands[0].formation_id)
-    ).nad_class
-    lower_class = (
-        await db_session.get(GeologicalFormationOrm, bands[1].formation_id)
-    ).nad_class
+    upper_class = (await db_session.get(GeologicalFormationOrm, bands[0].formation_id)).nad_class
+    lower_class = (await db_session.get(GeologicalFormationOrm, bands[1].formation_id)).nad_class
     # The whole point of the case: the two bands disagree about the packing class, so a
     # carried class and a re-derived one give different answers.
     assert upper_class != lower_class, "the fixture must give the two bands DIFFERENT classes"
@@ -972,12 +968,22 @@ async def test_gb23_a_band_absorbed_tie_still_unions_its_two_bands(
     b_top_id, b_low_id = b_bands[0].id, b_bands[1].id
     boundary_m = a_bands[0].depth_base_m
     await _insert_edge(
-        db_session, band_scene, gid, a_top_id, b_top_id,
-        approved=True, review_reason="band_absorbed",
+        db_session,
+        band_scene,
+        gid,
+        a_top_id,
+        b_top_id,
+        approved=True,
+        review_reason="band_absorbed",
     )
     await _insert_edge(
-        db_session, band_scene, gid, a_low_id, b_low_id,
-        approved=True, review_reason="ambiguous_band",
+        db_session,
+        band_scene,
+        gid,
+        a_low_id,
+        b_low_id,
+        approved=True,
+        review_reason="ambiguous_band",
     )
 
     # Any committed edit runs the resolver; the control nudge changes no class.
@@ -1003,3 +1009,125 @@ async def test_gb23_a_band_absorbed_tie_still_unions_its_two_bands(
     assert a_low is not None and b_low is not None
     # And the doubt-flags still suspend: anchor identity in question, no union.
     assert a_low.body_id != b_low.body_id, "an ambiguous_band tie must NOT union"
+
+
+async def _divided_borehole_bands(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> tuple[str, list[tuple[str, float, float]]]:
+    """Run the pipeline through divide-boreholes; return (id, top, base) rows.
+
+    Plain values, not ORM instances — the shared test session expires across
+    the route calls, and a lazy refresh from a plain attribute read raises
+    ``MissingGreenlet``.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    auto = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/auto-correlate",
+        json={},
+    )
+    assert auto.status_code == 200, auto.text
+    accept = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/contact-correlations/accept",
+        json={},
+    )
+    assert accept.status_code == 200, accept.text
+    divide = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={},
+    )
+    assert divide.status_code == 200, divide.text
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(gid),
+                    LithoLayerOrm.borehole_id == band_scene["bh_id"],
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows, "divide-boreholes must have produced borehole bands"
+    return gid, [(str(r.id), r.depth_top_m, r.depth_base_m) for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_sc1_the_engineer_sets_a_borehole_bands_class_by_hand(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SC1 — owner ask 2026-08-18: a borehole band's class is the engineer's call.
+
+    A borehole band's class is donor-extrapolated, not measured, so the
+    engineer's own judgement outranks it — *"if the user edits TS11 he will
+    notice and change it"*. Setting the class repoints the band to the target
+    NAD formation and stamps manual provenance; geometry never moves.
+    """
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+    band_id, old_top, old_base = rows[0]
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "set-class"),
+        json={"band_id": band_id, "nad_class": 8},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["investigation_id"] == str(band_scene["bh_id"])
+
+    db_session.expire_all()
+    row = await db_session.get(LithoLayerOrm, UUID(band_id))
+    assert row is not None
+    formation = await db_session.get(GeologicalFormationOrm, row.formation_id)
+    assert formation is not None
+    assert formation.nad_class == 8, "the band must point at the chosen NAD class"
+    assert row.source == "manual", "a hand class is the engineer's, and provenance must say so"
+    assert (row.depth_top_m, row.depth_base_m) == (old_top, old_base), "geometry never moves"
+
+
+@pytest.mark.asyncio
+async def test_sc2_a_cpt_bands_class_is_measured_and_refuses_a_hand_class(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SC2 — a CPT band's class comes from its own qc; a hand class would falsify it."""
+    gid = await _subdivide(async_client, band_scene)
+    cpt_rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(gid),
+                    LithoLayerOrm.cpt_id == band_scene["cpt_a_id"],
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert cpt_rows, "subdivide must have produced CPT bands"
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "set-class"),
+        json={"band_id": str(cpt_rows[0].id), "nad_class": 8},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "measured" in resp.json()["detail"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_sc3_a_class_outside_the_bands_soil_family_is_refused(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SC3 — a ZAND band cannot take a CLAY class; the refusal names both."""
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "set-class"),
+        json={"band_id": rows[0][0], "nad_class": 21},
+    )
+    assert resp.status_code == 422, resp.text
+    message = resp.json()["detail"]["message"].lower()
+    assert "21" in message and "zand" in message
