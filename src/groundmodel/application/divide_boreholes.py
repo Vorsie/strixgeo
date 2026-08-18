@@ -355,14 +355,14 @@ def _bands_in_extent(
 def _interior_boundaries(
     stack: list[tuple[UUID, float, float, int | None]], pick: BodyLayerPick
 ) -> list[ColumnBoundary]:
-    """The stack's INTERIOR boundaries as fractions of the unit.
+    """The stack's INTERIOR boundaries, each at its elevation on this column.
 
     Parameters
     ----------
     stack : list
         The column's in-extent bands, shallow to deep.
     pick : BodyLayerPick
-        The unit extent the fractions are read in.
+        The unit the seams belong to — its collar converts depth to mTAW.
 
     Returns
     -------
@@ -370,12 +370,11 @@ def _interior_boundaries(
         One entry per seam between consecutive bands. The unit's own top and
         base are NOT included: those are litho contacts.
     """
-    thickness = pick.base_depth_m - pick.top_depth_m
-    if thickness <= 0.0:
+    if pick.base_depth_m - pick.top_depth_m <= 0.0:
         return []
     return [
         ColumnBoundary(
-            fraction=(stack[i][1] - pick.top_depth_m) / thickness,
+            elev_m=pick.surface_elev_m - stack[i][1],
             band_above_id=str(stack[i - 1][0]),
             band_below_id=str(stack[i][0]),
         )
@@ -389,17 +388,26 @@ def _bands_between(
     right_stack: list[tuple[UUID, float, float, int | None]],
     unit_top_m: float,
     unit_base_m: float,
+    fraction: float,
 ) -> tuple[list[FillBand], list[tuple[str, ...]]]:
     """Turn placed boundaries into contiguous bands, with their correspondence.
 
     Parameters
     ----------
     placed : Sequence[PlacedBoundary]
-        Boundaries on the borehole, top to bottom.
+        Boundaries on the borehole, top to bottom. Off-log entries (a tie line
+        that crosses the column outside the unit) cut nothing, but classify
+        the interval they bound.
     left_stack, right_stack : list
         The two columns' in-extent bands, for the class and the tie endpoints.
     unit_top_m, unit_base_m : float
         The borehole's own unit extent, which the bands tile exactly.
+    fraction : float
+        Where the borehole stands across the gap, ``0`` at the left column.
+        Where the two flanks disagree about a band's class, the NEARER flank
+        names it — the far flank's different class is an onlap that pinched
+        out before reaching here (owner dogfeed 2026-08-18: B9 took the far
+        column's D over the near column's MD).
 
     Returns
     -------
@@ -411,8 +419,18 @@ def _bands_between(
     for band in [*left_stack, *right_stack]:
         class_of[str(band[0])] = band[3]
 
+    def _near_first(left_id: str | None, right_id: str | None) -> list[str]:
+        pair = (left_id, right_id) if fraction <= 0.5 else (right_id, left_id)
+        return [x for x in pair if x is not None]
+
+    cuts_b = [b for b in placed if b.on_log]
+    # A tie line passing above (below) the unit still says what runs past it:
+    # the interval it bounds continues the line's under-side (over-side) bands.
+    above_ctx = [b for b in placed if not b.on_log and b.depth_m <= unit_top_m + _DEPTH_TOL_M]
+    below_ctx = [b for b in placed if not b.on_log and b.depth_m >= unit_base_m - _DEPTH_TOL_M]
+
     # The band ABOVE the first boundary continues whatever sat above it.
-    cuts = [unit_top_m, *[b.depth_m for b in placed], unit_base_m]
+    cuts = [unit_top_m, *[b.depth_m for b in cuts_b], unit_base_m]
     bands: list[FillBand] = []
     correspondences: list[tuple[str, ...]] = []
     for i in range(len(cuts) - 1):
@@ -423,17 +441,21 @@ def _bands_between(
         # it, or above the one that closes it for the topmost interval.
         ids: list[str] = []
         if i > 0:
-            opener = placed[i - 1]
-            ids = [
-                x for x in (opener.left_band_below_id, opener.right_band_below_id) if x is not None
-            ]
-        elif placed:
-            closer = placed[0]
-            ids = [
-                x for x in (closer.left_band_above_id, closer.right_band_above_id) if x is not None
-            ]
-        elif left_stack:
-            ids = [str(left_stack[0][0])]
+            opener = cuts_b[i - 1]
+            ids = _near_first(opener.left_band_below_id, opener.right_band_below_id)
+        elif above_ctx:
+            line = above_ctx[-1]
+            ids = _near_first(line.left_band_below_id, line.right_band_below_id)
+        elif cuts_b:
+            closer = cuts_b[0]
+            ids = _near_first(closer.left_band_above_id, closer.right_band_above_id)
+        elif below_ctx:
+            line = below_ctx[0]
+            ids = _near_first(line.left_band_above_id, line.right_band_above_id)
+        else:
+            near, far = (left_stack, right_stack) if fraction <= 0.5 else (right_stack, left_stack)
+            source = near if near else far
+            ids = [str(source[0][0])] if source else []
         nad = next((class_of[x] for x in ids if class_of.get(x) is not None), None)
         if nad is None:
             return [], []
@@ -4013,9 +4035,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 fraction=(bh_along - left_along) / width,
                 unit_top_m=geo_top_m,
                 unit_base_m=geo_base_m,
+                bh_collar_elev_m=bh_surface_elev,
             )
             bands, correspondences = _bands_between(
-                placed, left_stack, right_stack, geo_top_m, geo_base_m
+                placed,
+                left_stack,
+                right_stack,
+                geo_top_m,
+                geo_base_m,
+                (bh_along - left_along) / width,
             )
             if not bands:
                 continue
