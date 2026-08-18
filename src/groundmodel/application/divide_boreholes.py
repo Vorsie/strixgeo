@@ -1273,6 +1273,7 @@ class DivideBoreholePlan:
     # replaced by hops"). Defaulted so the empty-plan early return and every
     # existing construction site stay valid.
     replaced_tie_layer_pairs: tuple[tuple[str, str], ...] = ()
+    skipped_existing_borehole_ids: tuple[str, ...] = ()
 
     def columns(self) -> list[PlannedBoreholeColumn]:
         """Aggregate the flat segments into one entry per borehole column.
@@ -1338,6 +1339,9 @@ class DivideBoreholeResult:
         endpoint (``"GEO-22/115-S10 4.20-6.10 m <-> BH-3 4.00-5.90 m"``).  The
         count alone tells the engineer that accepted work vanished and nothing
         about WHERE to redraw it (audit 2026-08-02).
+    skipped_existing_borehole_count : int
+        Boreholes imported as-is because they already carried bands
+        (owner ruling 2026-08-18, ``skip_existing`` — first subdivision wins).
     superseded_jump_tie_count : int
         Bridged CPT↔CPT jump ties deleted because the borehole-mediated chain
         now carries the same connection (owner ruling 2026-08-14: the chain
@@ -1366,6 +1370,7 @@ class DivideBoreholeResult:
     lost_tie_reasons: dict[str, int] = field(default_factory=dict)
     lost_tie_labels: list[str] = field(default_factory=list)
     superseded_jump_tie_count: int = 0
+    skipped_existing_borehole_count: int = 0
     crossing_tie_count: int = 0
     replaced_span_count: int = 0
 
@@ -1467,6 +1472,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         borehole_ids: set[UUID] | None = None,
         section_id: UUID | None = None,
         section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
+        skip_existing: bool = False,
     ) -> DivideBoreholePlan:
         """Compute every band this verb would write, WITHOUT writing anything.
 
@@ -1560,6 +1566,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
         self.info(f"DivideBoreholes: geotech_model={geotech_model.id}")
 
+        # Owner ruling 2026-08-18 (*"does this test already have a subdivision?
+        # if yes import and skip"*): a borehole divided once — usually before
+        # the tie section — is imported as-is, so a later press on a section
+        # that shares it can never tell a second story. The set feeds the
+        # planner's segment filter AND execute's delete/capture exclusions.
+        skip_set: set[UUID] = set()
+        if skip_existing:
+            skip_set = {
+                row
+                for (row,) in (
+                    await self._session.execute(
+                        select(LithoLayerOrm.borehole_id)
+                        .where(
+                            LithoLayerOrm.model_id == geotech_model.id,
+                            LithoLayerOrm.borehole_id.is_not(None),
+                        )
+                        .distinct()
+                    )
+                ).all()
+            }
+        skipped_existing_ids: set[str] = set()
+
         # The sampled region names a geotech formation; turning it into a band
         # needs that formation's class and its find-or-create key. Loaded once
         # here rather than per borehole — the geometry path reads it for every
@@ -1631,6 +1659,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 pick_count=0,
                 cpt_layer_index={},
                 borehole_names={},
+                skipped_existing_borehole_ids=tuple(sorted(skipped_existing_ids)),
             )
 
         snap_tol = await self._read_geotech_snap_tolerance_m(project_id)
@@ -1914,13 +1943,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         for (body_id_str, source_geo_fid), group_segs in groups.items():
             source_litho_fid = UUID(group_segs[0].formation_id) if group_segs else uuid7()
 
-            borehole_segs = [
+            in_scope_bh_segs = [
                 s
                 for s in group_segs
                 if anchor_kind.get(s.investigation_id) == "borehole"
                 # A subset run leaves every other borehole exactly as it is —
                 # planned, deleted and written are all filtered by this one set.
                 and (borehole_ids is None or UUID(s.investigation_id) in borehole_ids)
+            ]
+            # First subdivision wins (owner 2026-08-18): an already-banded
+            # borehole leaves the plan here, so it is neither re-planned nor
+            # (via execute's exclusions) deleted.
+            skipped_existing_ids.update(
+                s.investigation_id for s in in_scope_bh_segs if UUID(s.investigation_id) in skip_set
+            )
+            borehole_segs = [
+                s for s in in_scope_bh_segs if UUID(s.investigation_id) not in skip_set
             ]
             if not borehole_segs:
                 continue
@@ -2227,6 +2265,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"divided={divided_borehole_count} single={single_band_borehole_count}"
         )
         return DivideBoreholePlan(
+            skipped_existing_borehole_ids=tuple(sorted(skipped_existing_ids)),
             replaced_tie_layer_pairs=tuple(replaced_tie_pairs),
             geotech_model_id=geotech_model.id,
             segments=tuple(planned_segments),
@@ -2630,6 +2669,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         borehole_ids: set[UUID] | None = None,
         section_id: UUID | None = None,
         section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
+        skip_existing: bool = False,
     ) -> DivideBoreholeResult:
         """Materialise litho-confined borehole bands for *litho_model_id*.
 
@@ -2691,12 +2731,18 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             litho_model_id=litho_model_id,
             borehole_ids=borehole_ids,
             section_partitions=section_partitions,
+            skip_existing=skip_existing,
         )
+        # First subdivision wins (owner 2026-08-18): the boreholes the planner
+        # imported as-is must be excluded from the delete AND from the tie
+        # capture below — their rows never die, so re-created ties would double.
+        skipped_bh = {UUID(x) for x in plan.skipped_existing_borehole_ids}
         geotech_model_id = plan.geotech_model_id
         if plan.pick_count == 0:
             await self._session.commit()
             return DivideBoreholeResult(
                 geotech_model_id=geotech_model_id,
+                skipped_existing_borehole_count=len(plan.skipped_existing_borehole_ids),
                 divided_borehole_count=0,
                 single_band_borehole_count=0,
                 layer_count=0,
@@ -2838,6 +2884,21 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             ]
 
+        if skipped_bh:
+            skipped_keys = {str(b) for b in skipped_bh}
+            captured_ties = [
+                tie
+                for tie in captured_ties
+                if (
+                    tie.anchor_kind_a == ANCHOR_BOREHOLE
+                    and tie.identity_a.investigation_id not in skipped_keys
+                )
+                or (
+                    tie.anchor_kind_b == ANCHOR_BOREHOLE
+                    and tie.identity_b.investigation_id not in skipped_keys
+                )
+            ]
+
         # Phase 7 — delete existing borehole geotech layers (subset-scoped when
         # the caller named the boreholes to divide).
         delete_conditions = [
@@ -2846,6 +2907,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         ]
         if borehole_ids is not None:
             delete_conditions.append(LithoLayerOrm.borehole_id.in_(borehole_ids))
+        if skipped_bh:
+            delete_conditions.append(LithoLayerOrm.borehole_id.not_in(skipped_bh))
         deleted = (
             await self._session.execute(delete(LithoLayerOrm).where(*delete_conditions))
         ).rowcount
@@ -3272,6 +3335,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             # longer re-expresses anything as a hop, so there is no second
             # source of deletions to report.
             superseded_jump_tie_count=len(superseded_edge_ids),
+            skipped_existing_borehole_count=len(plan.skipped_existing_borehole_ids),
             crossing_tie_count=crossing_dropped,
             replaced_span_count=replaced_span_count,
         )
