@@ -404,6 +404,7 @@ export default function SectionsToolbar(): JSX.Element {
     return {
       bandCount: bands.length,
       handEditCount: countGeotechHandEdits(bands),
+      modelBandCount: allBands.length,
       modelHandEditCount: countGeotechHandEdits(allBands),
     }
   }, [selectedSection, visibleCpts, visibleBoreholes, geotechLayers])
@@ -570,7 +571,11 @@ export default function SectionsToolbar(): JSX.Element {
    */
   function pressSubdivide(sectionId: string | null): void {
     if (subdividingBodies || !activeLithoModel) return
-    if (subdivideScope.bandCount > 0) {
+    // The statistic re-run clears MODEL-WIDE, so its confirmation gates on the
+    // MODEL's bands — an open section without bands must not slip a model-wide
+    // clear past the dialog (owner 2026-08-18).
+    const bandsAtRisk = geotechBandsStale ? subdivideScope.modelBandCount : subdivideScope.bandCount
+    if (bandsAtRisk > 0) {
       setPendingSubdivideSectionId(sectionId)
       setReSubdivideConfirmOpen(true)
       return
