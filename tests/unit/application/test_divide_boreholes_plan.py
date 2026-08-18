@@ -55,6 +55,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 # mis-wired lookup shows up as a wrong label rather than a passing tautology.
 _NAD_LOOSE = 5
 _NAD_DENSE = 7
+_NAD_VERY_DENSE = 8
 
 
 def _use_case() -> DivideBoreholes:
@@ -299,7 +300,7 @@ def test_p5_a_crowd_of_distant_cpts_does_not_overrule_the_two_flanking_ones() ->
         inv_id=borehole,
         bh_x=0.0,
         bh_y=0.0,
-        bh_surface_elev=0.0,
+        bh_surface_elev=5.0,  # collar aligned with the picks: mTAW landing reads elevations
         geo_top_m=0.0,
         geo_base_m=10.0,
         cpt_segs=segs,
@@ -416,7 +417,7 @@ def test_p7_an_accepted_tie_across_the_borehole_names_the_donor_pair() -> None:
         inv_id=borehole,
         bh_x=200.0,
         bh_y=0.0,
-        bh_surface_elev=0.0,
+        bh_surface_elev=5.0,  # collar aligned with the picks: mTAW landing reads elevations
         geo_top_m=0.0,
         geo_base_m=10.0,
         cpt_segs=[
@@ -450,8 +451,15 @@ def test_p7_an_accepted_tie_across_the_borehole_names_the_donor_pair() -> None:
     assert [round(b.base, 3) for b in bands] == [5.0, 10.0]
 
 
-def test_p8_a_tied_surface_is_rescaled_where_the_litho_body_thins() -> None:
-    """P8: the tied packing surface stays inside a litho body that thins here."""
+def test_p8_a_line_that_misses_the_thin_body_reads_the_bands_under_it() -> None:
+    """P8: mTAW landing (owner, 2026-08-18: "go for the mtaw") on a thin body.
+
+    Both donors read the dense top at +1.0 mTAW, so the drawn tie line runs
+    flat at +1.0. The borehole's own litho body sits entirely BELOW that line.
+    The line does not cross the unit, so no boundary is drawn — and the unit
+    continues what lies UNDER the line: dense sand, top to base. The old
+    fraction rescale would have split the thin unit 40 % down instead, placing
+    a contact where the engineer drew no line at all."""
     borehole = str(uuid7())
     left, right = str(uuid7()), str(uuid7())
     body_loose, body_dense = uuid7(), uuid7()
@@ -491,11 +499,10 @@ def test_p8_a_tied_surface_is_rescaled_where_the_litho_body_thins() -> None:
         ),
     ]
 
-    # At the borehole the same sand is only 2 m thick, 3.0–5.0 m. Keeping the
-    # donors' absolute 4.0 m would be inside by luck; a 1 m body at 3.0–4.0 m
-    # would not. Both are checked: the surface must land at 40 % of whatever
-    # thickness the litho body has HERE.
-    for extent_top, extent_base, expected in ((3.0, 5.0, 3.8), (3.0, 4.0, 3.4)):
+    # The picks' collar is +5.0, their boundary 4.0 m down → the tie line runs
+    # flat at +1.0 mTAW. The borehole's collar is 0.0 and its thin body sits at
+    # 3.0–5.0 m (−3.0 to −5.0 mTAW) or 3.0–4.0 m: entirely under the line.
+    for extent_top, extent_base in ((3.0, 5.0), (3.0, 4.0)):
         bands, _body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
             inv_id=borehole,
             bh_x=200.0,
@@ -513,10 +520,75 @@ def test_p8_a_tied_surface_is_rescaled_where_the_litho_body_thins() -> None:
         )
 
         assert selection.mode == "tie_interpolated"
-        assert [b.nad_class for b in bands] == [_NAD_LOOSE, _NAD_DENSE]
-        assert round(bands[0].base, 3) == expected
+        assert [b.nad_class for b in bands] == [_NAD_DENSE], (
+            f"the whole unit sits under the dense-top line, got "
+            f"{[(round(b.top, 2), round(b.base, 2), b.nad_class) for b in bands]}"
+        )
         assert bands[0].top == extent_top
         assert bands[-1].base == extent_base
+
+
+def test_p9_the_nearer_flank_names_the_class_where_the_flanks_disagree() -> None:
+    """P9: GEO-10/171-B9 in miniature (owner dogfeed, 2026-08-18).
+
+    The tied seam is the VD top on both flanks, but the band ABOVE it is D on
+    the far-left column and MD on the near-right one. The borehole stands 93 %
+    of the way toward the right column, so it reads MD over VD — the far
+    flank's D is an onlap that pinched out long before it. B9 came back D on
+    top because the class pick took the LEFT column first, always."""
+    borehole = str(uuid7())
+    left, right = str(uuid7()), str(uuid7())
+    body_upper, body_dense = uuid7(), uuid7()
+    left_top, left_bot = uuid7(), uuid7()
+    right_top, right_bot = uuid7(), uuid7()
+    layers = {
+        left: [
+            (0.0, 5.0, left_top, uuid7(), _NAD_DENSE, body_upper),
+            (5.0, 10.0, left_bot, uuid7(), _NAD_VERY_DENSE, body_dense),
+        ],
+        right: [
+            (0.0, 5.2, right_top, uuid7(), _NAD_LOOSE, body_upper),
+            (5.2, 10.0, right_bot, uuid7(), _NAD_VERY_DENSE, body_dense),
+        ],
+    }
+    section_id = str(uuid7())
+    section = SectionPlacement(
+        section_id=section_id,
+        section_name="A-A'",
+        along_m={left: 0.0, borehole: 186.0, right: 200.0},
+    )
+    ties = [
+        AcceptedTie(
+            investigation_a=left,
+            layer_a_id=str(left_bot),
+            investigation_b=right,
+            layer_b_id=str(right_bot),
+            section_id=section_id,
+        ),
+    ]
+
+    bands, _body_ids, _donor_ids, selection = _use_case()._plan_borehole_bands_litho_confined(
+        inv_id=borehole,
+        bh_x=186.0,
+        bh_y=0.0,
+        bh_surface_elev=5.0,
+        geo_top_m=0.0,
+        geo_base_m=10.0,
+        cpt_segs=[_cpt_pick(left, 0.0, 10.0), _cpt_pick(right, 0.0, 10.0)],
+        litho_abs_min_class=_NAD_LOOSE,
+        geotech_layer_by_inv_depth=layers,
+        cpt_xy={UUID(left): (0.0, 0.0, 0.0), UUID(right): (200.0, 0.0, 0.0)},
+        cpt_names={UUID(left): "FAR-L", UUID(right): "NEAR-R"},
+        section_placements=[section],
+        accepted_ties=ties,
+    )
+
+    assert [b.nad_class for b in bands] == [_NAD_LOOSE, _NAD_VERY_DENSE], (
+        f"the near flank's class must win above the tied seam, got "
+        f"{[(round(b.top, 2), round(b.base, 2), b.nad_class) for b in bands]}"
+    )
+    # The seam itself lands on the drawn line: 0.0 + 0.93·(−0.2 − 0.0) mTAW.
+    assert round(bands[0].base, 3) == pytest.approx(5.186)
 
 
 def _partition(
