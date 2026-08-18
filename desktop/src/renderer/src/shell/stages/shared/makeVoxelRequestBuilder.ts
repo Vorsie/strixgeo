@@ -47,6 +47,16 @@ export interface VoxelRequestBuilderParams {
   viewState: Record<string, unknown> | null | undefined
   /** Log channel label ('litho-voxel' / 'geotech-voxel'). */
   logLabel: string
+  /**
+   * The LITHO model to frame this build on — set on the GEOTECH stage only
+   * (owner ruling 2026-08-18, "densities on top of lithos"). With it the payload
+   * is the hierarchical fill the geotech axis renders, so the built model is the
+   * drawn model; without it the build is the model's own whole-section
+   * partition, which is what the litho stage wants.
+   */
+  frameModelId?: string | null
+  /** The frame model's litho-layer rows; required alongside ``frameModelId``. */
+  frameLayers?: readonly LithoLayerLike[]
 }
 
 /**
@@ -76,8 +86,17 @@ export interface VoxelRequestBuilderParams {
 export function makeVoxelRequestBuilder(
   params: VoxelRequestBuilderParams,
 ): () => Promise<VoxelBuildRequest | null> {
-  const { projectId, modelId, visibleSections, investigations, layers, viewState, logLabel } =
-    params
+  const {
+    projectId,
+    modelId,
+    visibleSections,
+    investigations,
+    layers,
+    viewState,
+    logLabel,
+    frameModelId,
+    frameLayers,
+  } = params
 
   return async (): Promise<VoxelBuildRequest | null> => {
     if (!projectId || !modelId || visibleSections.length === 0) return null
@@ -164,12 +183,47 @@ export function makeVoxelRequestBuilder(
       }
     }
 
+    // The frame model's own sections, assembled the same way. Its correlations
+    // decide which litho units are ONE body, which is what the hierarchical fill
+    // groups its per-family engine runs by — so a failed fetch here cancels the
+    // build for the same reason a failed packing-correlation fetch does: a model
+    // built from a partial frame is indistinguishable from a correct one.
+    let frameSectionInputs: ReturnType<typeof assembleLithoSectionInputs> | undefined
+    if (frameModelId && frameLayers !== undefined) {
+      const frameEdges = await fetchApprovedEdgesBySection(projectId, frameModelId, visibleSections)
+      if (frameEdges.failedSectionIds.length > 0) {
+        const named = frameEdges.failedSectionIds.map(id => sectionLabel(visibleSections, id))
+        log.error(
+          logLabel,
+          `build cancelled: ${named.length} section(s) failed to load their LITHO ` +
+            `correlations — ${named.join(', ')}`,
+        )
+        throw new VoxelBuildInputsError(
+          `Could not build — the lithostratigraphic correlations failed to load for ` +
+            `${named.length} of ${visibleSections.length} cross-section(s): ${named.join(', ')}. ` +
+            'Nothing was changed; retry the build.',
+        )
+      }
+      frameSectionInputs = assembleLithoSectionInputs({
+        visibleSections,
+        investigations,
+        lithoLayers: frameLayers,
+        edgesBySectionId: frameEdges.edgesBySectionId,
+      })
+      log.debug(
+        logLabel,
+        `framing the build on ${frameSectionInputs.length} litho section(s), ` +
+          `${frameEdges.totalApprovedEdges} approved litho edges`,
+      )
+    }
+
     const { voxelHorizontalSpacingM, voxelVerticalSpacingM } = readLithoSegmenterPrefs(viewState)
     return buildVoxelRequest(
       sectionInputs,
       voxelHorizontalSpacingM,
       voxelVerticalSpacingM,
       boundariesByBodyId,
+      frameSectionInputs,
     )
   }
 }
