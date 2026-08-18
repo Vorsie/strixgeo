@@ -98,6 +98,11 @@ class AcceptedTie:
     investigation_b: str
     layer_b_id: str
     section_id: str
+    # Which surface of each band the tie names — 'top' (the default every row
+    # before the bottom-tie spec carried) or 'base'. Audit P1-2: dropping the
+    # side turned a base↔base tie into a top↔top one at placement time.
+    side_a: str = "top"
+    side_b: str = "top"
 
 
 @dataclass(frozen=True)
