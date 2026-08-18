@@ -72,15 +72,17 @@ class ColumnBoundary:
         The boundary's elevation on its own column (mTAW) — collar minus its
         depth. Interior boundaries only — the contacts themselves are the
         litho model's and are never carried here.
-    band_above_id : str
-        ``litho_layer`` id of the packing band immediately above the boundary.
-    band_below_id : str
-        ``litho_layer`` id of the band immediately below it.
+    band_above_id : str | None
+        ``litho_layer`` id of the packing band above the boundary — the
+        nearest SAME-SOIL band when a cross-soil interbed sits directly
+        above, ``None`` when the column carries none.
+    band_below_id : str | None
+        The same for the band below it.
     """
 
     elev_m: float
-    band_above_id: str
-    band_below_id: str
+    band_above_id: str | None
+    band_below_id: str | None
 
 
 @dataclass(frozen=True)
