@@ -32,6 +32,8 @@ import type {
   PartitionColumn,
   SectionRegion,
 } from "./partitionFill";
+import { frameAlignedColumns } from "./frameAlignedPartition";
+import { computeHierarchicalGeotechFill } from "./geotechHierarchicalFill";
 import {
   computeSectionFillActive,
   isPartitionEngineV2Active,
@@ -415,17 +417,64 @@ export function buildVoxelRequest(
   horizontalM: number,
   verticalM: number,
   boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>,
+  frameSections?: readonly FenceSectionInput[],
 ): VoxelBuildRequest {
   const out: SectionPartitionInput[] = [];
+  // THE LITHO FRAME, for a GEOTECH build (owner ruling 2026-08-18, "densities
+  // on top of lithos"). With it, this builder runs the SAME hierarchical fill
+  // the geotech axis renders — one path, so the built model is the drawn model.
+  // Without it (every litho build) nothing changes: the whole-section run below
+  // is the litho stage's own partition.
+  // Keyed on the section id when the caller supplies one, else on the line's
+  // own endpoints — the same section always projects the same line, and the two
+  // models' inputs are assembled from the SAME cross-section rows.
+  const sectionKey = (input: FenceSectionInput): string =>
+    input.sectionId ??
+    `${input.section.start_x},${input.section.start_y},${input.section.end_x},${input.section.end_y}`;
+  const frameBySectionId = new Map<string, SectionPartitionFrame>();
+  if (frameSections !== undefined) {
+    for (const frame of assembleSectionPartitionFrames(frameSections, undefined)) {
+      frameBySectionId.set(sectionKey(frame.input), frame);
+    }
+  }
   for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
-    const { input, columns, payloadColumns, alongM, apexOverrides, partitionEngineV2 } = frame;
+    const { input, columns, alongM, apexOverrides, partitionEngineV2 } = frame;
+    let { payloadColumns } = frame;
 
-    const engineRegions = computeSectionFillActive(
-      columns,
-      input.edges,
-      apexOverrides,
-      alongM,
-    );
+    const lithoFrame = frameBySectionId.get(sectionKey(input));
+    let engineRegions: SectionRegion[];
+    if (lithoFrame !== undefined) {
+      // The frame owns the axis: its columns carry the tests the packing model
+      // has not divided yet, and the regions below are indexed on ITS gaps, so
+      // the payload must name its columns too.
+      payloadColumns = lithoFrame.payloadColumns;
+      const lithoRegions = computeSectionFillActive(
+        lithoFrame.columns,
+        lithoFrame.input.edges,
+        lithoFrame.apexOverrides,
+        lithoFrame.alongM,
+      );
+      const hierarchical = computeHierarchicalGeotechFill({
+        lithoColumns: lithoFrame.columns,
+        lithoEdges: lithoFrame.input.edges,
+        lithoRegions,
+        geotechColumns: frameAlignedColumns(
+          lithoFrame.columns,
+          new Map(columns.map((c) => [c.investigationId, c])),
+        ),
+        geotechEdges: input.edges,
+        alongM: lithoFrame.alongM,
+      });
+      engineRegions = hierarchical.regions;
+      log.info(
+        "litho-voxel",
+        `hierarchical payload section: ${hierarchical.diagnostics.families} litho families, ` +
+          `${hierarchical.diagnostics.bands} bands → ${engineRegions.length} classed faces, ` +
+          `${hierarchical.lithoFallback.length} un-classed`,
+      );
+    } else {
+      engineRegions = computeSectionFillActive(columns, input.edges, apexOverrides, alongM);
+    }
     const regions = toRegionInputs(engineRegions);
 
     // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
