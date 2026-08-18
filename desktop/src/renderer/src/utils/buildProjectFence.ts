@@ -11,6 +11,12 @@ import { type SectionEndpoints } from './sectionProjection'
 
 /** Everything needed to fence one section. */
 export interface FenceSectionInput {
+  /**
+   * The cross-section's id, when the caller has it. The body-recompute wire
+   * REQUIRES it (audit P1-3: the server verifies the payload covers every
+   * section); the fence render does not read it.
+   */
+  sectionId?: string
   section: SectionEndpoints
   projectedColumns: readonly FenceProjectedColumn[]
   layers: readonly FenceLayerInput[]

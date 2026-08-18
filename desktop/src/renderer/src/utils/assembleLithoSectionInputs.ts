@@ -167,6 +167,7 @@ export function assembleLithoSectionInputs(params: {
     }))
 
     return {
+      sectionId: section.id,
       section: {
         start_x: section.start_x,
         start_y: section.start_y,
