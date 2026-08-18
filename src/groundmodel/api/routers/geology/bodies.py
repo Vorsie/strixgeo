@@ -89,7 +89,10 @@ from groundmodel.shared.constants.model_kind import (
     MODEL_KIND_LITHOSTRATIGRAPHIC,
     NON_STRATIGRAPHIC_KINDS,
 )
-from groundmodel.shared.exceptions import EmptyRecomputePayloadError
+from groundmodel.shared.exceptions import (
+    EmptyRecomputePayloadError,
+    IncompleteRecomputeCoverageError,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 logger = LoggerFactory.get_logger(__name__)
@@ -298,11 +301,17 @@ async def recompute_bodies(
             model_id=model_id,
             sections=request.to_domain_sections(),
             section_layer_groups=request.layer_groups or [[] for _ in request.sections],
+            section_ids=request.section_ids,
         )
     except EmptyRecomputePayloadError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "empty_recompute_payload", "message": str(exc)},
+        ) from exc
+    except IncompleteRecomputeCoverageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "incomplete_recompute_coverage", "message": str(exc)},
         ) from exc
     logger.success(
         f"recompute_bodies: project={project_id} model={model_id} "
