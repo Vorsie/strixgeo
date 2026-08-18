@@ -42,6 +42,13 @@ export interface RecomputeBodiesRequest {
    */
   sections: SectionPartitionInput[];
   /**
+   * One cross-section id per entry in ``sections``, same order. The replace
+   * is model-wide, so the server refuses any payload whose id set does not
+   * equal the project's sections (audit P1-3) — a partial post must never
+   * erase the omitted sections' evidence.
+   */
+  section_ids: string[];
+  /**
    * Per-section merge groups, 1:1 with ``sections``: each group lists the LAYER
    * ids whose fill regions form one touching component on that section, from
    * ``mergeTouchingBodiesWithGroups(..., { excludeFallback: true })``. Layer ids
@@ -77,6 +84,7 @@ export function buildBodyRecomputePayload(
   logLabel: string,
 ): RecomputeBodiesRequest | null {
   const outSections: SectionPartitionInput[] = [];
+  const sectionIds: string[] = [];
   const layerGroups: string[][][] = [];
   let totalRegions = 0;
 
@@ -98,6 +106,12 @@ export function buildBodyRecomputePayload(
         `(${regions.length - drilled.length} fallback omitted), ${groups.length} groups, ` +
         `engine=${partitionEngineV2 ? "v2" : "v1"}`,
     );
+    if (input.sectionId === undefined) {
+      // Without the id the server cannot verify coverage — refusing to build
+      // beats posting a payload the server must reject (audit P1-3).
+      log.warn(logLabel, "recompute skipped: a section input carries no section id");
+      return null;
+    }
     outSections.push({
       start_x: input.section.start_x,
       start_y: input.section.start_y,
@@ -106,7 +120,30 @@ export function buildBodyRecomputePayload(
       columns: payloadColumns,
       regions: toRegionInputs(drilled),
     });
+    sectionIds.push(input.sectionId);
     layerGroups.push(groups);
+  }
+
+  // Sections the frame assembly skipped (fewer than two columns — no gaps,
+  // no partition) still need representing: the server's coverage rule is
+  // exact, and "this section holds no fill evidence" is a true statement an
+  // EMPTY frame makes honestly.
+  for (const input of sections) {
+    if (input.sectionId === undefined) {
+      log.warn(logLabel, "recompute skipped: a section input carries no section id");
+      return null;
+    }
+    if (sectionIds.includes(input.sectionId)) continue;
+    outSections.push({
+      start_x: input.section.start_x,
+      start_y: input.section.start_y,
+      end_x: input.section.end_x,
+      end_y: input.section.end_y,
+      columns: [],
+      regions: [],
+    });
+    sectionIds.push(input.sectionId);
+    layerGroups.push([]);
   }
 
   // The endpoint refuses an empty payload (422 empty_recompute_payload); assembling
@@ -116,5 +153,5 @@ export function buildBodyRecomputePayload(
     return null;
   }
 
-  return { sections: outSections, layer_groups: layerGroups };
+  return { sections: outSections, section_ids: sectionIds, layer_groups: layerGroups };
 }
