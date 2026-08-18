@@ -69,6 +69,8 @@ from groundmodel.api.schemas.project.geotech_band_edit import (
 from groundmodel.api.schemas.project.geotech_suggestion import (
     AutoCorrelateGeotechRequest,
     AutoCorrelateGeotechResponse,
+    ClearGeotechColumnRequest,
+    ClearGeotechColumnResponse,
     DivideBoreholePreviewBand,
     DivideBoreholePreviewColumn,
     DivideBoreholePreviewDonor,
@@ -80,6 +82,7 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     SubdivideAllBodiesResponse,
 )
 from groundmodel.application.auto_correlate_geotech_edges import AutoCorrelateGeotechEdges
+from groundmodel.application.clear_geotech_column import ClearGeotechColumn
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditResult
 from groundmodel.application.geotech_tie_status import load_geotech_tie_status
@@ -1243,6 +1246,65 @@ async def split_geotech_band(
         f"layers={len(result.layer_ids)} dropped_edges={len(result.deleted_edge_ids)}"
     )
     return _edit_payload(result)
+
+
+@router.post(
+    "/models/{model_id}/geotech/columns/clear",
+    response_model=ClearGeotechColumnResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Clear ONE test's packing subdivision so a pipeline press rebuilds it",
+    tags=["geotech"],
+)
+async def clear_geotech_column(
+    project_id: UUID,
+    model_id: UUID,
+    request: ClearGeotechColumnRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ClearGeotechColumnResponse:
+    """Delete one investigation's geotech bands (owner ask 2026-08-18).
+
+    The escape hatch of first-subdivision-wins: the pipeline presses import
+    already-banded columns as-is, so redoing ONE column is clear-then-press.
+    The column's ties cascade with its rows; no tombstone is written — this is
+    rebuild preparation, not judgement.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the column's bands belong to.
+    request : ClearGeotechColumnRequest
+        The CPT or borehole to clear.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    ClearGeotechColumnResponse
+        The deleted band count (0 = idempotent no-op).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/columns/clear "
+        f"investigation={request.investigation_id}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/columns/clear")
+    deleted = await ClearGeotechColumn(session).execute(
+        geotech_model_id=model_id,
+        investigation_id=request.investigation_id,
+    )
+    return ClearGeotechColumnResponse(
+        geotech_model_id=model_id,
+        investigation_id=request.investigation_id,
+        deleted_band_count=deleted,
+    )
 
 
 @router.post(
