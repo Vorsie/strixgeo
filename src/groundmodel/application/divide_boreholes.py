@@ -2080,6 +2080,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     section_partitions=section_partitions,
                     geotech_formation_info=geotech_formation_info,
                     replaced_tie_pairs=replaced_tie_pairs,
+                    preferred_section_id=str(section_id) if section_id is not None else None,
                 )
                 n_bands = len(fill_band_list)
                 total_layers += n_bands
@@ -3313,6 +3314,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         section_partitions: Mapping[UUID, SectionPartitionInput] | None = None,
         geotech_formation_info: Mapping[str, tuple[int | None, UUID, UUID | None]] | None = None,
         replaced_tie_pairs: list[tuple[str, str]] | None = None,
+        preferred_section_id: str | None = None,
     ) -> tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
@@ -3451,7 +3453,15 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             donors=donors,
             sections=section_placements,
             ties=accepted_ties,
-        ) or select_flank_donors(borehole_id=inv_id, donors=donors, sections=section_placements)
+        ) or select_flank_donors(
+            borehole_id=inv_id,
+            donors=donors,
+            sections=section_placements,
+            # Owner ruling 2026-08-18: a SCOPED divide reads the flanks of the
+            # section the engineer is editing — he judges the classes on the
+            # section he is looking at. Unscoped runs keep tightest-pair.
+            preferred_section_id=preferred_section_id,
+        )
         donor_surfaces = flank_packing_surfaces_with_donors(
             selection, extent_top_m=derive_top_m, extent_base_m=derive_base_m
         )
