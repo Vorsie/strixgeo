@@ -397,7 +397,15 @@ export default function SectionsToolbar(): JSX.Element {
         ? null
         : inCorridorInvestigationIds(selectedSection, visibleCpts, visibleBoreholes)
     const bands = geotechBandsInScope(geotechLayers, memberIds)
-    return { bandCount: bands.length, handEditCount: countGeotechHandEdits(bands) }
+    // The model-wide count feeds the STATISTIC re-run dialog, whose blast
+    // radius is every section (owner 2026-08-18); the section count feeds the
+    // ordinary one.
+    const allBands = geotechBandsInScope(geotechLayers, null)
+    return {
+      bandCount: bands.length,
+      handEditCount: countGeotechHandEdits(bands),
+      modelHandEditCount: countGeotechHandEdits(allBands),
+    }
   }, [selectedSection, visibleCpts, visibleBoreholes, geotechLayers])
 
   // Do steps 2, 3 and 4 have anything ON SCREEN to work on?
@@ -2244,15 +2252,14 @@ export default function SectionsToolbar(): JSX.Element {
         onCancel={handleReSubdivideCancel}
         onConfirm={handleReSubdivideConfirm}
         busy={subdividingBodies}
-        handEditCount={subdivideScope.handEditCount}
-        // A statistic re-run rebuilds the WHOLE model (owner 2026-08-18:
-        // "all need to be rederived ofcourse") — the dialog must not promise
-        // a one-section blast radius it will exceed.
-        sectionName={
-          geotechBandsStale
-            ? 'the whole model (statistic re-run)'
-            : (selectedSection?.name ?? null)
+        handEditCount={
+          geotechBandsStale ? subdivideScope.modelHandEditCount : subdivideScope.handEditCount
         }
+        sectionName={selectedSection?.name ?? null}
+        // The statistic re-run is MODEL-WIDE (owner 2026-08-18: "rederiving
+        // with a new statistic should say, this clears all subdivisions model
+        // wide") — the dialog states that blast radius in his words.
+        statisticRebuild={geotechBandsStale ? geotechStatistic : null}
       />
 
       {/* Reset manual points confirmation — clearing every hand-drawn body
