@@ -35,6 +35,7 @@ const PAYLOAD: RecomputeBodiesRequest = {
   sections: [
     { start_x: 0, start_y: 0, end_x: 1, end_y: 0, columns: [], regions: [] },
   ],
+  section_ids: ['s-1'],
   layer_groups: [[]],
 }
 
