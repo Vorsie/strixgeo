@@ -610,6 +610,11 @@ function emitOnlap(
   // hole in BOTH. A straight flood flank would re-cut the diamond the onlap flank detoured around.
   // The override only kicks in when the flank actually detoured (else it is the plain corner→apex).
   const floodFlankOverride = detoured.length > 2 ? detoured : undefined
+  // RULING 8n APPLIED TO THE LABEL (owner, 2026-08-18). The gap's ties are passed so the wedge
+  // reads its class INSIDE the tie-bounded channel instead of horizontally across the lines (see
+  // ``floodLabelSampleElev``). The wedge GEOMETRY is untouched: ``clampConvToTies`` is gated on
+  // ``skipSide === null`` (the LENS wrap), and an onlap always passes a ``skipSide``.
+  const gapTies = activeTies.filter((t) => t.gapIndex === gapIndex)
   emitFloodWedge(
     colX,
     facingX,
@@ -624,7 +629,7 @@ function emitOnlap(
     out,
     facingX,
     undefined,
-    undefined,
+    gapTies,
     floodFlankOverride,
   )
   return true
