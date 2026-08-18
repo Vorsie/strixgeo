@@ -377,6 +377,7 @@ function restorePayloadFrom(file: ProjectFile): ProjectBundleResponse {
     body_boundary_shapes: file.body_boundary_shapes,
     body_boundary_nodes: file.body_boundary_nodes,
     body_geometry_facts: file.body_geometry_facts,
+    geotech_tie_tombstones: file.geotech_tie_tombstones,
   }
 }
 
