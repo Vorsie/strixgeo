@@ -2345,16 +2345,41 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     LithoLayerOrm.borehole_id,
                     LithoLayerOrm.depth_top_m,
                     LithoLayerOrm.depth_base_m,
+                    LithoLayerOrm.formation_id,
                 ).where(LithoLayerOrm.model_id == geotech_model_id)
             )
         ).all()
-        stacks: dict[str, list[tuple[float, float, UUID]]] = defaultdict(list)
+        # The soil each band carries — the landing guard needs the SEAM soils
+        # (band above, band below) so a sand span cannot land on a clay top.
+        soil_by_formation: dict[UUID, str | None] = {
+            formation_row.id: formation_row.litho_main_soil_code
+            for formation_row in (
+                await self._session.execute(
+                    select(GeologicalFormationOrm.id, GeologicalFormationOrm.litho_main_soil_code)
+                )
+            ).all()
+        }
+        stacks: dict[str, list[tuple[float, float, UUID, str | None]]] = defaultdict(list)
         for row in band_rows:
             stacks[str(row.cpt_id or row.borehole_id)].append(
-                (row.depth_top_m, row.depth_base_m, row.id)
+                (row.depth_top_m, row.depth_base_m, row.id, soil_by_formation.get(row.formation_id))
             )
         for stack in stacks.values():
             stack.sort()
+
+        def _column_seams(
+            stack: list[tuple[float, float, UUID, str | None]],
+        ) -> tuple[tuple[float, ...], tuple[tuple[str | None, str | None], ...]]:
+            """Every contact on the column with its (above, below) soils."""
+            contacts: list[float] = []
+            soils: list[tuple[str | None, str | None]] = []
+            for index, (top, _base, _band_id, soil) in enumerate(stack):
+                contacts.append(top)
+                soils.append((stack[index - 1][3] if index > 0 else None, soil))
+            if stack:
+                contacts.append(stack[-1][1])
+                soils.append((stack[-1][3], None))
+            return tuple(contacts), tuple(soils)
 
         placements = await self._load_section_placements(project_id)
         placement_by_section = {UUID(pl.section_id): pl for pl in placements}
@@ -2394,8 +2419,21 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         band_home = {
             str(band_id): (inv, top, base)
             for inv, stack in stacks.items()
-            for top, base, band_id in stack
+            for top, base, band_id, _soil in stack
         }
+
+        def _endpoint_seam_soils(
+            inv: str, band_id: UUID, side: str
+        ) -> tuple[str | None, str | None] | None:
+            """The (above, below) soils of the seam a tie endpoint names."""
+            stack = stacks.get(inv, [])
+            index = next((i for i, entry in enumerate(stack) if entry[2] == band_id), None)
+            if index is None:
+                return None
+            if side == "top":
+                return (stack[index - 1][3] if index > 0 else None, stack[index][3])
+            return (stack[index][3], stack[index + 1][3] if index + 1 < len(stack) else None)
+
         existing_sided: dict[tuple[UUID, UUID, str, str], LithoContactCorrelationEdgeOrm] = {}
         for edge in all_edges:
             a, b = edge.layer_a_id, edge.layer_b_id
@@ -2408,7 +2446,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         def node_to_surface(inv: str, depth: float) -> tuple[UUID, str] | None:
             """The (band, side) owning a contact depth on a column."""
             resolved = band_at_contact(
-                [(top, base, band_id) for top, base, band_id in stacks.get(inv, [])], depth
+                [(top, base, band_id) for top, base, band_id, _soil in stacks.get(inv, [])], depth
             )
             return resolved
 
@@ -2425,24 +2463,23 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 continue
             depth_a = home_a[1] if edge.layer_a_side == "top" else home_a[2]
             depth_b = home_b[1] if edge.layer_b_side == "top" else home_b[2]
-            columns = [
-                SpanColumn(
-                    investigation_id=inv,
-                    along_m=along,
-                    collar_elev_m=collars.get(inv, 0.0),
-                    contacts_m=tuple(
-                        sorted(
-                            {top for top, _b, _i in stacks.get(inv, [])}
-                            | ({max(b for _t, b, _i in stacks[inv])} if stacks.get(inv) else set())
-                        )
-                    ),
-                    deepest_base_m=(
-                        max(b for _t, b, _i in stacks[inv]) if stacks.get(inv) else None
-                    ),
+            columns = []
+            for inv, along in placement.along_m.items():
+                if inv not in collars and inv not in (home_a[0], home_b[0]):
+                    continue
+                seam_depths, seam_soils = _column_seams(stacks.get(inv, []))
+                columns.append(
+                    SpanColumn(
+                        investigation_id=inv,
+                        along_m=along,
+                        collar_elev_m=collars.get(inv, 0.0),
+                        contacts_m=seam_depths,
+                        deepest_base_m=(
+                            max(b for _t, b, _i, _s in stacks[inv]) if stacks.get(inv) else None
+                        ),
+                        contact_soils=seam_soils,
+                    )
                 )
-                for inv, along in placement.along_m.items()
-                if inv in collars or inv in (home_a[0], home_b[0])
-            ]
             plan = split_span(
                 SpanTie(
                     edge_id=edge.id,
@@ -2450,6 +2487,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     depth_a_m=depth_a,
                     inv_b=home_b[0],
                     depth_b_m=depth_b,
+                    soils_a=_endpoint_seam_soils(home_a[0], edge.layer_a_id, edge.layer_a_side),
+                    soils_b=_endpoint_seam_soils(home_b[0], edge.layer_b_id, edge.layer_b_side),
                 ),
                 columns,
             )
