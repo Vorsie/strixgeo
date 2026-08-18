@@ -480,3 +480,84 @@ describe('computeSectionFillV2 — deep-to-deep substrate below a shallow test',
     expect(deepSandNearMiddle).toBe(false)
   })
 })
+
+describe('computeSectionFillV2 — a bracketed jump-tie pair BANDS through pass-through columns', () => {
+  it('two jump ties bracketing a unit band the quad across the middle column (owner 2026-08-18)', () => {
+    // Owner ruling, verbatim: "2/1/0 is still the basis of the model — that VD
+    // quad has a top and a bottom correlation so it should be there."
+    //
+    // His scene: S10's very-dense sand tied top AND base to S6's very-dense
+    // sand, jumping B2 whose thick sand both lines cross MID-BAND (no contact
+    // near the lines — the divide correctly keeps these as spans). Ruling
+    // 8i(e) made a bridge's pass-through side read onlap; for a BRACKETED
+    // pair — two ties, same column pair, same formation both ends — 2/1/0
+    // outranks it: two correlations make a band, adjacency was never part of
+    // the rule.
+    const lTop = layer()
+    const lVd = layer()
+    const lBelow = layer()
+    const mTop = layer()
+    const mThick = layer()
+    const mBot = layer()
+    const rTop = layer()
+    const rVd = layer()
+    const rBelow = layer()
+    const VD = 'vd-sand'
+    const BELOW = 'md-below'
+    const THICK = 'md-thick'
+    const left = col('L', 10, [
+      { top: 0, base: 2, f: CLAY, layerId: lTop },
+      { top: 2, base: 4, f: VD, layerId: lVd },
+      { top: 4, base: 8, f: BELOW, layerId: lBelow },
+    ])
+    // The middle column's thick sand spans BOTH bridge lines' elevations —
+    // crossed mid-band, exactly like B2.
+    const mid = col('M', 10, [
+      { top: 0, base: 1, f: CLAY, layerId: mTop },
+      { top: 1, base: 7, f: THICK, layerId: mThick },
+      { top: 7, base: 8, f: CLAY, layerId: mBot },
+    ])
+    const right = col('R', 10, [
+      { top: 0, base: 2.2, f: CLAY, layerId: rTop },
+      { top: 2.2, base: 4.2, f: VD, layerId: rVd },
+      { top: 4.2, base: 8, f: BELOW, layerId: rBelow },
+    ])
+    // The top correlation (VD tops) and the bottom correlation (the units
+    // below — the VD bases), both jumping M.
+    const edges: CorrelationEdge[] = [
+      { a: lVd, b: rVd, aSide: 'top', bSide: 'top' },
+      { a: lBelow, b: rBelow, aSide: 'top', bSide: 'top' },
+    ]
+    const regions = computeSectionFillV2([left, mid, right], edges)
+    const vdGap0 = ofFormation(regions, VD).filter((r) => r.gapIndex === 0)
+    const vdGap1 = ofFormation(regions, VD).filter((r) => r.gapIndex === 1)
+    // The quad exists on BOTH sides of the pass-through column…
+    expect(vdGap0.length).toBeGreaterThanOrEqual(1)
+    expect(vdGap1.length).toBeGreaterThanOrEqual(1)
+    // …and COVERS each gap fully: a band, not an onlap pinching mid-gap. The
+    // strip may arrive in several pieces (termination fences legitimately cut
+    // it), so the assertion is coverage at sample fractions, with each piece
+    // sitting inside the two ties' elevation envelope (tops 8/7.8, bases
+    // 6/5.8).
+    for (const [pieces, label] of [
+      [vdGap0, 'gap 0'],
+      [vdGap1, 'gap 1'],
+    ] as const) {
+      for (const f of [0.02, 0.25, 0.5, 0.75, 0.98]) {
+        const covered = pieces.some((r) => {
+          const cover = coverAt(r, f)
+          return cover !== null && cover[1] - cover[0] > 0.5
+        })
+        expect(covered, `${label}: the band must cover fraction ${f}`).toBe(true)
+      }
+      for (const r of pieces) {
+        expect(maxFrac(r)).toBeLessThanOrEqual(1.000001)
+        const mid = coverAt(r, (minFrac(r) + maxFrac(r)) / 2)
+        if (mid !== null) {
+          expect(mid[1]).toBeLessThanOrEqual(8.05)
+          expect(mid[0]).toBeGreaterThanOrEqual(5.75)
+        }
+      }
+    }
+  })
+})
