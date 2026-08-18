@@ -69,6 +69,15 @@ export interface UseBody3DViewStateOptions {
   /** Active model id (litho / geotech / geological), or null when absent. */
   modelId: string | null
   /**
+   * The LITHO model this stage's fence is framed on — set on the GEOTECH stage
+   * only (owner ruling 2026-08-18, "densities on top of lithos"). With it the
+   * fence panels carry the hierarchical fill the geotech axis renders and the
+   * voxel build posts; without it the fence is the model's own partition.
+   */
+  frameModelId?: string | null
+  /** The frame model's litho-layer rows; required alongside ``frameModelId``. */
+  frameLayers?: readonly LithoLayerLike[]
+  /**
    * The model's litho-layer rows feeding the fence / voxel assembly.
    * Omit on canvases that never build a fence (Geology).
    */
@@ -139,6 +148,8 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
   const {
     modelId,
     layers = NO_LAYERS,
+    frameModelId = null,
+    frameLayers,
     resetSplitViewportRef,
     voxelRequestRef,
     fenceActive = true,
@@ -340,11 +351,59 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     })
   }, [fenceActive, viewMode, modelId, visibleSections, investigations, layers, approvedEdgesBySectionId])
 
+  // The FRAME model's per-section edges — same lazy fetch, second model. A
+  // section whose litho edges fail to load resolves to zero edges, which the
+  // hierarchical fill reads as "no litho unit is correlated here": every unit
+  // becomes its own family, so the fence shows each test's densities pinching
+  // at their own level rather than banding. The toast above already warns that
+  // the fence is incomplete; this arm inherits that warning by construction
+  // because both fetches share it.
+  const [frameEdgesBySectionId, setFrameEdgesBySectionId] = useState<
+    Map<string, ApprovedEdgePair[]>
+  >(new Map())
+
+  useEffect(() => {
+    if (!projectId || !frameModelId || !fenceActive || viewMode !== 'fence') return
+    if (visibleSections.length === 0) {
+      setFrameEdgesBySectionId(new Map())
+      return
+    }
+    let cancelled = false
+    void fetchApprovedEdgesBySection(projectId, frameModelId, visibleSections).then(result => {
+      if (cancelled) return
+      setFrameEdgesBySectionId(result.edgesBySectionId)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, frameModelId, fenceActive, viewMode, visibleSections])
+
+  const frameSectionInputs = useMemo<FenceSectionInput[] | undefined>(() => {
+    if (!fenceActive || viewMode !== 'fence') return undefined
+    if (!frameModelId || frameLayers === undefined) return undefined
+    return assembleLithoSectionInputs({
+      visibleSections,
+      investigations,
+      lithoLayers: frameLayers,
+      edgesBySectionId: frameEdgesBySectionId,
+    })
+  }, [
+    fenceActive,
+    viewMode,
+    frameModelId,
+    frameLayers,
+    visibleSections,
+    investigations,
+    frameEdgesBySectionId,
+  ])
+
   // Fence panels — built only in Fence mode to avoid the CPU cost otherwise.
   const fencePanels = useMemo(
     () =>
-      fenceActive && viewMode === 'fence' ? buildProjectFence(fenceSectionInputs) : undefined,
-    [fenceActive, viewMode, fenceSectionInputs],
+      fenceActive && viewMode === 'fence'
+        ? buildProjectFence(fenceSectionInputs, frameSectionInputs)
+        : undefined,
+    [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs],
   )
 
   return {
