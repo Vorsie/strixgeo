@@ -825,3 +825,55 @@ describe('a grab strip never reaches across a litho contact', () => {
     expect(bottom).toBeGreaterThan(yAtDepth(7.8))
   })
 })
+
+describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 2026-08-18)', () => {
+  // A borehole band's class is donor-extrapolated, never measured — the
+  // engineer's judgement outranks it. The menu offers the band's own soil
+  // FAMILY only (a sand band never offers a clay class); the current class is
+  // named and inert; a CPT band never gets the verb — its class is measured.
+  const nadClasses = new Map<string, number | null>([
+    ['f-bh-band-1', 6],
+    ['f-bh-band-2', 7],
+  ])
+
+  it('right-click on a borehole band opens the class menu with the soil family', () => {
+    const onRequestSetClass = vi.fn()
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass,
+      nadClassByFormationId: nadClasses,
+    })
+    fireEvent.contextMenu(screen.getByTestId('geotech-borehole-band-bh-band-1'))
+    // SAND family = classes 5..12; the current class (6) is named and inert.
+    expect(screen.getByTestId('geotech-band-menu-set-class-5')).toBeTruthy()
+    expect(screen.getByTestId('geotech-band-menu-set-class-12')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-band-menu-set-class-21')).toBeNull()
+    const current = screen.getByTestId(
+      'geotech-band-menu-set-class-6',
+    ) as HTMLButtonElement
+    expect(current.disabled).toBe(true)
+
+    fireEvent.click(screen.getByTestId('geotech-band-menu-set-class-8'))
+    expect(onRequestSetClass).toHaveBeenCalledWith('bh-band-1', 8, 6)
+  })
+
+  it('a CPT band never gets the verb — its class is measured', () => {
+    renderOverlay({
+      onRequestSetClass: vi.fn(),
+      nadClassByFormationId: new Map([['f-band-1', 6]]),
+    })
+    expect(screen.queryByTestId('geotech-borehole-band-band-1')).toBeNull()
+  })
+
+  it('without the handler the borehole band stays view-only', () => {
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      nadClassByFormationId: nadClasses,
+    })
+    expect(screen.queryByTestId('geotech-borehole-band-bh-band-1')).toBeNull()
+  })
+})
