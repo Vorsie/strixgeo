@@ -2266,6 +2266,9 @@ export default function SectionsCanvas(): JSX.Element {
           onRequestGeotechSetBandClass={
             isGeotech ? geotechBandEdit.onRequestSetBandClass : undefined
           }
+          onRequestGeotechClearColumn={
+            isGeotech ? geotechBandEdit.onRequestClearColumn : undefined
+          }
           geotechSmallLensThicknessM={geotechMinLayerThicknessM}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
           onLinkLithoToGeo={isLitho ? handleLinkLithoToGeo : undefined}
