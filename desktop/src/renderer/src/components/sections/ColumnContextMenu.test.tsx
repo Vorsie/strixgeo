@@ -143,3 +143,26 @@ describe('ColumnContextMenu', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Clear subdivision (owner ask 2026-08-18)', () => {
+  it('offers the verb when wired and fires it', () => {
+    const onClearSubdivision = vi.fn()
+    render(
+      <ColumnContextMenu
+        x={10}
+        y={10}
+        name="GEO-1"
+        onFocus={vi.fn()}
+        onClearSubdivision={onClearSubdivision}
+        onClose={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByText('Clear subdivision'))
+    expect(onClearSubdivision).toHaveBeenCalled()
+  })
+
+  it('stays absent when not wired — litho axis and band-less columns', () => {
+    render(<ColumnContextMenu x={10} y={10} name="GEO-1" onFocus={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.queryByText('Clear subdivision')).toBeNull()
+  })
+})
