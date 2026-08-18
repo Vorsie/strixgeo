@@ -74,6 +74,11 @@ class SpanColumn:
         depths below collar.  Empty when the column carries no bands.
     deepest_base_m : float | None
         The deepest band base, or ``None`` for a bandless column.
+    contact_soils : tuple[tuple[str | None, str | None], ...]
+        Per contact, the soil codes of the band ABOVE and BELOW the seam
+        (``None`` where no band exists on that face).  Parallel to
+        ``contacts_m``; empty = unknown, and the soil guard passes everything
+        at this column.
     """
 
     investigation_id: str
@@ -81,17 +86,28 @@ class SpanColumn:
     collar_elev_m: float
     contacts_m: tuple[float, ...]
     deepest_base_m: float | None
+    contact_soils: tuple[tuple[str | None, str | None], ...] = ()
 
 
 @dataclass(frozen=True)
 class SpanTie:
-    """One accepted tie reduced to its two (column, depth) endpoints."""
+    """One accepted tie reduced to its two (column, depth) endpoints.
+
+    ``soils_a`` / ``soils_b`` carry the (above, below) soil codes of the seam
+    each endpoint sits on.  A landing contact must present the same soils
+    (owner dogfeed 2026-08-18: a sand span crossing B6 landed on its
+    ZAND8|KLEI22 seam because it was 0.11 m nearer than the VD top, and the
+    machine wrote SAND↔CLAY hops he had to prune).  ``None`` = unknown → the
+    guard does not constrain.
+    """
 
     edge_id: UUID
     inv_a: str
     depth_a_m: float
     inv_b: str
     depth_b_m: float
+    soils_a: tuple[str | None, str | None] | None = None
+    soils_b: tuple[str | None, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -158,12 +174,34 @@ def split_span(tie: SpanTie, section_order: list[SpanColumn]) -> list[SpanNode] 
             min(col.contacts_m) - _DATA_TOL_M <= line_depth <= col.deepest_base_m + _DATA_TOL_M
         ):
             continue
-        nearest = min(col.contacts_m, key=lambda contact: abs(contact - line_depth))
-        if abs(nearest - line_depth) > SPAN_LANDING_TOLERANCE_M:
-            # The line crosses this column mid-band: no boundary near it, so
-            # the column does not express the tie's surface — keep spanning it
-            # (the SP8 case: B2's thick homogeneous sand).
+        # The soils the span's own seams carry, per face. A landing contact
+        # must present them: nearest-by-depth alone landed a sand span on
+        # B6's ZAND8|KLEI22 seam 0.11 m off, past the VD top 0.42 m off, and
+        # the SAND↔CLAY hops it wrote had to be pruned by hand. A ``None``
+        # face (no band, or unknown) never contradicts.
+        allowed_above = {s[0] for s in (tie.soils_a, tie.soils_b) if s is not None}
+        allowed_below = {s[1] for s in (tie.soils_a, tie.soils_b) if s is not None}
+
+        def _seam_ok(index: int) -> bool:
+            if index >= len(col.contact_soils):
+                return True
+            above, below = col.contact_soils[index]
+            above_ok = above is None or not allowed_above or above in allowed_above
+            below_ok = below is None or not allowed_below or below in allowed_below
+            return above_ok and below_ok
+
+        candidates = [
+            contact
+            for index, contact in enumerate(col.contacts_m)
+            if abs(contact - line_depth) <= SPAN_LANDING_TOLERANCE_M and _seam_ok(index)
+        ]
+        if not candidates:
+            # The line crosses this column mid-band, or every nearby contact
+            # is the wrong seam: the column does not express the tie's
+            # surface — keep spanning it (SP8: B2's thick homogeneous sand;
+            # SP10: B6's clay top under a sand span).
             continue
+        nearest = min(candidates, key=lambda contact: abs(contact - line_depth))
         landed.append(SpanNode(investigation_id=col.investigation_id, depth_m=nearest))
 
     if not landed:
