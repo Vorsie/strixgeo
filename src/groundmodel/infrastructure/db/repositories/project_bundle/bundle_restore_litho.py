@@ -893,22 +893,28 @@ async def _restore_geometry_facts(
     tuple[int, int, int]
         ``(new_facts, skipped_facts, dropped_facts)``.
     """
-    valid_layer_ids: set[UUID] = set(
-        (
+    # layer id → OWNING MODEL, not a flat project-wide set: a fact's endpoints
+    # must belong to the fact's own model (audit P2-7 — a project-wide set let
+    # a malformed fact for model A point at model B's layer, and the
+    # incoherent bundle round-tripped).
+    layer_model: dict[UUID, UUID] = {
+        row.id: row.model_id
+        for row in (
             await session.execute(
-                select(LithoLayerOrm.id)
+                select(LithoLayerOrm.id, LithoLayerOrm.model_id)
                 .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
                 .where(GeologicalModelOrm.app_project_id == project_id)
             )
-        )
-        .scalars()
-        .all()
-    )
+        ).all()
+    }
     for m_payload in geological_models_payload:
+        mid = _uuid(m_payload.get("id"))
+        if mid is None:
+            continue
         for ly in m_payload.get("litho_layers") or []:
             lid = _uuid(ly.get("id"))
             if lid is not None:
-                valid_layer_ids.add(lid)
+                layer_model[lid] = mid
 
     existing = set(
         (
@@ -958,9 +964,10 @@ async def _restore_geometry_facts(
             logger.warning(f"[{i}/{total}] geometry fact {fact_id} has no valid pair — dropped")
             dropped += 1
             continue
-        if a_id not in valid_layer_ids or b_id not in valid_layer_ids:
+        if layer_model.get(a_id) != fact_model_id or layer_model.get(b_id) != fact_model_id:
             logger.warning(
-                f"[{i}/{total}] geometry fact {fact_id}: layer endpoint(s) not in this "
+                f"[{i}/{total}] geometry fact {fact_id}: layer endpoint(s) not in the "
+                f"fact's own model "
                 f"project — dropped (dangling FK)"
             )
             dropped += 1
