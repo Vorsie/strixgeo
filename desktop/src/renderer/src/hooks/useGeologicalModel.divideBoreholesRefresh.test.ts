@@ -29,6 +29,11 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { useGeologicalModel } from './useGeologicalModel'
+import {
+  clearBoreholesStale,
+  getBoreholesStale,
+  markBoreholesStale,
+} from '../utils/boreholesStaleStore'
 import type {
   DivideBoreholeResponse,
   GeologicalModelResponse,
@@ -218,11 +223,16 @@ function makeArgs() {
 }
 
 /**
- * Boot the hook and press "Divide boreholes" on the open section.
+ * Boot the hook and press "Divide boreholes".
  *
+ * @param options - Forwarded to the verb; defaults to the open-section press.
  * @returns The hook args, so the caller can read the spies.
  */
-async function divide(): Promise<ReturnType<typeof makeArgs>> {
+async function divide(
+  options: Parameters<
+    ReturnType<typeof useGeologicalModel>['handleDivideBoreholes']
+  >[0] = { sectionId: 'section-1' },
+): Promise<ReturnType<typeof makeArgs>> {
   const args = makeArgs()
   const { result } = renderHook(() => useGeologicalModel(args))
 
@@ -230,7 +240,7 @@ async function divide(): Promise<ReturnType<typeof makeArgs>> {
   await waitFor(() => expect(result.current.activeGeotechModel).not.toBeNull())
 
   await act(async () => {
-    await result.current.handleDivideBoreholes({ sectionId: 'section-1' })
+    await result.current.handleDivideBoreholes(options)
   })
   return args
 }
@@ -266,5 +276,48 @@ describe('divide boreholes — what the view reloads afterwards', () => {
 
     expect(args.requestCorrelationEdgesRefetch).not.toHaveBeenCalled()
     expect(args.requestBodyRecompute).not.toHaveBeenCalled()
+  })
+})
+
+describe('divide boreholes — the global stale flag (audit P1-4)', () => {
+  // The amber "Divide boreholes" button reads ONE global flag. A run that
+  // leaves any borehole out of date must not clear it: a scoped press that
+  // greys the button tells the engineer the OPPOSITE of the truth about the
+  // sections it never touched.
+
+  beforeEach(() => {
+    markBoreholesStale()
+  })
+
+  it('DBR4 — a section-scoped divide keeps the stale flag', async () => {
+    // Dividing the open section says nothing about the other sections'
+    // boreholes — they are exactly as stale as before the press.
+    await divide({ sectionId: 'section-1' })
+
+    expect(getBoreholesStale()).toBe(true)
+  })
+
+  it('DBR5 — a borehole-subset divide keeps the stale flag', async () => {
+    // Same reasoning per borehole: the ones left out are still out of date.
+    await divide({ boreholeIds: ['bh-1'] })
+
+    expect(getBoreholesStale()).toBe(true)
+  })
+
+  it('DBR6 — a full all-sections divide clears the stale flag', async () => {
+    // Only the unscoped press brings EVERY borehole up to date.
+    await divide({})
+
+    expect(getBoreholesStale()).toBe(false)
+  })
+
+  it('DBR7 — a failed full divide keeps the stale flag', async () => {
+    // Nothing changed server-side, so the boreholes are as stale as before.
+    vi.mocked(apiMock.geology.divideBoreholes).mockRejectedValue(new Error('boom'))
+
+    await divide({})
+
+    expect(getBoreholesStale()).toBe(true)
+    clearBoreholesStale()
   })
 })
