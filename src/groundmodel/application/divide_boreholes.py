@@ -183,6 +183,7 @@ from groundmodel.domain.services.geotech_tie_donors import (
 from groundmodel.domain.services.geotech_unit_boundaries import (
     ColumnBoundary,
     PlacedBoundary,
+    interior_boundary_index,
     place_unit_boundaries,
     replaced_tie_indices,
 )
@@ -2504,7 +2505,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         Returns
         -------
         list[Any]
-            Rows of ``(section_id, layer_a_id, layer_b_id)``.  Unapproved
+            Rows of ``(section_id, layer_a_id, layer_b_id, layer_a_side,
+            layer_b_side)``.  Unapproved
             proposals are excluded by the query: only what the engineer accepted
             may steer where a borehole's packing comes from.
         """
@@ -2514,6 +2516,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     LithoContactCorrelationEdgeOrm.section_id,
                     LithoContactCorrelationEdgeOrm.layer_a_id,
                     LithoContactCorrelationEdgeOrm.layer_b_id,
+                    # The sides travel too (audit P1-2): a base↔base tie names
+                    # a DIFFERENT seam than a top↔top one between the same
+                    # bands, and dropping the side re-declared the engineer's
+                    # correlation one contact up.
+                    LithoContactCorrelationEdgeOrm.layer_a_side,
+                    LithoContactCorrelationEdgeOrm.layer_b_side,
                 ).where(
                     LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
                     LithoContactCorrelationEdgeOrm.user_approved.is_(True),
@@ -2531,8 +2539,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         Parameters
         ----------
         rows : list[Any]
-            ``(section_id, layer_a_id, layer_b_id)`` rows from
-            :meth:`_load_accepted_tie_rows`.
+            ``(section_id, layer_a_id, layer_b_id, layer_a_side,
+            layer_b_side)`` rows from :meth:`_load_accepted_tie_rows`.
         layer_to_investigation : dict[UUID, str]
             ``geotech layer id → CPT investigation id`` for every CPT band in
             the model.  A tie endpoint missing from this map sits on a borehole
@@ -2544,7 +2552,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             The CPT↔CPT ties, in the domain rule's own vocabulary.
         """
         ties: list[AcceptedTie] = []
-        for section_id, layer_a_id, layer_b_id in rows:
+        for section_id, layer_a_id, layer_b_id, layer_a_side, layer_b_side in rows:
             inv_a = layer_to_investigation.get(layer_a_id)
             inv_b = layer_to_investigation.get(layer_b_id)
             if inv_a is None or inv_b is None or inv_a == inv_b:
@@ -2556,6 +2564,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     investigation_b=inv_b,
                     layer_b_id=str(layer_b_id),
                     section_id=str(section_id),
+                    side_a=layer_a_side,
+                    side_b=layer_b_side,
                 )
             )
         return ties
@@ -3893,18 +3903,34 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             index_of_left = {b[0]: i for i, b in enumerate(left_stack)}
             index_of_right = {b[0]: i for i, b in enumerate(right_stack)}
             ties: list[tuple[int, int]] = []
+            # The (left band, right band) layer-id pair per ``ties`` entry, so
+            # the replaced-tie report names the ORIGINAL rows. Reconstructing
+            # them from the seam index assumed a top-side tie (audit P1-2).
+            tie_layer_pairs: list[tuple[str, str]] = []
             for tie in accepted_ties:
-                pair = {tie.investigation_a: tie.layer_a_id, tie.investigation_b: tie.layer_b_id}
+                pair = {
+                    tie.investigation_a: (tie.layer_a_id, tie.side_a),
+                    tie.investigation_b: (tie.layer_b_id, tie.side_b),
+                }
                 if left_id not in pair or right_id not in pair:
                     continue
-                li = index_of_left.get(UUID(pair[left_id]))
-                ri = index_of_right.get(UUID(pair[right_id]))
-                # A tie names two BANDS; the boundary it declares is the one
-                # above each. The topmost band's "boundary above" is the litho
-                # contact, which the litho model already owns.
-                if li is None or ri is None or li == 0 or ri == 0:
+                left_layer, left_side = pair[left_id]
+                right_layer, right_side = pair[right_id]
+                li = index_of_left.get(UUID(left_layer))
+                ri = index_of_right.get(UUID(right_layer))
+                if li is None or ri is None:
                     continue
-                ties.append((li - 1, ri - 1))
+                # A tie names a band AND a side; the side decides which seam
+                # is declared (audit P1-2 — the old code assumed 'top', so a
+                # base↔base tie moved one seam up and a deepest-band base tie
+                # was dropped outright). A seam that is the unit's own litho
+                # contact maps to None: the litho model owns it.
+                lb = interior_boundary_index(li, left_side, len(left_stack))
+                rb = interior_boundary_index(ri, right_side, len(right_stack))
+                if lb is None or rb is None:
+                    continue
+                ties.append((lb, rb))
+                tie_layer_pairs.append((left_layer, right_layer))
 
             placed = place_unit_boundaries(
                 left_bounds,
@@ -3923,13 +3949,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             best = UnitTiePlacement(
                 bands=bands,
                 correspondences=correspondences,
-                replaced_tie_layer_pairs=[
-                    (
-                        str(left_stack[ties[i][0] + 1][0]),
-                        str(right_stack[ties[i][1] + 1][0]),
-                    )
-                    for i in replaced_tie_indices(placed)
-                ],
+                replaced_tie_layer_pairs=[tie_layer_pairs[i] for i in replaced_tie_indices(placed)],
                 section_name=placement.section_name,
                 gap_width_m=width,
             )
