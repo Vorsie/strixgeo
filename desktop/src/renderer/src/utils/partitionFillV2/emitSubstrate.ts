@@ -87,11 +87,36 @@ export function bridgeGapAnchorKey(
  *     unit k also anchors the base of unit k−1). ``emitIntervals`` skips a unit that
  *     owns an anchored contact.
  */
+/**
+ * A bracketed jump-tie pair's strip (owner ruling 2026-08-18): the region
+ * between the two bridge lines, from the lo column to the hi column.  A face
+ * belongs to the strip by GEOMETRY — every vertex between the lines within the
+ * x-range — never by bounding-curve identity: at the anchor columns the bridge
+ * is coincident with the columns' own contact curves and the arrangement may
+ * hand the boundary to either id, and corner-touching neighbours graze both
+ * curves without lying between them.
+ */
+export interface BracketStrip {
+  formationId: string
+  bodyId: string | null
+  /** The two anchor units' litho layers — the drilled truth the band restates. */
+  layerIds: string[]
+  loX: number
+  hiX: number
+  /** Upper line elevations at loX / hiX. */
+  upperLo: number
+  upperHi: number
+  /** Lower line elevations at loX / hiX. */
+  lowerLo: number
+  lowerHi: number
+}
+
 export function emitSubstrateBridges(
   section: SectionInput,
   out: InputCurve[],
   anchored: Set<string>,
   gapAnchored?: Set<string>,
+  bracketStrips?: BracketStrip[],
 ): void {
   const { columns } = section
   // Register a bridge endpoint contact + the derived base of the unit above it
@@ -123,6 +148,17 @@ export function emitSubstrateBridges(
   }
 
   let seq = 0
+  const emitted: {
+    curveId: string
+    loCi: number
+    hiCi: number
+    loUi: number
+    hiUi: number
+    loSide: 'top' | 'base'
+    hiSide: 'top' | 'base'
+    loElev: number
+    hiElev: number
+  }[] = []
   for (const e of section.edges) {
     const la = layerLoc.get(e.a)
     const lb = layerLoc.get(e.b)
@@ -159,6 +195,45 @@ export function emitSubstrateBridges(
       const t = (x - loX) / (hiX - loX)
       points.push({ x, y: loElev + t * (hiElev - loElev) })
     }
-    out.push({ id: `bridge${seq++}:${loLoc.ci}-${hiLoc.ci}`, kind: 'tie', points })
+    const curveId = `bridge${seq++}:${loLoc.ci}-${hiLoc.ci}`
+    out.push({ id: curveId, kind: 'tie', points })
+    emitted.push({ curveId, loCi: loLoc.ci, hiCi: hiLoc.ci, loUi: loLoc.ui, hiUi: hiLoc.ui, loSide, hiSide, loElev, hiElev })
+  }
+
+  // ---- Bracket detection (owner ruling 2026-08-18): "2/1/0 is still the ----
+  // basis of the model — that VD quad has a top and a bottom correlation so it
+  // should be there." Two bridges over the SAME column pair whose contacts are
+  // the top AND the base of one unit on each side (same formation both ends)
+  // BRACKET that unit: the strip between their lines is a BAND of that
+  // formation, straight through every pass-through column. Ruling 8i(e)'s
+  // onlap-riding stays the answer for a LONE bridge; a bracketed pair outranks
+  // it because two correlations were never anything but a band.
+  if (bracketStrips) {
+    const eps = 1e-6
+    for (const top of emitted) {
+      for (const bot of emitted) {
+        if (top === bot) continue
+        if (top.loCi !== bot.loCi || top.hiCi !== bot.hiCi) continue
+        if (top.loSide !== 'top' || top.hiSide !== 'top') continue
+        const loUnit = columns[top.loCi].units[top.loUi]
+        const hiUnit = columns[top.hiCi].units[top.hiUi]
+        if (!loUnit || !hiUnit || loUnit.formationId !== hiUnit.formationId) continue
+        // ``bot`` must run along that same unit's BASE on both columns —
+        // whether stated as the unit's own base or the next unit's top.
+        if (Math.abs(bot.loElev - loUnit.baseElev) > eps) continue
+        if (Math.abs(bot.hiElev - hiUnit.baseElev) > eps) continue
+        bracketStrips.push({
+          formationId: loUnit.formationId,
+          bodyId: loUnit.bodyId ?? hiUnit.bodyId ?? null,
+          layerIds: [loUnit.layerId, hiUnit.layerId],
+          loX: columns[top.loCi].x,
+          hiX: columns[top.hiCi].x,
+          upperLo: top.loElev,
+          upperHi: top.hiElev,
+          lowerLo: bot.loElev,
+          lowerHi: bot.hiElev,
+        })
+      }
+    }
   }
 }
