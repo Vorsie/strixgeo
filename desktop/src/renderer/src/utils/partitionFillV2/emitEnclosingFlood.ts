@@ -39,6 +39,7 @@
 import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
 import { terminationApexOverride } from './apexOverride'
 import { applyContactBend, collectContactBends, type ContactBend } from './contactOverride'
+import { isDeclaredMeeting } from './declaredMeetings'
 import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
 import { clipBandContourToTD, collectGapBands, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
@@ -347,6 +348,16 @@ function closeInterval(
         t.gapIndex === gapIndex &&
         tieLandsOn(t, 'left', leftEncl.unitIndex) &&
         tieLandsOn(t, 'right', rightEncl.unitIndex),
+    ) ||
+    // A PARENT MODEL may declare the meeting too (owner ruling A, "litho approval carries
+    // down"). Inside a per-family geotech run the only correlations in ``activeTies`` are the
+    // packing ties; the family is itself a litho chain, so masses whose parent litho units are
+    // tied meet even when their own restatement is absent. It is a boundary, never a band —
+    // see ``declaredMeetings``.
+    isDeclaredMeeting(
+      gapIndex,
+      left.units[leftEncl.unitIndex]?.layerId,
+      right.units[rightEncl.unitIndex]?.layerId,
     )
   if (!declared) return
 
