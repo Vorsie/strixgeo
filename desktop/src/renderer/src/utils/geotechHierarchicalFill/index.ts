@@ -42,6 +42,7 @@ import { buildLithoFamilies, type LithoFamily } from './families'
 import { applyFamilyMatrix } from './familyMatrix'
 import { clipFamilyToFrameGap } from './frameClip'
 import { familyBands, floodFamilyCover, type FamilyBand, type FamilySource } from './familyFlood'
+import { clearDeclaredMeetings, setDeclaredMeetings, type DeclaredMeeting } from '../partitionFillV2/declaredMeetings'
 import { computeSectionFillActiveWithDiagnostics } from '../partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
 import type { TieConflict } from '../partitionFillV2'
@@ -147,6 +148,18 @@ export interface HierarchicalGeotechFillResult {
   diagnostics: HierarchicalGeotechFillDiagnostics
 }
 
+/**
+ * A meeting the LITHO model declares between two of a family's masses, on the FRAME's column
+ * axis: the parent units are tied, so the bands under them meet even without their own packing
+ * tie (owner ruling A). Mapped onto each run's own gap axis in ``runFamily``.
+ */
+interface FrameMeeting {
+  leftColumn: number
+  rightColumn: number
+  leftBands: ReadonlySet<string>
+  rightBands: ReadonlySet<string>
+}
+
 /** A family's engine output, carried in ABSOLUTE along-metres. */
 interface AbsoluteRegion {
   source: SectionRegion
@@ -218,6 +231,7 @@ function runFamily(
   bandsOfFamily: ReadonlyMap<number, PartitionColumn>,
   compute: PartitionEngine,
   conflicts: TieConflict[],
+  declared: readonly FrameMeeting[] = [],
 ): AbsoluteRegion[] {
   if (indices.length < 2) return []
   const columns = indices.map((ci) => bandsOfFamily.get(ci) as PartitionColumn)
@@ -227,7 +241,27 @@ function runFamily(
   const edges = input.geotechEdges.filter((e) => ownLayerIds.has(e.a) && ownLayerIds.has(e.b))
 
   const out: AbsoluteRegion[] = []
-  const answer = compute(columns, edges, undefined, alongM)
+  // The parent model's declared meetings, on THIS run's own gap axis (see
+  // ``declaredMeetings``). Cleared in a ``finally`` so a run can never leak into the next.
+  const runDeclared: DeclaredMeeting[] = []
+  for (const m of declared) {
+    const a = indices.indexOf(m.leftColumn)
+    const b = indices.indexOf(m.rightColumn)
+    if (a < 0 || b < 0 || Math.abs(a - b) !== 1) continue
+    runDeclared.push(
+      a < b
+        ? { gapIndex: a, left: m.leftBands, right: m.rightBands }
+        : { gapIndex: b, left: m.rightBands, right: m.leftBands },
+    )
+  }
+  const prevDeclared = setDeclaredMeetings(runDeclared)
+  let answer: ReturnType<PartitionEngine>
+  try {
+    answer = compute(columns, edges, undefined, alongM)
+  } finally {
+    setDeclaredMeetings(prevDeclared)
+    if (prevDeclared.length === 0) clearDeclaredMeetings()
+  }
   // The owner's channel-matrix ruling, re-stated in family space: a face that
   // floods a vacancy reads the class the reached test measured at the face's own
   // top level (``familyMatrix.ts``).
@@ -402,6 +436,21 @@ export function computeHierarchicalGeotechFill(
     return (Math.abs(twice) / 2) * width
   }
 
+  // Every litho unit's own column and elevations — the litho tie's geometry, which the
+  // family flood reads as the connective envelope of its soil cover (owner ruling A).
+  const lithoColumnOfLayer = new Map<string, number>()
+  const lithoUnitElev = new Map<string, { top: number; base: number }>()
+  for (let ci = 0; ci < input.lithoColumns.length; ci++) {
+    const column = input.lithoColumns[ci]
+    for (const unit of column.units) {
+      lithoColumnOfLayer.set(unit.layerId, ci)
+      lithoUnitElev.set(unit.layerId, {
+        top: column.surfaceElevM - unit.topDepthM,
+        base: column.surfaceElevM - unit.baseDepthM,
+      })
+    }
+  }
+
   // Frame columns each family's LITHO units stand on — the authority for which
   // bandless columns block and which are bridged (see ``runsBetweenBlockers``).
   const lithoColumnsByFamily = new Map<string, Set<number>>()
@@ -426,10 +475,35 @@ export function computeHierarchicalGeotechFill(
       if (!own.has(ci)) blockers.add(ci)
     }
     if (blockers.size > 0) blockedColumns += blockers.size
+    // The litho ties inside this family, as meetings between the bands under their two units.
+    // Litho approval carries down: the masses meet, and the fence between them is legitimate —
+    // but they do not band, so a deleted packing tie is not resurrected (``declaredMeetings``).
+    const meetings: FrameMeeting[] = []
+    for (const edge of input.lithoEdges) {
+      if (!family.lithoLayerIds.has(edge.a) || !family.lithoLayerIds.has(edge.b)) continue
+      const ca = lithoColumnOfLayer.get(edge.a)
+      const cb = lithoColumnOfLayer.get(edge.b)
+      if (ca === undefined || cb === undefined || ca === cb) continue
+      const bandsUnder = (parent: string, ci: number): Set<string> => {
+        const out = new Set<string>()
+        for (const unit of own.get(ci)?.units ?? []) {
+          if (parentOfBand.get(unit.layerId) === parent) out.add(unit.layerId)
+        }
+        return out
+      }
+      const aBands = bandsUnder(edge.a, ca)
+      const bBands = bandsUnder(edge.b, cb)
+      if (aBands.size === 0 || bBands.size === 0) continue
+      meetings.push(
+        ca < cb
+          ? { leftColumn: ca, rightColumn: cb, leftBands: aBands, rightBands: bBands }
+          : { leftColumn: cb, rightColumn: ca, leftBands: bBands, rightBands: aBands },
+      )
+    }
     const absolute = runsBetweenBlockers(
       [...own.keys()].sort((a, b) => a - b),
       blockers,
-    ).flatMap((run) => runFamily(input, run, own, compute, conflicts))
+    ).flatMap((run) => runFamily(input, run, own, compute, conflicts, meetings))
     // Every banded test of the family, at its along position — the flood's own
     // source set. It is the FAMILY's, not the gap's: a body whose only divided
     // test stands two gaps away is still the only thing that can fill its cover
@@ -509,6 +583,9 @@ export function computeHierarchicalGeotechFill(
       // so the form the line closes is the band's to fill; an untied band reaches nowhere but
       // its own level. This is the same envelope the 2/1/0 conformance gate audits against.
       const reachOf = new Map<string, { top: number; base: number }>()
+      /** The two columns THIS gap runs between, in either order. */
+      const isGapPair = (a: number, b: number): boolean =>
+        (a === gap && b === gap + 1) || (a === gap + 1 && b === gap)
       const elevOfBand = new Map<string, { top: number; base: number }>()
       for (const s of floodSourcesByColumn) {
         for (const b of s.bands) elevOfBand.set(b.layerId, { top: b.topElev, base: b.baseElev })
@@ -532,6 +609,42 @@ export function computeHierarchicalGeotechFill(
           const cur = reachOf.get(near)
           if (cur === undefined) reachOf.set(near, { top: at, base: at })
           else reachOf.set(near, { top: Math.max(cur.top, at), base: Math.min(cur.base, at) })
+        }
+      }
+      // LITHO APPROVAL CARRIES DOWN (owner ruling A). A family IS a litho chain — it is built
+      // from litho edges — so the litho tie is the statement that this SOIL cover is one
+      // connected mass across the gap, and the family's bands may reach along it. Without this
+      // a cover whose geotech restatement is absent — deleted by hand, or simply not derived
+      // yet — falls apart: each flank's class closes as its own little loop and the middle of a
+      // twice-tied band renders "correlate me", which is his dark clay quad between B6 and B4.
+      //
+      // This governs the SOIL cover only. The class banding still answers to the geotech ties
+      // alone: a band reaching along a litho line meets the facing class, it does not merge
+      // with it, so a tie he DELETED is never resurrected as a class band.
+      for (const edge of input.lithoEdges) {
+        for (const [near, far, farSide] of [
+          [edge.a, edge.b, edge.bSide],
+          [edge.b, edge.a, edge.aSide],
+        ] as const) {
+          // Both ends must be this family's own litho units, one on each of the gap's columns.
+          if (!family.lithoLayerIds.has(near) || !family.lithoLayerIds.has(far)) continue
+          const nearCi = lithoColumnOfLayer.get(near)
+          const farCi = lithoColumnOfLayer.get(far)
+          if (nearCi === undefined || farCi === undefined) continue
+          if (!isGapPair(nearCi, farCi)) continue
+          const farUnit = lithoUnitElev.get(far)
+          if (farUnit === undefined) continue
+          const at = farSide === 'base' ? farUnit.base : farUnit.top
+          // Every band of the near unit inherits it: the whole unit is what was tied.
+          for (const s of floodSourcesByColumn) {
+            if (s.ci !== nearCi) continue
+            for (const b of s.bands) {
+              if (parentOfBand.get(b.layerId) !== near) continue
+              const cur = reachOf.get(b.layerId)
+              if (cur === undefined) reachOf.set(b.layerId, { top: at, base: at })
+              else reachOf.set(b.layerId, { top: Math.max(cur.top, at), base: Math.min(cur.base, at) })
+            }
+          }
         }
       }
       const floodSources: FamilySource[] = floodSourcesByColumn.map((s) => ({
