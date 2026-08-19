@@ -51,6 +51,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
+from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -197,6 +198,12 @@ async def _run_resolver(
         )
     ).all()
 
+    # A GEOTECH body is one soil AND one packing density (owner, 2026-08-19:
+    # *"if a lens is touching a body with same litho and packing then lens
+    # disappears and it becomes one body, in the renderer and in the database"*).
+    # The band's own formation row IS its packing class, so it travels as the
+    # resolver's mass filter. A litho model passes none and is untouched.
+    is_geotechnical = model.kind == MODEL_KIND_GEOTECHNICAL
     nodes: list[LayerNode] = [
         LayerNode(
             layer_id=r.id,
@@ -205,6 +212,7 @@ async def _run_resolver(
             litho_main_soil_code=r.litho_main_soil_code,
             depth_top_m=r.depth_top_m,
             source_investigation_id=(r.borehole_id if r.borehole_id is not None else r.cpt_id),
+            packing_formation_id=r.formation_id if is_geotechnical else None,
         )
         for r in layer_rows
     ]
