@@ -113,12 +113,6 @@ export interface HierarchicalGeotechFillDiagnostics {
   /** Cover the family flood classified, in square metres (see ``familyFlood.ts``). */
   levelFilledAreaM2: number
   /**
-   * The subset of that, in square metres, read off a band of the same lithology
-   * in ANOTHER chain — cover no chain with densities claims. Reported so the
-   * one place this construction reaches outside a family is never silent.
-   */
-  levelFilledCrossFamilyAreaM2: number
-  /**
    * Litho cover left unclassified, in square metres, by WHY — the honest
    * accounting of what the fill does not know. ``noBands`` = neither column of
    * the gap carries a band of this family (nothing was ever derived there);
@@ -365,46 +359,6 @@ export function computeHierarchicalGeotechFill(
     }
   }
 
-  // Same-lithology bands per frame column, for the level fill's last resort:
-  // column index → litho formation → its bands there, whichever chain they
-  // belong to.
-  const lithoFormationOfLayer = new Map<string, string>()
-  for (const column of input.lithoColumns) {
-    for (const unit of column.units) lithoFormationOfLayer.set(unit.layerId, unit.formationId)
-  }
-  const kinByColumn = new Map<number, Map<string, FamilyBand[]>>()
-  for (let ci = 0; ci < input.geotechColumns.length; ci++) {
-    const column = input.geotechColumns[ci]
-    const byFormation = new Map<string, FamilyBand[]>()
-    for (const unit of column.units) {
-      const parent = parentOfBand.get(unit.layerId)
-      const formation = parent === undefined ? undefined : lithoFormationOfLayer.get(parent)
-      if (formation === undefined) continue
-      const band = {
-        formationId: unit.formationId,
-        bodyId: unit.bodyId,
-        layerId: unit.layerId,
-        topElev: column.surfaceElevM - unit.topDepthM,
-        baseElev: column.surfaceElevM - unit.baseDepthM,
-      }
-      const list = byFormation.get(formation)
-      if (list === undefined) byFormation.set(formation, [band])
-      else list.push(band)
-    }
-    kinByColumn.set(ci, byFormation)
-  }
-  /** A family's single lithology — families never span two (see families.ts). */
-  const formationOfFamily = new Map<string, string>()
-  for (const family of families) {
-    for (const layerId of family.lithoLayerIds) {
-      const formation = lithoFormationOfLayer.get(layerId)
-      if (formation !== undefined) {
-        formationOfFamily.set(family.id, formation)
-        break
-      }
-    }
-  }
-
   // Every litho region of a gap, in the render's own z-order (overlays last) —
   // the ownership authority the per-family clips resolve against.
   const paintByGap = new Map<number, SectionRegion[]>()
@@ -420,7 +374,6 @@ export function computeHierarchicalGeotechFill(
   let oneSidedGaps = 0
   let blockedColumns = 0
   let levelFilledAreaM2 = 0
-  let levelFilledCrossFamilyAreaM2 = 0
   const residualAreaM2 = { noBands: 0, afterEngine: 0, outsideBandRange: 0 }
   /** Ring area in square metres: fraction-space area scaled by the gap width. */
   const areaM2 = (region: SectionRegion): number => {
@@ -561,18 +514,7 @@ export function computeHierarchicalGeotechFill(
       //    anywhere, only a same-lithology band on this gap's own two tests can
       //    answer; with neither, nothing was ever derived here and the whole
       //    cover falls back.
-      const formation = formationOfFamily.get(family.id)
-      const kin =
-        formation === undefined
-          ? undefined
-          : {
-              left: kinByColumn.get(gap)?.get(formation) ?? [],
-              right: kinByColumn.get(gap + 1)?.get(formation) ?? [],
-            }
-      if (
-        floodSourcesByColumn.length === 0 &&
-        (kin === undefined || (kin.left.length === 0 && kin.right.length === 0))
-      ) {
+      if (floodSourcesByColumn.length === 0) {
         lithoFallback.push(...clipped.residual)
         for (const r of clipped.residual) residualAreaM2.noBands += areaM2(r)
         continue
@@ -657,11 +599,26 @@ export function computeHierarchicalGeotechFill(
         }),
         flank: s.ci === gap || s.ci === gap + 1,
       }))
-      const filled = floodFamilyCover(clipped.residual, floodSources, left, right, gap, kin)
+      // What each band's own construct already claims in this gap — the flood must not paint a
+      // band again past the loop it drew (see ``hasClosedAt``).
+      const closed = new Map<string, [number, number][]>()
+      for (const r of clipped.covered) {
+        let lo = Infinity
+        let hi = -Infinity
+        for (const p of r.polygon) {
+          if (p.elevation < lo) lo = p.elevation
+          if (p.elevation > hi) hi = p.elevation
+        }
+        for (const layerId of r.layerIds ?? []) {
+          const list = closed.get(layerId)
+          if (list === undefined) closed.set(layerId, [[lo, hi]])
+          else list.push([lo, hi])
+        }
+      }
+      const filled = floodFamilyCover(clipped.residual, floodSources, left, right, gap, closed)
       regions.push(...filled.covered)
       lithoFallback.push(...filled.residual)
       for (const r of filled.covered) levelFilledAreaM2 += areaM2(r)
-      for (const r of filled.crossFamily) levelFilledCrossFamilyAreaM2 += areaM2(r)
       for (const r of filled.residual) residualAreaM2.outsideBandRange += areaM2(r)
     }
   }
@@ -682,7 +639,6 @@ export function computeHierarchicalGeotechFill(
       oneSidedGaps,
       blockedColumns,
       levelFilledAreaM2,
-      levelFilledCrossFamilyAreaM2,
       residualAreaM2,
     },
   }
