@@ -41,7 +41,7 @@ import { resolveBandParents } from './bandParents'
 import { buildLithoFamilies, type LithoFamily } from './families'
 import { applyFamilyMatrix } from './familyMatrix'
 import { clipFamilyToFrameGap } from './frameClip'
-import { fillByLevel, levelBands, type LevelBand } from './levelFill'
+import { familyBands, floodFamilyCover, type FamilyBand, type FamilySource } from './familyFlood'
 import { computeSectionFillActiveWithDiagnostics } from '../partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
 import type { TieConflict } from '../partitionFillV2'
@@ -109,7 +109,7 @@ export interface HierarchicalGeotechFillDiagnostics {
    * un-classed (summed over families).
    */
   blockedColumns: number
-  /** Cover the level fill classified, in square metres (see ``levelFill.ts``). */
+  /** Cover the family flood classified, in square metres (see ``familyFlood.ts``). */
   levelFilledAreaM2: number
   /**
    * The subset of that, in square metres, read off a band of the same lithology
@@ -338,10 +338,10 @@ export function computeHierarchicalGeotechFill(
   for (const column of input.lithoColumns) {
     for (const unit of column.units) lithoFormationOfLayer.set(unit.layerId, unit.formationId)
   }
-  const kinByColumn = new Map<number, Map<string, LevelBand[]>>()
+  const kinByColumn = new Map<number, Map<string, FamilyBand[]>>()
   for (let ci = 0; ci < input.geotechColumns.length; ci++) {
     const column = input.geotechColumns[ci]
-    const byFormation = new Map<string, LevelBand[]>()
+    const byFormation = new Map<string, FamilyBand[]>()
     for (const unit of column.units) {
       const parent = parentOfBand.get(unit.layerId)
       const formation = parent === undefined ? undefined : lithoFormationOfLayer.get(parent)
@@ -430,6 +430,15 @@ export function computeHierarchicalGeotechFill(
       [...own.keys()].sort((a, b) => a - b),
       blockers,
     ).flatMap((run) => runFamily(input, run, own, compute, conflicts))
+    // Every banded test of the family, at its along position — the flood's own
+    // source set. It is the FAMILY's, not the gap's: a body whose only divided
+    // test stands two gaps away is still the only thing that can fill its cover
+    // (owner: "the only thing left that can flood that form is the MF silt to
+    // the left"), and it can only ever paint that body's own classes.
+    const floodSourcesByColumn: { ci: number; alongM: number; bands: ReturnType<typeof familyBands> }[] =
+      [...own.entries()]
+        .map(([ci, column]) => ({ ci, alongM: input.alongM[ci], bands: familyBands(column) }))
+        .filter((s) => s.bands.length > 0 && Number.isFinite(s.alongM))
     const gaps = [...family.regionsByGap.keys()].sort((a, b) => a - b)
     for (const gap of gaps) {
       const frameRegions = family.regionsByGap.get(gap) as SectionRegion[]
@@ -471,12 +480,13 @@ export function computeHierarchicalGeotechFill(
       regions.push(...clipped.covered)
       if (clipped.residual.length === 0) continue
 
-      // 2. Whatever it left silent, read off the flanking tests' band levels
-      //    (``levelFill.ts``): an untied band closes at its own level. With no
-      //    band of this family on either column nothing was ever derived here
-      //    and the whole cover falls back.
-      const leftBands = levelBands(own.get(gap))
-      const rightBands = levelBands(own.get(gap + 1))
+      // 2. Whatever the constructs left silent is flooded (``familyFlood.ts``):
+      //    it adopts the family's own nearest banded test, whole, cut only at
+      //    that test's boundaries, and takes that test's nearest band where it
+      //    reaches past every one of them. With no banded test in the family
+      //    anywhere, only a same-lithology band on this gap's own two tests can
+      //    answer; with neither, nothing was ever derived here and the whole
+      //    cover falls back.
       const formation = formationOfFamily.get(family.id)
       const kin =
         formation === undefined
@@ -486,8 +496,7 @@ export function computeHierarchicalGeotechFill(
               right: kinByColumn.get(gap + 1)?.get(formation) ?? [],
             }
       if (
-        leftBands.length === 0 &&
-        rightBands.length === 0 &&
+        floodSourcesByColumn.length === 0 &&
         (kin === undefined || (kin.left.length === 0 && kin.right.length === 0))
       ) {
         lithoFallback.push(...clipped.residual)
@@ -495,7 +504,47 @@ export function computeHierarchicalGeotechFill(
         continue
       }
       if (geotechInGap.length === 0) oneSidedGaps += 1
-      const filled = fillByLevel(clipped.residual, leftBands, rightBands, gap, kin)
+      // A band's REACH in this gap: its own extent unioned with the far end of every tie it
+      // carries across the gap. A correlation is the statement that the band follows that line,
+      // so the form the line closes is the band's to fill; an untied band reaches nowhere but
+      // its own level. This is the same envelope the 2/1/0 conformance gate audits against.
+      const reachOf = new Map<string, { top: number; base: number }>()
+      const elevOfBand = new Map<string, { top: number; base: number }>()
+      for (const s of floodSourcesByColumn) {
+        for (const b of s.bands) elevOfBand.set(b.layerId, { top: b.topElev, base: b.baseElev })
+      }
+      const onGapColumn = new Map<string, number>()
+      for (const s of floodSourcesByColumn) {
+        if (s.ci !== gap && s.ci !== gap + 1) continue
+        for (const b of s.bands) onGapColumn.set(b.layerId, s.ci)
+      }
+      for (const edge of input.geotechEdges) {
+        for (const [near, far, farSide] of [
+          [edge.a, edge.b, edge.bSide],
+          [edge.b, edge.a, edge.aSide],
+        ] as const) {
+          const nearCi = onGapColumn.get(near)
+          const farCi = onGapColumn.get(far)
+          if (nearCi === undefined || farCi === undefined || nearCi === farCi) continue
+          const farElev = elevOfBand.get(far)
+          if (farElev === undefined) continue
+          const at = farSide === 'base' ? farElev.base : farElev.top
+          const cur = reachOf.get(near)
+          if (cur === undefined) reachOf.set(near, { top: at, base: at })
+          else reachOf.set(near, { top: Math.max(cur.top, at), base: Math.min(cur.base, at) })
+        }
+      }
+      const floodSources: FamilySource[] = floodSourcesByColumn.map((s) => ({
+        alongM: s.alongM,
+        bands: s.bands.map((b) => {
+          const reach = reachOf.get(b.layerId)
+          return reach === undefined
+            ? b
+            : { ...b, reachTopElev: reach.top, reachBaseElev: reach.base }
+        }),
+        flank: s.ci === gap || s.ci === gap + 1,
+      }))
+      const filled = floodFamilyCover(clipped.residual, floodSources, left, right, gap, kin)
       regions.push(...filled.covered)
       lithoFallback.push(...filled.residual)
       for (const r of filled.covered) levelFilledAreaM2 += areaM2(r)
