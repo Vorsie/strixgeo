@@ -11,7 +11,7 @@
  * → ``labelFaces`` stamps them from the ``flood`` label as a BAND (the ``units.length===0``
  * trick). The flood label is the facing enclosing formation at the flooded contact (owner 8f —
  * "fill the void with the dominant lithology between correlations"), read INSIDE the tie-bounded
- * channel the vacated space belongs to (``floodLabelSampleElev``) so a steep tie cannot import
+ * channel the vacated space belongs to (``tieWindow``) so a steep tie cannot import
  * the class from the far side of a correlation the user drew.
  *
  * SESSION-16 SLOPING RIDE (Front 2 — CS2 g17, the 20 remaining holes). When the facing
@@ -29,6 +29,7 @@
 
 import { type ResolvedTie } from './emitCurves'
 import { facingMatrixLabel } from './facingMatrix'
+import { clampIntoWindow, tieElevAt, tieWindowAt } from './tieWindow'
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom } from './sectionGeom'
 import { type InputCurve, type Point } from './types'
@@ -100,6 +101,7 @@ export function emitFloodWedge(
   lensMatrixLabel?: LensLabel | null,
   gapTies?: readonly ResolvedTie[],
   emittedFlankOverride?: readonly Point[],
+  nearCol?: ColumnGeom,
 ): void {
   const midElev = (topElev + baseElev) / 2
   // RULING 8n (owner, 2026-07-18 — "stay inside the lines"): the flood wedge past a termination
@@ -124,18 +126,24 @@ export function emitFloodWedge(
   // gap) — keep the s30 mid-elevation facing sample as a non-inventing fallback for that instance.
   // LABEL ONLY — the wedge GEOMETRY (``convY``, the corners) is unchanged. See REWRITE_STATE §35/§36.
   const labelElev = skipSide === 'base' ? topElev : skipSide === 'top' ? baseElev : midElev
-  // RULING 8n APPLIED TO THE LABEL (owner, 2026-08-18 — "same litho other class, it should
-  // cleanly onlap"): the flooded space lives in a CHANNEL bounded by the gap's tie lines, so
-  // its class must be read on the facing column INSIDE that same channel. ``labelElev`` is an
-  // elevation on the TERMINATING column; sampling the facing column at that same elevation is a
-  // HORIZONTAL read that ignores the lines, and a steep tie makes it land on the far side of a
-  // correlation the user drew. ``floodLabelSampleElev`` maps it into the channel first (a no-op
-  // whenever the horizontal read already lands inside — the common near-horizontal-tie case, so
-  // the whole existing battery is unchanged).
+  // A CLASS-LABEL SAMPLE MAY NEVER CROSS A CORRELATION (ruling 8n, owner 2026-08-18 — "same litho
+  // other class, it should cleanly onlap"). The flooded space lives in a CHANNEL bounded by the
+  // gap's tie lines, so its class must be read on the facing column INSIDE that same channel.
+  // ``labelElev`` is an elevation on the TERMINATING column; sampling the facing column at that
+  // same elevation is a HORIZONTAL read that ignores the lines, and a steep tie makes it land on
+  // the far side of a correlation the user drew.
+  //
+  // ``tieWindowAt`` gives the channel expressed on the FACING column; the sample is clamped into
+  // it, and the lookup is confined to it — so the nearest-unit fallback can no longer reach past
+  // a bounding tie for a unit that has no presence in the channel at all (the S7|S6 clay, whose
+  // whole stack ENDS on the tie and which was still handed the sand channel below it). Both are
+  // no-ops whenever the horizontal read already lands inside the lines.
+  const window = tieWindowAt(labelElev, colX, facingX, gapTies)
   const label =
     skipSide === null && lensMatrixLabel != null
       ? lensMatrixLabel
-      : facingMatrixLabel(facing, floodLabelSampleElev(labelElev, colX, facingX, gapTies))
+      : (facingMatrixLabel(facing, clampIntoWindow(labelElev, window), window) ??
+        nearMatrixAt(nearCol, floodedNeighbourElev(topElev, baseElev, skipSide)))
   if (label === null) return
   // RULING 8g/8q (owner 2026-07-19, "the matrix detours AROUND the wedge; fill between the lines"):
   // a corr-0 LENS flood wedge fills the matrix vacated PAST the lens apex. Its convergence point
@@ -224,91 +232,37 @@ export function emitFloodWedge(
 }
 
 /**
- * Offset (metres) that keeps a channel-clamped sample strictly INSIDE the facing unit adjacent
- * to a bounding tie rather than exactly on the shared contact. Mirrors ``drawTermination``'s
- * ``MATCH_OFFSET`` — small enough to land in a real unit, three orders above the 1 mm snap.
+ * The terminating column's OWN mass just beyond the unit, on the side being flooded.
+ *
+ * Consulted only when the facing column has nothing in the channel at all — which, now that the
+ * lookup is confined to the tie-bounded window, is a real signal rather than an impossibility. The
+ * ground still has to belong to somebody, and the only test that read it is this one. Reading its
+ * own column at its own contact crosses no correlation by construction.
  */
-const CHANNEL_MARGIN = 1e-3
-
-/**
- * The elevation to sample on the FACING column for a flood label, mapped into the TIE-BOUNDED
- * CHANNEL the flooded space belongs to (ruling 8n "stay inside the lines", owner 2026-08-18).
- *
- * THE DEFECT THIS CLOSES. ``labelElev`` is an elevation on the TERMINATING column — the flooded
- * (untied) contact of the unit that just pinched. Reading the facing column at that SAME elevation
- * is a horizontal read that knows nothing about the correlation lines. Between two STEEP ties the
- * horizontal read leaves the channel entirely: on the owner's CS1 gap B6|B4, a silt onlapping at
- * 7.94 m on B4 sampled B6 at 7.94 m, which sits ABOVE the silt-top tie (B6 6.28 ↔ B4 13.13) and
- * therefore in the CLAY on the far side of it. The clay label then painted the channel's leftover
- * vacancy face, and the litho-frame clip re-labelled that foreign soil to the nearest silt class —
- * the denser silt ballooning up the tie line the owner X'd.
- *
- * THE RULE. A gap tie is a line the fill may not cross. The ties bracketing ``labelElev`` at the
- * terminating column are the channel's floor and ceiling; the SAME two ties bracket the channel on
- * the facing column at THEIR facing elevations. So the sample is clamped into that facing window,
- * landing on the facing band that owns the bounding tie on OUR side of it — the channel's matrix.
- *
- * Deliberately a CLAMP, not a proportional re-map: when the horizontal read already lands inside
- * the channel (every near-horizontal tie, the overwhelming majority) the elevation is returned
- * UNCHANGED, so this can only ever move a sample that had escaped the lines.
- *
- * Parameters
- * ----------
- * labelElev : number
- *     The elevation on the TERMINATING column whose facing lithology is wanted.
- * colX, facingX : number
- *     The terminating and facing column positions (along-section metres).
- * gapTies : readonly ResolvedTie[] | undefined
- *     This gap's active ties. Undefined / empty → no channel is defined and the elevation is
- *     returned unchanged (never invent a boundary).
- *
- * Returns
- * -------
- * number
- *     The elevation to sample on the facing column.
- */
-function floodLabelSampleElev(
-  labelElev: number,
-  colX: number,
-  facingX: number,
-  gapTies: readonly ResolvedTie[] | undefined,
-): number {
-  if (gapTies === undefined || gapTies.length === 0) return labelElev
-  // The channel's floor / ceiling = the NEAREST tie below / above ``labelElev`` measured on the
-  // TERMINATING column (that is where the flooded contact lives, so that is where "which channel"
-  // is decided). Their FACING elevations are the window the sample must fall in.
-  let loAtCol = -Infinity
-  let hiAtCol = Infinity
-  let lo = -Infinity
-  let hi = Infinity
-  for (const t of gapTies) {
-    const atCol = tieElevAt(t, colX)
-    if (atCol < labelElev - SLOPE_EPS) {
-      if (atCol > loAtCol) {
-        loAtCol = atCol
-        lo = tieElevAt(t, facingX)
-      }
-    } else if (atCol > labelElev + SLOPE_EPS) {
-      if (atCol < hiAtCol) {
-        hiAtCol = atCol
-        hi = tieElevAt(t, facingX)
-      }
+function nearMatrixAt(col: ColumnGeom | undefined, e: number): LensLabel | null {
+  if (col === undefined) return null
+  const EPS = 1e-6
+  for (const u of col.units) {
+    if (u.topElev >= e - EPS && e >= u.baseElev - EPS) {
+      return { formationId: u.formationId, bodyId: u.bodyId }
     }
   }
-  if (labelElev > lo && labelElev < hi) return labelElev // already inside the lines — unchanged
-  // A window that inverted means the two bounding ties CROSS between the columns. There is no
-  // well-defined channel to map into, so keep the raw elevation rather than invent one.
-  if (!(lo < hi)) return labelElev
-  if (hi - lo <= 2 * CHANNEL_MARGIN) return (lo + hi) / 2 // channel thinner than the margin
-  return Math.min(Math.max(labelElev, lo + CHANNEL_MARGIN), hi - CHANNEL_MARGIN)
+  return null
 }
 
-/** A tie's elevation at along-x ``x`` (its endpoints run left→right column x). */
-function tieElevAt(t: ResolvedTie, x: number): number {
-  const w = t.right.x - t.left.x
-  if (Math.abs(w) < SLOPE_EPS) return t.left.y
-  const f = (x - t.left.x) / w
-  return t.left.y + f * (t.right.y - t.left.y)
+/**
+ * The elevation just BEYOND the terminating unit on its flooded side. ``skipSide`` names the
+ * CLOSED side, so the flood is on the other one; a lens closes on both and is read at its own mid.
+ */
+function floodedNeighbourElev(
+  topElev: number,
+  baseElev: number,
+  skipSide: 'top' | 'base' | null,
+): number {
+  const MARGIN = 1e-3
+  if (skipSide === 'top') return baseElev - MARGIN
+  if (skipSide === 'base') return topElev + MARGIN
+  return (topElev + baseElev) / 2
 }
 
 /**
