@@ -488,7 +488,7 @@ function emitLens(
   // art) clamp each flank so the wrap stops AT the tie (the tie splits the arrangement there and
   // the ZAND face owns below it). See ``clampFloodFlankToTie`` in emitFloodWedge.
   const gapTies = activeTies.filter((t) => t.gapIndex === gapIndex)
-  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out, undefined, lensMatrix, gapTies)
+  emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out, undefined, lensMatrix, gapTies, undefined, col)
   return true
 }
 
@@ -638,6 +638,7 @@ function emitOnlap(
     undefined,
     gapTies,
     floodFlankOverride,
+    col,
   )
   return true
 }
