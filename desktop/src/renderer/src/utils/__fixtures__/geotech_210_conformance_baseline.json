@@ -1,17 +1,17 @@
 {
  "Cross-section 1": {
-  "balloon": 25,
+  "balloon": 27,
   "missing": 14,
   "nospan": 6
  },
  "Cross-section 2": {
-  "balloon": 37,
+  "balloon": 34,
   "missing": 27,
   "nospan": 0
  },
  "Cross-section 3": {
-  "balloon": 10,
-  "missing": 26,
+  "balloon": 9,
+  "missing": 27,
   "nospan": 0
  },
  "Tie-section 10": {
@@ -35,12 +35,12 @@
   "nospan": 0
  },
  "Tie-section 14": {
-  "balloon": 5,
+  "balloon": 6,
   "missing": 8,
   "nospan": 0
  },
  "Tie-section 4": {
-  "balloon": 4,
+  "balloon": 3,
   "missing": 2,
   "nospan": 0
  },
@@ -50,7 +50,7 @@
   "nospan": 0
  },
  "Tie-section 6": {
-  "balloon": 2,
+  "balloon": 1,
   "missing": 1,
   "nospan": 0
  },
