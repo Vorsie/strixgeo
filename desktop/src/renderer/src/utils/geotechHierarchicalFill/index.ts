@@ -41,6 +41,7 @@ import { resolveBandParents } from './bandParents'
 import { buildLithoFamilies } from './families'
 import { fillFamily } from './constructive/familyFill'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
+import type { Mass } from './constructive/emitKernel'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
 import type { TieConflict } from '../partitionFillV2'
 
@@ -92,8 +93,15 @@ export interface HierarchicalGeotechFillDiagnostics {
    * un-classed (summed over families).
    */
   blockedColumns: number
-  /** Cover the matrix rulings classified, in square metres. */
+  /** Cover the dominant-mass step classified, in square metres. */
   levelFilledAreaM2: number
+  /**
+   * Loops whose dominant mass was not unique by overlap and needed the vertical
+   * line to decide. His *"(should be the same if all onlaps and lenses are
+   * emitted)"* says a remainder ought to have one owner; this counts where it
+   * did not, so the case stays visible rather than being smoothed over.
+   */
+  splitRemainders: number
   /**
    * Litho cover left unclassified, in square metres, by WHY — the honest
    * accounting of what the fill does not know. ``noBands`` = nothing of this
@@ -212,6 +220,15 @@ export function computeHierarchicalGeotechFill(
       geotechBandOfLayer.set(band.layerId, band)
     }
   }
+  // EVERY packing band per column, whatever family — *"follow tie ... check
+  // litho and packing density on the other end"* reads the band on the same
+  // side of the contact over there, and that band may belong to the
+  // neighbouring family (a contact is shared).
+  const stacks = new Map<number, RunBand[]>()
+  for (let ci = 0; ci < input.geotechColumns.length; ci++) {
+    stacks.set(ci, runBandsOf(input.geotechColumns[ci], ci, input.alongM[ci]))
+  }
+
   // The same index over the LITHO units, so the cover's own boundaries resolve
   // into lines exactly as the packing ties do.
   const lithoBandOfLayer = new Map<string, RunBand>()
@@ -305,6 +322,17 @@ export function computeHierarchicalGeotechFill(
     else list.push(region)
   }
 
+  // A band's MASS — *"same litho and packing density"*: the SOIL its parent
+  // litho unit is, and its own packing class. The law compares nothing else.
+  const lithoFormationOfUnit = new Map<string, string>()
+  for (const column of input.lithoColumns) {
+    for (const unit of column.units) lithoFormationOfUnit.set(unit.layerId, unit.formationId)
+  }
+  const massOf = (band: RunBand): Mass => ({
+    litho: lithoFormationOfUnit.get(parentOfBand.get(band.layerId) ?? '') ?? '',
+    packing: band.formationId,
+  })
+
   // Every litho unit's own column and elevations — the litho tie's geometry,
   // which the matrix reads as the connective envelope of its soil cover
   // (owner ruling A: litho approval carries down).
@@ -340,6 +368,7 @@ export function computeHierarchicalGeotechFill(
   let oneSidedGaps = 0
   let blockedColumns = 0
   let levelFilledAreaM2 = 0
+  let splitRemainders = 0
   const residualAreaM2 = { noBands: 0, afterEngine: 0, outsideBandRange: 0 }
   for (const family of families) {
     const own = columnsByFamily.get(family.id) ?? new Map<number, RunColumn>()
@@ -364,16 +393,16 @@ export function computeHierarchicalGeotechFill(
         geotechBandOfLayer,
         lithoBandOfLayer,
         paintByGap,
-        lithoColumnOfLayer,
-        lithoUnitElev,
-        parentOfBand,
+        stacks,
+        massOf,
       },
     )
     regions.push(...out.regions)
     lithoFallback.push(...out.fallback)
     conflicts.push(...out.conflicts)
     oneSidedGaps += out.oneSidedGaps
-    levelFilledAreaM2 += out.matrixAreaM2
+    levelFilledAreaM2 += out.remainderAreaM2
+    splitRemainders += out.splitRemainders
     residualAreaM2.noBands += out.residualAreaM2.noBands
     residualAreaM2.outsideBandRange += out.residualAreaM2.outsideBandRange
   }
@@ -394,6 +423,7 @@ export function computeHierarchicalGeotechFill(
       oneSidedGaps,
       blockedColumns,
       levelFilledAreaM2,
+      splitRemainders,
       residualAreaM2,
     },
   }

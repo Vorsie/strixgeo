@@ -91,15 +91,13 @@ const run = (
     run: { left, right },
     ties: [],
     coverTies: [],
-    tieGroupOf: new Map(),
-    readers: [left, right].map((c) => ({
-      ci: c.ci,
-      x: c.x,
-      bands: c.bands,
-      reach: new Map(),
-      flank: true,
-    })),
-  })
+    columns: [left, right],
+    stacks: new Map([
+      [left.ci, left.bands],
+      [right.ci, right.bands],
+    ]),
+    massOf: (band) => ({ litho: 'litho-sand', packing: band.formationId }),
+    })
 
 describe('the family frame', () => {
   it('CF4 — packing material outside the family cover is dropped', () => {
@@ -127,10 +125,16 @@ describe('the family frame', () => {
     expect(out.covered.reduce((s, r) => s + area(r), 0)).toBeCloseTo(10, 6)
   })
 
-  it('CF6 — classed and residual faces together tile the family cover exactly', () => {
-    // Half the cover carries a class, half is ground nothing read. Sampling a
-    // grid, every point of the cover is claimed by EXACTLY one emitted face —
-    // no void, no double paint. An area sum alone passes on compensating errors.
+  it('CF6 — the emitted faces tile the family cover exactly, once each', () => {
+    // Sampling a grid, every point of the cover is claimed by EXACTLY one
+    // emitted face — no void, no double paint. An area sum alone passes on
+    // compensating errors.
+    //
+    // RE-PINNED 2026-08-19: the split it used to assert (half classed, half
+    // residual) is not what the law does. *"then fill in the rest with the
+    // dominant lithology"* — the ground below the band is the rest, the band is
+    // the only mass this family has, so it fills. Nothing stays unclassed while
+    // the family has a mass; the tiling invariant is what this pin is for.
     const cover = [region(0, 'litho-sand', rect(0, 1, 10, 0))]
     const out = run(cover, column(0, 0, 'sand-n6', 10, 5), column(1, 100, 'sand-n6', 10, 5))
     const all = [...out.covered, ...out.residual]
@@ -144,8 +148,8 @@ describe('the family frame', () => {
       }
     }
     expect(defects).toEqual([])
-    expect(out.covered.reduce((s, r) => s + area(r), 0)).toBeCloseTo(5, 6)
-    expect(out.residual.reduce((s, r) => s + area(r), 0)).toBeCloseTo(5, 6)
+    expect(out.covered.reduce((s, r) => s + area(r), 0)).toBeCloseTo(10, 6)
+    expect(out.residual).toEqual([])
   })
 
   it('CF7 — the interior sample of a ring with a degenerate corner lands strictly inside', () => {

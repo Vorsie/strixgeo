@@ -9,15 +9,15 @@
  *     a test that never had this soil is spanned; owner ruling 2026-08-15);
  *  2. resolve each run's lines: the packing ties that bound its contacts, the
  *     litho lines that bound its cover, and the crossings that suspend a pair;
- *  3. per gap, work out which two tests the ground runs between, what each
- *     band's envelope is there, and hand it to ``fillGap``.
+ *  3. per gap, work out which two tests the ground runs between and hand it to
+ *     ``fillGap``, which applies the law.
  *
  * @module utils/geotechHierarchicalFill/constructive/familyFill
  */
 
 import { fillGap } from './fillGap'
 import { resolveRunTies, type RunBand, type RunColumn, type RunTie } from './constructs'
-import type { MatrixReader, ReachLine } from './matrixOwner'
+import type { Mass } from './emitKernel'
 import type { LithoFamily } from '../families'
 import type { CorrelationEdge, SectionRegion } from '../../partitionFill'
 import type { TieConflict } from '../../partitionFillV2'
@@ -34,14 +34,13 @@ export interface FamilyFillContext {
   geotechBandOfLayer: ReadonlyMap<string, RunBand>
   /** Every litho unit of the section, by layer id, in the same shape. */
   lithoBandOfLayer: ReadonlyMap<string, RunBand>
+  /** EVERY packing band per frame column index — the far-end read needs the
+   *  neighbouring family's bands too (a tie lands on a shared contact). */
+  stacks: ReadonlyMap<number, readonly RunBand[]>
+  /** A band's mass: its parent litho unit's soil, and its packing class. */
+  massOf: (band: RunBand) => Mass
   /** Every litho region per gap, in the render's z-order — ownership authority. */
   paintByGap: ReadonlyMap<number, SectionRegion[]>
-  /** Litho unit layer id → its frame column index. */
-  lithoColumnOfLayer: ReadonlyMap<string, number>
-  /** Litho unit layer id → its own elevations. */
-  lithoUnitElev: ReadonlyMap<string, { top: number; base: number }>
-  /** Packing band layer id → the litho unit it subdivides. */
-  parentOfBand: ReadonlyMap<string, string>
 }
 
 /** What one family produced. */
@@ -52,8 +51,10 @@ export interface FamilyFillResult {
   conflicts: TieConflict[]
   /** Gaps with no run of banded tests over them. */
   oneSidedGaps: number
-  /** Cover the matrix rulings classified, in m². */
-  matrixAreaM2: number
+  /** Cover the dominant-mass step classified, in m². */
+  remainderAreaM2: number
+  /** Loops whose dominant mass needed the vertical line to decide. */
+  splitRemainders: number
   /** Unclassed cover, in m², by why (see the diagnostics type). */
   residualAreaM2: { noBands: number; outsideBandRange: number }
 }
@@ -70,31 +71,6 @@ function areaM2(region: SectionRegion, alongM: readonly number[]): number {
     twice += a.fraction * b.elevation - b.fraction * a.elevation
   }
   return (Math.abs(twice) / 2) * Math.abs(width)
-}
-
-/**
- * The masses this family's own correlations declare: bands a tie joins are one
- * mass and their paint welds in Phase 3; an untied band is alone in its own.
- * This is what keeps a deleted tie deleted through the merge.
- */
-function tieGroups(
-  edges: readonly CorrelationEdge[],
-  bandOfLayer: ReadonlyMap<string, RunBand>,
-): Map<string, string> {
-  const groupOf = new Map<string, string>()
-  const root = (layerId: string): string => {
-    let found = groupOf.get(layerId) ?? layerId
-    while (found !== (groupOf.get(found) ?? found)) found = groupOf.get(found) as string
-    groupOf.set(layerId, found)
-    return found
-  }
-  for (const edge of edges) {
-    const ra = root(edge.a)
-    const rb = root(edge.b)
-    if (ra !== rb) groupOf.set(ra, rb)
-  }
-  for (const layerId of bandOfLayer.keys()) groupOf.set(layerId, root(layerId))
-  return groupOf
 }
 
 /**
@@ -120,19 +96,10 @@ export function fillFamily(
     fallback: [],
     conflicts: [],
     oneSidedGaps: 0,
-    matrixAreaM2: 0,
+    remainderAreaM2: 0,
+    splitRemainders: 0,
     residualAreaM2: { noBands: 0, outsideBandRange: 0 },
   }
-
-  const bandOfLayer = new Map<string, RunBand>()
-  for (const column of own.values()) for (const band of column.bands) bandOfLayer.set(band.layerId, band)
-  // The family's OWN correlations — both ends its own bands. The envelope reads
-  // these and only these; the bounding set (which may name a neighbouring
-  // family's band on a shared contact) is a line source, not an envelope.
-  const familyEdges = context.boundingEdges.filter(
-    (e) => bandOfLayer.has(e.a) && bandOfLayer.has(e.b),
-  )
-  const tieGroupOf = tieGroups(familyEdges, bandOfLayer)
 
   const resolved = runs.map((indices) => {
     const columns = indices.map((ci) => own.get(ci) as RunColumn)
@@ -163,9 +130,9 @@ export function fillFamily(
   for (const gap of [...family.regionsByGap.keys()].sort((a, b) => a - b)) {
     const cover = family.regionsByGap.get(gap) as SectionRegion[]
     // One of this gap's tests carries the family and has not been divided: the
-    // ground reads empty, whole (owner ruling 2026-08-15). No construct, no
-    // matrix — a class here would be an interpretation the engineer has not
-    // accepted, and pressing "4 · Divide boreholes" is what accepts it.
+    // ground reads empty, whole (owner ruling 2026-08-15). A class here would be
+    // an interpretation the engineer has not accepted, and pressing
+    // "4 · Divide boreholes" is what accepts it.
     if (blockers.has(gap) || blockers.has(gap + 1) || own.size === 0) {
       out.fallback.push(...cover)
       for (const r of cover) out.residualAreaM2.noBands += areaM2(r, alongM)
@@ -187,15 +154,6 @@ export function fillFamily(
     }
     if (run === null) out.oneSidedGaps += 1
 
-    const pair = run === null ? [gap, gap + 1] : [run.left.ci, run.right.ci]
-    const reach = buildReach(family, own, bandOfLayer, familyEdges, pair, context)
-    const readers: MatrixReader[] = [...own.values()].map((column) => ({
-      ci: column.ci,
-      x: column.x,
-      bands: column.bands,
-      reach,
-      flank: pair.includes(column.ci),
-    }))
     const filled = fillGap({
       gapIndex: gap,
       xa: alongM[gap],
@@ -205,95 +163,16 @@ export function fillFamily(
       run,
       ties,
       coverTies,
-      readers,
-      tieGroupOf,
+      columns: [...own.values()],
+      stacks: context.stacks,
+      massOf: context.massOf,
     })
     out.regions.push(...filled.covered)
     out.fallback.push(...filled.residual)
-    out.matrixAreaM2 += filled.matrixAreaM2
+    out.remainderAreaM2 += filled.remainderAreaM2
+    out.splitRemainders += filled.splitRemainders
     for (const r of filled.residual) out.residualAreaM2.outsideBandRange += areaM2(r, alongM)
   }
+  void family
   return out
-}
-
-/**
- * THE ENVELOPE, per band: the lines it carries across THIS ground.
- *
- * A band reaches along the lines drawn for it and nowhere else — that is the
- * whole of the 2/1/0 law applied to the matrix, and it is the same envelope the
- * conformance gate audits, so the fill and the gate cannot disagree. Two
- * sources, and the scope is the pair of tests the ground runs between (a line
- * drawn elsewhere on the section bounds nothing here):
- *
- *  * its own PACKING ties — a correlation is the statement that the band
- *    follows that line, so the form the line closes is the band's to fill;
- *  * its parent unit's LITHO ties — litho approval carries down (ruling A): the
- *    soil is one connected mass across the gap, so its bands may reach along
- *    it. Without this a cover whose geotech restatement was deleted falls apart
- *    and the middle of a twice-tied band renders "correlate me" (his dark clay
- *    quad between B6 and B4). It governs the SOIL cover only — the class
- *    banding still answers to the packing ties alone, so a deleted tie is never
- *    resurrected as a band.
- */
-function buildReach(
-  family: LithoFamily,
-  own: ReadonlyMap<number, RunColumn>,
-  bandOfLayer: ReadonlyMap<string, RunBand>,
-  familyEdges: readonly CorrelationEdge[],
-  pair: readonly number[],
-  context: FamilyFillContext,
-): Map<string, ReachLine[]> {
-  const reach = new Map<string, ReachLine[]>()
-  const widen = (layerId: string, line: ReachLine): void => {
-    const current = reach.get(layerId)
-    if (current === undefined) reach.set(layerId, [line])
-    else current.push(line)
-  }
-  for (const edge of familyEdges) {
-    for (const [near, nearSide, far, farSide] of [
-      [edge.a, edge.aSide, edge.b, edge.bSide],
-      [edge.b, edge.bSide, edge.a, edge.aSide],
-    ] as const) {
-      const nearBand = bandOfLayer.get(near)
-      const farBand = bandOfLayer.get(far)
-      if (nearBand === undefined || farBand === undefined) continue
-      if (!pair.includes(nearBand.ci) || !pair.includes(farBand.ci)) continue
-      if (nearBand.ci === farBand.ci) continue
-      // From the tied contact on this band to the tied contact on the far one —
-      // both sides matter: a base-side tie leaves the band's base, not its top.
-      widen(near, {
-        leftX: nearBand.x,
-        leftY: nearSide === 'base' ? nearBand.base : nearBand.top,
-        rightX: farBand.x,
-        rightY: farSide === 'base' ? farBand.base : farBand.top,
-      })
-    }
-  }
-  for (const edge of context.lithoEdges) {
-    for (const [near, nearSide, far, farSide] of [
-      [edge.a, edge.aSide, edge.b, edge.bSide],
-      [edge.b, edge.bSide, edge.a, edge.aSide],
-    ] as const) {
-      if (!family.lithoLayerIds.has(near) || !family.lithoLayerIds.has(far)) continue
-      const nearCi = context.lithoColumnOfLayer.get(near)
-      const farCi = context.lithoColumnOfLayer.get(far)
-      if (nearCi === undefined || farCi === undefined || nearCi === farCi) continue
-      if (!pair.includes(nearCi) || !pair.includes(farCi)) continue
-      const nearUnit = context.lithoUnitElev.get(near)
-      const farUnit = context.lithoUnitElev.get(far)
-      if (nearUnit === undefined || farUnit === undefined) continue
-      const line: ReachLine = {
-        leftX: context.alongM[nearCi],
-        leftY: nearSide === 'base' ? nearUnit.base : nearUnit.top,
-        rightX: context.alongM[farCi],
-        rightY: farSide === 'base' ? farUnit.base : farUnit.top,
-      }
-      // Every band of the near unit inherits it: the whole unit was tied.
-      for (const band of own.get(nearCi)?.bands ?? []) {
-        if (context.parentOfBand.get(band.layerId) !== near) continue
-        widen(band.layerId, line)
-      }
-    }
-  }
-  return reach
 }
