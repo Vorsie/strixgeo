@@ -13,6 +13,7 @@
 
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom } from './sectionGeom'
+import { UNBOUNDED_WINDOW, unitReachesWindow, type TieWindow } from './tieWindow'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
@@ -36,10 +37,21 @@ const ELEV_EPS = 1e-6
  * LensLabel | null
  *     The enclosing facing formation + body, or ``null`` for an empty column.
  */
-export function facingMatrixLabel(facing: ColumnGeom, e: number): LensLabel | null {
+export function facingMatrixLabel(
+  facing: ColumnGeom,
+  e: number,
+  window: TieWindow = UNBOUNDED_WINDOW,
+): LensLabel | null {
   let best: ColumnGeom['units'][number] | null = null
   let bestDist = Infinity
   for (const u of facing.units) {
+    // A CLASS-LABEL SAMPLE MAY NEVER CROSS A CORRELATION. The nearest-unit fallback is right for a
+    // sample that merely overshoots a collar or a TD by a few centimetres — but only among units
+    // that are actually PRESENT in the tie-bounded window the sample belongs to. A column whose
+    // stack ENDS on the bounding tie has nothing in the channel beyond it, and reaching for it
+    // anyway is how a clay came to name a sand channel under its own base tie. Callers that know
+    // no window pass none and keep the original behaviour byte-for-byte.
+    if (!unitReachesWindow(u, window)) continue
     if (u.topElev >= e - ELEV_EPS && e >= u.baseElev - ELEV_EPS) {
       return { formationId: u.formationId, bodyId: u.bodyId }
     }
