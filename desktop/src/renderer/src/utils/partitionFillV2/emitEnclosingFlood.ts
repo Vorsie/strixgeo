@@ -64,6 +64,20 @@ interface FloodBracket {
 }
 
 /**
+ * Does ``tie`` land on unit ``ui`` of ``side``'s column?
+ *
+ * A contact is shared: a tie on unit k's TOP is also the base of unit k-1, so it lands on both.
+ * Mirrors the ``tiedFlags`` asymmetry the corr arithmetic uses, so "declared to meet" here means
+ * the same thing it means everywhere else.
+ */
+function tieLandsOn(tie: ResolvedTie, side: 'left' | 'right', ui: number): boolean {
+  const at = side === 'left' ? tie.leftUnitIndex : tie.rightUnitIndex
+  const contact = side === 'left' ? tie.leftSide : tie.rightSide
+  if (at === ui) return true
+  return contact === 'top' && at === ui + 1
+}
+
+/**
  * Emit the fill-only enclosing-flood curves for every gap. Band contours (``bandc``) still
  * emit so a matched-pair band face closes; each interval's top + base bracket carriers +
  * (for a mismatched enclosing) the midpoint seam close the enclosing fill faces so their
@@ -224,7 +238,7 @@ function emitGapFlood(
     const top = uniq[bi]
     const base = uniq[bi + 1]
     if (mid(top) <= shallowTD + ELEV_EPS) continue // fully sub-TD — substrate owns it
-    closeInterval(left, right, top, base, bandFids, nextBandSeamId, nextFloodId, out, gapIndex, overrides)
+    closeInterval(left, right, top, base, bandFids, activeTies, nextBandSeamId, nextFloodId, out, gapIndex, overrides)
   }
 
   // Close the flood from below at the shallow TD floor (sub-TD stays empty — substrate owns it).
@@ -296,6 +310,7 @@ function closeInterval(
   top: FloodBracket,
   base: FloodBracket,
   bandFids: ReadonlySet<string>,
+  activeTies: readonly ResolvedTie[],
   nextBandSeamId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
@@ -310,6 +325,30 @@ function closeInterval(
   if (bandFids.has(leftEncl.formationId) || bandFids.has(rightEncl.formationId)) return
   // Shared enclosing formation → one full-width face; the sweep's minority holes carve into it.
   if (leftEncl.formationId === rightEncl.formationId) return
+  // A MID-GAP FENCE STANDS WHERE THE TWO MASSES WERE DECLARED TO MEET — nowhere else.
+  //
+  // Owner, on the case that KEEPS it (2026-08-19): "On S10 there is a MD sand above the bottom MF
+  // clay. This one has a bottom tie and a top tie so it should get a vertical termination in the
+  // middle left is MD right is D." A CORRELATION between the two enclosing masses is exactly that
+  // declaration: neither terminates, they meet, and the vertical is the only honest boundary. The
+  // ruled top-band pair (8d, 2026-07-20) is the same statement made by the top band itself — the
+  // no-auto-facies divider between two facing first units — and keeps its ``bandseam`` line art.
+  //
+  // Without such a declaration the seam is an INVENTED boundary, and 2/1/0 has already drawn the
+  // real one. Owner, same day: "the loose sand should onlap (wrong in litho too) ... the clay
+  // should fill the gaps." On CS1 gap 7 an untied sand on a short test had closed as an onlap, and
+  // the seam then walled the deep clay off at 0.5 and handed the far half back to the sand the
+  // construct had just closed. Where nobody declared a meeting, the constructs decide and the
+  // remaining mass floods around them.
+  const declared =
+    (top.kind === 'topband' && base.kind === 'tie') ||
+    activeTies.some(
+      (t) =>
+        t.gapIndex === gapIndex &&
+        tieLandsOn(t, 'left', leftEncl.unitIndex) &&
+        tieLandsOn(t, 'right', rightEncl.unitIndex),
+    )
+  if (!declared) return
 
   // MISMATCHED enclosing → the no-auto-facies MIDPOINT SEAM separates the two sides. Each half's
   // face is bounded by its own column vertical (its enclosing litho) + the seam + the brackets,
@@ -344,10 +383,14 @@ function closeInterval(
  * (the lateral matrix that floods the interval). Returns ``null`` when no unit spans ``e``
  * (below TD / above surface).
  */
-function enclosingFormationAt(col: ColumnGeom, e: number): LensLabel | null {
-  for (const u of col.units) {
+function enclosingFormationAt(
+  col: ColumnGeom,
+  e: number,
+): (LensLabel & { unitIndex: number }) | null {
+  for (let ui = 0; ui < col.units.length; ui++) {
+    const u = col.units[ui]
     if (u.topElev >= e - ELEV_EPS && e >= u.baseElev - ELEV_EPS) {
-      return { formationId: u.formationId, bodyId: (u as UnitGeom).bodyId }
+      return { formationId: u.formationId, bodyId: (u as UnitGeom).bodyId, unitIndex: ui }
     }
   }
   return null
