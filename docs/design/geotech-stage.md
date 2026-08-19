@@ -53,53 +53,77 @@ spacing below the last reading, so it is genuinely sample-free and neither the
 re-derive loop nor the edit path can classify it from the orphan boundary
 sample. Pinned: UC1–UC3.
 
-## 2. The hierarchical fill — densities within lithos (owner ruling 2026-08-18)
+## 2. The hierarchical fill — densities within lithos, built by CONSTRUCTION
 
-> *"once all ties are there, and boreholes are there, you prolly didn't need
-> to build a new fill engine, the litho's worked just fine? It's the same
-> basic rules only with densities on top of lithos"* · *"build the
-> hierarchical construction overnight. structural fix, the plan has been the
-> structural fix from the start, those were exactly my rules going into
-> this."* (Supersedes the 2026-08-13/14 whole-section direct partition + the
-> post-hoc litho-frame clip; git holds that design's history.)
+> *"the 2/1/0 rule is super simple"* · *"i said it was absolute no? We already
+> went through this with the litho model. build it"* · *"connect the dots and
+> fill between the lines"* · and the binding factorisation, 2026-08-19: *"we
+> said first draw all lines, lenses, onlaps, vertical lines, this makes closed
+> loops, then we fill everything and merge it"* / *"the lines are the
+> structural framework, the fill is to fill all gaps, the merge is to reduce
+> the dimensions to a manageable level"*. (Supersedes running the litho ENGINE
+> once per family plus a heuristic label cascade — familyFlood / familyMatrix /
+> declaredMeetings; git holds that design's history.)
 
 **The construction** (`utils/geotechHierarchicalFill/`) — the litho partition
-is the frame BY CONSTRUCTION, and the SAME engine subdivides it:
+is the frame BY CONSTRUCTION, and the 2/1/0 law subdivides it DIRECTLY:
 
 1. Compute the litho partition (the frame) on the litho columns + approved
    litho edges.
 2. Group litho units into FAMILIES — connected chains over same-formation
    approved litho edges + litho-region `layerIds` co-membership
-   (`families.ts`).
-3. Per family, run the ordinary engine (`computeSectionFillActive`) with ONLY
-   that family's geotech bands (parent mapping by geometric containment,
-   `bandParents.ts`) and only the ties whose BOTH ends are family bands. A
-   packing tie whose ends sit in different families is DROPPED and counted
-   (`tiesCrossingFamilies`) — the draw-time cross-litho-body guard's own rule
-   applied at render time.
-4. **Column rule per family run:** a frame column carrying a family litho
-   unit but NO band of it is a BLOCKER — it ends the engine run and sends the
-   family's whole cover in both flanking gaps to litho fallback ("correlate
-   me"). That keeps the 2026-08-15 ruling: an un-divided borehole shows
-   visibly empty ground; previews stay opt-in. A frame column carrying NO
-   litho unit of the family is EXCLUDED from the run, so the engine's own
-   bridge machinery spans it (deep-to-deep / short-test spans keep working).
-5. Clip each family's output per gap to the family's own litho regions —
-   geometry only (`frameClip.ts` + `frameClipGeometry.ts`); there is NO
-   relabelling, because every face of a family run already carries a class of
-   the family's own soil. `levelFill.ts` closes untied bands at their own
-   level where the family partition is silent; `familyMatrix.ts` restates the
-   owner's channel-matrix ruling in family space (a flood face reads the
-   class the reached test measured at the face's own top level — "the matrix
-   is a md sand").
+   (`families.ts`). Bands are paired with the unit they subdivide by geometric
+   containment (`bandParents.ts`). A packing tie whose ends sit in different
+   families is DROPPED and counted (`tiesCrossingFamilies`) — the draw-time
+   cross-litho-body guard's own rule applied at render time.
+3. **Per family, per gap: LINES → LOOPS → FILL → MERGE** (`constructive/`).
+   * **LINES** (`constructs.ts`). Ties are counted on a band's CONTACTS, not on
+     its layer id — a contact is shared with the neighbour above or below, and
+     a tie drawn on it bounds both bands (owner: *"it has a top and bottom tie
+     to the right though?"*). **2 ties → SPAN**: the quad between the two tie
+     lines, absolutely. **1 tie → ONLAP**: the tied contact follows its line,
+     the untied one holds the band's own level, and the construct closes itself
+     where they meet. **0 ties → LENS or LEVEL**: an interbed the same class
+     encloses above and below, whose levels the facing test never read, closes
+     as a lens (apex `LENS_PINCH_FRACTION`, halved while it would cross a tie —
+     ruling 8t) and its wrapper owns the level beyond; every other untied band
+     holds its own level. An untied contact that IS the parent unit's own
+     contact follows the LITHO line drawn for it (ruling A — boundary only,
+     never a 2/1/0 count). Crossing ties are a hard conflict: both are dropped
+     and reported (owner Q4).
+   * **LOOPS** — every line, plus the family's litho cover, goes into ONE
+     planar arrangement (`frameClipGeometry.overlayFaces`), so no line is drawn
+     "after" another and no emission order exists to depend on.
+   * **FILL** (`fillGap.ts` + `matrixOwner.ts`) — each loop is asked one
+     question at a point strictly inside it. The NEARER test's construct
+     answers first, then the facing test's: that single rule IS the vertical
+     termination, and it puts the fence halfway between the two tests (owner:
+     *"it should get a vertical termination in the middle left is MD right is
+     D"*). What no construct claims goes to the matrix rulings — the test that
+     read the level (adoption below a short test's TD), the wrapper of a band
+     that closed its own loop, then the wall of the closed form within its own
+     2/1/0 ENVELOPE (own extent ∪ the lines it carries, evaluated AT the point).
+   * **MERGE** (`mergeFaces.ts`) — loops of the same class and body that a
+     CORRELATION says are one mass weld into one region by boundary walk. A
+     deleted tie is never resurrected: untied same-class masses stay two
+     regions meeting at the termination.
+4. **Column rule per family run:** a frame column carrying a family litho unit
+   but NO band of it is a BLOCKER — it ends the run and sends the family's
+   whole cover in both flanking gaps to litho fallback ("correlate me"). That
+   keeps the 2026-08-15 ruling: an un-divided borehole shows visibly empty
+   ground; previews stay opt-in. A frame column carrying NO litho unit of the
+   family is EXCLUDED, so the run spans it (deep-to-deep / short-test spans
+   keep working) and the output is still cut per real frame gap.
 
 **Structural invariants**, held by the committed gate
 `geotechHierarchicalCoverage.diag.test.ts` (`HIER_COV=1`, PIP sweep over all
 14 real sections): **WRONGSOIL 0 · OVERLAP 0 · HOLE 0 · outside-frame 0**. A
 geotech band can never paint outside its parent litho soil geometry — the
-cross-soil vacancy-flood family is impossible, not patched.
-`clipPartitionToLithoFrame.ts` (the relabelling post-hoc clip) is DELETED;
-its geometry primitives live on in `frameClipGeometry.ts`.
+cross-soil vacancy-flood family is impossible, not patched. The cover is an
+INPUT to the arrangement, so the clip is structural: `frameClip.ts` (the
+per-family post-clip) and `clipPartitionToLithoFrame.ts` (the relabelling
+post-hoc clip before it) are both DELETED; the geometry primitives live on in
+`frameClipGeometry.ts`.
 
 **Render = build = one path.** `PartitionFillOverlay` renders the
 hierarchical fill on the geotech axis (litho axis untouched);
@@ -109,19 +133,26 @@ SOIL-DISSOLVED (`utils/lithoOutlineEdges.ts`): only edges where the soil
 changes — or the frame's outer envelope — draw; internal seams between
 touching same-soil litho units are machine anatomy and dissolve (owner
 dogfeed 2026-08-18: "weird ass horizontal black lines without meaning to the
-user"). Clip-fallback faces render litho-coloured beneath the packing fills;
-the "correlate me" hatch marks un-classed litho ground.
+user"). Fallback faces render litho-coloured beneath the packing fills; the
+"correlate me" hatch marks un-classed litho ground.
 
-**Measured** by two ratchets on the real model: the litho-consistency gate
-(§7, soil raster — 96.2–98.6 % + one 100 %, residual = raster hairlines) and
-the 2/1/0 conformance gate (`geotech210Conformance.diag.test.ts`,
-`GEOTECH_210=1` — per band per gap: 2 ties must span, 0/1-tie constructs must
-exist and stay inside their envelope; audits the hierarchical arm on the
-frame axis; a gap whose facing test carries no bands is out of scope, that
-absence being the 2026-08-15 ruling itself). Harvest 2026-08-19: model-wide
-balloon 178→99, missing 200→88; the +2 nospan is model-side — 25 CS1 packing
-ties join bands whose litho units are not correlated, and the construction
-drops them (surface + owner correlation pass tracked in docs/debt.md).
+**Measured** by three ratchets on the real model, all re-frozen 2026-08-19 on
+the constructive fill:
+
+* coverage (`HIER_COV=1`): CS1 classed 92.4 → **99.2 %**, and every section
+  holds WRONGSOIL/OVERLAP/HOLE/outside-frame at 0. Region count falls with the
+  merge (CS1 764 → 411 faces);
+* litho consistency (§7): **every one of the 14 sections improved** — CS1
+  97.9 → 98.7 %, worst section 98.6 %, and every remaining mismatch bucket is
+  soil→(void) raster hairline, never wrong-soil paint;
+* 2/1/0 conformance (`GEOTECH_210=1`): model-wide balloon 81 → 29, missing 103 →
+  63, nospan 6 → 5. The survivors are attribution, not paint: a merged mass
+  carries every contributing band's `layerIds`, so the gate measures a thin
+  member against the whole mass (balloon); a 2-tie band facing a DIFFERENT
+  class reaches the vertical termination, not the far column, which is the
+  owner's own S5 ruling (nospan); and one Tie-section-11 balloon (0 → 1, the
+  only number that grew) is a band following a litho line drawn on its SHARED
+  contact, which the gate attributes to the neighbouring unit only.
 
 **Litho geometry stays authoritative in the backend too — complete tie
 restatement.** Every direct litho tie restates onto the packing bands that
