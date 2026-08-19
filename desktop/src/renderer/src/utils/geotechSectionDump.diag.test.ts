@@ -89,6 +89,7 @@ const dumpRegions = (regs: readonly SectionRegion[]) =>
     gap: r.gapIndex,
     kind: r.kind,
     formationId: r.formationId,
+    layerIds: r.layerIds,
     pts: r.polygon.map((p) => [p.fraction, p.elevation] as [number, number]),
   }))
 
