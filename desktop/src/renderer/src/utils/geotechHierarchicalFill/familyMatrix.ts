@@ -28,6 +28,7 @@
  * @module utils/geotechHierarchicalFill/familyMatrix
  */
 
+import { faceWindowOnColumn } from '../partitionFillV2/tieWindow'
 import type { PartitionColumn, SectionRegion } from '../partitionFill'
 
 /** How close to a column edge a face must reach to count as touching it. */
@@ -91,7 +92,20 @@ export function applyFamilyMatrix(
     const ci = touchesLeft ? region.gapIndex : touchesRight ? region.gapIndex + 1 : -1
     const column = ci >= 0 ? byColumn[ci] : undefined
     if (column === undefined) return region
-    const sample = hi - TOP_INSET
+    // A CLASS-LABEL SAMPLE MAY NEVER CROSS A CORRELATION. "The face's upper level" is the level ON
+    // THE TEST BEING READ — the top of the run of the face's own boundary that lies on that test's
+    // line, which is by construction its upper level on that test's side of every bounding tie. Its
+    // GLOBAL top is a different thing: bounded above by a dipping tie, the face reaches highest on
+    // the FAR side of the gap, and reading this test there reads it across the correlation. On the
+    // owner's CS1 gap 9 that took the very dense sand from ABOVE the sand tie and painted the
+    // window below it — the "weird VD quad". A face that only grazes the test at a point has no run
+    // to read and keeps its global top.
+    const ownRun = faceWindowOnColumn(
+      region.polygon.map((p) => ({ x: p.fraction, y: p.elevation })),
+      touchesLeft ? 0 : 1,
+      TOUCH,
+    )
+    const sample = (ownRun?.hi ?? hi) - TOP_INSET
     const matrix = column.bands.find((b) => sample <= b.top && sample >= b.base)
     if (matrix === undefined || matrix.formationId === region.formationId) return region
     return {
