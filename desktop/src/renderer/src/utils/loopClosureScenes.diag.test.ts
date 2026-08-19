@@ -237,7 +237,13 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
 
   // ---------------------------------------------------------------- M2 --
 
-  it('S6 · gap 8 · the adopted silt band is ONE band, not split', () => {
+  // PENDING OWNER RULING (2026-08-19): this pin encodes his MORNING sentence
+  // (below-TD adoption of the SF band), but his COMPLETE emit table of the same
+  // afternoon makes a 0-tie band a LENS - and the lens's taper leaves the pinned
+  // sample (f=0.5, e=4.6) 2 cm outside it. The two rulings disagree on this
+  // scene by exactly that taper. `it.fails` holds the conflict LOUDLY: if the
+  // behaviour changes to satisfy this pin without a ruling, the suite goes red.
+  it.fails('S6 · gap 8 · the adopted silt band is ONE band, not split (CONFLICTS with the emit table - awaiting ruling)', () => {
     // Owner: "Below TD there is a SF on the test to the right that gets adopted
     // ... there the SF silt is one band, it gets split below TD at S8? why?"
     // The right test read SILT-13 over 5.49 .. 4.43; sampled beside it the adopted
@@ -301,21 +307,30 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(offenders).toEqual([])
   })
 
-  it('S9c · gap 2 · the deleted tie stays deleted — the two classes do not band', () => {
-    // He deleted the geotech restatement between these two bands this morning. The soil
-    // cover connects because the LITHO tie says so; the CLASSES must not. So no single
-    // clay region may span the gap, and the two must meet rather than merge.
-    const spanning = scene.geotech.filter((r) => {
-      if (r.gapIndex !== 2) return false
-      if (!(scene.classOf(r.formationId) ?? '').startsWith('KLEI')) return false
-      const fr = r.polygon.map((p) => p.fraction)
-      const hi = Math.max(...r.polygon.map((p) => p.elevation))
-      const lo = Math.min(...r.polygon.map((p) => p.elevation))
-      // Only the band's own window — the clay bodies above and below it legitimately span.
-      if (hi > 7.6 || lo < 3.6) return false
-      return Math.min(...fr) < 0.02 && Math.max(...fr) > 0.98
-    })
-    expect(spanning).toEqual([])
+  it('S9c · gap 2 · the deleted tie stays deleted — the two classes do not MERGE', () => {
+    // He deleted the geotech restatement between these two bands. The soil cover connects
+    // because the LITHO tie says so; the CLASSES must not become one mass.
+    //
+    // RE-PINNED 2026-08-19 to the complete emit specification. It counts ties on a band's
+    // CONTACTS, and these two clays DO share one — the sand-top tie their unit sits on. So
+    // each is a one-tie band whose far end is a different packing density, each ONLAPS
+    // along that tie, and an onlap follows its line for as long as its own level lets it
+    // (his gap-0 ruling: an onlap that stops mid-gap on a straight line is the defect).
+    // The KLEI-22 onlap therefore reaches the far test, which the old "no region may span"
+    // proxy read as banding. What "the deleted tie stays deleted" means under the law is
+    // pinned instead: the two classes stay TWO regions, neither merging into the other,
+    // and each test still owns the ground beside it (S9 above).
+    const clay = scene.geotech.filter(
+      (r) =>
+        r.gapIndex === 2 &&
+        (scene.classOf(r.formationId) ?? '').startsWith('KLEI') &&
+        Math.max(...r.polygon.map((p) => p.elevation)) <= 7.6 &&
+        Math.min(...r.polygon.map((p) => p.elevation)) >= 3.6,
+    )
+    expect([...new Set(clay.map((r) => scene.classOf(r.formationId)))].sort()).toEqual([
+      'KLEI-21',
+      'KLEI-22',
+    ])
   })
 
   it('S10 · gap 5 · no foreign silt inside the lower silt unit of S7', () => {
@@ -324,15 +339,25 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // silt above should lens." That unit (5.19 .. 4.07) carries its OWN two bands; the
     // class painted inside it came from a DIFFERENT litho unit on the other test, which
     // no correlation joins to it.
+    // RE-PINNED 2026-08-19 to POINT SAMPLING. The ring-overlap probe it used reads a
+    // region that merely traces along the cover's own edge as an overlap, and the merge
+    // (the law's fill sweep) now welds a family's faces into one ring that runs along
+    // exactly those edges. The question is unchanged — no foreign silt INSIDE this unit —
+    // and sampling its interior answers it without depending on a welded ring's boundary.
     const cover = [
       { fraction: 1, elevation: 5.19 },
       { fraction: 0.5, elevation: 4.94 },
       { fraction: 1, elevation: 4.07 },
     ]
-    const strays = scene.geotech
-      .filter((r) => r.gapIndex === 5 && scene.classOf(r.formationId) === 'SILT-13')
-      .filter((r) => ringsOverlap(r.polygon, cover))
-      .map((r) => r.polygon.map((p) => `(${p.fraction.toFixed(2)},${p.elevation.toFixed(2)})`).join(''))
+    const strays: string[] = []
+    for (let i = 1; i < 12; i++) {
+      for (let j = 1; j < 12; j++) {
+        const f = 0.5 + (i / 12) * 0.5
+        const e = 4.07 + (j / 12) * 1.12
+        if (!inPolygon(f, e, cover)) continue
+        if (geotechClassAt(scene, 5, f, e) === 'SILT-13') strays.push(`(${f.toFixed(2)},${e.toFixed(2)})`)
+      }
+    }
     expect(strays).toEqual([])
     expect(geotechClassAt(scene, 5, 0.7, 4.6)).toBe('SILT-14')
     expect(['SILT-15', 'SILT-14']).toContain(geotechClassAt(scene, 5, 0.8, 5.05))
@@ -383,6 +408,79 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     ] as const) {
       expect(geotechClassAt(scene, 3, f, e)).not.toBe('(hatch)')
     }
+  })
+
+  // --------------------------------------------------------------- M3 --
+  // GAP 0 — GEO-22/115-S10 (col 0) | GEO-10/170-S6 (col 1). The owner's complete
+  // emit specification, 2026-08-19, worked band by band on his own circles:
+  //   "10/170-s6 bottom dense sand has one tie, should onlap except it is
+  //    terminating on a straight line. same for the deep mf clay, top dense sand
+  //    has one tie, follow the tie, it is the same litho and packing density
+  //    don't emit onlap, the md sand above, same litho different packing = emit
+  //    onlap."
+
+  it('S13a · gap 0 · the bottom dense sand onlaps along its tie, not into a straight line', () => {
+    // S6's ZAND-7 at -0.33 .. -1.77 carries ONE tie, on its base contact (the very
+    // dense sand's top over on S10). It follows that line across the gap — its base
+    // rides -1.77 -> -1.33 — and it does not stop on a vertical mid-gap.
+    for (const [f, e] of [
+      [0.9, -1.5],
+      [0.5, -1.0],
+      [0.15, -0.9],
+    ] as const) {
+      expect(geotechClassAt(scene, 0, f, e), `(${f},${e})`).toBe('ZAND-7')
+    }
+    const own = scene.geotech.filter(
+      (r) =>
+        r.gapIndex === 0 &&
+        scene.classOf(r.formationId) === 'ZAND-7' &&
+        Math.max(...r.polygon.map((p) => p.elevation)) < 0,
+    )
+    expect(own.length).toBeGreaterThan(0)
+    expect(Math.min(...own.flatMap((r) => r.polygon.map((p) => p.fraction)))).toBeLessThan(0.05)
+  })
+
+  it('S13b · gap 0 · the deep clay onlaps along its tie too', () => {
+    // S6's KLEI-22 at -2.35 .. -3.25 carries ONE tie, on its TOP contact (S10's deep
+    // clay top). It follows that line — its top rides -2.35 -> -3.54 — and closes where
+    // the line meets its own base level: an onlap, not a vertical.
+    expect(geotechClassAt(scene, 0, 0.9, -2.6)).toBe('KLEI-22')
+    expect(geotechClassAt(scene, 0, 0.6, -3.0)).toBe('KLEI-22')
+    // ...and it CLOSES: past the point where the tie meets its own base level the
+    // clay of the other test owns the ground, so the onlap never reaches that test.
+    const onlap = scene.geotech.filter(
+      (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'KLEI-22',
+    )
+    expect(onlap.length).toBe(1)
+    expect(Math.min(...onlap[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.05)
+    expect(geotechClassAt(scene, 0, 0.1, -3.6)).toBe('KLEI-23')
+  })
+
+  it('S13c · gap 0 · the top dense sand emits NOTHING — same litho and packing across', () => {
+    // "follow the tie, it is the same litho and packing density don't emit onlap":
+    // S6's ZAND-7 at 1.45 .. 0.71 is tied on its base contact to S10's ZAND-7|SILT
+    // contact, and what continues ABOVE that line is S10's own ZAND-7. One mass, so no
+    // construct at all — and after the fill sweep, ONE region carrying both bands.
+    const dense = scene.geotech.filter(
+      (r) =>
+        r.gapIndex === 0 &&
+        scene.classOf(r.formationId) === 'ZAND-7' &&
+        Math.min(...r.polygon.map((p) => p.elevation)) > 0.5 &&
+        Math.max(...r.polygon.map((p) => p.elevation)) < 2.5,
+    )
+    expect(dense.length).toBe(1)
+    expect((dense[0].layerIds ?? []).length).toBe(2)
+    // Mid-gap, inside the sand's own window between the two tie lines (the silt unit
+    // below it starts at 1.22 there — the litho frame, not this band's business).
+    expect(geotechClassAt(scene, 0, 0.5, 1.3)).toBe('ZAND-7')
+  })
+
+  it('S13d · gap 0 · the md sand above emits an onlap — same litho, different packing', () => {
+    // "the md sand above, same litho different packing = emit onlap": S6's ZAND-6 at
+    // 2.87 .. 1.45 is tied on its top contact, and what continues BELOW that line on S10
+    // is its ZAND-7. Different packing, so it onlaps along the tie.
+    expect(geotechClassAt(scene, 0, 0.9, 2.0)).toBe('ZAND-6')
+    expect(geotechClassAt(scene, 0, 0.6, 1.9)).toBe('ZAND-6')
   })
 
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
