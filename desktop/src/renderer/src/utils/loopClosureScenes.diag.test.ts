@@ -353,6 +353,38 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(geotechClassAt(scene, 5, 0.3, 10.05)).toBe('SILT-15')
   })
 
+  it('S12 · gap 3 · a band with a top AND a bottom tie SPANS — it never onlaps', () => {
+    // Owner, 2026-08-19: "you drew the vertical line but made the VD dense onlap
+    // instead, it has a top and bottom tie to the right though? ... i said it was
+    // absolute". B4 (col 3) carries a very dense sand at -1.77 .. -2.37. Its TOP
+    // contact is tied to S13's sand top (-1.06) and its BASE contact — the clay
+    // top it shares with the band below — is tied to S13's clay top (-1.79). Two
+    // ties, so the 2/1/0 law makes it a BAND: the quad between those two lines,
+    // its half of the gap filled to the vertical termination, with no mid-gap
+    // pinch and no hatch under it.
+    //
+    // The facing test reads that same window as a medium-dense sand, so the two
+    // masses meet at the vertical in the middle — his own standing ruling for
+    // this shape ("it should get a vertical termination in the middle left is MD
+    // right is D", pinned as S5 on gap 9).
+    for (const [f, e] of [
+      [0.1, -2.2],
+      [0.25, -1.9],
+      [0.45, -2.0],
+    ] as const) {
+      expect(geotechClassAt(scene, 3, f, e), `(${f},${e}) is not the VD band`).toBe('ZAND-8')
+    }
+    // ...and the facing test owns its own half of the same window.
+    expect(geotechClassAt(scene, 3, 0.6, -1.9)).toBe('ZAND-6')
+    // Nothing in that window reads "correlate me": the two constructs tile it.
+    for (const [f, e] of [
+      [0.3, -1.95],
+      [0.7, -1.85],
+    ] as const) {
+      expect(geotechClassAt(scene, 3, f, e)).not.toBe('(hatch)')
+    }
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
