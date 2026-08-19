@@ -2,27 +2,23 @@
  * ONE GAP, ONE FAMILY — lines, then loops, then fill, then merge.
  *
  * Owner, 2026-08-19: *"we said first draw all lines, lenses, onlaps, vertical
- * lines, this makes closed loops, then we fill everything and merge it"*.
- * This module is that sentence, executed:
+ * lines, this makes closed loops, then we fill everything and merge it"*, and
+ * the fill itself: *"Fill = emit lenses first, then emit onlaps, then fill in
+ * the rest with the dominant lithology (should be the same if all onlaps and
+ * lenses are emitted). Fill sweep if a lens is touching a body with same litho
+ * and packing then lens disappears and it becomes one body"*.
  *
- *  1. **LINES.** Every line the 2/1/0 law draws for this family in this gap —
- *     the tie lines, each band's own level, the lens flanks, the vertical
- *     termination between the two tests — plus the family's litho cover, which
- *     is the frame nothing may leave. They go into ONE planar arrangement, so
- *     no line can be drawn "after" another and no emission order exists to
- *     depend on.
- *  2. **LOOPS.** The arrangement hands back the closed loops those lines make.
- *  3. **FILL.** Each loop is asked ONE question at a point strictly inside it:
- *     whose ground is this? The nearer test's construct answers first; then the
- *     facing test's; then the matrix rulings (``matrixOwner``). A loop nothing
- *     can answer stays unclassed and renders "correlate me".
- *  4. **MERGE.** Loops that carry the same band weld into one region
- *     (``mergeFaces``).
+ * Executed exactly in that order:
  *
- * The answer is constant inside a loop BY CONSTRUCTION: every boundary any rule
- * can produce — a tie line, a band's own level, a lens flank, the vertical
- * termination, the cover — is a line in step 1, so a loop cannot straddle two
- * answers.
+ *  1. **LINES** — every line the law calls for (``constructs.ts``) plus the
+ *     family's litho cover, into ONE planar arrangement. No line is drawn
+ *     "after" another, so no emission order exists to depend on.
+ *  2. **LOOPS** — the arrangement hands back the closed loops those lines make.
+ *  3. **FILL** — each loop is asked once, at a point strictly inside it:
+ *     a lens first, then an onlap, then the dominant mass of the ground.
+ *  4. **MERGE** — faces of the same mass that touch weld into one region, which
+ *     IS the fill sweep: a lens touching a body of the same litho and packing
+ *     disappears into it, one body, no seam.
  *
  * @module utils/geotechHierarchicalFill/constructive/fillGap
  */
@@ -30,14 +26,13 @@
 import {
   buildGapConstructs,
   claims,
-  constructWindow,
   tieElevAt,
   type BandConstruct,
   type RunBand,
   type RunColumn,
   type RunTie,
 } from './constructs'
-import { matrixOwner, type MatrixReader } from './matrixOwner'
+import { FILL_ORDER, massKey, type Mass } from './emitKernel'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
@@ -54,11 +49,7 @@ export interface GapFillInput {
   xb: number
   /** This family's litho regions in this gap — the frame. */
   cover: readonly SectionRegion[]
-  /**
-   * EVERY litho region in this gap, in the render's own z-order, so ownership
-   * is resolved the way the screen resolves it: an enclosed lens is an overlay
-   * over another family's matrix, and without this both families claim it.
-   */
+  /** EVERY litho region in this gap, in the render's own z-order. */
   gapPaint: readonly SectionRegion[]
   /** The two banded tests this gap's ground runs between, or null. */
   run: { left: RunColumn; right: RunColumn } | null
@@ -66,13 +57,12 @@ export interface GapFillInput {
   ties: readonly RunTie[]
   /** The LITHO lines of the run — the cover's own boundaries. */
   coverTies: readonly RunTie[]
-  /** Every test of the family that can answer here. */
-  readers: readonly MatrixReader[]
-  /**
-   * Band ``layerId`` → the id of the mass its own correlations put it in. Bands
-   * a tie joins share one; an untied band is alone in its own.
-   */
-  tieGroupOf: ReadonlyMap<string, string>
+  /** Every banded column of the family, for the dominant read. */
+  columns: readonly RunColumn[]
+  /** EVERY packing band per column index, for the far-end read. */
+  stacks: ReadonlyMap<number, readonly RunBand[]>
+  /** The mass (litho + packing) of a band. */
+  massOf: (band: RunBand) => Mass
 }
 
 /** What one gap produced. */
@@ -81,8 +71,15 @@ export interface GapFillResult {
   covered: SectionRegion[]
   /** Cover nothing could answer — the "correlate me" hatch. */
   residual: SectionRegion[]
-  /** Ground the matrix rulings answered rather than a construct, in m². */
-  matrixAreaM2: number
+  /** Ground the dominant-mass step answered rather than a construct, in m². */
+  remainderAreaM2: number
+  /**
+   * Loops where the dominant mass was NOT unique by overlap and the vertical
+   * line between the two tests decided it. His parenthetical — *"should be the
+   * same if all onlaps and lenses are emitted"* — says a remainder ought to
+   * have one owner; this counts where it did not.
+   */
+  splitRemainders: number
 }
 
 /** Order regions the way the render stacks them: overlays (lenses) last. */
@@ -113,16 +110,57 @@ function areaM2(ring: readonly { fraction: number; elevation: number }[], width:
 }
 
 /**
+ * *"fill in the rest with the dominant lithology"* — of the tests that read
+ * this ground, the band that occupies most of the loop's own levels owns it.
+ *
+ * Where two tests read the same levels and disagree, the overlap alone cannot
+ * choose — and that is exactly the case his law draws a VERTICAL LINE IN THE
+ * MIDDLE for, so the loop already lies on one side of it and the test on that
+ * side owns it. Counted (``splitRemainders``) so the case stays visible.
+ */
+function dominantBand(
+  candidates: readonly RunBand[],
+  x: number,
+  lo: number,
+  hi: number,
+): { band: RunBand | null; split: boolean } {
+  let best: RunBand | null = null
+  let bestOverlap = -Infinity
+  let bestDistance = Infinity
+  let split = false
+  for (const band of candidates) {
+    const distance = Math.abs(band.x - x)
+    // How much of this loop's own levels the mass occupies. A form no mass
+    // reaches at all (the ground a closed loop encircles above or below every
+    // stack) scores NEGATIVE — the elevation gap to the nearest mass — so the
+    // wall of that form still answers rather than leaving a hole.
+    const overlap = Math.min(band.top, hi) - Math.max(band.base, lo)
+    const better =
+      overlap > bestOverlap + 1e-9 ||
+      (overlap > bestOverlap - 1e-9 && distance < bestDistance)
+    if (best !== null && Math.abs(overlap - bestOverlap) <= 1e-9 && best.formationId !== band.formationId) {
+      split = true
+    }
+    if (better) {
+      best = band
+      bestOverlap = overlap
+      bestDistance = distance
+    }
+  }
+  return { band: best, split }
+}
+
+/**
  * Fill one family's cover in one gap.
  *
  * @param input See {@link GapFillInput}.
- * @returns The classed regions, the unclassed cover, and the matrix area.
+ * @returns The classed regions, the unclassed cover, and the counters.
  */
 export function fillGap(input: GapFillInput): GapFillResult {
-  const { gapIndex, xa, xb, cover, gapPaint, run, ties, coverTies, readers, tieGroupOf } = input
+  const { gapIndex, xa, xb, cover, gapPaint, run, ties, coverTies, columns, stacks, massOf } = input
   const width = xb - xa
   if (cover.length === 0 || !Number.isFinite(width) || Math.abs(width) < 1e-9) {
-    return { covered: [], residual: [...cover], matrixAreaM2: 0 }
+    return { covered: [], residual: [...cover], remainderAreaM2: 0, splitRemainders: 0 }
   }
   const own = new Set(cover)
   const foreignOverlays = gapPaint.filter((r) => r.kind === 'lens' && !own.has(r))
@@ -131,7 +169,9 @@ export function fillGap(input: GapFillInput): GapFillResult {
 
   // ---------------------------------------------------------------- LINES --
   const constructs: BandConstruct[] =
-    run === null ? [] : buildGapConstructs(run.left, run.right, ties, coverTies)
+    run === null
+      ? []
+      : buildGapConstructs(run.left, run.right, ties, coverTies, stacks, massOf)
   const lines: { fraction: number; elevation: number }[][] = []
   let eLo = Infinity
   let eHi = -Infinity
@@ -156,10 +196,10 @@ export function fillGap(input: GapFillInput): GapFillResult {
     ])
   }
 
-  // Every tie line that crosses this ground: the structural framework.
   if (run !== null) {
     const lo = Math.min(run.left.ci, run.right.ci)
     const hi = Math.max(run.left.ci, run.right.ci)
+    // Every tie line that crosses this ground: the correlations themselves.
     for (const tie of ties) {
       if (Math.min(tie.leftCi, tie.rightCi) > lo || Math.max(tie.leftCi, tie.rightCi) < hi) continue
       lines.push([
@@ -167,102 +207,117 @@ export function fillGap(input: GapFillInput): GapFillResult {
         { fraction: 1 + EXTEND, elevation: tieElevAt(tie, atFraction(1 + EXTEND)) },
       ])
     }
-  }
-  // Every band's own level — the line an untied contact holds, and the level at
-  // which the matrix changes its answer.
-  const levelSources: readonly MatrixReader[] =
-    run === null ? readers : readers.filter((r) => r.ci === run.left.ci || r.ci === run.right.ci)
-  for (const reader of levelSources) {
-    for (const band of reader.bands) {
-      horizontal(band.top)
-      horizontal(band.base)
+    // "vertical line in the middle" — where the law calls for it (two ties, a
+    // different mass at the other end), and where two onlaps reaching from
+    // opposite tests meet, which is the same line: a construct owns its own
+    // side of it (see ``claims``).
+    if (constructs.some((c) => c.emit === 'vertical' || c.emit === 'onlap')) {
+      vertical(toFraction((run.left.x + run.right.x) / 2))
+    }
+    // The lens flanks.
+    for (const construct of constructs) {
+      if (construct.emit !== 'lens' || construct.apexX === undefined) continue
+      const mid = (construct.band.top + construct.band.base) / 2
+      const fa = toFraction(construct.band.x)
+      const fb = toFraction(construct.apexX)
+      for (const y of [construct.band.top, construct.band.base]) {
+        lines.push([
+          { fraction: fa, elevation: y },
+          { fraction: fb, elevation: mid },
+        ])
+      }
     }
   }
-  // The lens flanks.
+  // Every band's own level — but ONLY where no tie already states that contact.
+  // A tied contact's line IS the tie, which is drawn above; adding a horizontal
+  // through it cuts a sliver off the tie-bounded window and hands it to the
+  // wrong mass (measured on his gap 3: the facing sand's flat base sliced the
+  // very dense sand's own window in half).
+  const levelColumns =
+    run === null ? columns : columns.filter((c) => c.ci === run.left.ci || c.ci === run.right.ci)
+  const stated = new Set<string>()
   for (const construct of constructs) {
-    if (construct.apexX === undefined) continue
-    const mid = (construct.band.top + construct.band.base) / 2
-    const fa = toFraction(construct.band.x)
-    const fb = toFraction(construct.apexX)
-    for (const y of [construct.band.top, construct.band.base]) {
-      lines.push([
-        { fraction: fa, elevation: y },
-        { fraction: fb, elevation: mid },
-      ])
-    }
+    if (construct.topTied) stated.add(`${construct.band.ci}@${Math.round(construct.band.top * 1000)}`)
+    if (construct.baseTied) stated.add(`${construct.band.ci}@${Math.round(construct.band.base * 1000)}`)
   }
-  // The vertical termination: halfway between the two tests that meet here —
-  // and, where no run governs this ground, halfway between each pair of the
-  // family's own answering tests.
-  if (run !== null) vertical(toFraction((run.left.x + run.right.x) / 2))
-  else {
-    const sorted = [...readers].sort((a, b) => a.x - b.x)
-    for (let i = 0; i + 1 < sorted.length; i++) vertical(toFraction((sorted[i].x + sorted[i + 1].x) / 2))
+  for (const column of levelColumns) {
+    for (const band of column.bands) {
+      if (!stated.has(`${band.ci}@${Math.round(band.top * 1000)}`)) horizontal(band.top)
+      if (!stated.has(`${band.ci}@${Math.round(band.base * 1000)}`)) horizontal(band.base)
+    }
   }
 
   // ---------------------------------------------------------------- LOOPS --
   const faces = overlayFaces(
-    [
-      ...cover.map((r) => r.polygon),
-      ...foreignOverlays.map((r) => r.polygon),
-      ...lines,
-    ],
+    [...cover.map((r) => r.polygon), ...foreignOverlays.map((r) => r.polygon), ...lines],
     `cfill-${gapIndex}`,
   )
 
   // ----------------------------------------------------------------- FILL --
-  // What each band's own construct already claims here: the matrix never
-  // repeats a band past its own loop.
-  const closed = new Map<string, { lo: number; hi: number }>()
-  for (const construct of constructs) {
-    const raw = constructWindow(construct, xa, xb)
-    // Clamped to the cover: a construct that follows the cover boundary is
-    // unbounded on that side, and an infinite window would read as "this band
-    // has spoken for every level anywhere", which is not what it said.
-    const window = { lo: Math.max(raw.lo, eLo), hi: Math.min(raw.hi, eHi) }
-    const previous = closed.get(construct.band.layerId)
-    closed.set(
-      construct.band.layerId,
-      previous === undefined
-        ? window
-        : { lo: Math.min(previous.lo, window.lo), hi: Math.max(previous.hi, window.hi) },
-    )
-  }
-  // The gap's own two tests, nearest first — the ownership rule that puts the
-  // vertical termination halfway between them.
-  const byColumn = new Map<number, BandConstruct[]>()
-  for (const construct of constructs) {
-    const list = byColumn.get(construct.band.ci)
-    if (list === undefined) byColumn.set(construct.band.ci, [construct])
-    else list.push(construct)
-  }
+  const lenses = constructs.filter((c) => c.emit === 'lens')
+  const onlaps = constructs.filter((c) => c.emit === 'onlap')
+  // The two masses a vertical line stands between own their own side of it.
+  const verticals = constructs.filter((c) => c.emit === 'vertical')
   const framePaint = painterOrder(gapPaint)
+  // *"(should be the same if all onlaps and lenses are emitted)"* — the rest of
+  // the ground belongs to the CONTINUOUS mass, so the masses that drew a shape
+  // of their own (a lens, an onlap) are not candidates for it: their shape is
+  // their whole statement, and letting one own the ground past its own loop is
+  // what carried an interbed's level across a gap.
+  const shaped = new Set(
+    constructs.filter((c) => c.emit === 'lens' || c.emit === 'onlap').map((c) => c.band.layerId),
+  )
+  const answering = run === null ? columns : [run.left, run.right]
+  const allBands = answering.flatMap((c) => c.bands)
+  const continuous = allBands.filter((b) => !shaped.has(b.layerId))
 
   const labelled: LabelledFace<RunBand>[] = []
   const residual: SectionRegion[] = []
-  let matrixAreaM2 = 0
+  let remainderAreaM2 = 0
+  let splitRemainders = 0
   for (const face of faces) {
     const frame = coverAt(framePaint, face.sample.fraction, face.sample.elevation)
     // Outside this family's litho cover, or inside a face another family owns.
     if (frame === null || !own.has(frame)) continue
     const x = atFraction(face.sample.fraction)
     const y = face.sample.elevation
+    // "emit lenses first, then emit onlaps" — nearest test first where two of a
+    // kind cover the same point.
     let band: RunBand | null = null
-    if (run !== null) {
-      const near = Math.abs(x - run.left.x) <= Math.abs(x - run.right.x) ? run.left : run.right
-      const far = near === run.left ? run.right : run.left
-      for (const column of [near, far]) {
-        for (const construct of byColumn.get(column.ci) ?? []) {
-          if (!claims(construct, x, y)) continue
+    // The law's own order: lenses, then onlaps, then the rest — and "the rest"
+    // is the ground between two masses a vertical stands in, then the dominant
+    // mass of whatever is left.
+    for (const tier of FILL_ORDER.map((step) =>
+      step === 'lens' ? lenses : step === 'onlap' ? onlaps : verticals,
+    )) {
+      let bestDistance = Infinity
+      for (const construct of tier) {
+        if (!claims(construct, x, y)) continue
+        const distance = Math.abs(construct.band.x - x)
+        if (distance < bestDistance) {
+          bestDistance = distance
           band = construct.band
-          break
         }
-        if (band !== null) break
       }
+      if (band !== null) break
     }
+    // "then fill in the rest with the dominant lithology"
     if (band === null) {
-      band = matrixOwner(x, y, readers, closed)
-      if (band !== null) matrixAreaM2 += areaM2(face.ring, width)
+      let lo = Infinity
+      let hi = -Infinity
+      for (const p of face.ring) {
+        if (p.elevation < lo) lo = p.elevation
+        if (p.elevation > hi) hi = p.elevation
+      }
+      // The continuous masses answer first; only where every mass here drew a
+      // shape of its own does the nearest of THOSE answer, which is better than
+      // a hole in the middle of ground the tests did read.
+      const dominant = dominantBand(continuous.length > 0 ? continuous : allBands, x, lo, hi)
+      band = dominant.band
+      if (band !== null) {
+        remainderAreaM2 += areaM2(face.ring, width)
+        if (dominant.split) splitRemainders += 1
+      }
     }
     if (band === null) {
       residual.push({
@@ -274,28 +329,48 @@ export function fillGap(input: GapFillInput): GapFillResult {
       })
       continue
     }
-    // WHAT MAY WELD: the same class, of the same body, that a CORRELATION says
-    // is one mass. Two tests reading the same class either side of a vertical
-    // termination weld when a tie joins them — the tie is the statement that it
-    // is one mass, and the welded region then spans the gap as the 2/1/0 law
-    // says a tied band must. Where no tie joins them they stay two regions
-    // meeting at the termination: a deleted tie is never resurrected by the
-    // merge, in the fill or in the body identity it feeds.
-    labelled.push({
-      key: `${band.formationId}|${band.bodyId ?? ''}|${tieGroupOf.get(band.layerId) ?? band.layerId}`,
-      label: band,
-      ring: face.ring,
-    })
+    // THE FILL SWEEP is the merge key: same litho + same packing IS one mass,
+    // so a lens touching such a body welds into it and disappears. Within a
+    // family the litho is one by construction, so the key is the packing class.
+    labelled.push({ key: massKey(massOf(band)), label: band, ring: face.ring })
   }
 
   // ---------------------------------------------------------------- MERGE --
-  const covered = mergeFaces(labelled).map(({ label, members, ring }) => ({
-    gapIndex,
-    formationId: label.formationId,
-    bodyId: label.bodyId,
-    kind: 'quad' as const,
-    polygon: ring,
-    layerIds: [...new Set(members.map((m) => m.layerId))].sort(),
-  }))
-  return { covered, residual, matrixAreaM2 }
+  const covered = mergeFaces(labelled).map(({ label, members, ring }) => {
+    // WHOSE PAINT IS THIS? Every band of the same mass whose own ground the
+    // region covers at that band's own test. One mass welded across a gap is one
+    // region — *"it becomes one body"* — and both tests' bands are that body, so
+    // both identities travel on it. Without this a band that emitted nothing
+    // because its facing twin is identical would appear nowhere at all, which is
+    // what the 2/1/0 audit reads as a construct that failed to exist.
+    const ids = new Set(members.map((m) => m.layerId))
+    let lo = Infinity
+    let hi = -Infinity
+    let f0 = Infinity
+    let f1 = -Infinity
+    for (const p of ring) {
+      if (p.elevation < lo) lo = p.elevation
+      if (p.elevation > hi) hi = p.elevation
+      if (p.fraction < f0) f0 = p.fraction
+      if (p.fraction > f1) f1 = p.fraction
+    }
+    for (const column of answering) {
+      const own = Math.abs(column.x - xa) < Math.abs(column.x - xb) ? f0 : f1
+      if (own > 0.02 && own < 0.98) continue
+      for (const band of column.bands) {
+        if (band.formationId !== label.formationId) continue
+        if (Math.min(band.top, hi) - Math.max(band.base, lo) <= 0) continue
+        ids.add(band.layerId)
+      }
+    }
+    return {
+      gapIndex,
+      formationId: label.formationId,
+      bodyId: label.bodyId,
+      kind: 'quad' as const,
+      polygon: ring,
+      layerIds: [...ids].sort(),
+    }
+  })
+  return { covered, residual, remainderAreaM2, splitRemainders }
 }
