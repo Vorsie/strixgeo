@@ -259,7 +259,25 @@ export function enclosedLensDiamond(
   )
   const defaultFrac = side === 'left' ? capFrac : 1 - capFrac
   const apexFrac = ov?.fraction ?? defaultFrac
-  const apexElev = ov?.elevation ?? lensMid
+  // THE LENS CLOSES AT ITS OWN LEVEL — and where its own level is below the floor, ON the floor
+  // (owner, 2026-08-19: "there the SF silt is one band, it gets split below TD at S8? why?").
+  //
+  // The base clamp above keeps a lens that reaches below the substrate floor inside its enclosing
+  // band, and that part is right — sub-floor ground is substrate territory, not this lens's. But
+  // taking the apex from the CLAMPED extent moves the closing UP with the clamp, and the wedge that
+  // opens between the rising base flank and the flat floor is then taken by the enclosing matrix:
+  // matrix painted UNDER a lens, over ground the test itself read as the lens. On CS1 that threaded
+  // a foreign class straight through a 1.06 m band the far test had read in one piece.
+  //
+  // So the apex elevation stays the lens's OWN mid — the level 2/1/0 says it closes at — and only
+  // when that level is itself below the floor does it land ON the floor, where the closing becomes
+  // the same watertight floor-riding triangle ``emitBoundaryLens`` draws for a last unit (the free
+  // flank to an apex on the floor polyline, the floor as the other leg). There is nothing under a
+  // lens that deep for the matrix to wrap around: its own column still shows the lens there, and the
+  // facing column has stopped. Continuous in the overhang, and a lens that does not reach the floor
+  // is untouched.
+  const ownMid = (lens.topElev + lens.baseElev) / 2
+  const apexElev = ov?.elevation ?? Math.max(ownMid, clampedBase)
   const apex: Point = { x: colX + dir * gapLocalToDist(apexFrac, side, gapWidth), y: apexElev }
   return { topPt, apex, basePt }
 }
