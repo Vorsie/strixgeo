@@ -37,6 +37,7 @@ import { describe, expect, it } from 'vitest'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
+import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
@@ -124,11 +125,17 @@ function auditedPartition(sec: RawSection): {
   alongM: number[]
   edges: CorrelationEdge[]
   regions: SectionRegion[]
+  lithoColumns: PartitionColumn[]
+  lithoEdges: CorrelationEdge[]
 } {
   const G = assemble(sec.geotech)
   const empty = new Map<string, BodyBoundaryResponse>()
   if (process.env.GEOTECH_210_RAW === '1') {
+    // The RAW arm audits the whole-section geotech partition, which has no litho frame at all —
+    // so it carries no parent litho lines and the envelope stays the packing ties' alone.
     return {
+      lithoColumns: [],
+      lithoEdges: [],
       ...G,
       regions: computeSectionFillActive(
         G.columns,
@@ -139,7 +146,7 @@ function auditedPartition(sec: RawSection): {
     }
   }
   const L = assemble(sec)
-  if (L.columns.length < 2) return { ...G, regions: [] }
+  if (L.columns.length < 2) return { lithoColumns: [], lithoEdges: [], ...G, regions: [] }
   const geotechColumns = frameAlignedColumns(
     L.columns,
     new Map(G.columns.map((c) => [c.investigationId, c])),
@@ -153,7 +160,14 @@ function auditedPartition(sec: RawSection): {
     geotechEdges: G.edges,
     alongM: L.alongM,
   })
-  return { columns: geotechColumns, alongM: L.alongM, edges: G.edges, regions: out.regions }
+  return {
+    columns: geotechColumns,
+    alongM: L.alongM,
+    edges: G.edges,
+    regions: out.regions,
+    lithoColumns: L.columns,
+    lithoEdges: L.edges,
+  }
 }
 
 function auditSection(sec: RawSection): Violation[] {
@@ -200,6 +214,47 @@ function auditSection(sec: RawSection): Violation[] {
       tieLines.set(key, list)
     }
   }
+  // LITHO APPROVAL CARRIES DOWN (owner ruling A, 2026-08-19). A band's parent litho unit's own
+  // ties are lines drawn for this mass too, so the family flood follows them and the envelope has
+  // to know that — otherwise every legitimate flood along a litho tie reads as a balloon here.
+  //
+  // They widen the ENVELOPE only. They are deliberately NOT counted in ``tieCount``: 2/1/0 is a
+  // PACKING-tie count, so a litho-tied band with no packing tie is still a 0-tie band that must
+  // close its own loop, and a deleted packing tie is still deleted.
+  const { parentOfBand } = resolveBandParents(G.columns, G.lithoColumns)
+  const lithoColumnOf = new Map<string, number>()
+  const lithoElev = new Map<string, { top: number; base: number }>()
+  for (let ci = 0; ci < G.lithoColumns.length; ci++) {
+    const col = G.lithoColumns[ci]
+    for (const u of col.units) {
+      lithoColumnOf.set(u.layerId, ci)
+      lithoElev.set(u.layerId, {
+        top: col.surfaceElevM - u.topDepthM,
+        base: col.surfaceElevM - u.baseDepthM,
+      })
+    }
+  }
+  const parentLine = new Map<string, [number, number][]>()
+  for (const e of G.lithoEdges) {
+    const ca = lithoColumnOf.get(e.a)
+    const cb = lithoColumnOf.get(e.b)
+    if (ca === undefined || cb === undefined || Math.abs(ca - cb) !== 1) continue
+    const gap = Math.min(ca, cb)
+    const at = (layer: string, side: 'top' | 'base'): number => {
+      const el = lithoElev.get(layer)
+      return el === undefined ? 0 : side === 'base' ? el.base : el.top
+    }
+    const elevA = at(e.a, (e.aSide ?? 'top') as 'top' | 'base')
+    const elevB = at(e.b, (e.bSide ?? 'top') as 'top' | 'base')
+    const [left, right] = ca < cb ? [elevA, elevB] : [elevB, elevA]
+    for (const parent of [e.a, e.b]) {
+      const key = `${parent}|${gap}`
+      const list = parentLine.get(key) ?? []
+      list.push([left, right])
+      parentLine.set(key, list)
+    }
+  }
+
   // Regions per (layerId, gapIndex), via the v2 layer-id attribution.
   const regionsOf = new Map<string, SectionRegion[]>()
   for (const r of regions) {
@@ -260,7 +315,11 @@ function auditSection(sec: RawSection): Violation[] {
         // below its tie's local level).
         const bandTop = surf - u.topDepthM
         const bandBase = surf - u.baseDepthM
-        const lines = tieLines.get(`${u.layerId}|${gap}`) ?? []
+        const parent = parentOfBand.get(u.layerId)
+        const lines = [
+          ...(tieLines.get(`${u.layerId}|${gap}`) ?? []),
+          ...(parent === undefined ? [] : (parentLine.get(`${parent}|${gap}`) ?? [])),
+        ]
         for (const r of mine) {
           let lo = Infinity
           let hi = -Infinity
