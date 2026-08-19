@@ -73,6 +73,14 @@ class LayerNode:
         Top depth of the layer interval; the ordinal sort key.
     source_investigation_id : UUID
         The layer's anchor investigation (borehole_id or cpt_id).
+    packing_formation_id : UUID | None
+        The PACKING CLASS row, for a geotechnical model's band. ``None`` for a
+        litho layer, which has no packing class — the soil filter alone decides
+        there, exactly as before. Owner, 2026-08-19: *"if a lens is touching a
+        body with same litho and packing then lens disappears and it becomes one
+        body, in the renderer and in the database"* — a geotech body is one soil
+        AND one packing density, so two sand bands of different densities are
+        two bodies however they are tied.
     """
 
     layer_id: UUID
@@ -81,6 +89,7 @@ class LayerNode:
     litho_main_soil_code: str | None
     depth_top_m: float
     source_investigation_id: UUID
+    packing_formation_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -245,6 +254,18 @@ def resolve_litho_instances(
         # was painted green). Admixture variants of the SAME soil still merge,
         # because the comparison keys on ``litho_main_soil_code``, not formation.
         if a.litho_main_soil_code != b.litho_main_soil_code:
+            continue
+        # SAME LITHO **AND PACKING** for a geotechnical model (owner, 2026-08-19).
+        # A band carries its packing class; a litho layer carries none, so this
+        # is inert on the litho model and the soil filter above stands alone
+        # there. Where both ends carry one and they differ, the tie states a
+        # CONTACT between two masses, not one mass — the same reading the fill
+        # uses when it emits an onlap instead of nothing.
+        if (
+            a.packing_formation_id is not None
+            and b.packing_formation_id is not None
+            and a.packing_formation_id != b.packing_formation_id
+        ):
             continue
         # A2 (owner directive 2026-06-04): the one-geological-formation invariant
         # is REVERSED. A same-lithology body MAY span a geological boundary — a
