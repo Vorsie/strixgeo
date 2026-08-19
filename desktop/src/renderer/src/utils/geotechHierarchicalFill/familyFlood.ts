@@ -237,7 +237,9 @@ export function floodFamilyCover(
     // read it. Letting every test of the family speak everywhere slices the cover at levels
     // measured hundreds of metres away — the section-wide horizontal strips.
     const flankReaders = allReaders.filter((r) => r.flank)
-    const readers = flankReaders.length > 0 ? flankReaders : allReaders
+    const readers = (flankReaders.length > 0 ? flankReaders : allReaders)
+      .slice()
+      .sort((a, b) => a.alongM - b.alongM)
     // Cut at the ANSWERING tests' own boundaries: a band closes at ITS OWN LEVEL, so the levels
     // that matter are the ones those tests measured. With no reader at all the same-lithology
     // last resort answers, and it reads this gap's own two tests exactly as before.
@@ -254,10 +256,30 @@ export function floodFamilyCover(
       if (p.fraction < fLo) fLo = p.fraction
       if (p.fraction > fHi) fHi = p.fraction
     }
-    const cutRings = [...cutElevs].map((elevation) => [
+    const cutRings: { fraction: number; elevation: number }[][] = [...cutElevs].map((elevation) => [
       { fraction: fLo - 0.05, elevation },
       { fraction: fHi + 0.05, elevation },
     ])
+    // WHERE THE ANSWER CHANGES, SO DOES THE FACE. Each test answers the ground NEARER to it —
+    // that is the whole of rule 1's tie-break and rule 3's choice of wall. Sampling a face once
+    // and painting all of it from that sample hands ground beside one test to the other one;
+    // cutting at the halfway line resolves the same rule geometrically instead. On a cover the
+    // litho tie connects but no geotech tie bands, this is exactly the meeting the owner asks
+    // for — "left is MD right is D" — and where both sides answer alike the two pieces carry
+    // the same class and read as one.
+    const midpoints = new Set<number>()
+    for (let i = 0; i + 1 < readers.length; i++) {
+      const a = (readers[i].alongM - left) / (right - left)
+      const b = (readers[i + 1].alongM - left) / (right - left)
+      const mid = (a + b) / 2
+      if (mid > fLo + 1e-6 && mid < fHi - 1e-6) midpoints.add(mid)
+    }
+    for (const fraction of midpoints) {
+      cutRings.push([
+        { fraction, elevation: bounds.eLo - 0.05 },
+        { fraction, elevation: bounds.eHi + 0.05 },
+      ])
+    }
     for (const face of overlayFaces([home.polygon, ...cutRings], `flood-${gapIndex}`)) {
       if (!pointInRing(face.sample.fraction, face.sample.elevation, home.polygon)) continue
       // THE ONE CHAIN, in the order of what actually read this ground.
