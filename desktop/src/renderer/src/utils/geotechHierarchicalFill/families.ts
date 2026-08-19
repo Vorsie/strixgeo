@@ -136,7 +136,7 @@ export function buildLithoFamilies(
   // Unit geometry per layer, for the fallback attribution below.
   const unitAt = new Map<
     string,
-    { formationId: string; midElev: number; columnIndex: number }
+    { formationId: string; midElev: number; columnIndex: number; topElev: number; baseElev: number }
   >()
   for (let ci = 0; ci < lithoColumns.length; ci++) {
     const column = lithoColumns[ci]
@@ -145,6 +145,8 @@ export function buildLithoFamilies(
         formationId: unit.formationId,
         midElev: column.surfaceElevM - (unit.topDepthM + unit.baseDepthM) / 2,
         columnIndex: ci,
+        topElev: column.surfaceElevM - unit.topDepthM,
+        baseElev: column.surfaceElevM - unit.baseDepthM,
       })
     }
   }
@@ -163,7 +165,27 @@ export function buildLithoFamilies(
   }
 
   for (const region of lithoRegions) {
-    const named = (region.layerIds ?? []).find((id) => familyOfLithoLayer.has(id))
+    // The named unit has to be WHERE THE REGION IS. ``layerIds`` names the drilled units that
+    // produced a face's paint, but when the fill merged a same-formation sandwich into one host
+    // (an enclosed interbed of another soil between them) the merged host keeps only the TOP
+    // piece's id — so the LOWER piece's own cover comes back named after the upper one. On CS1
+    // gap 5 that put a silt unit's cover into a chain whose only banded tests stand two gaps
+    // away, and its class was painted from there instead of from its own two bands. So a named
+    // unit is used only when its own extent actually meets the region's; otherwise the
+    // geometric pick below answers, which is the same rule already used for an unnamed face.
+    const named = (region.layerIds ?? [])
+      .filter((id) => familyOfLithoLayer.has(id))
+      .find((id) => {
+        const unit = unitAt.get(id)
+        if (unit === undefined) return true
+        let lo = Infinity
+        let hi = -Infinity
+        for (const p of region.polygon) {
+          if (p.elevation < lo) lo = p.elevation
+          if (p.elevation > hi) hi = p.elevation
+        }
+        return Math.min(unit.topElev, hi) - Math.max(unit.baseElev, lo) > 0
+      })
     if (named !== undefined) {
       push(familyOfLithoLayer.get(named) as string, region)
       continue
