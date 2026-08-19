@@ -23,11 +23,7 @@
  *     at all does the body's own nearest test elsewhere answer — which is the whole point of
  *     knowing the family's other tests, because a body whose only divided test stands two
  *     gaps away is still the only thing that read it.
- *  2. failing that, a band of the SAME lithology on one of this gap's own two tests, from
- *     whatever chain. That class has the right soil and is the nearest measurement there is;
- *     it is reported separately (``crossFamily``) so the one reach outside a family is never
- *     silent.
- *  3. failing that, the ground is a form the constructs closed around and its only legal
+ *  2. failing that, the ground is a form the constructs closed around and its only legal
  *     filler is the wall of that form — the nearest band, within the reach ITS OWN 2/1/0
  *     envelope grants it (own extent, unioned with the ties it carries). This is the case
  *     the horizontal read gave up on, and giving up there is giving up exactly where the
@@ -62,6 +58,9 @@ export interface FamilyBand {
 }
 
 /** One banded column of a family, at its along-section position. */
+/** Elevation ranges a band's own construct already claims in this gap. */
+export type ClosedRanges = ReadonlyMap<string, readonly (readonly [number, number])[]>
+
 export interface FamilySource {
   /** Along-section metres of the test. */
   alongM: number
@@ -90,6 +89,24 @@ export function familyBands(column: PartitionColumn | undefined): FamilyBand[] {
     }))
 }
 
+/**
+ * Has this band's OWN construct already closed at this level in this gap?
+ *
+ * The 2/1/0 constructs are drawn first and the flood fills what they leave. A band that closed as
+ * a lens at a level has said where it ends; painting it again past its own loop — because the
+ * level read still finds it on its column — undoes that construct. On CS1 gap 5 it carried a
+ * 0.37 m interbed out to four fifths of the gap when its lens ends at 0.45, and the class that
+ * wraps it above and below never got its level. Where a band's construct does NOT reach the level
+ * (below the run's floor, ground the engine claimed nothing in), it has closed nothing there and
+ * the ordinary level read stands — which is what keeps a stack adopted under a shallower test's TD.
+ */
+function hasClosedAt(closed: ClosedRanges, layerId: string, elevation: number): boolean {
+  const ranges = closed.get(layerId)
+  if (ranges === undefined) return false
+  for (const [lo, hi] of ranges) if (elevation >= lo && elevation <= hi) return true
+  return false
+}
+
 /** The band of ``bands`` whose interval contains ``elevation``, or null. */
 function bandAt(bands: readonly FamilyBand[], elevation: number): FamilyBand | null {
   for (const band of bands) {
@@ -108,10 +125,16 @@ function bandAt(bands: readonly FamilyBand[], elevation: number): FamilyBand | n
  * beyond it. Ground outside every envelope is ground nothing read — it stays residual and
  * renders "correlate me", which is the truth.
  */
-function nearestBand(bands: readonly FamilyBand[], elevation: number): FamilyBand | null {
+function nearestBand(
+  bands: readonly FamilyBand[],
+  elevation: number,
+  closed: ClosedRanges,
+): FamilyBand | null {
   let best: FamilyBand | null = null
   let bestDistance = Infinity
   for (const band of bands) {
+    // A band that closed at this level has said where it ends — it is not the wall of this form.
+    if (hasClosedAt(closed, band.layerId, elevation)) continue
     const distance =
       elevation > band.topElev
         ? elevation - band.topElev
@@ -202,10 +225,8 @@ function readersNearest(readers: readonly FamilySource[], along: number): Family
  * @param sources Every banded column of the family, with its along position.
  * @param left, right The gap's along-section bounds (the fraction axis of ``silent``).
  * @param gapIndex The frame gap index stamped on every emitted region.
- * @param sameLithology The gap's own two tests' bands of the SAME lithology from ANY
- *   chain — consulted only when the family itself has no banded test anywhere.
- * @returns Classed faces, whatever nothing could answer, and the subset read from
- *   another chain (reported, never silent).
+ * @param closed What each band's own construct already claims here (see ``hasClosedAt``).
+ * @returns Classed faces and whatever nothing could answer.
  */
 export function floodFamilyCover(
   silent: readonly SectionRegion[],
@@ -213,18 +234,17 @@ export function floodFamilyCover(
   left: number,
   right: number,
   gapIndex: number,
-  sameLithology?: { left: readonly FamilyBand[]; right: readonly FamilyBand[] },
-): { covered: SectionRegion[]; residual: SectionRegion[]; crossFamily: SectionRegion[] } {
+  closed: ClosedRanges = new Map(),
+): { covered: SectionRegion[]; residual: SectionRegion[] } {
   const covered: SectionRegion[] = []
   const residual: SectionRegion[] = []
-  const crossFamily: SectionRegion[] = []
-  if (silent.length === 0) return { covered, residual, crossFamily }
-  const kinLeft = sameLithology?.left ?? []
-  const kinRight = sameLithology?.right ?? []
+  if (silent.length === 0) return { covered, residual }
   const hasSource = sources.some((s) => s.bands.length > 0)
-  if (!hasSource && kinLeft.length === 0 && kinRight.length === 0) {
-    return { covered: [], residual: [...silent], crossFamily }
-  }
+  // A FAMILY WITH NO BANDS ANYWHERE STAYS HATCH. Its cover may be filled by its own chain's
+  // bands or by nothing — never by a band of another unit, however alike the soil looks. That
+  // reach used to answer here, and on CS1 gap 5 it painted one test's silt class inside a
+  // different test's silt unit that no correlation joins to it.
+  if (!hasSource) return { covered: [], residual: [...silent] }
 
   for (const home of silent) {
     const bounds = faceBounds(home.polygon, left, right)
@@ -244,7 +264,7 @@ export function floodFamilyCover(
     // that matter are the ones those tests measured. With no reader at all the same-lithology
     // last resort answers, and it reads this gap's own two tests exactly as before.
     const cutElevs = new Set<number>()
-    for (const band of [...readers.flatMap((r) => r.bands), ...kinLeft, ...kinRight]) {
+    for (const band of readers.flatMap((r) => r.bands)) {
       if (band.topElev > bounds.eLo && band.topElev < bounds.eHi) cutElevs.add(band.topElev)
       if (band.baseElev > bounds.eLo && band.baseElev < bounds.eHi) cutElevs.add(band.baseElev)
     }
@@ -284,30 +304,21 @@ export function floodFamilyCover(
       if (!pointInRing(face.sample.fraction, face.sample.elevation, home.polygon)) continue
       // THE ONE CHAIN, in the order of what actually read this ground.
       let band: FamilyBand | null = null
-      let ownFamily = true
       const near = readersNearest(readers, left + face.sample.fraction * (right - left))
       // 1. The nearest answering test with a band AT this level — an untied band closes at its
       //    own level, so the level decides and proximity only breaks the tie.
       for (const reader of near) {
         band = bandAt(reader.bands, face.sample.elevation)
+        // A band that has already CLOSED at this level does not answer again past its own loop.
+        if (band !== null && hasClosedAt(closed, band.layerId, face.sample.elevation)) band = null
         if (band !== null) break
       }
-      // 2. No chain with densities claims this level. The gap's own two tests may still have read
-      //    the SAME lithology here in a neighbouring body; that class has the right soil and is
-      //    the nearest measurement there is. Reported separately (``crossFamily``) — the one place
-      //    this construction reaches outside a family is never silent.
-      if (band === null) {
-        const nearFirst = face.sample.fraction < 0.5
-        const kin = nearFirst ? [kinLeft, kinRight] : [kinRight, kinLeft]
-        band = bandAt(kin[0], face.sample.elevation) ?? bandAt(kin[1], face.sample.elevation)
-        if (band !== null) ownFamily = false
-      }
-      // 3. Nothing read this level at all: the ground is a form the constructs closed around, and
+      // 2. Nothing read this level at all: the ground is a form the constructs closed around, and
       //    its only legal filler is the wall of that form — the nearest band, within the reach
       //    that band's own size grants it.
       if (band === null) {
         for (const reader of near) {
-          band = nearestBand(reader.bands, face.sample.elevation)
+          band = nearestBand(reader.bands, face.sample.elevation, closed)
           if (band !== null) break
         }
       }
@@ -330,8 +341,7 @@ export function floodFamilyCover(
         layerIds: [band.layerId],
       }
       covered.push(emitted)
-      if (!ownFamily) crossFamily.push(emitted)
     }
   }
-  return { covered, residual, crossFamily }
+  return { covered, residual }
 }
