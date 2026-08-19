@@ -53,67 +53,65 @@ spacing below the last reading, so it is genuinely sample-free and neither the
 re-derive loop nor the edit path can classify it from the orphan boundary
 sample. Pinned: UC1–UC3.
 
-## 2. The hierarchical fill — densities within lithos, built by CONSTRUCTION
+## 2. The hierarchical fill — densities within lithos, by CONSTRUCTION
 
-> *"the 2/1/0 rule is super simple"* · *"i said it was absolute no? We already
-> went through this with the litho model. build it"* · *"connect the dots and
-> fill between the lines"* · and the binding factorisation, 2026-08-19: *"we
-> said first draw all lines, lenses, onlaps, vertical lines, this makes closed
-> loops, then we fill everything and merge it"* / *"the lines are the
-> structural framework, the fill is to fill all gaps, the merge is to reduce
-> the dimensions to a manageable level"*. (Supersedes running the litho ENGINE
-> once per family plus a heuristic label cascade — familyFlood / familyMatrix /
-> declaredMeetings; git holds that design's history.)
+> **THE LAW** (owner, 2026-08-19, verbatim — the whole specification):
+> *"If litho has no ties emit lens, if litho has one tie, follow tie - if litho
+> at other end of tie has same litho and packing density emit nothing. If it is
+> a different litho emit an onlap, if a litho has two ties, follow ties and
+> check litho and packing density on the other end. if it is different then
+> vertical line in the middle, else no emit. Fill = emit lenses first, then emit
+> onlaps, then fill in the rest with the dominant lithology (should be the same
+> if all onlaps and lenses are emitted). Fill sweep if a lens is touching a body
+> with same litho and packing then lens disappears and it becomes one body, in
+> the renderer and in the database."* · *"a few very simple rules that can be
+> written in 50 lines of code when bare."*
 
-**The construction** (`utils/geotechHierarchicalFill/`) — the litho partition
-is the frame BY CONSTRUCTION, and the 2/1/0 law subdivides it DIRECTLY:
+It lives in ONE bare module, `constructive/emitKernel.ts` (72 lines, 27 of
+them code): the emit table, the fill order, the absorb predicate. Everything
+else is plumbing that DRAWS what the kernel decides.
+
+**The construction** (`utils/geotechHierarchicalFill/`):
 
 1. Compute the litho partition (the frame) on the litho columns + approved
    litho edges.
-2. Group litho units into FAMILIES — connected chains over same-formation
-   approved litho edges + litho-region `layerIds` co-membership
-   (`families.ts`). Bands are paired with the unit they subdivide by geometric
-   containment (`bandParents.ts`). A packing tie whose ends sit in different
-   families is DROPPED and counted (`tiesCrossingFamilies`) — the draw-time
-   cross-litho-body guard's own rule applied at render time.
-3. **Per family, per gap: LINES → LOOPS → FILL → MERGE** (`constructive/`).
-   * **LINES** (`constructs.ts`). Ties are counted on a band's CONTACTS, not on
-     its layer id — a contact is shared with the neighbour above or below, and
-     a tie drawn on it bounds both bands (owner: *"it has a top and bottom tie
-     to the right though?"*). **2 ties → SPAN**: the quad between the two tie
-     lines, absolutely. **1 tie → ONLAP**: the tied contact follows its line,
-     the untied one holds the band's own level, and the construct closes itself
-     where they meet. **0 ties → LENS or LEVEL**: an interbed the same class
-     encloses above and below, whose levels the facing test never read, closes
-     as a lens (apex `LENS_PINCH_FRACTION`, halved while it would cross a tie —
-     ruling 8t) and its wrapper owns the level beyond; every other untied band
-     holds its own level. An untied contact that IS the parent unit's own
-     contact follows the LITHO line drawn for it (ruling A — boundary only,
-     never a 2/1/0 count). Crossing ties are a hard conflict: both are dropped
-     and reported (owner Q4).
-   * **LOOPS** — every line, plus the family's litho cover, goes into ONE
-     planar arrangement (`frameClipGeometry.overlayFaces`), so no line is drawn
-     "after" another and no emission order exists to depend on.
-   * **FILL** (`fillGap.ts` + `matrixOwner.ts`) — each loop is asked one
-     question at a point strictly inside it. The NEARER test's construct
-     answers first, then the facing test's: that single rule IS the vertical
-     termination, and it puts the fence halfway between the two tests (owner:
-     *"it should get a vertical termination in the middle left is MD right is
-     D"*). What no construct claims goes to the matrix rulings — the test that
-     read the level (adoption below a short test's TD), the wrapper of a band
-     that closed its own loop, then the wall of the closed form within its own
-     2/1/0 ENVELOPE (own extent ∪ the lines it carries, evaluated AT the point).
-   * **MERGE** (`mergeFaces.ts`) — loops of the same class and body that a
-     CORRELATION says are one mass weld into one region by boundary walk. A
-     deleted tie is never resurrected: untied same-class masses stay two
-     regions meeting at the termination.
+2. Group litho units into FAMILIES (`families.ts`); pair each band with the
+   unit it subdivides by geometric containment (`bandParents.ts`). A packing
+   tie whose ends sit in different families is DROPPED and counted.
+3. Per family, per gap: **LINES → LOOPS → FILL → MERGE** (`constructive/`).
+   * **LINES** (`constructs.ts`) — the kernel is asked per band. Ties are
+     counted on a band's CONTACTS (a contact is shared, so the clay-top tie
+     under a sand band is that sand band's bottom tie), and the far end of a tie
+     is **the band on the SAME SIDE of the contact over there** — his own worked
+     example: *"top dense sand has one tie, follow the tie, it is the same litho
+     and packing density don't emit onlap"*. Lens = the 0-tie diamond (reach
+     `LENS_PINCH_FRACTION`, halved while it would cross a tie — ruling 8t);
+     onlap = the tied contact follows its line, the untied one holds its own
+     level; vertical = the two tie lines plus the line in the middle; nothing =
+     no line at all. Crossing ties stay a hard conflict (owner Q4).
+   * **LOOPS** — every line plus the family's litho cover into ONE planar
+     arrangement, so no emission order exists to depend on.
+   * **FILL** (`fillGap.ts`) — each loop asked once at an interior point, in his
+     order: lens, then onlap, then the vertical's own side, then the DOMINANT
+     mass of the ground. The dominant is taken among the masses that drew no
+     shape of their own, which is exactly his *"(should be the same if all
+     onlaps and lenses are emitted)"*.
+   * **MERGE** (`mergeFaces.ts`) — the fill sweep: faces of one soil and one
+     packing class that touch weld into one region, so a lens touching a body of
+     the same mass disappears into it. The welded region carries every
+     contributing band's `layerIds`, which is the evidence the body recompute
+     reads.
 4. **Column rule per family run:** a frame column carrying a family litho unit
-   but NO band of it is a BLOCKER — it ends the run and sends the family's
-   whole cover in both flanking gaps to litho fallback ("correlate me"). That
-   keeps the 2026-08-15 ruling: an un-divided borehole shows visibly empty
-   ground; previews stay opt-in. A frame column carrying NO litho unit of the
-   family is EXCLUDED, so the run spans it (deep-to-deep / short-test spans
-   keep working) and the output is still cut per real frame gap.
+   but NO band of it BLOCKS (its cover reads "correlate me" — the 2026-08-15
+   ruling); a column carrying no unit of the family is EXCLUDED and the run
+   spans it.
+
+**The database half of the fill sweep** (`resolve_litho_instances`): a geotech
+body is one soil AND one packing class. `LayerNode.packing_formation_id` carries
+the band's class; where both ends of a tie carry one and they differ, the edge
+does not union — *"same litho and packing"*. A litho layer passes none, so the
+litho model is untouched. Pinned by three unit tests; the DB-level pins live in
+`tests/integration/api/test_geotech_body_mass.py` (run via the wrapper).
 
 **Structural invariants**, held by the committed gate
 `geotechHierarchicalCoverage.diag.test.ts` (`HIER_COV=1`, PIP sweep over all
