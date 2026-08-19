@@ -122,10 +122,17 @@ function partitionDefects(regions: { formationId: string; polygon: PartitionPoin
 }
 
 /**
- * The gap-22 SILT onlap tip on the REAL Cross-section 1 — a corr-1 onlap the sweep emits at the
- * default 0.5 reach that the app exposes as an interior-tip shapeable face (measured: this session).
- * ``pickOnlapTip`` returns its ``(bodyId, gapIndex)`` and default reach so the tests drive the real
- * product path, not a synthetic fixture that routes elsewhere.
+ * AN onlap tip on the REAL Cross-section 1 — a corr-1 onlap the sweep emits at the default 0.5
+ * reach that the app exposes as an interior-tip shapeable face. ``pickOnlapTip`` returns its
+ * ``(bodyId, gapIndex)`` and default reach so the tests drive the real product path, not a
+ * synthetic fixture that routes elsewhere.
+ *
+ * Re-anchored 2026-08-19: it used to name gap 22 specifically. The subject of these two tests is
+ * that an override MOVES a tip and keeps the partition valid — not that any particular gap has a
+ * tip. Gap 22 stopped having one when the mid-gap fence was withheld there (a short test's units
+ * now close as lenses and the deep silt floods around them, so its two half-width faces became one
+ * full-width face with no free tip). Scanning for the first shapeable tip keeps the tests pinned on
+ * their own subject instead of on an incidental shape.
  */
 function pickOnlapTip(): {
   columns: PartitionColumn[]
@@ -137,9 +144,9 @@ function pickOnlapTip(): {
 } {
   const { columns, edges, alongM } = realSection('Cross-section 1')
   const base = computeSectionFillV2(columns, edges, undefined, alongM)
-  // The gap-22 interior-tip SILT quad (reach ~0.5) — an onlap tip riding its tie.
+  // The first interior-tip quad (reach ~0.5) — an onlap tip riding its tie.
   const tip = base.find((r) => {
-    if (r.gapIndex !== 22 || r.bodyId == null || r.kind !== 'quad') return false
+    if (r.bodyId == null || r.kind !== 'quad') return false
     const fr = r.polygon.map((p) => p.fraction)
     const fMin = Math.min(...fr)
     const fMax = Math.max(...fr)
@@ -147,7 +154,7 @@ function pickOnlapTip(): {
     const hasInterior = fr.some((f) => f > fMin + 0.02 && f < fMax - 0.02)
     return !spansFull && hasInterior
   })
-  if (!tip || tip.bodyId == null) throw new Error('CS1 gap-22 onlap tip not found — regenerate diag input')
+  if (!tip || tip.bodyId == null) throw new Error('CS1 onlap tip not found — regenerate diag input')
   return {
     columns,
     edges,
