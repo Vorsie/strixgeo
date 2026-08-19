@@ -240,3 +240,66 @@ def test_instance_representative_is_shallowest_layer() -> None:
     inst = result.instances[0]
     assert inst.source_investigation_id == INV_A
     assert inst.earliest_depth_m == 2.0
+
+
+# ---------------------------------------------------------------------------
+# THE GEOTECH MASS — "same litho and packing density".
+#
+# Owner, 2026-08-19 (the complete emit specification): *"Fill sweep if a lens is
+# touching a body with same litho and packing then lens disappears and it
+# becomes one body, in the renderer AND IN THE DATABASE."* A geotech body is
+# therefore a mass of one SOIL and one PACKING CLASS: two sand bands of
+# different densities are two bodies however they are tied, and two of the same
+# density that touch are one. The litho model is unchanged — it has no packing
+# class, so it passes none and the soil filter alone decides.
+# ---------------------------------------------------------------------------
+
+F_MD = UUID("00000000-0000-0000-0000-0000000000d6")  # ZAND, NAD 6 (medium dense)
+F_D = UUID("00000000-0000-0000-0000-0000000000d7")  # ZAND, NAD 7 (dense)
+
+
+def _band(layer_id: str, depth: float, inv: UUID, packing: UUID) -> LayerNode:
+    """One geotech band: same soil as its neighbours, its own packing class."""
+    return LayerNode(
+        layer_id=UUID(layer_id),
+        formation_id=packing,
+        parent_formation_id=P,
+        litho_main_soil_code="ZAND",
+        depth_top_m=depth,
+        source_investigation_id=inv,
+        packing_formation_id=packing,
+    )
+
+
+def test_geotech_bands_of_different_packing_never_share_a_body() -> None:
+    """A tie between a medium-dense and a dense sand does not make one mass."""
+    a = _band("00000000-0000-0000-0000-000000000001", 1.0, INV_A, F_MD)
+    b = _band("00000000-0000-0000-0000-000000000002", 1.2, INV_B, F_D)
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 2
+
+
+def test_geotech_bands_of_the_same_packing_become_one_body() -> None:
+    """Touching bands of one soil AND one packing class are one body."""
+    a = _band("00000000-0000-0000-0000-000000000003", 1.0, INV_A, F_MD)
+    b = _band("00000000-0000-0000-0000-000000000004", 1.2, INV_B, F_MD)
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 1
+    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
+
+
+def test_litho_layers_carry_no_packing_class_and_keep_merging() -> None:
+    """Negative control: the litho model is untouched by the packing filter.
+
+    Two admixture variants of one soil (different formation rows, no packing
+    class) still merge, which is the standing litho rule.
+    """
+    a = _layer("00000000-0000-0000-0000-000000000005", 1.0, INV_A, F_SAND)
+    b = _layer(
+        "00000000-0000-0000-0000-000000000006",
+        1.2,
+        INV_B,
+        UUID("00000000-0000-0000-0000-0000000000f2"),
+    )
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 1
