@@ -236,7 +236,7 @@ describe('hierarchical fill — structural sweep', () => {
           `regions=${out.regions.length} fallback=${out.lithoFallback.length} | ` +
           `classed=${pct(classed)}% WRONGSOIL=${pct(wrongSoil)}% OVERLAP=${pct(overlapped)}% fallback=${pct(fellBack)}% HOLE=${pct(hole)}% outsideFrameCells=${outside} | ` +
           `OLD classed=${pct(oldClassed)}% wrongSoil=${pct(oldWrongSoil)}% | ` +
-          `levelFill m2=${d.levelFilledAreaM2.toFixed(0)} (crossFam ${d.levelFilledCrossFamilyAreaM2.toFixed(0)}) residual m2: noBands=${d.residualAreaM2.noBands.toFixed(0)} afterEngine=${d.residualAreaM2.afterEngine.toFixed(0)} outsideBandRange=${d.residualAreaM2.outsideBandRange.toFixed(0)}`,
+          `flood m2=${d.levelFilledAreaM2.toFixed(0)} residual m2: noBands=${d.residualAreaM2.noBands.toFixed(0)} afterEngine=${d.residualAreaM2.afterEngine.toFixed(0)} outsideBandRange=${d.residualAreaM2.outsideBandRange.toFixed(0)}`,
       )
     }
     writeFileSync(OUT, lines.join('\n') + '\n')
