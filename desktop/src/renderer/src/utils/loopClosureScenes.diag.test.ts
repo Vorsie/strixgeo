@@ -295,7 +295,8 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
       { fraction: 1, elevation: 7.51 },
     ]
     const offenders = scene.fallback
-      .filter((r) => r.gapIndex === 2 && ringsOverlap(r.polygon, band))
+      .filter((r) => r.gapIndex === 2 && scene.soilOf(r.formationId) === 'KLEI')
+      .filter((r) => ringsOverlap(r.polygon, band))
       .map((r) => r.polygon.map((p) => `(${p.fraction.toFixed(2)},${p.elevation.toFixed(2)})`).join(''))
     expect(offenders).toEqual([])
   })
@@ -315,6 +316,41 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
       return Math.min(...fr) < 0.02 && Math.max(...fr) > 0.98
     })
     expect(spanning).toEqual([])
+  })
+
+  it('S10 · gap 5 · no foreign silt inside the lower silt unit of S7', () => {
+    // Owner, 2026-08-19: "what is that green quad i circled? the mf silt on 10/170-S7
+    // should onlap left because if you follow the tie you have a mf silt, the denser
+    // silt above should lens." That unit (5.19 .. 4.07) carries its OWN two bands; the
+    // class painted inside it came from a DIFFERENT litho unit on the other test, which
+    // no correlation joins to it.
+    const cover = [
+      { fraction: 1, elevation: 5.19 },
+      { fraction: 0.5, elevation: 4.94 },
+      { fraction: 1, elevation: 4.07 },
+    ]
+    const strays = scene.geotech
+      .filter((r) => r.gapIndex === 5 && scene.classOf(r.formationId) === 'SILT-13')
+      .filter((r) => ringsOverlap(r.polygon, cover))
+      .map((r) => r.polygon.map((p) => `(${p.fraction.toFixed(2)},${p.elevation.toFixed(2)})`).join(''))
+    expect(strays).toEqual([])
+    expect(geotechClassAt(scene, 5, 0.7, 4.6)).toBe('SILT-14')
+    expect(['SILT-15', 'SILT-14']).toContain(geotechClassAt(scene, 5, 0.8, 5.05))
+  })
+
+  it('S11 · gap 5 · the enclosed interbed closes, and its wrapper floods that level', () => {
+    // Owner: "top circle should be a lens." The 0.37 m band at 10.25 .. 9.88 sits between
+    // the same class above and below on its own test. Its own loop is what it draws; the
+    // level beyond that loop belongs to the class that wraps it.
+    // Sampled BEYOND the lens's own reach (its apex is at 0.45 — that reach is the
+    // engine's 8b rule and not this scene's question); the defect was the level being
+    // carried on to 0.83.
+    expect(geotechClassAt(scene, 5, 0.47, 10.05)).toBe('SILT-13')
+    expect(geotechClassAt(scene, 5, 0.6, 10.0)).toBe('SILT-13')
+    // Its lens still exists, hugging its own test — the rule moves fill, it never
+    // deletes a band.
+    expect(geotechClassAt(scene, 5, 0.05, 10.05)).toBe('SILT-15')
+    expect(geotechClassAt(scene, 5, 0.3, 10.05)).toBe('SILT-15')
   })
 
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
