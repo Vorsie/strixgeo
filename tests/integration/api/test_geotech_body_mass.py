@@ -56,7 +56,7 @@ from .geotech_scene_helpers import accept_cpt_litho, two_layer_qc
 @pytest_asyncio.fixture
 async def bm_project(db_session: AsyncSession) -> ProjectOrm:
     """A project for this module's scene."""
-    project = ProjectOrm(id=uuid7(), name="BM-Project", epsg=31370)
+    project = ProjectOrm(id=uuid7(), name="BM-Project", status="active")
     db_session.add(project)
     await db_session.commit()
     return project
@@ -107,16 +107,35 @@ async def bm_scene(
         },
     )
     assert section.status_code == 201, section.text
+    section_id = section.json()["id"]
 
     # A LOOSE zone (qc 4 MPa) over a DENSE zone (qc 25 MPa) on both columns, so
     # each column carries two packing classes of ONE soil.
     depths, qc = two_layer_qc(150, 150, 4.0, 25.0)
     cpt_ids: list[str] = []
     for index, x in enumerate((148_800.0, 149_300.0)):
-        cpt = CptOrm(id=uuid7(), project_id=bm_project.id, test_id=f"BM-{index}", x=x, y=200_000.0)
+        cpt = CptOrm(
+            id=uuid7(),
+            name=f"BM-{index}",
+            cpt_type="CPTU",
+            project_id="BM",
+            test_id=f"BM/{index}",
+            app_project_id=bm_project.id,
+            location_x=x,
+            location_y=200_000.0,
+            elevation_m=5.0,
+            z_epsg=5710,
+            epsg=31370,
+            max_depth_m=15.0,
+        )
+        cpt.series = CptSeriesOrm(
+            depths_m=depths,
+            qc_mpa=qc,
+            fs_mpa=[0.05] * len(depths),
+            u2_mpa=None,
+        )
         db_session.add(cpt)
         await db_session.flush()
-        db_session.add(CptSeriesOrm(cpt_id=cpt.id, depths_m=depths, qc_mpa=qc))
         cpt_ids.append(str(cpt.id))
     await db_session.commit()
 
@@ -134,7 +153,11 @@ async def bm_scene(
     ]
     correlate = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_model_id}/contact-correlations",
-        json={"contact_a_id": contacts[0], "contact_b_id": contacts[1]},
+        json={
+            "layer_a_id": contacts[0],
+            "layer_b_id": contacts[1],
+            "request_section_id": section_id,
+        },
     )
     assert correlate.status_code in (200, 201), correlate.text
 
@@ -144,8 +167,9 @@ async def bm_scene(
     await db_session.commit()
     return {
         "project": bm_project,
+        "section_id": section_id,
         "litho_model_id": litho_model_id,
-        "geotech_model_id": str(geotech_model_id),
+        "geotech_model_id": str(geotech_model_id.geotech_model_id),
         "cpt_a_id": cpt_ids[0],
         "cpt_b_id": cpt_ids[1],
     }
@@ -178,7 +202,11 @@ async def test_bm1_same_packing_bands_become_one_body(
     assert left and right, "the subdivide produced no bands"
     resp = await async_client.post(
         f"/projects/{pid}/geology/models/{bm_scene['geotech_model_id']}/contact-correlations",
-        json={"contact_a_id": str(left[0].id), "contact_b_id": str(right[0].id)},
+        json={
+            "layer_a_id": str(left[0].id),
+            "layer_b_id": str(right[0].id),
+            "request_section_id": bm_scene["section_id"],
+        },
     )
     assert resp.status_code in (200, 201), resp.text
     await db_session.commit()
@@ -200,7 +228,11 @@ async def test_bm2_different_packing_bands_stay_two_bodies(
     assert left[0].formation_id != left[1].formation_id, "the two zones share a class"
     resp = await async_client.post(
         f"/projects/{pid}/geology/models/{bm_scene['geotech_model_id']}/contact-correlations",
-        json={"contact_a_id": str(left[0].id), "contact_b_id": str(right[1].id)},
+        json={
+            "layer_a_id": str(left[0].id),
+            "layer_b_id": str(right[1].id),
+            "request_section_id": bm_scene["section_id"],
+        },
     )
     assert resp.status_code in (200, 201), resp.text
     await db_session.commit()
