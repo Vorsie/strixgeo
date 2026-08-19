@@ -154,6 +154,24 @@ function geotechClassAt(scene: Scene, gap: number, f: number, e: number): string
   return null
 }
 
+/** Does any point of ``ring`` sit inside ``host``, or vice versa? A cheap overlap probe. */
+function ringsOverlap(
+  ring: readonly { fraction: number; elevation: number }[],
+  host: readonly { fraction: number; elevation: number }[],
+): boolean {
+  for (const p of ring) if (inPolygon(p.fraction, p.elevation, host)) return true
+  for (const p of host) if (inPolygon(p.fraction, p.elevation, ring)) return true
+  // Also sample the ring's own interior, so a ring fully containing / contained by the
+  // host with no vertex inside still reads as overlapping.
+  let f = 0
+  let e = 0
+  for (const p of ring) {
+    f += p.fraction / ring.length
+    e += p.elevation / ring.length
+  }
+  return inPolygon(f, e, host)
+}
+
 describe('LOOP-CLOSURE scene pins (real CS1)', () => {
   if (process.env.LOOP_SCENES !== '1' || !existsSync(INPUT)) {
     it.skip('dormant (set LOOP_SCENES=1 with the real dump present)', () => {})
@@ -245,6 +263,58 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     const painted = geotechClassAt(scene, 8, 0.2, 2.8)
     expect(painted).not.toBe('(hatch)')
     expect(painted?.startsWith('KLEI')).toBe(true)
+  })
+
+  it('S9 · gap 2 · the dark clay quad — a litho-tied band is not hatch down its middle', () => {
+    // Owner, 2026-08-19: "a dark clay quad between B6 and B4". The litho model ties this
+    // clay band TWICE across the gap (top 5.02 ↔ 7.51, base 3.67 ↔ 7.13), so the soil
+    // cover is one connected mass. Its geotech restatement was DELETED this morning, and
+    // the middle of the band came out "correlate me" with the two classes stranded as a
+    // lens and a quad on their own columns. Litho approval carries down: the cover is
+    // connected because the litho tie says so.
+    for (const [f, e] of [
+      [0.6, 5.8],
+      [0.55, 6.1],
+    ] as const) {
+      const painted = geotechClassAt(scene, 2, f, e)
+      expect(painted).not.toBe('(hatch)')
+      expect(painted?.startsWith('KLEI')).toBe(true)
+    }
+    // And each test still owns the ground beside it.
+    expect(geotechClassAt(scene, 2, 0.9, 7.25)).toBe('KLEI-22')
+    expect(geotechClassAt(scene, 2, 0.1, 4.5)).toBe('KLEI-21')
+  })
+
+  it('S9b · gap 2 · no hatch anywhere in that band', () => {
+    // The whole litho band region (0,5.02)(0,3.67)(1,7.13)(1,7.51) is covered: not one
+    // "correlate me" polygon may intersect it.
+    const band = [
+      { fraction: 0, elevation: 5.02 },
+      { fraction: 0, elevation: 3.67 },
+      { fraction: 1, elevation: 7.13 },
+      { fraction: 1, elevation: 7.51 },
+    ]
+    const offenders = scene.fallback
+      .filter((r) => r.gapIndex === 2 && ringsOverlap(r.polygon, band))
+      .map((r) => r.polygon.map((p) => `(${p.fraction.toFixed(2)},${p.elevation.toFixed(2)})`).join(''))
+    expect(offenders).toEqual([])
+  })
+
+  it('S9c · gap 2 · the deleted tie stays deleted — the two classes do not band', () => {
+    // He deleted the geotech restatement between these two bands this morning. The soil
+    // cover connects because the LITHO tie says so; the CLASSES must not. So no single
+    // clay region may span the gap, and the two must meet rather than merge.
+    const spanning = scene.geotech.filter((r) => {
+      if (r.gapIndex !== 2) return false
+      if (!(scene.classOf(r.formationId) ?? '').startsWith('KLEI')) return false
+      const fr = r.polygon.map((p) => p.fraction)
+      const hi = Math.max(...r.polygon.map((p) => p.elevation))
+      const lo = Math.min(...r.polygon.map((p) => p.elevation))
+      // Only the band's own window — the clay bodies above and below it legitimately span.
+      if (hi > 7.6 || lo < 3.6) return false
+      return Math.min(...fr) < 0.02 && Math.max(...fr) > 0.98
+    })
+    expect(spanning).toEqual([])
   })
 
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
