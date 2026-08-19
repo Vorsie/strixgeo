@@ -1,18 +1,20 @@
 /**
- * The frame clip — one family's packing partition, cut to that family's own
- * litho cover. Nothing may exceed the frame; what the family did not classify
- * stays residual; and the two together tile the cover exactly.
+ * THE FRAME — one family's constructs, cut to that family's own litho cover.
+ * Nothing may exceed the frame; what no rule can answer stays residual; and the
+ * two together tile the cover exactly.
  *
- * CF4, CF5 and CF6 are ported verbatim in intent from the post-hoc clip this
- * construction replaces (``clipPartitionToLithoFrame``, retired 2026-08-18) —
- * they pin the geometry half, which is the half that survives. Its CF1/CF2/CF3
- * pinned the SOIL re-labelling half, which no longer exists: a family run can
- * only ever emit its own soil, so there is nothing to re-label (see the
- * hierarchical fill's H1/H4/H6 for the pins that replace them).
+ * CF4, CF5 and CF6 are ported verbatim in intent from the post-hoc clip
+ * (``clipPartitionToLithoFrame``, retired 2026-08-18) and then from the
+ * per-family clip (``clipFamilyToFrameGap``, retired 2026-08-19 with the
+ * constructive fill): the cover is now an INPUT to the arrangement rather than
+ * a stage after it, so the confinement is structural — but the property being
+ * pinned is the same one, and it is pinned on the module that owns it now.
+ * CF7 pins the interior-point sampler itself, which is unchanged.
  */
 import { describe, expect, it } from 'vitest'
 
-import { clipFamilyToFrameGap } from './frameClip'
+import { fillGap } from './constructive/fillGap'
+import type { RunColumn } from './constructive/constructs'
 import { interiorPoint } from './frameClipGeometry'
 import type { SectionRegion } from '../partitionFill'
 
@@ -36,7 +38,14 @@ const rect = (f0: number, f1: number, eTop: number, eBase: number): [number, num
   [f0, eBase],
 ]
 
-const area = (r: SectionRegion): number => {
+/** One banded test carrying a single class over ``top..base``. */
+const column = (ci: number, x: number, formationId: string, top: number, base: number): RunColumn => ({
+  ci,
+  x,
+  bands: [{ layerId: `L${ci}`, formationId, bodyId: null, top, base, ci, x }],
+})
+
+const area = (r: { polygon: readonly { fraction: number; elevation: number }[] }): number => {
   let a = 0
   const p = r.polygon
   for (let i = 0; i < p.length; i++) {
@@ -46,9 +55,12 @@ const area = (r: SectionRegion): number => {
   return Math.abs(a) / 2
 }
 
-/** Ray-cast containment, keyhole-ring aware — a naive vertex centroid would
- * sit inside the keyhole and lie. */
-const covers = (r: SectionRegion, f: number, e: number): boolean => {
+/** Ray-cast containment, keyhole-ring aware. */
+const covers = (
+  r: { polygon: readonly { fraction: number; elevation: number }[] },
+  f: number,
+  e: number,
+): boolean => {
   let inside = false
   const ring = r.polygon
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -64,43 +76,63 @@ const covers = (r: SectionRegion, f: number, e: number): boolean => {
   return inside
 }
 
-describe('clipFamilyToFrameGap', () => {
+const run = (
+  cover: SectionRegion[],
+  left: RunColumn,
+  right: RunColumn,
+  gapPaint = cover,
+): ReturnType<typeof fillGap> =>
+  fillGap({
+    gapIndex: 0,
+    xa: 0,
+    xb: 100,
+    cover,
+    gapPaint,
+    run: { left, right },
+    ties: [],
+    coverTies: [],
+    tieGroupOf: new Map(),
+    readers: [left, right].map((c) => ({
+      ci: c.ci,
+      x: c.x,
+      bands: c.bands,
+      reach: new Map(),
+      flank: true,
+    })),
+  })
+
+describe('the family frame', () => {
   it('CF4 — packing material outside the family cover is dropped', () => {
-    // The family's cover is the top half; its own run reached the whole gap.
+    // The family's cover is the top half; both tests read the whole 10..0.
     // Everything below the cover must vanish: nothing may exceed the frame.
-    const frame = [region(0, 'litho-sand', rect(0, 1, 10, 5))]
-    const geo = [region(0, 'sand-n6', rect(0, 1, 10, 0))]
-    const out = clipFamilyToFrameGap(geo, frame, 0)
+    const cover = [region(0, 'litho-sand', rect(0, 1, 10, 5))]
+    const out = run(cover, column(0, 0, 'sand-n6', 10, 0), column(1, 100, 'sand-n6', 10, 0))
     expect(out.residual).toEqual([])
     for (const r of out.covered) {
       for (const p of r.polygon) expect(p.elevation).toBeGreaterThan(4.999)
     }
-    const total = out.covered.reduce((s, r) => s + area(r), 0)
-    expect(total).toBeCloseTo(5, 6)
+    expect(out.covered.reduce((s, r) => s + area(r), 0)).toBeCloseTo(5, 6)
   })
 
   it('CF5 — a litho lens overlay wins parent resolution over its matrix', () => {
     // The frame stacks a lens on its matrix; the LAST containing region owns
     // the sample, matching the render's own overlay order. Both belong to the
     // same family here, so the test is purely about which cover is consulted.
-    const frame = [
+    const cover = [
       region(0, 'litho-sand', rect(0, 1, 10, 0)),
       region(0, 'litho-sand-lens', rect(0.3, 0.7, 7, 3), 'lens'),
     ]
-    const geo = [region(0, 'sand-n6', rect(0, 1, 10, 0))]
-    const out = clipFamilyToFrameGap(geo, frame, 0)
-    const middle = out.covered.find((r) => covers(r, 0.5, 5))
-    expect(middle).toBeDefined()
+    const out = run(cover, column(0, 0, 'sand-n6', 10, 0), column(1, 100, 'sand-n6', 10, 0))
+    expect(out.covered.find((r) => covers(r, 0.5, 5))).toBeDefined()
     expect(out.covered.reduce((s, r) => s + area(r), 0)).toBeCloseTo(10, 6)
   })
 
   it('CF6 — classed and residual faces together tile the family cover exactly', () => {
-    // Half the cover carries a class, half does not. Sampling a grid, every
-    // point of the cover is claimed by EXACTLY one emitted face — no void, no
-    // double paint. An area sum alone passes on compensating errors.
-    const frame = [region(0, 'litho-sand', rect(0, 1, 10, 0))]
-    const geo = [region(0, 'sand-n6', rect(0, 1, 10, 5))]
-    const out = clipFamilyToFrameGap(geo, frame, 0)
+    // Half the cover carries a class, half is ground nothing read. Sampling a
+    // grid, every point of the cover is claimed by EXACTLY one emitted face —
+    // no void, no double paint. An area sum alone passes on compensating errors.
+    const cover = [region(0, 'litho-sand', rect(0, 1, 10, 0))]
+    const out = run(cover, column(0, 0, 'sand-n6', 10, 5), column(1, 100, 'sand-n6', 10, 5))
     const all = [...out.covered, ...out.residual]
     const defects: string[] = []
     for (let i = 1; i < 20; i++) {
