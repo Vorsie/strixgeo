@@ -67,6 +67,20 @@ sample. Pinned: UC1–UC3.
 > the renderer and in the database."* · *"a few very simple rules that can be
 > written in 50 lines of code when bare."*
 
+...and the TERMINATION CLAUSE that governs every construct it emits (owner,
+2026-08-20, on the ground a construct painted over at the facing test):
+
+> *"an onlap can't paint over ground near test itself, it terminates at 0.5
+> Distance approximately."*
+
+Every construct owns at most its OWN HALF of the gap; the far half belongs to
+the far test. The one exception is a band that emits NOTHING — the mass at the
+other end of its ties is the same litho and packing, so its ground runs the
+whole way and the merge welds the two into the one body the law asks for. Held
+by `geotechOwnColumnEdge.diag.test.ts` (`OWN_EDGE=1`): sampled a hair into each
+gap beside every banded column, at the middle of each of that column's own
+bands, the paint is that band's own class — **0 of 1120 wrong** (44 before).
+
 It lives in ONE bare module, `constructive/emitKernel.ts` (72 lines, 27 of
 them code): the emit table, the fill order, the absorb predicate. Everything
 else is plumbing that DRAWS what the kernel decides.
