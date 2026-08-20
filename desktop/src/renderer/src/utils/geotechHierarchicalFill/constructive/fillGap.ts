@@ -80,6 +80,17 @@ export interface GapFillResult {
    * have one owner; this counts where it did not.
    */
   splitRemainders: number
+  /**
+   * The classed loops BEFORE the merge weld, each carrying its single owning
+   * band and its ROLE: ``construct`` = a shape the law drew from the ties
+   * (lens / onlap / vertical side) — pure geometry, structurally inside its
+   * own envelope; ``fill`` = the dominant-lithology remainder step. The audit
+   * measures balloons on construct loops only, where any violation is a
+   * constructor bug (owner: "we have geometrical shapes, triangles and
+   * rectangular shapes, there shouldn't be pre merge ballooning anywhere...
+   * not untill we do the geometrical fill").
+   */
+  preMerge: (SectionRegion & { role: 'construct' | 'fill' })[]
 }
 
 /** Order regions the way the render stacks them: overlays (lenses) last. */
@@ -191,7 +202,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
   const { gapIndex, xa, xb, cover, gapPaint, run, ties, coverTies, columns, stacks, massOf } = input
   const width = xb - xa
   if (cover.length === 0 || !Number.isFinite(width) || Math.abs(width) < 1e-9) {
-    return { covered: [], residual: [...cover], remainderAreaM2: 0, splitRemainders: 0 }
+    return { covered: [], residual: [...cover], remainderAreaM2: 0, splitRemainders: 0, preMerge: [] }
   }
   const own = new Set(cover)
   const foreignOverlays = gapPaint.filter((r) => r.kind === 'lens' && !own.has(r))
@@ -304,6 +315,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
   const continuous = allBands.filter((b) => !shaped.has(b.layerId))
 
   const labelled: LabelledFace<RunBand>[] = []
+  const preMerge: (SectionRegion & { role: 'construct' | 'fill' })[] = []
   const residual: SectionRegion[] = []
   let remainderAreaM2 = 0
   let splitRemainders = 0
@@ -333,6 +345,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
       }
       if (band !== null) break
     }
+    const answeredByConstruct = band !== null
     // "then fill in the rest with the dominant lithology"
     if (band === null) {
       // The loop's own extent AT THIS POINT'S vertical, not over its whole
@@ -366,6 +379,15 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // so a lens touching such a body welds into it and disappears. Within a
     // family the litho is one by construction, so the key is the packing class.
     labelled.push({ key: massKey(massOf(band)), label: band, ring: face.ring })
+    preMerge.push({
+      gapIndex,
+      formationId: band.formationId,
+      bodyId: band.bodyId,
+      kind: 'quad' as const,
+      polygon: face.ring,
+      layerIds: [band.layerId],
+      role: answeredByConstruct ? 'construct' : 'fill',
+    })
   }
 
   // ---------------------------------------------------------------- MERGE --
@@ -405,5 +427,5 @@ export function fillGap(input: GapFillInput): GapFillResult {
       layerIds: [...ids].sort(),
     }
   })
-  return { covered, residual, remainderAreaM2, splitRemainders }
+  return { covered, residual, remainderAreaM2, splitRemainders, preMerge }
 }
